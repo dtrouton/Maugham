@@ -259,31 +259,47 @@ final class FigureWindows {
 
     // MARK: Travel to a cell (report plan 9c-2 Task 7)
 
-    /// Cells asked for figures no grid had yet: the next grid to mount on
-    /// the figure selects it (`takePendingCell`).
-    @ObservationIgnored private var pendingCells: [String: CellKey] = [:]
+    /// **The one cell a travel left for the grid it mounts** — one slot:
+    /// the next reveal replaces or clears it, `closeAll` clears it, and it
+    /// lapses after `pendingCellGrace`, so a travel that mounted no grid
+    /// (parked, refused, a failed load) never selects a cell in a later,
+    /// unrelated visit.
+    @ObservationIgnored private var pendingCell: (figureId: String, cell: CellKey, asked: ContinuousClock.Instant)?
+    /// How long a travel's cell waits for its grid (a test may shorten it).
+    @ObservationIgnored var pendingCellGrace: Duration = .seconds(2)
 
     /// **Show `cell` of `figureId`** — a note's cell, from the queue or the
     /// inspector. A grid already open on the figure, anywhere, comes front
     /// and selects it there: true, and the caller travels nowhere (plan
-    /// ruling). Otherwise false, and — when `pending`, because the caller is
-    /// about to travel to the figure — the cell waits for the next grid to
-    /// mount on it (the centre's, a window's, one expanded in place).
+    /// ruling) — a cell that cannot be selected there is said by the grid
+    /// (`FigureGridController.select`). Otherwise false, and — only when
+    /// `pending`, because the caller is travelling to the figure now — the
+    /// cell waits for the grid that travel mounts (the centre's, a window's,
+    /// one expanded in place). The inspector, which travels nowhere, passes
+    /// `pending: false`.
     @discardableResult
-    func reveal(_ figureId: String, cell: CellKey, pending: Bool = true) -> Bool {
+    func reveal(_ figureId: String, cell: CellKey, pending: Bool) -> Bool {
+        pendingCell = nil
         if let controller = gridController(on: figureId) {
-            pendingCells[figureId] = nil
             focus(figureId)
             controller.select(cell)
             return true
         }
-        pendingCells[figureId] = pending ? cell : nil
+        if pending { pendingCell = (figureId, cell, .now) }
         return false
     }
 
-    /// The cell a reveal left for `figureId`'s next grid, taken once.
+    /// The cell a travel left for `figureId`'s next grid, taken once; nil
+    /// when it was for another figure (left for that one) or has lapsed.
     func takePendingCell(_ figureId: String) -> CellKey? {
-        pendingCells.removeValue(forKey: figureId)
+        guard let pending = pendingCell else { return nil }
+        if ContinuousClock.now - pending.asked > pendingCellGrace {
+            pendingCell = nil
+            return nil
+        }
+        guard pending.figureId == figureId else { return nil }
+        pendingCell = nil
+        return pending.cell
     }
 
     /// The hold on `figureId` gives way, if it is one that does.
@@ -406,6 +422,7 @@ final class FigureWindows {
         gridsChanged()
         handoffs = [:]
         windowsOpening = [:]
+        pendingCell = nil
         recount()
         for finish in finishing { finish() }
         for close in closing { close() }

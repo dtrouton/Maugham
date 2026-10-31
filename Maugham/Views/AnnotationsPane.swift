@@ -697,7 +697,8 @@ struct AnnotationsPane: View {
                 onStet: { verbs.figureStet($0, $1) },
                 onArchive: { verbs.figureArchive($0, $1) },
                 onReply: { figureReplySheet = FigureNoteTarget(figureId: $0, annotation: $1) },
-                onReopen: { verbs.figureReopen($0, $1) }))
+                onReopen: { verbs.figureReopen($0, $1) },
+                reachable: { drawsFigure($0) }))
     }
 
     /// This pane's verbs — `AnnotationsPaneVerbs`, built per call over

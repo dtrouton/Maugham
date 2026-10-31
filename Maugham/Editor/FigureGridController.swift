@@ -352,15 +352,38 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// **Select `key` and scroll it into view** (report plan 9c-2 Task 7):
     /// the queue's or the inspector's travel to a note's cell, so the strip
     /// shows the note. An open edit is committed first, as a click away
-    /// would; one that will not read stays open and nothing moves. False
-    /// when nothing moved for that reason, or the table has no such cell.
+    /// would; one that will not read stays open with its error and nothing
+    /// moves. When nothing moves the writer is told why in a sentence
+    /// (`selectRefused`) and the answer is false.
     @discardableResult
     func select(_ key: CellKey) -> Bool {
-        guard !isClosed, !isFolded, values.table.rowIndex(of: key.row) != nil,
-              values.table.columnIndex(of: key.column) != nil, commitOpenEdit() else { return false }
+        let refusal: SelectRefusal? =
+            isClosed || isFolded ? .folded
+            : values.table.rowIndex(of: key.row) == nil || values.table.columnIndex(of: key.column) == nil
+                ? .noSuchCell
+            : !commitOpenEdit() ? .openEditUnread
+            : nil
+        if let refusal {
+            MaughamEvent.postNotice(refusal.sentence, projectURL: host.projectURL)
+            return false
+        }
         execute(model.select(key))
         gridView.scrollTo(key)   // already selected, the cell may still be out of view
         return true
+    }
+
+    /// Why `select(_:)` moved nothing, said as a notice.
+    enum SelectRefusal: Equatable {
+        case folded, noSuchCell, openEditUnread
+
+        var sentence: String {
+            switch self {
+            case .folded: "The table was folded, so the note\u{2019}s cell wasn\u{2019}t selected."
+            case .noSuchCell: "The note\u{2019}s cell is no longer in the table."
+            case .openEditUnread:
+                "The cell being edited holds a formula that won\u{2019}t read \u{2014} fix or cancel it, then show the note\u{2019}s cell again."
+            }
+        }
     }
 
     /// Every write asked for so far, landed (a test's and a fold's wait).

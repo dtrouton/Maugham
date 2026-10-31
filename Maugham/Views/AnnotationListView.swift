@@ -67,7 +67,8 @@ struct AnnotationListView: View {
         let figure = wiring.figure
         let gate = FigureRowGate(
             annotation: ann, figureId: figureId,
-            figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id])
+            figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id],
+            reachable: figure.reachable(figureId))
         AnnotationRow(
             annotation: ann,
             revertIsEnabled: false,
@@ -208,6 +209,9 @@ struct FigureRowWiring {
     /// Opens the reply sheet; the answer is a status-only accept carrying it.
     let onReply: (String, Annotation) -> Void
     let onReopen: (String, Annotation) -> Void
+    /// Can the queue travel to this figure (the tree draws its row)? A
+    /// suggestion's Accept travels only to one (`FigureRowGate`).
+    var reachable: (String) -> Bool = { _ in true }
 
     /// Does nothing — a read-only host's.
     static let inert = FigureRowWiring(

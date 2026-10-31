@@ -67,6 +67,26 @@ final class FigureAnnotationRowTests: XCTestCase {
         XCTAssertFalse(unanchored.acceptTravels)
     }
 
+    /// **A parked figure's suggestion** (fix round 1, I1): the queue cannot
+    /// travel to a figure the tree draws no row for, so Accept is off,
+    /// saying where the figure is; its cell gone, the cell's reason wins.
+    func test_aParkedFiguresSuggestionAcceptIsOff_sayingItIsInResearch() {
+        let gate = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: anchor, address: "C3"),
+            figureId: figureId, figureTitle: title, cells: cells, reachable: false)
+        XCTAssertEqual(gate.acceptDisabledReason, "In Research \u{2014} bring it back to accept")
+        XCTAssertFalse(gate.acceptTravels)
+        XCTAssertEqual(gate.acceptHelp, FigureRowGate.acceptInResearch)
+        let orphaned = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: anchor, orphaned: true),
+            figureId: figureId, figureTitle: title, cells: nil, reachable: false)
+        XCTAssertEqual(orphaned.acceptDisabledReason, FigureRowGate.acceptCellDeleted)
+        let comment = FigureRowGate(
+            annotation: note(.comment, anchor: anchor, address: "C3"),
+            figureId: figureId, figureTitle: title, cells: nil, reachable: false)
+        XCTAssertNil(comment.acceptDisabledReason, "Got it still answers from the queue")
+    }
+
     /// **The cell a note's travel selects**: a live anchor's first corner
     /// (a range's too — the strip shows every note whose range contains
     /// the active cell); none for an orphaned or a whole-figure note.

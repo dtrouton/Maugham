@@ -535,8 +535,12 @@ extension EditorCoordinator {
         panel.skipTheTextInTheResponderChain()   // no text action reaches the text (I-N1)
         layoutFigureGrid()
         controller.gridView.reloadData()
-        // A note's cell the queue or the inspector asked for before the grid was here.
-        if let cell = figureGridOpening?.windows?.takePendingCell(expansion.figureId) { controller.select(cell) }
+        // A note's cell a travel asked for before the grid was here. The cell
+        // waits in the project's `FigureWindows`, the one `reveal` writes to,
+        // so an editor opened with none (no project session) has none to drop.
+        if let windows = figureGridOpening?.windows, let cell = windows.takePendingCell(expansion.figureId) {
+            controller.select(cell)
+        }
         textView.window?.makeFirstResponder(controller.gridView)
     }
 

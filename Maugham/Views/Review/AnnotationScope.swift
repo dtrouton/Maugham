@@ -179,6 +179,9 @@ struct FigureRowGate: Equatable {
 
     /// Why an orphaned figure suggestion's Accept is off: no cell to open.
     static let acceptCellDeleted = "Its cell has been deleted"
+    /// Why a parked figure's suggestion Accept is off: the queue cannot
+    /// travel to a figure the tree draws no row for.
+    static let acceptInResearch = "In Research \u{2014} bring it back to accept"
     /// What a travelling Accept says it does.
     static let acceptOpensTheCell = "Open the table at its cell to accept it there"
 
@@ -197,15 +200,20 @@ struct FigureRowGate: Equatable {
     }
 
     /// The gate for `annotation` on figure `figureId`, titled `figureTitle`
-    /// (`FigureRecord.listTitle`), with the walk's `cells`.
+    /// (`FigureRecord.listTitle`), with the walk's `cells`. `reachable`: the
+    /// queue can travel to the figure (the tree draws its row,
+    /// `AnnotationScopePolicy.click`); a parked one's Accept has nowhere to go.
     init(annotation: Annotation, figureId: String, figureTitle: String,
-         cells: SuggestionDisplay.FigureCells?) {
+         cells: SuggestionDisplay.FigureCells?, reachable: Bool = true) {
         let inTheTable = FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: figureId)
-        let travels = inTheTable && Self.cell(of: annotation) != nil
+        let hasCell = Self.cell(of: annotation) != nil
+        let travels = inTheTable && hasCell && reachable
+        let offReason: String? = !inTheTable || travels ? nil
+            : hasCell ? Self.acceptInResearch : Self.acceptCellDeleted
         self.init(
             anchorLine: SuggestionDisplay.figureAnchorLine(for: annotation, figureTitle: figureTitle),
             cells: annotation.kind == .suggestedChange ? cells : nil,
-            acceptDisabledReason: inTheTable && !travels ? Self.acceptCellDeleted : nil,
+            acceptDisabledReason: offReason,
             revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
         self.acceptTravels = travels
         self.reopensAnAccept = FigureAnnotationOps.reopensAnAccept(annotation, docId: figureId)
