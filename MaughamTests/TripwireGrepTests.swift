@@ -13174,6 +13174,15 @@ final class TripwireGrepTests: XCTestCase {
         // by `FigureDocument.resumeFromResearch`, behind the figure's door
         // (report plan 6b Task 8).
         "FigureReturnDiff.swift": [figureOpMintSpelling: 1],
+        // Core's figure-note builders (report plan 9c-1 Task 2,
+        // `FigureAnnotationOps`) make lines and append none. `creation`'s op
+        // is a note: a suggestion's `Op.figure` is the cell it PROPOSES,
+        // never folded as a cell write, and it reaches the stream through
+        // `DocumentStore.addFigureAnnotation` (creation is the reviewer's row,
+        // no figure door). `lifecycle`'s carries the cell an accept (or its
+        // revert) writes; that op is appended by the author's disposition
+        // verb on `FigureDocument`, behind the figure's door (Task 5).
+        "FigureAnnotationOps.swift": [figureOpMintSpelling: 2],
         // The figure actions the tree's row menu and the figure inspector
         // share (report plan 8a Tasks 4 and 7, `FigureActions`): Send to
         // Research and Rename are offered only where the posture allows
