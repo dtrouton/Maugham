@@ -353,6 +353,21 @@ extension ProjectStore {
         }.value
     }
 
+    /// **One figure's raw ops** (report plan 9c-1 Task 6, `get_annotation`'s
+    /// history): the stream `figureNotes` derives from, read the same way
+    /// (trust resolved, merged across devices), for a reader that wants the
+    /// ops themselves. Empty when the stream will not read.
+    func figureOps(_ figureId: String) async -> [Op] {
+        let url = url, facts = DocumentClass.Facts(manifest), identities = LocalIdentities.current
+        return await Task.detached(priority: .userInitiated) {
+            let trust = (try? TrustResolution.resolve(projectURL: url, identities: identities))
+                ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
+            return (try? OpLogStore.loadSyncMerged(
+                forDocId: figureId, in: url, trust: trust, facts: facts,
+                amendmentPermits: AmendmentPermits())) ?? []
+        }.value
+    }
+
     /// Open documents by doc id. `Document.docId` IS the manifest item's id
     /// (`resolveDocId` reads it out of the manifest), which is what lets the
     /// walk decide open-vs-closed per piece.

@@ -95,7 +95,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 **Annotations (the parallel comment layer)**
 - `add_comment`, `add_suggested_change`, `add_query`, `add_craft_note` — paragraph-anchored notes; `figure` (`tbl:x`, `tbl:x!C3`, `tbl:x!C3:E3`) anchors one to a figure instead (cells and suggestions: tables only).
-- `list_annotations` / `get_annotation` — a document's notes (filter by kind/status) or one by id, with `triage` and `review_pass_id`.
+- `list_annotations` / `get_annotation` — a document's notes (filter by kind/status) or one by id, with `triage` and `review_pass_id`. Also a table figure's notes (`figure`, or its id as `document_id`; a document's list adds the notes on figures its lines use, via `FigureListingSource`): `figure_anchor` by current positions, `orphaned`, a suggestion's `suggested_cell` in `read_figure`'s shapes. Paragraph rows carry none of these keys.
 
 **Tasks**
 - `list_tasks` / `get_task` — task annotations.
