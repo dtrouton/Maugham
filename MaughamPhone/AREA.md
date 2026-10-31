@@ -39,7 +39,7 @@ Every source file in `MaughamPhone/` appears once.
 - `PaletteLoading.swift`, `PaletteCardView.swift` — the read-only palette section.
 - `StatementLoading.swift` — the Craft Intent row's statement-first lookup (`intentRow(statements:research:)`).
 - `PhoneImageLoader.swift` — the eviction-safe image seam.
-- `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load, an unreadable figure left out, never shown empty. Tripwires 18, 19, 20, 58.
+- `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load, an unreadable or empty-reading figure left out, never shown empty. Cards load on open or Retry, like the reader's text, not when op logs arrive from another device. Tripwires 18, 19, 20, 58.
 - `ReadIcons.swift` — row icons (`paletteRowSymbol`).
 
 ### `Annotations/`

@@ -10,8 +10,9 @@ import MaughamCore
 /// **Every file `FigureCache` will read is downloaded first.** The cache reads
 /// uncoordinated, and an evicted iCloud file reads as empty bytes with no error,
 /// which would draw an empty table as though it were real (tripwire 18). A
-/// figure whose files will not download, or whose stream will not read, is left
-/// out — no card, and a formula reading it is `#REF!` — never shown empty.
+/// figure whose files will not download, whose stream will not read, or whose
+/// read folds to no kind or another kind than its record's, is left out — no
+/// card, and a formula reading it is `#REF!` — never shown empty.
 ///
 /// **Trust is resolved once per load** and that one table is handed to every
 /// read; resolving it is Core's `TrustResolution`, not a decision made here.
@@ -92,7 +93,11 @@ final class PhoneFigureBook {
         var states: [String: FigureState] = [:]
         for record in records where arrived.contains(record.id) && states[record.id] == nil {
             guard let state = try? cache.state(
-                forFigureId: record.id, in: projectURL, trust: trust, facts: facts) else { continue }
+                forFigureId: record.id, in: projectURL, trust: trust, facts: facts),
+                  // An empty read (a file evicted again after its download was
+                  // remembered, or one that arrived after the loop above) folds
+                  // to no kind; it must not draw as an empty table.
+                  state.kind == record.kind else { continue }
             states[record.id] = state
         }
 

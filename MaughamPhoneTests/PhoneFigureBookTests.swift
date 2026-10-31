@@ -11,8 +11,14 @@ private final class EvictingDownloader: UbiquitousDownloader, @unchecked Sendabl
     private var stash: [String: (url: URL, bytes: Data)] = [:]
     private var asked: [String] = []
     private let failing: Set<String>
+    private let neverRestoring: Set<String>
 
-    init(failing: Set<String> = []) { self.failing = failing }
+    /// `neverRestoring`: names whose download reports success but leaves the
+    /// file empty, as a remembered `.downloaded` over a re-evicted file does.
+    init(failing: Set<String> = [], neverRestoring: Set<String> = []) {
+        self.failing = failing
+        self.neverRestoring = neverRestoring
+    }
 
     /// Empty `url` in place, keeping its bytes to restore on download.
     func evict(_ url: URL) throws {
@@ -37,7 +43,7 @@ private final class EvictingDownloader: UbiquitousDownloader, @unchecked Sendabl
                 asked.append(name)
                 return stash.removeValue(forKey: name)
             }
-            if let entry { try? entry.bytes.write(to: entry.url) }
+            if let entry, !neverRestoring.contains(name) { try? entry.bytes.write(to: entry.url) }
             continuation.yield(1.0)
             continuation.finish()
         }
@@ -156,10 +162,10 @@ final class PhoneFigureBookTests: XCTestCase {
                       "=SUM(B2:B3) computes through Core's workbook: \(shown(card))")
     }
 
-    /// The book's language reaches the card from its publish config. A tag
-    /// with a region keeps it whatever the device's; a bare `es` borrows the
-    /// device's region, as the Mac card borrows the Mac's (plan ruling) — so on
-    /// a US phone it prints US separators, the same as the Mac on a US Mac.
+    /// The book's language reaches the card from its publish config, and a tag
+    /// with a region keeps it whatever the device's. (A bare `es` borrows the
+    /// device's region, as the Mac card borrows the Mac's — es_US prints the
+    /// same separators as en_US, so no number assertion could see it.)
     func test_aSpanishBookFormatsInItsLanguage_withTheRegionForcedToUS() async throws {
         let grouped = CellFormat(number: .number(decimals: 1, grouping: true))
 
@@ -168,15 +174,6 @@ final class PhoneFigureBookTests: XCTestCase {
         await es.load(manifest: spanish, projectURL: spain)
         XCTAssertTrue(shown(es.card(forLinePath: "../figures/cash.csv", documentPath: docPath))
             .contains("12.345,6"))
-
-        let (bare, bareManifest) = try await fixture(language: "es", sumFormat: grouped)
-        let esUS = loader(region: "US")
-        await esUS.load(manifest: bareManifest, projectURL: bare)
-        let expected = CellDisplay.string(
-            for: .number(12_345.6), format: grouped,
-            locale: TableLocale(languageTag: "es", fallbackRegion: "US"))
-        XCTAssertTrue(shown(esUS.card(forLinePath: "../figures/cash.csv", documentPath: docPath))
-            .contains(expected), "a bare tag borrows the forced region: \(expected)")
     }
 
     func test_everyFileIsDownloadedBeforeItIsRead() async throws {
@@ -204,6 +201,20 @@ final class PhoneFigureBookTests: XCTestCase {
         let book = loader(EvictingDownloader(failing: [tableFile.lastPathComponent]))
         let loaded = await book.load(manifest: manifest, projectURL: root)
         XCTAssertNil(loaded?.models[tableId], "no card rather than an empty table")
+        XCTAssertNil(book.card(forLinePath: "../figures/cash.csv", documentPath: docPath))
+        XCTAssertEqual(loaded?.models[imageId]?.kind, .image)
+    }
+
+    func test_aDownloadThatSucceedsButReadsEmptyIsLeftOut_neverAnEmptyTable() async throws {
+        let (root, manifest) = try await fixture(withImage: true)
+        let tableFile = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: tableId, in: root).first)
+        let downloader = EvictingDownloader(neverRestoring: [tableFile.lastPathComponent])
+        try downloader.evict(tableFile)
+        let book = loader(downloader)
+        let loaded = await book.load(manifest: manifest, projectURL: root)
+        XCTAssertTrue(downloader.downloaded.contains(tableFile.lastPathComponent),
+                      "the download was asked and reported success")
+        XCTAssertNil(loaded?.models[tableId], "an empty read folds to no kind: no card, never an empty table")
         XCTAssertNil(book.card(forLinePath: "../figures/cash.csv", documentPath: docPath))
         XCTAssertEqual(loaded?.models[imageId]?.kind, .image)
     }
