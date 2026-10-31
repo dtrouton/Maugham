@@ -1719,13 +1719,16 @@ final class PostureSurfaceTests: XCTestCase {
                 deviceState: try XCTUnwrap(Document.deviceStateForTesting),
                 projectURL: h.projectURL)
         }
-        func assertRefused(_ label: String, _ figureId: String,
+        func assertRefused(_ label: String, _ figureId: String, saying sentence: String,
                            line: UInt = #line) {
             do {
                 try door(figureId)
                 XCTFail("\(label) was not refused", line: line)
             } catch MCPError.toolError(let payload) {
                 XCTAssertEqual(payload.error, "translation_not_permitted", line: line)
+                XCTAssertEqual(payload.message, sentence,
+                               "the refusal names the figure as the writer knows it", line: line)
+                XCTAssertFalse(payload.message.contains(figureId), "never the fig- id", line: line)
             } catch {
                 XCTFail("\(label) threw \(error)", line: line)
             }
@@ -1733,11 +1736,20 @@ final class PostureSurfaceTests: XCTestCase {
 
         try await become(.author(.pieces(["doc-a"])), h)
         XCTAssertNoThrow(try door(hers.id), "her piece's figure: allowed")
-        assertRefused("a pieces-author's translation of a whole-book figure", books.id)
-        assertRefused("a figure whose record has not arrived", unregistered)
+        assertRefused(
+            "a pieces-author's translation of a whole-book figure", books.id,
+            saying: "This Mac may not translate Table: books \u{2014} it belongs to the whole "
+                + "book, which your part in this book doesn\u{2019}t reach, so nothing was written.")
+        assertRefused(
+            "a figure whose record has not arrived", unregistered,
+            saying: "This Mac can\u{2019}t translate that figure yet \u{2014} its record "
+                + "hasn\u{2019}t reached this Mac, so nothing was written.")
 
         try await become(.reviewer, h)
-        assertRefused("a reviewer's translation of her piece's figure", hers.id)
+        assertRefused(
+            "a reviewer's translation of her piece's figure", hers.id,
+            saying: "This Mac may not translate Table: hers \u{2014} it belongs to \u{201C}A\u{201D}, "
+                + "which your part in this book doesn\u{2019}t reach, so nothing was written.")
 
         try await become(.bookAuthor, h)
         XCTAssertNoThrow(try door(books.id), "the book author: a whole-book figure")
