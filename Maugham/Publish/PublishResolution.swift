@@ -477,9 +477,12 @@ private struct Pass {
         guard record.kind == .table, let state, state.kind == .table else { return .unreadable(record) }
         var book = figures.workbook ?? Workbook(pins: FigurePinIndex())
         book.setTable(state.table, id: record.id)
+        // A translated body prints its fresh cell translations; the source
+        // body (no language) asks nothing, so its layout is unchanged.
+        let labels = figures.cellLabels(figureId: record.id, language: bodyLanguage)
         let layout = FigureTableLayout.make(table: state.table, value: {
             book.value(at: CellAddress(table: record.id, key: $0))
-        }, locale: tableLocale)
+        }, locale: tableLocale, label: labels.map { labels in { labels[$0] } })
         let table = state.table
         let noted = book.notes.compactMap { note -> (row: Int, column: Int)? in
             guard case .npvFirstFlowDiscounted(let address) = note, address.table == record.id,

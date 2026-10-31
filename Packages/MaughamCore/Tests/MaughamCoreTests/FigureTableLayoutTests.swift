@@ -111,4 +111,35 @@ final class FigureTableLayoutTests: XCTestCase {
         XCTAssertEqual(l.alignments, card.columnAlignments)
         XCTAssertEqual(l.alignments, [.left, .right, .center, .left])
     }
+
+    /// Report plan 9e-1 Task 5: a body's translated labels replace stored-literal text cells
+    /// only — never a number, a formula (even one whose result is text) or a blank — and a
+    /// cell the lookup has no label for prints its source.
+    func test_labelsReplaceStoredTextCellsOnly() throws {
+        var t = FigureTable(rows: 3, columns: 2)
+        t.headerRows = 1
+        let k = { (r: Int, c: Int) in CellKey(row: t.rows[r], column: t.columns[c]) }
+        t.setCell(Cell(content: .value(.text("Item"))), at: k(0, 0))
+        t.setCell(Cell(content: .value(.text("Amount"))), at: k(0, 1))
+        t.setCell(Cell(content: .value(.text("Rent"))), at: k(1, 0))
+        t.setCell(Cell(content: .value(.number(100))), at: k(1, 1))
+        guard case .success(let f) = FormulaParser.parse("\"Fees\"", in: t) else { return XCTFail("parse") }
+        t.setCell(Cell(content: .formula(f)), at: k(2, 0))
+        t.setCell(Cell(content: .value(.number(5))), at: k(2, 1))
+        let labels: [CellKey: String] = [
+            k(0, 0): "Concepto", k(1, 0): "Alquiler",
+            k(1, 1): "cien", k(2, 0): "Tasas",   // a number and a formula: never relabelled
+        ]
+        let value: (CellKey) -> CellValue = { key in
+            if key == k(2, 0) { return .text("Fees") }
+            if case .value(let v)? = t[key]?.content { return v }
+            return .empty
+        }
+        let l = FigureTableLayout.make(table: t, value: value, locale: en, label: { labels[$0] })
+        XCTAssertEqual(l.header, ["Concepto", "Amount"], "no label for Amount: the source prints")
+        XCTAssertEqual(l.body, [["Alquiler", "100"], ["Fees", "5"]])
+        XCTAssertEqual(l, FigureTableLayout.make(table: t, value: value, locale: en, label: { labels[$0] }))
+        XCTAssertEqual(FigureTableLayout.make(table: t, value: value, locale: en).header, ["Item", "Amount"],
+                       "no lookup: the source")
+    }
 }
