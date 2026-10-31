@@ -259,14 +259,17 @@ final class FigureWindows {
 
     // MARK: Travel to a cell (report plan 9c-2 Task 7)
 
-    /// **The one cell a travel left for the grid it mounts** — one slot:
-    /// the next reveal replaces or clears it, `closeAll` clears it, and it
-    /// lapses after `pendingCellGrace`, so a travel that mounted no grid
-    /// (parked, refused, a failed load) never selects a cell in a later,
-    /// unrelated visit.
-    @ObservationIgnored private var pendingCell: (figureId: String, cell: CellKey, asked: ContinuousClock.Instant)?
-    /// How long a travel's cell waits for its grid (a test may shorten it).
-    @ObservationIgnored var pendingCellGrace: Duration = .seconds(2)
+    /// **The one cell a travel left for the grid it mounts** — one slot,
+    /// with no clock (final review I2: a slow load still selects). It is
+    /// cleared when a mount takes it, by the next reveal (which replaces or
+    /// clears it), by `closeAll`, and when the travel mounts no grid — the
+    /// visit failed to open or closed first (`FigureWindowGrid.open`), or the
+    /// figure's subject shows no grid (`FigureSubjectSurface`). So a travel
+    /// that mounted nothing never selects a cell in a later, unrelated visit.
+    @ObservationIgnored private var pendingCell: (figureId: String, cell: CellKey)?
+
+    /// Whether a travel's cell is waiting (a test reads it without taking it).
+    var hasPendingCell: Bool { pendingCell != nil }
 
     /// **Show `cell` of `figureId`** — a note's cell, from the queue or the
     /// inspector. A grid already open on the figure, anywhere, comes front
@@ -285,21 +288,22 @@ final class FigureWindows {
             controller.select(cell)
             return true
         }
-        if pending { pendingCell = (figureId, cell, .now) }
+        if pending { pendingCell = (figureId, cell) }
         return false
     }
 
     /// The cell a travel left for `figureId`'s next grid, taken once; nil
-    /// when it was for another figure (left for that one) or has lapsed.
+    /// when it was for another figure (left for that one).
     func takePendingCell(_ figureId: String) -> CellKey? {
-        guard let pending = pendingCell else { return nil }
-        if ContinuousClock.now - pending.asked > pendingCellGrace {
-            pendingCell = nil
-            return nil
-        }
-        guard pending.figureId == figureId else { return nil }
+        guard let pending = pendingCell, pending.figureId == figureId else { return nil }
         pendingCell = nil
         return pending.cell
+    }
+
+    /// **The travel to `figureId` mounted no grid**: its cell, if one waits,
+    /// is dropped. Another figure's is left for that one.
+    func dropPendingCell(for figureId: String) {
+        if pendingCell?.figureId == figureId { pendingCell = nil }
     }
 
     /// The hold on `figureId` gives way, if it is one that does.
@@ -613,16 +617,22 @@ final class FigureWindowGrid {
         opening = Task { @MainActor [weak self, weak windows] in
             await windows?.visitEnded(figureId)
             do {
-                guard let self, !self.isFinished else { return }
+                guard let self, !self.isFinished else {
+                    windows?.dropPendingCell(for: figureId)   // closed first: no grid came
+                    return
+                }
                 let controller = try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
                     typography: frame.typography, line: line)
                 guard !self.isFinished else {
                     controller.close()
+                    windows?.dropPendingCell(for: figureId)
                     return
                 }
                 self.mount(controller, piece: frame.piece, close: close)
             } catch {
+                // A travel's cell waits for no grid that will not come (final review I2).
+                windows?.dropPendingCell(for: figureId)
                 guard let self, !self.isFinished else { return }
                 self.container.show(message: "The table couldn\u{2019}t be opened: \(error.localizedDescription)")
             }

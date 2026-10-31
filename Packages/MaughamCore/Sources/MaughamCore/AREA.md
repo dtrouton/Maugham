@@ -117,7 +117,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `SpanAnchorResolver.swift` — stateless re-find of a span anchor in a paragraph's display text.
 - `SpanText.swift` — typography- and whitespace-insensitive canonical form for span matching.
 - `ShingleMatcher.swift` — k-word shingle overlap used for orphan recovery.
-- `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it; a figure suggestion's cells and anchor line.
+- `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it; a figure suggestion's cells and anchor line; the assistant-note colour.
 - `SuggestionSplice.swift` — applies a suggestion's replacement to a paragraph identically on both surfaces.
 
 ### Statements, passes and roles

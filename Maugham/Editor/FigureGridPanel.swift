@@ -125,6 +125,7 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
+        layoutParts()
     }
 
     @available(*, unavailable)
@@ -188,7 +189,13 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
         let parts = Self.parts(in: bounds.size, strip: showsStrip)
         bars.toolbar.frame = parts.toolbar
         bars.formulaBar.frame = parts.formulaBar
-        stripView?.frame = parts.strip ?? .zero
+        // **A hidden strip keeps its room** (final review I1): full width and
+        // its own height, under the formula bar, so its rows' insets hold.
+        // A 0×0 strip could not hold them, and AppKit broke a constraint on
+        // every layout of a grid without notes. Hidden, it draws nothing and
+        // takes no hits; the grid's part does not count it.
+        stripView?.frame = parts.strip ?? CGRect(x: 0, y: parts.formulaBar.maxY,
+                                                 width: bounds.width, height: Self.stripHeight)
         stripView?.isHidden = parts.strip == nil
         gridView.frame = parts.grid
         bars.bottomBar.frame = parts.bottomBar

@@ -12043,8 +12043,9 @@ final class TripwireGrepTests: XCTestCase {
         ],
         // A figure's judged notes (`FigureNotesRead`, report plan 9c-2): the
         // walk's figure read moved into Core, handing the carrier's resolved
-        // set to `AnnotationAmendments.judged` as the walk did.
-        "FigureCellNotes.swift": [
+        // set to `AnnotationAmendments.judged` as the walk did. A type key:
+        // `FigureCellNotes` shares the file and is allowed nothing.
+        "type:FigureNotesRead": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
         // The Mac's two doors name the SWEEP that takes one, not the type.
@@ -12341,7 +12342,7 @@ final class TripwireGrepTests: XCTestCase {
         // The planted tree declares none of the allow-list's `type:` keys, so
         // they are (correctly) unresolved; this control is about the spellings.
         XCTAssertEqual(
-            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore"], from: try grepSwift(
+            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore", "type:FigureNotesRead"], from: try grepSwift(
                 in: [dir], patterns: Self.narrowingPatterns,
                 allowedSpellings: Self.narrowingAllowed,
                 excludeLine: Self.admissionExcludeLine)).count, 1,

@@ -198,7 +198,11 @@ final class FigureGridStripView: NSStackView {
             row.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
             for view in views { row.addArrangedSubview(view) }
             addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+            // 999, not required (final review I1): the panel starts at a zero
+            // frame, and a row's insets cannot fit in no width.
+            let fill = row.widthAnchor.constraint(equalTo: widthAnchor)
+            fill.priority = NSLayoutConstraint.Priority(999)
+            fill.isActive = true
         }
         show(.empty, page: 0)
     }

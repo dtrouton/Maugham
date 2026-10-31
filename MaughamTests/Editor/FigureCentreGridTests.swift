@@ -854,10 +854,11 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         return seen
     }
 
-    /// **A stale cell never selects in a later visit** (fix round 1, I2):
-    /// one slot, replaced or cleared by the next reveal, cleared by
-    /// `closeAll`, and lapsed after its grace — so a travel that mounted no
-    /// grid leaves nothing for an unrelated expansion to select.
+    /// **A stale cell never selects in a later visit** (fix round 1, I2;
+    /// final review I2): one slot, replaced or cleared by the next reveal,
+    /// cleared by `closeAll`, and dropped when the travel mounts no grid —
+    /// here its visit closes before the grid comes — so an unrelated
+    /// expansion later selects nothing. No clock is involved.
     func test_travel_aStaleCellIsNeverSelectedByALaterGrid() async throws {
         let windows = FigureWindows()
         let m = try await mount(windows: windows)
@@ -872,12 +873,78 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         windows.closeAll()
         XCTAssertNil(windows.takePendingCell(figureId), "the project's close cleared it")
 
-        windows.pendingCellGrace = .zero
+        // The travel's visit closes before its grid comes: no grid, no cell.
         XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let travel = FigureWindowGrid()
+        travel.open(figureId: figureId, store: ds, projectStore: m.store, windows: windows, close: {})
+        travel.finish()
+        await travel.opening?.value
+        XCTAssertNil(travel.controller, "premise: the travel mounted no grid")
+        XCTAssertFalse(windows.hasPendingCell, "the travel that mounted nothing dropped its cell")
+
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
         let expansion = try await opened(m)
         let c = try XCTUnwrap(expansion.controller)
-        XCTAssertNotEqual(c.figureGridSelection?.anchor, c2, "a lapsed cell selects nothing in a later visit")
+        XCTAssertNotEqual(c.figureGridSelection?.anchor, c2, "a stale cell selects nothing in a later visit")
+    }
+
+    /// **A travel whose load fails drops its cell** (final review I2): the
+    /// window says the table could not be opened, and nothing waits. The
+    /// load fails because the op log's folder cannot be listed (RULING-54:
+    /// unreadable is never empty) — the figure is not open in the store yet.
+    func test_travel_aFailedOpeningDropsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (_, c2, _) = try await noteOnC2(m)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let gone = "fig-gone"
+        let ops = m.store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: ops.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ops.path) }
+
+        XCTAssertFalse(windows.reveal(gone, cell: c2, pending: true))
+        let travel = FigureWindowGrid()
+        travel.open(figureId: gone, store: ds, projectStore: m.store, windows: windows, close: {})
+        await travel.opening?.value
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ops.path)
+        XCTAssertNil(travel.controller, "premise: no grid opened")
+        XCTAssertNotNil(travel.container.message, "premise: the failure is said")
+        XCTAssertFalse(windows.hasPendingCell, "the failed travel dropped its cell")
+        travel.finish()
+    }
+
+    /// **A travel to a subject with no grid drops its cell** (final review
+    /// I2): the centre shows the figure's name and number (no table record),
+    /// so no grid will ever take the cell.
+    func test_travel_aSubjectWithNoGridDropsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (_, c2, _) = try await noteOnC2(m)
+        let gone = "fig-gone"
+
+        XCTAssertFalse(windows.reveal(gone, cell: c2, pending: true))
+        XCTAssertTrue(windows.hasPendingCell, "premise: the cell waits")
+        _ = try centre(m, windows: windows, figureId: gone)
+        let dropped = await RunLoopPump.until(deadline: 5) { !windows.hasPendingCell }
+        XCTAssertTrue(dropped, "the subject with no grid dropped the cell")
+    }
+
+    /// **A slow load still selects** (final review I2): the cell waits with
+    /// no clock, so a grid that mounts long after the travel — past the two
+    /// seconds the slot once lapsed after — still selects it.
+    func test_travel_aSlowLoadStillSelectsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, _) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        try await Task.sleep(for: .milliseconds(2_200))
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2, "a slow mount still selects the note's cell")
+        XCTAssertFalse(windows.hasPendingCell)
     }
 
     /// **A figure window holding it selects there** (`FigureWindowGrid`'s

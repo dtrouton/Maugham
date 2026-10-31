@@ -203,9 +203,10 @@ struct FigureCardView: View {
         }
     }
 
-    /// The assistant-note colour. The phone has no palette type; this is the Mac's
-    /// `ReviewPalette.claudeTerracotta` value (0.78, 0.42, 0.32), stated here once.
-    private static let noteDot = Color(.sRGB, red: 0.78, green: 0.42, blue: 0.32, opacity: 1)
+    /// The assistant-note colour, the Mac's `ReviewPalette.claudeTerracotta`:
+    /// both build from Core's one `AssistantNoteColour` (tripwire 19).
+    private static let noteDot = Color(.sRGB, red: AssistantNoteColour.red, green: AssistantNoteColour.green,
+                                       blue: AssistantNoteColour.blue, opacity: 1)
 
     private static func horizontal(_ alignment: CellAlignment) -> HorizontalAlignment {
         switch alignment {

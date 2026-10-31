@@ -412,6 +412,74 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
                        "folded: the card's height never moves, so no line re-lays out")
     }
 
+    // MARK: - Final review I1: a hidden strip still holds its rows
+
+    /// **A grid with no notes lays its hidden strip out without a conflict**
+    /// (final review I1). The strip is hidden, but it keeps the panel's full
+    /// width and its own height, so its rows' required insets and minimum
+    /// widths hold. A 0×0 strip could not hold them, and AppKit broke a
+    /// constraint on every layout of a grid without notes. The check reads
+    /// every required constraint in the strip's subtree back against the
+    /// laid-out frames, so it never scrapes the console.
+    func test_aHiddenStripKeepsItsRoomAndEveryRequiredConstraintHolds() async throws {
+        let m = try await mount(openCellNotes: OpenCellNotes(false))
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
+        let grid = try await opened(m)
+        let panel = try XCTUnwrap(grid.panel)
+        let strip = try XCTUnwrap(grid.controller?.strip)
+        XCTAssertFalse(panel.showsStrip, "premise: no notes, no strip")
+        panel.layoutSubtreeIfNeeded()
+        strip.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(strip.isHidden, "hidden: it draws nothing and takes no hits")
+        XCTAssertEqual(strip.frame.width, panel.bounds.width, accuracy: 0.5, "the panel's full width")
+        XCTAssertEqual(strip.frame.height, FigureGridPanel.stripHeight, accuracy: 0.5, "its own height")
+        XCTAssertEqual(controllerGridFrame(grid)?.minY ?? 0, 2 * FigureGridBars.barHeight, accuracy: 0.5,
+                       "the grid still sits under the formula bar: the hidden strip takes no room")
+        let broken = Self.unsatisfiedRequiredConstraints(in: strip)
+        XCTAssertTrue(broken.isEmpty, "every required constraint holds: \(broken)")
+    }
+
+    /// The required constraints in `root`'s subtree that the laid-out frames
+    /// do not satisfy (within half a point). Constraints on a layout guide,
+    /// on a view hidden itself, or on an attribute other than an edge, a
+    /// centre or a size are not judged, nor is a control's content size (its
+    /// hugging and compression priorities are what count, not `priority`).
+    static func unsatisfiedRequiredConstraints(in root: NSView) -> [NSLayoutConstraint] {
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        /// nil: not judged; .some(nil): no item (a constant constraint).
+        func value(_ item: AnyObject?, _ attribute: NSLayoutConstraint.Attribute) -> CGFloat?? {
+            guard let item else { return .some(nil) }
+            guard let view = item as? NSView, view === root || !view.isHidden else { return nil }
+            let r = view === root ? root.bounds : root.convert(view.bounds, from: view)
+            switch attribute {
+            case .notAnAttribute: return .some(nil)
+            case .width: return r.width
+            case .height: return r.height
+            case .left, .leading: return r.minX
+            case .right, .trailing: return r.maxX
+            case .top: return root.isFlipped ? r.minY : r.maxY
+            case .bottom: return root.isFlipped ? r.maxY : r.minY
+            case .centerX: return r.midX
+            case .centerY: return r.midY
+            default: return nil
+            }
+        }
+        return views(root).flatMap(\.constraints).filter { c in
+            guard c.isActive, c.priority == .required,
+                  !String(describing: type(of: c)).contains("ContentSize"),
+                  let first = value(c.firstItem, c.firstAttribute), let lhs = first,
+                  let second = value(c.secondItem, c.secondAttribute) else { return false }
+            let rhs = (second ?? 0) * c.multiplier + c.constant
+            switch c.relation {
+            case .equal: return abs(lhs - rhs) > 0.5
+            case .greaterThanOrEqual: return lhs < rhs - 0.5
+            case .lessThanOrEqual: return lhs > rhs + 0.5
+            @unknown default: return false
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func arrow(_ m: Mounted, _ keyCode: UInt16) -> NSEvent {

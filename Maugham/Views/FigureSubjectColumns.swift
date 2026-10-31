@@ -105,9 +105,14 @@ struct FigureSubjectSurface: View {
                     .id(figureID)
             }
         case .image(let url):
-            if let record { FigureImageSubject(record: record, fileURL: url, listing: listing) }
+            if let record {
+                FigureImageSubject(record: record, fileURL: url, listing: listing)
+                    .task(id: figureID) { figureWindows?.dropPendingCell(for: figureID) }
+            }
         case .nameAndNumber:
+            // No grid will mount: a travel's cell waits for nothing (final review I2).
             FigureSubjectPlaceholder(figureID: figureID, listing: listing)
+                .task(id: figureID) { figureWindows?.dropPendingCell(for: figureID) }
         }
     }
 }
