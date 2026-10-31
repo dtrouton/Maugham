@@ -165,6 +165,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `CellValue.swift` — a cell's value, formula error codes and cell content.
 - `CellFormat.swift` — number, date and negative formats and cell alignment.
 - `FigureTable.swift` — a table's rows and columns as ordered id slots with tombstones, cells, header/total rows.
+- `FigureCellTranslation.swift` — cell key `"row:col"`, text-cell predicate, per-language derivation of a table's translations.
 - `Formula.swift` — a cell's formula syntax tree; refs stored by row and column id, research refs by position, figures and research items by id.
 - `FormulaNames.swift` — the names a formula is typed and shown with: figure name and research title to id when read, id to current name when shown.
 - `A1.swift` — A1 notation: column letters, `$` absolute markers.
