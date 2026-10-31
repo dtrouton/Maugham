@@ -38,7 +38,7 @@ final class FigureCardViewTests: XCTestCase {
 
     func test_aFifteenRowTablePlansTwelveRowsTheMoreLineAndTheTotalRow() throws {
         let plan = FigureCardPlan.plan(card: model(rows: 15, header: 1, total: true),
-                                       imageURL: nil, loaded: true)
+                                       imageURL: nil)
         let table = try XCTUnwrap(tablePlan(plan))
         XCTAssertEqual(table.headerRows, [["r0c0", "r0c1"]])
         XCTAssertEqual(table.bodyRows.count, 10)
@@ -52,7 +52,7 @@ final class FigureCardViewTests: XCTestCase {
 
     func test_aShortTableHasNoMoreLineAndNoTotal() throws {
         let table = try XCTUnwrap(tablePlan(FigureCardPlan.plan(
-            card: model(rows: 3), imageURL: nil, loaded: true)))
+            card: model(rows: 3), imageURL: nil)))
         XCTAssertEqual(table.headerRows, [])
         XCTAssertEqual(table.bodyRows.count, 3)
         XCTAssertNil(table.more)
@@ -62,48 +62,49 @@ final class FigureCardViewTests: XCTestCase {
 
     func test_eachColumnKeepsItsAlignment_numbersRight() throws {
         let card = model(rows: 3) { _, c in c == 0 ? .text("x") : .number(1) }
-        let table = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil, loaded: true)))
+        let table = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil)))
         XCTAssertEqual(table.alignments, [.left, .right])
     }
 
     func test_automaticAlignmentDrawsLeft_andAMissingOneIsLeft() throws {
         var card = model(rows: 1)
         card.columnAlignments = [.automatic]
-        let table = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil, loaded: true)))
+        let table = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil)))
         XCTAssertEqual(table.alignments, [.left, .left])
     }
 
-    func test_parkedRemovedAmbiguousAndEmptyPlanTheirWords() {
-        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.parked), imageURL: nil, loaded: true),
+    func test_parkedAmbiguousAndEmptyPlanTheirWords() {
+        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.parked), imageURL: nil),
                        .label(FigureCardText.parked))
-        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.removed), imageURL: nil, loaded: true),
-                       .label(FigureCardText.removed))
-        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.ambiguous), imageURL: nil, loaded: true),
+        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.ambiguous), imageURL: nil),
                        .label(FigureCardText.ambiguous))
-        XCTAssertEqual(FigureCardPlan.plan(card: model(rows: 0), imageURL: nil, loaded: true),
+        XCTAssertEqual(FigureCardPlan.plan(card: model(rows: 0), imageURL: nil),
                        .label(FigureCardText.empty))
     }
 
     /// A registered figure whose files have not arrived has no card: it says
     /// so, neutrally — never "Figure removed", never data — and offers Retry.
     func test_noCardAfterALoadIsNotDownloadedYet() {
-        let plan = FigureCardPlan.plan(card: nil, imageURL: nil, loaded: true)
+        let plan = FigureCardPlan.plan(card: nil, imageURL: nil)
         XCTAssertEqual(plan, .label(FigureCardText.notReady))
         XCTAssertNotEqual(plan, .label(FigureCardText.removed))
         XCTAssertTrue(plan.offersRetry)
         XCTAssertFalse(FigureCardPlan.label(FigureCardText.parked).offersRetry)
     }
 
-    func test_beforeTheCardsLoadTheFigureIsLoading() {
-        XCTAssertEqual(FigureCardPlan.plan(card: nil, imageURL: nil, loaded: false), .loading)
-        XCTAssertEqual(FigureCardPlan.plan(card: model(rows: 3), imageURL: nil, loaded: false), .loading)
+    /// A `figures/` path the registry does not name may be a figure whose
+    /// registration has not synced: the phone never says "Figure removed".
+    func test_anUnregisteredFiguresPathIsNotDownloadedYet_neverRemoved() {
+        let plan = FigureCardPlan.plan(card: .placeholder(.removed), imageURL: nil)
+        XCTAssertEqual(plan, .label(FigureCardText.notReady))
+        XCTAssertTrue(plan.offersRetry)
     }
 
     func test_anImageDrawsItsPicture_andALineWithNoLocalPictureDrawsOnlyItsCaption() {
         let url = URL(fileURLWithPath: "/p/research/shot.jpg")
-        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.image), imageURL: url, loaded: true),
+        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.image), imageURL: url),
                        .picture(url))
-        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.image), imageURL: nil, loaded: true),
+        XCTAssertEqual(FigureCardPlan.plan(card: .placeholder(.image), imageURL: nil),
                        .captionOnly, "a remote or outside path: no picture to load, no placeholder")
         XCTAssertEqual(FigureCardPlan.picture(url).pictureURL, url)
         XCTAssertNil(FigureCardPlan.captionOnly.pictureURL)
@@ -117,14 +118,16 @@ final class FigureCardViewTests: XCTestCase {
         XCTAssertEqual(FigureCardPlan.picturesToLoad(plans), [a, b])
     }
 
-    func test_figurePathsIncludeQuotedFigures_once() {
-        let cash = MarkdownBlocks.Block.figure(caption: "Cash", path: "../figures/cash.csv", label: nil)
-        let blocks: [MarkdownBlocks.Block] = [
-            cash,
-            .quote([.figure(caption: "Map", path: "../figures/map.png", label: nil)]),
-            .paragraph("between"),
-            .figure(caption: "Cash again", path: "../figures/cash.csv", label: nil),
-        ]
-        XCTAssertEqual(DocumentReaderView.figurePaths(blocks), ["../figures/cash.csv", "../figures/map.png"])
+    func test_figurePathsAreTopLevelFiguresOnce_aQuotedLineIsText() {
+        let blocks = MarkdownBlocks.parse("""
+            ![Cash](../figures/cash.csv)
+
+            > ![Map](../figures/map.png)
+
+            ![Cash again](../figures/cash.csv)
+            """)
+        XCTAssertEqual(DocumentReaderView.figurePaths(blocks), ["../figures/cash.csv"])
+        XCTAssertTrue(DocumentReaderView.hasFigureLine(blocks))
+        XCTAssertFalse(DocumentReaderView.hasFigureLine(MarkdownBlocks.parse("> ![Map](../figures/map.png)")))
     }
 }

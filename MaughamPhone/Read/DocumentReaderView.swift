@@ -46,8 +46,17 @@ struct DocumentReaderView: View {
     @State private var pictures: [URL: UIImage?] = [:]
     /// Bumped to force `.task(id:)` to re-run on Retry.
     @State private var loadAttempt: Int = 0
+    /// Bumped each time the text is shown as Markdown: starts the cards' load.
+    @State private var textShown: Int = 0
     /// Bumped by a figure card's Retry: reloads the cards, not the text.
     @State private var figureReload: Int = 0
+
+    /// The cards' load is one `.task` keyed on both, so a Retry (or a new text
+    /// load) cancels a card load still running instead of racing it.
+    private struct FigureLoadID: Equatable {
+        var text: Int
+        var retry: Int
+    }
 
     var body: some View {
         content
@@ -58,8 +67,8 @@ struct DocumentReaderView: View {
             // AttributedString is fiddly and out of scope here.
             .searchable(text: $searchQuery, prompt: Text("Find in document"))
             .task(id: loadAttempt) { await load() }
-            .task(id: figureReload) {
-                guard figureReload > 0, case let .markdown(blocks) = state else { return }
+            .task(id: FigureLoadID(text: textShown, retry: figureReload)) {
+                guard case let .markdown(blocks) = state, Self.hasFigureLine(blocks) else { return }
                 await loadFigures(blocks)
             }
     }
@@ -325,9 +334,9 @@ struct DocumentReaderView: View {
             // Inline emphasis is applied per-paragraph in the renderer.
             let blocks = MarkdownBlocks.parse(MarkdownDisplayFilter.stripAnchors(text))
             state = .markdown(blocks)
-            // The text shows first; the cards follow once the figures' op logs
-            // have downloaded and computed.
-            if Self.hasFigureLine(blocks) { await loadFigures(blocks) }
+            // The text shows first; the cards follow (the figure `.task`) once
+            // the figures' op logs have downloaded and computed.
+            textShown += 1
         case .fountain:
             state = .fountain(Self.parseFountain(text))
         case nil:
@@ -342,14 +351,15 @@ struct DocumentReaderView: View {
     private func loadFigures(_ blocks: [MarkdownBlocks.Block]) async {
         figurePlans = nil
         let figures = PhoneFigureBook(downloads: downloads, io: io)
-        await figures.load(manifest: manifest, projectURL: projectURL)
+        // The manifest on disk now, so a figure registered since the project
+        // opened has its card on Retry.
+        await figures.loadCurrent(projectURL: projectURL, opened: manifest)
         guard !Task.isCancelled else { return }
         var plans: [String: FigureCardPlan] = [:]
         for path in Self.figurePaths(blocks) {
             plans[path] = FigureCardPlan.plan(
                 card: figures.card(forLinePath: path, documentPath: documentPath),
-                imageURL: figures.imageURL(forLinePath: path, documentPath: documentPath),
-                loaded: true)
+                imageURL: figures.imageURL(forLinePath: path, documentPath: documentPath))
         }
         figurePlans = plans
         pictures = [:]
@@ -360,32 +370,19 @@ struct DocumentReaderView: View {
         }
     }
 
-    /// Every figure line's path, a quoted one included, each once in order.
+    /// Every figure line's path, each once in order. Top-level blocks only: a
+    /// quoted figure line is text, as on the Mac and in Publish.
     static func figurePaths(_ blocks: [MarkdownBlocks.Block]) -> [String] {
         var seen: Set<String> = []
-        var out: [String] = []
-        func walk(_ blocks: [MarkdownBlocks.Block]) {
-            for block in blocks {
-                switch block {
-                case let .figure(_, path, _) where seen.insert(path).inserted: out.append(path)
-                case let .quote(inner): walk(inner)
-                default: break
-                }
-            }
+        return blocks.compactMap { block in
+            guard case let .figure(_, path, _) = block, seen.insert(path).inserted else { return nil }
+            return path
         }
-        walk(blocks)
-        return out
     }
 
-    /// Whether any block, a quoted one included, is a figure line.
+    /// Whether any top-level block is a figure line.
     static func hasFigureLine(_ blocks: [MarkdownBlocks.Block]) -> Bool {
-        blocks.contains { block in
-            switch block {
-            case .figure: return true
-            case let .quote(inner): return hasFigureLine(inner)
-            default: return false
-            }
-        }
+        !figurePaths(blocks).isEmpty
     }
 
     private func describe(_ error: Error) -> String {

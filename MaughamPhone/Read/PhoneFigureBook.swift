@@ -130,9 +130,10 @@ final class PhoneFigureBook {
 
     /// The card under a figure line, by Core's line rule; nil before a load or
     /// for a registered figure that was left out. A book with no registry (or
-    /// one whose trust would not resolve) still answers a line by the rule —
-    /// a picture `.image`, a `figures/` path naming nothing `.removed` — so a
-    /// picture line draws its picture in any piece.
+    /// one whose trust would not resolve) still answers a line by the rule, so
+    /// a picture line outside `figures/` draws its picture in any piece. (A
+    /// `figures/` path naming nothing answers `.removed`; the phone's card
+    /// plan draws that as not downloaded yet, never "Figure removed".)
     func card(forLinePath linePath: String, documentPath: String) -> FigureCardModel? {
         guard projectURL != nil else { return nil }
         return (book ?? FigureCardBook(models: [:]))
@@ -159,6 +160,27 @@ final class PhoneFigureBook {
             path = target.joined(separator: "/")
         }
         return try? SafeRelativePath.resolve(path, under: projectURL)
+    }
+
+    /// Load from the manifest on disk now — downloaded and read coordinated,
+    /// as `ProjectsBrowser` reads it — so a figure registered since the project
+    /// opened has its card; `opened` (the manifest the reader was given) when
+    /// the file will not download, read or decode.
+    @discardableResult
+    func loadCurrent(projectURL: URL, opened: ProjectManifest) async -> FigureCardBook? {
+        let manifest = await currentManifest(in: projectURL) ?? opened
+        return await load(manifest: manifest, projectURL: projectURL)
+    }
+
+    private func currentManifest(in projectURL: URL) async -> ProjectManifest? {
+        let url = projectURL.appendingPathComponent(ProjectManifest.fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            try await downloads.ensureDownloaded(url)
+            return try ProjectManifest.decodeGuardingSchema(try io.coordinatedRead(at: url))
+        } catch {
+            return nil
+        }
     }
 
     /// The book's language from its publish config, downloaded and read

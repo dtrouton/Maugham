@@ -295,10 +295,11 @@ final class PhoneFigureBookTests: XCTestCase {
         XCTAssertEqual(book.trustResolutions, 0)
     }
 
-    /// A picture line in a book with no figure registry still draws its
-    /// picture (report plan 9b Task 5): the line rule answers `.image` and the
-    /// URL resolves, though no card was built; a `figures/` path naming
-    /// nothing reads as removed, as on the Mac.
+    /// A picture line outside `figures/` in a book with no figure registry
+    /// still draws its picture (report plan 9b Task 5): the line rule answers
+    /// `.image` and the URL resolves, though no card was built. A `figures/`
+    /// path the registry does not name plans as not downloaded yet, never
+    /// "Figure removed": the phone cannot tell removed from not yet synced.
     func test_aBookWithNoRegistryStillAnswersAPictureLine() async throws {
         let (root, manifest) = try await fixture()
         var none = manifest
@@ -307,10 +308,57 @@ final class PhoneFigureBookTests: XCTestCase {
         XCTAssertNil(book.card(forLinePath: "../research/shot.jpg", documentPath: docPath),
                      "no answer before a load")
         await book.load(manifest: none, projectURL: root)
-        XCTAssertEqual(book.card(forLinePath: "../research/shot.jpg", documentPath: docPath)?.kind, .image)
-        XCTAssertEqual(book.imageURL(forLinePath: "../research/shot.jpg", documentPath: docPath)?
+        let shot = "../research/shot.jpg"
+        XCTAssertEqual(book.card(forLinePath: shot, documentPath: docPath)?.kind, .image)
+        XCTAssertEqual(book.imageURL(forLinePath: shot, documentPath: docPath)?
             .pathComponents.suffix(2), ["research", "shot.jpg"])
-        XCTAssertEqual(book.card(forLinePath: "../figures/gone.csv", documentPath: docPath)?.kind, .removed)
+        XCTAssertEqual(plan(book, shot), .picture(try XCTUnwrap(
+            book.imageURL(forLinePath: shot, documentPath: docPath))))
+    }
+
+    func test_anUnregisteredFiguresLine_isNotDownloadedYet() async throws {
+        let (root, manifest) = try await fixture()
+        var none = manifest
+        none.figures = nil
+        let book = loader()
+        await book.load(manifest: none, projectURL: root)
+        XCTAssertEqual(plan(book, "../figures/cash.csv"), .label(FigureCardText.notReady))
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertEqual(plan(book, "../figures/x.csv"), .label(FigureCardText.notReady),
+                       "with a registry too")
+    }
+
+    /// Retry re-reads the manifest: a figure registered on the Mac after the
+    /// project opened on the phone has its card on the next load.
+    func test_aFigureRegisteredAfterOpening_hasItsCardOnTheNextLoad() async throws {
+        let (root, current) = try await fixture()
+        try ProjectManifest.encodeForDisk(current)
+            .write(to: root.appendingPathComponent(ProjectManifest.fileName))
+        var opened = current
+        opened.figures = nil
+        let book = loader()
+        await book.load(manifest: opened, projectURL: root)
+        XCTAssertEqual(plan(book, "../figures/cash.csv"), .label(FigureCardText.notReady),
+                       "the manifest captured at open does not know it")
+        await book.loadCurrent(projectURL: root, opened: opened)
+        guard case .table = plan(book, "../figures/cash.csv") else {
+            return XCTFail("the re-read manifest registers the figure: its card")
+        }
+    }
+
+    /// Trust that will not resolve leaves a registered figure with no card:
+    /// not downloaded yet, never data and never "removed".
+    func test_aTrustFailureLeavesARegisteredFigureWithNoCard() async throws {
+        let (root, manifest) = try await fixture()
+        let book = loader(resolveTrust: { _ in throw CocoaError(.fileReadUnknown) })
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertNil(book.card(forLinePath: "../figures/cash.csv", documentPath: docPath))
+        XCTAssertEqual(plan(book, "../figures/cash.csv"), .label(FigureCardText.notReady))
+    }
+
+    private func plan(_ book: PhoneFigureBook, _ path: String) -> FigureCardPlan {
+        FigureCardPlan.plan(card: book.card(forLinePath: path, documentPath: docPath),
+                            imageURL: book.imageURL(forLinePath: path, documentPath: docPath))
     }
 
     func test_imageURLResolvesInsideTheProjectOnly() async throws {

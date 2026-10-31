@@ -23,9 +23,9 @@ struct FigureTablePlan: Equatable {
 ///
 /// No number and no "Research has changed" banner (plan 9b rulings).
 enum FigureCardPlan: Equatable {
-    /// The cards are still loading.
+    /// The cards are still loading (the reader's state before its plans exist).
     case loading
-    /// A labelled card: parked, removed, ambiguous, empty, or not downloaded yet.
+    /// A labelled card: parked, ambiguous, empty, or not downloaded yet.
     case label(String)
     case table(FigureTablePlan)
     /// A picture, loaded through `PhoneImageLoader`.
@@ -34,15 +34,17 @@ enum FigureCardPlan: Equatable {
     case captionOnly
 
     /// - Parameters:
-    ///   - card: `PhoneFigureBook.card(forLinePath:documentPath:)`; nil after a
-    ///     load means a registered figure whose files have not arrived.
+    ///   - card: `PhoneFigureBook.card(forLinePath:documentPath:)` after a
+    ///     load; nil means a registered figure whose files have not arrived.
     ///   - imageURL: `PhoneFigureBook.imageURL(forLinePath:documentPath:)`.
-    ///   - loaded: whether the book has loaded.
-    static func plan(card: FigureCardModel?, imageURL: URL?, loaded: Bool) -> FigureCardPlan {
-        guard loaded else { return .loading }
+    ///
+    /// A `figures/` path the registry does not name (`.removed`) is not
+    /// downloaded yet too: the phone cannot tell a removed figure from one
+    /// whose registration has not synced, so it never says "Figure removed".
+    static func plan(card: FigureCardModel?, imageURL: URL?) -> FigureCardPlan {
         guard let card else { return .label(FigureCardText.notReady) }
         switch card.kind {
-        case .removed: return .label(FigureCardText.removed)
+        case .removed: return .label(FigureCardText.notReady)
         case .ambiguous: return .label(FigureCardText.ambiguous)
         case .parked: return .label(FigureCardText.parked)
         case .image: return imageURL.map(FigureCardPlan.picture) ?? .captionOnly
@@ -133,12 +135,13 @@ struct FigureCardView: View {
     private func tableView(_ table: FigureTablePlan) -> some View {
         ScrollView(.horizontal) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                ForEach(Array(table.headerRows.enumerated()), id: \.offset) { _, row in
-                    rowView(row, table, bold: true)
+                ForEach(Array(table.headerRows.enumerated()), id: \.offset) { i, row in
+                    rowView(row, table, bold: true, setsAlignment: i == 0)
                 }
                 if !table.headerRows.isEmpty { Divider() }
-                ForEach(Array(table.bodyRows.enumerated()), id: \.offset) { _, row in
-                    rowView(row, table, bold: false)
+                ForEach(Array(table.bodyRows.enumerated()), id: \.offset) { i, row in
+                    rowView(row, table, bold: false,
+                            setsAlignment: i == 0 && table.headerRows.isEmpty)
                 }
                 if let more = table.more {
                     Text(more)
@@ -147,7 +150,8 @@ struct FigureCardView: View {
                 }
                 if let total = table.totalRow {
                     Divider()
-                    rowView(total, table, bold: false)
+                    rowView(total, table, bold: false,
+                            setsAlignment: table.headerRows.isEmpty && table.bodyRows.isEmpty)
                 }
             }
             .padding(12)
@@ -156,15 +160,22 @@ struct FigureCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func rowView(_ row: [String], _ table: FigureTablePlan, bold: Bool) -> some View {
+    /// - setsAlignment: true on the first row drawn: a column's alignment is
+    ///   set once, on one of its cells.
+    private func rowView(_ row: [String], _ table: FigureTablePlan, bold: Bool,
+                         setsAlignment: Bool) -> some View {
         GridRow {
             ForEach(0..<table.columnCount, id: \.self) { i in
-                Text(i < row.count ? row[i] : "")
+                let cell = Text(i < row.count ? row[i] : "")
                     .font(.callout)
-                    .fontWeight(bold ? .semibold : .regular)
+                    .fontWeight(bold ? .bold : .regular)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .gridColumnAlignment(Self.horizontal(table.alignments[i]))
+                if setsAlignment {
+                    cell.gridColumnAlignment(Self.horizontal(table.alignments[i]))
+                } else {
+                    cell
+                }
             }
         }
     }
