@@ -90,14 +90,17 @@ final class ResearchVersionStoreTests: XCTestCase {
         XCTAssertEqual(ResearchVersionStore.retention, 50)
     }
 
-    func test_pruneOrdersTheSuffixesNumerically() throws {
+    /// With one `savedAt` for all (the same instant), the `-n` orders as a
+    /// number in the listing and in the prune: `-10` is newer than `-2`.
+    func test_theSuffixesOrderNumerically() throws {
         let store = ResearchVersionStore(projectURL: TestTemp.root)
         var kept: [ResearchVersion] = []
         for i in 0..<11 {
             kept.append(try store.keep(priorBytes: Data("\(i)".utf8), priorSidecar: nil, writtenBy: nil,
-                                       itemId: item, device: mac, at: t0.addingTimeInterval(Double(i) / 100)))
+                                       itemId: item, device: mac, at: t0))
         }
         XCTAssertEqual(kept.last?.name, "20270115-080000-mac-a-11")
+        XCTAssertEqual(store.versions(itemId: item).map(\.name), kept.reversed().map(\.name))
         store.prune(itemId: item, device: mac, keep: 2)
         XCTAssertEqual(Set(store.versions(itemId: item).map(\.name)),
                        ["20270115-080000-mac-a-10", "20270115-080000-mac-a-11"])
@@ -169,5 +172,78 @@ final class ResearchVersionStoreTests: XCTestCase {
         XCTAssertEqual(listed.savedAt, t0, "dated by the stamp, to the second")
         XCTAssertNil(listed.writtenBy)
         XCTAssertEqual(try store.read(listed).0, Data("x".utf8))
+    }
+    private func age(_ url: URL, by seconds: TimeInterval = 3_600) throws {
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-seconds)], ofItemAtPath: url.path)
+    }
+
+    /// Another device's pair arrives one file at a time: a `.csv` alone, or
+    /// a `.json` alone, is not a version yet; nor is a `.json` that isn't JSON.
+    func test_aVersionListsOnlyOnceBothFilesAreHereAndTheMetaReads() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let kept = try store.keep(priorBytes: Data("x".utf8), priorSidecar: nil, writtenBy: .writer,
+                                  itemId: item, device: mac, at: t0)
+        try Data("y".utf8).write(to: folder(root).appendingPathComponent("20270115-090000-mac-b.csv"))
+        try Data("{}".utf8).write(to: folder(root).appendingPathComponent("20270115-100000-mac-b.json"))
+        try Data("z".utf8).write(to: folder(root).appendingPathComponent("20270115-110000-mac-b.csv"))
+        try Data("not json".utf8).write(to: folder(root).appendingPathComponent("20270115-110000-mac-b.json"))
+        try Data("w".utf8).write(to: folder(root).appendingPathComponent(".20270115-120000-mac-b.csv.icloud"))
+
+        XCTAssertEqual(store.versions(itemId: item).map(\.name), [kept.name])
+    }
+
+    /// A restore never silently drops the formats: no meta, no read.
+    func test_readThrowsWhenTheMetaIsGone() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let kept = try store.keep(priorBytes: Data("x".utf8), priorSidecar: ResearchTableSidecar(headerRows: 1),
+                                  writtenBy: .writer, itemId: item, device: mac, at: t0)
+        try FileManager.default.removeItem(at: folder(root).appendingPathComponent(kept.name + ".json"))
+        XCTAssertThrowsError(try store.read(kept)) { error in
+            XCTAssertEqual(error as? ResearchVersionStore.ReadError, .metaUnreadable(kept.name))
+        }
+    }
+
+    /// A crash mid-keep leaves a staged file, or this device's `.json` whose
+    /// `.csv` never landed: neither lists, and both are swept once stale; a
+    /// fresh one (a save in progress) and another device's lone `.json`
+    /// (its pair still arriving) stay.
+    func test_aCrashMidKeepLeavesNothingListed_andItsLeftoversAreSwept() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let dir = folder(root)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let staged = dir.appendingPathComponent(".staging-crash.csv")
+        let lone = dir.appendingPathComponent("20270115-080000-mac-a.json")
+        let fresh = dir.appendingPathComponent("20270115-090000-mac-a.json")
+        let theirs = dir.appendingPathComponent("20270115-080000-mac-b.json")
+        for url in [staged, lone, fresh, theirs] { try Data("{}".utf8).write(to: url) }
+        for url in [staged, lone, theirs] { try age(url) }
+
+        XCTAssertEqual(store.versions(itemId: item), [])
+        store.prune(itemId: item, device: mac)
+
+        XCTAssertEqual(try names(root), [theirs.lastPathComponent, fresh.lastPathComponent])
+
+        let next = try store.keep(priorBytes: Data("x".utf8), priorSidecar: nil, writtenBy: nil,
+                                  itemId: item, device: mac, at: t0)
+        XCTAssertEqual(next.name, "20270115-080000-mac-a", "the swept name is free again")
+    }
+
+    /// An item deleted for good: this device's lone `.json` goes with its
+    /// versions, and the emptied folder goes too.
+    func test_sweepOrphans_takesALoneMetaAndTheEmptiedFolder() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let gone = "res-gone0000"
+        try store.keep(priorBytes: Data("x".utf8), priorSidecar: nil, writtenBy: nil,
+                       itemId: gone, device: mac, at: t0)
+        try Data("{}".utf8).write(to: folder(root, gone).appendingPathComponent("20270115-090000-mac-a.json"))
+
+        store.sweepOrphans(liveItemIds: [], device: mac)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, gone).path))
     }
 }

@@ -14,9 +14,9 @@ public enum ResearchWriter: String, Codable, Equatable, Sendable {
 /// - `name` is the version's file stem, `<stamp>-<deviceSlug>[-n]`; its
 ///   `.csv` holds the prior bytes exactly and its `.json` the meta.
 /// - `savedAt` is when those bytes were superseded: the meta's, or the
-///   stamp's (to the second) when the meta can't be read here.
+///   stamp's (to the second) when the meta's date doesn't read.
 /// - `writtenBy` is whose bytes they were, nil when no one said (a sidecar
-///   from before 9d, or a meta not yet downloaded).
+///   from before 9d, or a value this build doesn't know).
 public struct ResearchVersion: Equatable, Hashable, Sendable {
     public let itemId: String
     public let name: String
@@ -49,8 +49,9 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
 ///   sibling and moved into place, a move onto an existing name fails, and the
 ///   next free `-2`, `-3`… is taken instead. Nothing is ever rewritten.
 /// - **Each device prunes only its own** (`prune`, `sweepOrphans`); the
-///   listing (`versions`) is every device's, newest first, derived by
-///   scanning — no shared counter.
+///   listing (`versions`) is every device's complete pairs, newest first,
+///   derived by scanning — no shared counter. A crash between the two moves
+///   leaves a lone `.json`, swept once stale (`sweepLeftovers`).
 /// - The item id comes from the synced manifest and a listed name from a
 ///   synced folder, so every path is resolved through `SafeRelativePath`
 ///   (`requireDocId` + `resolveFile`, tripwire 58); listings skip by NAME
@@ -79,9 +80,21 @@ public struct ResearchVersionStore: Sendable {
     /// gives up: far past any real burst of saves.
     public static let suffixLimit = 100
 
-    /// How old a staging file must be before `keep` sweeps it: one a crash
-    /// left behind, never another save's in progress.
+    /// How old a staging file, or this device's lone `.json`, must be before
+    /// it is swept: one a crash left behind, never a save in progress.
     public static let staleStagingAge: TimeInterval = 10 * 60
+
+    public enum ReadError: Error, LocalizedError, Equatable {
+        /// The version's `.json` is missing or not JSON: its bytes alone
+        /// would restore without their formats, so nothing is read.
+        case metaUnreadable(String)
+        public var errorDescription: String? {
+            switch self {
+            case .metaUnreadable(let name):
+                return "the research version \(name) has no readable record beside it; nothing was read"
+            }
+        }
+    }
 
     public enum KeepError: Error, LocalizedError, Equatable {
         case noFreeName(String)
@@ -143,9 +156,15 @@ public struct ResearchVersionStore: Sendable {
             return !n.isEmpty && n.allSatisfy(\.isASCIIDigitCharacter) && (Int(n) ?? 0) >= 2
         }
 
-        /// The `-n` this device's name carries (1 when none).
-        func suffix(for device: DeviceSlug) -> Int {
-            rest == device.raw ? 1 : Int(rest.dropFirst(device.raw.count + 1)) ?? 1
+        /// The `-n` the name carries, 1 when none: a last dash-part of one
+        /// to three digits, at least 2 (`suffixLimit` is 100; a real slug
+        /// ends in its eight-hex hash, never that short).
+        var suffix: Int {
+            guard let dash = rest.lastIndex(of: "-") else { return 1 }
+            let tail = rest[rest.index(after: dash)...]
+            guard (1...3).contains(tail.count), tail.allSatisfy(\.isASCIIDigitCharacter),
+                  let n = Int(tail), n >= 2 else { return 1 }
+            return n
         }
     }
 
@@ -197,17 +216,28 @@ public struct ResearchVersionStore: Sendable {
             named: SafeRelativePath.requireDocId(itemId), in: Self.folder, under: projectURL)
     }
 
-    /// The version stems in `itemId`'s folder: each `.csv` not dot-named,
-    /// whatever its hidden flag (`DotfileScan`). Empty for an id that cannot
-    /// name a file or a folder that isn't there.
-    private func stems(itemId: String) -> [String] {
+    /// What `itemId`'s folder holds, skipping dot-named entries by NAME
+    /// (`DotfileScan`, whatever the hidden flag — so a staging file and an
+    /// iCloud placeholder `.<name>.csv.icloud` are both skipped): the stems
+    /// with a `.csv`, and the stems with a `.json` and its modification date.
+    /// Empty for an id that cannot name a file or a folder that isn't there.
+    private func contents(itemId: String) -> (csv: Set<String>, json: [String: Date]) {
         guard let folderURL = try? itemFolderURL(itemId),
               let entries = try? FileManager.default.contentsOfDirectory(
-                at: folderURL, includingPropertiesForKeys: nil, options: [])
-        else { return [] }
-        return entries
-            .filter { !DotfileScan.isDotfile($0) && $0.pathExtension == "csv" }
-            .map { $0.deletingPathExtension().lastPathComponent }
+                at: folderURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [])
+        else { return ([], [:]) }
+        var csv: Set<String> = [], json: [String: Date] = [:]
+        for entry in entries where !DotfileScan.isDotfile(entry) {
+            let stem = entry.deletingPathExtension().lastPathComponent
+            switch entry.pathExtension {
+            case "csv": csv.insert(stem)
+            case "json":
+                json[stem] = (try? entry.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+            default: break
+            }
+        }
+        return (csv, json)
     }
 
     // MARK: - Keeping
@@ -225,7 +255,7 @@ public struct ResearchVersionStore: Sendable {
         let fm = FileManager.default
         let folderURL = try itemFolderURL(itemId)
         try fm.createDirectory(at: folderURL, withIntermediateDirectories: true)
-        Self.sweepStaleStaging(in: folderURL)
+        sweepLeftovers(itemId: itemId, device: device)
 
         let meta = Meta(savedAt: date, writtenBy: writtenBy,
                         contentHash: ContentHash.of(priorBytes), sidecar: priorSidecar)
@@ -270,50 +300,82 @@ public struct ResearchVersionStore: Sendable {
     // MARK: - Reading
 
     /// **Every kept version of `itemId`**, every device's, newest first (by
-    /// `savedAt`, then name). Derived from the folder's listing; a version
-    /// whose meta can't be read still lists, dated by its stamp. Empty for an
-    /// id that cannot name a file.
+    /// `savedAt`, then stamp, then the `-n` as a number). Derived from the
+    /// folder's listing. A version lists only once BOTH its `.csv` and a
+    /// readable `.json` are here: another device's pair can arrive one file
+    /// at a time, and a `.csv` alone would restore without its formats; a
+    /// meta that reads but whose fields don't is dated by its stamp.
+    ///
+    /// Another device's version iCloud has not downloaded yet (its files are
+    /// `.<name>.icloud` placeholders) is not listed until it arrives; the
+    /// listing asks for no download. Empty for an id that cannot name a file.
     public func versions(itemId: String) -> [ResearchVersion] {
-        stems(itemId: itemId).compactMap { name -> ResearchVersion? in
-            guard let parsed = Self.parse(name), let stamped = Self.stampDate(parsed.stamp) else { return nil }
-            let meta = try? readMeta(name, itemId: itemId)
-            return ResearchVersion(itemId: itemId, name: name,
-                                   savedAt: meta?.savedAt ?? stamped, writtenBy: meta?.writtenBy)
+        let (csv, json) = contents(itemId: itemId)
+        return csv.intersection(json.keys).compactMap { name -> (ResearchVersion, ParsedName)? in
+            guard let parsed = Self.parse(name), let stamped = Self.stampDate(parsed.stamp),
+                  let meta = try? readMeta(name, itemId: itemId) else { return nil }
+            return (ResearchVersion(itemId: itemId, name: name,
+                                    savedAt: meta.savedAt ?? stamped, writtenBy: meta.writtenBy), parsed)
         }
-        .sorted { ($0.savedAt, $0.name) > ($1.savedAt, $1.name) }
+        .sorted { a, b in
+            (a.0.savedAt, a.1.stamp, a.1.suffix, a.0.name) > (b.0.savedAt, b.1.stamp, b.1.suffix, b.0.name)
+        }
+        .map(\.0)
     }
 
     /// **A version's bytes and the sidecar that described them** (nil when
-    /// its meta is missing or held none). Throws when the bytes can't be read.
+    /// the table had none). Both files are read through a coordinated read,
+    /// so a file iCloud evicted since the listing is downloaded first. Throws
+    /// `ReadError.metaUnreadable` when the `.json` is missing or not JSON —
+    /// a restore never silently drops the formats — and whatever the read
+    /// throws for the bytes.
     public func read(_ version: ResearchVersion) throws -> (Data, ResearchTableSidecar?) {
-        let url = try fileURL(version.name + ".csv", itemId: version.itemId)
-        let bytes = try Data(contentsOf: url)  // adr-0018-ok: a kept Research table version, not manuscript
-        let meta = try? readMeta(version.name, itemId: version.itemId)
-        return (bytes, meta?.sidecar)
+        let meta: Meta
+        do { meta = try readMeta(version.name, itemId: version.itemId) } catch {
+            throw ReadError.metaUnreadable(version.name)
+        }
+        let bytes = try Self.coordinatedRead(fileURL(version.name + ".csv", itemId: version.itemId))
+        return (bytes, meta.sidecar)
     }
 
     private func readMeta(_ name: String, itemId: String) throws -> Meta {
-        let url = try fileURL(name + ".json", itemId: itemId)
-        let data = try Data(contentsOf: url)  // adr-0018-ok: a Research version's meta JSON, not manuscript
+        let data = try Self.coordinatedRead(fileURL(name + ".json", itemId: itemId))
         return try Self.decoder().decode(Meta.self, from: data)
+    }
+
+    /// `url`'s bytes under an `NSFileCoordinator` read, which brings an
+    /// evicted iCloud file down before the block runs.
+    private static func coordinatedRead(_ url: URL) throws -> Data {
+        var coordinationError: NSError?
+        var result: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            readingItemAt: url, options: [], error: &coordinationError) { readURL in
+            result = Result { try Data(contentsOf: readURL) }  // adr-0018-ok: a kept Research table version or its meta JSON, not manuscript
+        }
+        if let coordinationError { throw coordinationError }
+        return try result.get()
     }
 
     // MARK: - Pruning
 
-    /// **Removes `device`'s versions of `itemId` past the newest `keep`.**
+    /// **Removes `device`'s versions of `itemId` past the newest `keep`**
+    /// (by stamp, then the `-n` as a number), then this device's leftovers
+    /// (`sweepLeftovers`), and the item's folder if that left it empty.
     /// Another device's files are never touched (tripwire 17). A failed
     /// removal is left for the next prune.
     public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention) {
-        let own = stems(itemId: itemId)
+        let own = contents(itemId: itemId).csv
             .compactMap { name in Self.parse(name).flatMap { $0.isFrom(device) ? (name, $0) : nil } }
-            .sorted { ($0.1.stamp, $0.1.suffix(for: device)) > ($1.1.stamp, $1.1.suffix(for: device)) }
+            .sorted { ($0.1.stamp, $0.1.suffix) > ($1.1.stamp, $1.1.suffix) }
         for (name, _) in own.dropFirst(max(keep, 0)) { remove(name, itemId: itemId) }
+        sweepLeftovers(itemId: itemId, device: device)
+        removeFolderIfEmpty(itemId: itemId)
     }
 
-    /// **Removes `device`'s versions of every item not in `liveItemIds`** —
-    /// one deleted for good; an item in the Trash is live — and the item's
-    /// folder once nothing is left in it. Another device's files are never
-    /// touched (tripwire 17).
+    /// **Removes `device`'s files of every item not in `liveItemIds`** — one
+    /// deleted for good; an item in the Trash is live — a `.json` whose
+    /// `.csv` never landed included, and the item's folder once nothing is
+    /// left in it. Another device's files are never touched (tripwire 17).
     public func sweepOrphans(liveItemIds: Set<String>, device: DeviceSlug) {
         guard let root = try? SafeRelativePath.resolve(Self.folder, under: projectURL),
               let entries = try? FileManager.default.contentsOfDirectory(
@@ -322,13 +384,46 @@ public struct ResearchVersionStore: Sendable {
         for entry in entries where !DotfileScan.isDotfile(entry) {
             let itemId = entry.lastPathComponent
             guard !liveItemIds.contains(itemId) else { continue }
-            for name in stems(itemId: itemId) where Self.parse(name)?.isFrom(device) == true {
+            let (csv, json) = contents(itemId: itemId)
+            for name in csv.union(json.keys) where Self.parse(name)?.isFrom(device) == true {
                 remove(name, itemId: itemId)
             }
-            // `rmdir` removes the folder only when it is empty: another
-            // device's versions, or one arriving, keep it.
-            if let folderURL = try? itemFolderURL(itemId) { _ = rmdir(folderURL.path) }
+            sweepLeftovers(itemId: itemId, device: device)
+            removeFolderIfEmpty(itemId: itemId)
         }
+    }
+
+    /// **What a crash mid-`keep` left in `itemId`'s folder**, once older than
+    /// `staleStagingAge` (never another save's in progress): any `.staging-*`
+    /// file, and `device`'s own `.json` whose `.csv` never landed. Another
+    /// device's lone `.json` is its pair still arriving, and stays.
+    func sweepLeftovers(itemId: String, device: DeviceSlug, now: Date = Date()) {
+        let fm = FileManager.default
+        guard let folderURL = try? itemFolderURL(itemId) else { return }
+        // The staging files are dot-named on purpose, so this listing never
+        // skips hidden files.
+        let entries = (try? fm.contentsOfDirectory(
+            at: folderURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-") {
+            guard let stamp = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate,
+                  now.timeIntervalSince(stamp) > Self.staleStagingAge else { continue }
+            try? fm.removeItem(at: entry)  // raw-delete: derived, a crashed save's staging file
+        }
+        let (csv, json) = contents(itemId: itemId)
+        for (name, modified) in json where !csv.contains(name)
+            && now.timeIntervalSince(modified) > Self.staleStagingAge
+            && Self.parse(name)?.isFrom(device) == true {
+            if let url = try? fileURL(name + ".json", itemId: itemId) {
+                try? fm.removeItem(at: url)  // raw-delete: derived, a crashed save's lone meta
+            }
+        }
+    }
+
+    /// `rmdir` removes the folder only when it is empty: another device's
+    /// versions, or one arriving, keep it.
+    private func removeFolderIfEmpty(itemId: String) {
+        if let folderURL = try? itemFolderURL(itemId) { _ = rmdir(folderURL.path) }
     }
 
     private func remove(_ name: String, itemId: String) {
@@ -338,22 +433,6 @@ public struct ResearchVersionStore: Sendable {
         }
         if let url = try? fileURL(name + ".json", itemId: itemId) {
             try? fm.removeItem(at: url)  // raw-delete: derived, a kept Research version's meta
-        }
-    }
-
-    /// Removes the `.staging-*` files in `folder` older than
-    /// `staleStagingAge`. The staging files are dot-named on purpose, so this
-    /// listing never skips hidden files.
-    static func sweepStaleStaging(in folder: URL, now: Date = Date()) {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
-        else { return }
-        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-") {
-            guard let stamp = try? entry.resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate,
-                  now.timeIntervalSince(stamp) > staleStagingAge else { continue }
-            try? fm.removeItem(at: entry)  // raw-delete: derived, a crashed save's staging file
         }
     }
 
