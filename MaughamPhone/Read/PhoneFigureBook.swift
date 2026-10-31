@@ -12,7 +12,8 @@ import MaughamCore
 /// which would draw an empty table as though it were real (tripwire 18). A
 /// figure whose files will not download, whose stream will not read, or whose
 /// read folds to no kind or another kind than its record's, is left out — no
-/// card, and a formula reading it is `#REF!` — never shown empty.
+/// card — and so is every figure reading it, transitively; never shown empty
+/// or as a `#REF!` the author did not write.
 ///
 /// **Trust is resolved once per load** and that one table is handed to every
 /// read; resolving it is Core's `TrustResolution`, not a decision made here.
@@ -107,6 +108,17 @@ final class PhoneFigureBook {
         readable.figures = records.filter { states[$0.id] != nil }
         let assembled = FigureWorkbook.assemble(
             for: readable, cache: cache, projectURL: projectURL, trust: trust)
+
+        // A figure reading a left-out one, directly or through another, is
+        // left out too until its inputs arrive: on a read-only phone its
+        // `#REF!` would read as the author's broken formula. Core's
+        // `tablesReading` answers who reads a figure, transitively; a reference
+        // to a figure the registry no longer holds is not left out, so the
+        // author's own `#REF!` still shows.
+        let leftOut = Set(records.map(\.id)).subtracting(states.keys)
+        for id in leftOut {
+            for reader in assembled.workbook.tablesReading(id) { states[reader] = nil }
+        }
 
         let built = FigureCardBook.build(
             records: records, states: states, workbook: assembled.workbook,

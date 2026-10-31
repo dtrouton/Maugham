@@ -219,6 +219,56 @@ final class PhoneFigureBookTests: XCTestCase {
         XCTAssertEqual(loaded?.models[imageId]?.kind, .image)
     }
 
+    /// A one-cell table figure whose A1 holds `content`, written through Core.
+    private func oneCellFigure(_ id: String, _ content: CellContent, in root: URL) async throws {
+        try await write([
+            op(id, .figureCreate, FigureOpPayload(kind: .table)),
+            op(id, .figureStructure, FigureOpPayload(structure: .insertRow(rows[0], after: nil))),
+            op(id, .figureStructure, FigureOpPayload(structure: .insertColumn(cols[0], after: nil))),
+            op(id, .figureCellSet, FigureOpPayload(
+                cell: CellKey(row: rows[0], column: cols[0]), next: Cell(content: content), prior: nil)),
+        ], docId: id, in: root)
+    }
+
+    /// `=<name>!A1` parsed against a one-cell table, the name bound to `id`.
+    private func readsA1(of name: String, id: String) throws -> CellContent {
+        let one = FigureTable(rows: 1, columns: 1)
+        let names = FormulaNames(figures: [.init(id: id, name: name, table: one)])
+        guard case .success(let f) = FormulaParser.parse("\(name)!A1", in: one, names: names) else {
+            XCTFail("\(name)!A1 did not parse"); throw CancellationError()
+        }
+        return .formula(f)
+    }
+
+    func test_aFigureReadingALeftOutOne_isLeftOutTransitively_butAnAuthorsREFShows() async throws {
+        let root = TestTemp.root.appendingPathComponent("PhoneFigureBook-\(UUID().uuidString)")
+        let a = "fig-aaaa0001", b = "fig-bbbb0002", c = "fig-cccc0003", d = "fig-dddd0004"
+        try await oneCellFigure(a, .value(.number(5)), in: root)
+        try await oneCellFigure(b, try readsA1(of: "alpha", id: a), in: root)
+        try await oneCellFigure(c, try readsA1(of: "beta", id: b), in: root)
+        // D reads a figure the registry no longer holds: the author's own #REF!.
+        try await oneCellFigure(d, try readsA1(of: "ghost", id: "fig-eeee0005"), in: root)
+        let records = [("alpha", a), ("beta", b), ("gamma", c), ("delta", d)].map {
+            FigureRecord(id: $0.1, name: $0.0, kind: .table, piece: nil, path: "figures/\($0.0).csv")
+        }
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [], figures: records)
+
+        let aFile = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: a, in: root).first)
+        let downloader = EvictingDownloader(neverRestoring: [aFile.lastPathComponent])
+        try downloader.evict(aFile)
+        let book = loader(downloader)
+        let result = await book.load(manifest: manifest, projectURL: root)
+        let loaded = try XCTUnwrap(result)
+
+        XCTAssertNil(loaded.models[a], "evicted")
+        XCTAssertNil(loaded.models[b], "reads the evicted figure: no #REF! the author did not write")
+        XCTAssertNil(loaded.models[c], "reads it through B")
+        XCTAssertEqual(shown(loaded.models[d]), [FormulaError.ref.rawValue],
+                       "a reference to a figure that no longer exists is the author's #REF!, still shown")
+    }
+
     func test_trustResolvesOncePerLoad() async throws {
         let (root, manifest) = try await fixture(withImage: true)
         let calls = Counter()
