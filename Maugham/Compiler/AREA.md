@@ -69,7 +69,7 @@ Every file in `Maugham/Compiler/` appears once.
 - `GlossBriefing.swift` / `GlossReport.swift` — the gloss spot-check; no source field.
 - `SpotCheck.swift` — Gloss and Ask the Collator: `gloss`, `askTheCollator`, `neighbours(of:in:)`, `narrow(_:to:)`.
 - `BriefingDoctrine.swift` — directives and the glossary read off statement markdown (`Directives`, `GlossaryTable`).
-- `TranslationPreflight.swift` — the desk's "7 legs · ~N words briefed" figure (`budgets`, `budget`, `wordCount`).
+- `TranslationPreflight.swift` — the desk's "7 legs · ~N words briefed" figure (`budgets`, `budget`, `wordCount`, `cellWords`: the briefed table cells).
 
 ### `Maugham/Models/` files routed here
 - `Maugham/Models/AuthorReader.swift` — who reads a CHECK: the coach, a first reader, or nobody (tripwire 34).

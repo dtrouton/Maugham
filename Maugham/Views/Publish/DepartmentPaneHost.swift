@@ -1146,9 +1146,13 @@ struct DepartmentPaneHost: View {
             // writer is weighing. It says which file instead — in the row,
             // rather than relying on `report.unreadable` above happening to
             // name the same file on the same pass.
-            bookBudgets = .over(
+            // Async since the figure counts the tables' cells (report plan
+            // 9e-2); a pass the key has since cancelled keeps its stale answer
+            // to itself.
+            let budgets: TranslationPreflight.Budgets = await .over(
                 documentIds: documentIds, languages: report.rows.map(\.language),
                 store: store, documentStore: documentStore, projectURL: projectURL)
+            if !Task.isCancelled { bookBudgets = budgets }
         }
 
         do {
@@ -1188,9 +1192,10 @@ struct DepartmentPaneHost: View {
             return
         }
         // The book figure's own rule, over one chapter (P2a D0).
-        chapterBudgets = .over(
+        let budgets: TranslationPreflight.Budgets = await .over(
             documentIds: [docId], languages: languages.map(\.language),
             store: store, documentStore: documentStore, projectURL: projectURL)
+        if !Task.isCancelled { chapterBudgets = budgets }
     }
 
     /// **Whether a pre-flight is worth taking now.**

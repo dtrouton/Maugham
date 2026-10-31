@@ -4,8 +4,11 @@ import MaughamCore
 /// **"7 legs · ~N words briefed"** (spec §5's pre-flight): what a Run will send,
 /// as a number the writer can weigh before the click. N is the source words
 /// plus the translated words of every document in the set — the two texts the
-/// legs are briefed with. `Bootstrap`'s own whitespace split, so the figure
-/// agrees with the checkpoint's word count.
+/// legs are briefed with — plus the table cells the translator leg is briefed
+/// (report plan 9e-2): each missing or stale label's source text and a stale
+/// one's prior translation, every table once however many pieces use it.
+/// `Bootstrap`'s own whitespace split, so the figure agrees with the
+/// checkpoint's word count.
 enum TranslationPreflight {
 
     /// **What a pre-flight pass answered** (P2a D0, fix round 1).
@@ -53,9 +56,9 @@ enum TranslationPreflight {
         static func over(
             documentIds: [String], languages: [String],
             store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
-        ) -> Budgets {
+        ) async -> Budgets {
             do {
-                return .counted(try TranslationPreflight.budgets(
+                return .counted(try await TranslationPreflight.budgets(
                     documentIds: documentIds, languages: languages, store: store,
                     documentStore: documentStore, projectURL: projectURL))
             } catch {
@@ -72,6 +75,12 @@ enum TranslationPreflight {
     static func sum(source: [String], translations: [String?]) -> Int {
         source.map(wordCount).reduce(0, +)
             + translations.compactMap { $0 }.map(wordCount).reduce(0, +)
+    }
+
+    /// The words one table's briefed cells carry: each cell's source text and
+    /// a stale cell's prior translation — what the translator leg is shown.
+    static func cellWords(_ work: TableCellWork) -> Int {
+        sum(source: work.cells.map(\.sourceText), translations: work.cells.map(\.priorTranslation))
     }
 
     /// **Every edition's budget over one set of documents, opening each
@@ -97,13 +106,21 @@ enum TranslationPreflight {
     /// line `EditionStatus` puts up in the same pass for the same file.
     /// Distinct from the unreadable STATE above, which stays a per-document
     /// skip: that one is the document, and it is already reported.
+    ///
+    /// **The table cells are the translator round's own gather**
+    /// (`Environment.tableCellWork`, posture-filtered, missing and stale
+    /// only), so the figure counts exactly the labels a Run would brief. A
+    /// table used by two pieces of the set is counted once per language: the
+    /// first piece's round labels it, the second finds it fresh (R6). A used
+    /// table whose translation file will not read throws, the paragraphs' rule.
     @MainActor
     static func budgets(documentIds: [String], languages: [String],
                         store: ProjectStore, documentStore: DocumentStore?,
-                        projectURL: URL) throws -> [String: Int] {
+                        projectURL: URL) async throws -> [String: Int] {
         guard !languages.isEmpty else { return [:] }
         var totals: [String: Int] = [:]
         var counted = false
+        var tablesCounted: [String: Set<String>] = [:]
         for docId in documentIds {
             guard let state = try? currentParagraphState(
                 documentId: docId, store: store, documentStore: documentStore,
@@ -118,6 +135,15 @@ enum TranslationPreflight {
                 totals[language, default: 0] += sum(
                     source: derived.entries.map(\.sourceText),
                     translations: derived.entries.map(\.translatedText))
+            }
+            let cells = try await TranslatorOrchestrator.Environment.tableCellWork(
+                docId: docId, languages: languages, state: (state.sequence, state.paragraphs),
+                store: store, documentStore: documentStore, projectURL: projectURL)
+            for language in languages {
+                for work in cells[language] ?? []
+                where tablesCounted[language, default: []].insert(work.figureId).inserted {
+                    totals[language, default: 0] += cellWords(work)
+                }
             }
         }
         guard counted else { return [:] }
@@ -135,8 +161,8 @@ enum TranslationPreflight {
     /// state.
     @MainActor
     static func budget(documentIds: [String], language: String, store: ProjectStore,
-                       documentStore: DocumentStore?, projectURL: URL) throws -> Int? {
-        try budgets(documentIds: documentIds, languages: [language], store: store,
-                    documentStore: documentStore, projectURL: projectURL)[language]
+                       documentStore: DocumentStore?, projectURL: URL) async throws -> Int? {
+        try await budgets(documentIds: documentIds, languages: [language], store: store,
+                          documentStore: documentStore, projectURL: projectURL)[language]
     }
 }

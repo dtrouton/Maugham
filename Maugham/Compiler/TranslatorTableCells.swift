@@ -76,29 +76,49 @@ extension TranslatorOrchestrator.Environment {
         docId: String, language: String, state: (sequence: [String], paragraphs: [String: String]),
         store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
     ) async throws -> [TableCellWork] {
-        guard let documentStore,
+        try await tableCellWork(
+            docId: docId, languages: [language], state: state, store: store,
+            documentStore: documentStore, projectURL: projectURL)[language] ?? []
+    }
+
+    /// `tableCellWork(docId:language:…)` for several languages at once — the
+    /// tables, their posture and the trust resolved ONCE, each language's
+    /// coverage derived over them (the desk's pre-flight asks every edition
+    /// of one chapter in a pass). Every language asked is a key, `[]` when
+    /// its tables are done.
+    @MainActor
+    static func tableCellWork(
+        docId: String, languages: [String], state: (sequence: [String], paragraphs: [String: String]),
+        store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
+    ) async throws -> [String: [TableCellWork]] {
+        let none = Dictionary(languages.map { ($0, [TableCellWork]()) }, uniquingKeysWith: { a, _ in a })
+        guard !languages.isEmpty, let documentStore,
               (store.manifest.figures ?? []).contains(where: { $0.kind == .table }),
               let path = TreeWalk.find(id: docId, in: store.manifest.structure)?.path
-        else { return [] }
+        else { return none }
         let piece = FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs)
         let figures = await documentStore.translationFigures()
         let used = FigureUse.tables(in: [piece], figures: figures).readable.filter {
             documentStore.translationPosture(forDocId: $0.record.id, as: .translator)
                 .allows(.translate)
         }
-        guard !used.isEmpty else { return [] }
+        guard !used.isEmpty else { return none }
         let trust = try await documentStore.figureTrust()
         return try await Task.detached(priority: .userInitiated) {
-            try used.compactMap { use in
-                let derived: FigureTranslatedTable
-                do {
-                    derived = try FigureUse.coverage(
-                        of: use, language: language, projectURL: projectURL, trust: trust).derived
-                } catch {
-                    throw UnreadableTable(name: use.record.name, underlying: error)
+            var out = none
+            for language in languages {
+                out[language] = try used.compactMap { use in
+                    let derived: FigureTranslatedTable
+                    do {
+                        derived = try FigureUse.coverage(
+                            of: use, language: language, projectURL: projectURL, trust: trust).derived
+                    } catch {
+                        throw UnreadableTable(name: use.record.name, underlying: error)
+                    }
+                    return TableCellWork.work(for: use, derived: derived)
                 }
-                return TableCellWork.work(for: use, derived: derived)
             }
+            return out
         }.value
     }
 

@@ -17,10 +17,10 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
     /// With `register`, another Mac roots the book and admits this one as an
     /// author of the whole book before the window opens.
     private func openBook(
-        chapterA: String, register: Bool = false
+        chapterA: String, chapterB: String = "Chapter B.\n", register: Bool = false
     ) async throws -> (DocumentStore, ProjectStore, root: DeviceIdentity?) {
         try chapterA.write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
-        try "Chapter B.\n".write(to: file("manuscript/b.md"), atomically: true, encoding: .utf8)
+        try chapterB.write(to: file("manuscript/b.md"), atomically: true, encoding: .utf8)
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
             structure: [
@@ -532,6 +532,92 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         round.tableCells = .init(written: 2, refusals: ["Table cash: refused"])
         XCTAssertTrue(TranslationRoundReport.countsLine(round).hasSuffix("2 table cells labelled"))
         XCTAssertEqual(TranslationRoundReport.tableCellRefusals(round), ["Table cash: refused"])
+    }
+
+    // MARK: - Preflight and the other legs (Task 4)
+
+    private func budgets(_ ds: DocumentStore, _ store: ProjectStore,
+                         _ documentIds: [String]) async throws -> [String: Int] {
+        try await TranslationPreflight.budgets(
+            documentIds: documentIds, languages: ["es", "fr"], store: store,
+            documentStore: ds, projectURL: projectURL)
+    }
+
+    /// **The pre-flight counts the table cells a Run would brief**: the five
+    /// labels' words land on top of the paragraphs', a table used by both
+    /// chapters is counted once for the book (its first piece's round labels
+    /// it), and a stale label adds its prior translation — what the
+    /// translator is shown. The control: the same book before the table
+    /// existed. The disable experiment: drop the cells from `budgets` and
+    /// every figure equals the control.
+    func test_thePreflightCountsTheCellsARunWouldBrief() async throws {
+        let line = "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n"
+        let (ds, store, _) = try await openBook(chapterA: line, chapterB: line)
+        let chapterBefore = try await budgets(ds, store, ["doc-a"])
+        let bookBefore = try await budgets(ds, store, ["doc-a", "doc-b"])
+
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let chapter = try await budgets(ds, store, ["doc-a"])
+        XCTAssertEqual(chapter["es"], chapterBefore["es"].map { $0 + 5 },
+                       "Item, Q1, Q2, Rent and Food")
+        XCTAssertEqual(chapter["fr"], chapterBefore["fr"].map { $0 + 5 })
+        let book = try await budgets(ds, store, ["doc-a", "doc-b"])
+        XCTAssertEqual(book["es"], bookBefore["es"].map { $0 + 5 }, "the shared table once")
+
+        // Spanish labelled — Item then edited — leaves one stale label: its
+        // source and its prior answer are what a Run would brief.
+        try await write(["Item", "Q1", "Q2", "Rent", "Food"].enumerated().map { index, word in
+            let (r, c) = index < 3 ? (0, index) : (index - 2, 0)
+            return .init(key: key(live, r, c), text: Self.spanish[word])
+        }, figureId: record.id, table: live)
+        let host = try await ds.openFigure(figureId: record.id)
+        try await host.setCell(Cell(content: .value(.text("Line item"))), at: key(live, 0, 0))
+        await ds.awaitOpenFigureRenderForTesting()
+        await ds.closeFigure(figureId: record.id)
+        let stale = try await budgets(ds, store, ["doc-a"])
+        XCTAssertEqual(stale["es"], chapterBefore["es"].map { $0 + 3 },
+                       "\"Line item\" and its prior \"Concepto\"")
+    }
+
+    /// **The spot-check, collator and cold legs see no cells** (plan
+    /// ruling): after a round labels the chapter's table, the reader's and
+    /// the collator's production briefings — the cold legs', and the base
+    /// Ask the Collator narrows — brief the chapter's paragraphs alone: no
+    /// cell id, no label, no Spanish label. Their inputs, and the gloss's,
+    /// have no field a cell could ride in.
+    func test_theReaderCollatorAndGlossLegsSeeNoCells() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+        let outcome = await ingest(answer(round), round, environment)
+        XCTAssertEqual(outcome.cellsWritten, 5, "premise: the table is labelled")
+        let sequence = try currentParagraphState(
+            documentId: "doc-a", store: store, documentStore: ds, projectURL: projectURL).sequence
+
+        let reader = try XCTUnwrap(try TranslationPipeline.Environment.readerBriefing(
+            docId: "doc-a", language: "es", store: store, documentStore: ds, projectURL: projectURL))
+        let collator = try XCTUnwrap(try TranslationPipeline.Environment.collatorBriefing(
+            docId: "doc-a", language: "es", store: store, documentStore: ds, projectURL: projectURL))
+        XCTAssertEqual(reader.paragraphs.map(\.paragraphId), sequence)
+        XCTAssertEqual(collator.pairs.map(\.paragraphId), sequence)
+        for message in [ReaderBriefing.compose(inputs: reader), CollatorBriefing.compose(inputs: collator)] {
+            for absent in ["Concepto", "Alquiler", "Comida", "Q1", "[Table:", record.id] {
+                XCTAssertFalse(message.contains(absent), "a cold leg was briefed \(absent)")
+            }
+        }
+        let gloss = GlossBriefing.Inputs(
+            language: "Spanish", authorLanguage: "English", textureLine: nil,
+            before: nil, paragraph: "Hola.", after: nil)
+        for inputs in [Mirror(reflecting: reader), Mirror(reflecting: collator), Mirror(reflecting: gloss)] {
+            let fields = inputs.children.compactMap(\.label)
+            XCTAssertFalse(fields.contains { $0.lowercased().contains("cell") }, "\(fields)")
+            XCTAssertFalse(fields.contains { $0.lowercased().contains("table") }, "\(fields)")
+        }
     }
 
     // MARK: - The register
