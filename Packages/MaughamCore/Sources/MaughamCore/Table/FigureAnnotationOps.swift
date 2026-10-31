@@ -10,8 +10,9 @@ import Foundation
 ///   `FigureDeriver`, so it stays a suggestion.
 /// - **Accept is one op**: a `claudeAccept` carrying the same payload (the cell
 ///   it writes) and `sourceAnnotationId`. Its undo is a `claudeAcceptRevert`
-///   carrying the inverse cell. `FigureDeriver` folds either as the cell set
-///   its payload is (`FigureOpPayload.foldKind`).
+///   carrying the inverse cell, minted by the host from `FigureInverse` with
+///   `lifecycleProvenance`. `FigureDeriver` folds either as the cell set its
+///   payload is (`FigureOpPayload.foldKind`).
 ///
 /// A builder makes the op and decides nothing about who may append it, whether
 /// the anchor is still live (RULING-5) or whether the note is withdrawn
@@ -94,12 +95,11 @@ public enum FigureAnnotationOps {
                   figure: FigureOpPayload(cell: cell, next: next, prior: prior))
     }
 
-    /// Undo an accept: a `claudeAcceptRevert` carrying the inverse cell — `restoring`
-    /// (what the accept replaced) over `replacing` (what the cell holds now).
-    public static func acceptRevert(annotationId: String, cell: CellKey, restoring: Cell?,
-                                    replacing: Cell?, stamp: Stamp) -> Op {
-        lifecycle(.claudeAcceptRevert, annotationId, stamp,
-                  figure: FigureOpPayload(cell: cell, next: restoring, prior: replacing))
+    /// **A status-only accept**: the note back to accepted with no cell
+    /// written — what a stet's or archive's ⌘Z puts back over a note that was
+    /// accepted (its cell was never taken back). Folds as nothing.
+    public static func statusOnlyAccept(annotationId: String, stamp: Stamp) -> Op {
+        lifecycle(.claudeAccept, annotationId, stamp)
     }
 
     // MARK: - Dispositions
@@ -123,11 +123,12 @@ public enum FigureAnnotationOps {
     /// answers (`sourceAnnotationId`), a rejection's reason, and the stamp's
     /// session and versions. Also what a host stamps on an accept or revert
     /// it re-mints as a compensation (a grid visit's undo and redo).
+    /// `sourceCheckpoint` names the checkpoint a restore's revert came from.
     public static func lifecycleProvenance(
-        annotationId: String, userResponse: String? = nil, stamp: Stamp
+        annotationId: String, userResponse: String? = nil, sourceCheckpoint: String? = nil, stamp: Stamp
     ) -> Op.Provenance {
         Op.Provenance(
-            sessionId: stamp.session, sourceAnnotationId: annotationId,
+            sessionId: stamp.session, sourceCheckpoint: sourceCheckpoint, sourceAnnotationId: annotationId,
             userResponse: userResponse, appVersion: stamp.appVersion, osVersion: stamp.osVersion)
     }
 

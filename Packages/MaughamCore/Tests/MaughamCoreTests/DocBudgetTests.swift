@@ -16,7 +16,7 @@ final class DocBudgetTests: XCTestCase {
         "docs/testing/TROUBLESHOOTING.md": 4_506,
         "docs/INDEX.md": 466,
         "Maugham/Canvas/AREA.md": 7_951,
-        "Maugham/OpLog/AREA.md": 7_990,
+        "Maugham/OpLog/AREA.md": 7_987,
         "Maugham/Views/AREA.md": 7_945,
         "Maugham/Compiler/AREA.md": 7_891,
         "Maugham/Stores/AREA.md": 7_997,

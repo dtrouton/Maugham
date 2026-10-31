@@ -545,17 +545,8 @@ public final class FigureDocument {
         let prior = state.table[key]
         guard prior != cell else { return }
         var entryPins: [PinWrite] = []
-        // The cheap gate is syntactic (`FigurePins.readsResearch`): it needs
-        // no parked set or book; the entry itself reads the real ones.
-        if case .formula(let f)? = cell?.content, FigurePins.readsResearch(f), let documentStore {
-            var probe = state
-            probe.table.setCell(cell, at: key)
-            do {
-                entryPins = try await documentStore.entryPins(for: probe, cells: [key])
-            } catch {
-                documentLog.error(
-                    "figure \(self.figureId, privacy: .public): a formula's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
-            }
+        if let pins = await researchEntryPins(writing: cell, at: key) {
+            entryPins = pins
             // The read awaited: the door and the cell are asked again.
             try await requireWritable("setCell")
             guard isLive(key), state.table[key] == prior else {
@@ -564,20 +555,7 @@ public final class FigureDocument {
         }
         let op = try await commit(
             .figureCellSet, FigureOpPayload(cell: key, next: cell, prior: prior), render: entryPins.isEmpty)
-        var pinOps: [Op] = []
-        var pinFailure: Error?
-        if !entryPins.isEmpty {
-            do {
-                for w in entryPins {
-                    pinOps.append(try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false))
-                }
-            } catch {
-                documentLog.error(
-                    "figure \(self.figureId, privacy: .public): a formula's pins were not all written: \(error.localizedDescription, privacy: .public)")
-                pinFailure = error
-            }
-            await documentStore?.figureHostAppended(figureId)
-        }
+        let (pinOps, pinFailure) = await appendEntryPins(entryPins)
         let pinned = pinOps.compactMap { op in op.figure.flatMap { p in p.cell.flatMap { c in p.pin.map { (c, $0) } } } }
         registerFigureUndo(
             undoManager, actionName: "Edit Cell", forward: op, alongside: pinOps,
@@ -590,6 +568,46 @@ public final class FigureDocument {
                 await d.redoing { try await d.setCell(cell, at: key, undoManager: undoManager) }
             })
         if let pinFailure { throw pinFailure }
+    }
+
+    /// **The pins a cell write takes from the Research it reads** (spec
+    /// §4.3) — `setCell`'s and an accepted suggestion's one probe. Nil when
+    /// the cell reads no Research or no window holds the figure: nothing was
+    /// awaited. Otherwise the entry pins (none when the sources did not
+    /// read), and the caller asks its doors and its cell again, because the
+    /// read awaited. The cheap gate is syntactic (`FigurePins.readsResearch`):
+    /// it needs no parked set or book; the entry itself reads the real ones.
+    func researchEntryPins(writing cell: Cell?, at key: CellKey) async -> [PinWrite]? {
+        guard case .formula(let f)? = cell?.content, FigurePins.readsResearch(f), let documentStore else { return nil }
+        var probe = state
+        probe.table.setCell(cell, at: key)
+        do {
+            return try await documentStore.entryPins(for: probe, cells: [key])
+        } catch {
+            documentLog.error(
+                "figure \(self.figureId, privacy: .public): a formula's Research sources did not read, so it takes no pins: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
+    /// **Append a cell write's entry pins** after it, then render once: the
+    /// ops that landed (they join the write's ⌘Z) and the append failure, if
+    /// one stopped them. Nothing, and no render, for no pins.
+    func appendEntryPins(_ pins: [PinWrite]) async -> (ops: [Op], failure: Error?) {
+        guard !pins.isEmpty else { return ([], nil) }
+        var ops: [Op] = []
+        var failure: Error?
+        do {
+            for w in pins {
+                ops.append(try await commit(.figurePinSet, FigureOpPayload(cell: w.cell, pin: w.pin), render: false))
+            }
+        } catch {
+            documentLog.error(
+                "figure \(self.figureId, privacy: .public): a formula's pins were not all written: \(error.localizedDescription, privacy: .public)")
+            failure = error
+        }
+        await documentStore?.figureHostAppended(figureId)
+        return (ops, failure)
     }
 
     /// Insert a row after `after` (nil = first). Answers its minted id.
@@ -1542,15 +1560,29 @@ public final class FigureDocument {
         let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
         let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
         let reason = Op.Provenance(sourceCheckpoint: checkpointId)
+        let (restoreChanges, noteLines) = answeringStrandedAccepts(tableChanges, above: pointer, target: target)
         // Every change was worked out against this fold: a reload replaces it.
         let generation = reloadGeneration
         var appended = 0
         var stop: FigureRestoreOutcome.Stop?
         do {
-            for change in tableChanges {
+            for change in restoreChanges {
                 if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
                 guard reloadGeneration == generation else { stop = .changedElsewhere; break }
-                try await commit(change.kind, change.payload, provenance: reason, render: false)
+                let provenance = change.sourceAnnotationId.map {
+                    FigureAnnotationOps.lifecycleProvenance(
+                        annotationId: $0, sourceCheckpoint: checkpointId, stamp: noteStamp)
+                } ?? reason
+                try await commit(change.kind, change.payload, provenance: provenance, render: false)
+                appended += 1
+            }
+            // A stranded accept whose cell the restore did not write: the
+            // note is reopened (its cell already stands as it did then) or
+            // archived (its cell is gone then), status only.
+            for (kind, id) in noteLines where stop == nil {
+                guard reloadGeneration == generation else { stop = .changedElsewhere; break }
+                try await commit(kind, nil, provenance: FigureAnnotationOps.lifecycleProvenance(
+                    annotationId: id, sourceCheckpoint: checkpointId, stamp: noteStamp), render: false)
                 appended += 1
             }
             if stop == nil, restoresPicture, let picture {
@@ -1573,11 +1605,47 @@ public final class FigureDocument {
             stop = .notRecorded(error.localizedDescription)
         }
         if appended > 0 { await documentStore?.figureHostAppended(figureId) }
+        if !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }), appended > 0 {
+            MaughamEvent.postAnnotationsChanged(docId: figureId, projectURL: projectURL)
+        }
         if let stop { return .partlyRestored(opCount: appended, why: stop) }
         if let pictureChange, !restoresPicture {
             return .skippedPicture(hash: pictureChange.contentHash, opCount: appended)
         }
         return appended == 0 ? .unchanged : .restored(opCount: appended)
+    }
+
+    /// **A restore never strands an accepted note** (RULING-28, as the
+    /// manuscript's restore): a figure suggestion accepted after `pointer`,
+    /// and still accepted, has its cell put back by the restore — so that
+    /// cell's change becomes the note's `claudeAcceptRevert` (cell and note in
+    /// one op). Where the restore writes no change to its cell, the note is
+    /// reopened by a status-only revert; where the cell is gone then, it is
+    /// archived. Answers the restore's changes and those status-only lines.
+    private func answeringStrandedAccepts(
+        _ changes: [FigureReturnDiff.Change], above pointer: String, target: FigureState
+    ) -> ([FigureReturnDiff.Change], [(OpKind, String)]) {
+        let accepted = Set(annotations().filter { $0.status == .accepted }.map(\.id))
+        var latest: [String: Op] = [:]
+        for op in _ops where Self.noteLifecycleKinds.contains(op.kind) {
+            guard let id = op.provenance?.sourceAnnotationId, accepted.contains(id) else { continue }
+            if latest[id].map({ op.opId > $0.opId }) ?? true { latest[id] = op }
+        }
+        var stranded = latest.compactMap { id, op -> (id: String, cell: CellKey)? in
+            guard op.kind == .claudeAccept, op.opId > pointer, let cell = op.figure?.cell else { return nil }
+            return (id, cell)
+        }.sorted { $0.id < $1.id }
+        let answered = changes.map { change -> FigureReturnDiff.Change in
+            guard change.kind == .figureCellSet, let cell = change.payload.cell,
+                  let i = stranded.firstIndex(where: { $0.cell == cell }) else { return change }
+            let id = stranded.remove(at: i).id
+            return FigureReturnDiff.Change(kind: .claudeAcceptRevert, payload: change.payload, sourceAnnotationId: id)
+        }
+        let lines = stranded.map { note -> (OpKind, String) in
+            let live = target.table.rowIndex(of: note.cell.row) != nil && target.table.columnIndex(of: note.cell.column) != nil
+            return (live ? .claudeAcceptRevert : .claudeArchive, note.id)
+        }
+        return (answered, lines)
     }
 
     /// Test seam: runs in `restoreToCheckpoint` between one landed op and the
@@ -1826,6 +1894,11 @@ public final class FigureDocument {
     ) async -> Bool {
         guard !isClosed else { return false }
         guard await mayEditHere() else { decline(.notPermitted); return false }
+        // A compensation that reopens or re-accepts a note answers it too:
+        // the disposition door the forward accept asked.
+        if ops.contains(where: { $0.sourceAnnotationId != nil }), await !mayHere(.acceptOrReject) {
+            decline(.notPermitted); return false
+        }
         // After the door's await, so nothing lands between the check
         // and the append. A parked figure folds nothing (ruling P-5).
         guard state.parked == nil else { decline(.parked(state.kind)); return false }

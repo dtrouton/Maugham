@@ -147,6 +147,18 @@ final class FigureAnnotationOpsTests: XCTestCase {
         try XCTUnwrap(derive(base() + ops).first { $0.id == id }).status
     }
 
+    /// An accept's revert as a host mints it: `FigureInverse` of its payload,
+    /// stamped with `lifecycleProvenance` (no builder spells it twice).
+    private func revert(of accept: Op) throws -> Op {
+        let inv = try XCTUnwrap(FigureInverse.inverse(of: try XCTUnwrap(accept.figure), kind: accept.kind))
+        let st = stamp()
+        return Op(opId: ULID.generate(), docId: figureId, at: st.at, device: st.device, session: st.session,
+                  kind: inv.0, changes: [],
+                  provenance: FigureAnnotationOps.lifecycleProvenance(
+                      annotationId: try XCTUnwrap(accept.provenance?.sourceAnnotationId), stamp: st),
+                  figure: inv.1)
+    }
+
     func test_accept_thenRevert() throws {
         let s = try suggestion()
         let accept = FigureAnnotationOps.accept(
@@ -156,8 +168,7 @@ final class FigureAnnotationOpsTests: XCTestCase {
         XCTAssertEqual(accept.figure, FigureOpPayload(cell: c3Key, next: num(12), prior: num(11.5)))
         XCTAssertEqual(try status(of: s.opId, after: [s, accept]), .accepted)
 
-        let revert = FigureAnnotationOps.acceptRevert(
-            annotationId: s.opId, cell: c3Key, restoring: num(11.5), replacing: num(12), stamp: stamp())
+        let revert = try revert(of: accept)
         XCTAssertEqual(revert.kind, .claudeAcceptRevert)
         XCTAssertEqual(revert.figure, FigureOpPayload(cell: c3Key, next: num(11.5), prior: num(12)))
         XCTAssertEqual(try status(of: s.opId, after: [s, accept, revert]), .open)
@@ -171,6 +182,15 @@ final class FigureAnnotationOpsTests: XCTestCase {
         let reopen = FigureAnnotationOps.reopen(annotationId: s.opId, stamp: stamp())
         XCTAssertEqual(try status(of: s.opId, after: [s, reject, reopen]), .open)
         XCTAssertEqual(derive(base() + [s, reject, reopen]).first?.previousRejectionReason, "Wrong year")
+    }
+
+    func test_aStatusOnlyAcceptResolvesAndWritesNoCell() throws {
+        let s = try suggestion()
+        let again = FigureAnnotationOps.statusOnlyAccept(annotationId: s.opId, stamp: stamp())
+        XCTAssertEqual(again.kind, .claudeAccept)
+        XCTAssertNil(again.figure)
+        XCTAssertFalse(FigureOpPayload.folds(again))
+        XCTAssertEqual(try status(of: s.opId, after: [s, again]), .accepted)
     }
 
     func test_stetAndArchive_thenReopen() throws {
@@ -203,8 +223,7 @@ final class FigureAnnotationOpsTests: XCTestCase {
         let s = try suggestion()
         let accept = FigureAnnotationOps.accept(
             annotationId: s.opId, cell: c3Key, next: num(12), prior: nil, stamp: stamp())
-        let revert = FigureAnnotationOps.acceptRevert(
-            annotationId: s.opId, cell: c3Key, restoring: nil, replacing: num(12), stamp: stamp())
+        let revert = try revert(of: accept)
 
         let accepted = FigureDeriver.derive(base() + [s, accept])
         XCTAssertEqual(accepted.table[c3Key], num(12))

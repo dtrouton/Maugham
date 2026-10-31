@@ -13181,11 +13181,14 @@ final class TripwireGrepTests: XCTestCase {
         // is a note: a suggestion's `Op.figure` is the cell it PROPOSES,
         // never folded as a cell write, and it reaches the stream through
         // `DocumentStore.addFigureAnnotation` (creation is the reviewer's row,
-        // no figure door). `lifecycle`'s carries the cell an accept (or its
-        // revert) writes; an accept is appended only by
+        // no figure door). `lifecycle`'s is every answer's line; the one that
+        // carries a cell is `accept`'s, appended only by
         // `FigureDocument.acceptSuggestion`, behind the figure's doors
         // (`requireWritable`, then `requireNoteDisposition`), through
-        // `commitNoteOp` (Task 5).
+        // `commitNoteOp` (Task 5). There is no revert builder: a revert is
+        // `FigureInverse`'s, re-minted by the host's `appendCompensation` or
+        // checkpoint restore with `lifecycleProvenance`. The count is these
+        // two mints, `creation`'s and `lifecycle`'s.
         "FigureAnnotationOps.swift": [figureOpMintSpelling: 2],
         // The author's answers to a figure note (report plan 9c-1 Task 5):
         // an accept's redo re-enters `acceptSuggestion`, behind its own doors
@@ -13305,6 +13308,7 @@ final class TripwireGrepTests: XCTestCase {
         "rejectAnnotation": "a figure note's disposition — requireNoteDisposition (.acceptOrReject); no cell moves",
         "stetAnnotation": "a figure note's disposition — requireNoteDisposition (.dispose); no cell moves",
         "archiveAnnotation": "a figure note's disposition — requireNoteDisposition (.dispose); no cell moves",
+        "reacceptAnnotation": "a figure note's status-only accept, what a stet's or archive's ⌘Z puts back over an accepted note — requireNoteDisposition (.acceptOrReject); no cell moves",
         "reopenAcceptedTextlessAnnotation": "a disposition — requireDispositionPermitted",
         "appendTaskOpInternal": "a task op — the task door",
         "appendTaskRewindCloser": "reached only after the doored restoreToOp",

@@ -16,7 +16,8 @@ public enum FigureNoteError: LocalizedError, Equatable {
     case withdrawn
     /// Accept takes a suggested change anchored to one cell.
     case notACellSuggestion
-    /// The note is already settled (accepted, rejected, archived or stetted).
+    /// The suggestion is already accepted: its cell is written, and the way
+    /// back is its accept's ⌘Z, never a second answer over it.
     case notOpen
     /// The suggestion's cell is gone — its row or column deleted (RULING-5):
     /// Maugham never guesses where an AI-proposed change belongs.
@@ -35,7 +36,7 @@ public enum FigureNoteError: LocalizedError, Equatable {
         case .unknownNote: "the note is no longer on this figure"
         case .withdrawn: "the note was deleted"
         case .notACellSuggestion: "the note doesn't suggest a change to one cell"
-        case .notOpen: "the note has already been answered"
+        case .notOpen: "the suggestion has already been accepted"
         case .anchorOrphaned: "the suggestion's cell has been deleted"
         case .cellChangedSinceSuggestion: "the cell has changed since the suggestion was made"
         case .cannotReopen: "the note can't be reopened"
@@ -48,7 +49,7 @@ public enum FigureNoteError: LocalizedError, Equatable {
         case .unknownNote: "That note is no longer on this figure."
         case .withdrawn: "That note was deleted."
         case .notACellSuggestion: "That note doesn't suggest a change to one cell."
-        case .notOpen: "That note has already been answered."
+        case .notOpen: "That suggestion has already been accepted."
         case .anchorOrphaned: "The suggestion's cell has been deleted, so it can't be accepted."
         case .cellChangedSinceSuggestion: "The cell has changed since the suggestion was made."
         case .cannotReopen: "That note can't be reopened."
@@ -91,9 +92,13 @@ extension FigureDocument {
         return note
     }
 
-    private func openNote(_ id: String) throws -> Annotation {
+    /// The note, refused only when it is an accepted SUGGESTION: its cell is
+    /// written, so rejecting it would leave the table and the note
+    /// disagreeing (its accept's ⌘Z is the way back). Reject's question; stet
+    /// and archive take every status, as the manuscript's do (latest wins).
+    private func notAnAcceptedSuggestion(_ id: String) throws -> Annotation {
         let note = try note(id)
-        guard note.status == .open else { throw FigureNoteError.notOpen }
+        if note.status == .accepted, note.kind == .suggestedChange { throw FigureNoteError.notOpen }
         return note
     }
 
@@ -142,28 +147,51 @@ extension FigureDocument {
               (anchor.columnEnd ?? anchor.column) == anchor.column,
               let creation = _ops.first(where: { $0.opId == id })
         else { throw FigureNoteError.notACellSuggestion }
-        guard note.status == .open else { throw FigureNoteError.notOpen }
+        guard note.status != .accepted else { throw FigureNoteError.notOpen }
         let key = CellKey(row: anchor.row, column: anchor.column)
         guard isLive(key) else {
             documentLog.error("figure \(self.figureId, privacy: .public): suggestion \(id, privacy: .public)'s cell is gone — refused (RULING-5)")
             throw FigureNoteError.anchorOrphaned
         }
         let replaced = state.table[key]
-        let suggested = note.suggestedCell
-        if !confirmChanged, replaced != creation.figure?.prior, replaced != suggested {
+        // The suggested CONTENT over the cell's current format and alignment:
+        // a format the author set since is kept, and a format-only change is
+        // no change since the suggestion.
+        let suggested = note.suggestedCell.map {
+            Cell(content: $0.content, format: replaced?.format ?? $0.format,
+                 alignment: replaced?.alignment ?? $0.alignment)
+        }
+        let content = replaced?.content
+        if !confirmChanged, content != creation.figure?.prior?.content, content != suggested?.content {
             throw FigureNoteError.cellChangedSinceSuggestion
+        }
+        // A formula reading Research takes its pins as `setCell`'s does, in
+        // the same ⌘Z; the read awaited, so the doors, the note and the cell
+        // are asked again.
+        var entryPins: [PinWrite] = []
+        if let pins = await researchEntryPins(writing: suggested, at: key) {
+            entryPins = pins
+            try await requireWritable("acceptSuggestion")
+            try await requireNoteDisposition("acceptSuggestion", .acceptOrReject)
+            guard try self.note(id).status != .accepted else { throw FigureNoteError.notOpen }
+            guard isLive(key), state.table[key] == replaced else {
+                throw FigureEditInvalid(reason: "the cell changed while its Research sources were read")
+            }
         }
         let op = try await commitNoteOp(
             FigureAnnotationOps.accept(
                 annotationId: id, cell: key, next: suggested, prior: replaced, stamp: noteStamp),
-            render: true)
+            render: entryPins.isEmpty)
+        let (pinOps, pinFailure) = await appendEntryPins(entryPins)
+        let pinned = pinOps.compactMap { op in op.figure.flatMap { p in p.cell.flatMap { c in p.pin.map { (c, $0) } } } }
         registerFigureUndo(
-            undoManager, actionName: "Accept Suggestion", forward: op,
+            undoManager, actionName: "Accept Suggestion", forward: op, alongside: pinOps,
             stillAsWritten: { d in
                 d.isLive(key) && d.state.table[key] == suggested && d.noteStatus(id) == .accepted
+                    && pinned.allSatisfy { d.state.pins[$0.0]?.contains($0.1) == true }
             },
             redo: { [weak undoManager] d in
-                guard d.isLive(key), d.state.table[key] == replaced, d.noteStatus(id) == .open else {
+                guard d.isLive(key), d.state.table[key] == replaced, d.noteStatus(id) != .accepted else {
                     return d.decline(.drifted)
                 }
                 await d.redoing {
@@ -171,51 +199,67 @@ extension FigureDocument {
                 }
             })
         notesChanged()
+        if let pinFailure { throw pinFailure }
     }
 
     // MARK: - Reject, stet, archive
 
-    /// **Reject an open note**, keeping `reason` as its reply (RULING-31: a
-    /// reopened note keeps it as history). No cell moves. ⌘Z reopens it.
+    /// **Reject a note**, keeping `reason` as its reply (RULING-31: a
+    /// reopened note keeps it as history). No cell moves. Refused over an
+    /// accepted suggestion (`notOpen`). ⌘Z puts back what it displaced.
     public func rejectAnnotation(id: String, reason: String? = nil, undoManager: UndoManager? = nil) async throws {
         try await requireNoteDisposition("rejectAnnotation", .acceptOrReject)
-        _ = try openNote(id)
+        let prior = try notAnAcceptedSuggestion(id)
         try await commitNoteOp(FigureAnnotationOps.reject(annotationId: id, reason: reason, stamp: noteStamp), render: false)
         notesChanged()
-        registerSettlingUndo(undoManager, actionName: "Reject Annotation", id: id, settled: .rejected, reason: reason)
+        registerSettlingUndo(
+            undoManager, actionName: "Reject Annotation", id: id, settled: .rejected, reason: reason,
+            prior: prior.status, priorReason: prior.userResponse)
     }
 
-    /// **Stet an open note**: read, considered, and the table stands. ⌘Z reopens it.
+    /// **Stet a note**: read, considered, and the table stands — over a
+    /// resolution too, as the manuscript's. ⌘Z puts back what it displaced.
     public func stetAnnotation(id: String, undoManager: UndoManager? = nil) async throws {
         try await requireNoteDisposition("stetAnnotation", .dispose)
-        _ = try openNote(id)
+        let prior = try note(id)
         try await commitNoteOp(FigureAnnotationOps.stet(annotationId: id, stamp: noteStamp), render: false)
         notesChanged()
-        registerSettlingUndo(undoManager, actionName: "Stet Annotation", id: id, settled: .stetted)
+        registerSettlingUndo(
+            undoManager, actionName: "Stet Annotation", id: id, settled: .stetted,
+            prior: prior.status, priorReason: prior.userResponse)
     }
 
-    /// **Archive an open note**: set aside. ⌘Z reopens it.
+    /// **Archive a note**: set aside — over a resolution too. ⌘Z puts back
+    /// what it displaced.
     public func archiveAnnotation(id: String, undoManager: UndoManager? = nil) async throws {
         try await requireNoteDisposition("archiveAnnotation", .dispose)
-        _ = try openNote(id)
+        let prior = try note(id)
         try await commitNoteOp(FigureAnnotationOps.archive(annotationId: id, stamp: noteStamp), render: false)
         notesChanged()
-        registerSettlingUndo(undoManager, actionName: "Archive Annotation", id: id, settled: .archived)
+        registerSettlingUndo(
+            undoManager, actionName: "Archive Annotation", id: id, settled: .archived,
+            prior: prior.status, priorReason: prior.userResponse)
     }
 
-    /// Reject's, stet's and archive's ⌘Z: reopen the note while it still
-    /// shows what this action left (else decline out loud, RULING-22); ⇧⌘Z
-    /// settles it again (`settle`) with the live undo manager.
+    /// Reject's, stet's and archive's ⌘Z — ONE decision undone (the
+    /// manuscript stet's #41 A2 obligation, for all three): while the note
+    /// still shows what this action left (else decline out loud, RULING-22),
+    /// reopen it, then put back the resolution it displaced (`prior`, a
+    /// rejection with its reason, an accept status only). ⇧⌘Z settles it
+    /// again (`settle`) with the live undo manager.
     private func registerSettlingUndo(
         _ undoManager: UndoManager?, actionName: String, id: String, settled: AnnotationStatus,
-        reason: String? = nil
+        reason: String? = nil, prior: AnnotationStatus, priorReason: String?
     ) {
         OpUndoRegistrar.register(
             undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { d in
                 guard d.noteStatus(id) == settled else { return d.decline(.drifted) }
-                await d.redoing { try await d.reopenAnnotation(id: id) }
+                await d.redoing {
+                    try await d.reopenAnnotation(id: id)
+                    if prior != .open { try await d.settle(id, as: prior, reason: priorReason, undoManager: nil) }
+                }
             },
             redo: { [weak undoManager] d in
                 await d.redoing { try await d.settle(id, as: settled, reason: reason, undoManager: undoManager) }
@@ -230,8 +274,19 @@ extension FigureDocument {
         case .rejected: try await rejectAnnotation(id: id, reason: reason, undoManager: undoManager)
         case .archived: try await archiveAnnotation(id: id, undoManager: undoManager)
         case .stetted: try await stetAnnotation(id: id, undoManager: undoManager)
-        case .open, .accepted: throw FigureNoteError.cannotReopen
+        case .accepted: try await reacceptAnnotation(id: id)
+        case .open: throw FigureNoteError.cannotReopen
         }
+    }
+
+    /// **The note back to accepted, status only** — what a stet's or
+    /// archive's ⌘Z puts back over an accepted note, whose cell was never
+    /// taken back (`FigureAnnotationOps.statusOnlyAccept`; writes no cell).
+    private func reacceptAnnotation(id: String) async throws {
+        try await requireNoteDisposition("reacceptAnnotation", .acceptOrReject)
+        _ = try note(id)
+        try await commitNoteOp(FigureAnnotationOps.statusOnlyAccept(annotationId: id, stamp: noteStamp), render: false)
+        notesChanged()
     }
 
     // MARK: - Reopen

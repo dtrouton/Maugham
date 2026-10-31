@@ -283,9 +283,11 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         let note = try await comment(on: a1, doc: doc)
         await expect(.notACellSuggestion) { try await doc.acceptSuggestion(id: note) }
         let live = try await suggest(number(3), at: a1, on: doc)
-        try await doc.rejectAnnotation(id: live)
+        try await doc.acceptSuggestion(id: live)
+        before = try streamBytes(of: record.id)
         await expect(.notOpen) { try await doc.acceptSuggestion(id: live) }
-        await expect(.notOpen) { try await doc.archiveAnnotation(id: live) }
+        await expect(.notOpen) { try await doc.rejectAnnotation(id: live) }
+        XCTAssertEqual(try streamBytes(of: record.id), before, "an accepted suggestion takes no second answer")
         await expect(.unknownNote) { try await doc.rejectAnnotation(id: "no-such-note") }
 
         // Parked.
@@ -570,6 +572,131 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         try await mine.acceptSuggestion(id: suggestion)
         XCTAssertEqual(mine.state.table[key], number(5))
         await mine.close()
+    }
+
+    // MARK: - Fix round 1
+
+    /// **The manuscript's lifecycle rules** (M3): an answer may follow an
+    /// answer — archive a rejected note, stet it, accept a rejected
+    /// suggestion — the latest wins; and ⌘Z undoes ONE decision, putting the
+    /// displaced resolution back (a rejection with its reason, an accept as
+    /// status only). Only an accepted suggestion refuses Reject.
+    func test_answersFollowAnswers_andUndoPutsTheDisplacedOneBack() async throws {
+        let (_, doc, b2) = try await makeTable()
+        let a1 = CellKey(row: doc.state.table.rows[0], column: doc.state.table.columns[0])
+        let note = try await comment(on: a1, doc: doc)
+        try await doc.rejectAnnotation(id: note, reason: "No.")
+        let um = UndoManager()
+        try await doc.archiveAnnotation(id: note, undoManager: um)
+        XCTAssertEqual(self.note(note, in: doc)?.status, .archived, "archive over a rejection")
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(self.note(note, in: doc)?.status, .rejected, "⌘Z puts the rejection back")
+        XCTAssertEqual(self.note(note, in: doc)?.userResponse, "No.", "with its reason")
+
+        let s = try await suggest(number(42), at: b2, on: doc)
+        try await doc.rejectAnnotation(id: s)
+        try await doc.acceptSuggestion(id: s)
+        XCTAssertEqual(self.note(s, in: doc)?.status, .accepted, "a rejected suggestion may still be accepted")
+        XCTAssertEqual(doc.state.table[b2], number(42))
+        let stetUndo = UndoManager()
+        try await doc.stetAnnotation(id: s, undoManager: stetUndo)
+        XCTAssertEqual(self.note(s, in: doc)?.status, .stetted)
+        stetUndo.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(self.note(s, in: doc)?.status, .accepted, "⌘Z re-accepts, status only")
+        XCTAssertEqual(doc.state.table[b2], number(42), "the cell was never taken back")
+        await doc.close()
+    }
+
+    /// **Changed-since is about content** (M4): a format the author set since
+    /// is no change, and the accept writes the suggested content over the
+    /// cell's current format.
+    func test_aFormatChangeIsNotAChange_andTheAcceptKeepsTheCellsFormat() async throws {
+        let (_, doc, b2) = try await makeTable()
+        try await doc.setCell(number(5), at: b2)
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let percent = Cell(content: .value(.number(5)), format: CellFormat(zeroAsDash: true), alignment: .right)
+        try await doc.setCell(percent, at: b2)
+
+        try await doc.acceptSuggestion(id: id)
+
+        XCTAssertEqual(doc.state.table[b2]?.content, .value(.number(42)))
+        XCTAssertEqual(doc.state.table[b2]?.format, CellFormat(zeroAsDash: true), "the format set since is kept")
+        XCTAssertEqual(doc.state.table[b2]?.alignment, .right)
+        await doc.close()
+    }
+
+    /// **A checkpoint restore to before an accept reopens the note** (I2,
+    /// RULING-28 as the manuscript's restore): the cell goes back by ONE
+    /// `claudeAcceptRevert` naming the note and the checkpoint, so the note
+    /// is open over the restored cell — never accepted over the old value.
+    func test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        let before = try ops(of: record.id).count
+
+        let outcome = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 1))
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(note(id, in: doc)?.status, .open, "the stranded accept is reopened")
+        let written = try ops(of: record.id).dropFirst(before)
+        XCTAssertEqual(written.map(\.kind), [.claudeAcceptRevert], "one op: cell and note together")
+        XCTAssertEqual(written.first?.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(written.first?.provenance?.sourceCheckpoint, "cp-1")
+        let fresh = try await load(record.id)
+        XCTAssertEqual(note(id, in: fresh)?.status, .open)
+        XCTAssertEqual(fresh.state.table[b2], text("old"))
+        await fresh.close()
+        await doc.close()
+    }
+
+    /// **An accepted formula reading Research takes its pins** (I1), as the
+    /// same formula typed in the grid does: the render computes, never
+    /// `#REF!`; ⌘Z takes back the cell and the pins and reopens the note.
+    func test_anAcceptedResearchFormulaTakesItsPins_andUndoTakesThemBack() async throws {
+        try "Words.\n".write(to: projectURL.appendingPathComponent("manuscript/a.md"), atomically: true, encoding: .utf8)
+        let store = try await DocumentStore.open(url: projectURL)
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        let folder = TestTemp.root.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let csv = folder.appendingPathComponent("model.csv")
+        try Data("Year,Revenue\n2025,10\n2026,20\n".utf8).write(to: csv)
+        let item = try await projectStore.addResearchAsset(parentId: nil, fromURL: csv)
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let host = try await store.openFigure(figureId: summary.id)
+        let a1 = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        let names = FormulaNames(research: [(item.id, item.title)])
+        guard case .success(let formula) = FormulaParser.parse(
+            "SUM(research:model!B2:B3)", in: host.state.table, names: names)
+        else { return XCTFail("the formula did not parse") }
+        let suggestion = try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: a1.row, column: a1.column),
+            body: "Total it", suggestedCell: Cell(content: .formula(formula)), prior: nil,
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: summary.id, device: assistantDevice))
+        try await store.addFigureAnnotation(suggestion)
+
+        let um = UndoManager()
+        try await host.acceptSuggestion(id: suggestion.opId, undoManager: um)
+        await store.awaitOpenFigureRenderForTesting()
+
+        XCTAssertEqual(host.state.pins[a1]?.map(\.research), [item.id, item.id], "both cells it read are pinned")
+        let rendered = try String(contentsOf: projectURL.appendingPathComponent(summary.path), encoding: .utf8)  // adr-0018-ok: test reads the derived render to assert what was written
+        XCTAssertEqual(TableCSV.rows(rendered).rows.first?.first, "30", "computed, not #REF!")
+
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertNil(host.state.table[a1], "the cell went back")
+        XCTAssertNil(host.state.pins[a1], "and its pins with it")
+        XCTAssertEqual(host.annotations().first { $0.id == suggestion.opId }?.status, .open)
+        await store.closeFigure(figureId: summary.id)
+        await store.close()
     }
 
     // MARK: - Registry fixtures (FigureDocumentTests' shapes)
