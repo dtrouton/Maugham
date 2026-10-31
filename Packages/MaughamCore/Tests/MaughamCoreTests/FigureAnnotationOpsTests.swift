@@ -1,0 +1,195 @@
+import XCTest
+@testable import MaughamCore
+
+/// Report plan 9c-1 Task 2: the anchor text, the machine-form suggested value,
+/// and every figure-note op builder, each proved through `AnnotationDeriver`.
+final class FigureAnnotationOpsTests: XCTestCase {
+
+    private let figureId = "fig-k3m9q2zt"
+    private let r1 = RowID("r1aaaaaa"), r2 = RowID("r2bbbbbb"), r3 = RowID("r3cccccc")
+    private let c1 = ColumnID("c1dddddd"), c2 = ColumnID("c2eeeeee"), c3 = ColumnID("c3ffffff")
+    private let claude = AnnotationAuthor(sourceKind: .claude, displayName: "Claude")
+    private var counter = 0
+
+    private func stamp() -> FigureAnnotationOps.Stamp {
+        counter += 1
+        return .init(figureId: figureId, device: "macA", session: "s",
+                     at: Date(timeIntervalSince1970: TimeInterval(1_000 + counter)),
+                     appVersion: "1", osVersion: "2")
+    }
+
+    private func figureOp(_ kind: OpKind, _ payload: FigureOpPayload) -> Op {
+        counter += 1
+        return Op(opId: String(format: "base%03d", counter), docId: figureId,
+                  at: Date(timeIntervalSince1970: TimeInterval(counter)),
+                  device: "macA", session: "s", kind: kind, changes: [], figure: payload)
+    }
+
+    /// A 3x3 table, so (r3, c3) is "C3".
+    private func base() -> [Op] {
+        [figureOp(.figureCreate, .init(kind: .table))]
+        + [(r1, nil), (r2, r1), (r3, r2)].map { figureOp(.figureStructure, .init(structure: .insertRow($0.0, after: $0.1))) }
+        + [(c1, nil), (c2, c1), (c3, c2)].map { figureOp(.figureStructure, .init(structure: .insertColumn($0.0, after: $0.1))) }
+    }
+
+    private var table: FigureTable { FigureDeriver.derive(base()).table }
+    private func num(_ x: Double) -> Cell { Cell(content: .value(.number(x))) }
+    private let c3Key = CellKey(row: RowID("r3cccccc"), column: ColumnID("c3ffffff"))
+
+    private func derive(_ ops: [Op]) -> [Annotation] {
+        AnnotationAggregation.allAnnotations(
+            ops: ops, paragraphs: [:], figureTable: AnnotationAggregation.figureTable(in: ops))
+    }
+
+    private func suggestion() throws -> Op {
+        try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: r3, column: c3), body: "Round it",
+            suggestedCell: num(12), prior: num(11.5), author: claude, stamp: stamp())
+    }
+
+    // MARK: - Address text
+
+    func test_parse_forms() {
+        XCTAssertTrue(FigureAnchorAddress.parse("tbl:x")! == ("tbl:x", nil))
+        XCTAssertTrue(FigureAnchorAddress.parse("tbl:x!C3")! == ("tbl:x", "C3"))
+        XCTAssertTrue(FigureAnchorAddress.parse("tbl:x!c3:e3")! == ("tbl:x", "c3:e3"))
+        XCTAssertTrue(FigureAnchorAddress.parse("tbl:cash flow!C3:E3")! == ("tbl:cash flow", "C3:E3"))
+        for junk in ["", "x", "tbl:", "tbl:!C3", "tbl:x!", "!C3", "doc:x!C3"] {
+            XCTAssertNil(FigureAnchorAddress.parse(junk), junk)
+        }
+    }
+
+    func test_anchor_turnsPositionsIntoIds() throws {
+        let one = try FigureAnchorAddress.anchor("C3", in: table).get()
+        XCTAssertEqual(one, FigureCellAnchor(row: r3, column: c3))
+        let range = try FigureAnchorAddress.anchor("a1:c2", in: table).get()
+        XCTAssertEqual(range, FigureCellAnchor(row: r1, rowEnd: r2, column: c1, columnEnd: c3))
+        let rowOnly = try FigureAnchorAddress.anchor("A2:C2", in: table).get()
+        XCTAssertEqual(rowOnly, FigureCellAnchor(row: r2, column: c1, columnEnd: c3))
+    }
+
+    func test_anchor_ofAnOutOfRangeCell_isAnError() {
+        for bad in ["D1", "A4", "A1:D9", "nope", ""] {
+            XCTAssertThrowsError(try FigureAnchorAddress.anchor(bad, in: table).get(), bad)
+        }
+    }
+
+    // MARK: - Machine-form value
+
+    func test_suggestedCell_numberAndText() throws {
+        let key = c3Key
+        XCTAssertEqual(try FigureAnnotationOps.suggestedCell(from: "1234.5", at: key, table: table, names: .empty).get(),
+                       num(1234.5))
+        XCTAssertNil(try FigureAnnotationOps.suggestedCell(from: "", at: key, table: table, names: .empty).get())
+    }
+
+    func test_suggestedCell_formulaIsStoredByIds() throws {
+        let cell = try XCTUnwrap(FigureAnnotationOps.suggestedCell(
+            from: "=SUM(B2:B3)", at: c3Key, table: table, names: .empty).get())
+        guard case .formula(let formula) = cell.content else { return XCTFail("not a formula") }
+        // Moving the referenced rows' neighbours must not change what it reads: ids, not positions.
+        var grown = table
+        _ = grown.insertRow(after: nil)
+        let shown = FigureCellEntry.formulaBarText(
+            for: Cell(content: .formula(formula)), table: grown, names: .empty,
+            locale: TableLocale(languageTag: "en-US", fallbackRegion: nil))
+        XCTAssertEqual(shown, "=SUM(B3:B4)")
+    }
+
+    func test_suggestedCell_badFormulaFailsWithAnOffset() {
+        let result = FigureAnnotationOps.suggestedCell(from: "=SUM(", at: c3Key, table: table, names: .empty)
+        guard case .failure = result else { return XCTFail("expected a parse error") }
+    }
+
+    // MARK: - Creation
+
+    func test_creation_comment_onACellAndOnTheWholeFigure() throws {
+        let cell = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: r1, rowEnd: r2, column: c2),
+            body: "Look", author: claude, stamp: stamp())
+        let whole = try FigureAnnotationOps.creation(
+            kind: .query, anchor: nil, body: "Why?", author: claude, language: "es", stamp: stamp())
+        let notes = derive(base() + [cell, whole])
+        let a = try XCTUnwrap(notes.first { $0.id == cell.opId })
+        XCTAssertEqual(a.kind, .comment)
+        XCTAssertEqual(a.figureAddress, "B1:B2")
+        XCTAssertEqual(a.author?.sourceKind, .claude)
+        XCTAssertEqual(a.status, .open)
+        let w = try XCTUnwrap(notes.first { $0.id == whole.opId })
+        XCTAssertNil(w.figureAnchor)
+        XCTAssertEqual(w.language, "es")
+    }
+
+    func test_creation_suggestion_carriesTheCell() throws {
+        let op = try suggestion()
+        XCTAssertEqual(op.kind, .claudeSuggestion)
+        XCTAssertEqual(op.figure?.cell, c3Key)
+        let note = try XCTUnwrap(derive(base() + [op]).first)
+        XCTAssertEqual(note.suggestedCell, num(12))
+        XCTAssertEqual(note.figureAddress, "C3")
+        // Still a suggestion: the table is untouched.
+        XCTAssertNil(FigureDeriver.derive(base() + [op]).table[c3Key])
+    }
+
+    func test_creation_refusals() {
+        XCTAssertThrowsError(try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: nil, body: "", suggestedCell: num(1), author: claude, stamp: stamp()))
+        XCTAssertThrowsError(try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: r1, rowEnd: r2, column: c1),
+            body: "", suggestedCell: num(1), author: claude, stamp: stamp()))
+        XCTAssertThrowsError(try FigureAnnotationOps.creation(
+            kind: .craftNote, anchor: FigureCellAnchor(row: r1, column: c1), body: "", author: claude, stamp: stamp()))
+    }
+
+    // MARK: - Lifecycle
+
+    private func status(of id: String, after ops: [Op]) throws -> AnnotationStatus {
+        try XCTUnwrap(derive(base() + ops).first { $0.id == id }).status
+    }
+
+    func test_accept_thenRevert() throws {
+        let s = try suggestion()
+        let accept = FigureAnnotationOps.accept(
+            annotationId: s.opId, cell: c3Key, next: num(12), prior: num(11.5), stamp: stamp())
+        XCTAssertEqual(accept.kind, .claudeAccept)
+        XCTAssertEqual(accept.provenance?.sourceAnnotationId, s.opId)
+        XCTAssertEqual(accept.figure, FigureOpPayload(cell: c3Key, next: num(12), prior: num(11.5)))
+        XCTAssertEqual(try status(of: s.opId, after: [s, accept]), .accepted)
+
+        let revert = FigureAnnotationOps.acceptRevert(
+            annotationId: s.opId, cell: c3Key, restoring: num(11.5), replacing: num(12), stamp: stamp())
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertEqual(revert.figure, FigureOpPayload(cell: c3Key, next: num(11.5), prior: num(12)))
+        XCTAssertEqual(try status(of: s.opId, after: [s, accept, revert]), .open)
+    }
+
+    func test_rejectKeepsItsReason_thenReopen() throws {
+        let s = try suggestion()
+        let reject = FigureAnnotationOps.reject(annotationId: s.opId, reason: "Wrong year", stamp: stamp())
+        XCTAssertEqual(try status(of: s.opId, after: [s, reject]), .rejected)
+        XCTAssertEqual(derive(base() + [s, reject]).first?.userResponse, "Wrong year")
+        let reopen = FigureAnnotationOps.reopen(annotationId: s.opId, stamp: stamp())
+        XCTAssertEqual(try status(of: s.opId, after: [s, reject, reopen]), .open)
+        XCTAssertEqual(derive(base() + [s, reject, reopen]).first?.previousRejectionReason, "Wrong year")
+    }
+
+    func test_stetAndArchive_thenReopen() throws {
+        let s = try suggestion()
+        let stet = FigureAnnotationOps.stet(annotationId: s.opId, stamp: stamp())
+        XCTAssertEqual(try status(of: s.opId, after: [s, stet]), .stetted)
+        let archive = FigureAnnotationOps.archive(annotationId: s.opId, stamp: stamp())
+        XCTAssertEqual(try status(of: s.opId, after: [s, stet, archive]), .archived)
+        let reopen = FigureAnnotationOps.reopen(annotationId: s.opId, stamp: stamp())
+        XCTAssertEqual(try status(of: s.opId, after: [s, stet, archive, reopen]), .open)
+    }
+
+    func test_everyOpIsOnTheFiguresStreamAndStamped() throws {
+        let s = try suggestion()
+        for op in [s, FigureAnnotationOps.stet(annotationId: s.opId, stamp: stamp())] {
+            XCTAssertEqual(op.docId, figureId)
+            XCTAssertEqual(op.device, "macA")
+            XCTAssertEqual(op.provenance?.sessionId, "s")
+            XCTAssertEqual(op.provenance?.appVersion, "1")
+        }
+    }
+}
