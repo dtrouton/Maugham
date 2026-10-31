@@ -18,7 +18,8 @@ public enum ListFiguresTool: MCPTool {
         "unused", or "in_research" for a figure parked in Research), \
         used_in (each line that places it: document title, document_id, \
         0-based line), reads_research (its formulas read Research or a parked \
-        figure), pins (each source it reads and where it stands: current, \
+        figure), pins_unread (true when it reads Research but its sources \
+        would not read, so an empty pins is not \"no pins\"), pins (each source it reads and where it stands: current, \
         source_changed, source_missing, unpinned) and changed (a pinned \
         source or its own Research source has moved on). `kind` filters to \
         "table" or "image". Read-only.
@@ -51,6 +52,7 @@ public enum ListFiguresTool: MCPTool {
         let status: String
         let used_in: [Use]
         let reads_research: Bool
+        let pins_unread: Bool
         let pins: [Pin]
         let changed: Bool
     }
@@ -69,24 +71,51 @@ public enum ListFiguresTool: MCPTool {
         let titles = Dictionary(
             TreeWalk.collect(in: store.manifest.structure, where: { $0.path != nil }).map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first })
+        var figures = entries(rows: rows, snapshot: snapshot, documentTitles: titles) { id in
+            TreeWalk.find(id: id, in: store.manifest.research)?.title
+        }
+        if let kind = params.kind { figures = figures.filter { $0.kind == kind } }
 
+        return try MCPResponseBudget.enforce(
+            try JSONEncoder().encode(Result(figures: figures)),
+            hint: "The figure list is too large to return in one MCP response. "
+                + "Pass `kind` (\"table\" or \"image\") to list one kind at a time.")
+    }
+
+
+    /// The wire entries: the listing's order (reading order, then unused by
+    /// name), then the parked figures the tree does not list, by name. Pure, so
+    /// a test can hand it a snapshot the disk cannot easily produce.
+    ///
+    /// `reads_research` is asked of the figure's own state
+    /// (`FigurePins.reads(of:parked:tables:)`, the rule the card uses, which
+    /// counts a read of a parked figure too), never of whether its sources
+    /// read. A figure that reads Research yet has no `pinStatus` (its sources
+    /// would not read, or the registry would not) says `pins_unread: true`,
+    /// so an empty `pins` is not taken for "no pins".
+    static func entries(
+        rows: [FigureListing.Row], snapshot: PublishFigures, documentTitles titles: [String: String],
+        researchTitle: (String) -> String?
+    ) -> [Figure] {
         let byId = Dictionary(rows.map { ($0.figureId, $0) }, uniquingKeysWith: { first, _ in first })
-        // The listing's order (reading order, then unused by name); parked
-        // figures the tree does not list follow, by name.
-        let listed = rows.map(\.figureId)
+        let recordsById = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let hidden = snapshot.records.filter { byId[$0.id] == nil && snapshot.parked.contains($0.id) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let recordsById = Dictionary(snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-
-        func sourceName(_ id: String) -> String? {
-            TreeWalk.find(id: id, in: store.manifest.research)?.title ?? recordsById[id]?.name
+        let tables = snapshot.workbook?.tables ?? [:]
+        let parkedTables = snapshot.parked.reduce(into: [String: FigureTable]()) { out, id in
+            if let table = tables[id] { out[id] = table }
         }
+
         func figure(_ record: FigureRecord, row: FigureListing.Row?) -> Figure {
             let statuses = snapshot.pinStatus[record.id] ?? [:]
             let pins = statuses.sorted { $0.key < $1.key }.map { source, status in
-                Pin(source: source, source_name: sourceName(source), status: wire(status))
+                Pin(source: source, source_name: researchTitle(source) ?? recordsById[source]?.name,
+                    status: wire(status))
             }
             let pinChanged = statuses.values.contains { if case .sourceChanged = $0 { true } else { false } }
+            let reads = snapshot.states[record.id].map {
+                !FigurePins.reads(of: $0.table, parked: parkedTables, tables: tables).isEmpty
+            } ?? false
             let parked = snapshot.parked.contains(record.id)
             return Figure(
                 id: record.id, name: record.name, kind: record.kind.rawValue,
@@ -95,23 +124,19 @@ public enum ListFiguresTool: MCPTool {
                 used_in: (row?.usedIn ?? []).map {
                     Use(document: titles[$0.docId] ?? $0.docId, document_id: $0.docId, line: $0.lineIndex)
                 },
-                // `FigurePins.status` keys exactly the sources a formula reads
-                // through a pin, so a non-empty answer is `FigurePins.reads`.
-                reads_research: !statuses.isEmpty, pins: pins,
+                reads_research: reads, pins_unread: reads && statuses.isEmpty, pins: pins,
                 changed: pinChanged || snapshot.sourceChanged.contains(record.id))
         }
-        var figures: [Figure] = []
-        for id in listed {
-            guard let row = byId[id], let record = recordsById[id] else { continue }
-            figures.append(figure(record, row: row))
+        var out: [Figure] = []
+        for row in rows {
+            guard let record = recordsById[row.figureId] else {
+                projectStoreLog.error(
+                    "list_figures: the listing has a row for \(row.figureId, privacy: .public) but the registry has no such figure; skipped")
+                continue
+            }
+            out.append(figure(record, row: row))
         }
-        figures += hidden.map { figure($0, row: nil) }
-        if let kind = params.kind { figures = figures.filter { $0.kind == kind } }
-
-        return try MCPResponseBudget.enforce(
-            try JSONEncoder().encode(Result(figures: figures)),
-            hint: "The figure list is too large to return in one MCP response. "
-                + "Pass `kind` (\"table\" or \"image\") to list one kind at a time.")
+        return out + hidden.map { figure($0, row: nil) }
     }
 
     private static func wire(_ status: PinStatus) -> String {

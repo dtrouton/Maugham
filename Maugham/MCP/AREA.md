@@ -190,7 +190,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **A cross-scope move leaves explicit links (`linkedResearchIds`) untouched**: association is containment-based. A manual link goes dormant while the item lives in a piece's research and resurfaces on move-out; a containment-only association severs on move-out and no link is minted.
 
 **Figures**
-- **`list_figures` lists a figure parked in Research as `status: "in_research"`** (the tree hides it; the tool is not the tree): rows come from `FigureListingSource`, pins and `changed` from `ProjectStore.publishFigures()`, and `reads_research` is a non-empty `pinStatus`. `changed` is the card's rule (a `source_changed` pin, or the figure's own Research source moved). It writes nothing.
+- **`list_figures` lists a figure parked in Research as `status: "in_research"`** (the tree hides it; the tool is not the tree): rows come from `FigureListingSource`, pins and `changed` from `ProjectStore.publishFigures()`, and `reads_research` is asked of the figure's state (`FigurePins.reads`), so `pins_unread: true` marks a figure that reads Research whose sources would not read. `changed` is the card's rule (a `source_changed` pin, or the figure's own Research source moved). It writes nothing.
 
 **Statements and the palette**
 - **Every statement reader looks its statement up through `StatementLookup` and derives through `ProjectStore.statementText(of:)`** (the open pane's `Document` through `ProjectStore.openStatementDocument(id:)`, else `derivedCache`), so no two readers disagree about which text is real. Absence is `exists: false` (with empty `markdown`), never an error, and a read mints nothing.

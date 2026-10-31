@@ -115,6 +115,7 @@ final class ListFiguresToolTests: XCTestCase {
         await book.ds.awaitOpenFigureRenderForTesting()
 
         let figures = try await call(book)
+        XCTAssertEqual(figures.count, 3)
         XCTAssertEqual(Set(figures.map(\.id)), [cash.id, photo.id, shelved.id])
         let byId = Dictionary(uniqueKeysWithValues: figures.map { ($0.id, $0) })
         let used = try XCTUnwrap(byId[cash.id])
@@ -152,6 +153,48 @@ final class ListFiguresToolTests: XCTestCase {
         figure = try await call(book).first { $0.id == record.id }
         XCTAssertEqual(figure?.pins.map(\.status), ["source_changed"])
         XCTAssertEqual(figure?.changed, true)
+        await book.ds.close()
+    }
+
+    func test_aFigureReadingResearchSaysSoWhetherOrNotItsSourcesRead() async throws {
+        let book = try await openBook()
+        let csv = try outsideCSV("Year,Revenue\n2025,10\n2026,20\n")
+        let (record, item) = try await pinnedTable(book, named: "summary", csv: csv)
+        try FileManager.default.removeItem(at: file(try XCTUnwrap(item.path)))
+        let missing = try await call(book).first { $0.id == record.id }
+        XCTAssertEqual(missing?.reads_research, true)
+        XCTAssertEqual(missing?.pins.map(\.status), ["source_missing"])
+        XCTAssertEqual(missing?.pins_unread, false)
+
+        // The snapshot a failed source read leaves: states, no pin statuses.
+        var snapshot = await book.store.publishFigures()
+        snapshot.pinStatus = [:]
+        let unread = ListFiguresTool.entries(rows: [], snapshot: snapshot, documentTitles: [:]) { _ in nil }
+        XCTAssertTrue(unread.isEmpty, "premise: not listed and not parked, so nothing")
+        snapshot.parked = [record.id]
+        let parked = ListFiguresTool.entries(rows: [], snapshot: snapshot, documentTitles: [:]) { _ in nil }
+        XCTAssertEqual(parked.first?.reads_research, true)
+        XCTAssertEqual(parked.first?.pins_unread, true)
+        XCTAssertEqual(parked.first?.pins, [])
+        await book.ds.close()
+    }
+
+    func test_ownSourceMovedAndTheOtherPinWordsAreChangedAndWired() async throws {
+        let book = try await openBook()
+        let csv = try outsideCSV("Year,Revenue\n2025,10\n2026,20\n")
+        let (record, item) = try await pinnedTable(book, named: "summary", csv: csv)
+        var snapshot = await book.store.publishFigures()
+        snapshot.parked = [record.id]
+        snapshot.sourceChanged = [record.id]
+        snapshot.pinStatus = [record.id: [item.id: .unpinned(new: "h")]]
+        var out = ListFiguresTool.entries(rows: [], snapshot: snapshot, documentTitles: [:]) { _ in nil }
+        XCTAssertEqual(out.first?.changed, true, "the figure's own Research source moved")
+        XCTAssertEqual(out.first?.pins.map(\.status), ["unpinned"])
+        snapshot.sourceChanged = []
+        snapshot.pinStatus = [record.id: [item.id: .sourceMissing]]
+        out = ListFiguresTool.entries(rows: [], snapshot: snapshot, documentTitles: [:]) { _ in nil }
+        XCTAssertEqual(out.first?.changed, false)
+        XCTAssertEqual(out.first?.pins.map(\.status), ["source_missing"])
         await book.ds.close()
     }
 
