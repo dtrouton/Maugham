@@ -1056,5 +1056,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M5-AN-067",
+  "scope": "Research table versions",
+  "kind": "POSTCONDITION",
+  "statement": "Every save of a Research table keeps the state before it under .maugham/research-versions/ (a writer's editing run keeps one, the state before the run; every assistant write and every Restore keeps one), the last 50 per table per device; the inspector lists them newest first, marks the assistant's, and Restore (hidden on a view-only share) is itself versioned and keeps the figure link; versions follow the item through Trash, are swept on permanent delete, move with promote-to-project and are not copied by duplicate. The assistant writes through write_research_cells / create_research_table, which refuse a view-only share.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Editor/ResearchTableVersionTests.swift: test_aWritersRunKeepsOneVersion_andAnAssistantWriteKeepsOneMarkedByThePriorAuthor, test_aPauseOverTenMinutesBeginsANewRun; MaughamTests/Editor/ResearchTableRestoreTests.swift: test_restoreWithNoGridOpen_putsTheVersionBack_andKeepsWhatItReplaced, test_aViewOnlyShareRefusesARestore; MaughamTests/Stores/ResearchVersionLifecycleTests.swift: test_anItemInTheTrashKeepsItsVersions_andARestoreListsThemAgain, test_permanentDeleteSweepsOwnFiles_andLeavesAnotherDevicesAlone, test_duplicatingAnItemCopiesNoVersions, test_promotingAPieceCarriesItsResearchTablesVersions; MaughamTests/MCP/Tools/ResearchTableToolsTests.swift: test_eachWriteKeepsAVersionAndTheAssistantsBytesAreMarkedSo, test_aViewOnlyShareRefusesEveryResearchWriteWithNoGridOpen; MaughamCore ResearchVersionStoreTests"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "Research table inspector; MCP write_research_cells",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

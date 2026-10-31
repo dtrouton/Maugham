@@ -33,9 +33,9 @@ A table, picture or PDF in Research can become a figure of the book, and a figur
 A table in Research opens in the same grid as a figure's table: in the centre column, and in Plan's right column. Edits are saved to the CSV file itself after a short pause, and the file keeps its separator (comma, semicolon or tab), its line endings and its byte-order mark.
 
 - **Undo.** While the table is open, ⌘Z and ⇧⌘Z undo and redo its cell, row and column changes. If the table has changed since, the undo is declined with a sentence.
-- **No versions yet.** Saved changes to a Research table are not versioned yet: earlier states of the file are not kept.
+- **Versions.** Every save of a Research table keeps the state before it. Your own editing run keeps one version, the state before the run began (a pause of ten minutes, or closing the grid, ends a run); each write by Claude and each Restore keeps one too. The inspector's **Versions** section lists them newest first, marks the ones **Written by assistant**, and offers **Restore previous version** and a **Restore** on each row. Restoring is itself kept as a version, so restoring again undoes it, and it keeps the table's link to its figure. If a version's formats or widths can't be put back, the notice says so. A table keeps its last 50 versions on each Mac. Versions stay with the table in the Trash and come back with it, are removed when it is deleted for good, move with it when a piece is promoted to a project, and are not copied by Duplicate. A view-only share shows no Versions section. Research notes, pictures and PDFs are not versioned.
 - **An outside change.** If the file changes outside Maugham (another Mac, a spreadsheet app), the grid reloads and says so. If you had unsaved edits in the grid, your edits are written and the outside version is kept as a backup in the project's `.maugham/conflicts/` folder, and a notice says so.
-- **`research:` formulas** inside a Research table are not evaluated and show `#REF!`.
+- **`research:` formulas** inside a Research table are not evaluated and show `#REF!`; they compute only through a figure's pins.
 - **Very large files** are shown as text, not a grid.
 - **Read-only** in Review and on a view-only share; the grid opens for looking, with a reason.
 

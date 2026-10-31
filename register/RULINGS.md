@@ -579,7 +579,7 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 ### RULING-56 — Y — research text is versioned (RULING-24's family)  `RATIFIED`
 
-> Research moves toward being versioned, apart from files and images: what is written in Research (its tables first, every save by the writer or the assistant) keeps earlier versions, and the writer can restore one. Files and images — PDFs, pictures, audio — stay recoverable but unversioned, RULING-24's economic boundary. Until a kind of Research is versioned in the code, RULING-24's 'recoverable but not versioned' still describes it.
+> Research moves toward being versioned, apart from files and images: what is written in Research (its tables first, every save by the writer or the assistant) keeps earlier versions, and the writer can restore one. Files and images — PDFs, pictures, audio — stay recoverable but unversioned, RULING-24's economic boundary. Until a kind of Research is versioned in the code, RULING-24's 'recoverable but not versioned' still describes it. Research tables are versioned in the code (report plan 9d, claim M5-AN-067); Research notes are not yet, and RULING-24 still describes them.
 
 *basis:* Denver, 2026-10-30, report plan 9 scoping: chose 'every save, yours and Claude's' for Research tables, 'because I am intending to change research to be versioned apart from files and images'. Fulfils RULING-24's own *future* clause ('in future we might version control parts of research too').
 
