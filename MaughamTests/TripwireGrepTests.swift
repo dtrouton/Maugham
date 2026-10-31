@@ -12041,6 +12041,12 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+Annotations.swift": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
+        // A figure's judged notes (`FigureNotesRead`, report plan 9c-2): the
+        // walk's figure read moved into Core, handing the carrier's resolved
+        // set to `AnnotationAmendments.judged` as the walk did.
+        "FigureCellNotes.swift": [
+            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
+        ],
         // The Mac's two doors name the SWEEP that takes one, not the type.
         "type:DocumentStore": ["sweptUnsignedSnapshot"],
     ]

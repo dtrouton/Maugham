@@ -581,7 +581,8 @@ extension DocumentStore {
         let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
-                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale)
+                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale,
+                                openCellNotes: figureCellNotes(states.keys, manifest: manifest, trust: trust))
     }
 
     /// **Every registered figure's state, freshest first**: an open host's
@@ -599,6 +600,24 @@ extension DocumentStore {
             }
         }
         return states
+    }
+
+    /// **Each figure's open live cell notes**, from the figure cache's judged
+    /// read — every note reaches the stream on disk before its host re-reads,
+    /// so an open host's figure reads the same lines (and the cache's line,
+    /// dropped by each note write, is read once per change). A figure with
+    /// none, or whose stream will not read, is absent.
+    private func figureCellNotes(
+        _ ids: Dictionary<String, FigureState>.Keys, manifest: ProjectManifest, trust: TrustTable
+    ) -> [String: FigureCellNotes] {
+        let facts = DocumentClass.Facts(manifest)
+        var notes: [String: FigureCellNotes] = [:]
+        for id in ids {
+            guard let read = try? figureCache.cellNotes(
+                forFigureId: id, in: projectURL, trust: trust, facts: facts), read.hasLive else { continue }
+            notes[id] = read
+        }
+        return notes
     }
 
     // MARK: - The figures a publish prints
@@ -798,6 +817,10 @@ struct FigureCardInputs {
     /// (`FigureSource.hasChanged(currentHash:)`).
     var sourceChanged: Set<String> = []
     var locale: TableLocale
+    /// Each figure's open live cell notes (`FigureCache.cellNotes`, judged), for
+    /// the cards' dots and the in-place strip's presence; a figure with none or
+    /// whose stream will not read is absent.
+    var openCellNotes: [String: FigureCellNotes] = [:]
 }
 
 /// **A snapshot source file's hash, as of its size and modification date**

@@ -1,16 +1,18 @@
 import Foundation
 
-/// Per-project in-memory cache of derived figure states, on
-/// `DerivedManuscriptCache`'s token pattern: the sorted `(path, mtime, size)`
-/// of the figure's op-log file set. An append, seal or sync changes a file's
-/// size or mtime and so invalidates exactly that figure.
+/// Per-project in-memory cache of derived figure states and their open cell
+/// notes, on `DerivedManuscriptCache`'s token pattern: the sorted
+/// `(path, mtime, size)` of the figure's op-log file set. An append, seal or
+/// sync changes a file's size or mtime and so invalidates exactly that figure
+/// — a note's creation or answer included.
 ///
-/// The read goes through `OpLogStore.loadSyncMerged` (the sanctioned closed-doc
-/// read) with the manifest's `DocumentClass.Facts`, so a narrowed author's
-/// figure lines are judged as `.figure`, not `.piece`. It never hand-rolls a
-/// partition call (tripwire 45) and never reads `figures/<name>.csv`
-/// (tripwire 20). The token does not cover `trust` or `facts`: a caller whose
-/// either changed must `invalidateAll()`.
+/// The read is `FigureNotesRead.read` (the sanctioned closed-doc read,
+/// `OpLogStore.loadSyncMerged`, with the manifest's `DocumentClass.Facts`, so
+/// a narrowed author's figure lines are judged as `.figure`, not `.piece`):
+/// ONE read folds the state and builds the judged `FigureCellNotes` beside it
+/// (report plan 9c-2). It never hand-rolls a partition call (tripwire 45) and
+/// never reads `figures/<name>.csv` (tripwire 20). The token does not cover
+/// `trust` or `facts`: a caller whose either changed must `invalidateAll()`.
 ///
 /// Main-actor only, one per project.
 @MainActor
@@ -21,6 +23,7 @@ public final class FigureCache {
         /// What the facts say about THIS figure: absent, or present with its piece.
         let facts: String
         let state: FigureState
+        let notes: FigureCellNotes
     }
 
     private var lines: [String: Line] = [:]
@@ -37,20 +40,40 @@ public final class FigureCache {
         forFigureId figureId: String, in projectURL: URL, trust: TrustTable? = nil,
         facts: DocumentClass.Facts
     ) throws -> FigureState {
+        try line(forFigureId: figureId, in: projectURL, trust: trust, facts: facts).state
+    }
+
+    /// **The figure's open notes on live cells** (`FigureCellNotes`), judged,
+    /// from the same cached read as its `state` — what a card's dots and the
+    /// strip's presence read. Throws as `state` does.
+    public func cellNotes(
+        forFigureId figureId: String, in projectURL: URL, trust: TrustTable? = nil,
+        facts: DocumentClass.Facts
+    ) throws -> FigureCellNotes {
+        try line(forFigureId: figureId, in: projectURL, trust: trust, facts: facts).notes
+    }
+
+    private func line(
+        forFigureId figureId: String, in projectURL: URL, trust: TrustTable?,
+        facts: DocumentClass.Facts
+    ) throws -> Line {
         let token = DerivedManuscriptCache.token(forDocId: figureId, in: projectURL)
         // A record appearing or its piece changing moves the figure's class, and so
         // the permit's judgement of its lines, with no op-log file moving.
         let fingerprint = facts.figures.first { $0.id == figureId }
             .map { "present:\($0.piece ?? "-")" } ?? "absent"
         if let line = lines[figureId], line.token == token, line.facts == fingerprint {
-            return line.state
+            return line
         }
-        let ops = try OpLogStore.loadSyncMerged(
-            forDocId: figureId, in: projectURL, trust: trust, facts: facts)
-        let state = FigureDeriver.derive(ops)
+        // The notes are judged by a table in hand: resolved here when the
+        // caller passed none, as `loadSyncMerged` would resolve it.
+        let trust = try trust ?? TrustResolution.resolve(projectURL: projectURL, identities: .current)
+        let read = try FigureNotesRead.read(figureId: figureId, in: projectURL, trust: trust, facts: facts)
         deriveCount &+= 1
-        lines[figureId] = Line(token: token, facts: fingerprint, state: state)
-        return state
+        let line = Line(token: token, facts: fingerprint, state: FigureDeriver.derive(read.ops),
+                        notes: FigureCellNotes(notes: read.notes, table: read.table))
+        lines[figureId] = line
+        return line
     }
 
     /// Drop one figure's cached line (a guaranteed re-derive without racing mtime).

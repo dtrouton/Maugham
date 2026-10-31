@@ -385,30 +385,15 @@ extension ProjectStore {
     }
 
     /// One figure's notes and the table they resolve against, from one read
-    /// of its stream — nil when the stream will not read.
+    /// of its stream — nil when the stream will not read. Core's judged read
+    /// (`FigureNotesRead`, report plan 9c-2), the one `FigureCache` and the
+    /// phone read through too (tripwire 19).
     nonisolated static func figureNotesAndTable(
         _ figureId: String, in url: URL, trust: TrustTable, facts: DocumentClass.Facts
     ) -> (notes: [Annotation], table: FigureTable?)? {
-        let amendmentPermits = AmendmentPermits()
-        guard let ops = try? OpLogStore.loadSyncMerged(
-            forDocId: figureId, in: url, trust: trust,
-            facts: facts,
-            amendmentPermits: amendmentPermits)
+        guard let read = try? FigureNotesRead.read(figureId: figureId, in: url, trust: trust, facts: facts)
         else { return nil }
-        // The figure's own table, from the same stream, resolves each note's
-        // cell anchor (report plan 9c-1): live A1 address, or orphaned.
-        let table = AnnotationAggregation.figureTable(in: ops)
-        let notes = AnnotationAggregation.allAnnotations(
-            ops: ops, paragraphs: [:],
-            amendments: .judged(
-                by: trust, permits: amendmentPermits.resolved,
-                insideTheUnsignedSnapshot:
-                    amendmentPermits.resolvedInsideTheUnsignedSnapshot,
-                class: {
-                    DocumentClass.resolve(docId: figureId, facts: facts)
-                }),
-            figureTable: table)
-        return (notes, table)
+        return (read.notes, read.table)
     }
 
     /// **Each figure suggestion's cells as text** (report plan 9c-1 Task 7),

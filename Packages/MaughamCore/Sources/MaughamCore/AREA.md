@@ -185,10 +185,10 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed; an accept carrying a cell folds as that cell set (`FigureOpPayload.foldKind`).
-- `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
+- `FigureCache.swift` — a figure's derived state and open cell notes cached on its op-log file set (one read), and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
 - `BookLanguage.swift` — the publish config's path and its `metadata.language` as a tag, for both cards.
 - `FigureCardText.swift` — the words a table figure's card shows, shared by the Mac and phone cards.
-- `FigureCardModel.swift` — a table figure card's rows and height.
+- `FigureCardModel.swift` — a table figure card's rows, height, note dots and strip presence.
 - `FigureTableLayout.swift` — a table figure's printed cells (header/body/total, resolved alignments, error cells); owns the shared alignment rule.
 - `FigureCardBook.swift` — the one figure-card loop Mac and phone share: a model per figure, the Research readers, the parked labels, and the line rule (what sits under a figure line).
 - `FigurePathRule.swift` — the lexical figure-path rule Publish shares.
@@ -203,6 +203,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureGridModel.swift` — the in-place grid's keys (spec §6.3) as effects: selection by ids, the cell edit, references composed with arrows or clicks; `tableChanged` re-checks the ids.
 - `FigureGridAddress.swift` — a grid cell or range as "B3" / "B2:D9" by live position, and back.
 - `FigureCellAnchor.swift` — a figure note's cell or range by id; its live A1 address, or orphaned (stale) when a corner is deleted.
+- `FigureCellNotes.swift` — a figure's notes judged from one read of its stream (`FigureNotesRead`, the Mac walk's too), and its open live cell notes: dots on each top-left cell, the notes containing a cell, presence.
 - `FigureAnchorAddress.swift` — `tbl:x!C3:E3` text to a label and cells, and cells (current positions) to a `FigureCellAnchor` by ids.
 - `FigureAnnotationOps.swift` — the ops of a figure note, once for Mac, phone and MCP: creation, accept (one `claudeAccept` carrying the cell) and its revert, status-only accept and revert, `acceptsOnlyInTheTable`, reject/stet/archive/reopen, and Claude's machine-form suggested value.
 - `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.

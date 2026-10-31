@@ -312,6 +312,64 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
         XCTAssertEqual(try XCTUnwrap(grid.panel).frame.height, grid.room - 2 * FigureGridPanel.gap, accuracy: 0.5)
     }
 
+    // MARK: - (a) and (c), from the real emitter
+
+    /// **(a) and (c) driven by a real note** (report plan 9c-2 Task 2): no
+    /// provider override. The assistant's comment on a cell, appended through
+    /// `addFigureAnnotation` while the grid is open, reaches the card through
+    /// the real fill (Core's judged read → `FigureCardModel.hasOpenCellNotes`)
+    /// and moves `FigureCardCache.version`; landing that version as
+    /// `EditorHost` does opens the strip's room, the expanded line re-laid out
+    /// once. Rejecting the note (the figure's last open cell note) refills
+    /// the card with the flag off, and the next edge gives the room back.
+    func test_aRealCellNoteOpensTheStrip_andRejectingItGivesTheRoomBack() async throws {
+        let m = try await mount()
+        let line = location(m, "![Cash](")
+        let body = spacing(m, at: location(m, "Middle prose"))
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: line))
+        let grid = try await opened(m)
+        let host = try XCTUnwrap(grid.controller?.host as? FigureDocument)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let bare = FigureGridPanel.room(rows: 3, strip: false, typography: .defaults)
+        XCTAssertEqual(grid.room, bare, "premise: no note, no strip")
+        XCTAssertEqual(m.cards.model(forFigureId: host.figureId)?.hasOpenCellNotes, false)
+
+        let table = host.state.table
+        let key = CellKey(row: table.rows[1], column: table.columns[1])
+        let note = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Check this", author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: host.figureId, device: Document.loadIdentities[.assistant].deviceId))
+        let version = m.cards.version
+        let refreshes = m.coordinator.figureRoomRefreshCount
+
+        try await ds.addFigureAnnotation(note)
+        await ds.settleFigureCards()
+
+        let card = try XCTUnwrap(m.cards.model(forFigureId: host.figureId))
+        XCTAssertTrue(card.hasOpenCellNotes, "the fill read the note")
+        XCTAssertEqual(card.markedCells, [FigureCardModel.Position(row: 1, column: 1)])
+        XCTAssertGreaterThan(m.cards.version, version, "the note moved the card's version")
+        XCTAssertEqual(m.coordinator.figureRoomRefreshCount, refreshes, "nothing moves before the edge lands")
+        m.coordinator.setFigureCardVersion(m.cards.version)   // EditorHost's step
+        XCTAssertEqual(m.coordinator.figureRoomRefreshCount - refreshes, 1, "the expanded line, once")
+        XCTAssertEqual(grid.room, bare + FigureGridPanel.stripHeight)
+        XCTAssertEqual(spacing(m, at: line) - body, grid.room)
+        XCTAssertTrue(try XCTUnwrap(grid.panel).showsStrip)
+
+        let answered = m.coordinator.figureRoomRefreshCount
+        try await host.rejectAnnotation(id: note.opId)
+        await ds.settleFigureCards()
+        XCTAssertEqual(m.cards.model(forFigureId: host.figureId)?.hasOpenCellNotes, false,
+                       "the figure's last open cell note is answered")
+        XCTAssertEqual(m.cards.model(forFigureId: host.figureId)?.markedCells, [])
+        m.coordinator.setFigureCardVersion(m.cards.version)
+        XCTAssertEqual(m.coordinator.figureRoomRefreshCount - answered, 1, "that line, once")
+        XCTAssertEqual(grid.room, bare, "the strip's room is given back")
+        XCTAssertEqual(spacing(m, at: line) - body, bare)
+        XCTAssertFalse(try XCTUnwrap(grid.panel).showsStrip)
+    }
+
     // MARK: - Helpers
 
     private func arrow(_ m: Mounted, _ keyCode: UInt16) -> NSEvent {
