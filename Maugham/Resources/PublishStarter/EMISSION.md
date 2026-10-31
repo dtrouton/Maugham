@@ -471,6 +471,38 @@ North & 120 \\
 \end{prose}
 ```
 
+### Table figure (a registered table, three rows: header, body, total)
+
+```
+![Cash flows](../figures/cash.csv){#tbl:cash}
+```
+
+emits:
+
+```latex
+\providecommand{\st}[1]{#1}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\MaughamCrossLink}[2]{\ifdefined\hyperlink\hyperlink{#1}{#2}\else#2\fi}
+\providecommand{\figurename}{}\renewcommand{\figurename}{Figure}
+\providecommand{\tablename}{}\renewcommand{\tablename}{Table}
+\providecommand{\listfigurename}{}\renewcommand{\listfigurename}{List of Figures}
+\providecommand{\listtablename}{}\renewcommand{\listtablename}{List of Tables}
+\ifdefined\MaughamTable\else\ifdefined\longtable
+\newenvironment{MaughamTable}[4]{\begin{longtable}{#1}\caption[{#2}]{#3}\\#4\\\hline\endfirsthead\caption[]{#3}\\#4\\\hline\endhead}{\end{longtable}}
+\else
+\newenvironment{MaughamTable}[4]{\begin{table}[htbp]\centering\caption[{#2}]{#3}\begin{tabular}{#1}#4\\\hline}{\end{tabular}\end{table}}
+\fi\fi
+\begin{prose}{Example}
+\setcounter{table}{0}
+\hypertarget{lbl-tbl-cash}{}
+\begin{MaughamTable}{lr}{Cash flows}{Cash flows}{Item & Amount}
+Rent & 1200 \\
+\hline
+Total & 1200 \\
+\end{MaughamTable}
+\end{prose}
+```
+
 ### Figure (image staged under build/figures/)
 
 ```
@@ -583,13 +615,13 @@ Every table is a `MaughamTable` environment with four arguments: the column spec
 
 Every table prints "Table n", captioned or not, so a reference to it always lands on a visible number; an uncaptioned table's list entry is `\relax`. A row opening with `[` or `*` starts with `\relax`, so `\\` never reads it as an argument.
 
-A table figure's line (`![caption](figures/<name>.csv)`, labelled `{#tbl:name}` or unlabelled) numbers as a table and draws its figure's computed cells, each formatted in the body's language and escaped, in a `MaughamTable` when it has a header row; its total row is ruled above (`\hline`). A table figure with no header row is a `MaughamTableNoHead` environment with three arguments (the column spec, the list entry, the caption) and nothing repeated on later pages, guarded and branched as `MaughamTable` is. A line whose figure does not lay out (not registered, parked in Research, unreadable) prints as a kernel `table` float holding its anchor, its caption ("Table n", listed in the list of tables) and its literal source line.
+A table figure's line (`![caption](figures/<name>.csv)`, labelled `{#tbl:name}` or unlabelled) numbers as a table and draws its figure's computed cells, each formatted in the body's language and escaped, in a `MaughamTable` when it has a header row; its total row is ruled above (`\hline`). A table figure with no header row is a `MaughamTableNoHead` environment with three arguments (the column spec, the list entry, the caption) and nothing repeated on later pages, guarded and branched as `MaughamTable` is. A template that defines its own `MaughamTable` must define `MaughamTableNoHead` too, or a headerless table figure draws in the starter's. A line whose figure does not lay out (not registered, parked in Research, unreadable) prints as a kernel `table` float holding its anchor, its caption ("Table n", listed in the list of tables) and its literal source line. The example above is a three-row figure (header, body, total); a figure no line names is absent from the body, and a pipe table is unchanged. The EPUB draws the same cells in a `<table>` (`<thead>` only with a header row, the total row `<tr class="total">`, ruled above by the starter's `styles.css`), and Word in a native table with a repeating header row and the total's cells ruled above.
 
 ### Old templates degrade, they don't fail
 
 An existing project never receives starter updates, so its preamble may load neither graphicx nor longtable. Each element asks at the point of use:
 
-- **No longtable** → `MaughamTable` becomes a `table` float around a plain `tabular` (one page; the header is not repeated).
+- **No longtable** → `MaughamTable` becomes a `table` float around a plain `tabular` (one page; the header is not repeated). `MaughamTableNoHead` degrades the same way.
 - **No graphicx** → a figure keeps its float and caption, and its image becomes its caption in a framed box: `\ifdefined\includegraphics\includegraphics[width=\linewidth]{…}\else\fbox{\parbox{0.9\linewidth}{\centering …}}\fi`.
 - **No `\listoffigures`/`\listoftables`** → the list is skipped (`\ifdefined\listoffigures\listoffigures\clearpage\fi`).
 
