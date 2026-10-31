@@ -107,3 +107,13 @@ extension SuggestionDisplay {
     /// What an orphaned anchor says in place of its address.
     public static let cellsDeleted = "cells deleted"
 }
+
+/// **The assistant-note colour**, as sRGB components: the terracotta the
+/// Mac's review render reserves for the assistant (`ReviewPalette`) and the
+/// dot both surfaces put on a cell with an open note. Stated once, here
+/// (tripwire 19); each surface builds its own colour type from it.
+public enum AssistantNoteColour {
+    public static let red = 0.78
+    public static let green = 0.42
+    public static let blue = 0.32
+}

@@ -8,8 +8,9 @@ import MaughamCore
 /// holder (computed values and cached strings), the `FigureGridView` and its
 /// `FigureGridBars`.
 ///
-/// - **The only grid file that calls a figure mutator** (tripwire 52 counts
-///   this file's calls in `manuscriptWriterCallSites`): a cell through
+/// - **The only grid file that calls a figure mutator**, with its strip
+///   extension (`FigureGridController+Strip.swift`, a suggestion's Accept)
+///   — tripwire 52 counts each file's calls in `manuscriptWriterCallSites`: a cell through
 ///   `setCell`, a range (⌫, a format, decimals, align, Σ) through `setCells`
 ///   — one ⌘Z and one render however many cells — the structure verbs, and
 ///   a batch planned against the host (a delete of several rows or columns,
@@ -21,7 +22,9 @@ import MaughamCore
 /// - **It observes `host.state`** (`withObservationTracking`; the coordinator
 ///   never does, tripwire 6) and advances the values incrementally, repainting
 ///   the visible cells that changed; a `figureCardVersion` edge reseeds
-///   (`figureCardsChanged`).
+///   (`figureCardsChanged`). It observes `host.openCellNotes` the same way
+///   and keeps it (`cellNotes`): a note arriving or answered repaints the
+///   dots that came or went, with no change to the table (report plan 9c-2).
 /// - Writes run one after another, in the order asked; a refusal is said as
 ///   a notice (a sort says its own).
 /// - **The caption** is text, so it is committed by the coordinator through
@@ -58,7 +61,8 @@ import MaughamCore
 ///   (`FigureGridImport`, R7d-8) and writes it through `applyChanges` as one
 ///   ⌘Z. A read-only grid answers each with the reason line.
 @MainActor
-final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate {
+final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, FigureGridBarsDelegate,
+                                  FigureGridStripViewDelegate {
 
     /// What the bottom bar shows of the figure line, and how its caption is written.
     struct Line {
@@ -73,13 +77,45 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     let host: any FigureGridHost
     let gridView: FigureGridView
     let bars = FigureGridBars()
+    /// **The suggestion strip** (report plan 9c-2 Task 5): the open notes on
+    /// the active cell, refreshed with the bars from the cached `cellNotes`.
+    let strip = FigureGridStripView()
     var figureId: String { host.figureId }
 
-    private let values: FigureGridValues
+    let values: FigureGridValues
     private(set) var model: FigureGridModel
+    /// **The host's open notes on live cells, as last caught up with**: the
+    /// dots and the strip read this, a dictionary lookup per cell — never
+    /// the host's projection per draw or per selection.
+    private(set) var cellNotes: FigureCellNotes
+    /// What the strip shows for the active cell, as last refreshed.
+    var stripPlan = FigureGridStrip.Plan.empty
+    /// The strip's page among the active cell's notes; back to the first
+    /// when the active cell changes.
+    var stripPage = 0
+    /// The active cell the strip's page belongs to.
+    var stripCell: CellKey?
+    /// The plan and page the strip view last showed (`refreshStrip` skips an unchanged one).
+    var stripShown: (plan: FigureGridStrip.Plan, page: Int)?
+    /// The changed-since question being asked, outside the write chain (a test awaits it).
+    var stripQuestion: Task<Void, Never>?
+    /// **The figure's posture allows `.acceptOrReject`** — the strip's
+    /// buttons — kept from the window's door, which the controller observes
+    /// (`observeTheDoor`); never asked per selection.
+    private(set) var notesMayBeAnswered: Bool
+    /// Told when the figure gains its first open live cell note or loses its
+    /// last (a window's or the centre's panel carves the strip's room; in
+    /// place the room follows the card instead).
+    var onStripPresenceChange: ((Bool) -> Void)?
+    /// **Asked before an Accept over a cell changed since the suggestion**
+    /// (true accepts anyway). A sheet on the grid's window; a test answers it.
+    var askChangedSince: @MainActor (FigureGridStrip.ChangedQuestion) async -> Bool
+    /// **Asked by the strip's Reject for a reason.** A sheet on the grid's
+    /// window; a test answers it.
+    var askRejectReason: @MainActor (FigureGridStrip.RejectQuestion) async -> FigureGridStrip.RejectAnswer
     private weak var store: DocumentStore?
     private weak var projectStore: ProjectStore?
-    private var names: FormulaNames
+    private(set) var names: FormulaNames
     private(set) var line: Line
     private(set) var name: String
     /// **The grid's private undo stack** (plan 7d Task 6, ADR 0023's
@@ -138,7 +174,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     private var writes: Task<Void, Never>?
     /// Writes asked for and not yet landed (an undo or redo among them).
     private(set) var writesInFlight = 0
-    private var isClosed = false
+    private(set) var isClosed = false
 
     /// The pasteboard cut, copy and paste use: the general one; a test sets
     /// a private one (never the general pasteboard in a test).
@@ -201,13 +237,20 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let recordName = projectStore.manifest.figures?.first(where: { $0.id == host.figureId })?.name
         self.name = name ?? recordName ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
-        gridView = FigureGridView(typography: typography)
+        cellNotes = host.openCellNotes
+        notesMayBeAnswered = host.asksTheFigureDoor
+            && store.posture(forDocId: host.figureId).allows(.acceptOrReject)
+        let grid = FigureGridView(typography: typography)
+        gridView = grid
+        askChangedSince = { [weak grid] in await FigureGridStrip.Sheets.ask($0, in: grid?.window) }
+        askRejectReason = { [weak grid] in await FigureGridStrip.Sheets.ask($0, in: grid?.window) }
         // A placeholder first, so the real model's closure may capture `self`.
         model = FigureGridModel(table: host.state.table, editText: { _ in "" })
         model = FigureGridModel(table: host.state.table, editText: { [weak self] in self?.barText(for: $0) ?? "" })
         gridView.dataSource = self
         gridView.delegate = self
         bars.delegate = self
+        strip.stripDelegate = self
         menuTarget.onCommand = { [weak self] in self?.performTableCommand($0) }
         bars.showLine(number: line.number, caption: line.caption, name: self.name)
         // The bottom bar's figure fields, only where the host offers them.
@@ -306,6 +349,43 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         refreshBars()
     }
 
+    /// **Select `key` and scroll it into view** (report plan 9c-2 Task 7):
+    /// the queue's or the inspector's travel to a note's cell, so the strip
+    /// shows the note. An open edit is committed first, as a click away
+    /// would; one that will not read stays open with its error and nothing
+    /// moves. When nothing moves the writer is told why in a sentence
+    /// (`selectRefused`) and the answer is false.
+    @discardableResult
+    func select(_ key: CellKey) -> Bool {
+        let refusal: SelectRefusal? =
+            isClosed || isFolded ? .folded
+            : values.table.rowIndex(of: key.row) == nil || values.table.columnIndex(of: key.column) == nil
+                ? .noSuchCell
+            : !commitOpenEdit() ? .openEditUnread
+            : nil
+        if let refusal {
+            MaughamEvent.postNotice(refusal.sentence, projectURL: host.projectURL)
+            return false
+        }
+        execute(model.select(key))
+        gridView.scrollTo(key)   // already selected, the cell may still be out of view
+        return true
+    }
+
+    /// Why `select(_:)` moved nothing, said as a notice.
+    enum SelectRefusal: Equatable {
+        case folded, noSuchCell, openEditUnread
+
+        var sentence: String {
+            switch self {
+            case .folded: "The table was folded, so the note\u{2019}s cell wasn\u{2019}t selected."
+            case .noSuchCell: "The note\u{2019}s cell is no longer in the table."
+            case .openEditUnread:
+                "The cell being edited holds a formula that won\u{2019}t read \u{2014} fix or cancel it, then show the note\u{2019}s cell again."
+            }
+        }
+    }
+
     /// Every write asked for so far, landed (a test's and a fold's wait).
     func settleWrites() async {
         while let pending = writes {
@@ -320,6 +400,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     func figureGridDisplay(at key: CellKey) -> String { values.display(at: key) }
     func figureGridValue(at key: CellKey) -> CellValue { values.value(at: key) }
     var figureGridSelection: FigureGridSelection? { model.selection }
+    func figureGridIsMarked(_ key: CellKey) -> Bool { cellNotes.byAnchor[key] != nil }
     var figureGridReference: FigureGridReference? {
         if case .composing(_, let reference) = model.edit { return reference }
         return nil
@@ -406,6 +487,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         bars.showReason(reason?.sentence)
         gridView.mayResizeColumns = reason == nil
         refreshMenuState()
+        refreshStrip()
     }
 
     /// A key on a read-only grid: one that only selects or scrolls is the
@@ -494,7 +576,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     }
 
     /// The reason line, said again.
-    private func answer(_ reason: FigureGridGate.Reason) {
+    func answer(_ reason: FigureGridGate.Reason) {
         bars.showReason(reason.sentence)
     }
 
@@ -713,7 +795,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     /// An open edit committed, as a fold would (without folding): false — and
     /// the edit reopened with its error — when it will not read.
-    private func commitOpenEdit() -> Bool {
+    func commitOpenEdit() -> Bool {
         guard case .idle = model.edit else {
             execute(model.fold(commit: true).filter { $0 != .fold })
             if case .idle = model.edit { return true }
@@ -1372,7 +1454,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     // MARK: The host
 
     /// Writes run in the order asked, each after the one before; a refusal is said.
-    private func enqueue(_ act: @escaping @MainActor () async throws -> Void) {
+    func enqueue(_ act: @escaping @MainActor () async throws -> Void) {
         let previous = writes
         writesInFlight += 1
         writes = Task { @MainActor [weak self] in
@@ -1393,6 +1475,8 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// holds them and the gate asked again (`onAccessMayHaveChanged`).
     private func refused(_ error: Error) {
         say(error)
+        // A note's answer refused: whether this Mac may answer is asked again.
+        if error is FigureNoteError { askWhetherNotesMayBeAnswered() }
         guard error is FigureEditRefused || error is FigureParkedRefused || error is DocumentNotWritableError
         else { return }
         gridView.reloadData()
@@ -1407,18 +1491,29 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         guard !isClosed, host.asksTheFigureDoor, let store else { return }
         let figureId = figureId
         withObservationTracking {
-            _ = store.posture(forDocId: figureId).allows(.editFigure)
+            let posture = store.posture(forDocId: figureId)
+            _ = posture.allows(.editFigure)
+            _ = posture.allows(.acceptOrReject)   // the strip's buttons
         } onChange: { [weak self] in
             // The door is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
                 guard let self, !self.isClosed else { return }
                 self.postureChange = Task { @MainActor [weak self] in
                     guard let self, !self.isClosed else { return }
+                    self.askWhetherNotesMayBeAnswered()
                     self.onAccessMayHaveChanged?()
                     self.observeTheDoor()
                 }
             }
         }
+    }
+
+    /// The strip's buttons asked of the window's door again.
+    private func askWhetherNotesMayBeAnswered() {
+        let next = host.asksTheFigureDoor && (store?.posture(forDocId: figureId).allows(.acceptOrReject) ?? false)
+        guard next != notesMayBeAnswered else { return }
+        notesMayBeAnswered = next
+        refreshStrip()
     }
 
     /// A refusal as a notice; a sort's refusal says itself (`FigureSortRefused`).
@@ -1435,6 +1530,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         guard !isClosed else { return }
         withObservationTracking {
             _ = host.state
+            _ = host.openCellNotes
         } onChange: { [weak self] in
             // The host is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
@@ -1448,13 +1544,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
     }
 
+    /// **Catch up with the host**: its state, then its open cell notes.
+    func syncFromHost() {
+        guard !isClosed else { return }
+        let stateMoved = syncStateFromHost()
+        let notesMoved = syncNotesFromHost()
+        if stateMoved || notesMoved { refreshBars() }
+    }
+
     /// **Catch up with the host's state**: the values advanced (only the cells
     /// that read what changed), the model's selection checked against the
-    /// table, the visible cells that changed repainted.
-    private func syncFromHost() {
-        guard !isClosed else { return }
+    /// table, the visible cells that changed repainted. Answers whether the
+    /// state had moved.
+    private func syncStateFromHost() -> Bool {
         let next = host.state
-        guard next != values.state else { return }
+        guard next != values.state else { return false }
         let tableChanged = next.table != values.table
         // An open edit whose row or column goes with this change is closed
         // by the model; typing it held is said, never lost (final review I3).
@@ -1472,7 +1576,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             execute(effects)
         }
         if repaint == .everything { gridView.reloadData() } else { gridView.repaint(repaint) }
-        refreshBars()
+        return true
+    }
+
+    /// **Catch up with the host's open cell notes**: kept, and the cells
+    /// whose dot came or went repainted (after the table, so they are found
+    /// where they now stand). Answers whether they had moved.
+    private func syncNotesFromHost() -> Bool {
+        let next = host.openCellNotes
+        guard next != cellNotes else { return false }
+        let changed = cellNotes.marked.symmetricDifference(next.marked)
+        let presenceMoved = next.hasLive != cellNotes.hasLive
+        cellNotes = next
+        gridView.repaint(.cells(changed))
+        if presenceMoved { onStripPresenceChange?(next.hasLive) }
+        return true
     }
 
     // MARK: Showing
@@ -1486,6 +1604,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     /// The bars follow the selection, the open edit and the table.
     private func refreshBars(force: Bool = false) {
         refreshMenuState()
+        refreshStrip()
         let table = values.table
         guard let selection = model.selection else {
             bars.showSelection(address: "", text: "")

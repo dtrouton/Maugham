@@ -743,4 +743,282 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         XCTAssertNil(windows.inPlaceHolds[record.id], "and holds nothing")
         XCTAssertFalse(centre.presence.holdsTheKeys)
     }
+
+    // MARK: - Travel to a cell (report plan 9c-2 Task 7)
+
+    /// The assistant comments on `key` of `figureId`; answers the note's id.
+    private func comment(on key: CellKey, of figureId: String, in ds: DocumentStore) async throws -> String {
+        let op = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Check this", author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: figureId, device: Document.loadIdentities[.assistant].deviceId))
+        try await ds.addFigureAnnotation(op)
+        return op.opId
+    }
+
+    /// The figure's table as its host reads it, and the note on its C2.
+    private func noteOnC2(_ m: Mounted) async throws -> (figureId: String, c2: CellKey, noteId: String) {
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let figureId = try XCTUnwrap(m.figure?.id)
+        let table = try await ds.withFigureHost(figureId) { $0.state.table }
+        let c2 = CellKey(row: table.rows[1], column: table.columns[2])
+        return (figureId, c2, try await comment(on: c2, of: figureId, in: ds))
+    }
+
+    /// **The queue's travel lands on the cell**: with no grid on the figure
+    /// a reveal answers false (the queue travels) and leaves the cell for the
+    /// next grid; the centre the travel mounts selects it at its mount, and
+    /// the strip shows the note. Taken once.
+    func test_travel_theCentreMountSelectsThePendingCell_andTheStripShowsItsNote() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true), "no grid holds it: the caller travels")
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2, "the mount selected the note's cell")
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [noteId], "the strip shows the note")
+        XCTAssertNil(windows.takePendingCell(figureId), "the mount took the cell")
+        XCTAssertFalse(centre.window.firstResponder === c.gridView, "the centre still takes no keys at its mount")
+    }
+
+    /// **A grid already holding the figure selects without travelling**
+    /// (plan ruling): the text's grid, expanded in place in another window,
+    /// comes front with the keys and selects the cell; the reveal answers
+    /// true, so the queue moves no subject, and nothing is left pending.
+    func test_travel_aGridElsewhereIsFocusedAndSelects_withNoTravel() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
+        let inPlace = try await opened(m)
+        let c = try XCTUnwrap(inPlace.controller)
+        m.window.makeFirstResponder(nil)   // the keys elsewhere, not the text (which would fold it)
+        XCTAssertNotEqual(c.figureGridSelection?.anchor, c2, "premise: another cell is active")
+        XCTAssertTrue(c.stripPlan.entries.isEmpty, "premise: the strip shows nothing there")
+
+        XCTAssertTrue(windows.reveal(figureId, cell: c2, pending: true), "selected where it is held: no travel")
+
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2)
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [noteId])
+        XCTAssertTrue(m.window.firstResponder === c.gridView, "the holding grid came front with the keys")
+        XCTAssertTrue(m.coordinator.figureGrid === inPlace, "still the same grid")
+        XCTAssertNil(windows.takePendingCell(figureId), "nothing left for a later grid")
+    }
+
+    /// The centre holding it is the grid that selects: focused, no travel.
+    func test_travel_theCentreHoldingItSelectsAndTakesTheKeys() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+
+        XCTAssertTrue(windows.reveal(figureId, cell: c2, pending: true))
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2)
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [noteId])
+        XCTAssertTrue(centre.window.firstResponder === c.gridView, "the centre's grid has the keys")
+    }
+
+    /// The in-place expansion takes a pending cell too; a reveal that will
+    /// not travel (`pending: false`) leaves none.
+    func test_travel_anInPlaceExpansionSelectsThePendingCell_andANonTravellingRevealLeavesNone() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: false))
+        XCTAssertNil(windows.takePendingCell(figureId), "nothing waits when the caller does not travel")
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
+        let expansion = try await opened(m)
+        let c = try XCTUnwrap(expansion.controller)
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2, "the expansion selected the note's cell")
+        XCTAssertEqual(c.stripPlan.entries.map(\.noteId), [noteId])
+        XCTAssertNil(windows.takePendingCell(figureId))
+    }
+
+    /// The notices posted while `body` runs.
+    private func notices(during body: () async throws -> Void) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { seen.append(message) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
+    /// **A stale cell never selects in a later visit** (fix round 1, I2;
+    /// final review I2): one slot, replaced or cleared by the next reveal,
+    /// cleared by `closeAll`, and dropped when the travel mounts no grid —
+    /// here its visit closes before the grid comes — so an unrelated
+    /// expansion later selects nothing. No clock is involved.
+    func test_travel_aStaleCellIsNeverSelectedByALaterGrid() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, _) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: false))
+        XCTAssertNil(windows.takePendingCell(figureId), "the next reveal cleared the slot")
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        XCTAssertNil(windows.takePendingCell("fig-other"), "another figure's mount takes nothing")
+        windows.closeAll()
+        XCTAssertNil(windows.takePendingCell(figureId), "the project's close cleared it")
+
+        // The travel's visit closes before its grid comes: no grid, no cell.
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let travel = FigureWindowGrid()
+        travel.open(figureId: figureId, store: ds, projectStore: m.store, windows: windows, close: {})
+        travel.finish()
+        await travel.opening?.value
+        XCTAssertNil(travel.controller, "premise: the travel mounted no grid")
+        XCTAssertFalse(windows.hasPendingCell, "the travel that mounted nothing dropped its cell")
+
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
+        let expansion = try await opened(m)
+        let c = try XCTUnwrap(expansion.controller)
+        XCTAssertNotEqual(c.figureGridSelection?.anchor, c2, "a stale cell selects nothing in a later visit")
+    }
+
+    /// **A travel whose load fails drops its cell** (final review I2): the
+    /// window says the table could not be opened, and nothing waits. The
+    /// load fails because the op log's folder cannot be listed (RULING-54:
+    /// unreadable is never empty) — the figure is not open in the store yet.
+    func test_travel_aFailedOpeningDropsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (_, c2, _) = try await noteOnC2(m)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let gone = "fig-gone"
+        let ops = m.store.url.appendingPathComponent(".maugham/ops", isDirectory: true)
+        let fm = FileManager.default
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: ops.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ops.path) }
+
+        XCTAssertFalse(windows.reveal(gone, cell: c2, pending: true))
+        let travel = FigureWindowGrid()
+        travel.open(figureId: gone, store: ds, projectStore: m.store, windows: windows, close: {})
+        await travel.opening?.value
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ops.path)
+        XCTAssertNil(travel.controller, "premise: no grid opened")
+        XCTAssertNotNil(travel.container.message, "premise: the failure is said")
+        XCTAssertFalse(windows.hasPendingCell, "the failed travel dropped its cell")
+        travel.finish()
+    }
+
+    /// **A travel to a subject with no grid drops its cell** (final review
+    /// I2): the centre shows the figure's name and number (no table record),
+    /// so no grid will ever take the cell.
+    func test_travel_aSubjectWithNoGridDropsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (_, c2, _) = try await noteOnC2(m)
+        let gone = "fig-gone"
+
+        XCTAssertFalse(windows.reveal(gone, cell: c2, pending: true))
+        XCTAssertTrue(windows.hasPendingCell, "premise: the cell waits")
+        _ = try centre(m, windows: windows, figureId: gone)
+        let dropped = await RunLoopPump.until(deadline: 5) { !windows.hasPendingCell }
+        XCTAssertTrue(dropped, "the subject with no grid dropped the cell")
+    }
+
+    /// **A slow load still selects** (final review I2): the cell waits with
+    /// no clock, so a grid that mounts long after the travel — past the two
+    /// seconds the slot once lapsed after — still selects it.
+    func test_travel_aSlowLoadStillSelectsTheCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, _) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        try await Task.sleep(for: .milliseconds(2_200))
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2, "a slow mount still selects the note's cell")
+        XCTAssertFalse(windows.hasPendingCell)
+    }
+
+    /// **A figure window holding it selects there** (`FigureWindowGrid`'s
+    /// registration): focused, no travel; and a window's mount takes a
+    /// pending cell as the centre's does.
+    func test_travel_aFigureWindowHoldingItIsFocusedAndSelects_andItsMountTakesAPendingCell() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+
+        XCTAssertFalse(windows.reveal(figureId, cell: c2, pending: true))
+        let windowGrid = FigureWindowGrid()
+        var focused = 0
+        let registration = windows.opened(figureId, focus: { focused += 1 },
+                                          grid: { [weak windowGrid] in windowGrid?.controller }, close: {})
+        windowGrid.open(figureId: figureId, store: ds, projectStore: m.store, windows: windows, close: {})
+        await windowGrid.opening?.value
+        let w = try XCTUnwrap(windowGrid.controller, windowGrid.container.message)
+        XCTAssertEqual(w.figureGridSelection?.anchor, c2, "the window's mount selected the pending cell")
+        XCTAssertEqual(w.stripPlan.entries.map(\.noteId), [noteId])
+
+        let table = w.host.state.table
+        let a1 = CellKey(row: table.rows[0], column: table.columns[0])
+        XCTAssertTrue(windows.reveal(figureId, cell: a1, pending: true), "held by the window: no travel")
+        XCTAssertEqual(w.figureGridSelection?.anchor, a1)
+        XCTAssertEqual(focused, 1, "the window came front")
+        XCTAssertNil(windows.takePendingCell(figureId))
+
+        windowGrid.finish()
+        await windowGrid.finishing?.value
+        windows.closed(registration)
+    }
+
+    /// **A cell the held grid cannot select is said** (fix round 1): the
+    /// reveal still answers true (no travel), nothing moves, and the writer
+    /// reads why.
+    func test_travel_aCellTheGridCannotSelectIsSaid() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, _) = try await noteOnC2(m)
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        XCTAssertTrue(windows.reveal(figureId, cell: c2, pending: true))
+
+        let gone = CellKey(row: RowID("rzzzzzzz"), column: c2.column)
+        let said = try await notices {
+            XCTAssertTrue(windows.reveal(figureId, cell: gone, pending: true), "held: still no travel")
+        }
+        XCTAssertEqual(said, [FigureGridController.SelectRefusal.noSuchCell.sentence])
+        XCTAssertEqual(said.first, "The note\u{2019}s cell is no longer in the table.")
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2, "nothing moved")
+    }
+
+    /// **The inspector's note line is a button to its cell** when the note
+    /// is on a live cell, and its press selects there with nothing left
+    /// pending — it travels nowhere.
+    func test_travel_theInspectorsNoteLineLeadsToItsCell_andLeavesNothingPending() async throws {
+        let windows = FigureWindows()
+        let m = try await mount(windows: windows)
+        let (figureId, c2, noteId) = try await noteOnC2(m)
+        let ds = try XCTUnwrap(m.store.documentStore)
+        let note = try await ds.withFigureHost(figureId) { host in
+            host.annotations().first { $0.id == noteId }
+        }
+        XCTAssertEqual(FigureInspector.linkedCell(of: try XCTUnwrap(note)), c2, "the line is a button")
+        XCTAssertEqual(FigureInspector.showsTheCell, "Select its cell in the table")
+
+        XCTAssertFalse(FigureInspector.showCell(c2, of: figureId, in: windows), "no grid open")
+        XCTAssertNil(windows.takePendingCell(figureId), "the inspector leaves nothing pending")
+
+        let centre = try centre(m, windows: windows)
+        let c = try await mounted(centre)
+        XCTAssertTrue(FigureInspector.showCell(c2, of: figureId, in: windows))
+        XCTAssertEqual(c.figureGridSelection?.anchor, c2)
+    }
 }

@@ -32,18 +32,24 @@ enum FigureCardHit {
     }
 }
 
-/// **The expanded grid's box**: the toolbar, the formula bar, the grid and
-/// the bottom bar stacked in the line's room (spec §6.2). It holds the
+/// **The expanded grid's box**: the toolbar, the formula bar, the strip (when
+/// shown), the grid and the bottom bar stacked in the line's room (spec §6.2). It holds the
 /// controller's views and lays them out; it writes nothing.
 final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     /// The space above and below the panel inside the room.
     static let gap: CGFloat = 6
 
+    /// **The suggestion strip's height** (report plan 9c-2): two bars' worth,
+    /// between the formula bar and the grid, while the figure has an open
+    /// live cell note.
+    static let stripHeight: CGFloat = 2 * FigureGridBars.barHeight
+
     /// **The room an expanded table holds** (R7c-2): the three bars, the
-    /// letter band and min(rows, 15) rows, with a gap above and below.
+    /// letter band and min(rows, 15) rows, with a gap above and below, plus
+    /// the strip when `strip` (the figure has an open live cell note).
     /// Constant from 15 rows up.
-    static func room(rows: Int, typography: TypographySettings) -> CGFloat {
-        2 * gap + FigureGridBars.totalHeight
+    static func room(rows: Int, strip: Bool, typography: TypographySettings) -> CGFloat {
+        2 * gap + FigureGridBars.totalHeight + (strip ? stripHeight : 0)
             + FigureGridLayout.viewportHeight(rows: rows, rowHeight: FigureCardMetrics.rowHeight(for: typography))
     }
 
@@ -58,34 +64,68 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
     struct Parts: Equatable {
         let toolbar: CGRect
         let formulaBar: CGRect
+        /// The suggestion strip, under the formula bar; nil without one.
+        let strip: CGRect?
         let grid: CGRect
         let bottomBar: CGRect
     }
 
-    static func parts(in size: CGSize) -> Parts {
+    static func parts(in size: CGSize, strip: Bool) -> Parts {
         let bar = FigureGridBars.barHeight
-        let gridHeight = max(0, size.height - 3 * bar)
+        let stripHeight = strip ? Self.stripHeight : 0
+        let gridTop = 2 * bar + stripHeight
+        let gridHeight = max(0, size.height - 3 * bar - stripHeight)
         return Parts(
             toolbar: CGRect(x: 0, y: 0, width: size.width, height: bar),
             formulaBar: CGRect(x: 0, y: bar, width: size.width, height: bar),
-            grid: CGRect(x: 0, y: 2 * bar, width: size.width, height: gridHeight),
-            bottomBar: CGRect(x: 0, y: 2 * bar + gridHeight, width: size.width, height: bar))
+            strip: strip ? CGRect(x: 0, y: 2 * bar, width: size.width, height: stripHeight) : nil,
+            grid: CGRect(x: 0, y: gridTop, width: size.width, height: gridHeight),
+            bottomBar: CGRect(x: 0, y: gridTop + gridHeight, width: size.width, height: bar))
     }
 
     private let bars: FigureGridBars
     let gridView: FigureGridView
+    /// The strip's view (the controller's `strip`); nil for a grid that never
+    /// shows one (a Research table's).
+    private let stripView: NSView?
 
-    init(bars: FigureGridBars, gridView: FigureGridView) {
+    /// **The strip's part is carved** (report plan 9c-2): in place it
+    /// follows the expansion's strip flag, which moves only at a card-version
+    /// edge; the room around it is the line's. Changed only with the frame
+    /// (`place(frame:showsStrip:)`).
+    private(set) var showsStrip: Bool
+
+    /// **The panel's frame and strip together, laid out once** (task 1
+    /// review I1): the strip comes with exactly its height of room, so the
+    /// grid keeps its height across the change. Setting the flag against the
+    /// old frame first would size the grid a strip too tall (or short) for a
+    /// moment, and the grid clamps its scroll to whatever size it is given.
+    func place(frame newFrame: CGRect, showsStrip wanted: Bool) {
+        let strip = wanted && stripView != nil
+        let flagMoved = strip != showsStrip
+        showsStrip = strip
+        if frame.size != newFrame.size {
+            frame = newFrame   // setFrameSize lays the parts out with the new flag
+        } else {
+            if frame.origin != newFrame.origin { frame = newFrame }
+            if flagMoved { layoutParts() }
+        }
+    }
+
+    init(bars: FigureGridBars, gridView: FigureGridView, stripView: NSView? = nil, strip: Bool) {
         self.bars = bars
         self.gridView = gridView
+        self.stripView = stripView
+        self.showsStrip = strip && stripView != nil
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 4
         layer?.borderWidth = 1
-        for view in [bars.toolbar, bars.formulaBar, gridView, bars.bottomBar] as [NSView] {
+        for view in [bars.toolbar, bars.formulaBar, stripView, gridView, bars.bottomBar].compactMap({ $0 }) as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
+        layoutParts()
     }
 
     @available(*, unavailable)
@@ -142,9 +182,21 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        let parts = Self.parts(in: newSize)
+        layoutParts()
+    }
+
+    private func layoutParts() {
+        let parts = Self.parts(in: bounds.size, strip: showsStrip)
         bars.toolbar.frame = parts.toolbar
         bars.formulaBar.frame = parts.formulaBar
+        // **A hidden strip keeps its room** (final review I1): full width and
+        // its own height, under the formula bar, so its rows' insets hold.
+        // A 0×0 strip could not hold them, and AppKit broke a constraint on
+        // every layout of a grid without notes. Hidden, it draws nothing and
+        // takes no hits; the grid's part does not count it.
+        stripView?.frame = parts.strip ?? CGRect(x: 0, y: parts.formulaBar.maxY,
+                                                 width: bounds.width, height: Self.stripHeight)
+        stripView?.isHidden = parts.strip == nil
         gridView.frame = parts.grid
         bars.bottomBar.frame = parts.bottomBar
     }

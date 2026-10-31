@@ -561,6 +561,9 @@ extension DocumentStore {
         let records = manifest.figures ?? []
         let assembled = assembledFigures(manifest: manifest, trust: trust)
         let states = figureStates(manifest: manifest, trust: trust)
+        // In the same turn as the states, so a note's top-left cell is counted
+        // against the table its card shows (an open host's, never a fold behind).
+        let openCellNotes = figureCellNotes(states.keys, manifest: manifest, trust: trust)
         var pinChanged = Set<String>()
         for (id, state) in states where !state.pins.isEmpty {
             let sources: PinSources
@@ -581,7 +584,8 @@ extension DocumentStore {
         let sourceChanged = await snapshotSourcesChanged(states, research: manifest.research)
         guard presenter != nil else { return nil }
         return FigureCardInputs(records: records, states: states, workbook: assembled.workbook,
-                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale)
+                                pinChanged: pinChanged, sourceChanged: sourceChanged, locale: locale,
+                                openCellNotes: openCellNotes)
     }
 
     /// **Every registered figure's state, freshest first**: an open host's
@@ -599,6 +603,28 @@ extension DocumentStore {
             }
         }
         return states
+    }
+
+    /// **Each figure's open live cell notes, freshest first** (as
+    /// `figureStates`): an open host's projection (`openCellNotes`, built
+    /// against the very table its state gives the card), else the figure
+    /// cache's judged read. A figure with none, or whose stream will not
+    /// read, is absent.
+    private func figureCellNotes(
+        _ ids: Dictionary<String, FigureState>.Keys, manifest: ProjectManifest, trust: TrustTable
+    ) -> [String: FigureCellNotes] {
+        let facts = DocumentClass.Facts(manifest)
+        var notes: [String: FigureCellNotes] = [:]
+        for id in ids {
+            if let open = openFigure(forId: id) {
+                if open.openCellNotes.hasLive { notes[id] = open.openCellNotes }
+                continue
+            }
+            guard let read = try? figureCache.cellNotes(
+                forFigureId: id, in: projectURL, trust: trust, facts: facts), read.hasLive else { continue }
+            notes[id] = read
+        }
+        return notes
     }
 
     // MARK: - The figures a publish prints
@@ -798,6 +824,11 @@ struct FigureCardInputs {
     /// (`FigureSource.hasChanged(currentHash:)`).
     var sourceChanged: Set<String> = []
     var locale: TableLocale
+    /// Each figure's open live cell notes — an open host's projection, else
+    /// `FigureCache.cellNotes` (judged) — for the cards' dots and the in-place
+    /// strip's presence; a figure with none or whose stream will not read is
+    /// absent.
+    var openCellNotes: [String: FigureCellNotes] = [:]
 }
 
 /// **A snapshot source file's hash, as of its size and modification date**

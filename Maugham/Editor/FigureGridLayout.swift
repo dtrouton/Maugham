@@ -216,6 +216,9 @@ struct FigureGridPlan: Equatable {
     var active: CGRect?
     /// The reference a formula is composing.
     var reference: CGRect?
+    /// The dots of the visible cells that carry an open note
+    /// (`FigureCardDrawing.markRect`).
+    var marks: [CGRect] = []
     /// The vertical scroll indicator, when the rows overflow the viewport.
     var scroller: CGRect?
     /// The horizontal one, when the columns overflow it.
@@ -234,11 +237,12 @@ struct FigureGridPlan: Equatable {
         }
     }
 
-    /// The plan for `table` laid out by `layout`; `display` and `value` are
-    /// asked for the visible cells only.
+    /// The plan for `table` laid out by `layout`; `display`, `value` and
+    /// `marked` are asked for the visible cells only.
     static func make(layout: FigureGridLayout, table: FigureTable,
                      display: (CellKey) -> String, value: (CellKey) -> CellValue,
-                     selection: FigureGridSelection?, reference: FigureGridReference?) -> FigureGridPlan {
+                     selection: FigureGridSelection?, reference: FigureGridReference?,
+                     marked: (CellKey) -> Bool = { _ in false }) -> FigureGridPlan {
         var plan = FigureGridPlan()
         let rows = table.rows, columns = table.columns
         let visibleRows = layout.visibleRows, visibleColumns = layout.visibleColumns
@@ -265,6 +269,7 @@ struct FigureGridPlan: Equatable {
                                                     width: max(0, box.width - 2 * inset), height: box.height),
                                        alignment: alignment(of: table[key], value: value(key)),
                                        bold: r < headerCount))
+                if marked(key) { plan.marks.append(FigureCardDrawing.markRect(inCell: box)) }
             }
         }
         func ruleOnScreen(_ y: CGFloat) { if y >= body.minY, y <= body.maxY { plan.rules.append(y) } }

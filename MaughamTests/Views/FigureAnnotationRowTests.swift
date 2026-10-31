@@ -5,7 +5,8 @@ import XCTest
 /// **A queue row for a note on a table figure tells the truth** (report plan
 /// 9c-1 Task 7, `FigureRowGate`): where it points ("C3 · Table: cash", or
 /// "cells deleted"), what a suggestion proposes, a suggestion's Accept
-/// disabled with "Accept it in the table", the verbs with no figure-stream
+/// opening the figure at its cell (9c-2 Task 7) or, its cell gone, disabled
+/// with "Its cell has been deleted", the verbs with no figure-stream
 /// write taken away; the inspector's note line leads with the address; and
 /// the queue's answers reach the figure's own host — lent for the act, ⌘Z
 /// registered only where the window holds the figure open.
@@ -32,26 +33,72 @@ final class FigureAnnotationRowTests: XCTestCase {
 
     // MARK: - The gate
 
-    /// A suggestion: its address and figure, its cells, and Accept / Revert
-    /// disabled with where to do it instead.
-    func test_aSuggestionShowsItsCellAndIsAcceptedInTheTable() {
+    /// A suggestion: its address and figure, its cells; Accept opens the
+    /// table at its cell (the strip there writes it), saying so; an
+    /// accepted one's Revert is disabled with where to do it instead.
+    func test_aSuggestionShowsItsCell_andItsAcceptOpensTheTableAtIt() {
         let gate = FigureRowGate(
             annotation: note(.suggestedChange, anchor: anchor, address: "C3"),
             figureId: figureId, figureTitle: title, cells: cells)
         XCTAssertEqual(gate.anchorLine, "C3 \u{00B7} Table: cash")
         XCTAssertEqual(gate.cells, cells)
-        XCTAssertEqual(gate.acceptDisabledReason, "Accept it in the table")
+        XCTAssertNil(gate.acceptDisabledReason, "Accept works: it travels")
+        XCTAssertTrue(gate.acceptTravels)
+        XCTAssertEqual(gate.acceptHelp, "Open the table at its cell to accept it there")
         XCTAssertEqual(gate.revertDisabledReason, FigureRowGate.revertInTheTable)
     }
 
-    /// An orphaned anchor says so in place of its address; still the table's.
-    func test_anOrphanedSuggestionSaysCellsDeleted() {
+    /// An orphaned anchor says so in place of its address; Accept has no
+    /// cell to open, so it is disabled saying why.
+    func test_anOrphanedSuggestionSaysCellsDeleted_andItsAcceptIsOff() {
         let gate = FigureRowGate(
             annotation: note(.suggestedChange, anchor: anchor, orphaned: true),
             figureId: figureId, figureTitle: title, cells: .init(before: nil, after: "12"))
         XCTAssertEqual(gate.anchorLine, "cells deleted \u{00B7} Table: cash")
-        XCTAssertEqual(gate.acceptDisabledReason, "Accept it in the table")
+        XCTAssertEqual(gate.acceptDisabledReason, "Its cell has been deleted")
+        XCTAssertFalse(gate.acceptTravels)
+        XCTAssertEqual(gate.acceptHelp, "Its cell has been deleted")
         XCTAssertNil(gate.cells?.before)
+        let unanchored = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: nil),
+            figureId: figureId, figureTitle: title, cells: nil)
+        XCTAssertEqual(unanchored.acceptDisabledReason, FigureRowGate.acceptCellDeleted,
+                       "a figure suggestion whose anchor will not decode opens nothing either")
+        XCTAssertFalse(unanchored.acceptTravels)
+    }
+
+    /// **A parked figure's suggestion** (fix round 1, I1): the queue cannot
+    /// travel to a figure the tree draws no row for, so Accept is off,
+    /// saying where the figure is; its cell gone, the cell's reason wins.
+    func test_aParkedFiguresSuggestionAcceptIsOff_sayingItIsInResearch() {
+        let gate = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: anchor, address: "C3"),
+            figureId: figureId, figureTitle: title, cells: cells, reachable: false)
+        XCTAssertEqual(gate.acceptDisabledReason, "In Research \u{2014} bring it back to accept")
+        XCTAssertFalse(gate.acceptTravels)
+        XCTAssertEqual(gate.acceptHelp, FigureRowGate.acceptInResearch)
+        let orphaned = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: anchor, orphaned: true),
+            figureId: figureId, figureTitle: title, cells: nil, reachable: false)
+        XCTAssertEqual(orphaned.acceptDisabledReason, FigureRowGate.acceptCellDeleted)
+        let comment = FigureRowGate(
+            annotation: note(.comment, anchor: anchor, address: "C3"),
+            figureId: figureId, figureTitle: title, cells: nil, reachable: false)
+        XCTAssertNil(comment.acceptDisabledReason, "Got it still answers from the queue")
+    }
+
+    /// **The cell a note's travel selects**: a live anchor's first corner
+    /// (a range's too — the strip shows every note whose range contains
+    /// the active cell); none for an orphaned or a whole-figure note.
+    func test_theTravelCellIsTheLiveAnchorsFirstCorner() {
+        XCTAssertEqual(FigureRowGate.cell(of: note(.comment, anchor: anchor, address: "C3")),
+                       CellKey(row: anchor.row, column: anchor.column))
+        let range = FigureCellAnchor(row: RowID("r1aaaaaa"), rowEnd: RowID("r2aaaaaa"),
+                                     column: ColumnID("c1bbbbbb"), columnEnd: ColumnID("c2bbbbbb"))
+        XCTAssertEqual(FigureRowGate.cell(of: note(.suggestedChange, anchor: range, address: "C3:D4")),
+                       CellKey(row: RowID("r1aaaaaa"), column: ColumnID("c1bbbbbb")))
+        XCTAssertNil(FigureRowGate.cell(of: note(.comment, anchor: anchor, orphaned: true)))
+        XCTAssertNil(FigureRowGate.cell(of: note(.craftNote, anchor: nil)))
     }
 
     /// A comment, a query and a craft note write no cell: their Accept /
@@ -64,6 +111,8 @@ final class FigureAnnotationRowTests: XCTestCase {
                                  address: kind == .craftNote ? nil : "B2"),
                 figureId: figureId, figureTitle: title, cells: cells)
             XCTAssertNil(gate.acceptDisabledReason, "\(kind)")
+            XCTAssertFalse(gate.acceptTravels, "\(kind): its Accept answers from the queue")
+            XCTAssertNil(gate.acceptHelp, "\(kind)")
             XCTAssertNil(gate.revertDisabledReason, "\(kind)")
             XCTAssertNil(gate.cells, "\(kind): only a suggestion carries cells")
             XCTAssertEqual(gate.anchorLine,

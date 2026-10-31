@@ -57,22 +57,26 @@ struct AnnotationListView: View {
 
     /// A figure note's row: always actable (no `Document` gate — its verbs
     /// act through the figure's own host), its verbs narrowed to what a
-    /// figure stream can write and routed to `wiring.figure`, and a
-    /// suggestion's Accept drawn disabled with the reason (`FigureRowGate`).
+    /// figure stream can write and routed to `wiring.figure`. A suggestion's
+    /// Accept is the row's click — the figure opened at its cell, whose strip
+    /// accepts it (report plan 9c-2 Task 7) — or disabled with the reason
+    /// when the cell is gone (`FigureRowGate`).
     @ViewBuilder
     private func figureRow(_ ann: Annotation, isOwn: Bool) -> some View {
         let figureId = docId
         let figure = wiring.figure
+        let gate = FigureRowGate(
+            annotation: ann, figureId: figureId,
+            figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id],
+            reachable: figure.reachable(figureId))
         AnnotationRow(
             annotation: ann,
             revertIsEnabled: false,
             showingStet: wiring.stetFlourishIds.contains(ann.id),
             verbs: FigureRowGate.verbs(wiring.rowVerbs(ann, figureId, isOwn)),
             verbsEnabled: true,
-            figure: FigureRowGate(
-                annotation: ann, figureId: figureId,
-                figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id]),
-            onAccept: { figure.onAccept(figureId, ann) },
+            figure: gate,
+            onAccept: { gate.acceptTravels ? wiring.onJump(figureId, ann) : figure.onAccept(figureId, ann) },
             onReject: { figure.onReject(figureId, ann) },
             onStet: { figure.onStet(figureId, ann) },
             onArchive: { figure.onArchive(figureId, ann) },
@@ -194,7 +198,8 @@ struct AnnotationRowWiring {
 /// takes the figure's id and the note, and the host acts through the
 /// figure's own host (`DocumentStore.withFigureHost`), never a `Document`.
 /// Accept here is a note that writes no cell (*Got it*, a craft note's
-/// Accept): a figure suggestion's is disabled in the row and never reaches it.
+/// Accept): a figure suggestion's Accept is the row's click (`onJump`,
+/// travel to its cell), and never reaches it.
 struct FigureRowWiring {
     let onAccept: (String, Annotation) -> Void
     /// Opens the reason sheet; the answer reaches the figure's reject.
@@ -204,6 +209,9 @@ struct FigureRowWiring {
     /// Opens the reply sheet; the answer is a status-only accept carrying it.
     let onReply: (String, Annotation) -> Void
     let onReopen: (String, Annotation) -> Void
+    /// Can the queue travel to this figure (the tree draws its row)? A
+    /// suggestion's Accept travels only to one (`FigureRowGate`).
+    var reachable: (String) -> Bool = { _ in true }
 
     /// Does nothing — a read-only host's.
     static let inert = FigureRowWiring(

@@ -254,7 +254,8 @@ final class WiringCensusTests: XCTestCase {
                "onReopen: { withDocument(rowDocument) { wiring.onReopen($0, ann) } }",
                "onJumpToParagraph: { wiring.onJump(docId, ann) }",
                // A figure's row (report plan 9c-1 Task 7): no Document belt.
-               "onAccept: { figure.onAccept(figureId, ann) }",
+               // A live figure suggestion's Accept is the row's click (9c-2 Task 7).
+               "onAccept: { gate.acceptTravels ? wiring.onJump(figureId, ann) : figure.onAccept(figureId, ann) }",
                "onReject: { figure.onReject(figureId, ann) }",
                "onStet: { figure.onStet(figureId, ann) }",
                "onArchive: { figure.onArchive(figureId, ann) }",

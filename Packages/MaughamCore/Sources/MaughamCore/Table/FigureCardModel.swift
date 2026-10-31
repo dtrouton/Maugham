@@ -28,6 +28,24 @@ public struct FigureCardModel: Equatable, Sendable {
     /// The Research item the figure was made from has changed since (or is gone):
     /// `FigureSource.hasChanged(currentHash:)` (report plan 8b Task 1, spec §4.1).
     public var sourceChanged: Bool
+    /// **The figure has an open note anchored to a live cell** (report plan 9c-2,
+    /// `FigureCellNotes.hasLive`), shown on the card or not: the in-place grid reserves
+    /// its suggestion strip's room while this holds. It moves the card's version (so the
+    /// room changes at that edge, never per selection) and never its height. Default false.
+    public var hasOpenCellNotes: Bool
+
+    /// **A shown cell of the card**: `row` indexes `headerRows + bodyRows` as shown
+    /// (the total row, when kept, is the last), `column` the table's live columns.
+    public struct Position: Hashable, Sendable {
+        public let row: Int
+        public let column: Int
+        public init(row: Int, column: Int) { self.row = row; self.column = column }
+    }
+    /// **The shown cells that carry a note's dot** (report plan 9c-2): each open live
+    /// cell note's top-left cell (`FigureCellNotes.marked`) where the card shows it. A
+    /// note on a row cut short marks nothing here, yet still counts in `hasOpenCellNotes`.
+    /// Never moves the height.
+    public var markedCells: Set<Position>
 
     /// **Research has changed under this figure** — a pin's source or the snapshot's
     /// own: what the card's banner and the tree's "changed" tag say (spec §4.4).
@@ -37,12 +55,14 @@ public struct FigureCardModel: Equatable, Sendable {
         kind: Kind, headerRows: [[String]] = [], bodyRows: [[String]] = [], moreRows: Int = 0,
         hasTotalRow: Bool = false, columnAlignments: [CellAlignment] = [],
         readsResearch: Bool = false, pinChanged: Bool = false, fromResearchSource: Bool = false,
-        sourceChanged: Bool = false
+        sourceChanged: Bool = false, hasOpenCellNotes: Bool = false, markedCells: Set<Position> = []
     ) {
         self.kind = kind; self.headerRows = headerRows; self.bodyRows = bodyRows; self.moreRows = moreRows
         self.hasTotalRow = hasTotalRow; self.columnAlignments = columnAlignments
         self.readsResearch = readsResearch; self.pinChanged = pinChanged; self.fromResearchSource = fromResearchSource
         self.sourceChanged = sourceChanged
+        self.hasOpenCellNotes = hasOpenCellNotes
+        self.markedCells = markedCells
     }
 
     /// A card with no table: removed, ambiguous, parked or image (drawn labelled at the placeholder height).
@@ -56,6 +76,8 @@ public struct FigureCardModel: Equatable, Sendable {
     /// - `pinChanged`: the caller's answer from `PinStatus` (any `.sourceChanged`).
     /// - `sourceChanged`: the caller's answer from `FigureSource.hasChanged(currentHash:)` for
     ///   `state.source`; a picture's placeholder carries it too.
+    /// - `openCellNotes`: the figure's open live cell notes, against this `state`'s table
+    ///   (`FigureCache.cellNotes`); they mark a table card only.
     public static func build(
         figureId: String,
         state: FigureState,
@@ -64,7 +86,8 @@ public struct FigureCardModel: Equatable, Sendable {
         language: String?,
         labelLookup: ((String, RowID, ColumnID, String?) -> String?)? = nil,
         pinChanged: Bool = false,
-        sourceChanged: Bool = false
+        sourceChanged: Bool = false,
+        openCellNotes: FigureCellNotes = .none
     ) -> FigureCardModel {
         if state.parked != nil { return placeholder(.parked) }
         if state.kind == .image {
@@ -94,6 +117,17 @@ public struct FigureCardModel: Equatable, Sendable {
             }
         }
         let shown = headerCount + bodyIndexes.count
+        let shownRows = Array(0..<headerCount) + bodyIndexes
+
+        // Each marked cell at its shown position; a cell on a row cut short has none.
+        var marks = Set<Position>()
+        if !openCellNotes.marked.isEmpty {
+            let shownIndex = Dictionary(uniqueKeysWithValues: shownRows.enumerated().map { (rows[$1], $0) })
+            for key in openCellNotes.marked {
+                guard let row = shownIndex[key.row], let column = table.columnIndex(of: key.column) else { continue }
+                marks.insert(Position(row: row, column: column))
+            }
+        }
 
         let alignments = FigureTableLayout.alignments(
             table: table, columns: columns, rows: bodyIndexes.map { rows[$0] }, values: values)
@@ -108,7 +142,9 @@ public struct FigureCardModel: Equatable, Sendable {
             readsResearch: !state.pins.isEmpty,
             pinChanged: pinChanged,
             fromResearchSource: state.source != nil,
-            sourceChanged: sourceChanged
+            sourceChanged: sourceChanged,
+            hasOpenCellNotes: openCellNotes.hasLive,
+            markedCells: marks
         )
     }
 }

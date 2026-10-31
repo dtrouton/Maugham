@@ -488,16 +488,46 @@ struct FigureInspector: View {
                 Text("None").foregroundStyle(.secondary)
             }
             ForEach(model.notes, id: \.id) { note in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.noteHeading(note))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(note.body).lineLimit(3)
+                if let cell = Self.linkedCell(of: note) {
+                    // A note on a live cell: the grid selects it, and its
+                    // strip shows the note (report plan 9c-2 Task 7).
+                    Button { Self.showCell(cell, of: figureId, in: figureWindows) } label: { noteLine(note) }
+                        .buttonStyle(.plain)
+                        .help(Self.showsTheCell)
+                        .accessibilityHint(Self.showsTheCell)
+                } else {
+                    noteLine(note)
                 }
             }
             if !model.notes.isEmpty {
                 Button("Show in Notes") { showNotes(figureId) }
             }
         }
+    }
+
+    private func noteLine(_ note: Annotation) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(Self.noteHeading(note))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(note.body).lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// A note line's tooltip and accessibility hint, where it leads to its cell.
+    static let showsTheCell = "Select its cell in the table"
+
+    /// **The cell a note line is a button to** — a live anchor's
+    /// (`FigureRowGate.cell(of:)`); nil draws the line as plain text.
+    static func linkedCell(of note: Annotation) -> CellKey? { FigureRowGate.cell(of: note) }
+
+    /// A note line pressed: the grid open on the figure selects the cell.
+    /// The inspector travels nowhere, so nothing is left pending for a
+    /// later grid (`pending: false`).
+    @discardableResult
+    static func showCell(_ cell: CellKey, of figureId: String, in windows: FigureWindows?) -> Bool {
+        windows?.reveal(figureId, cell: cell, pending: false) ?? false
     }
 
     @ViewBuilder

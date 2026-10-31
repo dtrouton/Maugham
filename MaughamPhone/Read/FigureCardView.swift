@@ -12,6 +12,11 @@ struct FigureTablePlan: Equatable {
     var totalRow: [String]?
     /// One per column, never `.automatic` (drawn left).
     var alignments: [CellAlignment]
+    /// **Open-note dots** (report plan 9c-2): the marked columns of each row, parallel
+    /// to `headerRows`, `bodyRows` and `totalRow`. Read-only: a dot is drawn, never tapped.
+    var headerMarks: [Set<Int>] = []
+    var bodyMarks: [Set<Int>] = []
+    var totalMarks: Set<Int> = []
 
     var columnCount: Int { alignments.count }
 }
@@ -55,12 +60,22 @@ enum FigureCardPlan: Equatable {
                 let a = i < card.columnAlignments.count ? card.columnAlignments[i] : .left
                 return a == .automatic ? .left : a
             }
+            // `Position.row` indexes headerRows + bodyRows as shown (the total row last).
+            func marks(_ rows: Range<Int>) -> [Set<Int>] {
+                rows.map { r in Set(card.markedCells.filter { $0.row == r && $0.column < columns }.map(\.column)) }
+            }
+            let headerCount = card.headerRows.count
+            let shown = card.shownRowCount
+            let bodyEnd = card.hasTotalRow ? shown - 1 : shown
             return .table(FigureTablePlan(
                 headerRows: card.headerRows,
                 bodyRows: card.hasTotalRow ? Array(card.bodyRows.dropLast()) : card.bodyRows,
                 more: card.moreRows > 0 ? FigureCardText.more(card.moreRows) : nil,
                 totalRow: card.hasTotalRow ? card.bodyRows.last : nil,
-                alignments: alignments))
+                alignments: alignments,
+                headerMarks: marks(0..<headerCount),
+                bodyMarks: marks(headerCount..<max(bodyEnd, headerCount)),
+                totalMarks: card.hasTotalRow ? marks((shown - 1)..<shown)[0] : []))
         }
     }
 
@@ -136,12 +151,13 @@ struct FigureCardView: View {
         ScrollView(.horizontal) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 ForEach(Array(table.headerRows.enumerated()), id: \.offset) { i, row in
-                    rowView(row, table, bold: true, setsAlignment: i == 0)
+                    rowView(row, table, marks: i < table.headerMarks.count ? table.headerMarks[i] : [],
+                            bold: true, setsAlignment: i == 0)
                 }
                 if !table.headerRows.isEmpty { Divider() }
                 ForEach(Array(table.bodyRows.enumerated()), id: \.offset) { i, row in
-                    rowView(row, table, bold: false,
-                            setsAlignment: i == 0 && table.headerRows.isEmpty)
+                    rowView(row, table, marks: i < table.bodyMarks.count ? table.bodyMarks[i] : [],
+                            bold: false, setsAlignment: i == 0 && table.headerRows.isEmpty)
                 }
                 if let more = table.more {
                     Text(more)
@@ -150,7 +166,7 @@ struct FigureCardView: View {
                 }
                 if let total = table.totalRow {
                     Divider()
-                    rowView(total, table, bold: false,
+                    rowView(total, table, marks: table.totalMarks, bold: false,
                             setsAlignment: table.headerRows.isEmpty && table.bodyRows.isEmpty)
                 }
             }
@@ -162,7 +178,7 @@ struct FigureCardView: View {
 
     /// - setsAlignment: true on the first row drawn: a column's alignment is
     ///   set once, on one of its cells.
-    private func rowView(_ row: [String], _ table: FigureTablePlan, bold: Bool,
+    private func rowView(_ row: [String], _ table: FigureTablePlan, marks: Set<Int>, bold: Bool,
                          setsAlignment: Bool) -> some View {
         GridRow {
             ForEach(0..<table.columnCount, id: \.self) { i in
@@ -171,6 +187,13 @@ struct FigureCardView: View {
                     .fontWeight(bold ? .bold : .regular)
                     .monospacedDigit()
                     .lineLimit(1)
+                    .overlay(alignment: .topTrailing) {
+                        if marks.contains(i) {
+                            Circle().fill(Self.noteDot).frame(width: 6, height: 6)
+                                .offset(x: 6, y: -2)
+                                .accessibilityLabel("Open note")
+                        }
+                    }
                 if setsAlignment {
                     cell.gridColumnAlignment(Self.horizontal(table.alignments[i]))
                 } else {
@@ -179,6 +202,11 @@ struct FigureCardView: View {
             }
         }
     }
+
+    /// The assistant-note colour, the Mac's `ReviewPalette.claudeTerracotta`:
+    /// both build from Core's one `AssistantNoteColour` (tripwire 19).
+    private static let noteDot = Color(.sRGB, red: AssistantNoteColour.red, green: AssistantNoteColour.green,
+                                       blue: AssistantNoteColour.blue, opacity: 1)
 
     private static func horizontal(_ alignment: CellAlignment) -> HorizontalAlignment {
         switch alignment {

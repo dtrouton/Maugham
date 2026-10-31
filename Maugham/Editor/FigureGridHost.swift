@@ -7,9 +7,9 @@ import MaughamCore
 /// so the same grid can edit a table figure (`FigureDocument`) or a table
 /// kept in Research (`ResearchTableHost`, report plan 8b Task 7). Nothing reached through a grid needs to know which.
 ///
-/// - **The state is observable**: the controller reads `state` inside
-///   `withObservationTracking`, so a conformer is `@Observable` and announces
-///   a change of `state` on the main actor.
+/// - **The state is observable**: the controller reads `state` and
+///   `openCellNotes` inside `withObservationTracking`, so a conformer is
+///   `@Observable` and announces a change of either on the main actor.
 /// - **Every mutator asks its own door** and throws its refusal; the grid
 ///   says it. Each takes the grid's `undoManager` and registers its step
 ///   there (one ⌘Z per call).
@@ -27,6 +27,10 @@ protocol FigureGridHost: AnyObject {
     var projectURL: URL { get }
     /// The table, its pins and park, as the host holds it now (observed).
     var state: FigureState { get }
+    /// **The open notes on live cells** (observed; report plan 9c-2): the
+    /// grid's dots and strip read it, rebuilt by the host once per change
+    /// that moves it, never per draw. A host with no notes answers `.none`.
+    var openCellNotes: FigureCellNotes { get }
     /// Closed: every mutator refuses.
     var isClosed: Bool { get }
     /// The figure-only commands this host's grid offers.
@@ -64,6 +68,16 @@ protocol FigureGridHost: AnyObject {
                       actionName: String, undoManager: UndoManager?) async throws
     /// The research pins re-read (offered only where `offers.refreshPins`).
     func refreshPins(undoManager: UndoManager?) async throws
+
+    // MARK: The notes on its cells (report plan 9c-2 Task 6, the strip)
+
+    /// A suggestion to one cell accepted: the cell written and the note
+    /// resolved, one step (`FigureDocument.acceptSuggestion`).
+    func acceptSuggestion(id: String, confirmChanged: Bool, undoManager: UndoManager?) async throws
+    /// A note that writes no cell accepted — the strip's Got it.
+    func acceptNote(id: String, userResponse: String?, undoManager: UndoManager?) async throws
+    /// A note rejected, keeping `reason`.
+    func rejectAnnotation(id: String, reason: String?, undoManager: UndoManager?) async throws
 
     // MARK: The in-place visit (the coordinator's)
 

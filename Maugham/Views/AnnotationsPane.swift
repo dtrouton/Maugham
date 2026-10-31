@@ -34,6 +34,12 @@ struct AnnotationsPane: View {
     /// Shows a figure's row in the tree before a travel lands on it
     /// (`BinderTreeSectionsState.revealFigure`: lifts a piece filter hiding it).
     var revealFigure: (String) -> Void = { _ in }
+    /// **A figure note's cell, shown** (report plan 9c-2 Task 7) —
+    /// `FigureWindows.reveal(_:cell:pending:)`: true when a grid already
+    /// holding the figure selected it there, and the click travels nowhere;
+    /// otherwise the cell waits (`pending`, when the click travels) for the
+    /// grid the travel mounts.
+    var revealFigureCell: (_ figureId: String, _ cell: CellKey, _ pending: Bool) -> Bool = { _, _, _ in false }
     /// **The window's compiler and its sidecar — the round cockpit's two
     /// stores** (M4 P2 Task 3). Optional because this pane serves hosts that
     /// surface no compiler at all (the probe mounts, and any caller predating
@@ -691,7 +697,8 @@ struct AnnotationsPane: View {
                 onStet: { verbs.figureStet($0, $1) },
                 onArchive: { verbs.figureArchive($0, $1) },
                 onReply: { figureReplySheet = FigureNoteTarget(figureId: $0, annotation: $1) },
-                onReopen: { verbs.figureReopen($0, $1) }))
+                onReopen: { verbs.figureReopen($0, $1) },
+                reachable: { drawsFigure($0) }))
     }
 
     /// This pane's verbs — `AnnotationsPaneVerbs`, built per call over
@@ -751,8 +758,15 @@ struct AnnotationsPane: View {
     /// never touched (`AnnotationScopeTests`, and `ManuscriptNavigation`'s
     /// ruling behind it).
     private func click(docId: String, annotation: Annotation) {
-        switch AnnotationScopePolicy.click(
-            rowDocId: docId, activeDocId: document?.docId, drawsFigure: drawsFigure) {
+        let click = AnnotationScopePolicy.click(
+            rowDocId: docId, activeDocId: document?.docId, drawsFigure: drawsFigure)
+        // A note on a cell: a grid already holding the figure selects it
+        // without travelling (plan ruling); else the travel's grid will.
+        if DocumentClass.isFigureDocId(docId), let cell = FigureRowGate.cell(of: annotation) {
+            let travels = if case .travel = click { true } else { false }
+            if revealFigureCell(docId, cell, travels) { return }
+        }
+        switch click {
         case .jump:
             jump(annotation)
         case .travel(let subject):

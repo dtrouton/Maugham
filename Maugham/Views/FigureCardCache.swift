@@ -206,7 +206,8 @@ final class FigureCardCache {
         fills += 1
         let built = FigureCardBook.build(
             records: inputs.records, states: inputs.states, workbook: inputs.workbook,
-            locale: inputs.locale, pinChanged: inputs.pinChanged, sourceChanged: inputs.sourceChanged)
+            locale: inputs.locale, pinChanged: inputs.pinChanged, sourceChanged: inputs.sourceChanged,
+            openCellNotes: inputs.openCellNotes)
         let next = built.models, readers = built.researchReaders
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

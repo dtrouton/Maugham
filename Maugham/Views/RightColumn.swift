@@ -276,7 +276,10 @@ struct RightColumn: View {
             // hand-off `InspectorView`'s "Project Settings…" gets.
             onOpenProjectSettings: openProjectSettings,
             drawsFigure: drawsFigure,
-            revealFigure: revealFigure
+            revealFigure: revealFigure,
+            revealFigureCell: { [figureWindows] id, cell, pending in
+                figureWindows?.reveal(id, cell: cell, pending: pending) ?? false
+            }
         ) {
             researchOrSubject(store: store)
         }

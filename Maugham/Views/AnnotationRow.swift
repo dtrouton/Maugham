@@ -534,11 +534,12 @@ struct AnnotationRow: View {
             } else {
                 if offered.acceptOrReject {
                     // A figure suggestion is accepted in the table (plan
-                    // 9c-1 ruling): drawn, disabled, and saying where.
+                    // 9c-1 ruling): Accept opens it at the cell (9c-2), or is
+                    // drawn disabled saying why when the cell is gone.
                     Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
                         .disabled(figure?.acceptDisabledReason != nil)
-                        .modifier(RowDisabledReason(reason: figure?.acceptDisabledReason))
-                        .accessibilityHint(figure?.acceptDisabledReason ?? "")
+                        .modifier(RowDisabledReason(reason: figure?.acceptHelp))
+                        .accessibilityHint(figure?.acceptHelp ?? "")
                     secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
                 }
                 stetButton(useIcons: useIcons)

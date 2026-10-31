@@ -92,6 +92,8 @@ final class ResearchTableHost: FigureGridHost {
     private(set) var isClosed = false
     var offers: FigureGridOffers { .none }
     var asksTheFigureDoor: Bool { false }
+    /// A Research table carries no notes: its grid never marks a cell.
+    var openCellNotes: FigureCellNotes { .none }
 
     /// The file's separator, line ending and byte-order mark, kept by every save.
     @ObservationIgnored private(set) var separator: Character
@@ -589,6 +591,18 @@ final class ResearchTableHost: FigureGridHost {
 
     /// A Research table keeps no pins (`offers.refreshPins` is false).
     func refreshPins(undoManager: UndoManager?) async throws {}
+
+    // A Research table carries no notes (`openCellNotes` is `.none`), so its
+    // strip is never shown and any note asked about is unknown here.
+    func acceptSuggestion(id: String, confirmChanged: Bool, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
+    func acceptNote(id: String, userResponse: String?, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
+    func rejectAnnotation(id: String, reason: String?, undoManager: UndoManager?) async throws {
+        throw FigureNoteError.unknownNote
+    }
 
     // MARK: Undo and the visit
 

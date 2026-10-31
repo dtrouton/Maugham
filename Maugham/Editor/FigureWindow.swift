@@ -257,6 +257,55 @@ final class FigureWindows {
         return nil
     }
 
+    // MARK: Travel to a cell (report plan 9c-2 Task 7)
+
+    /// **The one cell a travel left for the grid it mounts** — one slot,
+    /// with no clock (final review I2: a slow load still selects). It is
+    /// cleared when a mount takes it, by the next reveal (which replaces or
+    /// clears it), by `closeAll`, and when the travel mounts no grid — the
+    /// visit failed to open or closed first (`FigureWindowGrid.open`), or the
+    /// figure's subject shows no grid (`FigureSubjectSurface`). So a travel
+    /// that mounted nothing never selects a cell in a later, unrelated visit.
+    @ObservationIgnored private var pendingCell: (figureId: String, cell: CellKey)?
+
+    /// Whether a travel's cell is waiting (a test reads it without taking it).
+    var hasPendingCell: Bool { pendingCell != nil }
+
+    /// **Show `cell` of `figureId`** — a note's cell, from the queue or the
+    /// inspector. A grid already open on the figure, anywhere, comes front
+    /// and selects it there: true, and the caller travels nowhere (plan
+    /// ruling) — a cell that cannot be selected there is said by the grid
+    /// (`FigureGridController.select`). Otherwise false, and — only when
+    /// `pending`, because the caller is travelling to the figure now — the
+    /// cell waits for the grid that travel mounts (the centre's, a window's,
+    /// one expanded in place). The inspector, which travels nowhere, passes
+    /// `pending: false`.
+    @discardableResult
+    func reveal(_ figureId: String, cell: CellKey, pending: Bool) -> Bool {
+        pendingCell = nil
+        if let controller = gridController(on: figureId) {
+            focus(figureId)
+            controller.select(cell)
+            return true
+        }
+        if pending { pendingCell = (figureId, cell) }
+        return false
+    }
+
+    /// The cell a travel left for `figureId`'s next grid, taken once; nil
+    /// when it was for another figure (left for that one).
+    func takePendingCell(_ figureId: String) -> CellKey? {
+        guard let pending = pendingCell, pending.figureId == figureId else { return nil }
+        pendingCell = nil
+        return pending.cell
+    }
+
+    /// **The travel to `figureId` mounted no grid**: its cell, if one waits,
+    /// is dropped. Another figure's is left for that one.
+    func dropPendingCell(for figureId: String) {
+        if pendingCell?.figureId == figureId { pendingCell = nil }
+    }
+
     /// The hold on `figureId` gives way, if it is one that does.
     private func yieldInPlace(_ figureId: String) {
         guard let hold = inPlaceHolds[figureId], let yield = inPlaceYielders[hold] else { return }
@@ -377,6 +426,7 @@ final class FigureWindows {
         gridsChanged()
         handoffs = [:]
         windowsOpening = [:]
+        pendingCell = nil
         recount()
         for finish in finishing { finish() }
         for close in closing { close() }
@@ -567,16 +617,22 @@ final class FigureWindowGrid {
         opening = Task { @MainActor [weak self, weak windows] in
             await windows?.visitEnded(figureId)
             do {
-                guard let self, !self.isFinished else { return }
+                guard let self, !self.isFinished else {
+                    windows?.dropPendingCell(for: figureId)   // closed first: no grid came
+                    return
+                }
                 let controller = try await FigureGridController.open(
                     figureId: figureId, store: store, projectStore: projectStore,
                     typography: frame.typography, line: line)
                 guard !self.isFinished else {
                     controller.close()
+                    windows?.dropPendingCell(for: figureId)
                     return
                 }
                 self.mount(controller, piece: frame.piece, close: close)
             } catch {
+                // A travel's cell waits for no grid that will not come (final review I2).
+                windows?.dropPendingCell(for: figureId)
                 guard let self, !self.isFinished else { return }
                 self.container.show(message: "The table couldn\u{2019}t be opened: \(error.localizedDescription)")
             }
@@ -604,10 +660,19 @@ final class FigureWindowGrid {
         }
         refreshAccess()
         watchTheBook()
-        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView)
+        // The strip's room follows the visit's own notes (no text around it
+        // to re-lay out): carved while the figure has an open live cell note.
+        let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView,
+                                    stripView: controller.strip, strip: controller.cellNotes.hasLive)
+        controller.onStripPresenceChange = { [weak panel] shows in
+            guard let panel else { return }
+            panel.place(frame: panel.frame, showsStrip: shows)
+        }
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
+        // A note's cell the queue or the inspector asked for before the grid was here.
+        if let cell = windows?.takePendingCell(controller.figureId) { controller.select(cell) }
         windows?.gridsChanged()   // its visit is open: Import and Refresh may reach it
         watchTheKeys()
         if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }

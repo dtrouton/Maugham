@@ -171,6 +171,28 @@ final class ResearchTableGridTests: XCTestCase {
             atPath: try ResearchTableSidecar.fileURL(forItem: item.id, in: projectURL).path), "and no sidecar was written")
     }
 
+    /// **A Research table's grid never marks a cell** (report plan 9c-2):
+    /// its host carries no notes, so the controller keeps none and the plan
+    /// draws no dot.
+    func test_aResearchTablesGridNeverMarksACell() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("rates.csv", "Name;Rate\nA;1,5\nB;2\n", in: projectStore)
+        let mount = await mount(item, store, projectStore)
+        let host = try XCTUnwrap(mount.host)
+        let c = try XCTUnwrap(mount.controller)
+        XCTAssertEqual(host.openCellNotes, .none)
+        XCTAssertEqual(c.cellNotes, .none)
+        let table = host.state.table
+        for row in table.rows {
+            for column in table.columns {
+                XCTAssertFalse(c.figureGridIsMarked(CellKey(row: row, column: column)))
+            }
+        }
+        XCTAssertEqual(c.gridView.currentPlan()?.marks ?? [], [])
+        mount.leave()
+        await mount.finishing?.value
+    }
+
     /// **An edit saves once, after the debounce**: two edits, one write, the
     /// file still a ";" file with a decimal comma and the formula an `=` cell.
     func test_anEditSavesOnceAfterTheDebounce_inTheFilesSeparator_withFormulasAsCells() async throws {

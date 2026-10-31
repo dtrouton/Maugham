@@ -30,9 +30,13 @@ public struct FigureCardBook: Equatable, Sendable {
     ///   - workbook: the computed values; nil reads every cell as empty.
     ///   - locale: the number and date formatting.
     ///   - pinChanged / sourceChanged: ids to flag on their cards.
+    ///   - openCellNotes: each figure's open live cell notes (`FigureCellNotes`), against
+    ///     its state's table, for the card's dots and the strip's presence; a figure with
+    ///     none is absent.
     public static func build(
         records: [FigureRecord], states: [String: FigureState], workbook: Workbook?,
-        locale: TableLocale, pinChanged: Set<String>, sourceChanged: Set<String>
+        locale: TableLocale, pinChanged: Set<String>, sourceChanged: Set<String>,
+        openCellNotes: [String: FigureCellNotes]
     ) -> FigureCardBook {
         var next: [String: FigureCardModel] = [:]
         var readers: Set<String> = []
@@ -54,7 +58,8 @@ public struct FigureCardBook: Equatable, Sendable {
                 // The source language: plan 9 passes an edition's, with its labels.
                 language: nil, labelLookup: { _, _, _, _ in nil },
                 pinChanged: pinChanged.contains(id),
-                sourceChanged: sourceChanged.contains(id))
+                sourceChanged: sourceChanged.contains(id),
+                openCellNotes: openCellNotes[id] ?? .none)
         }
         let parkedNow = Set(records.compactMap { record in
             states[record.id]?.parked != nil ? record.referenceLabel : nil

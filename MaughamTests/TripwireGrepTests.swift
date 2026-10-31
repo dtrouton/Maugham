@@ -12041,6 +12041,13 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+Annotations.swift": [
             "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
         ],
+        // A figure's judged notes (`FigureNotesRead`, report plan 9c-2): the
+        // walk's figure read moved into Core, handing the carrier's resolved
+        // set to `AnnotationAmendments.judged` as the walk did. A type key:
+        // `FigureCellNotes` shares the file and is allowed nothing.
+        "type:FigureNotesRead": [
+            "insideTheUnsignedSnapshot", "InsideTheUnsignedSnapshot",
+        ],
         // The Mac's two doors name the SWEEP that takes one, not the type.
         "type:DocumentStore": ["sweptUnsignedSnapshot"],
     ]
@@ -12335,7 +12342,7 @@ final class TripwireGrepTests: XCTestCase {
         // The planted tree declares none of the allow-list's `type:` keys, so
         // they are (correctly) unresolved; this control is about the spellings.
         XCTAssertEqual(
-            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore"], from: try grepSwift(
+            Self.dropping(unplanted: ["type:RegistryAdmission", "type:LocalWritePermitBuilder", "type:AmendmentPermits", "type:DocumentStore", "type:FigureNotesRead"], from: try grepSwift(
                 in: [dir], patterns: Self.narrowingPatterns,
                 allowedSpellings: Self.narrowingAllowed,
                 excludeLine: Self.admissionExcludeLine)).count, 1,
@@ -13170,6 +13177,13 @@ final class TripwireGrepTests: XCTestCase {
             "applyChanges(": 1, "moveRow(": 2, "moveColumn(": 2, "sortRows(": 1, "sendToResearch(": 1,
             "refreshPins(": 1,
         ],
+        // The suggestion strip's Accept (report plan 9c-2 Task 6), the grid
+        // controller's strip extension: one call (`enqueueAccept`), asked
+        // again with `confirmChanged` after the changed-since question, behind
+        // the host's `.editFigure` and `.acceptOrReject` doors, on `gridUndo`.
+        // (Got it and Reject are dispositions, no cell moves: classified in
+        // `guardedDocumentMutators`.)
+        "FigureGridController+Strip.swift": ["acceptSuggestion(": 1],
         "Op.swift": [figureOpMintSpelling: 1],
         // Core's return diff folds each change it makes onto a COPY of the
         // state, through an op it never appends; what it yields is appended

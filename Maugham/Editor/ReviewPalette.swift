@@ -20,7 +20,8 @@ struct ReviewPalette {
     /// The reserved terracotta for Claude. A warm, muted clay tone — distinct
     /// from every human tone below.
     static let claudeTerracotta = NSColor(
-        srgbRed: 0.78, green: 0.42, blue: 0.32, alpha: 1.0)
+        srgbRed: AssistantNoteColour.red, green: AssistantNoteColour.green,
+        blue: AssistantNoteColour.blue, alpha: 1.0)
 
     /// Capped set of muted editorial "pencil" tones for human reviewers.
     /// Desaturated on purpose — these are marginalia, not highlighter. None of

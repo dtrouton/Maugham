@@ -136,7 +136,13 @@ final class PhoneFigureBook {
         let built = FigureCardBook.build(
             records: records, states: states, workbook: assembled.workbook,
             locale: TableLocale(languageTag: language, fallbackRegion: region),
-            pinChanged: [], sourceChanged: [])
+            pinChanged: [], sourceChanged: [],
+            // Each figure's open live cell notes, from the read its state came
+            // from (cached): the cards' dots (report plan 9c-2).
+            openCellNotes: states.keys.reduce(into: [:]) { notes, id in
+                notes[id] = try? cache.cellNotes(
+                    forFigureId: id, in: projectURL, trust: trust, facts: facts)
+            })
         book = built
         reading = SuggestionReading(
             names: FormulaNames(records: records, tables: states.mapValues(\.table),

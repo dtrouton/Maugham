@@ -1013,14 +1013,14 @@
   "claim_id": "M5-AN-064",
   "scope": "FigureDocument.acceptSuggestion / ⌘Z / checkpoint restore",
   "kind": "POSTCONDITION",
-  "statement": "Accepting a figure suggestion is one author-signed claudeAccept that writes the cell and resolves the note; it is refused when closed, parked, unpermitted, withdrawn, orphaned, or changed since (unless confirmed). Its ⌘Z, in or out of a grid visit, restores the cell and reopens the note; a checkpoint restore to before the accept reopens the note (or archives it where the cell is gone) in the same op and the restore sheet names it. No UI offers Accept on a figure suggestion yet; the queue disables it.",
+  "statement": "Accepting a figure suggestion is one author-signed claudeAccept that writes the cell and resolves the note; it is refused when closed, parked, unpermitted, withdrawn, orphaned, or changed since (unless confirmed). Its ⌘Z, in or out of a grid visit, restores the cell and reopens the note; a checkpoint restore to before the accept reopens the note (or archives it where the cell is gone) in the same op and the restore sheet names it. The grid's strip and the queue row both offer Accept on a figure suggestion (the queue travels to the cell; it is disabled for a figure in Research or a deleted cell).",
   "source": {
    "type": "PRODUCTION",
-   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptWritesTheCellAndResolvesTheNoteInOneAuthorSignedOp, test_orphanedWithdrawnParkedAndSettledAreRefused, test_undoRestoresTheCellAndReopensTheNote_redoAcceptsAgain, test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone"
+   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptWritesTheCellAndResolvesTheNoteInOneAuthorSignedOp, test_orphanedWithdrawnParkedAndSettledAreRefused, test_undoRestoresTheCellAndReopensTheNote_redoAcceptsAgain, test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone; MaughamTests/Editor/FigureGridStripTests.swift: test_acceptWritesTheCellAndResolves_andTheGridsUndoRestoresAndReopens, test_aChangedCellAsks_declineWritesNothing_confirmWrites; MaughamTests/Views/FigureAnnotationRowTests.swift: test_aSuggestionShowsItsCell_andItsAcceptOpensTheTableAtIt, test_aParkedFiguresSuggestionAcceptIsOff_sayingItIsInResearch"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "Code only: no gesture reaches acceptSuggestion in 9c-1",
+  "reachability": "Grid strip Accept on a marked cell; annotations queue row Accept (travels to the cell)",
   "evidence": {
    "property_test": null
   }
@@ -1037,6 +1037,22 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "Annotations queue row on a figure note",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-066",
+  "scope": "Figure grid suggestion strip / cell dots",
+  "kind": "POSTCONDITION",
+  "statement": "A cell with an open live note shows a dot; selecting it shows a strip offering Accept and Reject for a suggestion, Got it and Reject for a comment or query; in review mode Accept is disabled with its reason while Got it and Reject act; a refused answer is said as a sentence; an answer after the fold is reversed by Reopen in the queue.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Editor/FigureGridStripTests.swift: test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot, test_gotItResolvesAComment_andTheGridsUndoReopensIt, test_rejectKeepsTheReasonTheSheetGave_cancelRejectsNothing, test_aRefusedAnswerIsSaidAsASentence, test_anAnswerAfterTheFoldIsSaidWithItsReason; MaughamCore FigureCellNotesTests"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "Select a marked cell in a figure grid (pointer only; not keyboard-reachable)",
   "evidence": {
    "property_test": null
   }

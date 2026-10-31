@@ -31,7 +31,7 @@ final class FigureCardBookTests: XCTestCase {
                       "p1": try tableState(parked: true), "r1": try tableState(formula: "research:model!A1")]
         states["ghost"] = try tableState()
         return FigureCardBook.build(records: records, states: states, workbook: nil, locale: en,
-                                    pinChanged: ["t1"], sourceChanged: [])
+                                    pinChanged: ["t1"], sourceChanged: [], openCellNotes: [:])
     }
 
     func test_oneCardPerRegisteredFigureWithAState_firstRecordWins() throws {
@@ -52,7 +52,7 @@ final class FigureCardBookTests: XCTestCase {
 
     func test_aRecordWithNoStateGetsNoCard() {
         let b = FigureCardBook.build(records: [record("t1", "plain", .table)], states: [:], workbook: nil,
-                                     locale: en, pinChanged: [], sourceChanged: [])
+                                     locale: en, pinChanged: [], sourceChanged: [], openCellNotes: [:])
         XCTAssertTrue(b.models.isEmpty)
     }
 

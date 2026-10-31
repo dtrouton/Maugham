@@ -183,6 +183,32 @@ final class FigureRoomRefreshTests: XCTestCase {
         XCTAssertEqual(f.harness.coordinator.figureRoomRefreshCount, 0)
     }
 
+    /// **A note's arrival on a folded card repaints it with no re-layout**
+    /// (report plan 9c-2 Task 3): the card gains a dot and its strip
+    /// presence, never height, so the version edge restyles no line — no
+    /// storage edit reaches the layout manager — and the overlay repaints
+    /// the dot.
+    func test_aNotesArrivalOnAFoldedCardRepaintsWithNoReLayout() throws {
+        let cards = Cards()
+        cards.byPath["figures/t0.csv"] = Self.table(rows: 3)
+        let f = mount(Self.document(tables: 2), cards: cards)
+        let overlay = try XCTUnwrap(f.harness.coordinator.figureThumbnailOverlay)
+        overlay.display()
+        XCTAssertEqual(overlay.lastCardMarks, [[]], "premise: no note, no dot")
+
+        var noted = Self.table(rows: 3)
+        noted.markedCells = [.init(row: 1, column: 0)]
+        noted.hasOpenCellNotes = true
+        cards.byPath["figures/t0.csv"] = noted
+        let before = overlay.displayRequests
+        f.harness.coordinator.setFigureCardVersion(1)
+        XCTAssertEqual(f.layout.edits, [], "no line re-laid out")
+        XCTAssertEqual(f.harness.coordinator.figureRoomRefreshCount, 0)
+        XCTAssertGreaterThan(overlay.displayRequests, before, "the version repaints the overlay")
+        overlay.display()
+        XCTAssertEqual(overlay.lastCardMarks.map(\.count), [1], "the dot is drawn")
+    }
+
     /// The first fill (R7a-2): every line that was a cache miss and is now a
     /// table card re-lays out; an image stays as it was.
     func test_theFirstFillReLaysOutTheMissesThatBecameCards() {
