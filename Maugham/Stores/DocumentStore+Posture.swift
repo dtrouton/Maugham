@@ -284,7 +284,10 @@ extension DocumentStore {
         // own statement does, and *Edit Anyway* on the piece covers it. A
         // figure of the whole book belongs to no piece and yields to nobody.
         case .figure(_, let piece): return piece
-        case .translation, .projectStatement, .projectStream, .inbox, .unplaceable, .unregisteredFigure:
+        // A figure's translation, like a piece's, never reaches this door
+        // (`DocumentClass.resolve` answers neither) and yields to nobody.
+        case .translation, .figureTranslation, .projectStatement, .projectStream, .inbox,
+             .unplaceable, .unregisteredFigure:
             return nil
         }
     }

@@ -333,26 +333,33 @@ public struct PermitJudge: Sendable {
             decoding: { _ in what }, everyLineIs: what)
     }
 
-    /// One language's translation sidecar for one piece.
+    /// One language's translation sidecar filed under `docId` — a piece's,
+    /// or a figure's text cells (report plan 9e-1, ruling R2).
     ///
-    /// The class is CONSTRUCTED rather than resolved from the manifest, because
-    /// the reader already knows what it is reading: a translation stream's
-    /// document id is the piece's own, which is exactly what
+    /// The class is CONSTRUCTED from the id rather than resolved as a stream
+    /// (`DocumentClass.translationClass(ofDocId:facts:)`), because the reader
+    /// already knows what it is reading: a piece's translation stream is
+    /// filed under the piece's own id, which is exactly what
     /// `DocumentClass.translation(piece:)` carries and what an
-    /// author-of-some-pieces' scope list names. So this pays no manifest read
-    /// at all, on any book.
+    /// author-of-some-pieces' scope list names, so it pays no manifest read
+    /// at all, on any book. A figure's is filed under the figure's id, and
+    /// only that one asks `facts` — the figure's piece is in the registry
+    /// and nowhere else. The class itself is asked at most once per file and
+    /// only where some line's (permit, actor) pair turns on it.
     ///
     /// `unowned` is never asked: §4.5 is about MANUSCRIPT text in a piece
     /// nobody has claimed, and `Permit.startsAPieceNobodyHasClaimed`
-    /// requires both a `.piece` class and the manuscript-text group, so a
+    /// requires both a starter's piece and the manuscript-text group, so a
     /// translation line can never reach it.
     public static func translation(
-        ofPiece piece: String, trust: TrustTable
+        ofDocId docId: String,
+        facts: @escaping @Sendable () -> DocumentClass.Facts,
+        trust: TrustTable
     ) -> PermitJudge {
         oneKind(
             .translationRecord, trust: trust,
             context: PermitContext(
-                documentClass: { .translation(piece: piece) },
+                documentClass: { DocumentClass.translationClass(ofDocId: docId, facts: facts) },
                 unowned: { .nobodyHasWrittenItsText }))
     }
 

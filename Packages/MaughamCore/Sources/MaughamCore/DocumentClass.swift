@@ -8,11 +8,13 @@ import Foundation
 /// `Permit.allows` can be a table over classes rather than a table over ids
 /// with a lookup folded into every row.
 ///
-/// **Two of these classes are not `Op` streams.** A translation lives in
-/// its own `TranslationStore` file and an inbox row in `InboxStore`'s; neither
-/// is reachable from a manuscript document id, which is why `resolve` never
-/// returns them. Their callers (P3a Task 6) construct `.translation(piece:)` and
-/// `.inbox` directly, because they already know which stream they are reading.
+/// **Three of these classes are not `Op` streams.** A translation — of a
+/// piece or of a figure — lives in its own `TranslationStore` file and an
+/// inbox row in `InboxStore`'s; none is reachable from a manuscript document
+/// id, which is why `resolve` never returns them. Their callers (P3a Task 6)
+/// construct `.inbox` directly, and a translation's class through
+/// `translationClass(ofDocId:facts:)`, because they already know which stream
+/// they are reading.
 ///
 /// **An id nothing knows is a piece in nobody's scope** (spec §4.1). That is the
 /// safe answer and not a shrug: a document id this manifest does not carry is
@@ -44,6 +46,25 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
     /// One language's translation of a piece. Not an `Op` stream; the value is
     /// the PIECE's id, for the same reason `pieceStatement` carries one.
     case translation(piece: String)
+
+    /// **One language's translation of a figure's text cells** (report plan
+    /// 9e-1, ruling R2). Not an `Op` stream: the figure's translation sidecar,
+    /// filed under the figure's own document id. `piece` is the figure's
+    /// piece from the registry (`FigureRecord.piece`), nil for a figure of
+    /// the whole book.
+    ///
+    /// Judged as `.translation(piece:)` is — by the piece it is about, and
+    /// with no Option A starter arm (`Permit.startersPiece` answers nil) —
+    /// rather than as `.figure`, whose class carries its piece's starter arms
+    /// that a translation never takes. Read as `.translation(piece: figureId)`
+    /// it would be a piece in nobody's scope, and every line an author of some
+    /// pieces' translator wrote in her own piece's figure would be set aside;
+    /// a figure of the whole book could not be said at all.
+    ///
+    /// A figure id whose record has not arrived is not this class: it is
+    /// `.unregisteredFigure`, whose row holds an author of some pieces'
+    /// translation until the record says whose it is.
+    case figureTranslation(id: String, piece: String?)
 
     /// The capture inbox. Not an `Op` stream, and the one class whose whole
     /// content is the reviewer row.
@@ -196,6 +217,27 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         return .piece(docId)
     }
 
+    /// **The class of a translation sidecar filed under `docId`** (report plan
+    /// 9e-1, ruling R2) — the one spelling the three readers of a translation
+    /// stream share: the load (`PermitJudge.translation(ofDocId:facts:trust:)`),
+    /// the mark sweep that must cut where the load judges, and the write door
+    /// that must refuse exactly what the next read would set aside.
+    ///
+    /// A piece's id is `.translation(piece:)` and `facts` is NOT called: a
+    /// piece translation pays no manifest read, on any book. Only a figure's
+    /// id asks the registry — `.figureTranslation` with the record's piece,
+    /// or `.unregisteredFigure(id)` where the record has not arrived, which
+    /// holds an author of some pieces' lines until it does (R-6a-12's row).
+    public static func translationClass(
+        ofDocId docId: String, facts: () -> Facts
+    ) -> DocumentClass {
+        guard isFigureDocId(docId) else { return .translation(piece: docId) }
+        guard let record = facts().figures.first(where: { $0.id == docId }) else {
+            return .unregisteredFigure(docId)
+        }
+        return .figureTranslation(id: docId, piece: record.piece)
+    }
+
     /// Whether `docId` has a figure's shape — the prefix and its dash.
     public static func isFigureDocId(_ docId: String) -> Bool {
         docId.hasPrefix(figureDocIdPrefix + "-")
@@ -215,6 +257,9 @@ public enum DocumentClass: Equatable, Hashable, Sendable {
         // own id, and nil for a figure of the whole book: an author of some
         // pieces holds no nil, so the scope test leaves those to book authors.
         case .figure(_, let piece): return piece
+        // A figure's translation is its figure's piece's (ruling R2), nil for
+        // a figure of the whole book — the book authors'.
+        case .figureTranslation(_, let piece): return piece
         // `.unplaceable` has a docId, and it is deliberately NOT offered here:
         // a statement's own id is not a piece id, and answering the scope test
         // with one would be a coincidence rather than a permission.

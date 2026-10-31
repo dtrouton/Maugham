@@ -1702,6 +1702,47 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertGreaterThan(translationBytes("doc-b", h.projectURL), b0, "promotion: written")
     }
 
+    /// **The translation door judges a figure's translation by the FIGURE's
+    /// piece** (report plan 9e-1, ruling R2) — the class the reader will judge
+    /// the lines in, so a refusal here is exactly what the next read would set
+    /// aside. Her piece's figure: allowed. A figure of the whole book: the
+    /// book author's alone. A figure whose record has not arrived: held, so
+    /// not offered. A reviewer: nothing.
+    func test_theTranslationDoorJudgesAFigureByItsPiece() async throws {
+        let h = try await makeStatementHarness()
+        let hers = try await h.store.createFigure(kind: .table, name: "hers", piece: "doc-a")
+        let books = try await h.store.createFigure(kind: .table, name: "books", piece: nil)
+        let unregistered = "fig-0000dead"
+        func door(_ figureId: String) throws {
+            try TranslationWritePipeline.refuseUnlessTranslatable(
+                documentId: figureId, actor: .translator, identities: h.identities,
+                deviceState: try XCTUnwrap(Document.deviceStateForTesting),
+                projectURL: h.projectURL)
+        }
+        func assertRefused(_ label: String, _ figureId: String,
+                           line: UInt = #line) {
+            do {
+                try door(figureId)
+                XCTFail("\(label) was not refused", line: line)
+            } catch MCPError.toolError(let payload) {
+                XCTAssertEqual(payload.error, "translation_not_permitted", line: line)
+            } catch {
+                XCTFail("\(label) threw \(error)", line: line)
+            }
+        }
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertNoThrow(try door(hers.id), "her piece's figure: allowed")
+        assertRefused("a pieces-author's translation of a whole-book figure", books.id)
+        assertRefused("a figure whose record has not arrived", unregistered)
+
+        try await become(.reviewer, h)
+        assertRefused("a reviewer's translation of her piece's figure", hers.id)
+
+        try await become(.bookAuthor, h)
+        XCTAssertNoThrow(try door(books.id), "the book author: a whole-book figure")
+    }
+
     /// **Removing an orphan is the author's own translation write** and asks
     /// the author's key the same door: refused, nothing appended.
     func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {

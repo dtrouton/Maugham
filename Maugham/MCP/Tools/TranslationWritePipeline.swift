@@ -190,8 +190,10 @@ public enum TranslationWritePipeline {
     /// own hand: the actor is what the reader judges (`PermitJudge
     /// .translation`), so a refusal here is exactly a line the next read would
     /// have set aside. And in the class the reader CONSTRUCTS for a
-    /// translation stream — `.translation(piece:)`, whose id is the piece's
-    /// own — rather than one resolved from the manifest.
+    /// translation stream (`DocumentClass.translationClass(ofDocId:facts:)`) —
+    /// `.translation(piece:)` for a piece's id, which reads no manifest, and
+    /// a figure's id judged by the figure's piece (report plan 9e-1, ruling
+    /// R2) — rather than one resolved as a stream.
     ///
     /// **Built through Core's posture door, over the one builder**
     /// (`PostureDoor`, `OpLogStore.localWritePermit` — tripwire 46; controller
@@ -209,7 +211,9 @@ public enum TranslationWritePipeline {
             projectURL: projectURL, presenter: nil, identities: identities,
             state: deviceState, cache: Document.loadRegistryCache)
         let posture = PostureDoor.posture(as: actor, using: store) {
-            .translation(piece: documentId)
+            DocumentClass.translationClass(ofDocId: documentId) {
+                OpLogStore.manifestFacts(in: projectURL)
+            }
         }
         guard posture.allows(.translate) else {
             let title = pieceTitle(documentId, in: projectURL)

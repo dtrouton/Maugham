@@ -344,8 +344,10 @@ public enum Permit: Equatable, Hashable, Sendable {
         switch documentClass {
         case .piece(let id): return id
         case .figure(_, let piece): return piece
-        case .pieceStatement, .translation, .projectStatement, .projectStream,
-             .inbox, .unplaceable, .unregisteredFigure:
+        // A figure's translation takes no starter arm, as a piece's does not
+        // (report plan 9e-1, ruling R2).
+        case .pieceStatement, .translation, .figureTranslation, .projectStatement,
+             .projectStream, .inbox, .unplaceable, .unregisteredFigure:
             return nil
         }
     }
@@ -1003,7 +1005,9 @@ extension Permit {
         case .figure, .unregisteredFigure:
             onAStatement = false
             onAFigure = true
-        case .piece, .projectStream, .translation, .inbox:
+        // A figure's TRANSLATION stream is not the figure's own: what is
+        // refused there is named as on a piece's translation (ruling R2).
+        case .piece, .projectStream, .translation, .figureTranslation, .inbox:
             onAStatement = false
             onAFigure = false
         }

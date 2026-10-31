@@ -27,9 +27,10 @@ final class PermitTableTests: XCTestCase {
     private static let hers = "p-hers"
     private static let theirs = "p-theirs"
 
-    /// **Fourteen streams.** Every `DocumentClass` case, with the ones that
+    /// **Seventeen streams.** Every `DocumentClass` case, with the ones that
     /// carry a piece id appearing once about her piece and once about
-    /// somebody's — and a figure a third time, belonging to no piece.
+    /// somebody's — and a figure, and a figure's translation, a third time,
+    /// belonging to no piece.
     private let classes: [DocumentClass] = [
         .piece(PermitTableTests.hers),                      // 0
         .piece(PermitTableTests.theirs),                    // 1
@@ -49,7 +50,12 @@ final class PermitTableTests: XCTestCase {
         .figure(id: "fig-0000000b", piece: PermitTableTests.theirs),  // 11
         .figure(id: "fig-0000000c", piece: nil),                      // 12
         // Ruling R-6a-12: a figure whose registry record has not arrived.
-        .unregisteredFigure("fig-0000000d")                           // 13
+        .unregisteredFigure("fig-0000000d"),                          // 13
+        // Report plan 9e-1, ruling R2: a figure's translations, judged by the
+        // figure's piece exactly as a piece's translations are by the piece.
+        .figureTranslation(id: "fig-0000000a", piece: PermitTableTests.hers),    // 14
+        .figureTranslation(id: "fig-0000000b", piece: PermitTableTests.theirs),  // 15
+        .figureTranslation(id: "fig-0000000c", piece: nil)                       // 16
     ]
 
     /// The one stream whose PLACEMENT is unknown — the row every other row is
@@ -148,7 +154,12 @@ final class PermitTableTests: XCTestCase {
             // 13 a figure whose record has not arrived (R-6a-12): row 12 with
             // the scoped author HELD wherever 12 refuses her — the record could
             // name her piece. The reviewer's refusal is the same in 10–12.
-            "fcyc"
+            "fcyc",
+            // 14–16 a figure's translation stream: rows 6–7's answers, read
+            // through the figure's piece — hers, somebody else's, the whole
+            // book's (which only a book author writes). Not a figure's own
+            // stream, so the noun is the manuscript's, as on row 6.
+            "myyc", "mmyc", "mmyc"
         ],
 
         // The reviewer row. A reviewer may annotate any piece of the book —
@@ -157,7 +168,8 @@ final class PermitTableTests: XCTestCase {
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9 — `y` in every row above, so no placement could change it
             "yyyc", "yyyc", "yyyc",  // 10–12
-            "yyyc"  // 13
+            "yyyc",  // 13
+            "yyyc", "yyyc", "yyyc"  // 14–16
         ],
 
         // Also the reviewer row — WHOSE annotation is a same-person rule that
@@ -166,7 +178,8 @@ final class PermitTableTests: XCTestCase {
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9
             "yyyc", "yyyc", "yyyc",  // 10–12
-            "yyyc"  // 13
+            "yyyc",  // 13
+            "yyyc", "yyyc", "yyyc"  // 14–16
         ],
 
         // Settling a note is the writer's act. A reviewer raises them; the
@@ -175,7 +188,8 @@ final class PermitTableTests: XCTestCase {
             "dyyc", "ddyc", "syyc", "ssyc", "ssyc", "ddyc", "dyyc", "ddyc", "ddyc",
             "ccyc",  // 9 — the reviewer's noun differs by placement (d vs s), so held
             "dyyc", "ddyc", "ddyc",  // 10–12 — a note settled on a figure is a disposition
-            "dcyc"  // 13
+            "dcyc",  // 13
+            "dyyc", "ddyc", "ddyc"  // 14–16
         ],
 
         // ⌘S's breadcrumb: an author's mark on a stream they may write.
@@ -183,7 +197,8 @@ final class PermitTableTests: XCTestCase {
             "oyyc", "ooyc", "syyc", "ssyc", "ssyc", "ooyc", "oyyc", "ooyc", "ooyc",
             "ccyc",  // 9
             "oyyc", "ooyc", "ooyc",  // 10–12
-            "ocyc"  // 13
+            "ocyc",  // 13
+            "oyyc", "ooyc", "ooyc"  // 14–16
         ],
 
         // The one thing an author of some pieces may write OUTSIDE her pieces:
@@ -195,7 +210,8 @@ final class PermitTableTests: XCTestCase {
             // change (`y` on her pieces and on the project stream), so she is held.
             "tcyc",
             "tyyc", "ttyc", "ttyc",  // 10–12 — her piece's figure is hers
-            "tcyc"  // 13
+            "tcyc",  // 13
+            "tyyc", "ttyc", "ttyc"  // 14–16
         ],
 
         // A translation of a piece is the piece's: hers if the piece is hers.
@@ -204,7 +220,11 @@ final class PermitTableTests: XCTestCase {
             "rcyc",  // 9 — the reviewer's `r` is uniform above; hers is not
             // 10–12 — a figure's text cells translate with its piece.
             "ryyc", "rryc", "rryc",
-            "rcyc"  // 13
+            "rcyc",  // 13
+            // 14–16 — a figure's text cells translate with its piece (ruling
+            // R2): hers inside her piece's figure, a book author's alone in a
+            // figure of the whole book, never a reviewer's.
+            "ryyc", "rryc", "rryc"
         ],
 
         // The reviewer row's third member.
@@ -212,7 +232,8 @@ final class PermitTableTests: XCTestCase {
             "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc", "yyyc",
             "yyyc",  // 9
             "yyyc", "yyyc", "yyyc",  // 10–12
-            "yyyc"  // 13
+            "yyyc",  // 13
+            "yyyc", "yyyc", "yyyc"  // 14–16
         ],
 
         // A later build's kind. Nothing may be decided — not applied, and not
@@ -221,7 +242,8 @@ final class PermitTableTests: XCTestCase {
             "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc", "cccc",
             "cccc",  // 9
             "cccc", "cccc", "cccc",  // 10–12
-            "cccc"  // 13
+            "cccc",  // 13
+            "cccc", "cccc", "cccc"  // 14–16
         ]
     ]
 
@@ -960,6 +982,7 @@ final class PermitTableTests: XCTestCase {
             nil, nil,                       // 8, 9  inbox, unplaceable
             Self.hers, Self.theirs,         // 10, 11 figures of a piece
             nil, nil,                       // 12, 13 whole-book, unregistered figure
+            nil, nil, nil,                  // 14–16 a figure's translations (ruling R2)
         ]
         XCTAssertEqual(classes.count, expected.count)
         for (index, documentClass) in classes.enumerated() {
@@ -1411,6 +1434,66 @@ final class DocumentClassTests: XCTestCase {
         // A figure answers with the piece it belongs to — never its own id.
         XCTAssertEqual(DocumentClass.figure(id: "fig-00000001", piece: "p").piece, "p")
         XCTAssertNil(DocumentClass.figure(id: "fig-00000001", piece: nil).piece)
+        // A figure's translation answers with the figure's piece (ruling R2).
+        XCTAssertEqual(DocumentClass.figureTranslation(id: "fig-00000001", piece: "p").piece, "p")
+        XCTAssertNil(DocumentClass.figureTranslation(id: "fig-00000001", piece: nil).piece)
+    }
+
+    // MARK: - A translation stream's class (report plan 9e-1, ruling R2)
+
+    /// **A translation sidecar's class, from its document id.** A piece's id
+    /// is the piece's translation and asks the manifest NOTHING — every book's
+    /// piece translations pay no read for figures they do not have. A figure's
+    /// id is read through the registry: its record's piece, nil for a figure
+    /// of the whole book, and `.unregisteredFigure` where the record has not
+    /// arrived (held, re-judged when it lands).
+    func test_aTranslationStreamsClassIsItsPieceOrItsFiguresPiece() {
+        let hers = "p-hers"
+        var asked = 0
+        let facts = DocumentClass.Facts(statements: [], figures: [
+            FigureRecord(id: "fig-0000000a", name: "hers", kind: .table,
+                         piece: hers, path: "figures/hers.csv"),
+            FigureRecord(id: "fig-0000000c", name: "book", kind: .table,
+                         piece: nil, path: "figures/book.csv"),
+        ])
+        let ask: () -> DocumentClass.Facts = { asked += 1; return facts }
+
+        XCTAssertEqual(DocumentClass.translationClass(ofDocId: hers, facts: ask),
+                       .translation(piece: hers))
+        XCTAssertEqual(asked, 0, "a piece's translation reads no manifest")
+
+        XCTAssertEqual(DocumentClass.translationClass(ofDocId: "fig-0000000a", facts: ask),
+                       .figureTranslation(id: "fig-0000000a", piece: hers))
+        XCTAssertEqual(DocumentClass.translationClass(ofDocId: "fig-0000000c", facts: ask),
+                       .figureTranslation(id: "fig-0000000c", piece: nil))
+        XCTAssertEqual(DocumentClass.translationClass(ofDocId: "fig-0000000d", facts: ask),
+                       .unregisteredFigure("fig-0000000d"))
+        XCTAssertEqual(asked, 3, "a figure's is read through the registry, once per ask")
+    }
+
+    /// **The three verdicts the ruling names, on the translator's key**: a
+    /// pieces-author's translator inside her own piece's figure is applied,
+    /// a figure of the whole book is the book author's alone, and a figure
+    /// whose record has not arrived is HELD for her rather than refused.
+    func test_aFiguresTranslationIsJudgedByTheFiguresPiece() {
+        let sam = Permit.author(.pieces(["p-hers"]))
+        let hers = DocumentClass.figureTranslation(id: "fig-0000000a", piece: "p-hers")
+        let books = DocumentClass.figureTranslation(id: "fig-0000000c", piece: nil)
+        let unregistered = DocumentClass.unregisteredFigure("fig-0000000d")
+
+        XCTAssertEqual(sam.allows(.translationRecord, in: hers, actor: .translator), .yes)
+        XCTAssertEqual(sam.allows(.translationRecord, in: books, actor: .translator),
+                       .no(.translation))
+        XCTAssertEqual(Permit.author(.book).allows(.translationRecord, in: books, actor: .translator),
+                       .yes)
+        XCTAssertEqual(sam.allows(.translationRecord, in: unregistered, actor: .translator),
+                       .cannotJudge)
+        XCTAssertEqual(Permit.reviewer.allows(.translationRecord, in: hers, actor: .translator),
+                       .no(.translation))
+        // And the figure's own content stays hers to write — the translator's
+        // key does not reach it.
+        XCTAssertEqual(sam.allows(.op(.figureCellSet), in: hers, actor: .translator),
+                       .no(.manuscriptText))
     }
 
     // MARK: - The words a permit is written as (P3a Task 7)
