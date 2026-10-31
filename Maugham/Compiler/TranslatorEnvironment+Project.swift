@@ -83,7 +83,7 @@ extension TranslatorOrchestrator.Environment {
             model: model,
             briefRound: { [weak store, weak documentStore, weak bible] docId, language in
                 guard let store else { return nil }
-                return try briefing(
+                return try await briefing(
                     docId: docId, language: language, store: store,
                     documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
@@ -212,11 +212,18 @@ extension TranslatorOrchestrator.Environment {
     private static func briefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
-    ) throws -> TranslatorOrchestrator.BriefedRound? {
+    ) async throws -> TranslatorOrchestrator.BriefedRound? {
         guard let context = try roundContext(
             docId: docId, language: language, store: store,
             documentStore: documentStore, projectURL: projectURL) else { return nil }
         let state = context.state
+        // The tables this piece uses, over the same paragraphs the round
+        // briefs (report plan 9e-2, R6). A translate leg only: the fix leg is
+        // paragraph-only.
+        let tableCells = try await tableCellWork(
+            docId: docId, language: language,
+            state: (state.sequence, state.paragraphs),
+            store: store, documentStore: documentStore, projectURL: projectURL)
         let role = context.role
         let intentText = context.intentText
         let briefText = context.briefText
@@ -271,7 +278,8 @@ extension TranslatorOrchestrator.Environment {
             // refused round: a briefing without facts is smaller, not wrong.
             bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
                 .joined(separator: "\n")) ?? [],
-            glossary: GlossaryTable.gather(editionBrief: briefText))
+            glossary: GlossaryTable.gather(editionBrief: briefText),
+            tableCells: tableCells)
 
         // **What each work paragraph looked like at send time**, hashed off
         // the RAW text rather than the stripped `sourceText` the model is

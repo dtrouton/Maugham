@@ -209,6 +209,36 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         XCTAssertEqual(narrowed.map(\.figureId), [hers.id])
     }
 
+    // MARK: - The briefing (Task 2)
+
+    /// **The production briefing carries the round's table cells** and shows
+    /// them to the model: `briefRound` on chapter A hands its tables to the
+    /// briefing's `tableCells`, and the composed message lists each in the
+    /// `[Table: name row:col]` form beside the paragraphs.
+    func test_theProductionBriefingCarriesTheTablesCells() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Ledger](../figures/ledger.csv){#tbl:ledger}\n")
+        let record = try await store.createFigure(kind: .table, name: "ledger", piece: nil, table: ledger())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let environment = TranslatorOrchestrator.Environment.production(
+            store: store, documentStore: ds, projectURL: projectURL,
+            bible: BibleStore(projectRoot: projectURL, device: DeviceIdentity.author.slug),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "TranslatorTableCells-\(UUID().uuidString)")!),
+            onRunEnded: { _ in })
+
+        _ = try await environment.translatorIdentity("es")
+        let round = try await environment.briefRound("doc-a", "es")
+        let inputs = try XCTUnwrap(round).inputs
+        XCTAssertEqual(inputs.tableCells.map(\.figureId), [record.id])
+        XCTAssertEqual(inputs.tableCells.first?.cells.map(\.address), ["A1", "B1", "A2"])
+        let message = TranslatorBriefing.compose(inputs: inputs)
+        XCTAssertTrue(message.contains(
+            "[Table: ledger \(FigureCellTranslationKey.paragraphId(for: key(live, 1, 0)))] (A2, missing"))
+        XCTAssertTrue(message.contains("Table ledger (figure_id: \(record.id)):"))
+    }
+
     // MARK: - The register
 
     /// Another Mac roots the book and admits this one as an author of the

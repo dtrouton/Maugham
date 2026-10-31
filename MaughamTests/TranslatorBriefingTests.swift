@@ -386,6 +386,76 @@ final class TranslatorBriefingTests: XCTestCase {
         XCTAssertTrue(briefing.hasSuffix(TranslatorReport.schemaDescription))
     }
 
+    // MARK: - Table cells (report plan 9e-2)
+
+    private let item = CellKey(row: RowID("r1aa"), column: ColumnID("c1aa"))
+    private let amount = CellKey(row: RowID("r1aa"), column: ColumnID("c2aa"))
+
+    private var cashTable: TableCellWork {
+        TableCellWork(figureId: "fig-cash", name: "cash", cells: [
+            .init(key: item, address: "A1", sourceText: "Item", status: .missing,
+                  priorTranslation: nil),
+            .init(key: amount, address: "B1", sourceText: "Amount", status: .stale,
+                  priorTranslation: "Cantidad"),
+        ])
+    }
+
+    /// **A briefing with table cells lists them in a "Table cells" section**:
+    /// the table's name and figure_id, each cell as `[Table: name row:col]`
+    /// with its A1, status and source label — a stale one with its last
+    /// answer — after the paragraph work, and the cells' contract after the
+    /// report contract.
+    func test_tableCells_areListedInTheirOwnSectionWithTheKeyTheReportNames() {
+        let paragraph = TranslatorBriefing.Inputs.WorkItem(
+            paragraphId: "a1b2", sourceText: "The fog came in.", status: .missing)
+        let briefing = TranslatorBriefing.compose(inputs: TranslatorBriefing.Inputs(
+            translatorName: "Cortázar", language: "es", workList: [paragraph],
+            tableCells: [cashTable]))
+
+        XCTAssertTrue(briefing.contains("Table cells — the text labels of the tables this piece uses."))
+        XCTAssertTrue(briefing.contains("Table cash (figure_id: fig-cash):"))
+        XCTAssertTrue(briefing.contains(
+            "[Table: cash r1aa:c1aa] (A1, missing — no translation yet)\nItem"))
+        XCTAssertTrue(briefing.contains(
+            "[Table: cash r1aa:c2aa] (B1, stale — the label has changed since this was "
+                + "last translated)\nSource: Amount\nPrior translation: Cantidad"))
+        let workAt = briefing.range(of: "[a1b2]")?.lowerBound
+        let cellsAt = briefing.range(of: "Table cells —")?.lowerBound
+        XCTAssertNotNil(workAt)
+        XCTAssertNotNil(cellsAt)
+        if let workAt, let cellsAt { XCTAssertLessThan(workAt, cellsAt, "the paragraphs first") }
+        XCTAssertTrue(briefing.hasSuffix(
+            TranslatorReport.schemaDescription + "\n" + TranslatorReport.cellsSchemaDescription))
+    }
+
+    /// **No table, no change**: a piece that uses no table is briefed exactly
+    /// as before — no section, no cells contract, the report contract last.
+    func test_noTableCells_briefsExactlyAsBefore() {
+        let briefing = TranslatorBriefing.compose(inputs: makeInputs())
+        XCTAssertFalse(briefing.contains("Table cells"))
+        XCTAssertFalse(briefing.contains(TranslatorReport.cellsSchemaDescription))
+        XCTAssertTrue(briefing.hasSuffix("\n\n" + TranslatorReport.schemaDescription))
+    }
+
+    /// **A round with only cells to do says so** rather than telling the
+    /// model nothing needs translation above a list of cells.
+    func test_tableCellsAlone_doNotSayNothingNeedsTranslation() {
+        let briefing = TranslatorBriefing.compose(inputs: TranslatorBriefing.Inputs(
+            translatorName: "Cortázar", language: "es", tableCells: [cashTable]))
+        XCTAssertFalse(briefing.contains("nothing needs translation"))
+        XCTAssertTrue(briefing.contains("only the table cells below need work"))
+    }
+
+    /// **A fix leg is paragraph-only** (plan ruling): cells handed to it are
+    /// never briefed, nor their contract.
+    func test_fixMode_briefsNoTableCells() {
+        let briefing = TranslatorBriefing.compose(inputs: TranslatorBriefing.Inputs(
+            translatorName: "Cortázar", language: "es",
+            mode: .fix(notes: [], isFinalLeg: false), tableCells: [cashTable]))
+        XCTAssertFalse(briefing.contains("Table cells"))
+        XCTAssertFalse(briefing.contains(TranslatorReport.cellsSchemaDescription))
+    }
+
     // MARK: - Fixture
 
     private func makeInputs(

@@ -171,6 +171,11 @@ enum TranslatorBriefing {
         let bibleFacts: [BibleFact]
         let mode: Mode
         let glossary: [GlossaryEntry]
+        /// The tables this piece uses whose text cells need work (report plan
+        /// 9e-2, R6) — `TableCellWork`, already filtered to the cells the
+        /// round's translator may write. Briefed in a translate leg only; a
+        /// fix leg is paragraph-only (plan ruling), so its gather passes none.
+        let tableCells: [TableCellWork]
 
         init(
             translatorName: String, language: String, roleBrief: String? = nil,
@@ -178,8 +183,9 @@ enum TranslatorBriefing {
             workList: [WorkItem] = [], contextParagraphs: [ContextParagraph] = [],
             openQueries: [OpenQuery] = [], answeredQueries: [AnsweredQuery] = [],
             bibleFacts: [BibleFact] = [], mode: Mode = .translate,
-            glossary: [GlossaryEntry] = []
+            glossary: [GlossaryEntry] = [], tableCells: [TableCellWork] = []
         ) {
+            self.tableCells = tableCells
             self.translatorName = translatorName
             self.language = language
             self.roleBrief = roleBrief
@@ -251,6 +257,9 @@ enum TranslatorBriefing {
         }
 
         sections.append(workListSection(inputs))
+        if let cells = tableCellsSection(inputs) {
+            sections.append(cells)
+        }
         if let context = contextSection(inputs) {
             sections.append(context)
         }
@@ -260,7 +269,13 @@ enum TranslatorBriefing {
 
         switch inputs.mode {
         case .translate:
-            sections.append(TranslatorReport.schemaDescription)
+            // The cells' contract only where cells were briefed: a piece that
+            // uses no table is briefed exactly as before.
+            sections.append(
+                inputs.tableCells.isEmpty
+                    ? TranslatorReport.schemaDescription
+                    : [TranslatorReport.schemaDescription, TranslatorReport.cellsSchemaDescription]
+                        .joined(separator: "\n"))
         case .fix(_, let isFinalLeg):
             sections.append(
                 [TranslatorReport.schemaDescription, TranslatorReport.fixSchemaDescription,
@@ -324,7 +339,10 @@ enum TranslatorBriefing {
         switch inputs.mode {
         case .translate:
             guard !inputs.workList.isEmpty else {
-                return "This round's work: nothing needs translation right now."
+                return inputs.tableCells.isEmpty
+                    ? "This round's work: nothing needs translation right now."
+                    : "This round's work: every paragraph is already translated; "
+                        + "only the table cells below need work."
             }
             var lines = [
                 "This round's work — for each paragraph below, answer with an "
@@ -397,6 +415,56 @@ enum TranslatorBriefing {
                 "Source: \(cleaned(item.sourceText))",
             ]
             if let prior = item.priorTranslation {
+                lines.append("Prior translation: \(cleaned(prior))")
+            }
+            return lines
+        }
+    }
+
+    // MARK: - Table cells
+
+    /// **The text cells of the tables this piece uses that need work**
+    /// (report plan 9e-2): per table its name and `figure_id`, then each cell
+    /// as `[Table: <name> <row:col>]` — the key the report names it by —
+    /// with its A1 address for orientation, its status and its source label;
+    /// a stale cell hands over its last answer, as a stale paragraph does.
+    /// `nil` in a fix leg (paragraph-only) and when no table needs work.
+    private static func tableCellsSection(_ inputs: Inputs) -> String? {
+        guard case .translate = inputs.mode, !inputs.tableCells.isEmpty else { return nil }
+        var lines = [
+            "Table cells — the text labels of the tables this piece uses. For "
+                + "each cell below, answer in \"cells\" with its table's figure_id "
+                + "and the cell's row:col key from its brackets: a translated "
+                + "label, or \"verbatim\" if it should carry over unchanged. Only "
+                + "text labels are listed; numbers and formulas are never "
+                + "translated:"
+        ]
+        for table in inputs.tableCells {
+            lines.append("Table \(table.name) (figure_id: \(table.figureId)):")
+            for cell in table.cells {
+                lines.append(contentsOf: tableCellLines(cell, table: table))
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func tableCellLines(_ cell: TableCellWork.Cell, table: TableCellWork) -> [String] {
+        let tag = "[Table: \(table.name) \(FigureCellTranslationKey.paragraphId(for: cell.key))]"
+        switch cell.status {
+        case .missing:
+            return ["\(tag) (\(cell.address), missing — no translation yet)",
+                    cleaned(cell.sourceText)]
+        case .fresh:
+            // Never gathered (`TableCellWork.work` lists missing and stale
+            // only); rendered plainly rather than mislabelled.
+            return ["\(tag) (\(cell.address))", cleaned(cell.sourceText)]
+        case .stale:
+            var lines = [
+                "\(tag) (\(cell.address), stale — the label has changed since this "
+                    + "was last translated)",
+                "Source: \(cleaned(cell.sourceText))",
+            ]
+            if let prior = cell.priorTranslation {
                 lines.append("Prior translation: \(cleaned(prior))")
             }
             return lines

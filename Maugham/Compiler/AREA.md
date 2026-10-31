@@ -52,7 +52,7 @@ Every file in `Maugham/Compiler/` appears once.
 ### The translator and the designer
 - `TranslatorOrchestrator.swift` — the second orchestrator: `runTranslation`, `runFix`/`briefFix`, warm per `(docId, language)`.
 - `TranslatorBriefing.swift` — the pure translator briefing (`compose(inputs:)`, `FixNote`).
-- `TranslatorReport.swift` — one JSON object (`entries`, `queries`), all-or-nothing; `schemaDescription`.
+- `TranslatorReport.swift` — one JSON object (`entries`, `queries`, `cells`), all-or-nothing; `schemaDescription`, `cellsSchemaDescription`.
 - `TranslatorEnvironment+Project.swift` — production wiring: `briefRound`/`BriefedRound`, `fixBriefing`, `ingest`, `midRunEdits`.
 - `TranslatorTableCells.swift` — `TableCellWork`, `tableCellWork`: the used tables' cells a round labels.
 - `DesignerOrchestrator.swift` — the third orchestrator: `runDesign`, `requestChanges`, warm per project, `hasOpenProposalRound`.
@@ -278,7 +278,7 @@ Every file in `Maugham/Compiler/` appears once.
 ### The translator
 - **The translator rides the compiler's rails** (closure `Environment`, lazy warm session, `runGeneration`, a like-shaped `RunState`), **warm per `(docId, language)`**: `ensureRunner` retires the session on a pair or model change, so no edition's register leaks.
 - **A failure writes nothing, structurally**: `Environment.ingest` is reachable only from `finish`'s parsed-report arm (`TranslatorOrchestratorTests.test_aFailedRunIngestsNothing`).
-- **The report is all-or-nothing from parse**: an entry with both `text` and `verbatim`, or neither (an empty `text` is neither), refuses the whole report. Text is stored trimmed; `delete` is absent from the contract.
+- **The report is all-or-nothing from parse**: an entry with both `text` and `verbatim`, or neither (an empty `text` is neither), refuses the whole report; a malformed `cells` list refuses only the cells (`cellsMalformed`). Text is stored trimmed; `delete` is absent from the contract.
 - **`TranslatorBriefing.compose(inputs:)` is pure**, output shape last; a translator with no brief gets no fallback sentence. An empty work-list is `nothingToTranslate` and spends no session. Bible facts come from `BibleStore.slice(matching:)`, the compiler's rule. Answered queries cap at `answeredQueryLimit` (12), newest settled first; open ones are uncapped.
 - **Every capture in `TranslatorEnvironment+Project.swift` is weak**: a closed window's view graph is never dismantled.
 - **The edition brief is briefed whole, `## Rulings` included, with an instruction to honour each standing ruling exactly**; neighbour paragraphs are context only, deduped against the work-list.

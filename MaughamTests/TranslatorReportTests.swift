@@ -1,4 +1,5 @@
 import XCTest
+import MaughamCore
 @testable import Maugham
 
 final class TranslatorReportTests: XCTestCase {
@@ -242,6 +243,92 @@ final class TranslatorReportTests: XCTestCase {
         let schema = TranslatorReport.schemaDescription
         XCTAssertTrue(schema.contains("never empty"), schema)
         XCTAssertTrue(schema.contains("must not be empty either"), schema)
+    }
+
+    // MARK: - Table cells (report plan 9e-2)
+
+    /// **A report decodes its `cells`**: each names its table's figure id and
+    /// the cell's `row:col` key, in one of the two forms.
+    func test_cells_decodeBesideTheParagraphs() throws {
+        let raw = """
+            {"entries":[{"paragraph_id":"a1b2","text":"Llegó la niebla."}],"queries":[],\
+            "cells":[{"figure_id":"fig-cash","cell":"r1aa:c1aa","text":"Concepto"},\
+            {"figure_id":"fig-cash","cell":"r2aa:c1aa","verbatim":true}]}
+            """
+        let report = try XCTUnwrap(TranslatorReport.parse(raw))
+        XCTAssertEqual(report.entries.map(\.paragraphId), ["a1b2"])
+        XCTAssertEqual(report.cells, [
+            .init(figureId: "fig-cash", key: CellKey(row: RowID("r1aa"), column: ColumnID("c1aa")),
+                  text: "Concepto", verbatim: nil),
+            .init(figureId: "fig-cash", key: CellKey(row: RowID("r2aa"), column: ColumnID("c1aa")),
+                  text: nil, verbatim: true),
+        ])
+        XCTAssertFalse(report.cellsMalformed)
+    }
+
+    /// **A report with no `cells` key has none**, and is not malformed.
+    func test_cells_absentKeyIsNoCells() throws {
+        let report = try XCTUnwrap(TranslatorReport.parse(#"{"entries":[],"queries":[]}"#))
+        XCTAssertEqual(report.cells, [])
+        XCTAssertFalse(report.cellsMalformed)
+    }
+
+    /// **A round whose paragraphs are all fresh may answer with its cells
+    /// alone** — an object carrying only `cells` is a translate report.
+    func test_cells_aloneAreAReport() throws {
+        let report = try XCTUnwrap(TranslatorReport.parse(
+            #"{"cells":[{"figure_id":"fig-cash","cell":"r1aa:c1aa","text":"Concepto"}]}"#))
+        XCTAssertEqual(report.entries, [])
+        XCTAssertEqual(report.cells.count, 1)
+    }
+
+    /// **A malformed `cells` list is rejected whole while the paragraphs
+    /// still decode** (plan ruling): one cell with both forms, one with
+    /// neither, a key that is not `row:col`, a missing figure id, an empty
+    /// text, or a list that is not a list — each loses every cell, keeps
+    /// every entry, and says so.
+    func test_aMalformedCellsListIsRejectedWholeWhileTheParagraphsDecode() throws {
+        let good = #"{"figure_id":"fig-cash","cell":"r1aa:c1aa","text":"Concepto"}"#
+        let malformed = [
+            #"[\#(good),{"figure_id":"fig-cash","cell":"r2aa:c1aa","text":"x","verbatim":true}]"#,
+            #"[\#(good),{"figure_id":"fig-cash","cell":"r2aa:c1aa"}]"#,
+            #"[\#(good),{"figure_id":"fig-cash","cell":"B2","text":"x"}]"#,
+            #"[\#(good),{"cell":"r2aa:c1aa","text":"x"}]"#,
+            #"[\#(good),{"figure_id":"fig-cash","cell":"r2aa:c1aa","text":"  "}]"#,
+            #"{"figure_id":"fig-cash"}"#,
+        ]
+        for cells in malformed {
+            let raw = #"{"entries":[{"paragraph_id":"a1b2","text":"Llegó."}],"queries":[],"cells":\#(cells)}"#
+            let report = try XCTUnwrap(TranslatorReport.parse(raw), cells)
+            XCTAssertEqual(report.entries.map(\.paragraphId), ["a1b2"], "the paragraphs land: \(cells)")
+            XCTAssertEqual(report.cells, [], "every cell refused: \(cells)")
+            XCTAssertTrue(report.cellsMalformed, cells)
+        }
+    }
+
+    /// **A fix leg reads no cells** (paragraph-only, plan ruling).
+    func test_fixMode_readsNoCells() throws {
+        let raw = """
+            {"entries":[],"addressed":["n1"],\
+            "cells":[{"figure_id":"fig-cash","cell":"r1aa:c1aa","text":"Concepto"}]}
+            """
+        let report = try XCTUnwrap(TranslatorReport.parse(raw, mode: .fix(briefedNoteIds: ["n1"])))
+        XCTAssertEqual(report.cells, [])
+        XCTAssertFalse(report.cellsMalformed)
+    }
+
+    /// The cells' contract names every cell wire field, so the briefing and
+    /// the parser cannot drift apart in a rewording — and the paragraph
+    /// contract does not mention cells at all.
+    func test_cellWireFieldNamesAppearInTheCellsSchemaDescription() {
+        let schema = TranslatorReport.cellsSchemaDescription
+        for field in [TranslatorReport.WireField.cells, TranslatorReport.WireField.figureId,
+                      TranslatorReport.WireField.cell, TranslatorReport.WireField.text,
+                      TranslatorReport.WireField.verbatim] {
+            XCTAssertTrue(schema.contains("\"\(field)\""), field)
+        }
+        XCTAssertFalse(TranslatorReport.schemaDescription.contains("figure_id"),
+                       "the paragraph contract is unchanged")
     }
 
     // MARK: - Fix mode (translation pipeline P1)

@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// What one turn of the translator's Claude session must return, and how
 /// Maugham reads it back.
@@ -47,6 +48,18 @@ struct TranslatorReport: Equatable {
         let text: String
     }
 
+    /// One table cell's translation (report plan 9e-2): the table's figure
+    /// id, the cell's key (`"row:col"` on the wire,
+    /// `FigureCellTranslationKey`), and exactly one of `text` / `verbatim` —
+    /// `Entry`'s forms and discipline. Written through
+    /// `TranslationWritePipeline.performCells`, never by this type.
+    struct Cell: Equatable {
+        let figureId: String
+        let key: CellKey
+        let text: String?
+        let verbatim: Bool?
+    }
+
     /// A note the translator stands against rather than acting on.
     struct Declined: Equatable {
         let noteId: String
@@ -72,16 +85,27 @@ struct TranslatorReport: Equatable {
 
     let entries: [Entry]
     let queries: [Query]
+    /// The table cells a translate round answered (report plan 9e-2). Empty
+    /// when the briefing listed none, and when `cellsMalformed`.
+    let cells: [Cell]
+    /// **The `cells` list was present and malformed, so every cell was
+    /// refused** (plan ruling: all-or-nothing per report) — while the
+    /// paragraphs, a separate list, still land. Ingest says so in the round
+    /// report rather than dropping the cells in silence.
+    let cellsMalformed: Bool
     let addressed: [String]
     let declined: [Declined]
     let summary: String?
     let glossaryProposals: [GlossaryProposal]
 
-    init(entries: [Entry], queries: [Query], addressed: [String] = [],
+    init(entries: [Entry], queries: [Query], cells: [Cell] = [],
+         cellsMalformed: Bool = false, addressed: [String] = [],
          declined: [Declined] = [], summary: String? = nil,
          glossaryProposals: [GlossaryProposal] = []) {
         self.entries = entries
         self.queries = queries
+        self.cells = cells
+        self.cellsMalformed = cellsMalformed
         self.addressed = addressed
         self.declined = declined
         self.summary = summary
@@ -108,6 +132,9 @@ struct TranslatorReport: Equatable {
         static let glossaryProposals = "glossary_proposals"
         static let term = "term"
         static let rendering = "rendering"
+        static let cells = "cells"
+        static let figureId = "figure_id"
+        static let cell = "cell"
     }
 
     /// The prose+JSON description of this contract, stated once. Task 3's
@@ -137,6 +164,20 @@ struct TranslatorReport: Equatable {
         paragraph is the writer's own act, not this run's. An empty \
         "entries" and an empty "queries" is a complete, valid answer for \
         a round that needs nothing further from you.
+        """
+
+    /// Appended to `schemaDescription` by a translate briefing that lists
+    /// table cells (report plan 9e-2) — and only then, so a round on a piece
+    /// that uses no table is briefed exactly as before.
+    static let cellsSchemaDescription: String = """
+        When this briefing lists table cells, the object also carries \
+        "cells": [{"figure_id":<the table's figure_id>,"cell":<the cell's \
+        row:col key, exactly as it appears in its brackets>,"text":<the \
+        translated label>}|{"figure_id":<id>,"cell":<row:col>,"verbatim":true}]. \
+        Each cell takes exactly one of the two forms, as an entry does. A \
+        "cells" list with any malformed cell loses every cell of this report \
+        (your paragraphs still land), so leave out a cell you are unsure of \
+        rather than guess. Name only the cells listed.
         """
 
     /// Appended to `schemaDescription` by a fix leg's briefing (spec §2).
@@ -173,7 +214,9 @@ struct TranslatorReport: Equatable {
         let shapeKeys: [String]
         switch mode {
         case .translate:
-            shapeKeys = [WireField.entries, WireField.queries]
+            // `cells` too: a round whose paragraphs are all fresh can answer
+            // with its table cells alone.
+            shapeKeys = [WireField.entries, WireField.queries, WireField.cells]
         case .fix:
             shapeKeys = [WireField.entries, WireField.queries, WireField.addressed,
                          WireField.declined, WireField.summary]
@@ -184,7 +227,13 @@ struct TranslatorReport: Equatable {
         else { return nil }
 
         guard case .fix(let briefed) = mode else {
-            return TranslatorReport(entries: entries, queries: queries)
+            // **Cells are their own all-or-nothing** (plan ruling): a
+            // malformed list refuses every cell and leaves the paragraphs,
+            // which a separate list carried, to land. A fix leg is briefed no
+            // cells (paragraph-only, plan ruling) and reads none.
+            let cells = ReportJSON.parseList(object, key: WireField.cells, parseItem: parseCell)
+            return TranslatorReport(entries: entries, queries: queries,
+                                    cells: cells ?? [], cellsMalformed: cells == nil)
         }
         guard let addressed = parseIdList(object, key: WireField.addressed),
               let declined = ReportJSON.parseList(object, key: WireField.declined, parseItem: parseDeclined),
@@ -247,6 +296,19 @@ struct TranslatorReport: Equatable {
         // unequal (exactly one true) accepts.
         guard (text != nil) != verbatim else { return nil }
         return Entry(paragraphId: paragraphId, text: text, verbatim: verbatim ? true : nil)
+    }
+
+    /// `parseEntry`'s forms over a cell: a figure id, a key that parses as
+    /// `"row:col"`, and exactly one of a non-empty `text` or `verbatim: true`.
+    private static func parseCell(_ item: [String: Any]) -> Cell? {
+        guard let figureId = ReportJSON.nonEmptyString(item[WireField.figureId]),
+              let raw = ReportJSON.nonEmptyString(item[WireField.cell]),
+              let key = FigureCellTranslationKey.cellKey(fromParagraphId: raw)
+        else { return nil }
+        let text = ReportJSON.nonEmptyString(item[WireField.text])
+        let verbatim = (item[WireField.verbatim] as? Bool) == true
+        guard (text != nil) != verbatim else { return nil }
+        return Cell(figureId: figureId, key: key, text: text, verbatim: verbatim ? true : nil)
     }
 
     private static func parseQuery(_ item: [String: Any]) -> Query? {
