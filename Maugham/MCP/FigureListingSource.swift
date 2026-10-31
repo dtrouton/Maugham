@@ -12,7 +12,8 @@ import MaughamCore
 enum FigureListingSource {
     static func rows(store: ProjectStore) async -> [FigureListing.Row] {
         guard let documentStore = store.documentStore else {
-            NSLog("FigureListingSource: no DocumentStore for %@; listing no figures", store.url.path)
+            projectStoreLog.error(
+                "FigureListingSource: no DocumentStore for \(store.url.path, privacy: .public); listing no figures")
             return []
         }
         let host = ReferenceIndexHost()

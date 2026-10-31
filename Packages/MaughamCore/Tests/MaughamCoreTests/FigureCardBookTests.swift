@@ -16,7 +16,7 @@ final class FigureCardBookTests: XCTestCase {
         if let formula {
             let names = FormulaNames(figures: [], research: [("res-model01", "model")])
             guard case .success(let f) = FormulaParser.parse(formula, in: state.table, names: names)
-            else { throw XCTSkip("formula did not parse") }
+            else { throw TestSetupError(message: "the test formula did not parse") }
             let key = CellKey(row: state.table.rows[0], column: state.table.columns[0])
             state.table.setCell(Cell(content: .formula(f)), at: key)
         }
@@ -59,7 +59,7 @@ final class FigureCardBookTests: XCTestCase {
     func test_theLineRule() throws {
         let b = try book()
         let twin = [record("a", "x", .table, path: "figures/x.csv"), record("b", "y", .table, path: "figures/x.csv")]
-        let index = FigureLineResolution.Index(try [record("t1", "plain", .table)] + twin)
+        let index = FigureLineResolution.Index([record("t1", "plain", .table)] + twin)
         let doc = "draft.md"
         XCTAssertEqual(b.model(forLinePath: "figures/plain.csv", documentPath: doc, index: index)?.kind, .table)
         XCTAssertEqual(b.model(forLinePath: "figures/gone.csv", documentPath: doc, index: index)?.kind, .removed)
@@ -71,3 +71,5 @@ final class FigureCardBookTests: XCTestCase {
                      "a registered figure with no card answers nil, as the cache always did")
     }
 }
+
+private struct TestSetupError: Error { let message: String }

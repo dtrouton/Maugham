@@ -228,4 +228,79 @@ final class ReadFigureToolTests: XCTestCase {
         XCTAssertEqual(cropRep.pixelsWide, 300, accuracy: 2)
         await book.ds.close()
     }
+
+    // MARK: - Final fix wave (I1, M2, M3, M7)
+
+    /// The ENCODED JSON of a raw value, so the wire is pinned and not the struct.
+    private func wire(_ value: CellValue) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(ReadFigureTool.Raw(value))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func test_rawWireShapeIsTypeAndValueForEveryCase() throws {
+        let n = try wire(.number(1334.5))
+        XCTAssertEqual(Set(n.keys), ["type", "value"])
+        XCTAssertEqual(n["type"] as? String, "number"); XCTAssertEqual(n["value"] as? Double, 1334.5)
+        let t = try wire(.text("Rent"))
+        XCTAssertEqual(Set(t.keys), ["type", "value"]); XCTAssertEqual(t["value"] as? String, "Rent")
+        let b = try wire(.bool(true))
+        XCTAssertEqual(Set(b.keys), ["type", "value"]); XCTAssertEqual(b["value"] as? Bool, true)
+        let d = try wire(.date(45000))
+        XCTAssertEqual(Set(d.keys), ["type", "value", "iso"])
+        XCTAssertEqual(d["value"] as? Int, 45000); XCTAssertNotNil(d["iso"] as? String)
+        let e = try wire(.error(.ref))
+        XCTAssertEqual(Set(e.keys), ["type", "value"]); XCTAssertEqual(e["value"] as? String, "#REF!")
+        let m = try wire(.empty)
+        XCTAssertEqual(Set(m.keys), ["type"]); XCTAssertEqual(m["type"] as? String, "empty")
+    }
+
+    func test_aLabelOfTheWrongKindIsRefusedNamingTheRightLabel() async throws {
+        let book = try await openBook()
+        _ = try await book.store.createFigure(kind: .table, name: "sales", piece: nil, table: try cashTable())
+        do {
+            _ = try await ReadFigureTool.handle(
+                paramsJSON: params(book, "\"name\":\"fig:sales\""), registry: book.registry)
+            XCTFail("fig:sales is not the table sales")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("tbl:sales"), message)
+        }
+        let ok = try await read(book, "\"name\":\"tbl:sales\"")
+        XCTAssertEqual(ok.name, "sales")
+        await book.ds.close()
+    }
+
+    func test_aSpanishBookReadsItsValuesInSpanish() async throws {
+        let book = try await openBook()
+        try FileManager.default.createDirectory(
+            at: file(".maugham/publish"), withIntermediateDirectories: true)
+        try Data(#"{"metadata":{"language":"es-ES"}}"#.utf8).write(to: file(".maugham/publish/config.json"))
+        var table = FigureTable(rows: 1, columns: 1)
+        table.setCell(Cell(content: .value(.number(12345.6)),
+                           format: CellFormat(number: .number(decimals: 1, grouping: true))),
+                      at: key(table, 0, 0))
+        _ = try await book.store.createFigure(kind: .table, name: "es", piece: nil, table: table)
+        let result = try await read(book, "\"name\":\"es\"")
+        XCTAssertEqual(result.cells.first?.value, "12.345,6")
+        await book.ds.close()
+    }
+
+    func test_anImageFileOutsideFiguresIsNeverRead() async throws {
+        let book = try await openBook()
+        let source = TestTemp.root.appendingPathComponent("pic-\(UUID().uuidString).png")
+        try writePNG(to: source, width: 20, height: 20)
+        let record = try await book.store.createImageFigure(fromURL: source, name: "photo", piece: nil)
+        let snapshot = await book.store.publishFigures()
+        let state = try XCTUnwrap(snapshot.states[record.id])
+        var traversing = state
+        traversing.image = FigureImageRef(filename: "../manuscript/escape.png", contentHash: "h")
+        try writePNG(to: file("manuscript/escape.png"), width: 20, height: 20)
+        do {
+            _ = try ReadFigureTool.imageEnvelopeForTesting(
+                record: record, state: traversing, projectURL: projectURL)
+            XCTFail("a filename with a separator must be refused")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("unsafe path"), message)
+        }
+        await book.ds.close()
+    }
 }

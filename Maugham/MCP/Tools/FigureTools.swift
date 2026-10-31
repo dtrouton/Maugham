@@ -83,8 +83,11 @@ public enum ListFiguresTool: MCPTool {
     }
 
 
-    /// The wire entries: the listing's order (reading order, then unused by
-    /// name), then the parked figures the tree does not list, by name. Pure, so
+    /// The wire entries: the listing's own order (reading order, then unused
+    /// by name; the listing registers every record, so a parked figure sits
+    /// among the unused with `status: "in_research"`). Records the listing has
+    /// no row for but that are parked come last, by name: a guard for a
+    /// listing that drops them, which `FigureListing.build` does not. Pure, so
     /// a test can hand it a snapshot the disk cannot easily produce.
     ///
     /// `reads_research` is asked of the figure's own state
@@ -166,9 +169,10 @@ public enum ReadFigureTool: MCPTool {
         Read one figure by name (its registry name, or its tbl:/fig: label). \
         A table returns {name, kind, rows, columns, range, cells, text}: each \
         cell has a1, value (the display string in the book's language), raw \
-        (the typed value: {type:"number",value}, {type:"text",value}, \
-        {type:"bool",value}, {type:"date",serial,iso}, {type:"error",value} or \
-        {type:"empty"}), formula (like "=SUM(B2:B3)", only for a formula cell) \
+        (the typed value, always {type, value}: {type:"number",value:1334.5}, \
+        {type:"text",value:"Rent"}, {type:"bool",value:true}, \
+        {type:"date",value:<day serial>,iso:"2026-10-31"}, \
+        {type:"error",value:"#REF!"} or {type:"empty"} with no value), formula (like "=SUM(B2:B3)", only for a formula cell) \
         and format; text is the cells as a pipe table with column letters as \
         its header. Pass `range` (A1, e.g. "A1:C10" or "B3") to read part of a \
         large table; without it a table too large for one response is refused \
@@ -190,7 +194,10 @@ public enum ReadFigureTool: MCPTool {
         public let region: ImageResponseBuilder.Region?
     }
 
-    /// A `CellValue` in a JSON-friendly typed form.
+    /// A `CellValue` in a JSON-friendly typed form. **One wire shape:**
+    /// `{type, value}` (number: a number; text: a string; bool: a boolean;
+    /// date: the day serial, plus `iso`; error: its code, e.g. "#REF!"; empty:
+    /// no `value`). The stored properties below are the Swift side only.
     struct Raw: Codable, Equatable {
         let type: String
         let number: Double?
@@ -214,6 +221,32 @@ public enum ReadFigureTool: MCPTool {
             case .error(let e): f = make("error", text: e.rawValue)
             }
             (type, number, text, bool, serial, iso) = f
+        }
+
+        private enum CodingKeys: String, CodingKey { case type, value, iso }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(type, forKey: .type)
+            switch type {
+            case "number": try c.encode(number, forKey: .value)
+            case "text", "error": try c.encode(text, forKey: .value)
+            case "bool": try c.encode(bool, forKey: .value)
+            case "date":
+                try c.encode(serial, forKey: .value)
+                try c.encode(iso, forKey: .iso)
+            default: break
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            type = try c.decode(String.self, forKey: .type)
+            number = type == "number" ? try c.decode(Double.self, forKey: .value) : nil
+            text = type == "text" || type == "error" ? try c.decode(String.self, forKey: .value) : nil
+            bool = type == "bool" ? try c.decode(Bool.self, forKey: .value) : nil
+            serial = type == "date" ? try c.decode(Int.self, forKey: .value) : nil
+            iso = try c.decodeIfPresent(String.self, forKey: .iso)
         }
     }
     struct Cell: Codable, Equatable {
@@ -271,8 +304,16 @@ public enum ReadFigureTool: MCPTool {
             return label.name
         }()
         let folded = bare.lowercased()
-        if let hit = records.first(where: { $0.name.lowercased() == folded })
-            ?? records.first(where: { $0.id == wanted }) { return hit }
+        let named = records.filter { $0.name.lowercased() == folded }
+        if let label = ManuscriptLabel(reference: wanted), label.kind == .tbl || label.kind == .fig {
+            // A label names its own kind only: `fig:sales` is never the table `sales`.
+            if let hit = named.first(where: { $0.referenceLabel?.kind == label.kind }) { return hit }
+            if let other = named.first?.referenceLabel {
+                throw MCPError.invalidArgument(
+                    "'\(bare)' is \(other.kind == .tbl ? "a table" : "an image"): its label is \(other.reference).")
+            }
+        } else if let hit = named.first { return hit }
+        if let hit = records.first(where: { $0.id == wanted }) { return hit }
         let nearest = records.map(\.name).sorted {
             (distance($0.lowercased(), folded), $0) < (distance($1.lowercased(), folded), $1)
         }.prefix(5)
@@ -365,13 +406,24 @@ public enum ReadFigureTool: MCPTool {
 
     // MARK: - An image
 
+    static func imageEnvelopeForTesting(record: FigureRecord, state: FigureState?, projectURL: URL) throws -> Data {
+        try imageEnvelope(record: record, state: state,
+                          params: Params(project_id: "", name: record.name, range: nil, max_dimension: nil,
+                                         quality: nil, region: nil),
+                          projectURL: projectURL)
+    }
+
     private static func imageEnvelope(
         record: FigureRecord, state: FigureState?, params: Params, projectURL: URL
     ) throws -> Data {
-        let relative = state?.image.map { "figures/\($0.filename)" } ?? record.path
         let abs: URL
         do {
-            abs = try SafeRelativePath.resolve(relative, under: projectURL)
+            if let image = state?.image {
+                abs = try SafeRelativePath.resolveFile(
+                    named: image.filename, in: FigurePathRule.figuresFolder, under: projectURL)
+            } else {
+                abs = try SafeRelativePath.resolve(record.path, under: projectURL)
+            }
         } catch {
             throw MCPError.invalidArgument(
                 "Figure '\(record.name)' has an unsafe path: \(error.localizedDescription)")
