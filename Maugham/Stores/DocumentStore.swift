@@ -896,6 +896,27 @@ public final class DocumentStore {
         await researchTableClosings[itemId]?.value
     }
 
+    /// **Research item `itemId`'s table put back to a kept `version`** (report
+    /// plan 9d Task 3) through its host, whether or not a grid has it open:
+    /// an open grid shows the restored table at once; with none, the table is
+    /// opened for the restore and let go (its save landed). Refused under a
+    /// view-only share (`shareIsReadOnly`, the window's), as every grid edit
+    /// is. Throws what `ResearchTableHost.restore` throws.
+    @discardableResult
+    func restoreResearchTable(itemId: String, to version: ResearchVersion,
+                              shareIsReadOnly: Bool) async throws -> ResearchTableHost.Restored {
+        if shareIsReadOnly { throw ResearchTableHost.Refused(reason: .viewOnlyShare) }
+        let host = try await openResearchTable(itemId: itemId)
+        do {
+            let restored = try await host.restore(version)
+            await releaseResearchTable(host)
+            return restored
+        } catch {
+            await releaseResearchTable(host)
+            throw error
+        }
+    }
+
     /// **A Research table open in a grid at or under `relativePath`, about to
     /// go to the Trash, commits its open cell and writes** — the delete is the
     /// writer's own verb, so the trashed copy holds what was typed (task 7

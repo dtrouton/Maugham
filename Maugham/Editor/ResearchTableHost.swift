@@ -61,6 +61,9 @@ private let researchTableLog = Logger(
 ///   (`assistantEdit`) keeps one and ends the run; so does bytes on disk that
 ///   are not ours (an outside change, a reload). Every save stamps the
 ///   sidecar's `writtenBy`, so the next version says whose bytes it holds.
+/// - **`restore(_:)`** puts a kept version back as one writer's save through
+///   the door, always keeping what it replaces; its undo is the version list
+///   (`DocumentStore.restoreResearchTable` reaches it with or without a grid).
 /// - **A view-only share** (`refusal`, set by the mounts): every mutator
 ///   refuses. Review is the grid's own gate, as it is for a figure.
 /// - It is not a figure: it offers none of the figure's own commands
@@ -199,15 +202,20 @@ final class ResearchTableHost: FigureGridHost {
             guard cells <= TableCSV.figureCellLimit else { throw TooLarge(cells: cells) }
             // A sidecar that will not read is no sidecar: the table opens as its file reads.
             let sidecar = try? ResearchTableSidecar.read(forItem: itemId, in: projectURL)
-            // By scalar: a String holds "\r\n" as one Character.
-            let scalars = text.unicodeScalars
-            let crlf = scalars.firstIndex(of: "\n").map {
-                $0 > scalars.startIndex && scalars[scalars.index(before: $0)] == "\r"
-            } ?? false
-            return FileRead(text: text, hash: ContentHash.of(data), sidecar: sidecar,
-                            hasBOM: data.starts(with: [0xEF, 0xBB, 0xBF]), lineEnding: crlf ? "\r\n" : "\n")
+            return fileRead(data, text: text, sidecar: sidecar)
         }.value
         return (read, item.title)
+    }
+
+    /// A read of `data` (decoded as `text`) and the sidecar found beside it.
+    nonisolated private static func fileRead(_ data: Data, text: String, sidecar: ResearchTableSidecar?) -> FileRead {
+        // By scalar: a String holds "\r\n" as one Character.
+        let scalars = text.unicodeScalars
+        let crlf = scalars.firstIndex(of: "\n").map {
+            $0 > scalars.startIndex && scalars[scalars.index(before: $0)] == "\r"
+        } ?? false
+        return FileRead(text: text, hash: ContentHash.of(data), sidecar: sidecar,
+                        hasBOM: data.starts(with: [0xEF, 0xBB, 0xBF]), lineEnding: crlf ? "\r\n" : "\n")
     }
 
     /// The table a read gives: the sidecar laid on while it was written for these bytes.
@@ -409,8 +417,104 @@ final class ResearchTableHost: FigureGridHost {
         }
     }
 
+    /// How a restore landed: the version whole, or its cells only.
+    enum Restored: Equatable {
+        /// The version's cells with the header, formats and widths kept with it.
+        case whole
+        /// The kept sidecar described other bytes (the version was an outside
+        /// change), so only the cells came back, as an outside change reads.
+        case cellsOnly
+    }
+
+    /// **The table put back to a kept version** (report plan 9d Task 3, spec
+    /// §10.1's "Restore previous version"): the version's bytes, and the
+    /// sidecar kept with them while it was written for those bytes, replace
+    /// the whole table as one save stamped `.writer` — through the one door,
+    /// which always keeps the state it replaces (even inside the writer's
+    /// run) and ends the run. Its undo is the version list, never the grid's
+    /// ⌘Z (the plan's ruling): it registers no step, and the grid's earlier
+    /// steps decline over it. The writer's pending edits land first as their
+    /// own save. A kept sidecar whose `contentHash` is not the version's
+    /// bytes' (the version was an outside change) is not laid on: the cells
+    /// come back, said, and `.cellsOnly` returned. Refuses as every edit
+    /// does; a version that will not read throws what the store throws
+    /// (`ResearchVersionStore.ReadError`); a save that does not land throws
+    /// `NotSaved` with the table as it was.
+    @discardableResult
+    func restore(_ version: ResearchVersion) async throws -> Restored {
+        if isClosed { throw Refused(reason: .closed) }
+        if let refusal { throw Refused(reason: refusal) }
+        guard version.itemId == itemId else { throw Unreadable(message: "That version is another table’s.") }
+        let versions = ResearchVersionStore(projectURL: projectURL)
+        let read = try await Task.detached { () throws -> FileRead in
+            let (data, kept) = try versions.read(version)
+            guard let text = ProjectStore.decodeResearchTable(data) else {
+                throw Unreadable(message: "Maugham couldn’t read that version as text.")
+            }
+            let cells = TableCSV.nonEmptyCellCount(text)
+            guard cells <= TableCSV.figureCellLimit else { throw TooLarge(cells: cells) }
+            return ResearchTableHost.fileRead(data, text: text, sidecar: kept)
+        }.value
+        guard let store else { throw Refused(reason: .closed) }
+        let context = try await store.tableImportContext()
+        // The writer's state lands first, as its own save (a keystroke during
+        // that wait too); one that did not land stops the restore.
+        await flush()
+        while scheduledSave != nil { await flush() }
+        guard !isDirty else {
+            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the version wasn’t restored.")
+        }
+        if isClosed { throw Refused(reason: .closed) }
+        if let refusal { throw Refused(reason: refusal) }
+        // A sidecar kept for other bytes is not laid on (`table(of:)`), as an outside change reads.
+        let outcome: Restored
+        if let kept = read.sidecar, kept.contentHash != read.hash {
+            outcome = .cellsOnly
+        } else {
+            outcome = .whole
+        }
+        let restored = Self.table(of: read, context: context)
+        let priorTable = state.table
+        let priorFile = (separator, lineEnding, hasBOM)
+        let restoredSeparator = TableCSV.rows(read.text).separator
+        // The table is that version already: nothing is written, nothing kept.
+        if restored == priorTable, priorFile == (restoredSeparator, read.lineEnding, read.hasBOM) { return outcome }
+        separator = restoredSeparator
+        lineEnding = read.lineEnding
+        hasBOM = read.hasBOM
+        state.table = restored
+        // Started with no suspension since the table changed, as an assistant's write is.
+        let previous = saving
+        let write = Task { @MainActor [weak self] () -> Bool in
+            await previous?.value
+            guard let self else { return false }
+            return await self.write(restored, by: .writer, restoring: true)
+        }
+        saving = Task { _ = await write.value }
+        guard await write.value else {
+            guard state.table == restored else {
+                throw NotSaved(message: "The version couldn’t be restored. What is in the table now "
+                    + "will be saved with your next edit.")
+            }
+            state.table = priorTable
+            (separator, lineEnding, hasBOM) = priorFile
+            isDirty = false
+            throw NotSaved(message: "The version couldn’t be restored, so the table is as it was.")
+        }
+        if outcome == .cellsOnly {
+            let title = store.projectStore.flatMap { $0.findResearchItem(id: itemId, in: $0.manifest.research) }?
+                .title ?? "the table"
+            MaughamEvent.postNotice(
+                "Restored “\(title)”’s cells. The formats kept with that version were for other bytes "
+                    + "(it had changed outside Maugham), so they weren’t applied.",
+                projectURL: projectURL)
+        }
+        return outcome
+    }
+
     /// The words for whose change a refused save did not write.
-    private static func whose(_ writer: ResearchWriter) -> String {
+    private static func whose(_ writer: ResearchWriter, restoring: Bool) -> String {
+        if restoring { return "the restored version wasn’t" }
         switch writer {
         case .writer: return "your edits weren’t"
         case .assistant: return "the assistant’s change wasn’t"
@@ -426,10 +530,12 @@ final class ResearchTableHost: FigureGridHost {
     @ObservationIgnored private var lastKeptHash: String?
 
     /// **The one door: the version kept, the file, then its sidecar, then
-    /// the cards** — what one save writes, `writer` its author. True when the
-    /// file was written.
+    /// the cards** — what one save writes, `writer` its author. A restore
+    /// (`restoring`) always keeps the state it replaces and ends the run.
+    /// True when the file was written.
     @discardableResult
-    private func write(_ table: FigureTable, by writer: ResearchWriter = .writer) async -> Bool {
+    private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
+                       restoring: Bool = false) async -> Bool {
         guard let store else { return false }
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path else {
@@ -449,30 +555,30 @@ final class ResearchTableHost: FigureGridHost {
         guard let onDisk = await bytesOnDisk(at: path) else {
             isDirty = true
             MaughamEvent.postNotice(
-                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer)) saved over it.",
+                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
             return false
         }
         let onDiskHash = ContentHash.of(onDisk)
         let overOwnBytes = onDiskHash == diskHash
         if !overOwnBytes, pendingOutsideBackup?.hash != onDiskHash {
-            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer) else {
+            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring) else {
                 isDirty = true   // the next edit, or the close, tries again
                 return false
             }
             pendingOutsideBackup = (onDiskHash, backup)
         }
         let at = now()
-        if run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
-            guard await keepThePriorVersion(onDisk, of: item, at: at, by: writer) else {
+        if restoring || run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
+            guard await keepThePriorVersion(onDisk, of: item, at: at, by: writer, restoring: restoring) else {
                 isDirty = true
                 return false
             }
             lastKeptHash = onDiskHash
         }
         // Counted once the version is kept, saved or not: a retry after a
-        // failed save is still the run whose start is kept.
-        run.saved(by: writer, at: at)
+        // failed save is still the run whose start is kept. A restore ends it.
+        if restoring { run.end() } else { run.saved(by: writer, at: at) }
         // The names its formulas read as they are now; the ones it opened with if they will not read.
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
         let text = (hasBOM ? "\u{FEFF}" : "") + TableCSV.renderResearch(
@@ -490,8 +596,8 @@ final class ResearchTableHost: FigureGridHost {
         diskHash = ContentHash.of(Data(text.utf8))
         if let backup = pendingOutsideBackup {
             pendingOutsideBackup = nil
-            let (when, saved) = writer == .writer
-                ? (" while you were editing it", "yours was saved")
+            let (when, saved) = restoring ? ("", "the restored version was saved")
+                : writer == .writer ? (" while you were editing it", "yours was saved")
                 : ("", "the assistant’s change was saved")
             MaughamEvent.postNotice(
                 "“\(item.title)” changed outside Maugham\(when). That version is kept in "
@@ -538,7 +644,7 @@ final class ResearchTableHost: FigureGridHost {
     /// device's versions past the retention are pruned. False — write nothing
     /// — when the version could not be kept, and said.
     private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date,
-                                     by writer: ResearchWriter) async -> Bool {
+                                     by writer: ResearchWriter, restoring: Bool) async -> Bool {
         let held = sidecar
         let itemId = itemId
         let versions = ResearchVersionStore(projectURL: projectURL)
@@ -560,7 +666,7 @@ final class ResearchTableHost: FigureGridHost {
         researchTableLog.error(
             "\(item.title, privacy: .public)'s previous version was not kept: \(kept.localizedDescription, privacy: .public)")
         MaughamEvent.postNotice(
-            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer)) saved over it.",
+            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
             projectURL: projectURL)
         return false
     }
@@ -570,7 +676,7 @@ final class ResearchTableHost: FigureGridHost {
     /// writer is told once the save lands). Nil — write nothing — when they
     /// could not be kept, and said.
     private func keepTheOutsideVersion(_ outside: Data, of item: ResearchItem, at path: String,
-                                       by writer: ResearchWriter) -> URL? {
+                                       by writer: ResearchWriter, restoring: Bool) -> URL? {
         guard let file = try? store?.resolvedProjectPath(path) else { return nil }
         let text = ProjectStore.decodeResearchTable(outside) ?? String(decoding: outside, as: UTF8.self)
         do {
@@ -579,7 +685,7 @@ final class ResearchTableHost: FigureGridHost {
             researchTableLog.error(
                 "\(path, privacy: .public)'s outside version was not kept: \(error.localizedDescription, privacy: .public)")
             MaughamEvent.postNotice(
-                "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so \(Self.whose(writer)) saved over it.",
+                "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
             return nil
         }
