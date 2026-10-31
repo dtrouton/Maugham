@@ -141,6 +141,10 @@ enum EditionStatus {
         /// The documents whose text this walk read, by id — handed to
         /// `figureRows` so no document is read twice.
         var texts: [String: FigureUse.Piece] = [:]
+        /// The languages this walk's edition has a translation layer in
+        /// (`layerLanguages`, over its `layerScope`) — handed to `figureRows`
+        /// so one status pass lists and reads the layer once.
+        var layer: Set<String> = []
     }
 
     /// Every manuscript leaf — the same walk `ProjectStoreASTSource` does,
@@ -200,7 +204,8 @@ enum EditionStatus {
         } else {
             figures = await figureRows(
                 documentIds: documentIds, languages: Set(documents.rows.map(\.language)),
-                texts: documents.texts, store: store, projectURL: projectURL)
+                layer: documents.layer, texts: documents.texts, store: store,
+                projectURL: projectURL)
         }
         return Report(
             rows: languageRows(from: documents.rows, figures: figures.rows, in: store.manifest),
@@ -358,7 +363,7 @@ enum EditionStatus {
                     reason: error.localizedDescription))
             }
         }
-        return DocumentReport(rows: rows, unreadable: unreadable, texts: texts)
+        return DocumentReport(rows: rows, unreadable: unreadable, texts: texts, layer: layer)
     }
 
     /// **The tables the named documents use, one row per (table, language)**
@@ -370,13 +375,14 @@ enum EditionStatus {
     /// counted by `documentRows`' layer rule (`layerLanguages`) — derived
     /// where the book has a layer, zero (not started) where it has none.
     ///
-    /// `texts` are the documents `documentRows` already read; only the rest
-    /// are read here. The translation reads and derivations run off the main
+    /// `layer` is `documentRows`' own (`DocumentReport.layer`), asked once
+    /// per pass over the edition's scope. `texts` are the documents
+    /// `documentRows` already read; only the rest are read here. The translation reads and derivations run off the main
     /// actor. Never throws: a document whose text will not read is already in
     /// `documentRows`' unreadable and is skipped; a table whose state or
     /// translations will not read is named.
     static func figureRows(
-        documentIds: [String], layerScope: [String]? = nil, languages: Set<String>,
+        documentIds: [String], languages: Set<String>, layer: Set<String>,
         texts: [String: FigureUse.Piece] = [:], store: ProjectStore, projectURL: URL
     ) async -> FigureReport {
         guard (store.manifest.figures ?? []).contains(where: { $0.kind == .table })
@@ -389,8 +395,6 @@ enum EditionStatus {
                                reason: "its op log would not fold")
         }
         guard !used.readable.isEmpty else { return FigureReport(rows: [], unreadable: unreadable) }
-        let layer = await layerLanguages(
-            in: store, projectURL: projectURL, scope: layerScope ?? documentIds)
         let tables = used.readable
         let counted = await Task.detached(priority: .userInitiated) {
             countRows(tables: tables, languages: languages, layer: layer, projectURL: projectURL)

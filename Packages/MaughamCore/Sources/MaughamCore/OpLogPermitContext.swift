@@ -344,8 +344,10 @@ public struct PermitJudge: Sendable {
     /// author-of-some-pieces' scope list names, so it pays no manifest read
     /// at all, on any book. A figure's is filed under the figure's id, and
     /// only that one asks `facts` — the figure's piece is in the registry
-    /// and nowhere else. The class itself is asked at most once per file and
-    /// only where some line's (permit, actor) pair turns on it.
+    /// and nowhere else. The class itself is asked lazily — only where some
+    /// line's (permit, actor) pair turns on it — and memoised by the
+    /// partition (`PermitPartition`), which may also ask it once to decide
+    /// whether one answer covers the whole file.
     ///
     /// `unowned` is never asked: §4.5 is about MANUSCRIPT text in a piece
     /// nobody has claimed, and `Permit.startsAPieceNobodyHasClaimed`

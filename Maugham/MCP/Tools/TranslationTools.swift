@@ -569,6 +569,16 @@ public enum TranslationStatusTool: MCPTool {
         if let documentId = params.document_id {
             guard TreeWalk.find(id: documentId, in: entry.store.manifest.structure) != nil
             else {
+                // A table's id is a fair guess (`write_translation` and
+                // `read_translation` take one): point at where its coverage
+                // lives rather than calling it a missing document (report
+                // plan 9e-1 final fix wave, M3).
+                if DocumentClass.isFigureDocId(documentId) {
+                    throw MCPError.invalidArgument(
+                        "document_id \(documentId) is a figure, not a document: a table's "
+                        + "cell coverage is in this tool's `figures` section — call it "
+                        + "without document_id, or with the id of a chapter that uses the table")
+                }
                 throw MCPError.invalidArgument(
                     "document_id not found in project manifest: \(documentId)")
             }
@@ -602,8 +612,8 @@ public enum TranslationStatusTool: MCPTool {
         // layer rule and the coverage gate's reader (`FigureUse`), so a
         // table's `missing` here is what the gate refuses over.
         let figures = await EditionStatus.figureRows(
-            documentIds: docIds, layerScope: book, languages: Set(report.rows.map(\.language)),
-            texts: report.texts, store: entry.store, projectURL: entry.url)
+            documentIds: docIds, languages: Set(report.rows.map(\.language)),
+            layer: report.layer, texts: report.texts, store: entry.store, projectURL: entry.url)
 
         return try JSONEncoder().encode(Result(rows: report.rows.map {
             Row(document_id: $0.documentId,

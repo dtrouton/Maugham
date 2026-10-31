@@ -246,4 +246,31 @@ final class FigureTranslationToolTests: XCTestCase {
         ])
         XCTAssertFalse(figures.contains { $0.figure_id == book.spare.id })
     }
+
+    /// **`translation_status` given a figure id points at `figures`** (report
+    /// plan 9e-1 final fix wave, M3) — `write_translation` and
+    /// `read_translation` take a table's id, so Claude will try this one with
+    /// it too; "not found in project manifest" would send it hunting for a
+    /// document that was never missing. A made-up id still says not found.
+    ///
+    /// The disable experiment: drop the `isFigureDocId` branch in
+    /// `TranslationStatusTool` and the first assertion fails on "document_id
+    /// not found in project manifest".
+    func test_translationStatusGivenAFigureIdPointsAtTheFiguresSection() async throws {
+        let book = try await openBook()
+        do {
+            _ = try await status(book, documentId: book.cash.id)
+            XCTFail("a figure id was accepted as a document")
+        } catch MCPError.invalidArgument(let message) {
+            XCTAssertTrue(message.contains("`figures` section"), message)
+            XCTAssertTrue(message.contains(book.cash.id), message)
+            XCTAssertFalse(message.contains("not found in project manifest"), message)
+        }
+        do {
+            _ = try await status(book, documentId: "doc-zz")
+            XCTFail("a made-up id was accepted")
+        } catch MCPError.invalidArgument(let message) {
+            XCTAssertEqual(message, "document_id not found in project manifest: doc-zz")
+        }
+    }
 }

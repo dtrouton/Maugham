@@ -66,6 +66,15 @@ final class PostureBook {
     /// The permit answered for each `(docId, actor)` in THIS epoch.
     @ObservationIgnored fileprivate var permits: [Key: LocalWritePermit] = [:]
 
+    /// The permit answered for each `(docId, actor)` TRANSLATION question in
+    /// THIS epoch (`translationPosture(forDocId:as:)`) — kept apart from
+    /// `permits`, because a figure's id asks two different questions: editing
+    /// the figure (`.figure`) and translating it (`.figureTranslation`).
+    /// Forgotten at EVERY epoch bump, clearing or not: no refresh warms it, so
+    /// the redraw a refresh's bump causes asks afresh off the table it warmed.
+    @ObservationIgnored fileprivate var translationPermits:
+        [Key: (permit: LocalWritePermit, piece: String?)] = [:]
+
     /// The last permit answered for each key in ANY epoch — the provisional
     /// answer while a refresh is in flight, never a cache hit.
     @ObservationIgnored fileprivate var lastKnown: [Key: LocalWritePermit] = [:]
@@ -290,6 +299,40 @@ extension DocumentStore {
              .unplaceable, .unregisteredFigure:
             return nil
         }
+    }
+
+    /// **What this window may offer for a TRANSLATION filed under `docId`**,
+    /// for `actor`'s key (report plan 9e-1 final fix wave, I1) — the class the
+    /// translation stream's own readers and write door judge
+    /// (`DocumentClass.translationClass(ofDocId:facts:)`), so a surface offers
+    /// exactly what the door will write. A piece's id is the piece's
+    /// translation; a figure's id is the FIGURE's translation, judged by the
+    /// figure's piece — a whole-book table's cells are the book authors' to
+    /// remove even in a pieces-author's own chapter. Never
+    /// `posture(forDocId: figure.id)`: that is the figure-EDITING question.
+    ///
+    /// A drawing accessor: answered off the warm table (cached for the epoch),
+    /// and `settling` while the table is cold — it never fails open. The
+    /// translation yields with its piece (the figure's), as a piece's does.
+    func translationPosture(forDocId docId: String, as actor: DeviceActor = .author) -> Posture {
+        _ = postureBook.epoch  // observed: a trust change re-renders whoever asked
+        let book = postureBook
+        let key = PostureBook.Key(docId: docId, actor: actor)
+        if let hit = book.translationPermits[key] {
+            return assemble(hit.permit, yieldPiece: hit.piece, overrideKey: docId, as: actor)
+        }
+        guard postureTableIsWarm() else {
+            schedulePostureRefresh(force: false)
+            return .settling
+        }
+        let cls = DocumentClass.translationClass(ofDocId: docId) {
+            (self.projectStore?.manifest).map(DocumentClass.Facts.init)
+                ?? OpLogStore.manifestFacts(in: self.projectURL)
+        }
+        book.builderCalls += 1
+        let permit = postureOpStore.localWritePermit(as: actor) { cls }
+        book.translationPermits[key] = (permit, cls.piece)
+        return assemble(permit, yieldPiece: cls.piece, overrideKey: docId, as: actor)
     }
 
     /// The same door, for the document the window shows by PATH. Resolves the
@@ -569,6 +612,7 @@ extension DocumentStore {
     /// clearing, so the redraw it causes is all hits.
     private func bumpPostureEpoch(clearing: Bool = true) {
         postureBook.epoch += 1
+        postureBook.translationPermits.removeAll()
         guard clearing else { return }
         postureBook.permits.removeAll()
         postureBook.pieceOf.removeAll()

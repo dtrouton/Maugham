@@ -320,8 +320,7 @@ struct TranslationReviewPane: View {
                             Divider()
                             TranslationCellsSection(
                                 figure: figure, language: language, documentStore: documentStore,
-                                projectURL: store.url, cardVersion: control.figureCardVersion,
-                                mayPurge: mayPurgeOrphans)
+                                projectURL: store.url, cardVersion: control.figureCardVersion)
                         }
                         Divider()
                         queriesSection

@@ -184,4 +184,48 @@ final class CellTranslationLifecycleTests: CellTranslationBookTestCase {
         XCTAssertTrue(TranslationStore.languagesByDocId(in: promotion.url).isEmpty,
                       "no translation travelled")
     }
+
+    // MARK: - An unused table's unreadable file (final fix wave, M1)
+
+    /// **An unreadable translation file for a table the edition does not
+    /// print never fails the body** (report plan 9e-1 final fix wave, M1).
+    /// The snapshot holds every registered table, and the coverage gate reads
+    /// only the used ones, so the gate passes this book; the resolve door's
+    /// label read must not then throw over the unused table. It is left out
+    /// (it prints nothing here anyway) and the used table still prints its
+    /// translation.
+    ///
+    /// The disable experiment: put `try` back on the `coverage` call in
+    /// `FigureUse.freshLabels` and the call below throws
+    /// `OpLogStore.ReadError.unreadableFile` naming the squatted file.
+    func test_anUnusedTablesUnreadableTranslationFileFailsNoBody() async throws {
+        let (ds, store, figureId) = try await openBook()
+        _ = ds
+        let t = try await table(store, figureId)
+        let item = labels(t).item
+        try await write([.init(key: item, text: "Concepto")], figureId: figureId, table: t)
+
+        let unused = try await store.createFigure(kind: .table, name: "spare", piece: nil, table: t)
+        try await write([.init(key: item, text: "Repuesto")], figureId: unused.id, table: t)
+        // A second actor's file for the same (figure, language), squatted by a
+        // directory: present and unreadable (the gate suite's primitive).
+        let squat = try TranslationStore.fileURL(
+            forDocId: unused.id, language: "es",
+            deviceSlug: DeviceSlug.make(from: "bad"), in: projectURL)
+        try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
+
+        let figures = await store.publishFigures()
+        XCTAssertEqual(FigureUse.tables(in: [piece], figures: figures).readable.map(\.record.id),
+                       [figureId], "premise: the gate reads the used table alone")
+        let trust = try TrustResolution.resolve(
+            projectURL: projectURL, identities: try XCTUnwrap(Document.localIdentitiesForTesting))
+        XCTAssertThrowsError(try FigureUse.coverage(
+            of: FigureUse.Table(record: unused, table: t), language: "es",
+            projectURL: projectURL, trust: trust), "premise: the spare's file will not read")
+
+        let printed = try FigureUse.freshLabels(
+            language: "es", figures: figures, projectURL: projectURL, trust: { trust })
+        XCTAssertEqual(printed, [figureId: [item: "Concepto"]],
+                       "the used table prints; the unreadable unused one is left out")
+    }
 }

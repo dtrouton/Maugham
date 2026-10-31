@@ -148,9 +148,17 @@ struct TranslationCellsSection: View {
     let projectURL: URL
     /// The window's card version: moves on a figure write.
     let cardVersion: Int
-    /// Whether Remove is offered (the pane's own question of the author's
-    /// `.translate`); the write door still asks the figure's permit.
-    let mayPurge: Bool
+
+    /// **Whether Remove is offered**: the author's `.translate` on THIS
+    /// figure's translation (`DocumentStore.translationPosture(forDocId:)`,
+    /// judged by the figure's piece — the class `performCells` refuses by),
+    /// asked here rather than handed in, so no caller can pass the chapter's
+    /// posture (report plan 9e-1 final fix wave, I1: a pieces-author's chapter
+    /// that prints a whole-book table). Reading it in `body` observes the
+    /// door's epoch, so a trust change redraws it.
+    var mayPurge: Bool {
+        documentStore.translationPosture(forDocId: figure.id).allows(.translate)
+    }
 
     /// Resolved through `WindowAccessor`, for the update event's liveness
     /// guard (ADR 0021).

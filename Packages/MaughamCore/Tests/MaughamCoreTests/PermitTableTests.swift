@@ -1490,10 +1490,13 @@ final class DocumentClassTests: XCTestCase {
                        .cannotJudge)
         XCTAssertEqual(Permit.reviewer.allows(.translationRecord, in: hers, actor: .translator),
                        .no(.translation))
-        // And the figure's own content stays hers to write — the translator's
-        // key does not reach it.
-        XCTAssertEqual(sam.allows(.op(.figureCellSet), in: hers, actor: .translator),
-                       .no(.manuscriptText))
+        // And the figure's own content stays hers to write — asked in the
+        // FIGURE's class, where her hand may edit a cell and her translator's
+        // key may not.
+        let herFigure = DocumentClass.figure(id: "fig-0000000a", piece: "p-hers")
+        XCTAssertEqual(sam.allows(.op(.figureCellSet), in: herFigure, actor: .author), .yes)
+        XCTAssertEqual(sam.allows(.op(.figureCellSet), in: herFigure, actor: .translator),
+                       .no(.figure))
     }
 
     // MARK: - The words a permit is written as (P3a Task 7)

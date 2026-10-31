@@ -75,8 +75,17 @@ enum FigureUse {
     /// snapshot with a translation file in that language, derived against the
     /// snapshot's table. Asked once per translated body at the one resolve
     /// door (`PublishProblemGate.resolve`), never by a snapshot every reader
-    /// pays for. Throws for a present file that will not read (P2a D0) — the
-    /// coverage gate, which reads the same files, has already refused.
+    /// pays for.
+    ///
+    /// **A table whose translation file will not read is left out** — it
+    /// prints its source — rather than failing the body (report plan 9e-1
+    /// final fix wave, M1). The snapshot holds every registered table, not
+    /// only the ones this edition prints, and the coverage gate reads only the
+    /// USED ones: an unreadable file for a table the edition does not print
+    /// must never fail its compile. A used table's unreadable file has
+    /// already been refused by that gate (P2a D0), under `allow_stale` too,
+    /// so leaving it out here prints nothing the gate let through. Throws
+    /// only where `trust` does — the register itself will not read.
     nonisolated static func freshLabels(
         language: String, figures: PublishFigures, projectURL: URL, trust: () throws -> TrustTable
     ) throws -> [String: [CellKey: String]] {
@@ -90,9 +99,11 @@ enum FigureUse {
             }
             guard !figures.isParked(record.id), let state = figures.states[record.id],
                   state.kind == .table else { continue }
-            let labels = try coverage(
+            let trusted = try trust()
+            guard let labels = try? coverage(
                 of: Table(record: record, table: state.table), language: language,
-                projectURL: projectURL, trust: try trust()).derived.freshLabels
+                projectURL: projectURL, trust: trusted).derived.freshLabels
+            else { continue }
             if !labels.isEmpty { out[record.id] = labels }
         }
         return out

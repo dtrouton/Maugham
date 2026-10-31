@@ -1755,6 +1755,51 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertNoThrow(try door(books.id), "the book author: a whole-book figure")
     }
 
+    /// **Remove on a table's orphaned cells is offered from the FIGURE's
+    /// translation class, never the chapter's posture** (report plan 9e-1
+    /// final fix wave, I1). A pieces-author of A reviewing chapter A sees a
+    /// whole-book table's orphans with no Remove — the write door
+    /// (`performCells`) would refuse it — while her own piece's table offers
+    /// it; a book author is offered both.
+    ///
+    /// The disable experiment: give `TranslationCellsSection` back the
+    /// pane's answer (`posture(forDocId: document.docId)`, the chapter's) and
+    /// `section(books).mayPurge` is true for the pieces-author — the premise
+    /// line above is that answer.
+    func test_aTablesCellRemoveIsOfferedFromTheFiguresTranslationClass() async throws {
+        let h = try await makeStatementHarness()
+        h.documentStore.projectStore = h.store  // as the window's session wires it
+        let hers = try await h.store.createFigure(kind: .table, name: "hers", piece: "doc-a")
+        let books = try await h.store.createFigure(kind: .table, name: "books", piece: nil)
+
+        // The Cells list a chapter's Translation pane draws for the table
+        // under the caret: it asks its own question of the door.
+        func section(_ figure: FigureRecord) -> TranslationCellsSection {
+            TranslationCellsSection(figure: figure, language: "es", documentStore: h.documentStore,
+                                    projectURL: h.projectURL, cardVersion: 0)
+        }
+
+        try await become(.author(.pieces(["doc-a"])), h)
+        XCTAssertTrue(h.documentStore.posture(forDocId: "doc-a").allows(.translate),
+                      "premise: the chapter's posture would offer Remove")
+        XCTAssertFalse(section(books).mayPurge,
+                       "a pieces-author: no Remove on a whole-book table's orphans")
+        XCTAssertFalse(
+            h.documentStore.translationPosture(forDocId: books.id).allows(.translate))
+        XCTAssertTrue(section(hers).mayPurge, "her own piece's table: Remove")
+        XCTAssertTrue(
+            h.documentStore.translationPosture(forDocId: "doc-a").allows(.translate),
+            "a piece's id is its piece's translation")
+        XCTAssertFalse(
+            h.documentStore.translationPosture(forDocId: "doc-b").allows(.translate),
+            "…and not somebody else's")
+
+        try await become(.bookAuthor, h)
+        XCTAssertTrue(section(books).mayPurge,
+                      "a book author: Remove on the whole-book table, with no reopen")
+        XCTAssertTrue(section(hers).mayPurge)
+    }
+
     /// **Removing an orphan is the author's own translation write** and asks
     /// the author's key the same door: refused, nothing appended.
     func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {

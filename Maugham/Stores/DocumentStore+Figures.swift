@@ -599,8 +599,9 @@ extension DocumentStore {
     }
 
     /// The review language's fresh cell labels for the cards, read off the
-    /// main actor. A translation file that will not read leaves every card on
-    /// its source (logged): the Translation pane says why.
+    /// main actor. A table whose translation file will not read leaves its own
+    /// card on its source (`FigureUse.freshLabels`): the Translation pane says
+    /// why.
     private static func reviewLabels(
         language: String, records: [FigureRecord], states: [String: FigureState],
         projectURL: URL, trust: TrustTable
