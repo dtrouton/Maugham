@@ -389,7 +389,8 @@ public final class FigureDocument {
     /// reload()` always means *the state is at least as current as when I
     /// called* — what every caller assumes, `DocumentStore.addFigureAnnotation`
     /// posting its change straight after, a test asserting what it appended.
-    /// A read that throws, or a close, releases its waiters.
+    /// A read that throws, or a close, releases its waiters — so if the later
+    /// read throws, a waiter returns with the state as it was, not newer.
     public func reload() async throws {
         guard !isClosed else { return }
         reloadGeneration += 1
