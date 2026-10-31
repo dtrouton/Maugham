@@ -15440,4 +15440,80 @@ extension TripwireGrepTests {
             "Planted.swift:3", "Planted.swift:4", "Planted.swift:6", "Planted.swift:7", "Planted.swift:8", "Planted.swift:10", "FigureIngest.swift:2", "Raw.swift:1", "Raw.swift:2", "Raw.swift:3",
         ].sorted(), found.joined(separator: "\n"))
     }
+
+    // MARK: - A Research CSV is written over through one door (report plan 9d Task 2)
+
+    /// **The spellings that write over a Research table's CSV, each a named
+    /// list with a count per type** (spec §10.1: every save keeps the
+    /// previous version). `ResearchTableHost.write(_:by:)` keeps the bytes on
+    /// disk before it saves; a second writer would replace a table with no
+    /// version kept, and the history would silently stop being whole.
+    ///
+    /// - `.keep(priorBytes:` — `ResearchVersionStore.keep`, whose one caller
+    ///   is the door (`type:ResearchTableHost` × 1). A second caller is a
+    ///   second opinion on what a save keeps (the run rule lives in one place).
+    /// - `.performFileSave(` — the window's coordinated whole-file write. Its
+    ///   callers: `type:ResearchTableHost` × 1 (the door); `type:DocumentStore`
+    ///   × 1 (a research NOTE's debounced save); `type:ProjectStore` × 2 (the
+    ///   wiki-rename's rewrite of linking notes, a palette card's body);
+    ///   `type:PromotionPerformer` × 1 (a promoted note's body). None writes a
+    ///   CSV; a new one must say what it writes.
+    /// - `TableCSV.renderResearch(` — the one renderer of a Research CSV's
+    ///   text: `type:ResearchTableHost` × 1 (the door); `type:ProjectStore`
+    ///   × 3 (a NEW file: Send to Research's working copy and New Table; and a
+    ///   hash compared, writing nothing). A new one renders a CSV to write it.
+    ///
+    /// A CSV moved or trashed goes through the typed mover (tripwire 14) and
+    /// is not an overwrite. A raw `write(to:)` of bytes that are not rendered
+    /// here has no CSV-specific spelling; `renderResearch` is the census's
+    /// grip on it.
+    static let researchTableWriteSites: [String: [String: Int]] = [
+        ".keep(priorBytes:": ["type:ResearchTableHost": 1],
+        ".performFileSave(": [
+            "type:ResearchTableHost": 1,
+            "type:DocumentStore": 1,
+            "type:ProjectStore": 2,
+            "type:PromotionPerformer": 1,
+        ],
+        "TableCSV.renderResearch(": ["type:ResearchTableHost": 1, "type:ProjectStore": 3],
+    ]
+
+    func test_aResearchTablesCSVIsWrittenOverThroughTheOneDoorOnly() throws {
+        for (pattern, expected) in Self.researchTableWriteSites {
+            let (found, unresolved) = try countedListFound(
+                of: pattern, keyedLike: expected, in: admissionRoots)
+            XCTAssertTrue(unresolved.isEmpty, "researchTableWriteSites[\(pattern)]: \(unresolved)")
+            XCTAssertEqual(found, expected,
+                "The production sites naming “\(pattern)” moved. A Research table's "
+                + "CSV is written over only by `ResearchTableHost.write(_:by:)`, which "
+                + "keeps the previous version first; anything else replaces a table "
+                + "with no version kept. Write through the host (open it with "
+                + "`DocumentStore.openResearchTable`), or — for a file that is not a "
+                + "Research CSV — update `researchTableWriteSites` with what it writes, "
+                + "in the same commit. Found: \(found.sorted(by: { $0.key < $1.key }))")
+        }
+    }
+
+    /// The census above fires: a planted second writer is counted under every
+    /// spelling, while a comment, the declaration of `performFileSave` and the
+    /// conflict backup's `keepTheOutsideVersion(` are not.
+    func test_theResearchTableWriteCensusFiresOnAPlantedOffender() throws {
+        let dir = TestTemp.root.appendingPathComponent("research-write-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try """
+        // A comment may name .keep(priorBytes: and .performFileSave( and TableCSV.renderResearch( freely.
+        func performFileSave(path: String, text: String) async throws {}
+        let fine = keepTheOutsideVersion(data, of: item, at: path)
+        let v = try versions.keep(priorBytes: data, priorSidecar: nil, writtenBy: .writer, itemId: id, device: d, at: now)
+        try await store.performFileSave(path: csvPath, text: TableCSV.renderResearch(table, locale: l, names: n))
+        """.write(to: dir.appendingPathComponent("AnotherTableWriter.swift"), atomically: true, encoding: .utf8)
+
+        for (pattern, expected) in Self.researchTableWriteSites {
+            let planted = Self.byFile(try occurrences(of: pattern, in: [dir]), combine: +)
+            XCTAssertEqual(planted, ["AnotherTableWriter.swift": 1],
+                "Self-check: “\(pattern)” is counted once in the planted writer, "
+                + "and not in its comment or the look-alikes: \(planted)")
+            XCTAssertNotEqual(planted, expected, "and a file not on the list fails the census")
+        }
+    }
 }

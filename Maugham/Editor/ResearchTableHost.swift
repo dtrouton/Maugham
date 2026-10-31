@@ -44,7 +44,23 @@ private let researchTableLog = Logger(
 ///   at ⌘Q) and the verbs that read the CSV (`settleResearchTable`) ask it.
 /// - **Undo is the grid's while it is open**: each edit registers one step
 ///   restoring the table it replaced, declined once the table has moved on
-///   since (another grid, a reload); the saved file is not versioned (D8-3).
+///   since (another grid, a reload).
+/// - **`write(_:by:)` is the one door** (report plan 9d, spec §10.1): the only
+///   code that writes over a Research CSV (`TripwireGrepTests`' census). Before
+///   the file is replaced, the bytes on disk — outside edits included — and
+///   the sidecar that described them are kept by `ResearchVersionStore.keep`
+///   (this file its one caller), then this device's versions past
+///   `ResearchVersionStore.retention` are pruned. Keep THEN save: the bytes
+///   kept were on disk, so a save that then fails leaves a version that is a
+///   true state (the one still there), never one the table did not reach;
+///   staging it until the save landed would lose the prior bytes to a crash
+///   between the two. A version that cannot be kept writes nothing.
+/// - **The run rule** (`ResearchSaveRun`, the plan's ruling): a writer's saves
+///   with no gap over ten minutes, in one host's life (one grid session), keep
+///   one version — the state before the run. Every assistant save
+///   (`assistantEdit`) keeps one and ends the run; so does bytes on disk that
+///   are not ours (an outside change, a reload). Every save stamps the
+///   sidecar's `writtenBy`, so the next version says whose bytes it holds.
 /// - **A view-only share** (`refusal`, set by the mounts): every mutator
 ///   refuses. Review is the grid's own gate, as it is for a figure.
 /// - It is not a figure: it offers none of the figure's own commands
@@ -118,6 +134,10 @@ final class ResearchTableHost: FigureGridHost {
     @ObservationIgnored private(set) var saving: Task<Void, Never>?
     /// How long after the last edit the file is written.
     @ObservationIgnored var saveDelay: Duration = .milliseconds(750)
+    /// The writer's editing run: whether the next save keeps a version.
+    @ObservationIgnored private(set) var run = ResearchSaveRun()
+    /// The run rule's clock (a test sets it; the rule is never timed on the wall).
+    @ObservationIgnored var now: @MainActor () -> Date = { Date() }
     /// Each open grid's "commit what is typed" (`addSettler`).
     @ObservationIgnored private var settlers: [UUID: @MainActor () async -> Void] = [:]
     /// Visits ending: their open edits committed and their writes landing.
@@ -224,6 +244,7 @@ final class ResearchTableHost: FigureGridHost {
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
+        run.end()   // what is on disk now is not this run's: the next save keeps it
         sidecar = read.sidecar
         separator = TableCSV.rows(read.text).separator
         lineEnding = read.lineEnding
@@ -321,6 +342,7 @@ final class ResearchTableHost: FigureGridHost {
     }
 
     /// One save at a time, in the order asked; nothing when nothing changed.
+    /// The writer's: an assistant's save is `assistantEdit`'s own.
     private func save() async {
         let previous = saving
         let task = Task { @MainActor [weak self] in
@@ -333,15 +355,68 @@ final class ResearchTableHost: FigureGridHost {
         await task.value
     }
 
-    /// The outside version, the file, then its sidecar, then the cards: what
-    /// one save writes.
-    private func write(_ table: FigureTable) async {
-        guard let store else { return }
+    /// Why an assistant's write was not saved.
+    struct NotSaved: LocalizedError, Equatable {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// **An edit made by the assistant** (MCP), saved as its own save marked
+    /// `.assistant`: the writer's pending edits are written first, as the
+    /// writer's own save, so the two never share one; then `body` changes the
+    /// table and it is written at once — keeping the version before it. It
+    /// registers no ⌘Z on the grid: its undo is the version list. Refuses as
+    /// every edit does; throws `NotSaved` when the save did not land, the
+    /// table put back as it was unless the writer has edited since.
+    func assistantEdit(_ body: (inout FigureTable) throws -> Void) async throws {
+        if isClosed { throw Refused(reason: .closed) }
+        if let refusal { throw Refused(reason: refusal) }
+        // The writer's state lands first; a keystroke during that wait is
+        // flushed too. A writer's save that did not land stops the write:
+        // the two would otherwise share the assistant's save.
+        await flush()
+        while scheduledSave != nil { await flush() }
+        guard !isDirty else {
+            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+        }
+        if isClosed { throw Refused(reason: .closed) }
+        if let refusal { throw Refused(reason: refusal) }
+        var next = state.table
+        try body(&next)
+        guard next != state.table else { return }
+        let prior = state.table
+        state.table = next
+        // Started with no suspension since the table changed: a writer's edit
+        // after this point schedules its own save, which waits on this one.
+        let previous = saving
+        let write = Task { @MainActor [weak self] () -> Bool in
+            await previous?.value
+            guard let self else { return false }
+            return await self.write(next, by: .assistant)
+        }
+        saving = Task { _ = await write.value }
+        guard await write.value else {
+            // Not made: put back, unless the writer has typed over it since
+            // (then it goes with the writer's next save).
+            if state.table == next {
+                state.table = prior
+                isDirty = false
+            }
+            throw NotSaved(message: "The table’s change couldn’t be saved, so it wasn’t made.")
+        }
+    }
+
+    /// **The one door: the version kept, the file, then its sidecar, then
+    /// the cards** — what one save writes, `writer` its author. True when the
+    /// file was written.
+    @discardableResult
+    private func write(_ table: FigureTable, by writer: ResearchWriter = .writer) async -> Bool {
+        guard let store else { return false }
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path else {
             MaughamEvent.postNotice("A Research table’s edits couldn’t be saved: it is no longer in Research.",
                                     projectURL: projectURL)
-            return
+            return false
         }
         // A file that has gone (another Mac trashed it, and this manifest has
         // not caught up) is not made again: the edits are dropped and said
@@ -349,12 +424,26 @@ final class ResearchTableHost: FigureGridHost {
         guard await fileIsThere(at: path) else {
             MaughamEvent.postNotice(
                 "“\(item.title)” isn’t there any more, so its edits weren’t saved.", projectURL: projectURL)
-            return
+            return false
         }
-        guard await keepTheOutsideVersion(of: item, at: path) else {
-            isDirty = true   // the next edit, or the close, tries again
-            return
+        let onDisk = await bytesOnDisk(at: path)
+        let overOwnBytes = onDisk.map { ContentHash.of($0) == diskHash } ?? true
+        if !overOwnBytes, let onDisk {
+            guard keepTheOutsideVersion(onDisk, of: item, at: path) else {
+                isDirty = true   // the next edit, or the close, tries again
+                return false
+            }
         }
+        let at = now()
+        if let onDisk, run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes) {
+            guard await keepThePriorVersion(onDisk, of: item, at: at) else {
+                isDirty = true
+                return false
+            }
+        }
+        // Counted once the version is kept, saved or not: a retry after a
+        // failed save is still the run whose start is kept.
+        run.saved(by: writer, at: at)
         // The names its formulas read as they are now; the ones it opened with if they will not read.
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
         let text = (hasBOM ? "\u{FEFF}" : "") + TableCSV.renderResearch(
@@ -367,7 +456,7 @@ final class ResearchTableHost: FigureGridHost {
                 "\(path, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
             MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
                                     projectURL: projectURL)
-            return
+            return false
         }
         diskHash = ContentHash.of(Data(text.utf8))
         var next = ResearchTableSidecar(
@@ -375,6 +464,7 @@ final class ResearchTableHost: FigureGridHost {
             caption: sidecar?.caption, table: table, formulaNames: names.cited(by: table))
         next.figureId = sidecar?.figureId
         next.name = sidecar?.name
+        next.writtenBy = writer
         do {
             try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
             sidecar = next
@@ -384,6 +474,7 @@ final class ResearchTableHost: FigureGridHost {
         }
         store.invalidateFigureCards()
         Self.wroteForTesting?(text)
+        return true
     }
 
     /// Whether the item's file (or a link where it was) is on disk.
@@ -394,16 +485,52 @@ final class ResearchTableHost: FigureGridHost {
         }.value
     }
 
+    /// The item's file's bytes as they are now; nil when it will not read.
+    private func bytesOnDisk(at path: String) async -> Data? {
+        guard let file = try? store?.resolvedProjectPath(path) else { return nil }
+        return await Task.detached { () -> Data? in
+            try? Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, compared and kept before a save; not manuscript
+        }.value
+    }
+
+    /// **The bytes about to be replaced, kept as a version** with the sidecar
+    /// that described them (the one on disk, else the one held) and their
+    /// author when that sidecar was written for these bytes; then this
+    /// device's versions past the retention are pruned. False — write nothing
+    /// — when the version could not be kept, and said.
+    private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date) async -> Bool {
+        let held = sidecar
+        let itemId = itemId
+        let versions = ResearchVersionStore(projectURL: projectURL)
+        let projectURL = projectURL
+        let device = DeviceIdentity.author.slug
+        let kept: Error? = await Task.detached { () -> Error? in
+            let described = (try? ResearchTableSidecar.read(forItem: itemId, in: projectURL)) ?? held
+            let author = described?.contentHash == ContentHash.of(prior) ? described?.writtenBy : nil
+            do {
+                try versions.keep(priorBytes: prior, priorSidecar: described, writtenBy: author,
+                                  itemId: itemId, device: device, at: date)
+            } catch {
+                return error
+            }
+            versions.prune(itemId: itemId, device: device)
+            return nil
+        }.value
+        guard let kept else { return true }
+        researchTableLog.error(
+            "\(item.title, privacy: .public)'s previous version was not kept: \(kept.localizedDescription, privacy: .public)")
+        MaughamEvent.postNotice(
+            "“\(item.title)”’s previous version couldn’t be kept, so your edits weren’t saved over it.",
+            projectURL: projectURL)
+        return false
+    }
+
     /// **The file changed outside since it was read or written here**: its
     /// bytes are kept as a conflict backup and the writer told, before the
     /// grid's version replaces them. False — write nothing — when they could
-    /// not be kept. A file that is gone has nothing to keep.
-    private func keepTheOutsideVersion(of item: ResearchItem, at path: String) async -> Bool {
+    /// not be kept.
+    private func keepTheOutsideVersion(_ outside: Data, of item: ResearchItem, at path: String) -> Bool {
         guard let file = try? store?.resolvedProjectPath(path) else { return true }
-        let outside = await Task.detached { () -> Data? in
-            try? Data(contentsOf: file) // adr-0018-ok: a Research table's CSV, compared before a save; not manuscript
-        }.value
-        guard let outside, ContentHash.of(outside) != diskHash else { return true }
         let text = ProjectStore.decodeResearchTable(outside) ?? String(decoding: outside, as: UTF8.self)
         do {
             let backup = try Document.writeConflictBackup(forFileAt: file, docId: itemId, text: text, kind: "outside")
@@ -626,4 +753,33 @@ extension FigureGridOffers {
     /// A host that is not a figure: none of the figure's own commands.
     static let none = FigureGridOffers(nameField: false, rename: false, caption: false,
                                        sendToResearch: false, refreshPins: false, openInWindow: false)
+}
+
+/// **A writer's editing run** (report plan 9d's ruling on what a "save" is):
+/// the writer's consecutive saves with no gap over `gap`, in one host's life,
+/// keep one version — the state before the run. An assistant's save always
+/// keeps one and ends the run, and so do bytes on disk that are not this
+/// host's own last write (an outside change, a reload).
+struct ResearchSaveRun: Equatable {
+    /// The longest pause between two of the writer's saves inside one run.
+    static let gap: TimeInterval = 10 * 60
+
+    /// When the writer's last save in the run was; nil — no run.
+    private(set) var lastWriterSave: Date?
+
+    /// Whether a save by `writer` at `date`, over bytes that are
+    /// (`overOwnBytes`) or are not this host's last write, keeps a version.
+    func keepsAVersion(by writer: ResearchWriter, at date: Date, overOwnBytes: Bool) -> Bool {
+        guard writer == .writer, overOwnBytes, let lastWriterSave else { return true }
+        return date.timeIntervalSince(lastWriterSave) > Self.gap
+    }
+
+    /// A save by `writer` at `date`: the writer's continues (or begins) the
+    /// run, the assistant's ends it.
+    mutating func saved(by writer: ResearchWriter, at date: Date) {
+        lastWriterSave = writer == .writer ? date : nil
+    }
+
+    /// What is on disk is no longer this run's (a reload).
+    mutating func end() { lastWriterSave = nil }
 }
