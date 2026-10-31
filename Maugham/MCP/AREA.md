@@ -94,7 +94,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `list_palette_cards` / `read_palette_card` — sensory-palette card summaries; one card's markdown and thumbnails.
 
 **Annotations (the parallel comment layer)**
-- `add_comment`, `add_suggested_change`, `add_query`, `add_craft_note` — paragraph-anchored notes.
+- `add_comment`, `add_suggested_change`, `add_query`, `add_craft_note` — paragraph-anchored notes; `figure` (`tbl:x`, `tbl:x!C3`, `tbl:x!C3:E3`) anchors one to a table instead.
 - `list_annotations` / `get_annotation` — a document's notes (filter by kind/status) or one by id, with `triage` and `review_pass_id`.
 
 **Tasks**
@@ -209,6 +209,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 **Annotations**
 - **The four creation tools stamp the review pass the writer is working that piece through, on the open-document arm only** (`activeReviewPassId`, validated through `ActivePassMemory.validatedActivePass`, so a retired pass stamps nothing). The closed-document arm has no window and no active pass, so it writes unstamped by design; an unstamped note appears in EVERY pass's queue.
+- **A figure note is the same tools with `figure`, no `document_id`/`paragraph_id`/`quote`** (`addFigureNote` in `AnnotationToolHelpers.swift`): the figure is found as `read_figure` finds it; a suggestion takes one cell and `suggested_value` in machine form (`.` decimal, no grouping, `=` formulas by A1); a craft note takes the whole figure. Signed as the assistant onto the figure's stream through `DocumentStore.addFigureAnnotation`; no review-pass stamp; no cell and no `figures/` file is written.
 - **Claude never chooses the pass or the triage**: no tool schema takes either; `list_annotations` and `get_annotation` report `triage` (`do`/`decline`/`discuss` or null) and `review_pass_id` back, key for key, and no filter parameter exists, so pass semantics stay `AnnotationPassFilter`'s.
 - **The orphan-annotation sweep is edge-triggered**: `Document._pendingSweep: SweepReason?` carries the removed paragraph ids, and the sweep archives only annotations on `reason.removed` (ADR 0010; `PresenterRoutingTests`, including MCP annotation on a live doc minting no spurious `claude_archive`). If annotations vanish, suspect the reason's population at the call site (`setFullText`, `deleteParagraph`, `handleExternalLogChange`), not the sweep.
 
