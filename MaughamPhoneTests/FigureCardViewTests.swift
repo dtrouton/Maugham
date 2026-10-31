@@ -36,6 +36,36 @@ final class FigureCardViewTests: XCTestCase {
         return table
     }
 
+    private func dotModel(marks: Set<FigureCardModel.Position>) -> FigureCardModel {
+        FigureCardModel(kind: .table, headerRows: [["h1", "h2"]],
+                        bodyRows: [["a", "b"], ["c", "d"], ["t1", "t2"]],
+                        hasTotalRow: true, hasOpenCellNotes: !marks.isEmpty, markedCells: marks)
+    }
+
+    func test_aMarkedCellPlansADot_inHeaderBodyAndTotalRows() throws {
+        let card = dotModel(marks: [.init(row: 0, column: 1), .init(row: 2, column: 0), .init(row: 3, column: 1)])
+        let plan = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil)))
+        XCTAssertEqual(plan.headerMarks, [[1]])
+        XCTAssertEqual(plan.bodyMarks, [[], [0]])
+        XCTAssertEqual(plan.totalMarks, [1])
+    }
+
+    func test_anUnmarkedCardPlansNoDot() throws {
+        let plan = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: dotModel(marks: []), imageURL: nil)))
+        XCTAssertEqual(plan.headerMarks, [[]])
+        XCTAssertEqual(plan.bodyMarks, [[], []])
+        XCTAssertEqual(plan.totalMarks, [])
+    }
+
+    /// Core marks nothing for a row the card cuts short (FigureCellNotesTests), though
+    /// the figure still has a live note: the phone draws no dot.
+    func test_aNoteOnACutOffRowGivesNoDot() throws {
+        let card = FigureCardModel(kind: .table, bodyRows: [["a"]], moreRows: 3, hasOpenCellNotes: true)
+        let plan = try XCTUnwrap(tablePlan(FigureCardPlan.plan(card: card, imageURL: nil)))
+        XCTAssertEqual(plan.bodyMarks, [[]])
+        XCTAssertNotNil(plan.more)
+    }
+
     func test_aFifteenRowTablePlansTwelveRowsTheMoreLineAndTheTotalRow() throws {
         let plan = FigureCardPlan.plan(card: model(rows: 15, header: 1, total: true),
                                        imageURL: nil)
