@@ -191,6 +191,59 @@ final class FigureCardCacheTests: XCTestCase {
         XCTAssertEqual(cache.model(forFigureId: cash.id)?.bodyRows, [["2"]], "the newest answer stands")
     }
 
+    // MARK: - Translation review (report plan 9e-1 Task 7)
+
+    /// **A card in es review shows the translated label, at the source
+    /// card's height**: the fill asks the source for the review language, a
+    /// labelled text cell shows its translation, and the room the line
+    /// reserves (`FigureCardMetrics.room`) does not move — so no figure
+    /// line restyles. A translation landing refills only in review; the
+    /// same language twice reads nothing.
+    func test_aCardInReviewShowsTheTranslatedLabel_atTheSameHeight() async {
+        var t = FigureTable(rows: 2, columns: 2)
+        let a1 = CellKey(row: t.rows[0], column: t.columns[0])
+        t.setCell(Cell(content: .value(.text("Rent"))), at: a1)
+        t.setCell(Cell(content: .value(.number(5))), at: CellKey(row: t.rows[0], column: t.columns[1]))
+        let cash = record("fig-0a1b2c3d", "cash")
+        let base = inputs([(cash, FigureState(kind: .table, table: t))])
+        var asked: [String?] = []
+        let cache = FigureCardCache()
+        cache.attach(FigureCardCache.Source(readInLanguage: { language in
+            asked.append(language)
+            var read = base
+            read.language = language
+            if language == "es" { read.labels = [cash.id: [a1: "Alquiler"]] }
+            return read
+        }))
+        await cache.idle()
+        let source = cache.model(forFigureId: cash.id)
+        XCTAssertEqual(source?.bodyRows.first?.first, "Rent")
+
+        cache.setReviewLanguage("es")
+        await cache.idle()
+        let es = cache.model(forFigureId: cash.id)
+        XCTAssertEqual(es?.bodyRows.first, ["Alquiler", "5"])
+        XCTAssertEqual(asked, [nil, "es"])
+        let typography = TypographySettings.defaults
+        XCTAssertEqual(FigureCardMetrics.room(for: es, typography: typography),
+                       FigureCardMetrics.room(for: source, typography: typography),
+                       "a label never moves a figure line's room")
+
+        cache.setReviewLanguage("es")
+        await cache.idle()
+        XCTAssertEqual(asked, [nil, "es"], "the language the cards already read asks nothing")
+        cache.translationsChanged()
+        await cache.idle()
+        XCTAssertEqual(asked, [nil, "es", "es"], "a translation landing in review refills")
+
+        cache.setReviewLanguage(nil)
+        await cache.idle()
+        XCTAssertEqual(cache.model(forFigureId: cash.id), source, "leaving review shows the source again")
+        cache.translationsChanged()
+        await cache.idle()
+        XCTAssertEqual(asked, [nil, "es", "es", nil], "on the source a translation landing reads nothing")
+    }
+
     // MARK: - Reads are memory only
 
     /// **A miss answers nil and reads nothing**: before the first fill, and
@@ -569,6 +622,12 @@ final class FigureCardCacheTests: XCTestCase {
         for needle in [
             "figureCards.model(forLinePath: linePath, documentPath: path)",
             "figureCards.onVersionChange = { control.figureCardVersion = $0 }",
+            // Translation review (report plan 9e-1 Task 7): the cards read the
+            // review language, and a cell translation landing refills them.
+            "await documentStore?.figureCardInputs(language: $0)",
+            "figureCards.setReviewLanguage(language)",
+            "figureCards.setReviewLanguage(control.translationLanguage)",
+            "if note.userInfo?[\"figure_id\"] is String { figureCards.translationsChanged() }",
         ] {
             XCTAssertTrue(source.contains(needle), "EditorHost no longer says: \(needle)")
         }

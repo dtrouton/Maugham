@@ -56,6 +56,34 @@ final class FigureCardBookTests: XCTestCase {
         XCTAssertTrue(b.models.isEmpty)
     }
 
+    /// **The review language's labels reach the cards** (plan 9e-1 Task 7): a figure's labelled
+    /// text cell shows its translation, an unlabelled one its source, another figure's labels
+    /// never cross over, and the height is the source card's (rows are one line each).
+    func test_labelsReplaceAFiguresTextCells_andTheHeightIsUnchanged() {
+        var t = FigureTable(rows: 2, columns: 2)
+        let a1 = CellKey(row: t.rows[0], column: t.columns[0])
+        let b1 = CellKey(row: t.rows[0], column: t.columns[1])
+        t.setCell(Cell(content: .value(.text("Rent"))), at: a1)
+        t.setCell(Cell(content: .value(.text("Food"))), at: b1)
+        let states = ["t1": FigureState(kind: .table, table: t), "t2": FigureState(kind: .table, table: t)]
+        let records = [record("t1", "cash", .table), record("t2", "other", .table)]
+        func build(_ language: String?, _ labels: [String: [CellKey: String]]) -> FigureCardBook {
+            FigureCardBook.build(records: records, states: states, workbook: nil, locale: en,
+                                 pinChanged: [], sourceChanged: [], openCellNotes: [:],
+                                 language: language, labels: labels)
+        }
+        let source = build(nil, [:])
+        let es = build("es", ["t1": [a1: "Alquiler"]])
+        XCTAssertEqual(es.models["t1"]?.bodyRows.first, ["Alquiler", ""],
+                       "no workbook reads each value empty; the label replaces A1 only")
+        XCTAssertEqual(es.models["t2"], source.models["t2"], "t1's labels never reach t2")
+        func height(_ m: FigureCardModel?) -> CGFloat? {
+            m.map { FigureCardLayout.height(for: $0, columnWidth: 0, rowHeight: 20, moreLineHeight: 20,
+                                            verticalPadding: 4, placeholderHeight: 90) }
+        }
+        XCTAssertEqual(height(es.models["t1"]), height(source.models["t1"]))
+    }
+
     func test_theLineRule() throws {
         let b = try book()
         let twin = [record("a", "x", .table, path: "figures/x.csv"), record("b", "y", .table, path: "figures/x.csv")]

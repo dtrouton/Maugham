@@ -33,10 +33,16 @@ public struct FigureCardBook: Equatable, Sendable {
     ///   - openCellNotes: each figure's open live cell notes (`FigureCellNotes`), against
     ///     its state's table, for the card's dots and the strip's presence; a figure with
     ///     none is absent.
+    ///   - language / labels: the Mac's translation review (plan 9e-1 Task 7) — the
+    ///     review language and, by figure id, each text cell's fresh translation
+    ///     (`FigureTranslatedTable.freshLabels`, what a body in that language prints).
+    ///     A cell without one shows its source. Nil / empty is the source language (the
+    ///     phone, and the Mac outside review).
     public static func build(
         records: [FigureRecord], states: [String: FigureState], workbook: Workbook?,
         locale: TableLocale, pinChanged: Set<String>, sourceChanged: Set<String>,
-        openCellNotes: [String: FigureCellNotes]
+        openCellNotes: [String: FigureCellNotes],
+        language: String? = nil, labels: [String: [CellKey: String]] = [:]
     ) -> FigureCardBook {
         var next: [String: FigureCardModel] = [:]
         var readers: Set<String> = []
@@ -55,8 +61,8 @@ public struct FigureCardBook: Equatable, Sendable {
                 figureId: id, state: state,
                 values: { workbook?.value(at: CellAddress(table: id, key: $0)) ?? .empty },
                 locale: locale,
-                // The source language: plan 9 passes an edition's, with its labels.
-                language: nil, labelLookup: { _, _, _, _ in nil },
+                language: language,
+                labelLookup: { figure, row, column, _ in labels[figure]?[CellKey(row: row, column: column)] },
                 pinChanged: pinChanged.contains(id),
                 sourceChanged: sourceChanged.contains(id),
                 openCellNotes: openCellNotes[id] ?? .none)
