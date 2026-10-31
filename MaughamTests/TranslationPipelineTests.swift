@@ -273,6 +273,28 @@ final class TranslationPipelineTests: XCTestCase {
         XCTAssertEqual(round.summary, TranslationPipeline.nothingToDoSummary)
     }
 
+    /// **A translate leg that labelled only table cells** (report plan
+    /// 9e-2): the round records the cells and every refusal for its report,
+    /// the paragraph-only legs still have nothing new to read or collate,
+    /// and the round does not claim it did nothing.
+    func test_aCellsOnlyTranslateLegIsRecordedAndTheParagraphLegsStillSkip() async throws {
+        let world = FakeWorld()
+        world.readerInputs = ReaderBriefing.Inputs(
+            readerName: "Ocampo", language: "es", authorLanguage: "English",
+            paragraphs: [.init(paragraphId: "a1b2", translation: nil)])
+        world.translateOutcome = .ingested(.init(
+            entriesWritten: 0, cellsWritten: 2, cellRefusals: ["Table cash: refused"]))
+        world.pipeline.run(docId: "doc-1", language: "es")
+        await Self.settle(world)
+
+        let round = try XCTUnwrap(world.saved.first)
+        XCTAssertEqual(round.legs[0].status, .ran)
+        XCTAssertEqual(round.tableCells, .init(written: 2, refusals: ["Table cash: refused"]))
+        XCTAssertEqual(round.legs[5].reason, TranslationPipeline.nothingWrittenReason,
+                       "the collator is paragraph-only")
+        XCTAssertNotEqual(round.summary, TranslationPipeline.nothingToDoSummary)
+    }
+
     // MARK: - Failure ends it there
 
     func test_aFailedLegEndsThePipelineThereAndKeepsEarlierLegs() async throws {

@@ -83,7 +83,7 @@ extension TranslatorOrchestrator.Environment {
             model: model,
             briefRound: { [weak store, weak documentStore, weak bible] docId, language in
                 guard let store else { return nil }
-                return try briefing(
+                return try await briefing(
                     docId: docId, language: language, store: store,
                     documentStore: documentStore, bible: bible,
                     projectURL: projectURL)
@@ -212,11 +212,18 @@ extension TranslatorOrchestrator.Environment {
     private static func briefing(
         docId: String, language: String, store: ProjectStore,
         documentStore: DocumentStore?, bible: BibleStore?, projectURL: URL
-    ) throws -> TranslatorOrchestrator.BriefedRound? {
+    ) async throws -> TranslatorOrchestrator.BriefedRound? {
         guard let context = try roundContext(
             docId: docId, language: language, store: store,
             documentStore: documentStore, projectURL: projectURL) else { return nil }
         let state = context.state
+        // The tables this piece uses, over the same paragraphs the round
+        // briefs (report plan 9e-2, R6). A translate leg only: the fix leg is
+        // paragraph-only.
+        let tableCells = try await tableCellWork(
+            docId: docId, language: language,
+            state: (state.sequence, state.paragraphs),
+            store: store, documentStore: documentStore, projectURL: projectURL)
         let role = context.role
         let intentText = context.intentText
         let briefText = context.briefText
@@ -269,9 +276,14 @@ extension TranslatorOrchestrator.Environment {
             // translator is the work-list rather than a delta. An absent
             // store (a window torn down mid-gather) is an empty slice, not a
             // refused round: a briefing without facts is smaller, not wrong.
-            bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
+            // The table labels are prose this run is about too (9e-2 final
+            // fix wave, M3): a label naming a character or a place gets its
+            // fact, and a cells-only round is not briefed without any.
+            bibleFacts: bible?.slice(matching: (workList.map(\.sourceText)
+                + tableCells.flatMap(\.cells).map(\.sourceText))
                 .joined(separator: "\n")) ?? [],
-            glossary: GlossaryTable.gather(editionBrief: briefText))
+            glossary: GlossaryTable.gather(editionBrief: briefText),
+            tableCells: tableCells)
 
         // **What each work paragraph looked like at send time**, hashed off
         // the RAW text rather than the stripped `sourceText` the model is
@@ -600,6 +612,14 @@ extension TranslatorOrchestrator.Environment {
                 ])
         }
 
+        // **The tables' labels, after the paragraph batch** (report plan
+        // 9e-2): reached only once the paragraphs landed (or there were none),
+        // so a refused paragraph batch still writes nothing at all. A cell
+        // refusal does not unwind the paragraphs — it is said in the report.
+        let cells = await writeCells(
+            report, context: context, documentStore: documentStore, projectURL: projectURL)
+        warnings += cells.warnings
+
         let minted = await mint(
             report.queries, context: context, store: store, projectURL: projectURL)
         // **The report's own answers travel whole**, unparsed and unedited: the
@@ -610,7 +630,136 @@ extension TranslatorOrchestrator.Environment {
             entriesWritten: written, queriesMinted: minted, warnings: warnings,
             addressed: report.addressed, declined: report.declined,
             summary: report.summary, glossaryProposals: report.glossaryProposals,
-            rewrites: rewrites)
+            rewrites: rewrites,
+            cellsWritten: cells.written, cellRefusals: cells.refusals)
+    }
+
+    /// **The round's table cells, through the one write door**
+    /// (`TranslationWritePipeline.performCells`, as the translator), one
+    /// batch per table — each table's cells land together or not at all.
+    ///
+    /// - A malformed `cells` list wrote nothing and says so (the parse's
+    ///   all-or-nothing; the paragraphs beside it landed).
+    /// - Only cells the round BRIEFED are written: a table or cell the round
+    ///   never asked for — one the translator may not write was never sent
+    ///   (R6) — refuses that table's batch.
+    /// - Each cell is hashed against its briefed source
+    ///   (`IngestContext.briefedTableCells`), so a label edited mid-round
+    ///   lands stale (Review Focus 2).
+    /// - The door validates against the CURRENT table and posture, so a row
+    ///   or column deleted mid-round, or a permit that no longer reaches the
+    ///   table, refuses that table's batch, loudly, by name.
+    ///
+    /// Signed through `Document.loadIdentities` — the device's quartet, the
+    /// same answer `DocumentStore` reads figures under.
+    @MainActor
+    private static func writeCells(
+        _ report: TranslatorReport,
+        context: TranslatorOrchestrator.IngestContext,
+        documentStore: DocumentStore?, projectURL: URL
+    ) async -> (written: Int, refusals: [String], warnings: [String]) {
+        // A round that briefed no cells asked for none: a stray `cells` key
+        // — well formed or not — is not answered with a refusal about tables
+        // the writer never had (9e-2 final fix wave, M2).
+        guard !context.briefedTableCells.isEmpty else { return (0, [], []) }
+        var refusals: [String] = []
+        if report.cellsMalformed {
+            refusals.append(cellsMalformedSentence)
+        }
+        guard !report.cells.isEmpty else { return (0, refusals, []) }
+
+        // Grouped by table in the report's order.
+        var order: [String] = []
+        var byFigure: [String: [TranslatorReport.Cell]] = [:]
+        for cell in report.cells {
+            if byFigure[cell.figureId] == nil { order.append(cell.figureId) }
+            byFigure[cell.figureId, default: []].append(cell)
+        }
+        let figures = await documentStore?.translationFigures() ?? .none
+        let briefedByFigure = Dictionary(
+            context.briefedTableCells.map { ($0.figureId, $0) }, uniquingKeysWith: { first, _ in first })
+
+        var written = 0
+        var warnings: [String] = []
+        for figureId in order {
+            let cells = byFigure[figureId] ?? []
+            // A refusal names the table, never its `fig-` id.
+            let name = briefedByFigure[figureId]?.name
+                ?? figures.records.first(where: { $0.id == figureId })?.name
+            guard let briefed = briefedByFigure[figureId] else {
+                refusals.append(unbriefedTableSentence(name: name, count: cells.count))
+                continue
+            }
+            let sources = Dictionary(
+                briefed.cells.map { ($0.key, $0.sourceText) }, uniquingKeysWith: { first, _ in first })
+            let unasked = cells.filter { sources[$0.key] == nil }
+                .map { FigureCellTranslationKey.paragraphId(for: $0.key) }
+            guard unasked.isEmpty else {
+                refusals.append(tableSentence(
+                    briefed.name,
+                    "cells this round did not ask for: \(unasked.joined(separator: ", ")) "
+                        + "\u{2014} nothing was written for this table"))
+                continue
+            }
+            guard !figures.isParked(figureId), let table = figures.states[figureId]?.table else {
+                refusals.append(tableSentence(
+                    briefed.name,
+                    "the table could not be read now, so nothing was written for it"))
+                continue
+            }
+            // **A row or column deleted mid-round**, named by the address the
+            // round briefed it at (it has none now). The door would refuse it
+            // too, by its stored key; said here first in the writer's terms.
+            let addresses = Dictionary(
+                briefed.cells.map { ($0.key, $0.address) }, uniquingKeysWith: { first, _ in first })
+            let gone = cells.filter {
+                table.rowIndex(of: $0.key.row) == nil || table.columnIndex(of: $0.key.column) == nil
+            }
+            guard gone.isEmpty else {
+                refusals.append(tableSentence(briefed.name, deletedMidRoundReason(
+                    gone.compactMap { addresses[$0.key] })))
+                continue
+            }
+            do {
+                warnings += try await TranslationWritePipeline.performCells(
+                    entries: cells.map {
+                        TranslationWritePipeline.CellEntry(
+                            key: $0.key, text: $0.text, verbatim: $0.verbatim, delete: nil)
+                    },
+                    language: context.language, figureId: figureId, table: table,
+                    projectURL: projectURL, actor: .translator, briefedSources: sources,
+                    identities: Document.loadIdentities, deviceState: Document.loadDeviceState)
+                written += cells.count
+            } catch {
+                refusals.append(tableSentence(briefed.name, sentence(for: error)))
+            }
+        }
+        return (written, refusals, warnings)
+    }
+
+    /// The report's `cells` list would not parse, so none was written.
+    static let cellsMalformedSentence =
+        "The table cells in this report were malformed, so none was written. "
+            + "Run the translation again to label the tables."
+
+    /// A refusal for one table's batch, named as the writer knows it.
+    static func tableSentence(_ name: String, _ reason: String) -> String {
+        "Table \(name): \(reason)"
+    }
+
+    /// Cells whose row or column the writer deleted while the round ran.
+    static func deletedMidRoundReason(_ addresses: [String]) -> String {
+        "\(addresses.joined(separator: ", ")) \(addresses.count == 1 ? "was" : "were") "
+            + "deleted while this round was running (its row or column is gone), "
+            + "so nothing was written for this table. Run the translation again."
+    }
+
+    /// A table the round never briefed.
+    static func unbriefedTableSentence(name: String?, count: Int) -> String {
+        let cells = count == 1 ? "1 cell" : "\(count) cells"
+        return tableSentence(
+            name ?? "(unknown)",
+            "this round did not ask for it, so its \(cells) were not written")
     }
 
     /// The paragraphs whose source changed between the send and the answer,

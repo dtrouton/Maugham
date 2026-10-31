@@ -43,7 +43,7 @@ final class TranslationPreflightTests: XCTestCase {
             forDocId: "doc-1", identity: LocalIdentities.current.translator, identities: .current,
             in: fixture.projectURL)
 
-        let both = try TranslationPreflight.budgets(
+        let both = try await TranslationPreflight.budgets(
             documentIds: ["doc-1"], languages: ["es", "fr"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL)
@@ -57,11 +57,10 @@ final class TranslationPreflightTests: XCTestCase {
                        + "the same source, and are NOT counted against French")
 
         // …and the single-language door answers exactly what the plural one does.
-        XCTAssertEqual(
-            try TranslationPreflight.budget(
-                documentIds: ["doc-1"], language: "es", store: fixture.projectStore,
-                documentStore: fixture.documentStore, projectURL: fixture.projectURL),
-            both["es"])
+        let single = try await TranslationPreflight.budget(
+            documentIds: ["doc-1"], language: "es", store: fixture.projectStore,
+            documentStore: fixture.documentStore, projectURL: fixture.projectURL)
+        XCTAssertEqual(single, both["es"])
     }
 
     /// Nothing readable in the set is an absence rather than a zero — the
@@ -71,14 +70,16 @@ final class TranslationPreflightTests: XCTestCase {
         let fixture = try await makeProject()
         defer { Task { await fixture.documentStore.close() } }
 
-        XCTAssertTrue(try TranslationPreflight.budgets(
+        let plural = try await TranslationPreflight.budgets(
             documentIds: ["no-such-doc"], languages: ["es"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
-            projectURL: fixture.projectURL).isEmpty)
-        XCTAssertNil(try TranslationPreflight.budget(
+            projectURL: fixture.projectURL)
+        XCTAssertTrue(plural.isEmpty)
+        let single = try await TranslationPreflight.budget(
             documentIds: ["no-such-doc"], language: "es",
             store: fixture.projectStore, documentStore: fixture.documentStore,
-            projectURL: fixture.projectURL))
+            projectURL: fixture.projectURL)
+        XCTAssertNil(single)
     }
 
     // MARK: - Helpers
@@ -109,12 +110,13 @@ final class TranslationPreflightTests: XCTestCase {
             at: squat.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
 
-        XCTAssertThrowsError(
-            try TranslationPreflight.budgets(
+        do {
+            _ = try await TranslationPreflight.budgets(
                 documentIds: ["doc-1"], languages: ["es"],
                 store: fixture.projectStore, documentStore: fixture.documentStore,
                 projectURL: fixture.projectURL)
-        ) { error in
+            XCTFail("expected the pre-flight to refuse")
+        } catch {
             guard case OpLogStore.ReadError.unreadableFile(let name, _, _) = error else {
                 return XCTFail("expected OpLogStore.ReadError.unreadableFile, got \(error)")
             }
@@ -143,7 +145,7 @@ final class TranslationPreflightTests: XCTestCase {
             at: squat.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: squat, withIntermediateDirectories: true)
 
-        let budgets = TranslationPreflight.Budgets.over(
+        let budgets = await TranslationPreflight.Budgets.over(
             documentIds: ["doc-1"], languages: ["es"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL)
@@ -168,7 +170,7 @@ final class TranslationPreflightTests: XCTestCase {
         let fixture = try await makeProject()
         defer { Task { await fixture.documentStore.close() } }
 
-        let budgets = TranslationPreflight.Budgets.over(
+        let budgets = await TranslationPreflight.Budgets.over(
             documentIds: ["doc-1"], languages: ["es"],
             store: fixture.projectStore, documentStore: fixture.documentStore,
             projectURL: fixture.projectURL)

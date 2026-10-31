@@ -318,7 +318,15 @@ final class TranslationPipeline {
                     generation: gen, token: token, skipReason: Self.nothingToTranslateReason,
                     start: { env.runTranslation(docId, language) },
                     onIngested: { outcome in
+                        // Paragraphs alone gate the reading legs: the
+                        // spot-check, collator and cold legs are
+                        // paragraph-only (report plan 9e-2), so a round that
+                        // labelled only cells has nothing new to read.
                         wroteAnything = wroteAnything || outcome.entriesWritten > 0
+                        if outcome.cellsWritten > 0 || !outcome.cellRefusals.isEmpty {
+                            round.tableCells = .init(
+                                written: outcome.cellsWritten, refusals: outcome.cellRefusals)
+                        }
                     })
 
             case .read, .reread:
@@ -421,7 +429,8 @@ final class TranslationPipeline {
             if !record(leg, result) { break }
         }
 
-        if !wroteAnything, round.stoppedAt == nil, round.summary == nil {
+        if !wroteAnything, (round.tableCells?.written ?? 0) == 0,
+           round.stoppedAt == nil, round.summary == nil {
             round.summary = Self.nothingToDoSummary
         }
         round.endedAt = Date()
@@ -508,7 +517,20 @@ final class TranslationPipeline {
             pending?.runId = runId
         }
         setLive(.gap, token: token)
-        guard generation == gen else { return .cancelled }
+        guard generation == gen else {
+            // **A cancel that landed while the words were being written**
+            // (9e-2 final fix wave, M1): the orchestrator refuses it — there
+            // was nothing left to stop — and ends the run as it landed. The
+            // round still stops here, but the leg records what was written,
+            // table cells included, rather than "cancelled" over words that
+            // landed.
+            if case .ended(let summary) = end, case .ingested(let outcome) = summary.outcome,
+               outcome.rejection == nil {
+                onIngested(outcome)
+                return Self.ran(outcome)
+            }
+            return .cancelled
+        }
         switch end {
         case .refused: return .failed(Self.translatorRefusedSentence)
         case .abandoned: return .failed(Self.unbriefableSentence(role: "translator"))
@@ -517,14 +539,17 @@ final class TranslationPipeline {
             case .ingested(let outcome):
                 if let rejection = outcome.rejection { return .failed(rejection) }
                 onIngested(outcome)
-                return .ran(.init(entries: outcome.entriesWritten, queries: outcome.queriesMinted,
-                                  addressed: outcome.addressed.count,
-                                  declined: outcome.declined.count))
+                return Self.ran(outcome)
             case .nothingToTranslate: return .skipped(skipReason)
             case .cancelled: return .cancelled
             case .failed(let failure): return .failed(DepartmentRunState.failureCopy(failure))
             }
         }
+    }
+
+    private static func ran(_ outcome: TranslatorOrchestrator.IngestOutcome) -> LegResult {
+        .ran(.init(entries: outcome.entriesWritten, queries: outcome.queriesMinted,
+                   addressed: outcome.addressed.count, declined: outcome.declined.count))
     }
 
     private enum ColdEnd {

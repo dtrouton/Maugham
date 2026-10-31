@@ -80,8 +80,10 @@ final class TranslatorOrchestrator {
         case idle
         /// `translating` is the work-list's own count, known before the send,
         /// so the desk can say what is being translated rather than making a
-        /// writer stare at a bare spinner for two minutes.
-        case running(docId: String, language: String, translating: Int)
+        /// writer stare at a bare spinner for two minutes; `cells` is the
+        /// round's table cells beside it (report plan 9e-2), counted apart
+        /// because a label is not a paragraph and the desk says which.
+        case running(docId: String, language: String, translating: Int, cells: Int = 0)
         case nothingToTranslate(docId: String, language: String, at: Date)
         case failed(docId: String, language: String, failure: Failure, at: Date)
     }
@@ -158,16 +160,26 @@ final class TranslatorOrchestrator {
         /// the CURRENT source's hash onto a translation of text the model was
         /// never shown, and the entry would read fresh forever.
         let briefedSourceHashes: [String: String]
+        /// `BriefedRound.inputs.tableCells`, carried whole (report plan 9e-2):
+        /// which tables and cells the round asked for, by name, and each
+        /// cell's source text as the model was shown it. Ingest writes only
+        /// cells named here, and hashes each against ITS briefed source, so a
+        /// label edited mid-round lands stale rather than fresh over the new
+        /// wording (Review Focus 2). Undefaulted for `briefedSourceHashes`'
+        /// reason.
+        let briefedTableCells: [TableCellWork]
 
         init(docId: String, language: String, runId: String,
              translatorName: String, translatorRoleId: String,
-             briefedSourceHashes: [String: String]) {
+             briefedSourceHashes: [String: String],
+             briefedTableCells: [TableCellWork]) {
             self.docId = docId
             self.language = language
             self.runId = runId
             self.translatorName = translatorName
             self.translatorRoleId = translatorRoleId
             self.briefedSourceHashes = briefedSourceHashes
+            self.briefedTableCells = briefedTableCells
         }
     }
 
@@ -206,13 +218,25 @@ final class TranslatorOrchestrator {
         let summary: String?
         let glossaryProposals: [TranslatorReport.GlossaryProposal]
         let rewrites: [ParagraphRewrite]
+        /// The table cells that landed (report plan 9e-2), counted apart
+        /// from `entriesWritten` because the pipeline's other legs are
+        /// paragraph-only and gate on that figure alone.
+        let cellsWritten: Int
+        /// **Every table cell the round could not write, as the sentence the
+        /// writer reads** — a malformed `cells` list, a table whose write the
+        /// door refused (a row deleted mid-round, a posture that no longer
+        /// reaches it), a cell the round never asked for. Not a `rejection`:
+        /// the paragraphs beside them landed, so the round is not failed, and
+        /// never silent either — the report says each one.
+        let cellRefusals: [String]
 
         init(entriesWritten: Int = 0, queriesMinted: Int = 0,
              warnings: [String] = [], rejection: String? = nil,
              addressed: [String] = [], declined: [TranslatorReport.Declined] = [],
              summary: String? = nil,
              glossaryProposals: [TranslatorReport.GlossaryProposal] = [],
-             rewrites: [ParagraphRewrite] = []) {
+             rewrites: [ParagraphRewrite] = [],
+             cellsWritten: Int = 0, cellRefusals: [String] = []) {
             self.entriesWritten = entriesWritten
             self.queriesMinted = queriesMinted
             self.warnings = warnings
@@ -222,6 +246,8 @@ final class TranslatorOrchestrator {
             self.summary = summary
             self.glossaryProposals = glossaryProposals
             self.rewrites = rewrites
+            self.cellsWritten = cellsWritten
+            self.cellRefusals = cellRefusals
         }
     }
 
@@ -386,6 +412,14 @@ final class TranslatorOrchestrator {
     /// over one work-list.
     private var isPreparingRun = false
 
+    /// The generation whose report is being written (`environment.ingest`),
+    /// or nil: words are landing, the turn is over, and there is nothing a
+    /// Cancel could stop. `cancel()` refuses inside it rather than end the
+    /// run as "cancelled — nothing was written" over words already written
+    /// (9e-2 final fix wave, M1). A generation rather than a flag, so an
+    /// ingest a shutdown abandoned never refuses the next run's Cancel.
+    private var ingestingGeneration: Int?
+
     /// The generation a run's suspensions belong to. A teardown between the
     /// click and the send **abandons** the run rather than letting it spawn a
     /// session the writer has just closed the window on; a boolean cleared
@@ -538,7 +572,10 @@ final class TranslatorOrchestrator {
         // `TranslationDeriver` already computed is the compiler's
         // empty-delta mistake in another currency. There is no marker to
         // advance here — freshness is the memory (spec §2, "no rounds ring").
-        guard !inputs.workList.isEmpty else {
+        // A piece whose paragraphs are all fresh can still owe its tables'
+        // labels (report plan 9e-2), so the delta is paragraphs OR cells.
+        let cellCount = inputs.tableCells.reduce(0) { $0 + $1.cells.count }
+        guard !inputs.workList.isEmpty || cellCount > 0 else {
             end(.nothingToTranslate, pair: pair, runId: runId)
             return
         }
@@ -552,13 +589,14 @@ final class TranslatorOrchestrator {
 
         isPreparingRun = false
         runState = .running(docId: pair.docId, language: pair.language,
-                            translating: inputs.workList.count)
+                            translating: inputs.workList.count, cells: cellCount)
 
         let event = await runner.send(
             message: TranslatorBriefing.compose(inputs: inputs),
             systemPreamble: Self.sessionSystemPreamble(projectId: environment.projectId))
         await finish(event, pair: pair, runId: runId, identity: identity,
-                     briefedSourceHashes: round.sourceHashes, reportMode: inputs.reportMode,
+                     briefedSourceHashes: round.sourceHashes,
+                     briefedTableCells: inputs.tableCells, reportMode: inputs.reportMode,
                      generation: generation)
     }
 
@@ -580,8 +618,8 @@ final class TranslatorOrchestrator {
     private func finish(
         _ event: CompilerRunEvent, pair: Pair, runId: String,
         identity: (name: String, roleId: String),
-        briefedSourceHashes: [String: String], reportMode: TranslatorReport.Mode,
-        generation: Int
+        briefedSourceHashes: [String: String], briefedTableCells: [TableCellWork],
+        reportMode: TranslatorReport.Mode, generation: Int
     ) async {
         switch event {
         case .started:
@@ -609,12 +647,15 @@ final class TranslatorOrchestrator {
             }
             guard runGeneration == generation, let environment else { return }
 
+            ingestingGeneration = generation
+            defer { if ingestingGeneration == generation { ingestingGeneration = nil } }
             let outcome = await environment.ingest(
                 report,
                 IngestContext(docId: pair.docId, language: pair.language, runId: runId,
                               translatorName: identity.name,
                               translatorRoleId: identity.roleId,
-                              briefedSourceHashes: briefedSourceHashes))
+                              briefedSourceHashes: briefedSourceHashes,
+                              briefedTableCells: briefedTableCells))
             // The last suspension, and the only one this class resumes from
             // with writes still to do. A shutdown inside the ingest window
             // has already set the surface idle; resuming afterwards would
@@ -675,7 +716,14 @@ final class TranslatorOrchestrator {
     /// it did not stop would go on to spend a whole turn. So the unsent case
     /// is abandoned here by generation, the way `shutdown()` abandons it, and
     /// the session is left alone because there is nothing of ours in it.
+    ///
+    /// **Refused while the report is being written** (`ingestingGeneration`): the
+    /// turn is over and words are landing, so there is nothing to stop, and
+    /// ending the run `.cancelled` would tell the desk nothing was written —
+    /// and lose the round's table-cell count — after words landed. The run
+    /// ends as it lands.
     func cancel() {
+        guard ingestingGeneration != runGeneration else { return }
         let hasUnsentRun = isRunning && runner?.isRunning != true
         runner?.cancelCurrentRun()
         guard hasUnsentRun, let active else { return }

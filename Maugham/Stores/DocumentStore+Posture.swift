@@ -325,14 +325,43 @@ extension DocumentStore {
             schedulePostureRefresh(force: false)
             return .settling
         }
+        let built = translationPermitFromTheBuilder(forDocId: docId, as: actor)
+        book.translationPermits[key] = built
+        return assemble(built.permit, yieldPiece: built.piece, overrideKey: docId, as: actor)
+    }
+
+    /// **The acting answer to the translation question** (report plan 9e-2
+    /// final fix wave, I1) — `translationPosture(forDocId:as:)` as a verb
+    /// acts on it, the way `settledPosture(forDocId:as:)` is `posture`'s:
+    /// never provisional, never `settling`. It waits out a refresh, re-warms
+    /// a table the folder has moved under, and otherwise asks the builder
+    /// directly — so a translator round on a cold table briefs the cells it
+    /// owes rather than reading `settling` as "not offered".
+    func settledTranslationPosture(
+        forDocId docId: String, as actor: DeviceActor = .author
+    ) async -> Posture {
+        await warmPostureTableForActing()
+        let book = postureBook
+        let key = PostureBook.Key(docId: docId, actor: actor)
+        let built = book.translationPermits[key] ?? {
+            let built = translationPermitFromTheBuilder(forDocId: docId, as: actor)
+            if postureTableIsWarm() { book.translationPermits[key] = built }
+            return built
+        }()
+        return assemble(built.permit, yieldPiece: built.piece, overrideKey: docId, as: actor)
+    }
+
+    /// The one builder over the translation class (tripwire 46), for both
+    /// translation accessors.
+    private func translationPermitFromTheBuilder(
+        forDocId docId: String, as actor: DeviceActor
+    ) -> (permit: LocalWritePermit, piece: String?) {
         let cls = DocumentClass.translationClass(ofDocId: docId) {
             (self.projectStore?.manifest).map(DocumentClass.Facts.init)
                 ?? OpLogStore.manifestFacts(in: self.projectURL)
         }
-        book.builderCalls += 1
-        let permit = postureOpStore.localWritePermit(as: actor) { cls }
-        book.translationPermits[key] = (permit, cls.piece)
-        return assemble(permit, yieldPiece: cls.piece, overrideKey: docId, as: actor)
+        postureBook.builderCalls += 1
+        return (postureOpStore.localWritePermit(as: actor) { cls }, cls.piece)
     }
 
     /// The same door, for the document the window shows by PATH. Resolves the
