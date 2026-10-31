@@ -13,23 +13,12 @@ import MaughamCore
 // `FigureCardDrawing.draw` only paints a plan.
 
 enum FigureCardDrawing {
-    /// The words a labelled card shows (ruling R7a-3), and the empty table's.
-    static let removedLabel = "Figure removed"
-    static let ambiguousLabel = "Two figures share this path"
-    static let parkedLabel = "In Research"
-    static let emptyLabel = "Empty table"
-    /// The amber banner on a card whose pinned Research source has changed.
-    static let pinChangedBanner = "Research has changed"
-
     /// The space left and right of a cell's text, inside its column.
     static let cellInset: CGFloat = 6
     /// The side of the tinted Research corner.
     static let cornerSize: CGFloat = 10
     /// The space left and right of a labelled card's words.
     static let labelInset: CGFloat = 8
-
-    /// "+ N more rows" (one row: "+ 1 more row").
-    static func moreText(_ n: Int) -> String { n == 1 ? "+ 1 more row" : "+ \(n) more rows" }
 
     struct Text: Equatable {
         var string: String
@@ -75,12 +64,12 @@ enum FigureCardDrawing {
         }
         switch model.kind {
         case .image: return nil
-        case .removed: return labelled(removedLabel)
-        case .ambiguous: return labelled(ambiguousLabel)
-        case .parked: return labelled(parkedLabel)
+        case .removed: return labelled(FigureCardText.removed)
+        case .ambiguous: return labelled(FigureCardText.ambiguous)
+        case .parked: return labelled(FigureCardText.parked)
         case .table: break
         }
-        guard model.shownRowCount > 0 else { return labelled(emptyLabel) }
+        guard model.shownRowCount > 0 else { return labelled(FigureCardText.empty) }
 
         // Rows in drawing order: header rows, body rows short of the total,
         // "+ N more rows", then the kept total row (Task 1: the total row is
@@ -101,8 +90,8 @@ enum FigureCardDrawing {
             }
         }
         var floor: CGFloat = 0
-        if model.moreRows > 0 { floor = max(floor, measure(moreText(model.moreRows), false) + 2 * cellInset) }
-        if model.changed { floor = max(floor, measure(pinChangedBanner, false) + 2 * cellInset) }
+        if model.moreRows > 0 { floor = max(floor, measure(FigureCardText.more(model.moreRows), false) + 2 * cellInset) }
+        if model.changed { floor = max(floor, measure(FigureCardText.pinChanged, false) + 2 * cellInset) }
         let natural = widths.reduce(0, +)
         let cardWidth = min(columnWidth, max(natural, floor.rounded(.up)))
         if natural > cardWidth, natural > 0 {
@@ -135,7 +124,7 @@ enum FigureCardDrawing {
         if !model.headerRows.isEmpty { plan.rules.append(y) }
         body.forEach { addRow($0, bold: false) }
         if model.moreRows > 0 {
-            plan.more = Text(string: moreText(model.moreRows),
+            plan.more = Text(string: FigureCardText.more(model.moreRows),
                              rect: CGRect(x: columnX + cellInset, y: y,
                                           width: max(0, cardWidth - 2 * cellInset), height: rowHeight))
             y += rowHeight
@@ -149,7 +138,7 @@ enum FigureCardDrawing {
                                  width: cornerSize, height: cornerSize)
         }
         if model.changed {
-            plan.banner = Text(string: pinChangedBanner,
+            plan.banner = Text(string: FigureCardText.pinChanged,
                                rect: CGRect(x: columnX, y: y, width: cardWidth, height: rowHeight))
         }
         return plan

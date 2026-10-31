@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// Read/write `.maugham/publish/config.json`. Pretty-printed, snake_case keys.
 /// Atomic writes (write to temp + rename).
@@ -17,7 +18,7 @@ public actor PublishConfigStore {
     /// body path to know when its imprint picker is stale — and a second
     /// spelling of `.maugham/publish/config.json` is a path that can drift.
     public nonisolated static func fileURL(in projectURL: URL) -> URL {
-        projectURL.appendingPathComponent(".maugham/publish/config.json")
+        BookLanguage.configURL(in: projectURL)
     }
 
     public func load() throws -> PublishConfig? { try Self.read(in: projectURL) }

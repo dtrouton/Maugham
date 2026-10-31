@@ -186,6 +186,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed.
 - `FigureCache.swift` — a figure's derived state cached on its op-log file set, and a book's table figures assembled into one workbook by figure id, parked figures from their parked state and listed, each figure's research pins indexed for the workbook.
+- `BookLanguage.swift` — the publish config's path and its `metadata.language` as a tag, for both cards.
+- `FigureCardText.swift` — the words a table figure's card shows, shared by the Mac and phone cards.
 - `FigureCardModel.swift` — a table figure card's rows and height.
 - `FigureTableLayout.swift` — a table figure's printed cells (header/body/total, resolved alignments, error cells); owns the shared alignment rule.
 - `FigurePathRule.swift` — the lexical figure-path rule Publish shares.

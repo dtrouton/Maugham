@@ -85,8 +85,8 @@ final class FigureCardDrawingTests: XCTestCase {
     }
 
     func test_oneMoreRowIsSingular() {
-        XCTAssertEqual(FigureCardDrawing.moreText(1), "+ 1 more row")
-        XCTAssertEqual(FigureCardDrawing.moreText(2), "+ 2 more rows")
+        XCTAssertEqual(FigureCardText.more(1), "+ 1 more row")
+        XCTAssertEqual(FigureCardText.more(2), "+ 2 more rows")
     }
 
     func test_flags_aTintedCornerAndAnAmberBanner() throws {
