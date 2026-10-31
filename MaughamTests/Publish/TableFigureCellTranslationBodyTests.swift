@@ -3,9 +3,9 @@ import XCTest
 @testable import Maugham
 
 /// **A language body prints a table's translated text cells** (report plan
-/// 9e-1 Task 5, spec §8): the publish snapshot carries each table's FRESH cell
-/// translations per language (`PublishFigures.cellTranslations`), the
-/// resolution hands the body's language's labels to `FigureTableLayout`, and
+/// 9e-1 Task 5, spec §8): the one resolve door reads each translated body's
+/// FRESH cell translations (`FigureUse.freshLabels`), the resolution hands
+/// them to `FigureTableLayout`, and
 /// the PDF, EPUB and Word bodies all draw from that one layout. A stale or
 /// missing cell prints its source (the coverage gate says so); numbers and
 /// formulas are shared; the source body is untouched.
@@ -34,18 +34,17 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
         return (t, k(0, 0), k(1, 0), k(2, 0))
     }
 
-    private func figures(_ table: FigureTable,
-                         translations: [String: [String: [CellKey: String]]]) -> PublishFigures {
+    private func figures(_ table: FigureTable) -> PublishFigures {
         var book = Workbook(pins: FigurePinIndex())
         book.setTable(table, id: cashID)
         return PublishFigures(
             records: [FigureRecord(id: cashID, name: "cash", kind: .table, piece: nil, path: "figures/cash.csv")],
             states: [cashID: FigureState(kind: .table, table: table)],
-            workbook: book, pinStatus: [:], sourceChanged: [], parked: [],
-            cellTranslations: translations)
+            workbook: book, pinStatus: [:], sourceChanged: [], parked: [])
     }
 
-    private func resolved(_ figures: PublishFigures, language: String?)
+    private func resolved(_ figures: PublishFigures, language: String?,
+                          labels: [String: [CellKey: String]])
         throws -> (ProjectAST, PublishResolution) {
         let context = PublishContext(
             library: CitationLibrary(items: []), profile: .report,
@@ -56,35 +55,38 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
         let ast = try ProjectASTBuilder.build(from: source)
         let resolution = try PublishResolution.forCompile(
             source: source, bodyTag: nil, imageAllowed: ["png"], bodyLanguage: language,
-            tableLocale: TableLocale(languageTag: language ?? "en-US"))
+            tableLocale: TableLocale(languageTag: language ?? "en-US"), cellLabels: labels)
         return (ast, resolution)
     }
 
-    private func xhtml(_ figures: PublishFigures, language: String?) throws -> String {
-        let (ast, resolution) = try resolved(figures, language: language)
+    private func xhtml(_ figures: PublishFigures, language: String?,
+                       labels: [String: [CellKey: String]] = [:]) throws -> String {
+        let (ast, resolution) = try resolved(figures, language: language, labels: labels)
         return XHTMLBodyEmitter.emit(ast, resolution: resolution)
     }
 
-    private func latex(_ figures: PublishFigures, language: String?) throws -> String {
-        let (ast, resolution) = try resolved(figures, language: language)
+    private func latex(_ figures: PublishFigures, language: String?,
+                       labels: [String: [CellKey: String]] = [:]) throws -> String {
+        let (ast, resolution) = try resolved(figures, language: language, labels: labels)
         return LaTeXBodyEmitter.emit(ast, resolution: resolution, isFirstBody: true)
     }
 
-    private func docx(_ figures: PublishFigures, language: String?) throws -> String {
-        let (ast, resolution) = try resolved(figures, language: language)
+    private func docx(_ figures: PublishFigures, language: String?,
+                       labels: [String: [CellKey: String]] = [:]) throws -> String {
+        let (ast, resolution) = try resolved(figures, language: language, labels: labels)
         return DOCXBodyEmitter.emit(
             bodies: [DOCXBodyEmitter.Body(ast: ast, resolution: resolution, bodyTag: nil, figureFiles: [:])],
             config: PublishConfig(), page: .letter).documentXML
     }
 
     /// The es labels for Item and Rent; Total has none (missing or stale).
-    private func spanish(_ item: CellKey, _ rent: CellKey) -> [String: [String: [CellKey: String]]] {
-        ["es": [cashID: [item: "Concepto", rent: "Alquiler"]]]
+    private func spanish(_ item: CellKey, _ rent: CellKey) -> [String: [CellKey: String]] {
+        [cashID: [item: "Concepto", rent: "Alquiler"]]
     }
 
     func test_anEsEPUBBodyPrintsTheTranslatedLabels() throws {
         let (t, item, rent, _) = try cashTable()
-        let html = try xhtml(figures(t, translations: spanish(item, rent)), language: "es")
+        let html = try xhtml(figures(t), language: "es", labels: spanish(item, rent))
         XCTAssertTrue(html.contains(">Concepto</th>"), html)
         XCTAssertTrue(html.contains(">Alquiler</td>"), html)
         XCTAssertTrue(html.contains(">Total</td>"), "a cell with no fresh translation prints its source: \(html)")
@@ -95,7 +97,7 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
 
     func test_anEsWordBodyPrintsTheTranslatedLabels() throws {
         let (t, item, rent, _) = try cashTable()
-        let xml = try docx(figures(t, translations: spanish(item, rent)), language: "es")
+        let xml = try docx(figures(t), language: "es", labels: spanish(item, rent))
         XCTAssertTrue(xml.contains(">Concepto</w:t>"), xml)
         XCTAssertTrue(xml.contains(">Alquiler</w:t>"), xml)
         XCTAssertTrue(xml.contains(">Total</w:t>"), xml)
@@ -104,29 +106,24 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
 
     func test_anEsPDFBodyPrintsTheTranslatedLabels() throws {
         let (t, item, rent, _) = try cashTable()
-        let tex = try latex(figures(t, translations: spanish(item, rent)), language: "es")
+        let tex = try latex(figures(t), language: "es", labels: spanish(item, rent))
         XCTAssertTrue(tex.contains("Concepto"), tex)
         XCTAssertTrue(tex.contains("Alquiler"), tex)
         XCTAssertTrue(tex.contains("Total"), tex)
         XCTAssertFalse(tex.contains("Rent &") || tex.contains("Rent\\\\"), tex)
     }
 
-    /// **The source body is byte-identical** whatever translations the
-    /// snapshot carries, in every format; and another language's labels never
-    /// reach an es body.
-    func test_theSourceBodyIsByteIdenticalWithTranslationsInTheSnapshot() throws {
+    /// **The source body is byte-identical** with no labels handed in (what
+    /// the resolve door gives a body with no language), in every format.
+    func test_theSourceBodyIsByteIdenticalWithoutLabels() throws {
         let (t, item, rent, _) = try cashTable()
-        let bare = figures(t, translations: [:])
-        let carrying = figures(t, translations: spanish(item, rent))
-        XCTAssertEqual(try xhtml(carrying, language: nil), try xhtml(bare, language: nil))
-        XCTAssertEqual(try latex(carrying, language: nil), try latex(bare, language: nil))
-        XCTAssertEqual(try docx(carrying, language: nil), try docx(bare, language: nil))
-        XCTAssertTrue(try xhtml(carrying, language: nil).contains(">Rent</td>"))
-
-        let french = figures(t, translations: ["fr": [cashID: [rent: "Loyer"]]])
-        let es = try xhtml(french, language: "es")
-        XCTAssertFalse(es.contains("Loyer"), es)
-        XCTAssertTrue(es.contains(">Rent</td>"), es)
+        let es = try xhtml(figures(t), language: "es", labels: spanish(item, rent))
+        XCTAssertTrue(es.contains("Alquiler"), "premise: labels change an es body")
+        let bare = try xhtml(figures(t), language: nil)
+        XCTAssertTrue(bare.contains(">Rent</td>"), bare)
+        XCTAssertFalse(bare.contains("Alquiler"))
+        XCTAssertEqual(try latex(figures(t), language: nil), try latex(figures(t), language: nil, labels: [:]))
+        XCTAssertFalse(try docx(figures(t), language: nil).contains("Alquiler"))
     }
 
     // MARK: - Through the store's snapshot and the compile's resolve
@@ -217,10 +214,11 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
     }
 
     /// **The compile prints a fresh translation and falls back on a stale
-    /// one**: the snapshot holds only fresh labels, derived against the
-    /// figure's current state; after "Rent" becomes "Rents" the es body prints
+    /// one**: the resolve door reads only fresh labels, derived against the
+    /// snapshot's state; after "Rent" becomes "Rents" the es body prints
     /// "Rents" (the source) while the untouched header keeps its translation,
-    /// and the source body never changes.
+    /// and the source body never changes. The snapshot itself carries no
+    /// translation (every figure reader pays nothing for them).
     func test_theCompilePrintsFreshTranslationsAndTheSourceForAStaleCell() async throws {
         let (ds, store, figureId) = try await openBook()
         let before = await store.publishFigures()
@@ -230,8 +228,6 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
         try await writeSpanish([.init(key: item, text: "Concepto"), .init(key: rent, text: "Alquiler")],
                                figureId: figureId, table: table)
 
-        let snapshot = await store.publishFigures()
-        XCTAssertEqual(snapshot.cellTranslations["es"]?[figureId], [item: "Concepto", rent: "Alquiler"])
         var layouts = try await compiledLayouts(store)
         XCTAssertEqual(layouts.es.header, ["Concepto", "Amount"])
         XCTAssertEqual(layouts.es.body, [["Alquiler", "100"]])
@@ -242,9 +238,6 @@ final class TableFigureCellTranslationBodyTests: XCTestCase {
         try await host.setCell(Cell(content: .value(.text("Rents"))), at: rent)
         await ds.awaitOpenFigureRenderForTesting()
 
-        let after = await store.publishFigures()
-        XCTAssertEqual(after.cellTranslations["es"]?[figureId], [item: "Concepto"],
-                       "a stale translation is not printed")
         layouts = try await compiledLayouts(store)
         XCTAssertEqual(layouts.es.header, ["Concepto", "Amount"])
         XCTAssertEqual(layouts.es.body, [["Rents", "100"]], "the stale cell prints its source")

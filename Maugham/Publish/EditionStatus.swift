@@ -126,6 +126,9 @@ enum EditionStatus {
     struct Report: Equatable, Sendable {
         var rows: [LanguageRow]
         var unreadable: [UnreadableDocument]
+        /// The table rows folded into `rows`, kept so a desk pass that need
+        /// not recount the tables (a round is running) can fold them again.
+        var figures = FigureReport(rows: [], unreadable: [])
     }
 
     /// `documentRows`' own answer, in the per-`(document, language)` shape
@@ -135,6 +138,9 @@ enum EditionStatus {
     struct DocumentReport: Equatable, Sendable {
         var rows: [DocumentRow]
         var unreadable: [UnreadableDocument]
+        /// The documents whose text this walk read, by id — handed to
+        /// `figureRows` so no document is read twice.
+        var texts: [String: FigureUse.Piece] = [:]
     }
 
     /// Every manuscript leaf — the same walk `ProjectStoreASTSource` does,
@@ -173,25 +179,41 @@ enum EditionStatus {
     /// because the two are different questions and the whole-book one has a
     /// caller (`translation_status`, the tool this desk must agree with) that
     /// must never accidentally acquire a scope.
+    ///
+    /// `reusingFigures`: the table rows a previous pass counted, folded in
+    /// again instead of recounting them — the desk passes them while a round
+    /// is running, whose per-ingest events would otherwise recount every
+    /// table per event (`DepartmentPaneHost.refillsBudgets`' precedent; the
+    /// round's end re-derives).
     static func languageRows(
-        in store: ProjectStore, projectURL: URL, documentIds: [String]
+        in store: ProjectStore, projectURL: URL, documentIds: [String],
+        reusingFigures: FigureReport? = nil
     ) async -> Report {
         let documents = await documentRows(
             documentIds: documentIds, store: store, projectURL: projectURL)
         // The tables those documents use count too (report plan 9e-1 Task 6):
         // the coverage gate refuses an edition over an untranslated cell, so a
         // desk that left them out would read "done" over a compile that fails.
-        let figures = await figureRows(
-            documentIds: documentIds, languages: Set(documents.rows.map(\.language)),
-            store: store, projectURL: projectURL)
+        let figures: FigureReport
+        if let reusingFigures {
+            figures = reusingFigures
+        } else {
+            figures = await figureRows(
+                documentIds: documentIds, languages: Set(documents.rows.map(\.language)),
+                texts: documents.texts, store: store, projectURL: projectURL)
+        }
         return Report(
             rows: languageRows(from: documents.rows, figures: figures.rows, in: store.manifest),
-            unreadable: documents.unreadable + figures.unreadable)
+            unreadable: documents.unreadable + figures.unreadable,
+            figures: figures)
     }
 
     /// **Which languages this book has a translation layer in** — any
-    /// translation file for a manuscript document or a registered table
-    /// figure, read off one listing (`TranslationStore.languagesByDocId`).
+    /// translation file for a manuscript document, or for a table the book
+    /// prints (used in a manuscript piece and not parked, `FigureUse` — the
+    /// gate counts no other table's records), read off one listing
+    /// (`TranslationStore.languagesByDocId`). Which tables are used is asked
+    /// only when a table's file names a language no document has.
     ///
     /// It is the coverage gate's own distinction (`TranslationCoverage.check`'s
     /// zero-layer guard): in a language with a layer, a document or table with
@@ -201,13 +223,40 @@ enum EditionStatus {
     /// gate). In a language with no layer anywhere (a translator named or a
     /// question asked, nothing written yet) the gate refuses as "no
     /// translation layer", and the status reports the edition *not started*:
-    /// zero counts, not "every paragraph missing". Book-wide, whatever subset
-    /// a caller reports, as the gate's zero-layer guard is.
-    static func layerLanguages(in store: ProjectStore, projectURL: URL) -> Set<String> {
+    /// zero counts, not "every paragraph missing".
+    ///
+    /// **Over the edition the caller describes** (`scope`), as the gate's
+    /// guard is over the pieces it compiles: the desk standing on an imprint
+    /// passes that imprint's documents (a layer only outside them is, for
+    /// that compile, no layer), the whole-book desk and `translation_status`
+    /// every manuscript document — a `document_id` filter narrows the report,
+    /// not the edition.
+    static func layerLanguages(in store: ProjectStore, projectURL: URL, scope: [String]) async -> Set<String> {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
-        let ids = manuscriptDocumentIds(in: store.manifest)
-            + (store.manifest.figures ?? []).filter { $0.kind == .table }.map(\.id)
-        return ids.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let inScope = Set(scope)
+        let manuscript = manuscriptDocumentIds(in: store.manifest).filter(inScope.contains)
+        var layer = manuscript.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let tables = (store.manifest.figures ?? []).filter { $0.kind == .table }.map(\.id)
+        let onlyTables = tables.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+            .subtracting(layer)
+        guard !onlyTables.isEmpty else { return layer }
+        let figures = await store.translationFigures()
+        let used = FigureUse.tables(
+            in: manuscript.compactMap { text(of: $0, store: store, projectURL: projectURL) },
+            figures: figures).readable
+        for use in used { layer.formUnion((byDoc[use.record.id] ?? []).intersection(onlyTables)) }
+        return layer
+    }
+
+    /// A manuscript document's current text (an open `Document`, else the
+    /// derived state — tripwire 20), or nil when it has no path or will not
+    /// read (`documentRows` names that document).
+    private static func text(of documentId: String, store: ProjectStore, projectURL: URL) -> FigureUse.Piece? {
+        guard let path = TreeWalk.find(id: documentId, in: store.manifest.structure)?.path,
+              let state = try? currentParagraphState(
+                documentId: documentId, store: store, documentStore: store.documentStore,
+                projectURL: projectURL) else { return nil }
+        return FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs)
     }
 
     /// One row per `(document, language)` over the documents named.
@@ -255,8 +304,11 @@ enum EditionStatus {
     /// mistake rather than a damaged chapter, and it fails loudly at the tool;
     /// were it recorded here instead, a typo would be reported to its author as
     /// a chapter they should go and repair.
+    ///
+    /// `layerScope`: the edition `layerLanguages` is asked over — nil for the
+    /// documents named; `translation_status` passes the whole book.
     static func documentRows(
-        documentIds: [String], store: ProjectStore, projectURL: URL
+        documentIds: [String], layerScope: [String]? = nil, store: ProjectStore, projectURL: URL
     ) async -> DocumentReport {
         var rows: [DocumentRow] = []
         var unreadable: [UnreadableDocument] = []
@@ -265,7 +317,9 @@ enum EditionStatus {
         // writer has only just named reports a row for every manuscript
         // document instead of none at all.
         let roleLanguages = storedTranslatorLanguages(in: store.manifest)
-        let layer = layerLanguages(in: store, projectURL: projectURL)
+        let layer = await layerLanguages(
+            in: store, projectURL: projectURL, scope: layerScope ?? documentIds)
+        var texts: [String: FigureUse.Piece] = [:]
         // ONE trust resolution for the whole book (whole-branch review, I1).
         // `TranslationStore.loadMerged` resolves its own when handed none, and
         // that is a verified read of the registry folder plus a reconcile — a
@@ -284,9 +338,11 @@ enum EditionStatus {
                 // through in the answer and the rest out of it, which reads as a
                 // chapter PARTLY translated on the strength of where the failure
                 // happened to land.
-                rows += try await documentRows(
+                let read = try await documentRows(
                     documentId: documentId, roleLanguages: roleLanguages, layer: layer,
                     store: store, projectURL: projectURL, trust: try resolved.get())
+                rows += read.rows
+                if let text = read.text { texts[documentId] = text }
             } catch {
                 unreadable.append(UnreadableDocument(
                     documentId: documentId,
@@ -302,45 +358,58 @@ enum EditionStatus {
                     reason: error.localizedDescription))
             }
         }
-        return DocumentReport(rows: rows, unreadable: unreadable)
+        return DocumentReport(rows: rows, unreadable: unreadable, texts: texts)
     }
 
     /// **The tables the named documents use, one row per (table, language)**
     /// (report plan 9e-1 Task 6) — `translation_status`'s `figures` and the
     /// desk's cell counts, by the coverage gate's own reader (`FigureUse`)
-    /// over the publish snapshot (`ProjectStore.publishFigures()`, the table
-    /// the bodies print). Languages: `languages` (the document rows') plus
-    /// each table's own file languages; counted by `documentRows`' layer rule
-    /// (`layerLanguages`) — derived where the book has a layer, zero (not
-    /// started) where it has none. Never throws: a document whose text will
-    /// not read is already in `documentRows`' unreadable and is skipped here;
-    /// a table whose state or translations will not read is named.
+    /// over the book's table states (`ProjectStore.translationFigures()`:
+    /// the states a publish snapshot holds, none of its costs). Languages:
+    /// `languages` (the document rows') plus each table's own file languages;
+    /// counted by `documentRows`' layer rule (`layerLanguages`) — derived
+    /// where the book has a layer, zero (not started) where it has none.
+    ///
+    /// `texts` are the documents `documentRows` already read; only the rest
+    /// are read here. The translation reads and derivations run off the main
+    /// actor. Never throws: a document whose text will not read is already in
+    /// `documentRows`' unreadable and is skipped; a table whose state or
+    /// translations will not read is named.
     static func figureRows(
-        documentIds: [String], languages: Set<String>, store: ProjectStore, projectURL: URL
+        documentIds: [String], layerScope: [String]? = nil, languages: Set<String>,
+        texts: [String: FigureUse.Piece] = [:], store: ProjectStore, projectURL: URL
     ) async -> FigureReport {
-        guard !(store.manifest.figures ?? []).isEmpty else { return FigureReport(rows: [], unreadable: []) }
-        let snapshot = await store.publishFigures()
-        let pieces: [FigureUse.Piece] = documentIds.compactMap { id in
-            guard let path = TreeWalk.find(id: id, in: store.manifest.structure)?.path,
-                  let state = try? currentParagraphState(
-                    documentId: id, store: store, documentStore: store.documentStore,
-                    projectURL: projectURL) else { return nil }
-            return FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs)
-        }
-        let used = FigureUse.tables(in: pieces, figures: snapshot)
-        var unreadable = used.unreadable.map {
+        guard (store.manifest.figures ?? []).contains(where: { $0.kind == .table })
+        else { return FigureReport(rows: [], unreadable: []) }
+        let pieces = documentIds.compactMap { texts[$0] ?? text(of: $0, store: store, projectURL: projectURL) }
+        let figures = await store.translationFigures()
+        let used = FigureUse.tables(in: pieces, figures: figures)
+        let unreadable = used.unreadable.map {
             UnreadableDocument(documentId: $0.id, title: "Table: \($0.name)",
                                reason: "its op log would not fold")
         }
         guard !used.readable.isEmpty else { return FigureReport(rows: [], unreadable: unreadable) }
-        let layer = layerLanguages(in: store, projectURL: projectURL)
+        let layer = await layerLanguages(
+            in: store, projectURL: projectURL, scope: layerScope ?? documentIds)
+        let tables = used.readable
+        let counted = await Task.detached(priority: .userInitiated) {
+            countRows(tables: tables, languages: languages, layer: layer, projectURL: projectURL)
+        }.value
+        return FigureReport(rows: counted.rows, unreadable: unreadable + counted.unreadable)
+    }
+
+    /// `figureRows`' counting half, off the main actor: one trust resolution,
+    /// then each table's records read and derived per language.
+    nonisolated private static func countRows(
+        tables: [FigureUse.Table], languages: Set<String>, layer: Set<String>, projectURL: URL
+    ) -> FigureReport {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
-        // One trust resolution for every table, as `documentRows` does.
         let resolved = Result {
             try TrustResolution.resolve(projectURL: projectURL, identities: .current)
         }
         var rows: [FigureRow] = []
-        for use in used.readable {
+        var unreadable: [UnreadableDocument] = []
+        for use in tables {
             do {
                 var perLanguage: [FigureRow] = []
                 for language in languages.union(byDoc[use.record.id] ?? []).sorted() {
@@ -376,7 +445,9 @@ enum EditionStatus {
     private static func documentRows(
         documentId: String, roleLanguages: [String], layer: Set<String>,
         store: ProjectStore, projectURL: URL, trust: TrustTable
-    ) async throws -> [DocumentRow] {
+    ) async throws -> (rows: [DocumentRow], text: FigureUse.Piece?) {
+        // The document's text, read at most once across its languages.
+        var state: (sequence: [String], paragraphs: [String: String], projectURL: URL)?
         // Languages with an actual translation file — a cheap filename scan.
         let fileLanguages = Set(
             TranslationStore.languages(forDocId: documentId, in: projectURL))
@@ -420,9 +491,10 @@ enum EditionStatus {
                     openQueries: openQueryCount))
                 continue
             }
-            let state = try currentParagraphState(
+            let read = try state ?? currentParagraphState(
                 documentId: documentId, store: store,
                 documentStore: store.documentStore, projectURL: projectURL)
+            state = read
             let derived = TranslationDeriver.derive(
                 // P2a D0: an unreadable actor file throws, and the walk
                 // above records this whole chapter in `unreadable` with the
@@ -431,8 +503,8 @@ enum EditionStatus {
                 records: try TranslationStore.loadMerged(
                     forDocId: documentId, language: language, in: projectURL,
                     trust: trust),
-                sequence: state.sequence,
-                paragraphs: state.paragraphs,
+                sequence: read.sequence,
+                paragraphs: read.paragraphs,
                 language: language)
             rows.append(DocumentRow(
                 documentId: documentId, language: language,
@@ -444,7 +516,9 @@ enum EditionStatus {
                 orphans: derived.orphans.count,
                 openQueries: openQueryCount))
         }
-        return rows
+        guard let state, let path = TreeWalk.find(id: documentId, in: store.manifest.structure)?.path
+        else { return (rows, nil) }
+        return (rows, FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs))
     }
 
     /// The per-document rows folded into one row per language.

@@ -676,44 +676,29 @@ extension DocumentStore {
         let parked = assembled.parked.union(states.compactMap { $0.value.parked == nil ? nil : $0.key })
         return PublishFigures(
             records: records, states: states, workbook: assembled.workbook,
-            pinStatus: pinStatus, sourceChanged: sourceChanged, parked: parked,
-            cellTranslations: freshCellTranslations(
-                records: records, states: states, parked: parked, trust: trust))
+            pinStatus: pinStatus, sourceChanged: sourceChanged, parked: parked)
     }
 
-    /// **Each unparked table's fresh cell translations, per language** (report
-    /// plan 9e-1 Task 5): every language the figure has a translation file in,
-    /// derived against the state this snapshot holds
-    /// (`FigureTranslationDeriver`), so a body prints exactly what the MCP
-    /// tools call fresh. A language whose file will not read is left out — the
-    /// body prints the source there, and the coverage gate, which reads the
-    /// same files itself, refuses the edition (P2a D0) — and said in the log.
-    private func freshCellTranslations(
-        records: [FigureRecord], states: [String: FigureState], parked: Set<String>,
-        trust: TrustTable
-    ) -> [String: [String: [CellKey: String]]] {
-        var out: [String: [String: [CellKey: String]]] = [:]
-        for record in records where !parked.contains(record.id) {
-            switch record.kind {
-            case .table: break
-            case .image, .unknown: continue
-            }
-            guard let state = states[record.id], state.kind == .table else { continue }
-            for language in TranslationStore.languages(forDocId: record.id, in: projectURL) {
-                do {
-                    let labels = FigureTranslationDeriver.derive(
-                        records: try TranslationStore.loadMerged(
-                            forDocId: record.id, language: language, in: projectURL,
-                            identities: Document.loadIdentities, trust: trust),
-                        table: state.table, language: language).freshLabels
-                    if !labels.isEmpty { out[language, default: [:]][record.id] = labels }
-                } catch {
-                    documentLog.error(
-                        "figure \(record.id, privacy: .public): its \(language, privacy: .public) cell translations did not read for a publish: \(error.localizedDescription, privacy: .public)")
-                }
-            }
+    /// **The book's tables as translation counts need them** (report plan
+    /// 9e-1): the registry and each figure's state (an open host's fold, else
+    /// the cache's read) and which are parked — `publishFigures()` without
+    /// its costs (no assembly, no pin sources, no Research hashing), for the
+    /// desk's rows and `translation_status`. `.none` with no figures or a
+    /// registry that will not read (logged).
+    func translationFigures() async -> PublishFigures {
+        guard let projectStore, !(projectStore.manifest.figures ?? []).isEmpty else { return .none }
+        let trust: TrustTable
+        do { trust = try await figureTrust() } catch {
+            documentLog.error(
+                "translation counts read no figure: the registry would not read: \(error.localizedDescription, privacy: .public)")
+            return .none
         }
-        return out
+        guard let manifest = self.projectStore?.manifest,
+              let records = manifest.figures, !records.isEmpty else { return .none }
+        let states = figureStates(manifest: manifest, trust: trust)
+        return PublishFigures(
+            records: records, states: states, workbook: nil, pinStatus: [:], sourceChanged: [],
+            parked: Set(states.compactMap { $0.value.parked == nil ? nil : $0.key }))
     }
 
     /// **The figures whose Research source has moved on** (report plan 8b

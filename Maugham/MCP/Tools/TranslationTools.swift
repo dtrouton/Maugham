@@ -591,16 +591,19 @@ public enum TranslationStatusTool: MCPTool {
         // translation status became one failed call. It now degrades to an
         // entry in `unreadable_documents`, which is the same fact the desk
         // draws — one derivation, one degrade.
+        // The edition is the whole book, whatever `document_id` narrows the
+        // report to — the layer rule's scope (`EditionStatus.layerLanguages`).
+        let book = EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
         let report = await EditionStatus.documentRows(
-            documentIds: docIds, store: entry.store, projectURL: entry.url)
+            documentIds: docIds, layerScope: book, store: entry.store, projectURL: entry.url)
         let rounds = TranslationRoundStore(projectURL: entry.url)
 
         // The tables those documents use — `EditionStatus`'s, with the desk's
         // layer rule and the coverage gate's reader (`FigureUse`), so a
         // table's `missing` here is what the gate refuses over.
         let figures = await EditionStatus.figureRows(
-            documentIds: docIds, languages: Set(report.rows.map(\.language)),
-            store: entry.store, projectURL: entry.url)
+            documentIds: docIds, layerScope: book, languages: Set(report.rows.map(\.language)),
+            texts: report.texts, store: entry.store, projectURL: entry.url)
 
         return try JSONEncoder().encode(Result(rows: report.rows.map {
             Row(document_id: $0.documentId,

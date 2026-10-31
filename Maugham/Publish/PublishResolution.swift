@@ -134,11 +134,12 @@ public struct PublishResolution: Sendable {
                                   imageAllowed: Set<String>,
                                   bodyLanguage: String? = nil,
                                   words: ElementWords = .english,
-                                  tableLocale: TableLocale = TableLocale(languageTag: nil)) throws -> PublishResolution {
+                                  tableLocale: TableLocale = TableLocale(languageTag: nil),
+                                  cellLabels: [String: [CellKey: String]] = [:]) throws -> PublishResolution {
         let scope = source.resolutionScope
         return resolve(try ProjectASTBuilder.build(from: scope), context: scope.publishContext(),
                        bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
-                       words: words, tableLocale: tableLocale)
+                       words: words, tableLocale: tableLocale, cellLabels: cellLabels)
     }
 
     /// `forCompile`, given the AST the compiler already built from `source`
@@ -150,14 +151,16 @@ public struct PublishResolution: Sendable {
                                   bodyTag: String?, imageAllowed: Set<String>,
                                   bodyLanguage: String? = nil,
                                   words: ElementWords = .english,
-                                  tableLocale: TableLocale = TableLocale(languageTag: nil)) throws -> PublishResolution {
+                                  tableLocale: TableLocale = TableLocale(languageTag: nil),
+                                  cellLabels: [String: [CellKey: String]] = [:]) throws -> PublishResolution {
         guard source.isWholeBook else {
             return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                                  bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale)
+                                  bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale,
+                                  cellLabels: cellLabels)
         }
         return resolve(ast, context: source.resolutionScope.publishContext(),
                        bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
-                       words: words, tableLocale: tableLocale)
+                       words: words, tableLocale: tableLocale, cellLabels: cellLabels)
     }
 
     /// - Parameters:
@@ -167,13 +170,18 @@ public struct PublishResolution: Sendable {
     ///   - tableLocale: how the body's table-figure cells print
     ///     (`PublishProblemGate.tableLocale(for:macRegion:)`); with none,
     ///     English in the Mac's region.
+    ///   - cellLabels: a translated body's fresh table-cell translations, by
+    ///     figure id (`FigureUse.freshLabels`, report plan 9e-1); empty for
+    ///     the source body, whose cells print as they stand.
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>,
                                bodyLanguage: String? = nil,
                                words: ElementWords = .english,
-                               tableLocale: TableLocale = TableLocale(languageTag: nil)) -> PublishResolution {
+                               tableLocale: TableLocale = TableLocale(languageTag: nil),
+                               cellLabels: [String: [CellKey: String]] = [:]) -> PublishResolution {
         var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                        bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale)
+                        bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale,
+                        cellLabels: cellLabels)
         pass.headingBase = ast.sections.flatMap(\.nodes).compactMap { node -> Int? in
             guard case .prose(.heading(let level, _, _)) = node else { return nil }
             return level
@@ -215,6 +223,9 @@ private struct Pass {
     let bodyLanguage: String?
     let words: ElementWords
     let tableLocale: TableLocale
+    /// The body's fresh table-cell translations by figure id; empty for the
+    /// source body.
+    let cellLabels: [String: [CellKey: String]]
     /// The registry keyed once for every table-figure line of the book.
     private let figureIndex: FigureLineResolution.Index
     /// The labels that would name a parked figure (`tbl:` a table's name,
@@ -251,8 +262,10 @@ private struct Pass {
     private var citations: [[CitationItem]] = []
 
     init(context: PublishContext, bodyTag: String?, imageAllowed: Set<String>,
-         bodyLanguage: String?, words: ElementWords, tableLocale: TableLocale) {
+         bodyLanguage: String?, words: ElementWords, tableLocale: TableLocale,
+         cellLabels: [String: [CellKey: String]]) {
         self.words = words
+        self.cellLabels = cellLabels
         self.tableLocale = tableLocale
         self.figureIndex = FigureLineResolution.Index(context.figures.records)
         let figures = context.figures
@@ -478,8 +491,8 @@ private struct Pass {
         var book = figures.workbook ?? Workbook(pins: FigurePinIndex())
         book.setTable(state.table, id: record.id)
         // A translated body prints its fresh cell translations; the source
-        // body (no language) asks nothing, so its layout is unchanged.
-        let labels = figures.cellLabels(figureId: record.id, language: bodyLanguage)
+        // body has none, asks nothing, and its layout is unchanged.
+        let labels = cellLabels[record.id]
         let layout = FigureTableLayout.make(table: state.table, value: {
             book.value(at: CellAddress(table: record.id, key: $0))
         }, locale: tableLocale, label: labels.map { labels in { labels[$0] } })

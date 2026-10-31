@@ -262,4 +262,92 @@ final class TableFigureCoverageGateTests: XCTestCase {
                   fresh: 0, stale: 0, missing: 0, verbatim: 0, orphans: 0),
         ])
     }
+
+    // MARK: - Fix round 1
+
+    /// **A table the book does not print makes no layer** (M3): the only es
+    /// file belongs to an unused table, then to a parked one — the gate
+    /// refuses as "no translation layer" and the status reports no es
+    /// edition with anything missing, documents or tables.
+    func test_aParkedOrUnusedTablesFileIsNoLayer_forTheGateOrTheStatus() async throws {
+        let book = try await openBook()
+        try await write(book, document: book.spare.id, [["a1": "A1", "text": "Concepto"]])
+        let unused = try await check(book)
+        XCTAssertNotNil(unused.zeroLayerError, "spare is used nowhere: its file is no layer")
+        var status = try await translationStatus(book)
+        XCTAssertFalse(status.rows.contains { $0.language == "es" && $0.missing > 0 }, "\(status.rows)")
+        XCTAssertFalse(status.figures.contains { $0.missing > 0 }, "\(status.figures)")
+
+        // The same with cash's own file while cash is parked.
+        try FileManager.default.removeItem(at: TranslationStore.directoryURL(in: projectURL))
+        try await write(book, document: book.cash.id, [["a1": "A1", "text": "Concepto"]])
+        await book.ds.closeFigure(figureId: book.cash.id)
+        _ = try await book.store.sendToResearch(figureId: book.cash.id, scope: .shared)
+        await book.ds.awaitOpenFigureRenderForTesting()
+        let parked = try await check(book)
+        XCTAssertNotNil(parked.zeroLayerError, "a parked table's file is no layer")
+        status = try await translationStatus(book)
+        XCTAssertFalse(status.rows.contains { $0.language == "es" && $0.missing > 0 }, "\(status.rows)")
+        XCTAssertEqual(status.figures, [])
+    }
+
+    /// **Only a line Publish prints as a table is gated** (M4): a `.csv` line
+    /// labelled `{#fig:}` takes the image arm (R7a-1), so its cells are not
+    /// counted.
+    func test_aCsvLineLabelledAsAFigureIsNotGatedAsATable() async throws {
+        let book = try await openBook()
+        let figures = await book.store.publishFigures()
+        let piece = { (line: String) in
+            FigureUse.Piece(path: "manuscript/a.md", sequence: ["aaaa"], paragraphs: ["aaaa": line])
+        }
+        XCTAssertEqual(FigureUse.tables(
+            in: [piece("![Cash](../figures/cash.csv){#tbl:cash}")], figures: figures).readable.map(\.record.id),
+            [book.cash.id])
+        XCTAssertEqual(FigureUse.tables(
+            in: [piece("![Cash](../figures/cash.csv)")], figures: figures).readable.map(\.record.id),
+            [book.cash.id])
+        XCTAssertTrue(FigureUse.tables(
+            in: [piece("![Cash](../figures/cash.csv){#fig:cash}")], figures: figures).readable.isEmpty)
+    }
+
+    /// **The desk's count for an imprint's subset is the gate's for that
+    /// subset** (M5). es begun in chapter A only: an imprint of chapter B
+    /// alone has no es layer — its gate refuses as "no translation layer" and
+    /// the desk row reads not started (zeros), not B's paragraphs missing.
+    /// Once one of B's paragraphs is translated the subset has a layer, and
+    /// the row counts B's other paragraphs and cash's three cells missing —
+    /// exactly what the gate over B refuses.
+    func test_theDeskCountForAnImprintSubsetIsTheGatesForThatSubset() async throws {
+        let book = try await openBook()
+        try await translateParagraphs(book, "doc-a")
+
+        let unbegun = try await check(book, excluding: ["doc-a"])
+        XCTAssertNotNil(unbegun.zeroLayerError)
+        var scoped = await EditionStatus.languageRows(
+            in: book.store, projectURL: projectURL, documentIds: ["doc-b"])
+        XCTAssertFalse(scoped.rows.contains { $0.language == "es" && $0.fresh + $0.stale + $0.missing > 0 },
+                       "not started, as the gate says: \(scoped.rows)")
+        let whole = await EditionStatus.languageRows(in: book.store, projectURL: projectURL)
+        XCTAssertGreaterThan(try XCTUnwrap(whole.rows.first { $0.language == "es" }).missing, 0,
+                             "the whole book has a layer: B and cash count missing there")
+
+        let state = try currentParagraphState(projectId: book.id, documentId: "doc-b", registry: book.registry)
+        try await write(book, document: "doc-b", [["paragraph_id": state.sequence[0], "verbatim": true]])
+        let gate = try await check(book, excluding: ["doc-a"])
+        XCTAssertNil(gate.zeroLayerError)
+        let gateMissing = gate.gaps.reduce(0) { $0 + $1.missing.count }
+            + gate.figureGaps.reduce(0) { $0 + $1.missing.count }
+        XCTAssertEqual(gate.figureGaps.map(\.missing), [["A1", "B1", "A2"]])
+        scoped = await EditionStatus.languageRows(
+            in: book.store, projectURL: projectURL, documentIds: ["doc-b"])
+        let es = try XCTUnwrap(scoped.rows.first { $0.language == "es" })
+        XCTAssertEqual(es.missing, gateMissing)
+        XCTAssertEqual(es.fresh, 1)
+    }
+
+    private func translationStatus(_ book: Book) async throws -> TranslationStatusTool.Result {
+        let data = try await TranslationStatusTool.handle(
+            paramsJSON: try json(["project_id": book.id]), registry: book.registry)
+        return try JSONDecoder().decode(TranslationStatusTool.Result.self, from: data)
+    }
 }

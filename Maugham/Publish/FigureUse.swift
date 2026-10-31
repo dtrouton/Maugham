@@ -19,14 +19,14 @@ enum FigureUse {
 
     /// One piece's source text: its path (what a figure line resolves
     /// against) and its paragraphs in reading order.
-    struct Piece {
+    struct Piece: Equatable, Sendable {
         let path: String
         let sequence: [String]
         let paragraphs: [String: String]
     }
 
     /// A used table figure and the table it holds in the snapshot.
-    struct Table {
+    struct Table: Sendable {
         let record: FigureRecord
         let table: FigureTable
     }
@@ -46,7 +46,10 @@ enum FigureUse {
             for id in piece.sequence {
                 guard let text = piece.paragraphs[id], text.contains("![") else { continue }
                 for (block, _) in ManuscriptBlocks.parse(MarkdownDisplayFilter.stripAnchors(text)) {
-                    guard case .figure(_, let path, _) = block,
+                    // Only a line Publish prints as a table counts — a `.csv`
+                    // line labelled `{#fig:}` takes the image arm (R7a-1).
+                    guard case .figure(_, let path, let label) = block,
+                          ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) == .tbl,
                           case .figure(let record) = FigureLineResolution.status(
                             linePath: path, documentPath: piece.path, index: index),
                           seen.insert(record.id).inserted else { continue }
@@ -64,6 +67,35 @@ enum FigureUse {
             }
         }
         return (readable, unreadable)
+    }
+
+    /// **What a body in `language` prints for each table's text cells**
+    /// (report plan 9e-1 Task 5): figure id → each FRESH translation
+    /// (`FigureTranslatedTable.freshLabels`), for every unparked table in the
+    /// snapshot with a translation file in that language, derived against the
+    /// snapshot's table. Asked once per translated body at the one resolve
+    /// door (`PublishProblemGate.resolve`), never by a snapshot every reader
+    /// pays for. Throws for a present file that will not read (P2a D0) — the
+    /// coverage gate, which reads the same files, has already refused.
+    nonisolated static func freshLabels(
+        language: String, figures: PublishFigures, projectURL: URL, trust: () throws -> TrustTable
+    ) throws -> [String: [CellKey: String]] {
+        guard !figures.records.isEmpty else { return [:] }
+        let byDoc = TranslationStore.languagesByDocId(in: projectURL)
+        var out: [String: [CellKey: String]] = [:]
+        for record in figures.records where byDoc[record.id]?.contains(language) == true {
+            switch record.kind {
+            case .table: break
+            case .image, .unknown: continue
+            }
+            guard !figures.isParked(record.id), let state = figures.states[record.id],
+                  state.kind == .table else { continue }
+            let labels = try coverage(
+                of: Table(record: record, table: state.table), language: language,
+                projectURL: projectURL, trust: try trust()).derived.freshLabels
+            if !labels.isEmpty { out[record.id] = labels }
+        }
+        return out
     }
 
     /// One used table's translation in `language`: its merged records (empty

@@ -28,15 +28,6 @@ public struct PublishFigures: Sendable {
     public var sourceChanged: Set<String>
     /// The figures parked in Research.
     public var parked: Set<String>
-    /// **What a language body prints for a table's text cells** (report plan
-    /// 9e-1 Task 5, spec §8): language → figure id → each FRESH translation
-    /// (`FigureTranslatedTable.freshLabels`), derived against `states`' table —
-    /// the same table the MCP tools hash against. A stale or missing cell is
-    /// absent, so the body prints its source; the coverage gate is what says
-    /// so (`TranslationCoverage`). Taken for every language a table figure has
-    /// a translation file in, so whichever tongues the compile renders, none
-    /// is read inside the resolution.
-    public var cellTranslations: [String: [String: [CellKey: String]]]
 
     public init(
         records: [FigureRecord],
@@ -44,8 +35,7 @@ public struct PublishFigures: Sendable {
         workbook: Workbook?,
         pinStatus: [String: [String: PinStatus]],
         sourceChanged: Set<String>,
-        parked: Set<String>,
-        cellTranslations: [String: [String: [CellKey: String]]] = [:]
+        parked: Set<String>
     ) {
         self.records = records
         self.states = states
@@ -53,21 +43,12 @@ public struct PublishFigures: Sendable {
         self.pinStatus = pinStatus
         self.sourceChanged = sourceChanged
         self.parked = parked
-        self.cellTranslations = cellTranslations
     }
 
     /// Whether a figure is parked in Research — listed so, or its state says
     /// so. Parked figures print nothing and are never gated.
     public func isParked(_ id: String) -> Bool {
         parked.contains(id) || states[id]?.parked != nil
-    }
-
-    /// One body's labels for one figure: nil for the source body (no
-    /// language) and for a figure with nothing fresh in that language.
-    public func cellLabels(figureId: String, language: String?) -> [CellKey: String]? {
-        guard let language, let labels = cellTranslations[language]?[figureId], !labels.isEmpty
-        else { return nil }
-        return labels
     }
 
     /// No figures: what a book without any, and a source with no project,
@@ -93,5 +74,15 @@ extension ProjectStore {
             return .none
         }
         return await documentStore.publishFigures()
+    }
+}
+
+extension ProjectStore {
+    /// **The book's tables for translation counts** — the window's
+    /// `DocumentStore.translationFigures()` (states and parking, none of a
+    /// publish's costs); `.none` with no `DocumentStore`.
+    func translationFigures() async -> PublishFigures {
+        guard let documentStore else { return .none }
+        return await documentStore.translationFigures()
     }
 }

@@ -56,8 +56,10 @@ Two consequences for a session working from outside:
    broken down by `fresh` / `stale` / `missing`, plus `orphans` (translations
    whose source paragraph was deleted) and `open_queries`. A language row
    shows up as soon as you or the writer opens a query against it, even
-   before any translation exists — coverage reads all-zero, `open_queries`
-   real. Start every pass here — it's the honest state of the work, not your
+   before any translation exists — coverage reads all-zero (not started),
+   `open_queries` real. Once the book has any translation in that language,
+   a chapter or table with none of its own counts every paragraph or cell
+   `missing`, as the compile's coverage gate does. Start every pass here — it's the honest state of the work, not your
    memory of it. A chapter Maugham could not read appears in
    `unreadable_documents` with the reason; its coverage is **unknown, not
    zero**, so don't treat it as untranslated and don't count it toward a
