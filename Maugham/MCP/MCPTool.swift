@@ -46,6 +46,7 @@ public enum MCPToolCatalog {
         ListResearchTool.self,
         ListDocumentsByTagTool.self,
         ListFiguresTool.self,
+        ReadFigureTool.self,
         LinkResearchTool.self,
         UnlinkResearchTool.self,
         ListAllLinksTool.self,

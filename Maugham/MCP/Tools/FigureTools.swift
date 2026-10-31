@@ -148,3 +148,245 @@ public enum ListFiguresTool: MCPTool {
         }
     }
 }
+
+/// `read_figure(project_id, name, range?, region?, max_dimension?, quality?)` —
+/// one figure's content (report plan 9b Task 8, spec §10.1). **Read-only.**
+///
+/// A table answers its cells by A1 address, each with `value` (the display
+/// string in the book's language, as the card and the printed table show it),
+/// `raw` (the typed `CellValue`), `formula` (by current names, absent for a
+/// value) and `format`, plus `text`, the pipe table of the cells returned. An
+/// image answers a JPEG crop on demand (`ImageResponseBuilder`, tripwire 10).
+/// Values come from the publish snapshot (op logs through the workbook), never
+/// from the rendered `.csv` files under figures/ (tripwire 20). A figure parked in Research reads its
+/// parked state.
+public enum ReadFigureTool: MCPTool {
+    public static let method = "read_figure"
+    public static let description = """
+        Read one figure by name (its registry name, or its tbl:/fig: label). \
+        A table returns {name, kind, rows, columns, range, cells, text}: each \
+        cell has a1, value (the display string in the book's language), raw \
+        (the typed value: {type:"number",value}, {type:"text",value}, \
+        {type:"bool",value}, {type:"date",serial,iso}, {type:"error",value} or \
+        {type:"empty"}), formula (like "=SUM(B2:B3)", only for a formula cell) \
+        and format; text is the cells as a pipe table with column letters as \
+        its header. Pass `range` (A1, e.g. "A1:C10" or "B3") to read part of a \
+        large table; without it a table too large for one response is refused \
+        with a hint naming range. An image returns a downscaled JPEG (default \
+        2048 px longest edge, quality 85); use `region` (normalized 0-1, \
+        top-left origin) to crop in. A figure parked in Research reads its \
+        parked state. Read-only.
+        """
+    public static let inputSchemaJSON = #"""
+        {"type":"object","properties":{"project_id":{"type":"string"},"name":{"type":"string","description":"The figure's name, or its tbl:name / fig:name label."},"range":{"type":"string","description":"Tables only: an A1 range such as A1:C10, or one cell such as B3."},"max_dimension":{"type":"integer","description":"Longest-edge cap for an image figure (256–4096, default 2048). Ignored for tables."},"quality":{"type":"integer","description":"JPEG quality 10–100 for an image figure (default 85). Ignored for tables."},"region":{"type":"object","description":"Optional crop for an image figure, normalized 0–1, top-left origin. e.g. {x:0.3,y:0.5,width:0.2,height:0.1}. Ignored for tables.","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]}},"required":["project_id","name"]}
+        """#
+
+    public struct Params: Codable {
+        public let project_id: String
+        public let name: String
+        public let range: String?
+        public let max_dimension: Int?
+        public let quality: Int?
+        public let region: ImageResponseBuilder.Region?
+    }
+
+    /// A `CellValue` in a JSON-friendly typed form.
+    struct Raw: Codable, Equatable {
+        let type: String
+        let number: Double?
+        let text: String?
+        let bool: Bool?
+        let serial: Int?
+        let iso: String?
+
+        init(_ value: CellValue) {
+            func make(_ type: String, number: Double? = nil, text: String? = nil, bool: Bool? = nil,
+                      serial: Int? = nil, iso: String? = nil) -> (String, Double?, String?, Bool?, Int?, String?) {
+                (type, number, text, bool, serial, iso)
+            }
+            let f: (String, Double?, String?, Bool?, Int?, String?)
+            switch value {
+            case .empty: f = make("empty")
+            case .number(let x): f = make("number", number: x)
+            case .text(let s): f = make("text", text: s)
+            case .bool(let b): f = make("bool", bool: b)
+            case .date(let serial): f = make("date", serial: serial, iso: DateSerial.isoString(serial))
+            case .error(let e): f = make("error", text: e.rawValue)
+            }
+            (type, number, text, bool, serial, iso) = f
+        }
+    }
+    struct Cell: Codable, Equatable {
+        let a1: String
+        let value: String
+        let raw: Raw
+        let formula: String?
+        let format: CellFormat
+    }
+    struct TableResult: Codable {
+        let name: String
+        let kind: String
+        let rows: Int
+        let columns: Int
+        let range: String
+        let cells: [Cell]
+        let text: String
+    }
+
+    @MainActor
+    public static func handle(paramsJSON: Data?, registry: ProjectRegistry) async throws -> Data {
+        let params = try decodeParams(Params.self, from: paramsJSON)
+        let entry = try resolveProject(params.project_id, in: registry)
+        let store = entry.store
+        let snapshot = await store.publishFigures()
+        let record = try find(params.name, in: snapshot.records)
+        switch record.kind {
+        case .image:
+            return try imageEnvelope(record: record, state: snapshot.states[record.id],
+                                     params: params, projectURL: entry.url)
+        case .table:
+            guard let state = snapshot.states[record.id], state.kind == .table else {
+                throw MCPError.invalidArgument("Figure '\(record.name)' could not be read (its op log would not fold).")
+            }
+            let locale = TableLocale(languageTag: await store.bookLanguageTag())
+            let result = try table(record: record, state: state, snapshot: snapshot, research: store.manifest.research,
+                                   range: params.range, locale: locale)
+            return try MCPResponseBudget.enforce(
+                try JSONEncoder().encode(result),
+                hint: "The table is too large to return in one MCP response. "
+                    + "Pass `range` (an A1 range such as \"A1:C50\") to read part of it at a time.")
+        case .unknown(let word):
+            throw MCPError.invalidArgument("Figure '\(record.name)' is of a kind this build cannot read (\(word)).")
+        }
+    }
+
+    // MARK: - Finding
+
+    /// The record `name` names: its registry name or its `tbl:`/`fig:` label,
+    /// without regard to case. Unknown: the error lists the nearest names.
+    static func find(_ name: String, in records: [FigureRecord]) throws -> FigureRecord {
+        let wanted = name.trimmingCharacters(in: .whitespaces)
+        let bare: String = {
+            guard let label = ManuscriptLabel(reference: wanted) else { return wanted }
+            return label.name
+        }()
+        let folded = bare.lowercased()
+        if let hit = records.first(where: { $0.name.lowercased() == folded })
+            ?? records.first(where: { $0.id == wanted }) { return hit }
+        let nearest = records.map(\.name).sorted {
+            (distance($0.lowercased(), folded), $0) < (distance($1.lowercased(), folded), $1)
+        }.prefix(5)
+        let list = nearest.isEmpty ? "the book has no figures" : "nearest: " + nearest.joined(separator: ", ")
+        throw MCPError.invalidArgument("No figure named '\(name)' (\(list)). Use list_figures for every name.")
+    }
+
+    private static func distance(_ a: String, _ b: String) -> Int {
+        if a.contains(b) || b.contains(a) { return abs(a.count - b.count) }
+        let x = Array(a), y = Array(b)
+        var row = Array(0...y.count)
+        for i in 1...max(x.count, 1) where !x.isEmpty {
+            var prev = row[0]
+            row[0] = i
+            for j in 1...max(y.count, 1) where !y.isEmpty {
+                let temp = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (x[i - 1] == y[j - 1] ? 0 : 1))
+                prev = temp
+            }
+        }
+        return row[y.count] + 1000
+    }
+
+    // MARK: - A table
+
+    /// The cells of `range` (all of the table when nil) and their text table.
+    static func table(
+        record: FigureRecord, state: FigureState, snapshot: PublishFigures, research: [ResearchItem],
+        range: String?, locale: TableLocale
+    ) throws -> TableResult {
+        let table = state.table
+        let rows = table.rows, columns = table.columns
+        var book = snapshot.workbook ?? Workbook(pins: FigurePinIndex())
+        book.setTable(table, id: record.id)
+        let value: (CellKey) -> CellValue = { book.value(at: CellAddress(table: record.id, key: $0)) }
+
+        var rowRange = 0..<rows.count, columnRange = 0..<columns.count
+        var rangeText = "all"
+        if let range {
+            let trimmed = range.trimmingCharacters(in: .whitespaces)
+            guard let ends = FigureGridAddress.range(trimmed, in: table),
+                  let a = table.rowIndex(of: ends.from.row), let ac = table.columnIndex(of: ends.from.column),
+                  let b = table.rowIndex(of: ends.to.row), let bc = table.columnIndex(of: ends.to.column)
+            else {
+                throw MCPError.invalidArgument(
+                    "range '\(range)' is not an A1 range inside this table (\(rows.count) rows, \(columns.count) columns); use a form like \"A1:C10\" or \"B3\".")
+            }
+            rowRange = min(a, b)..<(max(a, b) + 1)
+            columnRange = min(ac, bc)..<(max(ac, bc) + 1)
+            rangeText = FigureGridAddress.string(
+                from: CellKey(row: rows[rowRange.lowerBound], column: columns[columnRange.lowerBound]),
+                to: CellKey(row: rows[rowRange.upperBound - 1], column: columns[columnRange.upperBound - 1]),
+                in: table) ?? trimmed
+        }
+
+        let layout = FigureTableLayout.make(table: table, value: value, locale: locale)
+        let display: [[String]] = (layout.header.map { [$0] } ?? []) + layout.body + (layout.total.map { [$0] } ?? [])
+        let names = FormulaNames(
+            records: snapshot.records, tables: snapshot.states.mapValues(\.table), research: research)
+
+        var cells: [Cell] = []
+        for r in rowRange {
+            for c in columnRange {
+                let key = CellKey(row: rows[r], column: columns[c])
+                let stored = table[key]
+                let formula: String? = {
+                    guard case .formula(let f)? = stored?.content else { return nil }
+                    return "=" + FormulaParser.render(f, in: table, names: names)
+                }()
+                cells.append(Cell(
+                    a1: A1.columnLetters(c) + String(r + 1), value: display[r][c], raw: Raw(value(key)),
+                    formula: formula, format: stored?.format ?? CellFormat()))
+            }
+        }
+
+        let alignments = columnRange.map { c -> TableAlignment in
+            switch layout.alignments[c] {
+            case .right: return .trailing
+            case .center: return .center
+            default: return .leading
+            }
+        }
+        let text = TableText(
+            header: columnRange.map { A1.columnLetters($0) }, alignments: alignments,
+            rows: rowRange.map { r in columnRange.map { display[r][$0] } }).formatted()
+        return TableResult(
+            name: record.name, kind: "table", rows: rows.count, columns: columns.count,
+            range: rangeText, cells: cells, text: text)
+    }
+
+    // MARK: - An image
+
+    private static func imageEnvelope(
+        record: FigureRecord, state: FigureState?, params: Params, projectURL: URL
+    ) throws -> Data {
+        let relative = state?.image.map { "figures/\($0.filename)" } ?? record.path
+        let abs: URL
+        do {
+            abs = try SafeRelativePath.resolve(relative, under: projectURL)
+        } catch {
+            throw MCPError.invalidArgument(
+                "Figure '\(record.name)' has an unsafe path: \(error.localizedDescription)")
+        }
+        guard FileManager.default.fileExists(atPath: abs.path) else {
+            throw MCPError.invalidArgument("Figure '\(record.name)' has no picture file on this Mac yet.")
+        }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: abs.path)
+        if let size = attrs?[.size] as? NSNumber, size.intValue > ImageResponseBuilder.maxSourceImageBytes {
+            let mb = Double(size.intValue) / (1024 * 1024)
+            throw MCPError.invalidArgument(String(
+                format: "Image '%@' is %.1f MB on disk; refusing to load. Maugham resizes for MCP delivery but won't open a source over 50 MB.",
+                record.name, mb))
+        }
+        return try ImageResponseBuilder.encodeEnvelope(
+            at: abs, region: params.region, maxDimension: params.max_dimension, quality: params.quality)
+    }
+}
