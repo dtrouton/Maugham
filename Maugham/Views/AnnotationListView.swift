@@ -29,17 +29,58 @@ struct AnnotationListView: View {
     /// Selection mode: each row grows its tick.
     var isSelectable: Bool = false
     var selection: Set<String> = []
+    /// **The figure these notes are on, when `docId` is a figure's stream**
+    /// (report plan 9c-1 Task 7): its registry title for the anchor line.
+    /// Nil for a document's notes.
+    var figureTitle: String? = nil
+    /// A figure suggestion's cells as text, by note id — the walk's
+    /// `ProjectAnnotationsSnapshot.figureCells`, looked up, never computed here.
+    var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
     let wiring: AnnotationRowWiring
 
     var body: some View {
         ForEach(annotations.filter(filter)) { ann in
-            annotationRow(
+            if DocumentClass.isFigureDocId(docId) {
+                figureRow(ann, isOwn: AnnotationOwnership.isOwn(ann, localName: wiring.localName))
+            } else {
+                annotationRow(
                 ann, docId: docId, document: document,
                 livePids: livePids, ledgerText: ledgerText,
                 isSelectable: isSelectable,
                 isSelected: selection.contains(ann.id))
+            }
             Divider()
         }
+    }
+
+    // MARK: - A note on a figure (report plan 9c-1 Task 7)
+
+    /// A figure note's row: always actable (no `Document` gate — its verbs
+    /// act through the figure's own host), its verbs narrowed to what a
+    /// figure stream can write and routed to `wiring.figure`, and a
+    /// suggestion's Accept drawn disabled with the reason (`FigureRowGate`).
+    @ViewBuilder
+    private func figureRow(_ ann: Annotation, isOwn: Bool) -> some View {
+        let figureId = docId
+        let figure = wiring.figure
+        AnnotationRow(
+            annotation: ann,
+            revertIsEnabled: false,
+            showingStet: wiring.stetFlourishIds.contains(ann.id),
+            verbs: FigureRowGate.verbs(wiring.rowVerbs(ann, figureId, isOwn)),
+            verbsEnabled: true,
+            figure: FigureRowGate(
+                annotation: ann, figureId: figureId,
+                figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id]),
+            onAccept: { figure.onAccept(figureId, ann) },
+            onReject: { figure.onReject(figureId, ann) },
+            onStet: { figure.onStet(figureId, ann) },
+            onArchive: { figure.onArchive(figureId, ann) },
+            onReply: { figure.onReply(figureId, ann) },
+            onReopen: { figure.onReopen(figureId, ann) },
+            onJumpToParagraph: { wiring.onJump(figureId, ann) },
+            ledgerText: ledgerText,
+            manifest: wiring.manifest)
     }
 
     // MARK: - One row, either scope
@@ -144,6 +185,30 @@ struct AnnotationRowWiring {
     let onReopen: (Document, Annotation) -> Void
     /// A click on the row, `(docId, note)`: jump, travel or stay.
     let onJump: (String, Annotation) -> Void
+    /// What a figure note's verbs do (report plan 9c-1 Task 7). Inert unless
+    /// the host passes its own.
+    var figure: FigureRowWiring = .inert
+}
+
+/// **What a figure note's row verbs do** (report plan 9c-1 Task 7) — each
+/// takes the figure's id and the note, and the host acts through the
+/// figure's own host (`DocumentStore.withFigureHost`), never a `Document`.
+/// Accept here is a note that writes no cell (*Got it*, a craft note's
+/// Accept): a figure suggestion's is disabled in the row and never reaches it.
+struct FigureRowWiring {
+    let onAccept: (String, Annotation) -> Void
+    /// Opens the reason sheet; the answer reaches the figure's reject.
+    let onReject: (String, Annotation) -> Void
+    let onStet: (String, Annotation) -> Void
+    let onArchive: (String, Annotation) -> Void
+    /// Opens the reply sheet; the answer is a status-only accept carrying it.
+    let onReply: (String, Annotation) -> Void
+    let onReopen: (String, Annotation) -> Void
+
+    /// Does nothing — a read-only host's.
+    static let inert = FigureRowWiring(
+        onAccept: { _, _ in }, onReject: { _, _ in }, onStet: { _, _ in },
+        onArchive: { _, _ in }, onReply: { _, _ in }, onReopen: { _, _ in })
 }
 
 extension AnnotationRowWiring {

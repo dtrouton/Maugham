@@ -992,5 +992,53 @@
    "property_test": null
   },
   "fix_history": "Filed already fixed — the defect and its fix land in the same branch (issue #51, commit 15724bca). Same class as M5-AN-019 and M5-AN-060's stet guard, at the two resolutions and the Reopen that M5-AN-061's accumulator did not yet reach"
+ },
+ {
+  "claim_id": "M5-AN-063",
+  "scope": "AnnotationDeriver.derive(figureTable:) / FigureCellAnchor.resolve",
+  "kind": "POSTCONDITION",
+  "statement": "A note on a table figure anchors by row and column id and the deriver resolves it against the figure's table: it follows inserts (figureAddress is the current A1), and it is stale and orphaned when any corner's row or column is deleted, live again when the delete is undone. With no table the anchor is projected but never resolved or judged stale. A figure suggestion's cell rides the creation op's figure payload as suggestedCell and is never folded as a cell write; only its accept is.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "Packages/MaughamCore/Tests/MaughamCoreTests/FigureCellAnchorTests.swift: test_resolve_followsARowInsertedAbove, test_resolve_isOrphanedByTheRowsDelete_andBackOnItsRevive, test_aRange_isOrphanedWhenOneCornerColumnIsDeleted, test_withNoTable_theAnchorIsProjectedButNeverResolved, test_aSuggestionIsNeverFoldedAsACellWrite"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "MCP add_comment / add_query / add_suggested_change with figure, then list_annotations",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-064",
+  "scope": "FigureDocument.acceptSuggestion / ⌘Z / checkpoint restore",
+  "kind": "POSTCONDITION",
+  "statement": "Accepting a figure suggestion is one author-signed claudeAccept that writes the cell and resolves the note; it is refused when closed, parked, unpermitted, withdrawn, orphaned, or changed since (unless confirmed). Its ⌘Z, in or out of a grid visit, restores the cell and reopens the note; a checkpoint restore to before the accept reopens the note (or archives it where the cell is gone) in the same op and the restore sheet names it. No UI offers Accept on a figure suggestion yet; the queue disables it.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptWritesTheCellAndResolvesTheNoteInOneAuthorSignedOp, test_orphanedWithdrawnParkedAndSettledAreRefused, test_undoRestoresTheCellAndReopensTheNote_redoAcceptsAgain, test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "Code only: no gesture reaches acceptSuggestion in 9c-1",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M5-AN-065",
+  "scope": "FigureDocument+Annotations dispositions (reject, stet, archive, reopen, acceptNote)",
+  "kind": "POSTCONDITION",
+  "statement": "A figure note is answered from the queue by Reject, Stet, Archive, Reopen and Reply/Got it behind requireNoteDisposition (never editFigure); a rejection keeps its reason (RULING-31); a newer answer displaces an older one and its ⌘Z puts the displaced one back; a reviewer or an author of another piece is refused.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_rejectKeepsItsReason_andUndoAndReopenRoundTrip, test_stetAndArchiveSettle_undoReopens_andAnAcceptIsNotReopened, test_answersFollowAnswers_andUndoPutsTheDisplacedOneBack, test_aReviewerAndAnAuthorOfAnotherPieceAreRefused"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "Annotations queue row on a figure note",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

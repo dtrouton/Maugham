@@ -46,6 +46,7 @@ Write:
 - Set or remove a research source's citation details (the key a manuscript cites it by, authors, title, year…) — the same rules as the inspector's Citation section
 - Move research items (including whole groups) between shared research, a group, and a collection piece's research folder — link associations update automatically
 - Add notes, questions, craft notes and suggested changes to the Annotations pane (non-destructive proposals you review, accept, reject, or undo with ⌘Z)
+- Leave a note on a table or picture in the book: a comment, a question or a craft note on a whole figure, and a comment or question on one cell or a range of cells (`tbl:sales!C3`, `tbl:sales!C3:E3`, or the figure's name). Claude can also suggest a new value or formula for one table cell. It writes only the note; the cell stays as you left it
 - Add cards to your **planning canvas** — the case it is built for is a page you wrote on paper and photographed. Claude cannot choose where a card goes: everything it adds lands together in one labelled region, placed clear of your own work, with the page it read at the top of it. Its cards are drawn perfectly straight where yours lean, so a card that leans is one of yours, and one ⌘Z takes back a whole batch. See [Getting Started → What Claude can put on the canvas](getting-started.md#what-claude-can-put-on-the-canvas)
 
 - Set up and edit your book's design and publishing settings, and compile it to PDF or EPUB — see [Publishing to PDF & EPUB](publishing.md)

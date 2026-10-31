@@ -187,6 +187,15 @@ extension DocumentStore {
         openFigures[figureId].flatMap { $0.isClosed ? nil : $0 }
     }
 
+    /// **Does this window hold `figureId` open** (`openFigure(figureId:)`, a
+    /// grid's), rather than only lend its host for one act? A verb pressed
+    /// elsewhere — the queue's answer to a figure note (report plan 9c-1
+    /// Task 7) — registers its ⌘Z only then: a lent host is closed after the
+    /// act, and an undo aimed at a closed host could only decline.
+    func holdsFigureOpen(_ figureId: String) -> Bool {
+        keptFigureOpens.contains(figureId) && openFigure(forId: figureId) != nil
+    }
+
     /// Test seam: told each time an open host asks for its render, so a test
     /// can count one render per visit (report plan 7c Task 1).
     static var figureHostAppendedForTesting: ((String) -> Void)?

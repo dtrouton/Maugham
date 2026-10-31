@@ -22,9 +22,25 @@ struct AnnotationsPaneDialogs: ViewModifier {
     @Binding var bulkNotice: String?
     @Binding var editSheet: AnnotationsPane.AnnotationTarget?
     @Binding var withdrawConfirm: AnnotationsPane.AnnotationTarget?
+    /// A figure note's Reject… and Reply… (report plan 9c-1 Task 7): the same
+    /// sheets, answered through the figure's host.
+    @Binding var figureRejectSheet: AnnotationsPane.FigureNoteTarget?
+    @Binding var figureReplySheet: AnnotationsPane.FigureNoteTarget?
 
     func body(content: Content) -> some View {
         content
+        .sheet(item: $figureRejectSheet) { target in
+            RejectReasoningSheet(annotation: target.annotation) { reason in
+                verbs.figureReject(target.figureId, target.annotation, reason: reason)
+                figureRejectSheet = nil
+            } onCancel: { figureRejectSheet = nil }
+        }
+        .sheet(item: $figureReplySheet) { target in
+            QueryReplySheet(annotation: target.annotation) { reply in
+                verbs.figureAccept(target.figureId, target.annotation, reply: reply)
+                figureReplySheet = nil
+            } onCancel: { figureReplySheet = nil }
+        }
         .sheet(item: $rejectSheet) { target in
             RejectReasoningSheet(annotation: target.annotation) { reason in
                 verbs.reject(target.document, target.annotation, reason: reason)

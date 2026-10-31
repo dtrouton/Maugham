@@ -1042,6 +1042,14 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
     /// `Maugham/` is followed within a few lines by
     /// `invalidateRestoreStandingMemo()`. A site that skips it is a stale
     /// Restore drawn on the Deleted row.
+    ///
+    /// **Named exemption, not a reworded property** (report plan 9c-1 Task
+    /// 5): `FigureDocument.swift` holds its own `annotationAmendments` — the
+    /// table its figure notes are judged by — and has no `_opLogMirror` and
+    /// no `restoreStanding` memo at all (a figure note has no Restore), so
+    /// nothing there can go stale.
+    static let memoCensusExempt: Set<String> = ["FigureDocument.swift"]
+
     func test_everyMirrorOrAmendmentWriteClearsTheRestoreMemo() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -1050,6 +1058,12 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
         var offenders: [String] = []
         let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!
         for case let url as URL in files where url.pathExtension == "swift" {
+            if Self.memoCensusExempt.contains(url.lastPathComponent) {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                XCTAssertFalse(text.contains("restoreStanding") || text.contains("_opLogMirror"),
+                    "\(url.lastPathComponent) is exempt only while it holds no Restore memo and no mirror")
+                continue
+            }
             let text = try String(contentsOf: url, encoding: .utf8)
             for site in Self.memoWriteSites(in: text) {
                 sites.append("\(url.lastPathComponent):\(site.line)")

@@ -139,6 +139,10 @@ struct AnnotationRow: View {
     /// never enabled and silently inert (RULING-35).
     var verbsEnabled: Bool = true
     var verbsDisabledReason: String? = nil
+    /// **A note on a table figure** (report plan 9c-1 Task 7): its anchor
+    /// line, a suggestion's cells, and the verbs that work only in the table
+    /// (`FigureRowGate`). Nil for every note on a document.
+    var figure: FigureRowGate? = nil
     /// Multiselect (M3 P2 Task 5) — true only while the pane is in selection
     /// mode. The control is a `Button`, so it takes the click the row's
     /// whole-body `.onTapGesture` would otherwise read as navigation: selecting
@@ -233,6 +237,12 @@ struct AnnotationRow: View {
     private var rowContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             header
+            if let figure {
+                Label(figure.anchorLine, systemImage: "tablecells")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Text(annotation.body)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
@@ -248,7 +258,9 @@ struct AnnotationRow: View {
             // it can no longer live inside the suggestion-only diff card.
             if showingStet {
                 stetCard
-            } else if annotation.kind == .suggestedChange {
+            } else if let cells = figure?.cells {
+                figureDiffCard(cells)
+            } else if annotation.kind == .suggestedChange, figure == nil {
                 diffCard
             }
             actionRow
@@ -331,6 +343,40 @@ struct AnnotationRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
+    /// A figure suggestion's before and after, as cell text: the cell as it
+    /// stands (absent when its row or column is gone) and what the
+    /// suggestion would put there ("empty" for a clear).
+    @ViewBuilder
+    private func figureDiffCard(_ cells: SuggestionDisplay.FigureCells) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if let before = cells.before {
+                Text("\u{2212} \(before.isEmpty ? Self.emptyCell : before)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08))
+            }
+            Text("+ \(cells.after.isEmpty ? Self.emptyCell : cells.after)")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.green)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.green.opacity(0.08))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    /// How an empty cell reads in a figure suggestion's diff.
+    static let emptyCell = "(empty)"
+
+    /// What the stet card reinstates: a paragraph's prior text, or a figure
+    /// cell as it stands.
+    private var stetBefore: String? {
+        if let figure { return figure.cells?.before }
+        return SuggestionDisplay.before(for: annotation)
+    }
+
     /// The proofreader's "stet" treatment shown briefly on stetting a note: for
     /// a suggestion the struck prior text is reinstated (no strike), marked with a
     /// dotted underline, and headed by a clear "STET — let it stand" badge so the
@@ -351,7 +397,7 @@ struct AnnotationRow: View {
                     .font(.caption2.italic())
                     .foregroundStyle(stetAccent)
             }
-            if let prior = SuggestionDisplay.before(for: annotation) {
+            if let prior = stetBefore {
                 Text(AnnotationRow.displayText(prior))
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.primary)
@@ -435,8 +481,17 @@ struct AnnotationRow: View {
                 }
             } else {
                 dispositions(useIcons: useIcons)
+                // An accepted figure note that wrote no cell (a Got it, a
+                // Reply) also offers Reopen — beside its dispositions, as an
+                // accepted row keeps Stet — so a queue answer on a figure no
+                // grid holds is reversible from the row (report plan 9c-1).
+                if annotation.status == .accepted, figure?.reopensAnAccept == true, offered.dispose {
+                    secondary("Reopen", symbol: "arrow.uturn.backward", useIcons: useIcons,
+                              help: "Return this to the open list — resolution is yours to reverse",
+                              action: onReopen)
+                }
             }
-            if offered.dispose { triageMenu }
+            if offered.dispose, figure == nil || FigureRowGate.drawsTriage { triageMenu }
             if offered.ownNote {
                 Spacer(minLength: 4)
                 ownAffordances
@@ -463,15 +518,27 @@ struct AnnotationRow: View {
                 // ⌘Z only reaches the MOST RECENT accept; this reaches
                 // any accepted suggestion at any time.
                 if offered.acceptOrReject {
-                    Button("Revert", action: onRevert).buttonStyle(.bordered)
-                        .disabled(!revertIsEnabled)
-                        .help(revertIsEnabled
-                              ? "Restore the pre-accept text and reopen this suggestion"
-                              : "Its paragraph was deleted — there is nothing to revert into")
+                    if let reason = figure?.revertDisabledReason {
+                        Button("Revert", action: onRevert).buttonStyle(.bordered)
+                            .disabled(true)
+                            .help(reason)
+                            .accessibilityHint(reason)
+                    } else {
+                        Button("Revert", action: onRevert).buttonStyle(.bordered)
+                            .disabled(!revertIsEnabled)
+                            .help(revertIsEnabled
+                                  ? "Restore the pre-accept text and reopen this suggestion"
+                                  : "Its paragraph was deleted — there is nothing to revert into")
+                    }
                 }
             } else {
                 if offered.acceptOrReject {
+                    // A figure suggestion is accepted in the table (plan
+                    // 9c-1 ruling): drawn, disabled, and saying where.
                     Button("Accept", action: onAccept).buttonStyle(.borderedProminent)
+                        .disabled(figure?.acceptDisabledReason != nil)
+                        .modifier(RowDisabledReason(reason: figure?.acceptDisabledReason))
+                        .accessibilityHint(figure?.acceptDisabledReason ?? "")
                     secondary("Reject\u{2026}", symbol: "xmark", useIcons: useIcons, action: onReject)
                 }
                 stetButton(useIcons: useIcons)

@@ -17,15 +17,17 @@ public enum AnnotationAggregation {
     /// statuses), in `AnnotationDeriver`'s newest-first order. Withdrawn notes
     /// are absent from the projection by the deriver's own rule.
     ///
-    /// Derives the paragraph text itself. A caller that already has the
-    /// derived paragraphs in hand should use the overload below rather than
-    /// pay for a second walk of the stream.
+    /// Derives the paragraph text itself and, on a figure's stream, the
+    /// figure's table its notes' cell anchors resolve against
+    /// (`figureTable(in:)`). A caller that already has the derived paragraphs
+    /// in hand should use the overload below rather than pay for a second
+    /// walk of the stream.
     public static func allAnnotations(
         ops: [Op], amendments: AnnotationAmendments = .honourEverything
     ) -> [Annotation] {
         allAnnotations(
             ops: ops, paragraphs: Deriver.derive(ops: ops).paragraphs,
-            amendments: amendments)
+            amendments: amendments, figureTable: figureTable(in: ops))
     }
 
     /// Same projection, over paragraphs the caller already derived.
@@ -35,12 +37,30 @@ public enum AnnotationAggregation {
     /// `Deriver.deriveWithSequenceFallback` once and hands the paragraphs in.
     /// The two derives differ only in how they recover a missing `sequence`;
     /// `paragraphs` is identical, so both spellings of `allAnnotations` agree.
+    ///
+    /// `figureTable` is the figure's table when `ops` is a figure's stream
+    /// (report plan 9c-1): the caller derives it from the same ops with
+    /// `figureTable(in:)`, and a figure note's anchor resolves against it.
     public static func allAnnotations(
         ops: [Op], paragraphs: [String: String],
-        amendments: AnnotationAmendments = .honourEverything
+        amendments: AnnotationAmendments = .honourEverything,
+        figureTable: FigureTable? = nil
     ) -> [Annotation] {
         AnnotationDeriver.derive(
-            ops: ops, paragraphs: paragraphs, amendments: amendments)
+            ops: ops, paragraphs: paragraphs, amendments: amendments,
+            figureTable: figureTable)
+    }
+
+    /// **The figure table a stream's figure ops fold to** (report plan 9c-1),
+    /// for resolving its notes' cell anchors — nil when the stream holds no
+    /// figure op (a manuscript's, a research note's). Folds what folds onto
+    /// the table only (`FigureOpPayload.folds`: the figure kinds and an
+    /// accept's cell), as `FigureDocument` does, so the stream's other
+    /// annotation ops add no diagnostics.
+    public static func figureTable(in ops: [Op]) -> FigureTable? {
+        let figureOps = ops.filter(FigureOpPayload.folds)
+        guard !figureOps.isEmpty else { return nil }
+        return FigureDeriver.derive(figureOps).table
     }
 
     /// Open annotations only — the triage subset. Kept as the thin filter over

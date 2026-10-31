@@ -578,6 +578,44 @@ final class FigureDocumentTests: XCTestCase {
         await doc.close()
     }
 
+    /// **An overtaken reload waits for the one that overtook it** (the
+    /// FigureGridUndoTests flake, final review): another writer's cell lands
+    /// while this reload reads, a second reload starts and reads it, and the
+    /// first returns only once the second has landed — so `await reload()`
+    /// always leaves the state at least as current as when it was called.
+    func test_anOvertakenReloadReturnsOnlyOnceTheLaterOneLanded() async throws {
+        let store = try await ProjectStore.load(from: projectURL)
+        let record = try await store.createFigure(kind: .table, name: "t", piece: nil)
+        let doc = try await load(record.id)
+        let key = try firstKey(doc)
+        let theirs = Op(
+            opId: ULID.generate(), docId: record.id, at: Date(),
+            device: Document.loadIdentities[.author].deviceId, session: "elsewhere",
+            kind: .figureCellSet, changes: [],
+            figure: FigureOpPayload(cell: key, next: text("arrived"), prior: nil))
+        FigureDocument.afterReloadReadForTesting = { d in
+            // The first reload, its read done: their line lands, and a second
+            // reload starts and reads it — paused, not landed, when the first
+            // reaches its own landing.
+            FigureDocument.afterReloadReadForTesting = nil
+            try? await Document.makeLoadOpStore(projectURL: d.projectURL, presenter: nil).append(theirs)
+            await withCheckedContinuation { (started: CheckedContinuation<Void, Never>) in
+                FigureDocument.afterReloadReadForTesting = { _ in
+                    FigureDocument.afterReloadReadForTesting = nil
+                    started.resume()
+                    for _ in 0..<5 { await Task.yield() }
+                }
+                Task { @MainActor in try? await d.reload() }
+            }
+        }
+
+        try await doc.reload()
+
+        XCTAssertEqual(doc.state.table[key], text("arrived"),
+                       "the overtaken reload returned before the later read landed")
+        await doc.close()
+    }
+
     /// **Residual N-1**: an own op the read SAW but did not apply — here a
     /// scoped author's cell, held once its figure's record has left the
     /// manifest (`.unregisteredFigure`) — is not carried over the read. The

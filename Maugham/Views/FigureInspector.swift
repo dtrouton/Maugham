@@ -489,7 +489,7 @@ struct FigureInspector: View {
             }
             ForEach(model.notes, id: \.id) { note in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Self.kindTitle(note.kind)) \u{00B7} \(note.status.rawValue)")
+                    Text(Self.noteHeading(note))
                         .font(.caption).foregroundStyle(.secondary)
                     Text(note.body).lineLimit(3)
                 }
@@ -613,6 +613,16 @@ struct FigureInspector: View {
     /// it; the link lands on that line (`FigureUseTravel.Place.offset`).
     static func useTitle(_ use: FigureListing.Use, structure: [StructureItem]) -> String {
         "\(FigureSectionVerbs.pieceTitle(use.docId, in: structure)), line \(use.lineIndex + 1)"
+    }
+
+    /// **A note's line in the inspector** (report plan 9c-1 Task 7): where it
+    /// points first — the live address, "cells deleted" when its row or
+    /// column is gone, nothing for the whole figure — then its kind and status.
+    static func noteHeading(_ note: Annotation) -> String {
+        let where_: String? = note.figureOrphaned
+            ? SuggestionDisplay.cellsDeleted : note.figureAddress
+        let kindAndStatus = "\(kindTitle(note.kind)) \u{00B7} \(note.status.rawValue)"
+        return where_.map { "\($0) \u{00B7} \(kindAndStatus)" } ?? kindAndStatus
     }
 
     static func kindTitle(_ kind: AnnotationKind) -> String {

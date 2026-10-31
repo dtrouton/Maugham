@@ -32,6 +32,12 @@ Stet is offered on comments, queries and craft notes too, wherever Archive is �
 
 Accepted suggestions can also be reverted from the **Annotations pane** at any time — turn on the show-resolved filter (the tray icon) and click **Revert** on the accepted suggestion. Accepting a *second* suggestion clears ⌘Z's reach back to the first one — that's specific to accept (each accept starts a fresh typing-undo baseline), so the pane's Revert is the way to reach an older accepted suggestion once a newer accept has happened. No other undoable action in Maugham has this one-deep limit — see below.
 
+### Notes on tables and pictures
+
+Claude can leave the same kinds of note on a figure: a comment, a question or a craft note on the whole figure (a picture too), and a comment or question on one cell or a range of cells in a table. It can also suggest a new number or formula for one table cell. The note anchors to the cell's row and column, not to a position, so it follows the cell when rows or columns are inserted. If the cell's row or column is deleted the note is marked orphaned, and it comes back if you undo the delete.
+
+These notes appear in the Annotations queue like any other, and the figure inspector lists each one with its address (*C3*, *C3:E3*). From the queue you can **Reject**, **Stet**, **Archive**, **Reopen**, and reply or **Got it**. A suggested value to a cell shows its proposed value; **Accept** is not available from the queue yet. To take the value, type it into the table yourself, then **Archive** the note: typing the value leaves the note open. A note on a figure that belongs to a piece counts toward that piece on the review board and sits with that piece's notes in the queue. ⌘Z undoes your answer while the table is open in this window, with the note returning to how it was; otherwise use **Reopen** on the row. On the iPhone a figure note shows its anchor and the suggested cell, and offers Reject and Archive. Promoting a Collection piece to its own project does not carry its figures' notes.
+
 ### Working the queue — triage and order
 
 A pile of notes is easier to answer once it's sorted, so every row in the Annotations pane carries a small flag menu: **Do**, **Decline**, **Discuss**, and **Clear**. That's a *mark*, not an answer — a triaged note is exactly as open as it was, and marking one settles nothing. What it changes is where the note sits.

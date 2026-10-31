@@ -46,6 +46,17 @@ struct AnnotationDetailView: View {
     /// may offer for `docId`. Owned by `AnnotationsStore` and replaced on every
     /// reload, so a permit changed on the Mac shows on the next pull.
     let postures: PhonePosture
+    /// **The figure this note is on, when `docId` is a figure's stream**
+    /// (report plan 9c-1 Task 7): its registry title (`FigureRecord.listTitle`)
+    /// for the anchor line. Nil for a document's note.
+    let figureTitle: String?
+    /// The book's formula names and locale a figure suggestion is read
+    /// under — the cards' one reader (`AnnotationsStore.figureReading`).
+    let figureReading: @MainActor () async -> PhoneFigureBook.SuggestionReading?
+
+    /// A figure suggestion's before and after as cell text, read off the
+    /// figure's table by the appear re-derive (`SuggestionDisplay.figureCells`).
+    @State private var figureCells: SuggestionDisplay.FigureCells?
 
     /// What the door answered for this piece. Starts unanswered — only the
     /// reviewer row, so no disposition is drawn before the door has spoken —
@@ -94,6 +105,8 @@ struct AnnotationDetailView: View {
         docId: String,
         recents: RecentsTracker,
         postures: PhonePosture,
+        figureTitle: String? = nil,
+        figureReading: @escaping @MainActor () async -> PhoneFigureBook.SuggestionReading? = { nil },
         onResolved: @escaping () -> Void = {}
     ) {
         self.annotation = annotation
@@ -102,6 +115,8 @@ struct AnnotationDetailView: View {
         self.docId = docId
         self.recents = recents
         self.postures = postures
+        self.figureTitle = figureTitle
+        self.figureReading = figureReading
         self.onResolved = onResolved
         _current = State(initialValue: annotation)
         self.openedResolved = (annotation.status != .open)
@@ -195,7 +210,9 @@ struct AnnotationDetailView: View {
     /// `.craftNote`, which has no paragraphId).
     @ViewBuilder
     private var contextSection: some View {
-        if current.kind == .suggestedChange {
+        if let figureTitle {
+            figureContext(figureTitle)
+        } else if current.kind == .suggestedChange {
             VStack(alignment: .leading, spacing: 12) {
                 // "Current" matches the suggestion's grain — the SPAN's original
                 // text for a sub-paragraph suggestion, else the whole paragraph —
@@ -212,6 +229,27 @@ struct AnnotationDetailView: View {
             labeledBlock("Paragraph", text: Self.displayText(context), tint: .secondary)
         }
     }
+
+    /// **A note on a table figure** (report plan 9c-1 Task 7): where it
+    /// points ("C3 · Table: Sales", or "cells deleted"), and for a suggestion
+    /// the cell as it stands beside what it proposes — Core's words, the
+    /// Mac queue's (tripwire 19).
+    @ViewBuilder
+    private func figureContext(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            labeledBlock("Where", text: SuggestionDisplay.figureAnchorLine(for: current, figureTitle: title),
+                         tint: .secondary)
+            if let cells = figureCells {
+                if let before = cells.before {
+                    labeledBlock("Current", text: before.isEmpty ? Self.emptyCell : before, tint: .secondary)
+                }
+                labeledBlock("Suggested", text: cells.after.isEmpty ? Self.emptyCell : cells.after, tint: .green)
+            }
+        }
+    }
+
+    /// How an empty cell reads in a figure suggestion.
+    nonisolated static let emptyCell = "(empty)"
 
     /// Best-effort paragraph text for a non-suggestion annotation, from the
     /// reloaded paragraph map keyed by `paragraphId`.
@@ -278,7 +316,7 @@ struct AnnotationDetailView: View {
     @ViewBuilder
     private var actionButtons: some View {
         VStack(spacing: 12) {
-            ForEach(PhonePosture.openNoteVerbs(under: posture), id: \.self) { verb in
+            ForEach(PhonePosture.openNoteVerbs(for: current, docId: docId, under: posture), id: \.self) { verb in
                 verbButton(verb)
             }
 
@@ -366,7 +404,7 @@ struct AnnotationDetailView: View {
     /// somebody else's archive.
     @ViewBuilder
     private var reopenAffordance: some View {
-        switch PhonePosture.reopenVerb(for: current.status, under: posture) {
+        switch PhonePosture.reopenVerb(for: current, docId: docId, under: posture) {
         case .reopen?:
             Button {
                 Task { await performReopen() }
@@ -469,6 +507,10 @@ struct AnnotationDetailView: View {
                     verifyingAgainst: fresh)
             } catch AnnotationWriter.WriteError.malformedSuggestion {
                 errorMessage = "This suggestion is malformed and can’t be applied."
+                throw CancelledWrite()
+            } catch AnnotationWriter.WriteError.acceptsInTheTable {
+                errorMessage = AnnotationWriter.WriteError.acceptsInTheTable(annotationId: current.id)
+                    .localizedDescription
                 throw CancelledWrite()
             } catch AnnotationWriter.WriteError.annotationWithdrawn {
                 errorMessage = "You deleted this suggestion on another device, so it can no longer be applied."
@@ -628,6 +670,13 @@ struct AnnotationDetailView: View {
         let derived = AnnotationLoading.allAnnotations(judged, paragraphs: paragraphs)
         let fresh = derived.first(where: { $0.id == current.id })
         if let fresh { current = fresh }   // refresh context/status when still present
+        if figureTitle != nil, current.kind == .suggestedChange,
+           let table = AnnotationLoading.figureTable(judged) {
+            let reading = await figureReading()
+            figureCells = SuggestionDisplay.figureCells(
+                for: current, table: table, names: reading?.names ?? .empty,
+                locale: reading?.locale ?? TableLocale(languageTag: nil))
+        }
         let decision = ResolvedEntryDecision.afterRederive(
             openedResolved: openedResolved, freshStatus: fresh?.status)
         if decision.raceCollapse { resolvedElsewhere = true }

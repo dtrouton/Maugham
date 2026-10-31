@@ -134,6 +134,84 @@ enum AnnotationScopePolicy {
     static let editAnywayTitle = "Edit Anyway"
 }
 
+/// **A queue row for a note on a table figure** (report plan 9c-1 Task 7):
+/// where it points, what a suggestion proposes, and which of the row's verbs
+/// work from the queue.
+///
+/// No `Document` holds a figure's notes, so the closed-piece gate
+/// (`AnnotationScopePolicy.verbsEnabled`) never applies: Reject, Stet,
+/// Archive, Reopen, *Got it*, a craft note's Accept and a query's Reply act
+/// through the figure's own host (`FigureDocument`'s verbs, via
+/// `DocumentStore.withFigureHost`), so the row is actable whether or not a
+/// grid is open. A suggested change writes a cell, so it is accepted in the
+/// grid only (plan ruling): its Accept is drawn disabled with
+/// `acceptInTheTable`, and an accepted one's Revert with `revertInTheTable`.
+/// The verbs that file elsewhere through a `Document` — *Answer as ruling…*,
+/// *This is a choice*, *Keep as lesson…*, Edit and Delete — and the triage
+/// mark have no figure-stream verb, so they are not drawn.
+///
+/// Pure, so the whole truth table is pinned without a window
+/// (`FigureAnnotationRowTests`).
+struct FigureRowGate: Equatable {
+    /// "C3 · Table: Sales", "cells deleted · Table: Sales", or the title
+    /// alone for a note on the whole figure (`SuggestionDisplay`).
+    let anchorLine: String
+    /// A suggestion's before and after as cell text (the walk's
+    /// `ProjectAnnotationsSnapshot.figureCells`); nil for other kinds, and
+    /// when the walk had no table to read them off.
+    let cells: SuggestionDisplay.FigureCells?
+    /// Why Accept is disabled, nil where it works.
+    let acceptDisabledReason: String?
+    /// Why an accepted suggestion's Revert is disabled, nil where none is drawn.
+    let revertDisabledReason: String?
+    /// Does an ACCEPTED note offer Reopen? True for a note that wrote no
+    /// cell (a *Got it*, a Reply): `FigureDocument.reopenAnnotation` takes it
+    /// back with a status-only revert, so an answer given from the queue is
+    /// reversible from the row with no grid open. An accepted suggestion
+    /// keeps its disabled Revert instead.
+    var reopensAnAccept: Bool = false
+
+    /// The reason a figure suggestion's Accept says (plan ruling, verbatim).
+    static let acceptInTheTable = "Accept it in the table"
+    /// The reason an accepted figure suggestion's Revert says: its cell is
+    /// put back by changing it in the grid (or by the accept's own ⌘Z).
+    static let revertInTheTable = "Change the cell back in the table"
+
+    init(anchorLine: String, cells: SuggestionDisplay.FigureCells?,
+         acceptDisabledReason: String?, revertDisabledReason: String?) {
+        self.anchorLine = anchorLine
+        self.cells = cells
+        self.acceptDisabledReason = acceptDisabledReason
+        self.revertDisabledReason = revertDisabledReason
+    }
+
+    /// The gate for `annotation` on figure `figureId`, titled `figureTitle`
+    /// (`FigureRecord.listTitle`), with the walk's `cells`.
+    init(annotation: Annotation, figureId: String, figureTitle: String,
+         cells: SuggestionDisplay.FigureCells?) {
+        let inTheTable = FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: figureId)
+        self.init(
+            anchorLine: SuggestionDisplay.figureAnchorLine(for: annotation, figureTitle: figureTitle),
+            cells: annotation.kind == .suggestedChange ? cells : nil,
+            acceptDisabledReason: inTheTable ? Self.acceptInTheTable : nil,
+            revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
+        self.reopensAnAccept = FigureAnnotationOps.reopensAnAccept(annotation, docId: figureId)
+    }
+
+    /// **The posture's verbs, narrowed to what a figure stream can write.**
+    /// The posture still decides (asked of the FIGURE's own id, as every row
+    /// asks its own document's); this only takes away the verbs with no
+    /// figure-stream write behind them.
+    static func verbs(_ offered: AnnotationRowVerbs) -> AnnotationRowVerbs {
+        AnnotationRowVerbs(
+            acceptOrReject: offered.acceptOrReject, dispose: offered.dispose,
+            answerAsRuling: false, makeChoice: false, keepAsLesson: false, ownNote: false)
+    }
+
+    /// No triage mark on a figure note: no figure-stream verb writes one.
+    static let drawsTriage = false
+}
+
 /// **The cross-document queue's sections** — the board's rows with the
 /// un-annotated ones dropped, each annotated piece carrying its own notes in
 /// its own queue order.
@@ -200,9 +278,13 @@ enum AnnotationScopeSections {
     ///     documents). A piece with no entry sorts into the queue's unanchored
     ///     tail rather than being dropped.
     ///   - figures: the manifest's figure registry. A figure's stream carries
-    ///     notes too (report plan 6a); they follow the board's rows under one
-    ///     "Figures" header, each figure titled by the registry
-    ///     (`FigureRecord.listTitle`) — the phone's grouping.
+    ///     notes too (report plan 6a), each figure titled by the registry
+    ///     (`FigureRecord.listTitle`). **A piece's own figures follow its
+    ///     section** (report plan 9c-1 Task 7): the board counts their notes
+    ///     on the piece, so the count's click-through lands on them — and a
+    ///     piece whose only notes are on its tables still has a section to
+    ///     land on. Whole-book figures (and a figure whose piece is no row)
+    ///     follow the board's rows under one "Figures" header.
     static func build(
         rows: [ReviewBoardRows.Row],
         annotations: [ProjectAnnotation],
@@ -216,6 +298,21 @@ enum AnnotationScopeSections {
             byDoc[entry.docId, default: []].append(entry.annotation)
         }
 
+        // A piece's own figures, by piece — only pieces the rows draw, so a
+        // figure whose piece is gone still shows, under "Figures".
+        let pieceIds = Set(rows.filter { $0.kind == .piece }.map(\.item.id))
+        var owned: [String: [FigureRecord]] = [:]
+        for figure in figures {
+            if let piece = figure.piece, pieceIds.contains(piece) { owned[piece, default: []].append(figure) }
+        }
+        let annotatedFigures: (String) -> [FigureRecord] = { piece in
+            (owned[piece] ?? []).filter { !(byDoc[$0.id] ?? []).isEmpty }
+        }
+        let figureSection: (FigureRecord) -> Section = { figure in
+            Section(kind: .piece, id: figure.id, title: figure.listTitle,
+                    annotations: AnnotationQueueOrder.sorted(byDoc[figure.id] ?? [], sequence: []))
+        }
+
         var sections: [Section] = []
         for row in rows {
             switch row.kind {
@@ -227,28 +324,32 @@ enum AnnotationScopeSections {
                 // carries no chips).
                 continue
             case .piece:
-                guard let notes = byDoc[row.item.id], !notes.isEmpty else { continue }
+                let notes = byDoc[row.item.id] ?? []
+                let itsFigures = annotatedFigures(row.item.id)
+                guard !notes.isEmpty || !itsFigures.isEmpty else { continue }
                 sections.append(Section(
                     kind: .piece,
                     item: row.item,
                     annotations: AnnotationQueueOrder.sorted(
                         notes, sequence: sequences[row.item.id] ?? [])))
+                sections.append(contentsOf: itsFigures.map(figureSection))
             case .group(let depth):
-                guard hasAnnotatedDescendant(row.item, byDoc: byDoc) else { continue }
+                guard hasAnnotatedDescendant(row.item, byDoc: byDoc,
+                                             figuresOf: { !annotatedFigures($0).isEmpty })
+                else { continue }
                 sections.append(Section(
                     kind: .group(depth: depth), item: row.item, annotations: []))
             }
         }
-        let annotatedFigures = figures.filter { !(byDoc[$0.id] ?? []).isEmpty }
-        if !annotatedFigures.isEmpty {
+        let shownWithAPiece = Set(owned.values.joined().map(\.id))
+        let bookFigures = figures.filter {
+            !shownWithAPiece.contains($0.id) && !(byDoc[$0.id] ?? []).isEmpty
+        }
+        if !bookFigures.isEmpty {
             sections.append(Section(
                 kind: .group(depth: 0), id: figuresHeaderId,
                 title: FigureRecord.listGroupTitle, annotations: []))
-            for figure in annotatedFigures {
-                sections.append(Section(
-                    kind: .piece, id: figure.id, title: figure.listTitle,
-                    annotations: AnnotationQueueOrder.sorted(byDoc[figure.id] ?? [], sequence: [])))
-            }
+            sections.append(contentsOf: bookFigures.map(figureSection))
         }
         return sections
     }
@@ -266,13 +367,14 @@ enum AnnotationScopeSections {
     /// than an ordering one, so this is not the second walk the type doc
     /// forbids.
     private static func hasAnnotatedDescendant(
-        _ item: StructureItem, byDoc: [String: [Annotation]]
+        _ item: StructureItem, byDoc: [String: [Annotation]],
+        figuresOf: (String) -> Bool
     ) -> Bool {
         for child in item.children ?? [] {
             if child.type == .group {
-                if hasAnnotatedDescendant(child, byDoc: byDoc) { return true }
+                if hasAnnotatedDescendant(child, byDoc: byDoc, figuresOf: figuresOf) { return true }
             } else if child.pieceKind != .reference,
-                      !(byDoc[child.id] ?? []).isEmpty {
+                      !(byDoc[child.id] ?? []).isEmpty || figuresOf(child.id) {
                 return true
             }
         }

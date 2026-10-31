@@ -33,6 +33,14 @@ When a question turns on a table or picture in the book, call `list_figures`
 for the figures (number, caption, used, in Research, changed) and
 `read_figure` for one: a table's cells with value, formula and format, or
 the picture. Both are read-only; for a large table pass `range`.
+To remark on a figure, pass `figure` (a name, `tbl:x` or `fig:x`) to `add_comment`,
+`add_query` or `add_craft_note` instead of `document_id`/`paragraph_id`;
+an address like `tbl:x!C3` or `tbl:x!C3:E3` anchors a comment or query to a
+cell or range (tables only). `add_suggested_change` takes one cell and a
+`suggested_value` in machine form: a number with `.` for the decimal and no
+grouping (a comma is refused), or a formula starting `=` with A1 references. Nothing is written to
+the table; the writer answers. `list_annotations`/`get_annotation` show
+`figure_anchor`, `orphaned` and `suggested_cell`.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

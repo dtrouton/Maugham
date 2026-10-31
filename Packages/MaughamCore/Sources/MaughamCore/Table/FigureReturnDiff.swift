@@ -44,9 +44,15 @@ public enum FigureReturnDiff {
     public struct Change: Equatable, Sendable {
         public let kind: OpKind
         public let payload: FigureOpPayload
-        public init(kind: OpKind, payload: FigureOpPayload) {
+        /// **The note an accept (or its revert) answers** (report plan 9c-1):
+        /// its `provenance.sourceAnnotationId`, kept beside the payload so a
+        /// grid visit's compensation reopens the note as it puts the cell
+        /// back. Nil on every figure kind.
+        public let sourceAnnotationId: String?
+        public init(kind: OpKind, payload: FigureOpPayload, sourceAnnotationId: String? = nil) {
             self.kind = kind
             self.payload = payload
+            self.sourceAnnotationId = sourceAnnotationId
         }
     }
 
@@ -92,10 +98,10 @@ public enum FigureReturnDiff {
                 read.formUnion(stream.filter { $0 <= last })
             }
         }
-        let abandoned = FigureDeriver.derive(ops.filter { FigureOpPayload.kinds.contains($0.kind) })
+        let abandoned = FigureDeriver.derive(ops.filter(FigureOpPayload.folds))
             .abandonedReturns
         var state = FigureDeriver.derive(ops.filter { op in
-            guard FigureOpPayload.kinds.contains(op.kind),
+            guard FigureOpPayload.folds(op),
                   op.kind != .figureParked, op.kind != .figureResumed else { return false }
             if let resume = op.figure?.returnOf, abandoned.contains(resume) { return false }
             return read.contains(op.opId) || op.provenance?.synthesisSource == .broughtBackFromResearch
@@ -145,7 +151,8 @@ public enum FigureReturnDiff {
 
     private static func describesWhatItReplaces(_ change: Change, in state: FigureState) -> Bool {
         let p = change.payload, table = state.table
-        switch change.kind {
+        // An accept or its revert describes its cell as a cell set does.
+        switch FigureOpPayload.foldKind(change.kind, payload: p) ?? change.kind {
         case .figureCellSet:
             return p.cell.map { table[$0] == p.prior } ?? false
         case .figureStructure:

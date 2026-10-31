@@ -124,6 +124,10 @@ struct AnnotationsPane: View {
     @State private var showResolved: Bool = false
     @State private var rejectSheet: AnnotationTarget?
     @State private var querySheet: AnnotationTarget?
+    /// A figure note's Reject… and Reply… sheets (report plan 9c-1 Task 7):
+    /// the figure's id, not a `Document`, travels with the note.
+    @State private var figureRejectSheet: FigureNoteTarget?
+    @State private var figureReplySheet: FigureNoteTarget?
     /// The language-tagged question being answered as a ruling (publish
     /// department, Task 8) — the edition brief's `## Rulings` and the thread's
     /// reply, from one sentence.
@@ -215,6 +219,13 @@ struct AnnotationsPane: View {
     /// its edit against whichever piece happened to be centred.
     struct AnnotationTarget: Identifiable {
         let document: Document
+        let annotation: Annotation
+        var id: String { annotation.id }
+    }
+
+    /// A sheet's subject on a figure's stream, plus the figure it is on.
+    struct FigureNoteTarget: Identifiable {
+        let figureId: String
         let annotation: Annotation
         var id: String { annotation.id }
     }
@@ -451,7 +462,8 @@ struct AnnotationsPane: View {
             keepLessonSheet: $keepLessonSheet, staleConfirm: $staleConfirm,
             anchorLostNotice: $anchorLostNotice, revertConfirm: $revertConfirm,
             bulkNotice: $bulkNotice, editSheet: $editSheet,
-            withdrawConfirm: $withdrawConfirm))
+            withdrawConfirm: $withdrawConfirm,
+            figureRejectSheet: $figureRejectSheet, figureReplySheet: $figureReplySheet))
         // The closed-document / cross-device half of project scope's refresh
         // (M3 P2 Task 9). The verbs below bump the token for the notes the
         // writer changes HERE; this is for the ones that changed somewhere
@@ -672,7 +684,14 @@ struct AnnotationsPane: View {
                 withdrawConfirm = AnnotationTarget(document: $0, annotation: $1) },
             onRevert: { verbs.revert($0, $1) },
             onReopen: { verbs.reopen($0, id: $1.id) },
-            onJump: { click(docId: $0, annotation: $1) })
+            onJump: { click(docId: $0, annotation: $1) },
+            figure: FigureRowWiring(
+                onAccept: { verbs.figureAccept($0, $1) },
+                onReject: { figureRejectSheet = FigureNoteTarget(figureId: $0, annotation: $1) },
+                onStet: { verbs.figureStet($0, $1) },
+                onArchive: { verbs.figureArchive($0, $1) },
+                onReply: { figureReplySheet = FigureNoteTarget(figureId: $0, annotation: $1) },
+                onReopen: { verbs.figureReopen($0, $1) }))
     }
 
     /// This pane's verbs — `AnnotationsPaneVerbs`, built per call over

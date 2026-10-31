@@ -161,3 +161,150 @@ func resolveSpanAnchor(
     }
     return SpanAnchorResolver.capture(in: paraText, range: r)
 }
+
+// MARK: - A note on a figure (report plan 9c-1 Task 4)
+
+/// What a creation tool was asked to anchor: a paragraph (`document_id` +
+/// `paragraph_id`, the original forms) or a figure (`figure`, with the other
+/// two absent). One spelling of the either/or, so the four tools agree.
+enum AnnotationTarget {
+    case paragraph(documentId: String, paragraphId: String)
+    /// `add_craft_note`'s document scope: a document, no paragraph.
+    case document(String)
+    case figure(String)
+
+    /// Throws `invalidArgument` unless exactly one anchor form is given.
+    /// `needsParagraph` is false for `add_craft_note`, which is document-scoped.
+    static func resolve(
+        figure: String?, documentId: String?, paragraphId: String?, needsParagraph: Bool = true
+    ) throws -> AnnotationTarget {
+        if let figure {
+            guard documentId == nil, paragraphId == nil else {
+                throw MCPError.invalidArgument(
+                    "Pass `figure` (a figure note) or `document_id`"
+                    + (needsParagraph ? " with `paragraph_id`" : "") + " (a manuscript note), not both.")
+            }
+            return .figure(figure)
+        }
+        guard let documentId else {
+            throw MCPError.invalidArgument(
+                "Pass `document_id`" + (needsParagraph ? " and `paragraph_id`" : "")
+                + " for a manuscript note, or `figure` (e.g. tbl:cashflow!C3) for a figure note.")
+        }
+        guard let paragraphId else {
+            if needsParagraph {
+                throw MCPError.invalidArgument("`paragraph_id` is required with `document_id`.")
+            }
+            return .document(documentId)
+        }
+        return .paragraph(documentId: documentId, paragraphId: paragraphId)
+    }
+}
+
+/// Create a note on a figure as the assistant and return its annotation id.
+///
+/// The figure is found as `read_figure` finds it (`ReadFigureTool.find`: a
+/// name or a `tbl:`/`fig:` label, kind-checked) over the windowless
+/// `publishFigures()` snapshot; the cells, if any, become row and column ids
+/// once, here (`FigureAnchorAddress.anchor`). A suggested change takes one
+/// cell and `suggestedValue` in machine form (`FigureAnnotationOps.suggestedCell`);
+/// nothing here writes a cell or a figure CSV. No review-pass stamp: a
+/// figure has no open `Document` to ask (plan 9c-1 ruling).
+@MainActor
+func addFigureNote(
+    kind: AnnotationKind, projectId: String, figure: String, body: String,
+    suggestedValue: String? = nil, language: String? = nil, registry: ProjectRegistry
+) async throws -> String {
+    guard let entry = registry.lookup(id: projectId) else {
+        throw MCPError.unknownProjectID(projectId)
+    }
+    guard let ds = entry.store.documentStore else {
+        throw MCPError.invalidArgument("The project's window is not ready for a figure note.")
+    }
+    // A label (`tbl:x`, `fig:x`) or a bare registry name, as read_figure takes
+    // either; `ReadFigureTool.find` decides which figure and checks the kind.
+    let parsed: (label: String, cells: String?)
+    if let p = FigureAnchorAddress.parse(figure) {
+        parsed = p
+    } else {
+        let parts = figure.split(separator: "!", maxSplits: 1, omittingEmptySubsequences: false)
+        let head = parts[0].trimmingCharacters(in: .whitespaces)
+        let cells = parts.count == 2 ? parts[1].trimmingCharacters(in: .whitespaces) : nil
+        guard !head.isEmpty, cells?.isEmpty != true else {
+            throw MCPError.invalidArgument(
+                "`figure` '\(figure)' is not a figure address: use a figure name or label, with an optional !C3 or !C3:E3.")
+        }
+        parsed = (head, cells)
+    }
+    let snapshot = await entry.store.publishFigures()
+    let record = try ReadFigureTool.find(parsed.label, in: snapshot.records)
+    // Cells and suggestions are a table's; a whole-figure note is any figure's.
+    if record.kind != .table, parsed.cells != nil || kind == .suggestedChange {
+        throw MCPError.invalidArgument(
+            "Figure '\(record.name)' is not a table: a cell anchor or a suggested change needs a table. "
+            + "Comment, query or craft-note on the whole figure instead (pass `figure` without a cell).")
+    }
+    guard !snapshot.parked.contains(record.id) else {
+        throw MCPError.invalidArgument(
+            "Figure '\(record.name)' is parked in Research; bring it back into the book before annotating it.")
+    }
+    var table = FigureTable(rows: 0, columns: 0)
+    if record.kind == .table {
+        guard let state = snapshot.states[record.id], state.kind == .table else {
+            throw MCPError.invalidArgument("Figure '\(record.name)' could not be read (its op log would not fold).")
+        }
+        table = state.table
+    }
+
+    var anchor: FigureCellAnchor?
+    if let cells = parsed.cells {
+        switch FigureAnchorAddress.anchor(cells, in: table) {
+        case .success(let a): anchor = a
+        case .failure:
+            throw MCPError.invalidArgument(
+                "'\(cells)' is not a live cell or range in '\(record.name)' "
+                + "(\(table.rows.count) rows, \(table.columns.count) columns); "
+                + "use a form like \"C3\" or \"C3:E3\". A cell whose row or column was deleted has no address.")
+        }
+    }
+
+    var suggestedCell: Cell?
+    var prior: Cell?
+    if kind == .suggestedChange {
+        guard let anchor, anchor.rowEnd == nil, anchor.columnEnd == nil else {
+            throw MCPError.invalidArgument(
+                "A suggested change names one cell (e.g. \(parsed.label)!C3), not a range or the whole figure.")
+        }
+        guard let value = suggestedValue else {
+            throw MCPError.invalidArgument("`suggested_value` is required with `figure`.")
+        }
+        let key = CellKey(row: anchor.row, column: anchor.column)
+        let names = FormulaNames(
+            records: snapshot.records, tables: snapshot.states.mapValues(\.table),
+            research: entry.store.manifest.research)
+        switch FigureAnnotationOps.suggestedCell(from: value, at: key, table: table, names: names) {
+        case .success(let cell): suggestedCell = cell
+        case .failure(let error):
+            throw MCPError.invalidArgument("`suggested_value` '\(value)' does not parse: \(error.message)")
+        }
+        prior = table[key]
+    }
+
+    let op: Op
+    do {
+        op = try FigureAnnotationOps.creation(
+            kind: kind, anchor: anchor, body: body, suggestedCell: suggestedCell, prior: prior,
+            author: claudeAnnotationAuthor, language: language,
+            stamp: .init(figureId: record.id, device: Document.loadIdentities[.assistant].deviceId,
+                         session: "mcp-\(UUID().uuidString.prefix(8))"))
+    } catch FigureAnnotationOps.BuildError.craftNoteTakesNoCell {
+        throw MCPError.invalidArgument("A craft note is about the whole figure: pass `figure` without a cell.")
+    }
+    do {
+        try await ds.addFigureAnnotation(op)
+    } catch let error as FigureParkedRefused {
+        throw MCPError.invalidArgument(
+            "Figure '\(record.name)' is parked in Research (\(error.localizedDescription)).")
+    }
+    return op.opId
+}
