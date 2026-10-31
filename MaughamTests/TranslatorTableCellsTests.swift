@@ -239,6 +239,301 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         XCTAssertTrue(message.contains("Table ledger (figure_id: \(record.id)):"))
     }
 
+    // MARK: - Ingest (Task 3)
+
+    /// Item | Q1 | Q2 / Rent | 100 | 110 / Food | 50 | 60 — a 3×3 table
+    /// with header labels; its five text cells are the round's labels.
+    private func quarters() -> FigureTable {
+        var table = FigureTable(rows: 3, columns: 3)
+        table.headerRows = 1
+        func set(_ r: Int, _ c: Int, _ content: CellContent) {
+            table.setCell(Cell(content: content), at: CellKey(row: table.rows[r], column: table.columns[c]))
+        }
+        set(0, 0, .value(.text("Item")))
+        set(0, 1, .value(.text("Q1")))
+        set(0, 2, .value(.text("Q2")))
+        set(1, 0, .value(.text("Rent")))
+        set(1, 1, .value(.number(100)))
+        set(1, 2, .value(.number(110)))
+        set(2, 0, .value(.text("Food")))
+        set(2, 1, .value(.number(50)))
+        set(2, 2, .value(.number(60)))
+        return table
+    }
+
+    private static let spanish = [
+        "Item": "Concepto", "Q1": "T1", "Q2": "T2", "Rent": "Alquiler", "Food": "Comida",
+        "Amount": "Cantidad",
+    ]
+
+    /// The window's production environment over this book.
+    private func production(_ ds: DocumentStore, _ store: ProjectStore)
+        -> TranslatorOrchestrator.Environment {
+        TranslatorOrchestrator.Environment.production(
+            store: store, documentStore: ds, projectURL: projectURL,
+            bible: BibleStore(projectRoot: projectURL, device: DeviceIdentity.author.slug),
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "TranslatorTableCells-\(UUID().uuidString)")!),
+            onRunEnded: { _ in })
+    }
+
+    /// A round on chapter A as production briefs it: the identity, then the
+    /// briefing — what `TranslatorOrchestrator.begin` asks, in its order.
+    private func brief(_ environment: TranslatorOrchestrator.Environment) async throws
+        -> TranslatorOrchestrator.BriefedRound {
+        _ = try await environment.translatorIdentity("es")
+        let round = try await environment.briefRound("doc-a", "es")
+        return try XCTUnwrap(round)
+    }
+
+    /// The translator's answer to `round`: every paragraph verbatim (the
+    /// figure line must keep printing its table) and every briefed cell in
+    /// Spanish; `cells` overrides which cells the answer carries.
+    private func answer(_ round: TranslatorOrchestrator.BriefedRound,
+                        cells: [TranslatorReport.Cell]? = nil,
+                        cellsMalformed: Bool = false) -> TranslatorReport {
+        TranslatorReport(
+            entries: round.inputs.workList.map {
+                .init(paragraphId: $0.paragraphId, text: nil, verbatim: true)
+            },
+            queries: [],
+            cells: cells ?? round.inputs.tableCells.flatMap { table in
+                table.cells.map {
+                    TranslatorReport.Cell(figureId: table.figureId, key: $0.key,
+                                          text: Self.spanish[$0.sourceText] ?? "ES", verbatim: nil)
+                }
+            },
+            cellsMalformed: cellsMalformed)
+    }
+
+    /// Ingest `report` as the orchestrator hands it over: the round's own
+    /// paragraph hashes and briefed cells.
+    private func ingest(_ report: TranslatorReport, _ round: TranslatorOrchestrator.BriefedRound,
+                        _ environment: TranslatorOrchestrator.Environment) async
+        -> TranslatorOrchestrator.IngestOutcome {
+        await environment.ingest(report, TranslatorOrchestrator.IngestContext(
+            docId: "doc-a", language: "es", runId: "run-1",
+            translatorName: "Elena Ruiz", translatorRoleId: "role-es",
+            briefedSourceHashes: round.sourceHashes,
+            briefedTableCells: round.inputs.tableCells))
+    }
+
+    /// The es body's layout of chapter A's table, through the one resolve
+    /// door every compiler uses (`PublishProblemGate.resolve`).
+    private func spanishLayout(_ store: ProjectStore) async throws -> FigureTableLayout {
+        let source = ProjectStoreASTSource(projectStore: store, figures: await store.publishFigures())
+        let bodies = try PublishProblemGate.resolve(bodies: [
+            BodyPlan.Body(tag: nil, displayTag: "en", source: source, config: PublishConfig()),
+            BodyPlan.Body(tag: "es", displayTag: "es", source: source.rebound(toLanguage: "es"),
+                          config: PublishConfig()),
+        ], imageAllowed: ["png"], macRegion: "US")
+        return try XCTUnwrap(bodies[1].resolution.tableFigures["doc-a"]?.values.first,
+                             "premise: the line lays out")
+    }
+
+    /// **Review Focus 1: a Spanish round on a chapter using a table labels
+    /// it.** The round briefs the table's five text labels beside the
+    /// paragraphs; ingest writes the paragraphs, then the cells through the
+    /// one door as the translator. Afterwards the es body prints every label,
+    /// and the gate's own reader finds nothing missing or stale — the table
+    /// is satisfied. The disable experiment: skip `writeCells` and the es
+    /// body prints the English labels while the gather still lists all five.
+    func test_aSpanishRoundLabelsTheChaptersTable_andTheGateIsSatisfied() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+        XCTAssertEqual(round.inputs.tableCells.first?.cells.map(\.sourceText),
+                       ["Item", "Q1", "Q2", "Rent", "Food"], "premise: the round briefs the labels")
+
+        let outcome = await ingest(answer(round), round, environment)
+        XCTAssertNil(outcome.rejection)
+        XCTAssertEqual(outcome.entriesWritten, round.inputs.workList.count)
+        XCTAssertEqual(outcome.cellsWritten, 5)
+        XCTAssertEqual(outcome.cellRefusals, [])
+
+        let after = try await work(ds, store)
+        XCTAssertEqual(after, [], "the gate's reader finds the table fresh")
+        let layout = try await spanishLayout(store)
+        XCTAssertEqual(layout.header, ["Concepto", "T1", "T2"])
+        XCTAssertEqual(layout.body.map(\.first), ["Alquiler", "Comida"])
+        let records = try TranslationStore.loadMerged(forDocId: record.id, language: "es", in: projectURL)
+        XCTAssertEqual(records.count, 5)
+    }
+
+    /// **Review Focus 2: a label edited mid-round lands stale, not fresh over
+    /// the new text.** "Rent" is briefed; the writer changes it to "Rents"
+    /// while the round is out; the answer's "Alquiler" is written hashed
+    /// against "Rent" — the round's snapshot — so the next round finds it
+    /// stale with its prior answer, and the es body prints the source. The
+    /// disable experiment: drop `briefedSources` and the cell reads fresh.
+    func test_aLabelEditedMidRoundLandsStale() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+
+        let host = try await ds.openFigure(figureId: record.id)
+        try await host.setCell(Cell(content: .value(.text("Rents"))), at: key(live, 1, 0))
+        await ds.awaitOpenFigureRenderForTesting()
+        await ds.closeFigure(figureId: record.id)
+
+        let outcome = await ingest(answer(round), round, environment)
+        XCTAssertEqual(outcome.cellsWritten, 5)
+        XCTAssertEqual(outcome.cellRefusals, [])
+
+        let next = try await work(ds, store)
+        XCTAssertEqual(next.first?.cells, [
+            .init(key: key(live, 1, 0), address: "A2", sourceText: "Rents",
+                  status: .stale, priorTranslation: "Alquiler"),
+        ])
+        let layout = try await spanishLayout(store)
+        XCTAssertEqual(layout.body.map(\.first), ["Rents", "Comida"], "the stale cell prints its source")
+    }
+
+    /// **A cell whose row was deleted mid-round is rejected loudly**: the
+    /// table's batch is refused by the door (it validates against the
+    /// CURRENT table), the refusal names the table in the round's report,
+    /// and the paragraphs beside it still land.
+    func test_aCellWhoseRowWasDeletedMidRoundIsRejectedInTheReport() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+
+        let host = try await ds.openFigure(figureId: record.id)
+        try await host.deleteRow(live.rows[2])
+        await ds.awaitOpenFigureRenderForTesting()
+        await ds.closeFigure(figureId: record.id)
+
+        let outcome = await ingest(answer(round), round, environment)
+        XCTAssertNil(outcome.rejection, "the paragraphs are not refused for a table's cell")
+        XCTAssertEqual(outcome.entriesWritten, round.inputs.workList.count)
+        XCTAssertEqual(outcome.cellsWritten, 0)
+        XCTAssertEqual(outcome.cellRefusals.count, 1)
+        let refusal = try XCTUnwrap(outcome.cellRefusals.first)
+        XCTAssertEqual(refusal, TranslatorOrchestrator.Environment.tableSentence(
+            "quarters", TranslatorOrchestrator.Environment.deletedMidRoundReason(["A3"])),
+            "named by the address the round briefed: Food's row is gone")
+        XCTAssertTrue(try TranslationStore.loadMerged(
+            forDocId: record.id, language: "es", in: projectURL).isEmpty,
+            "the table's batch is all-or-nothing")
+        XCTAssertTrue(DepartmentRunState.reportLine(.ingested(outcome))?.contains(refusal) == true,
+                      "the desk's row says it")
+    }
+
+    /// **A table the translator's permit stopped reaching mid-round is
+    /// refused and said** (R6): briefed as a whole-book author, both tables
+    /// are work; narrowed to her piece before the answer lands, her table's
+    /// labels are written and the whole-book table's batch is refused by the
+    /// door, by name, in the report.
+    func test_aTableThePostureStoppedReachingMidRoundIsRefusedAndReported() async throws {
+        let (ds, store, root) = try await openBook(chapterA: """
+            ![Books](../figures/books.csv){#tbl:books}
+
+            ![Hers](../figures/hers.csv){#tbl:hers}
+            """, register: true)
+        let books = try await store.createFigure(kind: .table, name: "books", piece: nil, table: ledger())
+        let hers = try await store.createFigure(kind: .table, name: "hers", piece: "doc-a", table: ledger())
+        await ds.awaitOpenFigureRenderForTesting()
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+        XCTAssertEqual(round.inputs.tableCells.map(\.figureId), [books.id, hers.id],
+                       "premise: a whole-book author's round")
+
+        try await rootChangesMyPermit(to: .author(.pieces(["doc-a"])), root: try XCTUnwrap(root), ds)
+        let outcome = await ingest(answer(round, cells: round.inputs.tableCells.flatMap { table in
+            table.cells.map { TranslatorReport.Cell(figureId: table.figureId, key: $0.key,
+                                                    text: Self.spanish[$0.sourceText], verbatim: nil) }
+        }), round, environment)
+
+        XCTAssertEqual(outcome.cellsWritten, 3, "her table's three labels land")
+        XCTAssertEqual(outcome.cellRefusals.count, 1)
+        XCTAssertTrue(outcome.cellRefusals.first?.hasPrefix("Table books: ") == true,
+                      "\(outcome.cellRefusals)")
+        XCTAssertTrue(try TranslationStore.loadMerged(
+            forDocId: books.id, language: "es", in: projectURL).isEmpty)
+        XCTAssertEqual(try TranslationStore.loadMerged(
+            forDocId: hers.id, language: "es", in: projectURL).count, 3)
+    }
+
+    /// **A malformed `cells` list rejects the cells, the paragraphs land,
+    /// and the report says so** (plan ruling: cells are all-or-nothing per
+    /// report).
+    func test_aMalformedCellsListWritesNoCellButTheParagraphsLand() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+
+        let outcome = await ingest(answer(round, cells: [], cellsMalformed: true), round, environment)
+        XCTAssertNil(outcome.rejection)
+        XCTAssertEqual(outcome.entriesWritten, round.inputs.workList.count)
+        XCTAssertGreaterThan(outcome.entriesWritten, 0, "premise: the paragraphs were work")
+        XCTAssertEqual(outcome.cellsWritten, 0)
+        XCTAssertEqual(outcome.cellRefusals,
+                       [TranslatorOrchestrator.Environment.cellsMalformedSentence])
+        XCTAssertTrue(try TranslationStore.loadMerged(
+            forDocId: record.id, language: "es", in: projectURL).isEmpty)
+    }
+
+    /// **A table the round never briefed is refused, by name** — a cell the
+    /// translator was never sent is never written, whatever the answer says.
+    func test_aCellForATableTheRoundDidNotBriefIsRefused() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+        let unbriefed = TranslatorOrchestrator.BriefedRound(
+            inputs: TranslatorBriefing.Inputs(
+                translatorName: "Elena Ruiz", language: "es", workList: round.inputs.workList),
+            sourceHashes: round.sourceHashes)
+
+        let outcome = await ingest(answer(round, cells: [
+            .init(figureId: record.id, key: key(live, 0, 0), text: "Concepto", verbatim: nil),
+        ]), unbriefed, environment)
+        XCTAssertEqual(outcome.cellsWritten, 0)
+        XCTAssertEqual(outcome.cellRefusals, [
+            TranslatorOrchestrator.Environment.unbriefedTableSentence(name: "quarters", count: 1),
+        ])
+        XCTAssertTrue(try TranslationStore.loadMerged(
+            forDocId: record.id, language: "es", in: projectURL).isEmpty)
+    }
+
+    /// The desk's copy names table cells beside paragraphs, and alone when a
+    /// round had only cells; the round report counts them.
+    func test_theDeskAndTheRoundReportCountTableCells() {
+        XCTAssertEqual(DepartmentRunState.translating(3, cells: 4),
+                       "Translating 3 paragraphs and 4 table cells\u{2026}")
+        XCTAssertEqual(DepartmentRunState.translating(0, cells: 1), "Translating 1 table cell\u{2026}")
+        XCTAssertEqual(DepartmentRunState.translating(2), "Translating 2 paragraphs\u{2026}")
+        XCTAssertEqual(DepartmentRunState.landedLine(entries: 2, queries: 1, cells: 3),
+                       "2 paragraphs translated \u{00b7} 3 table cells labelled \u{00b7} 1 question asked")
+        XCTAssertEqual(DepartmentRunState.landedLine(entries: 0, queries: 0, cells: 1),
+                       "1 table cell labelled")
+        XCTAssertEqual(DepartmentRunState.landedLine(entries: 0, queries: 0),
+                       "The round wrote nothing and asked nothing.")
+
+        var round = TranslationRound(number: 1, language: "es", docId: "doc-a", startedAt: Date())
+        XCTAssertFalse(TranslationRoundReport.countsLine(round).contains("table cell"))
+        round.tableCells = .init(written: 2, refusals: ["Table cash: refused"])
+        XCTAssertTrue(TranslationRoundReport.countsLine(round).hasSuffix("2 table cells labelled"))
+        XCTAssertEqual(TranslationRoundReport.tableCellRefusals(round), ["Table cash: refused"])
+    }
+
     // MARK: - The register
 
     /// Another Mac roots the book and admits this one as an author of the

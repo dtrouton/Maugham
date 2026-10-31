@@ -493,6 +493,14 @@ struct TranslationRoundReportView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array(TranslationRoundReport.tableCellRefusals(round).enumerated()),
+                    id: \.offset) { _, refusal in
+                Text(refusal)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack {
                 Spacer(minLength: 0)
                 // The round's own notes settle in the same queue every other

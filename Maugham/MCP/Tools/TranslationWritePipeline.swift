@@ -161,6 +161,14 @@ public enum TranslationWritePipeline {
     /// Posts `maughamTranslationDidUpdate` naming `figure_id` and `language`
     /// once the batch is on disk, whoever wrote it, so a card or pane showing
     /// the figure refreshes.
+    ///
+    /// `briefedSources` (report plan 9e-2, Review Focus 2) is the translator
+    /// round's snapshot: each cell's source text as the model was SHOWN it. A
+    /// cell named there is hashed (and copied, for `verbatim`) against that
+    /// text rather than the table's current one, so a label the writer edited
+    /// while the round was out lands stale over the new wording instead of
+    /// reading fresh forever. The target rule still asks the CURRENT table —
+    /// a cell whose row or column is gone is refused, as for every caller.
     @discardableResult
     public static func performCells(
         entries: [CellEntry],
@@ -169,6 +177,7 @@ public enum TranslationWritePipeline {
         table: FigureTable,
         projectURL: URL,
         actor: DeviceActor,
+        briefedSources: [CellKey: String] = [:],
         identities: LocalIdentities = .current,
         deviceState: OpLogDeviceState = .shared
     ) async throws -> [String] {
@@ -207,7 +216,10 @@ public enum TranslationWritePipeline {
                     }
                     return nil
                 },
-                source: { FigureTextCells.sourceText(keys[$0.id].flatMap { table[$0] }) ?? "" },
+                source: { line in
+                    if let key = keys[line.id], let briefed = briefedSources[key] { return briefed }
+                    return FigureTextCells.sourceText(keys[line.id].flatMap { table[$0] }) ?? ""
+                },
                 advise: { line, source, translation in
                     translation == source
                         ? ["\(line.label): translated text equals source — mark "

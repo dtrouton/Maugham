@@ -126,7 +126,7 @@ enum DepartmentRunSession: Equatable {
             return .busy(language: language)
         }
         guard isRunning else { return .free }
-        if case .running(_, let language, _) = runState {
+        if case .running(_, let language, _, _) = runState {
             return .busy(language: language)
         }
         return .busy(language: nil)
@@ -157,7 +157,7 @@ struct DepartmentRunState: Equatable {
     /// the probe mounts) still says its work-list's count; a pipeline round
     /// says its LEG, and for a book queue which chapter of how many.
     enum RunningLeg: Equatable {
-        case translating(Int)
+        case translating(Int, cells: Int = 0)
         case leg(TranslationRound.Leg, book: TranslationPipeline.BookProgress?)
     }
 
@@ -234,7 +234,7 @@ struct DepartmentRunState: Equatable {
     /// round.
     var statusLine: String? {
         switch phase {
-        case .running(.translating(let count)): return Self.translating(count)
+        case .running(.translating(let count, let cells)): return Self.translating(count, cells: cells)
         case .running(.leg(let leg, let book)): return Self.legLine(leg, book: book)
         case .failed(let failure): return Self.failureCopy(failure)
         case .nothingToTranslate: return Self.nothingToTranslateLine
@@ -288,9 +288,9 @@ struct DepartmentRunState: Equatable {
             phase = .running(.leg(leg, book: book))
         } else {
             switch runState {
-            case .running(let runDocId, let runLanguage, let translating)
+            case .running(let runDocId, let runLanguage, let translating, let cells)
                 where runDocId == docId && runLanguage == language:
-                phase = .running(.translating(translating))
+                phase = .running(.translating(translating, cells: cells))
             case .nothingToTranslate(let runDocId, let runLanguage, _)
                 where runDocId == docId && runLanguage == language:
                 phase = .nothingToTranslate
@@ -394,8 +394,19 @@ struct DepartmentRunState: Equatable {
     /// (`ReviewRoundCockpit`'s rule, in this surface's currency).
     static let cancelledLine = "Run cancelled. Nothing was written."
 
-    static func translating(_ count: Int) -> String {
-        "Translating \(count) paragraph\(count == 1 ? "" : "s")\u{2026}"
+    /// A round's table cells are named beside its paragraphs (report plan
+    /// 9e-2) — and alone, when every paragraph is already translated.
+    static func translating(_ count: Int, cells: Int = 0) -> String {
+        let paragraphs = "\(count) paragraph\(count == 1 ? "" : "s")"
+        guard cells > 0 else { return "Translating \(paragraphs)\u{2026}" }
+        let labels = cellsNoun(cells)
+        return count > 0 ? "Translating \(paragraphs) and \(labels)\u{2026}"
+                         : "Translating \(labels)\u{2026}"
+    }
+
+    /// "1 table cell" / "3 table cells".
+    static func cellsNoun(_ count: Int) -> String {
+        "\(count) table cell\(count == 1 ? "" : "s")"
     }
 
     /// Why every Run refuses while one is warm, naming the edition that has the
@@ -519,7 +530,9 @@ struct DepartmentRunState: Equatable {
         case .ingested(let ingested):
             if let rejection = ingested.rejection { return rejection }
             return ([landedLine(entries: ingested.entriesWritten,
-                                queries: ingested.queriesMinted)]
+                                queries: ingested.queriesMinted,
+                                cells: ingested.cellsWritten)]
+                    + ingested.cellRefusals
                     + ingested.warnings).joined(separator: "\n")
         case .nothingToTranslate:
             return nothingToTranslateLine
@@ -534,15 +547,23 @@ struct DepartmentRunState: Equatable {
     /// when there are some**: a "0 questions asked" said after every round is a
     /// figure the writer stops reading, and the day it matters they will not see
     /// it (the rule the query line on the row above already follows).
-    static func landedLine(entries: Int, queries: Int) -> String {
-        guard entries > 0 || queries > 0 else {
+    ///
+    /// Table cells (report plan 9e-2) follow the same rule: named only when
+    /// some landed, and a cells-only round says its labels alone.
+    static func landedLine(entries: Int, queries: Int, cells: Int = 0) -> String {
+        guard entries > 0 || queries > 0 || cells > 0 else {
             return "The round wrote nothing and asked nothing."
         }
-        let words = entries == 1 ? "1 paragraph translated"
-                                 : "\(entries) paragraphs translated"
-        guard queries > 0 else { return words }
-        let asked = queries == 1 ? "1 question asked" : "\(queries) questions asked"
-        return "\(words) \u{00b7} \(asked)"
+        var parts: [String] = []
+        if entries > 0 || cells == 0 {
+            parts.append(entries == 1 ? "1 paragraph translated"
+                                      : "\(entries) paragraphs translated")
+        }
+        if cells > 0 { parts.append("\(cellsNoun(cells)) labelled") }
+        if queries > 0 {
+            parts.append(queries == 1 ? "1 question asked" : "\(queries) questions asked")
+        }
+        return parts.joined(separator: " \u{00b7} ")
     }
 
     /// **One spelling of a death, read by a third surface.**

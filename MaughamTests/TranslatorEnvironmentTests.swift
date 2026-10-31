@@ -128,7 +128,8 @@ final class TranslatorEnvironmentTests: XCTestCase {
             docId: harness.doc.docId, language: language, runId: "run-1",
             translatorName: name, translatorRoleId: roleId,
             briefedSourceHashes: briefedSourceHashes
-                ?? harness.doc.paragraphs.mapValues { TranslationHash.hash($0) })
+                ?? harness.doc.paragraphs.mapValues { TranslationHash.hash($0) },
+            briefedTableCells: [])
     }
 
     private func records(

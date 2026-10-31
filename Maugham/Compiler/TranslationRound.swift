@@ -228,6 +228,17 @@ struct TranslationRound: Codable, Equatable, Sendable {
     var departures: [DepartureRecord] = []
     var summary: String?
     var glossaryProposals: [GlossaryProposalRecord] = []
+    /// What the translate leg did with the tables' labels (report plan
+    /// 9e-2), or nil when the round had none to write. Optional so a round
+    /// recorded before cells existed still reads.
+    var tableCells: TableCellsRecord?
+
+    /// The cells that landed, and every refusal as the sentence the writer
+    /// reads — a table's refused batch is said on the report, never dropped.
+    struct TableCellsRecord: Codable, Equatable, Sendable {
+        var written: Int
+        var refusals: [String]
+    }
 
     init(number: Int, language: String, docId: String, startedAt: Date) {
         self.number = number; self.language = language; self.docId = docId

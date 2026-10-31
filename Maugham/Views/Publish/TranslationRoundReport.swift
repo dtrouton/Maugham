@@ -254,10 +254,21 @@ enum TranslationRoundReport {
 
     /// What the round came to, in figures: "2 notes · 3 departures · 2 declined".
     static func countsLine(_ round: TranslationRound) -> String {
-        [count(round.notes.count, "note"),
-         count(round.departures.count, "departure"),
-         "\(round.declinedCount) declined"]
-            .joined(separator: " \u{00b7} ")
+        var parts = [count(round.notes.count, "note"),
+                     count(round.departures.count, "departure"),
+                     "\(round.declinedCount) declined"]
+        // The tables' labels (report plan 9e-2), named only when some landed.
+        if let written = round.tableCells?.written, written > 0 {
+            parts.append(count(written, "table cell") + " labelled")
+        }
+        return parts.joined(separator: " \u{00b7} ")
+    }
+
+    /// **Every table batch the round could not write**, each the sentence
+    /// ingest built (report plan 9e-2): a refusal is said on the report,
+    /// never dropped. Empty when every briefed cell landed.
+    static func tableCellRefusals(_ round: TranslationRound) -> [String] {
+        round.tableCells?.refusals ?? []
     }
 
     private static func count(_ n: Int, _ noun: String) -> String {

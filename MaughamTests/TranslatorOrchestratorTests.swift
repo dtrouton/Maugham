@@ -400,6 +400,37 @@ final class TranslatorOrchestratorTests: XCTestCase {
         XCTAssertEqual(harness.summaries.map(\.outcome), [.nothingToTranslate])
     }
 
+    /// **A piece whose paragraphs are all fresh still owes its tables'
+    /// labels** (report plan 9e-2): a round with no paragraph work and one
+    /// table cell is a run — the session is spent, the running state counts
+    /// the cell apart from paragraphs, and ingest is handed the briefed cells
+    /// (the snapshot it hashes against). The disable experiment: guard on the
+    /// work-list alone and this round ends `nothingToTranslate`.
+    func test_aCellsOnlyRoundRunsAndCarriesItsBriefedCellsToIngest() throws {
+        let runner = SpyRunner()
+        runner.nextEvent = nil   // hold the turn open
+        let empty = makeRound(work: 0)
+        let cells = [TableCellWork(
+            figureId: "fig-1", name: "cash",
+            cells: [.init(key: CellKey(row: RowID("r1"), column: ColumnID("c1")), address: "A1",
+                          sourceText: "Item", status: .missing, priorTranslation: nil)])]
+        let round = TranslatorOrchestrator.BriefedRound(
+            inputs: TranslatorBriefing.Inputs(
+                translatorName: "Elena Ruiz", language: language, workList: [],
+                tableCells: cells),
+            sourceHashes: empty.sourceHashes)
+        let harness = try makeHarness(runner: runner, round: round)
+
+        harness.orchestrator.runTranslation(docId: docId, language: language)
+        awaitSends(1, on: runner)
+        XCTAssertEqual(harness.orchestrator.runState,
+                       .running(docId: docId, language: language, translating: 0, cells: 1))
+
+        runner.release(.resultText(#"{"entries":[],"queries":[]}"#))
+        settle()
+        XCTAssertEqual(harness.ingests.map(\.context.briefedTableCells), [cells])
+    }
+
     // MARK: - Refusal
 
     /// A second run while one is in flight is refused, not queued: there is

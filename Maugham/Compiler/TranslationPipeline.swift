@@ -318,7 +318,15 @@ final class TranslationPipeline {
                     generation: gen, token: token, skipReason: Self.nothingToTranslateReason,
                     start: { env.runTranslation(docId, language) },
                     onIngested: { outcome in
+                        // Paragraphs alone gate the reading legs: the
+                        // spot-check, collator and cold legs are
+                        // paragraph-only (report plan 9e-2), so a round that
+                        // labelled only cells has nothing new to read.
                         wroteAnything = wroteAnything || outcome.entriesWritten > 0
+                        if outcome.cellsWritten > 0 || !outcome.cellRefusals.isEmpty {
+                            round.tableCells = .init(
+                                written: outcome.cellsWritten, refusals: outcome.cellRefusals)
+                        }
                     })
 
             case .read, .reread:
@@ -421,7 +429,8 @@ final class TranslationPipeline {
             if !record(leg, result) { break }
         }
 
-        if !wroteAnything, round.stoppedAt == nil, round.summary == nil {
+        if !wroteAnything, (round.tableCells?.written ?? 0) == 0,
+           round.stoppedAt == nil, round.summary == nil {
             round.summary = Self.nothingToDoSummary
         }
         round.endedAt = Date()
