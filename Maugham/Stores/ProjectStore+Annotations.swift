@@ -325,6 +325,8 @@ extension ProjectStore {
             facts: facts,
             amendmentPermits: amendmentPermits)
         else { return nil }
+        // The figure's own table, from the same stream, resolves each note's
+        // cell anchor (report plan 9c-1): live A1 address, or orphaned.
         return AnnotationAggregation.allAnnotations(
             ops: ops, paragraphs: [:],
             amendments: .judged(
@@ -333,7 +335,8 @@ extension ProjectStore {
                     amendmentPermits.resolvedInsideTheUnsignedSnapshot,
                 class: {
                     DocumentClass.resolve(docId: figureId, facts: facts)
-                }))
+                }),
+            figureTable: AnnotationAggregation.figureTable(in: ops))
     }
 
     /// **The notes on ONE figure's stream** (report plan 8a Task 7, the

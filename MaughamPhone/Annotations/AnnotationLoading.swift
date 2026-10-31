@@ -116,6 +116,8 @@ enum AnnotationLoading {
     ) -> [Annotation] {
         // Single source of truth lives in MaughamCore (tripwire 19) — the Mac's
         // project-wide walk derives through the same pair. Do NOT reimplement.
+        // Core's overload derives the paragraphs and, on a figure's stream,
+        // the figure's table its notes' cell anchors resolve against.
         AnnotationAggregation.allAnnotations(ops: ops, amendments: amendments)
     }
 
@@ -130,7 +132,8 @@ enum AnnotationLoading {
         _ judged: JudgedOps, paragraphs: [String: String]
     ) -> [Annotation] {
         AnnotationAggregation.allAnnotations(
-            ops: judged.ops, paragraphs: paragraphs, amendments: judged.amendments)
+            ops: judged.ops, paragraphs: paragraphs, amendments: judged.amendments,
+            figureTable: AnnotationAggregation.figureTable(in: judged.ops))
     }
 
     /// Open annotations only — the triage subset. Kept as the thin filter over

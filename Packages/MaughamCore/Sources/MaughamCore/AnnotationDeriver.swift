@@ -12,10 +12,18 @@ public enum AnnotationDeriver {
     /// disposition. A caller holding a verified trust table passes
     /// `AnnotationAmendments.judged`; a caller with none (the phone, a rewind
     /// projection, a test) does not, and gets exactly what it always got.
+    ///
+    /// `figureTable` is the figure's table when `ops` is a figure's stream
+    /// (report plan 9c-1; `AnnotationAggregation.figureTable(in:)` derives it
+    /// from the same ops). A figure note's anchor resolves against it to
+    /// `figureAddress`, and an orphaned anchor — a corner's row or column
+    /// deleted — is stale. Without a table an anchor is projected but never
+    /// resolved, and never judged stale.
     public static func derive(
         ops: [Op],
         paragraphs: [String: String],
-        amendments: AnnotationAmendments = .honourEverything
+        amendments: AnnotationAmendments = .honourEverything,
+        figureTable: FigureTable? = nil
     ) -> [Annotation] {
         let creations = creationOps(in: ops)
         // 1. Index lifecycle ops by sourceAnnotationId; latest wins.
@@ -146,7 +154,21 @@ public enum AnnotationDeriver {
                 resolvedSpanRange = nil
             }
             let spanIsStale = (span != nil && resolvedSpanRange == nil)
-            let isStale = paragraphStale || spanIsStale
+
+            // A figure note's cell anchor (report plan 9c-1), resolved against
+            // the figure's current table; orphaned is stale (spec §10.1).
+            let figureAnchor = FigureCellAnchor(provenance: prov)
+            let figureResolution = figureTable.flatMap { figureAnchor?.resolve(in: $0) }
+            let figureAddress: String? = {
+                guard case .live(let a1)? = figureResolution else { return nil }
+                return a1
+            }()
+            let figureIsStale = (figureResolution == .orphaned)
+            let isStale = paragraphStale || spanIsStale || figureIsStale
+            // The cell a figure suggestion proposes rides as the creation
+            // op's `Op.figure` — never folded as a cell write (`FigureDeriver`
+            // folds figure kinds only), so it stays a suggestion until accepted.
+            let suggestedCell: Cell? = (kind == .suggestedChange) ? op.figure?.next : nil
 
             // Translation-pass language tag. `add_query` encodes its whole
             // Params into `toolArgs` provenance, so decode it back out here;
@@ -209,7 +231,10 @@ public enum AnnotationDeriver {
                 compilerRunId: prov?.compilerRunId,
                 compilerRound: prov?.compilerRound,
                 compilerFingerprint: prov?.compilerFingerprint,
-                lessonHeading: prov?.compilerLessonHeading))
+                lessonHeading: prov?.compilerLessonHeading,
+                figureAnchor: figureAnchor,
+                suggestedCell: suggestedCell,
+                figureAddress: figureAddress))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.

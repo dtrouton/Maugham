@@ -85,6 +85,18 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     /// Independent of `compilerRunId`: a heading says what the note is ABOUT,
     /// never who wrote it, so `isCompilerAuthored` does not read it.
     public let lessonHeading: String?
+    /// **The cell or range a figure note points at** (report plan 9c-1),
+    /// projected from the creation op's figure scalars. Nil for a note on the
+    /// whole figure, and for every note that is not on a figure's stream.
+    public let figureAnchor: FigureCellAnchor?
+    /// **The cell a figure suggestion proposes** (report plan 9c-1): the
+    /// creation op's `Op.figure.next` on a `.suggestedChange`. Nil on every
+    /// other note, and on a suggestion to empty the cell.
+    public let suggestedCell: Cell?
+    /// **The anchor's live A1 address** ("C3", "C3:E4") in the figure's
+    /// current table. Nil when the anchor is orphaned (`isStale` says so), on
+    /// a whole-figure note, and when the deriver was given no table.
+    public let figureAddress: String?
 
     /// Did a compiler run write this note? The run id is the sole determinant:
     /// the round and the fingerprint say WHICH run, never WHETHER.
@@ -105,7 +117,10 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         compilerRunId: String? = nil,
         compilerRound: Int? = nil,
         compilerFingerprint: String? = nil,
-        lessonHeading: String? = nil
+        lessonHeading: String? = nil,
+        figureAnchor: FigureCellAnchor? = nil,
+        suggestedCell: Cell? = nil,
+        figureAddress: String? = nil
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -123,6 +138,9 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.compilerRound = compilerRound
         self.compilerFingerprint = compilerFingerprint
         self.lessonHeading = lessonHeading
+        self.figureAnchor = figureAnchor
+        self.suggestedCell = suggestedCell
+        self.figureAddress = figureAddress
     }
 }
 

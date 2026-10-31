@@ -25,7 +25,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/Editor/AREA.md": 6_481,
         "Maugham/Updates/AREA.md": 3_997,
         "Maugham/Publish/AREA.md": 3_861,
-        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 5_073,
+        "Packages/MaughamCore/Sources/MaughamCore/AREA.md": 5_104,
     ]
 
     /// Repo-relative path → the longest line it may hold, in characters.

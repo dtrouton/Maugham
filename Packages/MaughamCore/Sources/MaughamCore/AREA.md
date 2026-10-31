@@ -110,7 +110,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 ### Annotations and suggestions
 - `Annotation.swift` — the annotation projection: kind, status, triage mark and filter.
 - `AnnotationDeriver.swift` — ops plus paragraph map → annotations, honouring amendment rules.
-- `AnnotationAggregation.swift` — the ops → annotations walk both surfaces read through.
+- `AnnotationAggregation.swift` — the ops → annotations walk both surfaces read through, and a figure stream's table for its anchors.
 - `AnnotationInverse.swift` — which compensating op undoes which annotation resolution.
 - `AnnotationOwnership.swift` — whose annotation it is, and who may edit, withdraw, reopen or dispose of it.
 - `SpanAnchor.swift` — a sub-paragraph anchor: quoted span, context and position hint.
@@ -202,6 +202,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureRangeAnchors.swift` — a row reorder keeps each range's positional span: own ranges re-anchored, another figure's reported.
 - `FigureGridModel.swift` — the in-place grid's keys (spec §6.3) as effects: selection by ids, the cell edit, references composed with arrows or clicks; `tableChanged` re-checks the ids.
 - `FigureGridAddress.swift` — a grid cell or range as "B3" / "B2:D9" by live position, and back.
+- `FigureCellAnchor.swift` — a figure note's cell or range by id; its live A1 address, or orphaned (stale) when a corner is deleted.
 - `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin set and a pin clear that names its pin), and a visit's inverses as one all-or-nothing undo.
 - `FigureFill.swift` — Fill Down and Fill Right (R7d-1): the cells a fill writes, formulas translated from the head cell; a one-deep selection fills from the row above or column left.
