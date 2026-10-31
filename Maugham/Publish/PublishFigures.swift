@@ -56,9 +56,17 @@ extension ProjectStore {
     /// source** — the open window's `DocumentStore.publishFigures()`. Every
     /// production project is opened with its `DocumentStore`
     /// (`ProjectSession.open`); a bare `ProjectStore` with none (a test's
-    /// fixture) has no figure host and answers `.none`.
+    /// fixture) has no figure host and answers `.none` — said in the log
+    /// when the book does register figures, since every table-figure line
+    /// then reads "points at no figure" and the log is the only clue why.
     func publishFigures() async -> PublishFigures {
-        guard let documentStore else { return .none }
+        guard let documentStore else {
+            if !(manifest.figures ?? []).isEmpty {
+                projectStoreLog.error(
+                    "a publish read no figure: the project has no DocumentStore, so its \((self.manifest.figures ?? []).count, privacy: .public) registered figures print as missing")
+            }
+            return .none
+        }
         return await documentStore.publishFigures()
     }
 }

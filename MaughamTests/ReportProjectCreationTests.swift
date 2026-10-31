@@ -238,12 +238,12 @@ final class ReportProjectCreationTests: XCTestCase {
         let golden: [String: String] = [
             "backmatter.tex": "f9e196a3871432d8e28dd1079a432d4474f6494c76b5089588df289892128e89",
             "config.json": "85dfc7c2b44b1457704bb965e0ebb682723ab7c1be132daaa3539f8caccb1c6a",
-            "EMISSION.md": "74e42396abc389a6a9035b72f9d92c945ac38db853d3a9805c75802a914ba51c",  // report plan 9a Task 8: table-figure example, the MaughamTableNoHead clause, EPUB/Word wording (Task 5: a table figure draws its cells)
+            "EMISSION.md": "0d0cb3ce961155d6cc1da1113614ed5d259fe8204a3d8649802a7c286db09e98",  // report plan 9a final fix wave (M3): the EPUB total row is ruled by its cells' own inline style
             "frontmatter.tex": "0537b0bf87fd28119e7c55134f786e95ed0ea5a6bdf972210f5b62521312390b",
             "preamble.tex": "6d6e044b7729318a1c25b75f0793e70124c9c1521f6faf2b6f27f31bb75525cc",
             "prose.tex": "233eea1e200b03d427a0bfc236138790d4b46b2be3d26654559ee6013e4f239d",
             "screenplay.tex": "1e64bde54f8b534ad8957637a3c2db7a6b9a209677a8f3231b3e25e0eea187bf",
-            "styles.css": "dc787bf9b1f2977326b2448bbbef53bfce878da1e5a41ca30a17d66a4ffaccce",  // report plan 9a Task 6: a `tr.total` rule for a table figure's total row
+            "styles.css": "08a12f8801573fb0b8fbf3c17679613b51acf724663b060da3488f7d4efaa0df",
             "template.tex": "08decc2f49fedaca9a193ac4db0025d3ef77b09d0274a45cbfc0b71c48685463",
         ]
         let publish = url.appendingPathComponent(".maugham/publish")

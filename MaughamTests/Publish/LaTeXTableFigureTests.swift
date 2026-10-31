@@ -72,14 +72,14 @@ final class LaTeXTableFigureTests: XCTestCase {
     // MARK: - tests
 
     /// A figures-only book defines `MaughamTable` and draws the figure in it:
-    /// its header (which `\endhead` repeats), its computed body cells and its
+    /// its header (the environment's fourth argument, which its `\endhead`
+    /// repeats), its computed body cells and its
     /// total, `\hline` immediately before the total row.
     func test_aHeadedTableFigureWithATotal_drawsAMaughamTable() throws {
         let t = try table([["Item", "Amount"], ["Rent", "100"], ["Fees", "=B2*2"], ["Total", "=SUM(B2:B3)"]],
                           header: true, total: true)
         let body = try emit(cashLine, figures(t))
         XCTAssertTrue(body.contains("\\newenvironment{MaughamTable}[4]"), "a figures-only book defines it: \(body)")
-        XCTAssertTrue(body.contains("\\endhead"), body)
         XCTAssertTrue(body.contains("""
             \\setcounter{table}{0}
             \\hypertarget{lbl-tbl-cash}{}

@@ -99,15 +99,23 @@ final class DeskCompileRunner {
                             imprint: request.imprint),
             isRunning: true)
 
-        task = Task { [weak self] in
+        task = Task { [weak self, ownJob] in
             // The book's figures are snapshotted inside the run, so the press
             // itself returns at once; the source is built over that snapshot.
+            let figures = await projectStore.publishFigures()
+            // A Cancel pressed before the job registered (during the
+            // snapshot): nothing has started, so nothing starts — the desk
+            // settles as cancelled, never publishes. A flag, not
+            // `Task.cancel()`, so a later press never cancels the
+            // orchestrator's own awaits out from under its outcome.
+            guard !ownJob.isCancelRequested else {
+                self?.finish(with: DepartmentCompileState.settled(after: .cancelled))
+                return
+            }
             let orchestrator = PublishOrchestrator(
                 projectURL: projectURL,
                 astSource: ProjectStoreASTSource(
-                    projectStore: projectStore,
-                    figures: await projectStore.publishFigures(),
-                    language: nil),
+                    projectStore: projectStore, figures: figures, language: nil),
                 configStore: stores.configStore,
                 publicationStore: stores.publicationStore,
                 snapshotStore: stores.snapshotStore,
@@ -129,8 +137,12 @@ final class DeskCompileRunner {
                     dryRun: false,
                     version: nil,
                     imprint: request.imprint,
-                    // The desk learns which job is its own — see `ownJob`.
-                    onJobRegistered: { [ownJob] in ownJob.set($0) })
+                    // The desk learns which job is its own — see `ownJob`. A
+                    // Cancel that landed after the snapshot but before this
+                    // moment is honoured here, on the job it was meant for.
+                    onJobRegistered: { [ownJob, jobManager = stores.jobManager] id in
+                        if ownJob.register(id) { Task { _ = await jobManager.cancel(jobID: id) } }
+                    })
                 settled = DepartmentCompileState.settled(after: outcome)
             } catch {
                 // `compile` throws for the things that are not outcomes at all
@@ -166,9 +178,16 @@ final class DeskCompileRunner {
     /// and the outcome comes back `.cancelled`, which `DepartmentCompileState
     /// .settled(after:)` draws as an idle desk with a sentence rather than as a
     /// failure.
+    ///
+    /// **Before the job registers** — while the run snapshots the book's
+    /// figures — there is no job to cancel yet, so the press is remembered:
+    /// the run settles as cancelled before any orchestrator starts, and a job
+    /// registering a moment later is cancelled on arrival (plan 9a M1).
     func cancel() {
-        guard let stores, let jobID = ownJob.get() else { return }
-        Task { _ = await stores.jobManager.cancel(jobID: jobID) }
+        guard let stores, task != nil else { return }
+        if let jobID = ownJob.requestCancel() {
+            Task { _ = await stores.jobManager.cancel(jobID: jobID) }
+        }
     }
 
     // MARK: -
@@ -194,10 +213,34 @@ final class DeskCompileRunner {
 private final class JobIDHolder: @unchecked Sendable {
     private let lock = NSLock()
     private var value: String?
+    private var cancelRequested = false
 
+    /// Forgets the job and any Cancel aimed at it (a new press, a settle).
     func set(_ id: String?) {
         lock.lock(); defer { lock.unlock() }
         value = id
+        cancelRequested = false
+    }
+
+    /// Records the job the orchestrator registered; true when a Cancel was
+    /// pressed before it did, so the caller cancels it now.
+    func register(_ id: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        value = id
+        return cancelRequested
+    }
+
+    /// Whether a Cancel was pressed since the last `set`.
+    var isCancelRequested: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cancelRequested
+    }
+
+    /// Records a Cancel; the job to cancel, or nil when none has registered.
+    func requestCancel() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        cancelRequested = true
+        return value
     }
 
     func get() -> String? {

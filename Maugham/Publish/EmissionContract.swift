@@ -290,7 +290,8 @@ public enum EmissionContract {
     three-row figure (header, body, total); a figure no line names is absent \
     from the body, and a pipe table is unchanged. The EPUB draws the same \
     cells in a `<table>` (`<thead>` only with a header row, the total row \
-    `<tr class="total">`, ruled above by the starter's `styles.css`), and Word \
+    `<tr class="total">`, its cells ruled above by their own inline style, \
+    so an older project's `styles.css` needs nothing), and Word \
     in a native table with a repeating header row and the total's cells ruled \
     above.
 

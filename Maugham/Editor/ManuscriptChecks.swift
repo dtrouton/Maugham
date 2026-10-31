@@ -69,12 +69,16 @@ enum ManuscriptChecks {
     ///     Nil (another surface), or nil for a line (the cache not filled
     ///     yet), skips that line's path checks, as `index == nil` skips the
     ///     index's; the label-kind checks read the line alone.
+    ///   - parkedLabels: the labels that name a parked figure
+    ///     (`FigureCardCache.parkedLabels`): an unresolved reference to one is
+    ///     `figureInResearch`, Publish's kind for it, not `unresolvedCrossRef`.
     ///   - blockGroups: reads one block's text into its groups; the
     ///     coordinator passes its per-block cache, so a settle re-scans only
     ///     blocks whose text changed.
     static func analyse(tokens: [Token], text: NSString, index: ReferenceIndex?,
                         labelsElsewhere: Set<ManuscriptLabel>,
                         figureLineStatus: ((String) -> FigureLineResolution.Status?)? = nil,
+                        parkedLabels: Set<ManuscriptLabel> = [],
                         blockGroups: (String) -> [Group] = groups(inBlockText:)) -> Analysis {
         var problems: [Problem] = []
         let notes = footnotes(in: tokens, text: text)
@@ -112,9 +116,11 @@ enum ManuscriptChecks {
                         }
                     case .crossRef(let label):
                         if index.target(for: label) == nil, !targetsHere.contains(label) {
+                            // Send to Research removed its line: say where it went.
                             problems.append(Problem(
                                 range: itemRange("@" + label.reference, in: group.range, text: text),
-                                kind: .unresolvedCrossRef(label)))
+                                kind: parkedLabels.contains(label)
+                                    ? .figureInResearch(name: label.name) : .unresolvedCrossRef(label)))
                         }
                     case .footnoteRef:
                         continue
@@ -585,6 +591,7 @@ extension EditorCoordinator {
             tokens: lastTokens, text: textView.string as NSString, index: index,
             labelsElsewhere: index == nil ? [] : (projectLabelsElsewhere?() ?? []),
             figureLineStatus: figureLineStatus,
+            parkedLabels: parkedFigureLabels?() ?? [],
             blockGroups: { self.cachedReferenceGroups(blockText: $0) })
         problemMarks = analysis.problems
         if footnoteNumbers != analysis.footnoteNumbers {

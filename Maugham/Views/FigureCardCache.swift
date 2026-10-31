@@ -74,6 +74,10 @@ final class FigureCardCache {
     private var records: [FigureRecord] = []
     /// `records` keyed for line lookups, built once per fill.
     private var index = FigureLineResolution.Index([])
+    /// The labels that name a parked figure as of the last fill
+    /// (`FigureRecord.referenceLabel`): a reference to one is "in Research
+    /// now", as Publish says (plan 9a I3).
+    private(set) var parkedLabels: Set<ManuscriptLabel> = []
     /// The figures fills saw leave the registry, most recent last, with the
     /// card each had (`readopt(figureId:)`); at most `departedLimit`.
     private var departed: [(record: FigureRecord, model: FigureCardModel?)] = []
@@ -231,7 +235,11 @@ final class FigureCardCache {
         }
         let before = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let after = Dictionary(inputs.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let parkedNow = Set(inputs.records.compactMap { record in
+            inputs.states[record.id]?.parked != nil ? record.referenceLabel : nil
+        })
         let moved = next != models || after != before || readers != researchReaders
+            || parkedNow != parkedLabels
         let first = !hasFilled
         for record in records where after[record.id] == nil {
             departed.append((record, models[record.id]))
@@ -242,6 +250,7 @@ final class FigureCardCache {
         }
         models = next
         researchReaders = readers
+        parkedLabels = parkedNow
         records = inputs.records
         index = FigureLineResolution.Index(inputs.records)
         hasFilled = true

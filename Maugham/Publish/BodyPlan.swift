@@ -60,6 +60,19 @@ public struct BodyPlan {
         public let source: ProjectASTBuilder.Source
         /// `resolved` with both language folds applied.
         public let config: PublishConfig
+        /// The book's own (source body's) `metadata.language`, which a
+        /// translated body's table money takes its symbol from (spec §5.1);
+        /// nil when the caller folded the config itself and does not know it.
+        public let sourceLanguage: String?
+
+        public init(tag: String?, displayTag: String, source: ProjectASTBuilder.Source,
+                    config: PublishConfig, sourceLanguage: String? = nil) {
+            self.tag = tag
+            self.displayTag = displayTag
+            self.source = source
+            self.config = config
+            self.sourceLanguage = sourceLanguage
+        }
     }
 
     /// Never empty; same order as `LanguageSet.bodies`.
@@ -119,7 +132,8 @@ public struct BodyPlan {
                 tag: tag,
                 displayTag: tag ?? set.sourceTag,
                 source: wrap(bound),
-                config: fold(resolved, toLanguage: tag, publishDir: publishDir))
+                config: fold(resolved, toLanguage: tag, publishDir: publishDir),
+                sourceLanguage: resolved.metadata.language)
         }
         return BodyPlan(bodies: bodies)
     }

@@ -646,11 +646,11 @@ extension ProjectStore {
     /// The book's language tag for reading a table's cells (spec §5.2: dates by
     /// the book's day/month order): the publish config's `metadata.language`,
     /// or nil — English and the Mac's region — when there is no config, it
-    /// will not read, or the tag is empty.
+    /// will not read, or the tag is blank (`TableLocale.languageTag(fromStored:)`,
+    /// the normaliser Publish's source body shares, so the card and the PDF agree).
     func bookLanguageTag() async -> String? {
         guard let config = try? await PublishConfigStore(projectURL: url).load() else { return nil }
-        let tag = config.metadata.language.trimmingCharacters(in: .whitespaces)
-        return tag.isEmpty ? nil : tag
+        return TableLocale.languageTag(fromStored: config.metadata.language)
     }
 
     /// Item's sidecar, or nil when it has none, or one that will not read

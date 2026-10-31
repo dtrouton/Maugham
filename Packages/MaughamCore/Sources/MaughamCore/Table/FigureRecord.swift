@@ -46,6 +46,18 @@ public struct FigureRecord: Codable, Equatable, Sendable {
 
 extension FigureRecord {
 
+    /// **The label a reference to this figure would use** — `tbl:<name>` for
+    /// a table, `fig:<name>` for an image, nil for a kind this build does not
+    /// know. Publish and the editor's checks ask it of a parked figure, so a
+    /// reference to one says "in Research now" in both (plan 9a).
+    public var referenceLabel: ManuscriptLabel? {
+        switch kind {
+        case .table: return ManuscriptLabel(reference: "tbl:\(name)")
+        case .image: return ManuscriptLabel(reference: "fig:\(name)")
+        case .unknown: return nil
+        }
+    }
+
     /// **The title a note listing gives this figure's stream** — "Table:
     /// <name>" for a table, "Figure: <name>" for an image or a kind this build
     /// does not know. One spelling for the Mac's queue and the phone's

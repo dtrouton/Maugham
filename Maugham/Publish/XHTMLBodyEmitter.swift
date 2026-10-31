@@ -452,23 +452,28 @@ public enum XHTMLBodyEmitter {
     /// writes: numbered `<caption>` carrying the table's id, a `<thead>` only
     /// with a header row, a `<tbody>`, the total row as `<tr class="total">`.
     /// Cells are already formatted; they are only escaped. Alignment is the
-    /// layout's resolved one.
+    /// layout's resolved one, inline; so is the total row's rule above, so it
+    /// holds in a project whose `styles.css` predates table figures (M3).
     private static func emitTableFigure(_ layout: FigureTableLayout, number: Int, word: String, address: String,
                                         caption: [ProjectAST.Inline], anchor: Anchor?,
                                         scope: Scope, into out: inout [String]) {
         let columns = max(layout.alignments.count, 1)
-        func style(_ column: Int) -> String {
-            guard column < layout.alignments.count else { return "" }
-            switch layout.alignments[column] {
-            case .automatic: return ""
-            case .left:      return " style=\"text-align:left\""
-            case .center:    return " style=\"text-align:center\""
-            case .right:     return " style=\"text-align:right\""
+        func style(_ column: Int, ruled: Bool) -> String {
+            var rules: [String] = []
+            if column < layout.alignments.count {
+                switch layout.alignments[column] {
+                case .automatic: break
+                case .left:      rules.append("text-align:left")
+                case .center:    rules.append("text-align:center")
+                case .right:     rules.append("text-align:right")
+                }
             }
+            if ruled { rules.append("border-top:1px solid currentColor") }
+            return rules.isEmpty ? "" : " style=\"\(rules.joined(separator: ";"))\""
         }
         func row(_ cells: [String], _ cell: String, class cls: String? = nil) -> String {
             "<tr\(cls.map { " class=\"\($0)\"" } ?? "")>" + (0..<columns).map { column in
-                "<\(cell)\(style(column))>"
+                "<\(cell)\(style(column, ruled: cls == "total"))>"
                     + (column < cells.count ? XHTMLEscape.escape(cells[column]) : "") + "</\(cell)>"
             }.joined() + "</tr>"
         }

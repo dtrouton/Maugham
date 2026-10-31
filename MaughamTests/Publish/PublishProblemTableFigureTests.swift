@@ -222,12 +222,13 @@ final class PublishProblemTableFigureTests: XCTestCase {
         }
     }
 
-    func test_anAmbiguousLineKeepsItsNumber_amber() throws {
+    func test_anAmbiguousLineKeepsItsNumber_andRefusesAReport() throws {
         let r = try resolve("![Cash](../figures/cash.csv)", try figures(twin: true))
         XCTAssertEqual(kinds(r), [.figureAmbiguous("../figures/cash.csv")])
         XCTAssertEqual(r.tableFigures, [:])
         XCTAssertEqual(r.tableNumbers, ["a": [0: 1]])
-        assertSeverity(.figureAmbiguous("figures/cash.csv"), redInAReport: false)
+        // It prints its literal source in place of a table, as an unreadable one does (M2).
+        assertSeverity(.figureAmbiguous("figures/cash.csv"), redInAReport: true)
     }
 
     func test_anUnreadableTableKeepsItsNumber_andRefusesAReport() throws {
@@ -261,4 +262,59 @@ final class PublishProblemTableFigureTests: XCTestCase {
             XCTAssertEqual(resolved.resolution.problems.map(\.bodyTag), [tag])
         }
     }
+
+    /// C1: the tags the translation layer writes are bare (`es`, `sr`). Only
+    /// the source body — the one the editor card mirrors — borrows the Mac's
+    /// region; a translated body prints its own language's separators on any
+    /// Mac.
+    func test_aBareTranslationTagPrintsItsOwnSeparators_whateverTheMacsRegion() throws {
+        let figs = try figures(["1234.5"])
+        for region in ["US", "GB"] {
+            let bodies = try PublishProblemGate.resolve(
+                bodies: [gateBody(nil, "en", language: "en", figs),
+                         gateBody("es", "es", language: "es", figs),
+                         gateBody("sr", "sr", language: "sr", figs)],
+                imageAllowed: ["png"], macRegion: region)
+            XCTAssertEqual(bodies[0].resolution.tableFigures["a"]?[0]?.body.first, ["1234.5"], region)
+            for i in [1, 2] {
+                let cell = try XCTUnwrap(bodies[i].resolution.tableFigures["a"]?[0]?.body.first?.first)
+                XCTAssertEqual(cell, "1234,5", "body \(i) on a \(region) Mac")
+            }
+        }
+    }
+
+    /// I1: the money's symbol follows the book; the separators follow the
+    /// body. An en-GB report's es edition prints £ with Spanish separators.
+    func test_aTranslatedBodyPrintsTheBooksCurrencyInItsOwnSeparators() throws {
+        var table = FigureTable(rows: 1, columns: 1)
+        table.setCell(Cell(content: .value(.number(12345.5)),
+                           format: CellFormat(number: .currency(symbol: nil, decimals: 2))),
+                      at: CellKey(row: table.rows[0], column: table.columns[0]))
+        var book = Workbook(pins: FigurePinIndex())
+        book.setTable(table, id: cashID)
+        let figs = PublishFigures(
+            records: [FigureRecord(id: cashID, name: "cash", kind: .table, piece: nil, path: "figures/cash.csv")],
+            states: [cashID: FigureState(kind: .table, table: table, parked: nil)], workbook: book,
+            pinStatus: [:], sourceChanged: [], parked: [])
+        for region in ["US", "GB"] {
+            let bodies = try PublishProblemGate.resolve(
+                bodies: [gateBody(nil, "en-GB", language: "en-GB", figs),
+                         gateBody("es", "es", language: "es", figs, sourceLanguage: "en-GB")],
+                imageAllowed: ["png"], macRegion: region)
+            XCTAssertEqual(bodies[0].resolution.tableFigures["a"]?[0]?.body.first, ["£12,345.50"], region)
+            let es = try XCTUnwrap(bodies[1].resolution.tableFigures["a"]?[0]?.body.first?.first)
+            XCTAssertTrue(es.contains("12.345,50") && es.contains("£") && !es.contains("€"),
+                          "the es body keeps the book's pounds in Spanish separators on a \(region) Mac, got \(es)")
+        }
+    }
+
+    private func gateBody(_ tag: String?, _ display: String, language: String, _ figs: PublishFigures,
+                          sourceLanguage: String? = nil) -> BodyPlan.Body {
+        var config = PublishConfig(metadata: .init(title: "T", author: "A"))
+        config.metadata.language = language
+        return BodyPlan.Body(tag: tag, displayTag: display, source: source(cashLineOnly, figs), config: config,
+                             sourceLanguage: sourceLanguage ?? (tag == nil ? language : "en"))
+    }
+
+    private let cashLineOnly = "![Cash](../figures/cash.csv){#tbl:cash}"
 }

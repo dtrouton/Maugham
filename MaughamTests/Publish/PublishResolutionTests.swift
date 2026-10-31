@@ -524,7 +524,7 @@ final class PublishResolutionTests: XCTestCase {
         case .labelOnWrongElement: return false
         case .malformedLabel: return false
         case .figureNotFound: return true
-        case .figureAmbiguous: return false
+        case .figureAmbiguous(let path): return path.lowercased().hasSuffix(".csv")
         case .tableFigureLabelledFig: return true
         case .figureLineSharesParagraph: return false
         case .tableFigureErrorCell: return true
@@ -544,7 +544,7 @@ final class PublishResolutionTests: XCTestCase {
          .unusedFootnoteDefinition("1"), .labelOnWrongElement(label("sec:x")),
          .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file"),
          .figureNotFound("figures/x.csv"), .figureNotFound("figures/x.png"),
-         .figureAmbiguous("figures/x.csv"),
+         .figureAmbiguous("figures/x.csv"), .figureAmbiguous("figures/x.png"),
          .tableFigureLabelledFig(label("fig:x")),
          .figureLineSharesParagraph("figures/x.csv"),
          .tableFigureErrorCell(name: "x", cell: "A1", error: "#DIV/0!"), .tableFigureSourceMissing(name: "x"),

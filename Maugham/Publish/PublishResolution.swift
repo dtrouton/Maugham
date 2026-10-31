@@ -164,8 +164,9 @@ public struct PublishResolution: Sendable {
     ///   - imageAllowed: the output's lowercase image extensions (R-P2-7).
     ///   - words: the body's element words (R-S16); English when a caller has
     ///     no body to ask (tests, the emission contract).
-    ///   - tableLocale: how the body's table-figure cells print — its own
-    ///     language's (`PublishProblemGate.resolve`), the source's with none.
+    ///   - tableLocale: how the body's table-figure cells print
+    ///     (`PublishProblemGate.tableLocale(for:macRegion:)`); with none,
+    ///     English in the Mac's region.
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>,
                                bodyLanguage: String? = nil,
@@ -255,15 +256,8 @@ private struct Pass {
         self.tableLocale = tableLocale
         self.figureIndex = FigureLineResolution.Index(context.figures.records)
         let figures = context.figures
-        self.parkedLabels = Set(figures.records.compactMap { record -> ManuscriptLabel? in
-            guard Self.isParked(record.id, in: figures) else { return nil }
-            let kind: ManuscriptLabel.Kind
-            switch record.kind {
-            case .table: kind = .tbl
-            case .image: kind = .fig
-            case .unknown: return nil
-            }
-            return ManuscriptLabel(reference: "\(kind.rawValue):\(record.name)")
+        self.parkedLabels = Set(figures.records.compactMap { record in
+            Self.isParked(record.id, in: figures) ? record.referenceLabel : nil
         })
         self.context = context
         self.bodyTag = bodyTag
@@ -376,6 +370,7 @@ private struct Pass {
         case outsideFigures
         /// Inside `figures/` with no record on that path.
         case missing
+        /// Two or more records share the line's path; it prints as written.
         case ambiguous([FigureRecord])
         /// The figure is parked in Research.
         case parked(FigureRecord)

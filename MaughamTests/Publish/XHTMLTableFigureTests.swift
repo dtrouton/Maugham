@@ -66,7 +66,7 @@ final class XHTMLTableFigureTests: XCTestCase {
         XCTAssertTrue(html.contains("<thead>\n<tr><th style=\"text-align:left\">Item</th><th style=\"text-align:right\">Amount</th></tr>\n</thead>"), html)
         XCTAssertTrue(html.contains("<tr><td style=\"text-align:left\">Rent</td><td style=\"text-align:right\">100</td></tr>"), html)
         XCTAssertTrue(html.contains("<tr><td style=\"text-align:left\">Fees</td><td style=\"text-align:right\">200</td></tr>"), html)
-        XCTAssertTrue(html.contains("<tr class=\"total\"><td style=\"text-align:left\">Total</td><td style=\"text-align:right\">300</td></tr>"), html)
+        XCTAssertTrue(html.contains("<tr class=\"total\"><td style=\"text-align:left;border-top:1px solid currentColor\">Total</td><td style=\"text-align:right;border-top:1px solid currentColor\">300</td></tr>"), html)
         XCTAssertEqual(html.components(separatedBy: "class=\"total\"").count, 2, "only the last row is the total: \(html)")
         XCTAssertFalse(html.contains("../figures/cash.csv"), "no literal source with a layout: \(html)")
         XCTAssertTrue(html.contains("<span class=\"caption-number\">Table 1.</span> Cash flows"), html)

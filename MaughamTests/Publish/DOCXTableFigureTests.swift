@@ -144,6 +144,20 @@ final class DOCXTableFigureTests: XCTestCase {
         XCTAssertEqual(try nodes(doc, "//*[name()='w:tcBorders']").count, 1)
     }
 
+    /// M4: a table with no rows (Use in Document from an empty CSV) still
+    /// writes a table Word opens — one empty row under its caption, as the
+    /// PDF and EPUB show an empty table — never a `<w:tbl>` with no `<w:tr>`.
+    func test_aTableWithNoRows_drawsOneEmptyRow() throws {
+        var t = FigureTable(rows: 0, columns: 2)
+        t.headerRows = 1
+        t.hasTotalRow = true
+        let doc = try emit(cashLine, figures(t))
+        let tables = try nodes(doc, "//*[name()='w:tbl']")
+        XCTAssertEqual(tables.count, 1)
+        XCTAssertEqual(try rows(doc), [["", ""]], "one empty row, as wide as the table")
+        XCTAssertEqual(try nodes(doc, "//*[name()='w:tblHeader']").count, 0)
+    }
+
     func test_specialsAreEscaped_andReadBackVerbatim() throws {
         let t = try table([["A & B", "x"], ["<i>1</i>", "\"q\""], ["[not a link]", "y"]], header: true, total: false)
         let doc = try emit(cashLine, figures(t))

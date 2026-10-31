@@ -141,11 +141,13 @@ public struct PublishProblem: Sendable, Hashable {
         // since the editor's checks never touch the disk (R7b-4; re-review
         // N2). A figure line labelled `fig:` goes through the image door,
         // which refuses a `.csv` (`.imageUnreadable`). A line naming two
-        // figures still publishes — its literal source, or the image file.
+        // figures still publishes an image's file, but a `.csv` one has no
+        // table to print and would ship its literal source line — red, as an
+        // unreadable table is (plan 9a M2).
         case .figureNotFound, .tableFigureLabelledFig:
             return true
-        case .figureAmbiguous:
-            return false
+        case .figureAmbiguous(let path):
+            return ManuscriptLabel.Kind.isTableFigurePath(path)
         // Publish prints the line as an inline image in its sentence, and
         // blocks nothing on it: a warning, which the writer fixes with a
         // blank line.
@@ -297,9 +299,12 @@ public enum PublishProblemGate {
     /// problems with its language (R-P2-8); every body's problems carry it as
     /// `bodyLanguage` (R-S14). Each body is resolved in its own element words,
     /// chosen here from its folded config and nowhere else (R-S16), and its
-    /// table figures' cells print in that config's language (plan 9a).
+    /// table figures' cells print in that config's language with the book's
+    /// money (`tableLocale(for:macRegion:)`, plan 9a). `macRegion` is the
+    /// region a regionless source tag borrows; a test pins it.
     static func resolve(bodies: [BodyPlan.Body],
-                        imageAllowed: Set<String>) throws -> [Body] {
+                        imageAllowed: Set<String>,
+                        macRegion: String? = Locale.current.region?.identifier) throws -> [Body] {
         try bodies.map { body in
             let pieces = try body.source.orderedPieces()
             let ast = ProjectASTBuilder.build(pieces: pieces)
@@ -309,16 +314,28 @@ public enum PublishProblemGate {
                 imageAllowed: imageAllowed,
                 bodyLanguage: body.tag,
                 words: ElementWords.forBody(body.config.metadata),
-                tableLocale: tableLocale(body.config.metadata.language))
+                tableLocale: tableLocale(for: body, macRegion: macRegion))
             return Body(ast: ast, resolution: resolution, pieces: pieces)
         }
     }
 
-    /// A body's table-figure cells print in its own language — the editor
-    /// card's constructor, a blank language reading as none.
-    static func tableLocale(_ language: String) -> TableLocale {
-        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        return TableLocale(languageTag: tag.isEmpty ? nil : tag)
+    /// How a body's table-figure cells print (spec §5.1, plan 9a C1/I1).
+    ///
+    /// - The source body is the editor card's constructor exactly: the book's
+    ///   language, a blank one as none, and a tag with no region borrowing the
+    ///   Mac's (`macRegion`), as the card does — so the card and the PDF agree.
+    /// - A translated body prints its OWN language's separators and month
+    ///   names with no borrowed region: the tags the translation layer writes
+    ///   are bare (`es`, `sr`), and `es` on a British Mac would otherwise print
+    ///   `1,234.5`. Its money keeps the book's symbol — translating a report
+    ///   never relabels its pounds as euros.
+    static func tableLocale(for body: BodyPlan.Body, macRegion: String?) -> TableLocale {
+        let own = TableLocale.languageTag(fromStored: body.config.metadata.language)
+        guard body.tag != nil else { return TableLocale(languageTag: own, fallbackRegion: macRegion) }
+        let book = TableLocale(
+            languageTag: TableLocale.languageTag(fromStored: body.sourceLanguage ?? body.config.metadata.language),
+            fallbackRegion: macRegion)
+        return TableLocale(languageTag: own, fallbackRegion: nil).withCurrency(of: book)
     }
 
     /// The verdict over a compile's problems.

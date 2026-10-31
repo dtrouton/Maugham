@@ -55,6 +55,21 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertEqual(found.map(\.kind), [.unresolvedCrossRef(label("fig:missing"))])
     }
 
+    /// I3: a reference to a parked figure says what Publish says — "in
+    /// Research now" — not that the label names nothing.
+    func test_aReferenceToAParkedFigureIsInResearch_asPublishSays() {
+        let text = "See @tbl:cash and @fig:gone."
+        let ns = text as NSString
+        let found = ManuscriptChecks.analyse(tokens: ProseMode().tokenize(text), text: ns,
+                                             index: Self.index(), labelsElsewhere: [],
+                                             parkedLabels: [label("tbl:cash")])
+            .problems.map { (ns.substring(with: $0.range), $0.kind) }
+        XCTAssertEqual(found.map(\.0), ["@tbl:cash", "@fig:gone"])
+        XCTAssertEqual(found.map(\.1), [.figureInResearch(name: "cash"), .unresolvedCrossRef(label("fig:gone"))])
+        XCTAssertEqual(EditorCoordinator.problemColor(.figureInResearch(name: "cash"), profile: .report),
+                       .systemRed, "red in a Report, as the gate refuses it")
+    }
+
     func test_aMixedBracketMarksTheItemAtFault() {
         let found = problems("See [@smith2026; @tbl:none] now.")
         XCTAssertEqual(found.map(\.text), ["@tbl:none"])
@@ -236,16 +251,19 @@ final class ManuscriptChecksTests: XCTestCase {
     /// 9a): in a Report, a table figure labelled `fig:` (the image door
     /// refuses its `.csv`) and a path naming no figure — an image's file went
     /// with it, a `.csv` has no table to print — are red; a line naming two
-    /// figures still publishes, so amber. Outside a Report every one is
-    /// amber. A path outside the project still refuses a Report.
+    /// figures publishes an image's file, so amber — but a `.csv` one would
+    /// print its literal source in place of a table, so red (plan 9a M2).
+    /// Outside a Report every one is amber. A path outside the project still
+    /// refuses a Report.
     func test_figureLineSeverity() {
         let red: [PublishProblem.Kind] = [.tableFigureLabelledFig(label("fig:x")),
                                           .figureNotFound("figures/x.png"),
                                           .figureNotFound("../figures/x.PNG"),
                                           .figureNotFound("figures/x.csv"),
-                                          .figureNotFound("../figures/x.CSV")]
-        let amber: [PublishProblem.Kind] = [.figureAmbiguous("figures/x.csv"),
-                                            .figureAmbiguous("figures/x.png")]
+                                          .figureNotFound("../figures/x.CSV"),
+                                          .figureAmbiguous("figures/x.csv"),
+                                          .figureAmbiguous("../figures/x.CSV")]
+        let amber: [PublishProblem.Kind] = [.figureAmbiguous("figures/x.png")]
         for kind in red {
             XCTAssertEqual(EditorCoordinator.problemColor(kind, profile: .report), .systemRed, "\(kind)")
         }

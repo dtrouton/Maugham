@@ -82,11 +82,23 @@ final class PublishResolutionTableFigureTests: XCTestCase {
         XCTAssertNotEqual(enCell, esCell)
     }
 
-    /// The gate's per-body locale: a body's language, a blank one as none.
+    /// The gate's per-body locale: the source body is the card's (a blank
+    /// language as none, the Mac's region borrowed); a translated body is its
+    /// own language with no borrowed region and the book's currency.
     func test_theGateFormatsABodyInItsConfigsLanguage() {
-        XCTAssertEqual(PublishProblemGate.tableLocale("es-ES"), TableLocale(languageTag: "es-ES"))
-        XCTAssertEqual(PublishProblemGate.tableLocale("  "), TableLocale(languageTag: nil))
-        XCTAssertNotEqual(PublishProblemGate.tableLocale("es-ES"), PublishProblemGate.tableLocale("en-US"))
+        func body(_ tag: String?, _ language: String) -> BodyPlan.Body {
+            var config = PublishConfig()
+            config.metadata.language = language
+            return BodyPlan.Body(tag: tag, displayTag: tag ?? "en", source: SinglePieceSource(
+                pieceID: "a", title: "A", mode: .prose, text: ""), config: config, sourceLanguage: "en-GB")
+        }
+        XCTAssertEqual(PublishProblemGate.tableLocale(for: body(nil, "  "), macRegion: "GB"),
+                       TableLocale(languageTag: nil, fallbackRegion: "GB"))
+        XCTAssertEqual(PublishProblemGate.tableLocale(for: body(nil, "en"), macRegion: "US"),
+                       TableLocale(languageTag: "en", fallbackRegion: "US"))
+        let es = PublishProblemGate.tableLocale(for: body("es", "es"), macRegion: "GB")
+        XCTAssertEqual(es.locale.identifier, "es")
+        XCTAssertEqual(es.currencySymbol, "£")
     }
 
     func test_anUnusedFigureIsNotPublished() throws {

@@ -959,6 +959,9 @@ struct EditorHost: View {
                     if case .notLocal = FigurePathRule.lexical(linePath, piecePath: path) { return .notLocal }
                     return nil
                 },
+                // The parked figures' labels (plan 9a I3): a reference to one
+                // says "in Research now", as Publish does. Memory only.
+                parkedFigureLabels: { [figureCards] in figureCards.parkedLabels },
                 // A table card expanded in place into its grid (report plan
                 // 7c Task 6): the window's stores, this document's path.
                 figureGridOpening: .window(store: documentStore, projectStore: store, documentPath: path,

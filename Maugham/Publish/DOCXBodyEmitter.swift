@@ -465,13 +465,18 @@ enum DOCXBodyEmitter {
         }
     }
 
-    /// A table figure's laid-out cells as a native table.
+    /// A table figure's laid-out cells as a native table. A table with no
+    /// rows at all (Use in Document from an empty CSV) draws one empty row:
+    /// Word refuses a `<w:tbl>` with no `<w:tr>`, and the PDF and EPUB show
+    /// the same thing — the numbered caption over an empty table (M4).
     private static func table(figure layout: FigureTableLayout, scope: Scope) -> String {
         let columns = layout.header?.count ?? layout.body.first?.count ?? layout.total?.count
             ?? layout.alignments.count
+        let empty = layout.header == nil && layout.body.isEmpty && layout.total == nil
+        let body = empty ? [Array(repeating: "", count: max(columns, 1))] : layout.body
         return table(header: layout.header.map { $0.map(TableCell.text) },
                      jc: figureJC(layout.alignments),
-                     rows: layout.body.map { $0.map(TableCell.text) },
+                     rows: body.map { $0.map(TableCell.text) },
                      total: layout.total.map { $0.map(TableCell.text) },
                      columns: columns, scope: scope)
     }
