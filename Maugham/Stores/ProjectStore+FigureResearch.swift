@@ -649,8 +649,13 @@ extension ProjectStore {
     /// will not read, or the tag is blank (`TableLocale.languageTag(fromStored:)`,
     /// the normaliser Publish's source body shares, so the card and the PDF agree).
     func bookLanguageTag() async -> String? {
-        guard let config = try? await PublishConfigStore(projectURL: url).load() else { return nil }
-        return TableLocale.languageTag(fromStored: config.metadata.language)
+        // Off the main actor, and through Core's one reader (`BookLanguage`), which the phone
+        // shares: a config that fails the full `PublishConfig` decode still gives its language.
+        let configURL = BookLanguage.configURL(in: url)
+        return await Task.detached {
+            guard let data = try? Data(contentsOf: configURL) else { return nil } // adr-0018-ok: publish config JSON read, not manuscript
+            return BookLanguage.tag(fromConfigData: data)
+        }.value
     }
 
     /// Item's sidecar, or nil when it has none, or one that will not read
