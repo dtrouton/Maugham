@@ -854,6 +854,32 @@ final class TranslatorOrchestratorTests: XCTestCase {
                        + "worse than a cancelled row")
     }
 
+    /// **A Cancel while the report is being written is refused** (9e-2
+    /// final fix wave, M1): the turn is over and words are landing, so there
+    /// is nothing to stop — ending the run `.cancelled` would tell the desk
+    /// "nothing was written" after words landed, and drop the round's counts.
+    /// The run ends as it lands. The disable experiment: drop `cancel()`'s
+    /// ingest guard and the summary reads `.cancelled`.
+    func test_aCancelWhileTheReportIsBeingWrittenIsRefused() throws {
+        let runner = SpyRunner()
+        let gate = Gate()
+        let landed = TranslatorOrchestrator.IngestOutcome(entriesWritten: 1, queriesMinted: 1)
+        let harness = try makeHarness(runner: runner, round: makeRound(),
+                                      ingestOutcome: landed, holdIngest: gate)
+
+        harness.orchestrator.runTranslation(docId: docId, language: language)
+        awaitSends(1, on: runner)
+        settle()
+        XCTAssertEqual(gate.entries, 1, "premise: the ingest is under way")
+        harness.orchestrator.cancel()
+        XCTAssertTrue(harness.summaries.isEmpty, "the cancel ended nothing")
+        gate.release()
+        settle()
+
+        XCTAssertEqual(harness.summaries.map(\.outcome), [.ingested(landed)])
+        XCTAssertEqual(harness.orchestrator.runState, .idle)
+    }
+
     /// **Shutdown reaps.** `deinit` cannot, so every path that ends a window
     /// owns this call — and the session's config file goes with it, or the
     /// socket path leaks into the temp directory for the life of the machine.

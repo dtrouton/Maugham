@@ -497,9 +497,15 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         let live = try await table(store, record.id)
         let environment = production(ds, store)
         let round = try await brief(environment)
+        // The round briefed another table's label, not this one's.
+        let elsewhere = TableCellWork(
+            figureId: "fig-elsewhere", name: "elsewhere",
+            cells: [.init(key: key(live, 0, 0), address: "A1", sourceText: "Item",
+                          status: .missing, priorTranslation: nil)])
         let unbriefed = TranslatorOrchestrator.BriefedRound(
             inputs: TranslatorBriefing.Inputs(
-                translatorName: "Elena Ruiz", language: "es", workList: round.inputs.workList),
+                translatorName: "Elena Ruiz", language: "es", workList: round.inputs.workList,
+                tableCells: [elsewhere]),
             sourceHashes: round.sourceHashes)
 
         let outcome = await ingest(answer(round, cells: [
@@ -511,6 +517,123 @@ final class TranslatorTableCellsTests: CellTranslationBookTestCase {
         ])
         XCTAssertTrue(try TranslationStore.loadMerged(
             forDocId: record.id, language: "es", in: projectURL).isEmpty)
+    }
+
+    /// **A round that briefed no cells ignores a stray `cells` key** (9e-2
+    /// final fix wave, M2): well formed or malformed, the answer is not met
+    /// with a refusal about tables the writer never had — nothing is written
+    /// and nothing is said. The disable experiment: drop `writeCells`' guard
+    /// and the two answers report "this round did not ask for it" and the
+    /// malformed sentence.
+    func test_aRoundThatBriefedNoCellsIgnoresAStrayCellsKey() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let live = try await table(store, record.id)
+        let environment = production(ds, store)
+        let round = try await brief(environment)
+        let noCells = TranslatorOrchestrator.BriefedRound(
+            inputs: TranslatorBriefing.Inputs(
+                translatorName: "Elena Ruiz", language: "es", workList: round.inputs.workList),
+            sourceHashes: round.sourceHashes)
+
+        let stray = await ingest(answer(noCells, cells: [
+            .init(figureId: record.id, key: key(live, 0, 0), text: "Concepto", verbatim: nil),
+        ]), noCells, environment)
+        XCTAssertNil(stray.rejection)
+        XCTAssertEqual(stray.cellsWritten, 0)
+        XCTAssertEqual(stray.cellRefusals, [])
+        let malformed = await ingest(answer(noCells, cells: [], cellsMalformed: true), noCells, environment)
+        XCTAssertEqual(malformed.cellsWritten, 0)
+        XCTAssertEqual(malformed.cellRefusals, [])
+        XCTAssertTrue(try TranslationStore.loadMerged(
+            forDocId: record.id, language: "es", in: projectURL).isEmpty)
+    }
+
+    /// **The bible slice sees the table labels** (9e-2 final fix wave, M3): a
+    /// fact about "Rent" — a label, in none of the chapter's paragraphs —
+    /// reaches the round that labels it; a fact about nobody in the round
+    /// does not. The disable experiment: slice the work-list alone and the
+    /// round carries no fact.
+    func test_theBibleSliceSeesTheTablesLabels() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n")
+        _ = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let bible = BibleStore(projectRoot: projectURL, device: DeviceIdentity.author.slug)
+        bible.record([
+            BibleFact(id: "f-1", subject: "Rent", fact: "is paid in pesos",
+                      establishedAt: nil, docId: "doc-a", recordedAt: Date()),
+            BibleFact(id: "f-2", subject: "Marta", fact: "is the elder sister",
+                      establishedAt: nil, docId: "doc-a", recordedAt: Date()),
+        ])
+        let environment = TranslatorOrchestrator.Environment.production(
+            store: store, documentStore: ds, projectURL: projectURL, bible: bible,
+            preferences: UserPreferences(
+                defaults: UserDefaults(suiteName: "TranslatorTableCells-\(UUID().uuidString)")!),
+            onRunEnded: { _ in })
+
+        let round = try await brief(environment)
+        XCTAssertFalse(round.inputs.workList.contains { $0.sourceText.contains("Rent") },
+                       "premise: no paragraph names the label")
+        XCTAssertEqual(round.inputs.bibleFacts.map(\.subject), ["Rent"])
+    }
+
+    /// **A cold posture table is waited out, never read as "not offered"**
+    /// (9e-2 final fix wave, I1). The chapter's paragraphs are translated and
+    /// its table's labels are not, so its only work is cells. The registry
+    /// folder then moves under the warmed table with nobody told — the state
+    /// after a window opens or a registry change, before the refresh lands —
+    /// and the drawing accessor answers `settling`. The pre-flight still
+    /// counts the labels, and the round still briefs them (an empty
+    /// work-list: without them it would end `nothingToTranslate`). The
+    /// disable experiment: gather on `translationPosture` instead of
+    /// `settledTranslationPosture` and the cold figure drops by the five
+    /// labels and the round briefs no cell.
+    func test_aColdTableIsWaitedOut_soACellsOnlyRoundBriefsItsCells() async throws {
+        let (ds, store, _) = try await openBook(
+            chapterA: "Opening.\n\n![Quarters](../figures/quarters.csv){#tbl:quarters}\n",
+            register: true)
+        let record = try await store.createFigure(kind: .table, name: "quarters", piece: nil, table: quarters())
+        await ds.awaitOpenFigureRenderForTesting()
+        let environment = production(ds, store)
+        let first = try await brief(environment)
+        XCTAssertEqual(first.inputs.tableCells.first?.cells.count, 5, "premise: the labels are owed")
+        let paragraphsOnly = await ingest(answer(first, cells: []), first, environment)
+        XCTAssertNil(paragraphsOnly.rejection)
+        XCTAssertEqual(paragraphsOnly.cellsWritten, 0, "premise: the labels are still owed")
+        let warm = try await budgets(ds, store, ["doc-a"])
+
+        // The premise, proved once: the cooled table draws as settling.
+        try await coolThePostureTable(ds, at: Date(timeIntervalSince1970: 5_000))
+        XCTAssertEqual(ds.translationPosture(forDocId: record.id, as: .translator), .settling,
+                       "premise: a cold table draws as settling")
+
+        try await coolThePostureTable(ds, at: Date(timeIntervalSince1970: 6_000))
+        let cold = try await budgets(ds, store, ["doc-a"])
+        XCTAssertEqual(cold, warm, "the pre-flight counts the labels on a cold table")
+
+        try await coolThePostureTable(ds, at: Date(timeIntervalSince1970: 7_000))
+        let gathered = try await environment.briefRound("doc-a", "es")
+        let round = try XCTUnwrap(gathered)
+        XCTAssertTrue(round.inputs.workList.isEmpty, "premise: every paragraph is fresh")
+        XCTAssertEqual(round.inputs.tableCells.map(\.figureId), [record.id])
+        XCTAssertEqual(round.inputs.tableCells.first?.cells.count, 5)
+    }
+
+    /// **Leave the posture table cold with no refresh in flight**: let a
+    /// refresh land (its epoch bump forgets every cached translation answer),
+    /// then change the registry folder's signature without changing what it
+    /// says or telling the window — one record's modification date, no
+    /// coordinated write — so the table warmed before reads as cold.
+    private func coolThePostureTable(_ ds: DocumentStore, at date: Date) async throws {
+        ds.postureTrustChanged()
+        await ds.postureSettled()
+        let people = RegistryWriter.directoryURL(.people, in: projectURL)
+        let record = try XCTUnwrap(try FileManager.default.contentsOfDirectory(
+            at: people, includingPropertiesForKeys: nil).first, "premise: a registered book")
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: record.path)
     }
 
     /// The desk's copy names table cells beside paragraphs, and alone when a

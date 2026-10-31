@@ -276,7 +276,11 @@ extension TranslatorOrchestrator.Environment {
             // translator is the work-list rather than a delta. An absent
             // store (a window torn down mid-gather) is an empty slice, not a
             // refused round: a briefing without facts is smaller, not wrong.
-            bibleFacts: bible?.slice(matching: workList.map(\.sourceText)
+            // The table labels are prose this run is about too (9e-2 final
+            // fix wave, M3): a label naming a character or a place gets its
+            // fact, and a cells-only round is not briefed without any.
+            bibleFacts: bible?.slice(matching: (workList.map(\.sourceText)
+                + tableCells.flatMap(\.cells).map(\.sourceText))
                 .joined(separator: "\n")) ?? [],
             glossary: GlossaryTable.gather(editionBrief: briefText),
             tableCells: tableCells)
@@ -654,6 +658,10 @@ extension TranslatorOrchestrator.Environment {
         context: TranslatorOrchestrator.IngestContext,
         documentStore: DocumentStore?, projectURL: URL
     ) async -> (written: Int, refusals: [String], warnings: [String]) {
+        // A round that briefed no cells asked for none: a stray `cells` key
+        // — well formed or not — is not answered with a refusal about tables
+        // the writer never had (9e-2 final fix wave, M2).
+        guard !context.briefedTableCells.isEmpty else { return (0, [], []) }
         var refusals: [String] = []
         if report.cellsMalformed {
             refusals.append(cellsMalformedSentence)

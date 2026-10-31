@@ -108,8 +108,9 @@ enum TranslationPreflight {
     /// skip: that one is the document, and it is already reported.
     ///
     /// **The table cells are the translator round's own gather**
-    /// (`Environment.tableCellWork`, posture-filtered, missing and stale
-    /// only), so the figure counts exactly the labels a Run would brief. A
+    /// (`TableCellPass`, posture-filtered on the acting answer, missing and
+    /// stale only), so the figure counts exactly the labels a Run would
+    /// brief — one pass for the whole call. A
     /// table used by two pieces of the set is counted once per language: the
     /// first piece's round labels it, the second finds it fresh (R6). A used
     /// table whose translation file will not read throws, the paragraphs' rule.
@@ -121,6 +122,9 @@ enum TranslationPreflight {
         var totals: [String: Int] = [:]
         var counted = false
         var tablesCounted: [String: Set<String>] = [:]
+        // One pass for the whole call: figures, trust and posture resolved
+        // once, a shared table's coverage derived once (M4).
+        let tables = TableCellPass(store: store, documentStore: documentStore, projectURL: projectURL)
         for docId in documentIds {
             guard let state = try? currentParagraphState(
                 documentId: docId, store: store, documentStore: documentStore,
@@ -136,9 +140,8 @@ enum TranslationPreflight {
                     source: derived.entries.map(\.sourceText),
                     translations: derived.entries.map(\.translatedText))
             }
-            let cells = try await TranslatorOrchestrator.Environment.tableCellWork(
-                docId: docId, languages: languages, state: (state.sequence, state.paragraphs),
-                store: store, documentStore: documentStore, projectURL: projectURL)
+            let cells = try await tables?.work(
+                docId: docId, languages: languages, state: (state.sequence, state.paragraphs)) ?? [:]
             for language in languages {
                 for work in cells[language] ?? []
                 where tablesCounted[language, default: []].insert(work.figureId).inserted {

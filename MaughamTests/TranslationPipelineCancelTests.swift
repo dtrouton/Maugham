@@ -23,6 +23,10 @@ final class TranslationPipelineCancelTests: XCTestCase {
         /// of the SECOND chapter of a book queue without racing the first.
         var holdCold: () -> Bool = { false }
         var holdReaderBriefing = false
+        /// The held run's report is being written: the orchestrator refuses
+        /// a Cancel then (9e-2 final fix wave, M1), so `cancelTranslator`
+        /// reaches it and ends nothing.
+        var ingesting = false
         private(set) var heldRunId: String?
         private var heldCold: CheckedContinuation<CompilerRunEvent, Never>?
         private var heldBriefing: CheckedContinuation<Void, Never>?
@@ -49,7 +53,7 @@ final class TranslationPipelineCancelTests: XCTestCase {
             }
             environment.cancelTranslator = { [unowned self] in
                 cancels.append("translator")
-                if let runId = heldRunId {
+                if !ingesting, let runId = heldRunId {
                     heldRunId = nil
                     world.pipeline.translatorRunEnded(.init(
                         runId: runId, docId: "doc-1", language: "es", at: Date(), outcome: .cancelled))
@@ -118,6 +122,36 @@ final class TranslationPipelineCancelTests: XCTestCase {
         let round = try XCTUnwrap(held.world.saved.first)
         XCTAssertEqual(round.legs.map(\.status), [.cancelled])
         XCTAssertNil(round.summary)
+        XCTAssertEqual(held.world.calls, ["translate"], "nothing later starts")
+    }
+
+    /// **A cancel that lands while the translator's words are being written
+    /// still records what was written** (9e-2 final fix wave, M1): the
+    /// orchestrator refuses it and ends the run as it landed, so the
+    /// translate leg is `ran` with its counts and the round keeps its
+    /// table-cell figure — and the round stops after it. The disable
+    /// experiment: answer `.cancelled` for every moved generation in
+    /// `translatorLeg` and the leg reads cancelled with no table cells.
+    func test_aCancelDuringTheIngestKeepsWhatLandedAndStopsTheRound() async throws {
+        let held = HeldWorld()
+        held.holdTranslator = true
+        held.world.pipeline.run(docId: "doc-1", language: "es")
+        await held.waitFor { held.heldRunId != nil }
+        let runId = try XCTUnwrap(held.heldRunId)
+
+        held.ingesting = true
+        held.world.pipeline.cancel()
+        XCTAssertEqual(held.cancels, ["translator"], "the cancel reached the translator")
+        held.world.pipeline.translatorRunEnded(.init(
+            runId: runId, docId: "doc-1", language: "es", at: Date(),
+            outcome: .ingested(.init(entriesWritten: 2, cellsWritten: 3))))
+        await TranslationPipelineTests.settle(held.world)
+
+        let round = try XCTUnwrap(held.world.saved.first)
+        XCTAssertEqual(round.legs.first?.status, .ran)
+        XCTAssertEqual(round.legs.first?.counts?.entries, 2)
+        XCTAssertEqual(round.tableCells?.written, 3)
+        XCTAssertEqual(round.legs.dropFirst().map(\.status), [.cancelled], "the round stops after it")
         XCTAssertEqual(held.world.calls, ["translate"], "nothing later starts")
     }
 

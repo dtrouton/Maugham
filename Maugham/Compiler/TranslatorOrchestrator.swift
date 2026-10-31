@@ -412,6 +412,14 @@ final class TranslatorOrchestrator {
     /// over one work-list.
     private var isPreparingRun = false
 
+    /// The generation whose report is being written (`environment.ingest`),
+    /// or nil: words are landing, the turn is over, and there is nothing a
+    /// Cancel could stop. `cancel()` refuses inside it rather than end the
+    /// run as "cancelled — nothing was written" over words already written
+    /// (9e-2 final fix wave, M1). A generation rather than a flag, so an
+    /// ingest a shutdown abandoned never refuses the next run's Cancel.
+    private var ingestingGeneration: Int?
+
     /// The generation a run's suspensions belong to. A teardown between the
     /// click and the send **abandons** the run rather than letting it spawn a
     /// session the writer has just closed the window on; a boolean cleared
@@ -639,6 +647,8 @@ final class TranslatorOrchestrator {
             }
             guard runGeneration == generation, let environment else { return }
 
+            ingestingGeneration = generation
+            defer { if ingestingGeneration == generation { ingestingGeneration = nil } }
             let outcome = await environment.ingest(
                 report,
                 IngestContext(docId: pair.docId, language: pair.language, runId: runId,
@@ -706,7 +716,14 @@ final class TranslatorOrchestrator {
     /// it did not stop would go on to spend a whole turn. So the unsent case
     /// is abandoned here by generation, the way `shutdown()` abandons it, and
     /// the session is left alone because there is nothing of ours in it.
+    ///
+    /// **Refused while the report is being written** (`ingestingGeneration`): the
+    /// turn is over and words are landing, so there is nothing to stop, and
+    /// ending the run `.cancelled` would tell the desk nothing was written —
+    /// and lose the round's table-cell count — after words landed. The run
+    /// ends as it lands.
     func cancel() {
+        guard ingestingGeneration != runGeneration else { return }
         let hasUnsentRun = isRunning && runner?.isRunning != true
         runner?.cancelCurrentRun()
         guard hasUnsentRun, let active else { return }

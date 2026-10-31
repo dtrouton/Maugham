@@ -59,13 +59,7 @@ extension TranslatorOrchestrator.Environment {
     /// gate's own reader, so a table is work here exactly when the gate would
     /// count it: unparked, readable, each once in first-use order — that the
     /// TRANSLATOR may write, each with its missing and stale text cells.
-    ///
-    /// **Filtered by the figure's translation posture, as the translator**
-    /// (`DocumentStore.translationPosture(forDocId:as: .translator)`): a
-    /// pieces-author's translator never sees a whole-book table's cells —
-    /// they would be refused at the write door, so they are never briefed. A
-    /// `settling` answer (the table still cold) offers nothing, so a cell is
-    /// never briefed on a guess; the next round finds it.
+    /// `TableCellPass.work` does the gathering; this is a pass of one.
     ///
     /// `state` is the paragraphs the round itself briefs, so the figure lines
     /// read are the round's. Throws for a used table's translation file that
@@ -76,50 +70,9 @@ extension TranslatorOrchestrator.Environment {
         docId: String, language: String, state: (sequence: [String], paragraphs: [String: String]),
         store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
     ) async throws -> [TableCellWork] {
-        try await tableCellWork(
-            docId: docId, languages: [language], state: state, store: store,
-            documentStore: documentStore, projectURL: projectURL)[language] ?? []
-    }
-
-    /// `tableCellWork(docId:language:…)` for several languages at once — the
-    /// tables, their posture and the trust resolved ONCE, each language's
-    /// coverage derived over them (the desk's pre-flight asks every edition
-    /// of one chapter in a pass). Every language asked is a key, `[]` when
-    /// its tables are done.
-    @MainActor
-    static func tableCellWork(
-        docId: String, languages: [String], state: (sequence: [String], paragraphs: [String: String]),
-        store: ProjectStore, documentStore: DocumentStore?, projectURL: URL
-    ) async throws -> [String: [TableCellWork]] {
-        let none = Dictionary(languages.map { ($0, [TableCellWork]()) }, uniquingKeysWith: { a, _ in a })
-        guard !languages.isEmpty, let documentStore,
-              (store.manifest.figures ?? []).contains(where: { $0.kind == .table }),
-              let path = TreeWalk.find(id: docId, in: store.manifest.structure)?.path
-        else { return none }
-        let piece = FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs)
-        let figures = await documentStore.translationFigures()
-        let used = FigureUse.tables(in: [piece], figures: figures).readable.filter {
-            documentStore.translationPosture(forDocId: $0.record.id, as: .translator)
-                .allows(.translate)
-        }
-        guard !used.isEmpty else { return none }
-        let trust = try await documentStore.figureTrust()
-        return try await Task.detached(priority: .userInitiated) {
-            var out = none
-            for language in languages {
-                out[language] = try used.compactMap { use in
-                    let derived: FigureTranslatedTable
-                    do {
-                        derived = try FigureUse.coverage(
-                            of: use, language: language, projectURL: projectURL, trust: trust).derived
-                    } catch {
-                        throw UnreadableTable(name: use.record.name, underlying: error)
-                    }
-                    return TableCellWork.work(for: use, derived: derived)
-                }
-            }
-            return out
-        }.value
+        guard let pass = TableCellPass(store: store, documentStore: documentStore, projectURL: projectURL)
+        else { return [] }
+        return try await pass.work(docId: docId, languages: [language], state: state)[language] ?? []
     }
 
     /// A used table whose translation file is present and will not read,
@@ -131,5 +84,109 @@ extension TranslatorOrchestrator.Environment {
             "Table \(name): its translation could not be read — "
                 + ((underlying as? LocalizedError)?.errorDescription ?? underlying.localizedDescription)
         }
+    }
+}
+
+/// **One pass over the table cells of several pieces** (report plan 9e-2
+/// final fix wave, M4): the book's figures, the trust table and each table's
+/// translation posture are resolved ONCE per pass, and each table's coverage
+/// in each language is derived once — a table shared by several pieces is not
+/// re-derived for every piece that uses it. A round is a pass of one piece;
+/// the desk's pre-flight is a pass over every piece it counts.
+///
+/// **Filtered by the figure's translation posture, as the translator, on the
+/// ACTING answer** (`DocumentStore.settledTranslationPosture(forDocId:as:
+/// .translator)`, 9e-2 final fix wave I1): a pieces-author's translator never
+/// sees a whole-book table's cells — they would be refused at the write door,
+/// so they are never briefed — and a table that is merely cold is waited
+/// out, never read as "not offered" (controller ruling I: a verb acts on a
+/// settled answer). A drawing accessor's `settling` here turned a round that
+/// owed only cells into "nothing to translate".
+@MainActor
+final class TableCellPass {
+
+    private let store: ProjectStore
+    private let documentStore: DocumentStore
+    private let projectURL: URL
+    private var figures: PublishFigures?
+    private var trust: TrustTable?
+    private var reaches: [String: Bool] = [:]
+    /// language → figure id → its work (nil: every text cell fresh).
+    private var derived: [String: [String: TableCellWork?]] = [:]
+
+    /// nil — nothing to gather — without a document store or a table figure.
+    init?(store: ProjectStore, documentStore: DocumentStore?, projectURL: URL) {
+        guard let documentStore,
+              (store.manifest.figures ?? []).contains(where: { $0.kind == .table }) else { return nil }
+        self.store = store
+        self.documentStore = documentStore
+        self.projectURL = projectURL
+    }
+
+    /// The work each language owes on `docId`'s tables. Every language asked
+    /// is a key, `[]` when its tables are done.
+    func work(
+        docId: String, languages: [String], state: (sequence: [String], paragraphs: [String: String])
+    ) async throws -> [String: [TableCellWork]] {
+        var out = Dictionary(languages.map { ($0, [TableCellWork]()) }, uniquingKeysWith: { a, _ in a })
+        guard !languages.isEmpty,
+              let path = TreeWalk.find(id: docId, in: store.manifest.structure)?.path
+        else { return out }
+        let piece = FigureUse.Piece(path: path, sequence: state.sequence, paragraphs: state.paragraphs)
+        let figures: PublishFigures
+        if let cached = self.figures {
+            figures = cached
+        } else {
+            figures = await documentStore.translationFigures()
+            self.figures = figures
+        }
+        var used: [FigureUse.Table] = []
+        for use in FigureUse.tables(in: [piece], figures: figures).readable {
+            let id = use.record.id
+            let reaches: Bool
+            if let cached = self.reaches[id] {
+                reaches = cached
+            } else {
+                reaches = await documentStore.settledTranslationPosture(forDocId: id, as: .translator)
+                    .allows(.translate)
+                self.reaches[id] = reaches
+            }
+            if reaches { used.append(use) }
+        }
+        guard !used.isEmpty else { return out }
+
+        let owed = languages.flatMap { language in
+            used.filter { derived[language]?[$0.record.id] == nil }.map { (language, $0) }
+        }
+        if !owed.isEmpty {
+            let trust: TrustTable
+            if let cached = self.trust {
+                trust = cached
+            } else {
+                trust = try await documentStore.figureTrust()
+                self.trust = trust
+            }
+            let projectURL = self.projectURL
+            let fresh = try await Task.detached(priority: .userInitiated) {
+                try owed.map { language, use -> (String, String, TableCellWork?) in
+                    let table: FigureTranslatedTable
+                    do {
+                        table = try FigureUse.coverage(
+                            of: use, language: language, projectURL: projectURL, trust: trust).derived
+                    } catch {
+                        throw TranslatorOrchestrator.Environment.UnreadableTable(
+                            name: use.record.name, underlying: error)
+                    }
+                    return (language, use.record.id, TableCellWork.work(for: use, derived: table))
+                }
+            }.value
+            for (language, id, work) in fresh {
+                derived[language, default: [:]][id] = .some(work)
+            }
+        }
+        for language in languages {
+            out[language] = used.compactMap { derived[language]?[$0.record.id] ?? nil }
+        }
+        return out
     }
 }
