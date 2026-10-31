@@ -64,6 +64,7 @@ struct ChapterAnnotationsView: View {
                 docId: loaded.docId,
                 recents: recents,
                 postures: store.postures,
+                figureTitle: DocumentClass.isFigureDocId(loaded.docId) ? liveChapter.chapterTitle : nil,
                 onResolved: onResolved)
         } label: {
             NoteRow(annotation: loaded.annotation, dimmed: resolved)

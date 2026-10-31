@@ -117,7 +117,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `SpanAnchorResolver.swift` — stateless re-find of a span anchor in a paragraph's display text.
 - `SpanText.swift` — typography- and whitespace-insensitive canonical form for span matching.
 - `ShingleMatcher.swift` — k-word shingle overlap used for orphan recovery.
-- `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it.
+- `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it; a figure suggestion's cells and anchor line.
 - `SuggestionSplice.swift` — applies a suggestion's replacement to a paragraph identically on both surfaces.
 
 ### Statements, passes and roles
@@ -204,7 +204,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureGridAddress.swift` — a grid cell or range as "B3" / "B2:D9" by live position, and back.
 - `FigureCellAnchor.swift` — a figure note's cell or range by id; its live A1 address, or orphaned (stale) when a corner is deleted.
 - `FigureAnchorAddress.swift` — `tbl:x!C3:E3` text to a label and cells, and cells (current positions) to a `FigureCellAnchor` by ids.
-- `FigureAnnotationOps.swift` — the ops of a figure note, once for Mac, phone and MCP: creation, accept (one `claudeAccept` carrying the cell) and its revert, reject/stet/archive/reopen, and Claude's machine-form suggested value.
+- `FigureAnnotationOps.swift` — the ops of a figure note, once for Mac, phone and MCP: creation, accept (one `claudeAccept` carrying the cell) and its revert, status-only accept and revert, `acceptsOnlyInTheTable`, reject/stet/archive/reopen, and Claude's machine-form suggested value.
 - `FigureCellEntry.swift` — typed cell text as a `Cell` (prior format kept, a suggestion only over general, a formula error at its offset in the text), and the formula bar's text back.
 - `FigureInverse.swift` — a figure op's compensating op for undo (cell set, insert, delete, revive, move, setting, image, pin set, a pin clear that names its pin, and an accept ↔ its revert), and a visit's inverses as one all-or-nothing undo.
 - `FigureFill.swift` — Fill Down and Fill Right (R7d-1): the cells a fill writes, formulas translated from the head cell; a one-deep selection fills from the row above or column left.

@@ -95,11 +95,32 @@ public enum FigureAnnotationOps {
                   figure: FigureOpPayload(cell: cell, next: next, prior: prior))
     }
 
-    /// **A status-only accept**: the note back to accepted with no cell
-    /// written — what a stet's or archive's ⌘Z puts back over a note that was
-    /// accepted (its cell was never taken back). Folds as nothing.
-    public static func statusOnlyAccept(annotationId: String, stamp: Stamp) -> Op {
-        lifecycle(.claudeAccept, annotationId, stamp)
+    /// **A status-only accept**: the note accepted with no cell written —
+    /// a comment's *Got it*, a craft note's Accept, a query's Reply (its
+    /// words as `userResponse`), and what a stet's or archive's ⌘Z puts back
+    /// over a note that was accepted (its cell was never taken back). Folds
+    /// as nothing.
+    public static func statusOnlyAccept(annotationId: String, userResponse: String? = nil,
+                                        stamp: Stamp) -> Op {
+        lifecycle(.claudeAccept, annotationId, stamp, userResponse: userResponse)
+    }
+
+    /// **A status-only revert**: a status-only accept's ⌘Z — the note open
+    /// again, no cell moved (the manuscript's textless revert). Folds as
+    /// nothing. A cell-carrying accept's revert is `FigureInverse`'s.
+    public static func statusOnlyRevert(annotationId: String, stamp: Stamp) -> Op {
+        lifecycle(.claudeAcceptRevert, annotationId, stamp)
+    }
+
+    /// **Is this note accepted only in the table?** A suggested change on a
+    /// figure's stream writes a cell when accepted, so it is accepted in the
+    /// grid and nowhere else (plan 9c-1 ruling): the Mac's queue draws its
+    /// Accept disabled with the reason, and the phone never offers it. Asked
+    /// of the stream (`docId`) as well as the anchor, so a suggestion whose
+    /// anchor will not decode is still never accepted as a paragraph's.
+    public static func acceptsOnlyInTheTable(_ annotation: Annotation, docId: String) -> Bool {
+        annotation.kind == .suggestedChange
+            && (annotation.figureAnchor != nil || DocumentClass.isFigureDocId(docId))
     }
 
     // MARK: - Dispositions

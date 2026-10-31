@@ -302,4 +302,47 @@ final class FigureAnnotationOpsTests: XCTestCase {
         state.table.setCell(num(3), at: c3Key)
         XCTAssertNil(FigureReturnDiff.applied([visit[1]], onto: state), "and is refused when the cell moved")
     }
+
+    // MARK: - Status-only accept and revert; accepted only in the table (Task 7)
+
+    /// A reply is a status-only accept carrying the writer's words; its ⌘Z
+    /// is a status-only revert. Neither folds as a cell.
+    func test_statusOnlyAcceptWithAReply_thenItsRevert_reopen() throws {
+        let query = try FigureAnnotationOps.creation(
+            kind: .query, anchor: FigureCellAnchor(row: r3, column: c3), body: "Source?",
+            author: claude, stamp: stamp())
+        let reply = FigureAnnotationOps.statusOnlyAccept(
+            annotationId: query.opId, userResponse: "The 2023 census", stamp: stamp())
+        XCTAssertNil(reply.figure)
+        XCTAssertFalse(FigureOpPayload.folds(reply))
+        var notes = derive(base() + [query, reply])
+        XCTAssertEqual(notes.first?.status, .accepted)
+        XCTAssertEqual(notes.first?.userResponse, "The 2023 census")
+        let revert = FigureAnnotationOps.statusOnlyRevert(annotationId: query.opId, stamp: stamp())
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertEqual(revert.provenance?.sourceAnnotationId, query.opId)
+        XCTAssertFalse(FigureOpPayload.folds(revert))
+        notes = derive(base() + [query, reply, revert])
+        XCTAssertEqual(notes.first?.status, .open)
+        XCTAssertEqual(FigureDeriver.derive(base() + [query, reply, revert]).table, table)
+    }
+
+    /// Accepted only in the table: a suggestion on a figure's stream (by its
+    /// anchor, or by the stream when the anchor is missing); never a figure
+    /// comment, and never a paragraph's suggestion.
+    func test_acceptsOnlyInTheTable() throws {
+        let notes = derive(base() + [try suggestion(),
+            try FigureAnnotationOps.creation(kind: .comment, anchor: nil, body: "c", author: claude, stamp: stamp())])
+        let figSuggestion = try XCTUnwrap(notes.first { $0.kind == .suggestedChange })
+        let figComment = try XCTUnwrap(notes.first { $0.kind == .comment })
+        XCTAssertTrue(FigureAnnotationOps.acceptsOnlyInTheTable(figSuggestion, docId: figureId))
+        XCTAssertFalse(FigureAnnotationOps.acceptsOnlyInTheTable(figComment, docId: figureId))
+        let paragraph = Annotation(
+            id: "p", kind: .suggestedChange, paragraphId: "abcd", body: "", suggestedText: "x",
+            priorText: "y", createdAt: Date(), createdBySession: nil, status: .open,
+            userResponse: nil, resolvedAt: nil, isStale: false)
+        XCTAssertFalse(FigureAnnotationOps.acceptsOnlyInTheTable(paragraph, docId: "doc-abcdef12"))
+        XCTAssertTrue(FigureAnnotationOps.acceptsOnlyInTheTable(paragraph, docId: figureId),
+                      "a suggestion on a figure's stream is the table's even with no anchor")
+    }
 }

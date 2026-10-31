@@ -240,6 +240,31 @@ final class PhonePosture {
         [.accept, .reject, .archive].filter { offers($0, under: posture) }
     }
 
+    /// **The verbs drawn for THIS open note** (report plan 9c-1 Task 7): the
+    /// posture's, less Accept on a figure suggestion — it writes a cell, so
+    /// it is accepted in the Mac's grid (`FigureAnnotationOps
+    /// .acceptsOnlyInTheTable`; the writer refuses it too). Reject and
+    /// Archive stay.
+    nonisolated static func openNoteVerbs(
+        for annotation: Annotation, docId: String, under posture: Posture
+    ) -> [Verb] {
+        let inTheTable = FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId)
+        return openNoteVerbs(under: posture).filter { !(inTheTable && $0 == .accept) }
+    }
+
+    /// The reopen drawn for THIS resolved note: the posture's, less *Reopen &
+    /// Revert* on an accepted figure suggestion, whose cell is put back in
+    /// the Mac's grid (report plan 9c-1 Task 7).
+    nonisolated static func reopenVerb(
+        for annotation: Annotation, docId: String, under posture: Posture
+    ) -> Verb? {
+        let verb = reopenVerb(for: annotation.status, under: posture)
+        if verb == .reopenAndRevert, FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+            return nil
+        }
+        return verb
+    }
+
     /// The reopen drawn for a resolved note of `status`, or nil where none is
     /// — because the status has no reopen, or because the posture refuses it.
     nonisolated static func reopenVerb(

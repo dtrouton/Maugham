@@ -105,6 +105,11 @@ struct AnnotationWriter: Sendable {
         /// (RULING-33's status/manuscript agreement; the Mac's guard is the
         /// same shared `AnnotationDeriver.isWithdrawn` — tripwire 19).
         case annotationWithdrawn(annotationId: String)
+        /// A suggested change on a table figure writes a cell, so it is
+        /// accepted in the Mac's grid and nowhere else (report plan 9c-1
+        /// ruling) — refused here by construction, before any op is built,
+        /// whatever surface asked (`FigureAnnotationOps.acceptsOnlyInTheTable`).
+        case acceptsInTheTable(annotationId: String)
     }
 
     // MARK: - Paths
@@ -160,13 +165,25 @@ struct AnnotationWriter: Sendable {
     /// which no Mac honours — does not refuse this accept, and her Delete of
     /// her own does. A caller that genuinely wants the un-narrowed answer
     /// says `.honourEverything` by name.
+    ///
+    /// **A figure suggestion is never accepted here** (report plan 9c-1):
+    /// it writes a cell, so it is the Mac grid's to accept, and this throws
+    /// `acceptsInTheTable` before anything else is asked. A figure's comment,
+    /// query or craft note accepts as Core's status-only figure accept
+    /// (`FigureAnnotationOps`, tripwire 19).
     func makeAccept(
         for annotation: Annotation, currentParagraph: String? = nil,
         verifyingAgainst loaded: AnnotationLoading.JudgedOps? = nil
     ) throws -> Op {
+        if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+            throw WriteError.acceptsInTheTable(annotationId: annotation.id)
+        }
         if let loaded, AnnotationDeriver.isWithdrawn(
             annotationId: annotation.id, in: loaded.ops, amendments: loaded.amendments) {
             throw WriteError.annotationWithdrawn(annotationId: annotation.id)
+        }
+        if let stamp = figureStamp {
+            return FigureAnnotationOps.statusOnlyAccept(annotationId: annotation.id, stamp: stamp)
         }
         let changes: [Op.ParagraphChange]
         if annotation.kind == .suggestedChange {
@@ -195,13 +212,33 @@ struct AnnotationWriter: Sendable {
 
     /// Build a `claudeReject` op. Carries no manuscript change; the optional
     /// `reason` lands in `provenance.userResponse`.
+    /// On a figure's stream it is Core's figure reject (`FigureAnnotationOps`,
+    /// tripwire 19) — the line the Mac's `FigureDocument` writes.
     func makeReject(for annotation: Annotation, reason: String?) -> Op {
-        makeLifecycleOp(for: annotation, kind: .claudeReject, changes: [], userResponse: reason)
+        if let stamp = figureStamp {
+            return FigureAnnotationOps.reject(annotationId: annotation.id, reason: reason, stamp: stamp)
+        }
+        return makeLifecycleOp(for: annotation, kind: .claudeReject, changes: [], userResponse: reason)
     }
 
     /// Build a `claudeArchive` op. No manuscript change, no user response.
+    /// On a figure's stream it is Core's figure archive (`FigureAnnotationOps`).
     func makeArchive(for annotation: Annotation) -> Op {
-        makeLifecycleOp(for: annotation, kind: .claudeArchive, changes: [], userResponse: nil)
+        if let stamp = figureStamp {
+            return FigureAnnotationOps.archive(annotationId: annotation.id, stamp: stamp)
+        }
+        return makeLifecycleOp(for: annotation, kind: .claudeArchive, changes: [], userResponse: nil)
+    }
+
+    /// **Who writes a figure note's line** (report plan 9c-1): this phone's
+    /// device and session, the clock and the forensic versions — the fields
+    /// `makeLifecycleOp` stamps — as Core's `FigureAnnotationOps.Stamp`. Nil
+    /// for a document's stream.
+    private var figureStamp: FigureAnnotationOps.Stamp? {
+        guard DocumentClass.isFigureDocId(docId) else { return nil }
+        return FigureAnnotationOps.Stamp(
+            figureId: docId, device: deviceId, session: session, at: now(),
+            appVersion: appVersion, osVersion: osVersion)
     }
 
     /// Shared lifecycle-op assembly. The writer's `session` populates both
@@ -283,6 +320,11 @@ struct AnnotationWriter: Sendable {
     func makeAcceptRevert(
         for annotation: Annotation, acceptOp: Op, currentParagraph: String?
     ) throws -> Op {
+        // A figure suggestion's accept wrote a cell: it is put back in the
+        // Mac's grid, never by a paragraph revert (report plan 9c-1).
+        if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+            throw WriteError.acceptsInTheTable(annotationId: annotation.id)
+        }
         guard let change = acceptOp.changes.first else {
             throw WriteError.malformedAcceptRevert(annotationId: annotation.id)
         }
@@ -400,6 +442,8 @@ extension AnnotationWriter.WriteError: LocalizedError {
             return "The passage this suggestion would replace is no longer in the paragraph. The suggestion stays open — ask Claude for a fresh one."
         case .annotationWithdrawn:
             return "You deleted this suggestion on another device, so it can no longer be applied."
+        case .acceptsInTheTable:
+            return "A suggested change to a table cell is accepted in the table, on your Mac."
         }
     }
 }

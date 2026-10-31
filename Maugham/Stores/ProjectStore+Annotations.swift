@@ -59,15 +59,22 @@ public struct ProjectAnnotationsSnapshot: Equatable {
     public let unreadableDocIds: [String]
     /// docId → paragraph-id order.
     public let sequences: [String: [String]]
+    /// **A figure suggestion's before and after, as cell text** (report plan
+    /// 9c-1 Task 7), keyed by note id — read off each figure's table in the
+    /// walk that already derived it, in the book's language, so a queue row
+    /// looks it up and computes nothing (tripwire 4).
+    public let figureCells: [String: SuggestionDisplay.FigureCells]
 
     public init(
         annotations: [ProjectAnnotation],
         unreadableDocIds: [String],
-        sequences: [String: [String]]
+        sequences: [String: [String]],
+        figureCells: [String: SuggestionDisplay.FigureCells] = [:]
     ) {
         self.annotations = annotations
         self.unreadableDocIds = unreadableDocIds
         self.sequences = sequences
+        self.figureCells = figureCells
     }
 }
 
@@ -115,16 +122,24 @@ extension ProjectStore {
     /// second call cheap but not free: the KEY check stats every closed
     /// document's op-log files, and doing that twice for one refresh is the
     /// aggregation's own cost paid for nothing.
+    ///
+    /// **A figure's notes count on the piece that owns it** (report plan 9c-1
+    /// ruling: `FigureRecord.piece`), so the board's count for a chapter
+    /// includes the notes on its tables. A whole-book figure's notes (no
+    /// piece) count on no piece — they stay in the project queue — and no
+    /// entry is keyed by a figure's id, which no board row shows.
     public func openNotesSummaries(
         in snapshot: ProjectAnnotationsSnapshot? = nil
     ) -> [String: OpenNotesSummary] {
         var totals: [String: Int] = [:]
         var passes: [String: [String: Int]] = [:]
+        let owner = Self.figureNoteOwners(manifest.figures ?? [])
         for entry in (snapshot ?? listAnnotationsAcrossProject()).annotations
         where entry.annotation.status == .open {
-            totals[entry.docId, default: 0] += 1
+            guard let docId = Self.countsOn(entry.docId, owners: owner) else { continue }
+            totals[docId, default: 0] += 1
             if let pass = entry.annotation.reviewPassId {
-                passes[entry.docId, default: [:]][pass, default: 0] += 1
+                passes[docId, default: [:]][pass, default: 0] += 1
             }
         }
         return totals.reduce(into: [:]) { out, pair in
@@ -134,6 +149,19 @@ extension ProjectStore {
     }
 
     // MARK: - Helpers
+
+    /// Each registered figure's owning piece, nil for a whole-book figure.
+    nonisolated static func figureNoteOwners(_ figures: [FigureRecord]) -> [String: String?] {
+        Dictionary(figures.map { ($0.id, $0.piece) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The board row a note on stream `docId` counts on: the document itself,
+    /// or for a figure's stream the piece that owns it — nil for a whole-book
+    /// figure, and for a figure the registry no longer holds.
+    nonisolated static func countsOn(_ docId: String, owners: [String: String?]) -> String? {
+        guard DocumentClass.isFigureDocId(docId) else { return docId }
+        return owners[docId] ?? nil
+    }
 
     private func currentAnnotationsKey() -> ProjectAnnotationsCacheKey {
         let openDocs = openDocumentsByID()
@@ -296,18 +324,23 @@ extension ProjectStore {
         // (`AnnotationScopeSections.build`'s `figures`). Read from disk even
         // when a window holds the figure, so every figure is read one way.
         // A figure has no paragraphs, so no sequence is recorded.
+        var figureTables: [String: FigureTable] = [:]
+        var figureSuggestions: [(figureId: String, note: Annotation)] = []
         for figure in manifest.figures ?? [] {
-            guard let notes = Self.figureAnnotations(figure.id, in: url, trust: trust, facts: facts) else {
+            guard let read = Self.figureNotesAndTable(figure.id, in: url, trust: trust, facts: facts) else {
                 unreadable.append(figure.id)
                 continue
             }
-            annotations.append(contentsOf: notes.map { ProjectAnnotation(docId: figure.id, annotation: $0) })
+            figureTables[figure.id] = read.table
+            annotations.append(contentsOf: read.notes.map { ProjectAnnotation(docId: figure.id, annotation: $0) })
+            figureSuggestions += read.notes.filter { $0.kind == .suggestedChange }.map { (figure.id, $0) }
         }
 
         let snapshot = ProjectAnnotationsSnapshot(
             annotations: annotations,
             unreadableDocIds: unreadable,
-            sequences: sequences)
+            sequences: sequences,
+            figureCells: figureCells(figureSuggestions, tables: figureTables))
         _projectAnnotationsCache = snapshot
         _projectAnnotationsCacheKey = key
         return snapshot
@@ -319,6 +352,14 @@ extension ProjectStore {
     nonisolated static func figureAnnotations(
         _ figureId: String, in url: URL, trust: TrustTable, facts: DocumentClass.Facts
     ) -> [Annotation]? {
+        figureNotesAndTable(figureId, in: url, trust: trust, facts: facts)?.notes
+    }
+
+    /// One figure's notes and the table they resolve against, from one read
+    /// of its stream — nil when the stream will not read.
+    nonisolated static func figureNotesAndTable(
+        _ figureId: String, in url: URL, trust: TrustTable, facts: DocumentClass.Facts
+    ) -> (notes: [Annotation], table: FigureTable?)? {
         let amendmentPermits = AmendmentPermits()
         guard let ops = try? OpLogStore.loadSyncMerged(
             forDocId: figureId, in: url, trust: trust,
@@ -327,7 +368,8 @@ extension ProjectStore {
         else { return nil }
         // The figure's own table, from the same stream, resolves each note's
         // cell anchor (report plan 9c-1): live A1 address, or orphaned.
-        return AnnotationAggregation.allAnnotations(
+        let table = AnnotationAggregation.figureTable(in: ops)
+        let notes = AnnotationAggregation.allAnnotations(
             ops: ops, paragraphs: [:],
             amendments: .judged(
                 by: trust, permits: amendmentPermits.resolved,
@@ -336,7 +378,31 @@ extension ProjectStore {
                 class: {
                     DocumentClass.resolve(docId: figureId, facts: facts)
                 }),
-            figureTable: AnnotationAggregation.figureTable(in: ops))
+            figureTable: table)
+        return (notes, table)
+    }
+
+    /// **Each figure suggestion's cells as text** (report plan 9c-1 Task 7),
+    /// keyed by note id: `SuggestionDisplay.figureCells` against its figure's
+    /// table, with every figure's table as the formula names and the book's
+    /// language. The language is read only when there is a suggestion to
+    /// show (a small file, read synchronously as this walk reads op logs).
+    private func figureCells(
+        _ suggestions: [(figureId: String, note: Annotation)], tables: [String: FigureTable]
+    ) -> [String: SuggestionDisplay.FigureCells] {
+        guard !suggestions.isEmpty else { return [:] }
+        let names = FormulaNames(records: manifest.figures ?? [], tables: tables, research: manifest.research)
+        let tag = (try? Data(contentsOf: BookLanguage.configURL(in: url))) // adr-0018-ok: publish config JSON read, not manuscript
+            .flatMap(BookLanguage.tag(fromConfigData:))
+        let locale = TableLocale(languageTag: tag)
+        var cells: [String: SuggestionDisplay.FigureCells] = [:]
+        for (figureId, note) in suggestions {
+            guard let table = tables[figureId],
+                  let shown = SuggestionDisplay.figureCells(for: note, table: table, names: names, locale: locale)
+            else { continue }
+            cells[note.id] = shown
+        }
+        return cells
     }
 
     /// **The notes on ONE figure's stream** (report plan 8a Task 7, the

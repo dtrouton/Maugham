@@ -134,6 +134,77 @@ enum AnnotationScopePolicy {
     static let editAnywayTitle = "Edit Anyway"
 }
 
+/// **A queue row for a note on a table figure** (report plan 9c-1 Task 7):
+/// where it points, what a suggestion proposes, and which of the row's verbs
+/// work from the queue.
+///
+/// No `Document` holds a figure's notes, so the closed-piece gate
+/// (`AnnotationScopePolicy.verbsEnabled`) never applies: Reject, Stet,
+/// Archive, Reopen, *Got it*, a craft note's Accept and a query's Reply act
+/// through the figure's own host (`FigureDocument`'s verbs, via
+/// `DocumentStore.withFigureHost`), so the row is actable whether or not a
+/// grid is open. A suggested change writes a cell, so it is accepted in the
+/// grid only (plan ruling): its Accept is drawn disabled with
+/// `acceptInTheTable`, and an accepted one's Revert with `revertInTheTable`.
+/// The verbs that file elsewhere through a `Document` — *Answer as ruling…*,
+/// *This is a choice*, *Keep as lesson…*, Edit and Delete — and the triage
+/// mark have no figure-stream verb, so they are not drawn.
+///
+/// Pure, so the whole truth table is pinned without a window
+/// (`FigureAnnotationRowTests`).
+struct FigureRowGate: Equatable {
+    /// "C3 · Table: Sales", "cells deleted · Table: Sales", or the title
+    /// alone for a note on the whole figure (`SuggestionDisplay`).
+    let anchorLine: String
+    /// A suggestion's before and after as cell text (the walk's
+    /// `ProjectAnnotationsSnapshot.figureCells`); nil for other kinds, and
+    /// when the walk had no table to read them off.
+    let cells: SuggestionDisplay.FigureCells?
+    /// Why Accept is disabled, nil where it works.
+    let acceptDisabledReason: String?
+    /// Why an accepted suggestion's Revert is disabled, nil where none is drawn.
+    let revertDisabledReason: String?
+
+    /// The reason a figure suggestion's Accept says (plan ruling, verbatim).
+    static let acceptInTheTable = "Accept it in the table"
+    /// The reason an accepted figure suggestion's Revert says: its cell is
+    /// put back by changing it in the grid (or by the accept's own ⌘Z).
+    static let revertInTheTable = "Change the cell back in the table"
+
+    init(anchorLine: String, cells: SuggestionDisplay.FigureCells?,
+         acceptDisabledReason: String?, revertDisabledReason: String?) {
+        self.anchorLine = anchorLine
+        self.cells = cells
+        self.acceptDisabledReason = acceptDisabledReason
+        self.revertDisabledReason = revertDisabledReason
+    }
+
+    /// The gate for `annotation` on figure `figureId`, titled `figureTitle`
+    /// (`FigureRecord.listTitle`), with the walk's `cells`.
+    init(annotation: Annotation, figureId: String, figureTitle: String,
+         cells: SuggestionDisplay.FigureCells?) {
+        let inTheTable = FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: figureId)
+        self.init(
+            anchorLine: SuggestionDisplay.figureAnchorLine(for: annotation, figureTitle: figureTitle),
+            cells: annotation.kind == .suggestedChange ? cells : nil,
+            acceptDisabledReason: inTheTable ? Self.acceptInTheTable : nil,
+            revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
+    }
+
+    /// **The posture's verbs, narrowed to what a figure stream can write.**
+    /// The posture still decides (asked of the FIGURE's own id, as every row
+    /// asks its own document's); this only takes away the verbs with no
+    /// figure-stream write behind them.
+    static func verbs(_ offered: AnnotationRowVerbs) -> AnnotationRowVerbs {
+        AnnotationRowVerbs(
+            acceptOrReject: offered.acceptOrReject, dispose: offered.dispose,
+            answerAsRuling: false, makeChoice: false, keepAsLesson: false, ownNote: false)
+    }
+
+    /// No triage mark on a figure note: no figure-stream verb writes one.
+    static let drawsTriage = false
+}
+
 /// **The cross-document queue's sections** — the board's rows with the
 /// un-annotated ones dropped, each annotated piece carrying its own notes in
 /// its own queue order.

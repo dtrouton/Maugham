@@ -136,6 +136,14 @@ enum AnnotationLoading {
             figureTable: AnnotationAggregation.figureTable(in: judged.ops))
     }
 
+    /// **The figure's table in a judged read of a figure's stream** (report
+    /// plan 9c-1 Task 7) — the table its notes' anchors resolve against,
+    /// which the detail reads a suggestion's cells off. Nil for a document's
+    /// stream.
+    static func figureTable(_ judged: JudgedOps) -> FigureTable? {
+        AnnotationAggregation.figureTable(in: judged.ops)
+    }
+
     /// Open annotations only — the triage subset. Kept as the thin filter over
     /// `allAnnotations` so the two never drift.
     static func openAnnotations(

@@ -381,6 +381,9 @@ struct AnnotationsProjectQueue: View {
         // The row's own document, and the whole of the open-vs-closed question:
         // a closed piece's notes are readable here and actable in ITS window.
         let rowDocument = documentStore.document(forDocId: section.id)
+        // A figure's section (report plan 9c-1 Task 7): its notes act through
+        // the figure's own host, so no lock — a figure is never "closed".
+        let isFigure = DocumentClass.isFigureDocId(section.id)
         let livePids = Set(rowDocument?.sequence
             ?? sequences[section.id] ?? [])
         // Ruling AJ (P3c plan 2 Task 8): the root yielding on this piece hides
@@ -409,7 +412,7 @@ struct AnnotationsProjectQueue: View {
                     .font(.caption)
                 }
                 Spacer(minLength: 4)
-                if rowDocument == nil {
+                if rowDocument == nil, !isFigure {
                     Image(systemName: "lock")
                         .font(.caption2).foregroundStyle(.secondary)
                         .help(AnnotationScopePolicy.closedPieceReason)
@@ -420,7 +423,10 @@ struct AnnotationsProjectQueue: View {
             AnnotationListView(
                 annotations: section.annotations, docId: section.id,
                 document: rowDocument, livePids: livePids,
-                ledgerText: ledgerText, wiring: wiring)
+                ledgerText: ledgerText,
+                figureTitle: isFigure ? section.title : nil,
+                figureCells: snapshot.figureCells,
+                wiring: wiring)
         }
         .id(section.id)
     }

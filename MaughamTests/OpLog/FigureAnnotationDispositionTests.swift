@@ -526,6 +526,55 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - A note that writes no cell (Task 7)
+
+    /// **Got it / a query's Reply** (`acceptNote`): one status-only
+    /// `claudeAccept`, the author's, carrying the reply and no cell; ⌘Z is a
+    /// status-only revert that reopens it; ⇧⌘Z accepts again with the reply.
+    func test_acceptNoteIsAStatusOnlyAccept_carryingTheReply_andUndoReopens() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let query = try FigureAnnotationOps.creation(
+            kind: .query, anchor: FigureCellAnchor(row: b2.row, column: b2.column), body: "Source?",
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: doc.figureId, device: assistantDevice))
+        try await append(query, reloading: doc)
+        let um = UndoManager()
+        try await doc.acceptNote(id: query.opId, userResponse: "The 2023 census", undoManager: um)
+        var written = try ops(of: record.id)
+        XCTAssertEqual(written.last?.kind, .claudeAccept)
+        XCTAssertEqual(written.last?.device, identities.author.deviceId)
+        XCTAssertEqual(written.last?.provenance?.userResponse, "The 2023 census")
+        XCTAssertNil(written.last?.figure, "no cell moves")
+        XCTAssertEqual(note(query.opId, in: doc)?.status, .accepted)
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        written = try ops(of: record.id)
+        XCTAssertEqual(written.last?.kind, .claudeAcceptRevert)
+        XCTAssertNil(written.last?.figure)
+        XCTAssertEqual(note(query.opId, in: doc)?.status, .open)
+
+        um.redo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(note(query.opId, in: doc)?.status, .accepted)
+        XCTAssertEqual(note(query.opId, in: doc)?.userResponse, "The 2023 census")
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        await doc.close()
+    }
+
+    /// `acceptNote` refuses a suggestion (it is the table's), with nothing
+    /// written. (A reviewer's refusal is in the who-may-answer test below.)
+    func test_acceptNoteRefusesASuggestion() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let before = try ops(of: record.id).count
+        await expect(.acceptInTheTable) { try await doc.acceptNote(id: id) }
+        XCTAssertEqual(try ops(of: record.id).count, before)
+        XCTAssertEqual(note(id, in: doc)?.status, .open)
+        await doc.close()
+    }
+
     // MARK: - Who may answer
 
     /// **A reviewer may not answer a figure's notes**: the assistant (the
@@ -549,6 +598,7 @@ final class FigureAnnotationDispositionTests: XCTestCase {
                 ("rejectAnnotation", { try await doc.rejectAnnotation(id: suggestion, reason: "no") }),
                 ("stetAnnotation", { try await doc.stetAnnotation(id: suggestion) }),
                 ("archiveAnnotation", { try await doc.archiveAnnotation(id: suggestion) }),
+                ("acceptNote", { try await doc.acceptNote(id: suggestion) }),
             ]
             for (name, press) in presses {
                 do {

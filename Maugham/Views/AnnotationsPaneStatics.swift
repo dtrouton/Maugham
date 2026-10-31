@@ -108,8 +108,18 @@ extension AnnotationsPane {
     @MainActor
     @discardableResult
     static func sayRefused(_ error: Error, in document: Document) -> String {
+        sayRefused(error, projectURL: document.opStore.projectURL)
+    }
+
+    /// The same, for a press with no `Document` behind it — a figure note's
+    /// answer (report plan 9c-1 Task 7), whose refusals (`FigureNoteError`,
+    /// a parked figure, a permit) are sentences the writer is told, never
+    /// swallowed.
+    @MainActor
+    @discardableResult
+    static func sayRefused(_ error: Error, projectURL: URL) -> String {
         let sentence = error.localizedDescription
-        MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)
+        MaughamEvent.postNotice(sentence, projectURL: projectURL)
         return sentence
     }
 

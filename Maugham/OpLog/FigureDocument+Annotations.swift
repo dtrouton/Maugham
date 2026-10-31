@@ -28,6 +28,9 @@ public enum FigureNoteError: LocalizedError, Equatable {
     /// Reopen answers a rejected, archived or stetted note only — an accepted
     /// suggestion is taken back by undoing its accept, which puts the cell back.
     case cannotReopen
+    /// A suggested change writes a cell, so it is accepted in the table, never
+    /// by `acceptNote` (which writes no cell).
+    case acceptInTheTable
 
     /// The clause a declined ⌘Z or ⇧⌘Z says after "—".
     var reason: String {
@@ -40,6 +43,7 @@ public enum FigureNoteError: LocalizedError, Equatable {
         case .anchorOrphaned: "the suggestion's cell has been deleted"
         case .cellChangedSinceSuggestion: "the cell has changed since the suggestion was made"
         case .cannotReopen: "the note can't be reopened"
+        case .acceptInTheTable: "a suggested change is accepted in the table"
         }
     }
 
@@ -53,6 +57,7 @@ public enum FigureNoteError: LocalizedError, Equatable {
         case .anchorOrphaned: "The suggestion's cell has been deleted, so it can't be accepted."
         case .cellChangedSinceSuggestion: "The cell has changed since the suggestion was made."
         case .cannotReopen: "That note can't be reopened."
+        case .acceptInTheTable: "A suggested change to a cell is accepted in the table."
         }
     }
 }
@@ -200,6 +205,60 @@ extension FigureDocument {
             })
         notesChanged()
         if let pinFailure { throw pinFailure }
+    }
+
+    // MARK: - A note that writes no cell
+
+    /// **Accept a note that writes no cell** — a comment's *Got it*, a craft
+    /// note's Accept, a query's Reply (`userResponse` keeps the writer's
+    /// words). One status-only `claudeAccept`, the author's, behind
+    /// `requireNoteDisposition` (`.acceptOrReject`, as the manuscript's
+    /// accept of a textless note). A suggested change is refused
+    /// (`acceptInTheTable`): it writes a cell, so it is accepted by
+    /// `acceptSuggestion`, in the grid. Answers follow answers, as the
+    /// manuscript's do (latest wins). ⌘Z reopens the note and puts back the
+    /// answer it displaced; ⇧⌘Z accepts again.
+    public func acceptNote(id: String, userResponse: String? = nil, undoManager: UndoManager? = nil) async throws {
+        try await requireNoteDisposition("acceptNote", .acceptOrReject)
+        let prior = try note(id)
+        guard prior.kind != .suggestedChange else { throw FigureNoteError.acceptInTheTable }
+        try await commitNoteOp(
+            FigureAnnotationOps.statusOnlyAccept(annotationId: id, userResponse: userResponse, stamp: noteStamp),
+            render: false)
+        notesChanged()
+        let priorStatus = prior.status, priorReason = prior.userResponse
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Accept Annotation", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { d in
+                guard d.noteStatus(id) == .accepted else { return d.decline(.drifted) }
+                var reopened = false
+                await d.redoing {
+                    try await d.unacceptNote(id: id)
+                    reopened = true
+                }
+                guard reopened, priorStatus != .open else { return }
+                do {
+                    try await d.settle(id, as: priorStatus, reason: priorReason, undoManager: nil)
+                } catch {
+                    documentLog.error("figure \(d.figureId, privacy: .public): note \(id, privacy: .public) reopened but its earlier answer was not put back: \(error.localizedDescription, privacy: .public)")
+                    d.decline(.notePutBack)
+                }
+            },
+            redo: { [weak undoManager] d in
+                await d.redoing { try await d.acceptNote(id: id, userResponse: userResponse, undoManager: undoManager) }
+            })
+    }
+
+    /// **`acceptNote`'s ⌘Z**: a status-only `claudeAcceptRevert`, the note
+    /// open again and no cell moved. Never over a suggestion (its accept's
+    /// revert puts the cell back, `FigureInverse`).
+    private func unacceptNote(id: String) async throws {
+        try await requireNoteDisposition("unacceptNote", .acceptOrReject)
+        let note = try note(id)
+        guard note.kind != .suggestedChange else { throw FigureNoteError.acceptInTheTable }
+        try await commitNoteOp(FigureAnnotationOps.statusOnlyRevert(annotationId: id, stamp: noteStamp), render: false)
+        notesChanged()
     }
 
     // MARK: - Reject, stet, archive
