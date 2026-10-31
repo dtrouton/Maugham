@@ -64,7 +64,7 @@ Every element is text inside an ordinary paragraph. A pipe table, with its capti
 
 ### 5. One reader, in MaughamCore.
 
-`MarkdownBlockParser` and one inline scanner read these forms. Mac and phone share them (tripwire 19). The phone reader renders a pipe table as a table, and a `Table: a | b` caption line below it shows as one more data row. It shows the other forms as plain text and never mangles them.
+`MarkdownBlockParser` and one inline scanner read these forms. Mac and phone share them (tripwire 19). The phone reader parses through the same `ManuscriptBlocks`: it renders a pipe table as a table with its `Table:` caption as a line under it, drops `{#…}` labels from headings and captions, and shows a figure line as its caption. It shows the other forms as plain text and never mangles them.
 
 ## Consequences
 

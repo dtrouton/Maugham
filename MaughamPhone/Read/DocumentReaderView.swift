@@ -133,6 +133,12 @@ struct DocumentReaderView: View {
             tableView(header: header, rows: rows)
         case let .quote(inner):
             quoteView(inner)
+        case let .figure(caption, _, _):
+            // Until the figure card lands, a figure line reads as its caption.
+            Text(caption)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         case .divider:
             Text("* * *")
                 .foregroundStyle(.secondary)

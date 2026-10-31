@@ -225,6 +225,9 @@ struct PaletteCardView: View {
         case .divider:
             Text("* * *").foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
+        case let .figure(caption, _, _):
+            Text(caption).font(.callout).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         case .code, .table, .quote:
             // Uncommon inside a card body; render the raw text plainly rather
             // than duplicate DocumentReaderView's full renderer.
