@@ -56,8 +56,7 @@ public struct PublishContext: Sendable {
     }
 
     /// No research, no profile, every switch off, no project, no paths, no
-    /// figures: what a
-    /// source with no project answers.
+    /// figures: what a source with no project answers.
     public static let empty = PublishContext(
         library: CitationLibrary(items: []),
         profile: nil,

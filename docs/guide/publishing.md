@@ -61,7 +61,7 @@ Table: Sales by region {#tbl:sales}
 
 Every table is numbered — "Table 1", "Table 2" — across the whole book, captioned or not. In the PDF a long table runs across pages and repeats its header row on each.
 
-**A table figure** (a table made with Insert ▸ Table, or converted from a pipe table, whose line reads `![Caption](../figures/cash.csv){#tbl:cash}`) is numbered "Table n" like a pipe table, and publishes its computed cells: every formula is worked out, and numbers, dates and currencies are formatted in the edition's language (a Serbian edition prints its own decimal comma). The PDF repeats the header row on each page and rules the total row above; the EPUB and Word draw the same table, Word with a repeating header row. A table with no header row simply has none. A table figure that nothing in the book names isn't published, and pipe tables are unchanged. Column widths aren't published.
+**A table figure** (a table made with Insert ▸ Table, or converted from a pipe table, whose line reads `![Caption](../figures/cash.csv){#tbl:cash}`) is numbered "Table n" like a pipe table, and publishes its computed cells: every formula is worked out, and numbers and dates are formatted in the edition's language (a Spanish or Serbian edition prints its own decimal comma). Money keeps the book's currency in every edition: a report in pounds prints pounds in its Spanish edition too, with Spanish separators. The PDF repeats the header row on each page and rules the total row above; the EPUB and Word draw the same table, Word with a repeating header row. A table with no header row simply has none. A table figure that nothing in the book names isn't published, and pipe tables are unchanged. Column widths aren't published.
 
 **Table figure problems.** In a Report these stop a `compile` or `republish`; the book is not made until you fix them:
 
@@ -70,6 +70,8 @@ Every table is numbered — "Table 1", "Table 2" — across the whole book, capt
 - *A table couldn't be read*: its line prints as written; open the table in the Figures area to check it.
 - *A figure is in Research* (it was sent there, and a line or reference still names it): bring it back into Figures, or remove the line and the references.
 - *A table line points at no figure* (the path isn't a figure in Figures): fix the path, or make the table with Insert ▸ Table.
+- *A table line names two figures* (two tables share its path): rename one of them in the Figures area.
+- *A table line is labelled as a figure* (`{#fig:…}` on a `.csv` line): label it `{#tbl:…}`.
 
 These only warn, and the book is made: a table line into a Research folder (written before `figures/` existed) publishes as the line is written, so move it into Figures to publish its cells; a table that uses numbers from Research; Research has changed since the table took its numbers (refresh it in the Figures area); and an `NPV` whose first cash flow is negative, which discounts that flow one period, as Excel does (add a flow that falls today outside the `NPV`). In any other kind of project everything here is a warning.
 
