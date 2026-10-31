@@ -521,9 +521,11 @@ extension EditorCoordinator {
         }
         figureGridOpening?.presence?.show(controller.menuState)
         // A room guessed before the card was cached grows to the table (M3),
-        // and the strip follows the card cached by now.
-        if expansion.takeRoom(rows: controller.host.state.table.rows.count,
-                              strip: figureGridReservesStrip(expansion), typography: typography) {
+        // and the strip follows the card cached by now — mid-burst, at the
+        // settle, with the paragraph (`takeFigureGridRoom`).
+        if isInTypingBurst {
+            figureRoomsWaitForTheSettle = true
+        } else if takeFigureGridRoom() {
             relayoutFigureGridLine()
         }
         let panel = FigureGridPanel(bars: controller.bars, gridView: controller.gridView,
@@ -890,15 +892,23 @@ extension EditorCoordinator {
         refreshFigureGridAccess()
         guard figureGrid === expansion else { return }
         Task { @MainActor in await controller.figureCardsChanged() }
-        if expansion.takeRoom(rows: controller.host.state.table.rows.count,
-                              strip: figureGridReservesStrip(expansion), typography: typography) {
-            layoutFigureGrid()
-        }
+        // Mid-burst the room waits for the settle (the caller parks it), so
+        // the panel and the paragraph's spacing move together.
+        guard !isInTypingBurst else { return }
+        if takeFigureGridRoom() { layoutFigureGrid() }
     }
 
-    /// The expanded figure's card says it has an open live cell note.
-    private func figureGridReservesStrip(_ expansion: FigureGridExpansion) -> Bool {
-        figureCardModel?(expansion.path)?.hasOpenCellNotes ?? false
+    /// **Bring the expanded room to the table and the card** — the rows part
+    /// growing only, the strip both ways — where the line's paragraph is
+    /// re-laid out with it: a card edge outside a burst, the mount,
+    /// `refreshFigureRooms` (the settle's) and a whole-document paint. True
+    /// when the room moved. Before the visit opens there is nothing to read.
+    @discardableResult
+    func takeFigureGridRoom() -> Bool {
+        guard let expansion = figureGrid, let controller = expansion.controller else { return false }
+        return expansion.takeRoom(rows: controller.host.state.table.rows.count,
+                                  strip: figureCardModel?(expansion.path)?.hasOpenCellNotes ?? false,
+                                  typography: typography)
     }
 
     // MARK: Read-only (Task 8)
@@ -965,8 +975,7 @@ extension EditorCoordinator {
         let padding = container.lineFragmentPadding
         let frame = FigureGridPanel.frame(lineBottom: bottom, room: expansion.room, columnX: origin.x + padding,
                                           columnWidth: container.size.width - 2 * padding)
-        expansion.panel?.showsStrip = expansion.reservesStrip
-        if expansion.panel?.frame != frame { expansion.panel?.frame = frame }
+        expansion.panel?.place(frame: frame, showsStrip: expansion.reservesStrip)
         expansion.panel?.skipTheTextInTheResponderChain()
         expansion.dim.frame = textView.bounds
         expansion.dim.tint = textView.backgroundColor

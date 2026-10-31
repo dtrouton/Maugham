@@ -88,9 +88,24 @@ final class FigureGridPanel: NSView, NSUserInterfaceValidations {
 
     /// **The strip's part is carved** (report plan 9c-2): in place it
     /// follows the expansion's strip flag, which moves only at a card-version
-    /// edge; the room around it is the line's. Re-lays out the parts only.
-    var showsStrip: Bool {
-        didSet { if showsStrip != oldValue { layoutParts() } }
+    /// edge; the room around it is the line's. Changed only with the frame
+    /// (`place(frame:showsStrip:)`).
+    private(set) var showsStrip: Bool
+
+    /// **The panel's frame and strip together, laid out once** (task 1
+    /// review I1): the strip comes with exactly its height of room, so the
+    /// grid keeps its height across the change. Setting the flag against the
+    /// old frame first would size the grid a strip too tall (or short) for a
+    /// moment, and the grid clamps its scroll to whatever size it is given.
+    func place(frame newFrame: CGRect, showsStrip strip: Bool) {
+        let flagMoved = strip != showsStrip
+        showsStrip = strip
+        if frame.size != newFrame.size {
+            frame = newFrame   // setFrameSize lays the parts out with the new flag
+        } else {
+            if frame.origin != newFrame.origin { frame = newFrame }
+            if flagMoved { layoutParts() }
+        }
     }
 
     init(bars: FigureGridBars, gridView: FigureGridView, strip: Bool) {

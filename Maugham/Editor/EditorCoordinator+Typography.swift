@@ -191,6 +191,7 @@ extension EditorCoordinator {
             // trailing one included.
             figureRoomsWaitForTheSettle = false
             trailingFigureRoomMemo = nil
+            takeFigureGridRoom()   // the expanded line's room, as of this paint
             applyModeTypography(in: storage, tokens: tokens, restyleWindow: nil)
             applyFocusDim(in: textView)
             // The caret's figure line, in the colour this paint's theme gives.

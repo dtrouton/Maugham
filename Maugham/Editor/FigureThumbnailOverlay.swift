@@ -917,6 +917,7 @@ extension EditorCoordinator {
               let textView, let storage = textView.textStorage else { return }
         figureRoomsWaitForTheSettle = false
         trailingFigureRoomMemo = nil   // the trailing card is asked again, here only
+        takeFigureGridRoom()   // a room parked mid-burst lands with its paragraph
         let touched = prose.refreshFigureRooms(
             in: storage, theme: theme, typography: typography,
             lines: figureThumbnailMarks, figureRoom: figureRoom(forLinePath:at:))

@@ -114,6 +114,8 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
         await m.coordinator.deferredRestyleTask?.value
         let bare = grid.room
         let refreshes = m.coordinator.figureRoomRefreshCount
+        let panel = try XCTUnwrap(grid.panel)
+        let frameBefore = panel.frame
 
         m.textView.insertText(" and", replacementRange: NSRange(location: typeAt, length: 0))
         XCTAssertTrue(m.coordinator.isInTypingBurst, "premise: a burst is in flight")
@@ -125,10 +127,18 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
         XCTAssertEqual(m.coordinator.figureRoomRefreshCount, refreshes, "nothing re-laid out mid-burst")
         XCTAssertEqual(spacing(m, at: typedLine) - body, bare, "mid-burst the line keeps its painted room")
         XCTAssertTrue(m.coordinator.figureRoomsWaitForTheSettle)
+        XCTAssertEqual(grid.room, bare, "the room waits for the settle")
+        XCTAssertEqual(panel.frame.height, frameBefore.height, accuracy: 0.5,
+                       "the panel waits with the paragraph: it never covers the line below")
+        XCTAssertFalse(panel.showsStrip)
 
         await m.coordinator.deferredRestyleTask?.value   // the settle edge
         XCTAssertEqual(m.coordinator.figureRoomRefreshCount - refreshes, 1, "once, at the settle")
         XCTAssertEqual(spacing(m, at: typedLine) - body, bare + FigureGridPanel.stripHeight)
+        XCTAssertEqual(grid.room, bare + FigureGridPanel.stripHeight)
+        XCTAssertEqual(panel.frame.height, grid.room - 2 * FigureGridPanel.gap, accuracy: 0.5,
+                       "panel and paragraph moved together, at the settle")
+        XCTAssertTrue(panel.showsStrip)
         XCTAssertTrue(m.text.contains("before the table. and"), "the typing landed")
     }
 
@@ -215,6 +225,91 @@ final class FigureGridStripRoomTests: FigureGridMountedTestCase {
         XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 4, strip: false, typography: .defaults),
                        "the strip goes; the four-row room stays (R7c-2)")
         XCTAssertEqual(spacing(m, at: line) - body, grid.room)
+    }
+
+    /// **Review I1: the give-back never scrolls the grid.** A 30-row table
+    /// scrolled to its bottom (the cell just answered): the strip going away
+    /// lays the panel out once with its new frame and flag, so the grid keeps
+    /// its height and its scroll.
+    func test_theStripGoingAwayLeavesALongGridsScrollAlone() async throws {
+        let notes = OpenCellNotes(true)
+        let m = try await mount(rows: 30, openCellNotes: notes)
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
+        let grid = try await opened(m)
+        let controller = try XCTUnwrap(grid.controller)
+        let table = controller.host.state.table
+        let gridHeight = controller.gridView.frame.height
+        controller.gridView.scrollTo(CellKey(row: table.rows.last!, column: table.columns.first!))
+        let scrolled = controller.gridView.scrollOffset
+        XCTAssertGreaterThan(scrolled.y, 0, "premise: scrolled to the bottom")
+
+        notes.value = false
+        m.coordinator.setFigureCardVersion(m.coordinator.figureCardVersion + 1)
+        XCTAssertFalse(try XCTUnwrap(grid.panel).showsStrip, "premise: the strip went")
+        XCTAssertEqual(controller.gridView.scrollOffset, scrolled, "the grid's scroll is left alone")
+        XCTAssertEqual(controller.gridView.frame.height, gridHeight, accuracy: 0.5, "the grid keeps its height")
+
+        notes.value = true
+        m.coordinator.setFigureCardVersion(m.coordinator.figureCardVersion + 1)
+        XCTAssertTrue(try XCTUnwrap(grid.panel).showsStrip)
+        XCTAssertEqual(controller.gridView.scrollOffset, scrolled, "nor does its return")
+    }
+
+    /// **Folded with the strip, then expanded again**: the folded line holds
+    /// its card's room (the flag never moves a card's height); the next
+    /// expansion takes the strip's room from the first.
+    func test_theFlagAcrossAFoldAndAReExpand() async throws {
+        let notes = OpenCellNotes(true)
+        let m = try await mount(openCellNotes: notes)
+        let line = location(m, "![Cash](")
+        let body = spacing(m, at: location(m, "Middle prose"))
+        let withStrip = FigureGridPanel.room(rows: 3, strip: true, typography: .defaults)
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: line))
+        _ = try await opened(m)
+        XCTAssertEqual(spacing(m, at: line) - body, withStrip)
+
+        m.coordinator.foldFigureGrid(commit: true)
+        await m.coordinator.figureGridFolding?.value
+        XCTAssertNil(m.coordinator.figureGrid)
+        XCTAssertEqual(spacing(m, at: line) - body, cardRoom(m), "folded: the card's room, no strip")
+
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: line))
+        let again = try XCTUnwrap(m.coordinator.figureGrid)
+        XCTAssertEqual(again.room, withStrip, "re-expanded: the strip's room from the first")
+        XCTAssertEqual(spacing(m, at: line) - body, withStrip)
+        _ = try await opened(m)
+        XCTAssertTrue(try XCTUnwrap(again.panel).showsStrip)
+        XCTAssertEqual(again.room, withStrip, "the mount agrees")
+    }
+
+    /// **The rows grow while the strip stays put** — separate edges: a row
+    /// added at one card edge grows the rows part with the strip still
+    /// reserved, re-laying out the line once; the strip's part never moved.
+    func test_rowsGrowAtTheirOwnEdgeWhileTheStripStaysPut() async throws {
+        let notes = OpenCellNotes(true)
+        // One line of the figure: a second line's card would grow too.
+        let m = try await mount("Opening.\n\n![Cash](../figures/t.csv){#tbl:t}\n\nMiddle prose.",
+                                openCellNotes: notes)
+        let line = location(m, "![Cash](")
+        let body = spacing(m, at: location(m, "Middle prose"))
+        XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: line))
+        let grid = try await opened(m)
+        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 3, strip: true, typography: .defaults))
+        let host = try XCTUnwrap(grid.controller?.host)
+        _ = try await host.insertRow(after: host.state.table.rows.last!, undoManager: nil)
+        await m.store.documentStore?.settleFigureCards()
+        await m.cards.idle()
+        let refreshes = m.coordinator.figureRoomRefreshCount
+
+        m.coordinator.setFigureCardVersion(m.cards.version)
+
+        XCTAssertEqual(grid.room, FigureGridPanel.room(rows: 4, strip: true, typography: .defaults),
+                       "the rows part grew; the strip is still there")
+        XCTAssertTrue(grid.reservesStrip)
+        XCTAssertTrue(try XCTUnwrap(grid.panel).showsStrip)
+        XCTAssertEqual(spacing(m, at: line) - body, grid.room)
+        XCTAssertEqual(m.coordinator.figureRoomRefreshCount - refreshes, 1, "that line, once")
+        XCTAssertEqual(try XCTUnwrap(grid.panel).frame.height, grid.room - 2 * FigureGridPanel.gap, accuracy: 0.5)
     }
 
     // MARK: - Helpers
