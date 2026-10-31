@@ -394,7 +394,8 @@ final class DOCXBodyEmitterTests: XCTestCase {
 
     /// A table figure's line numbered as a table: a "Table 2." caption whose
     /// number carries the label's bookmark, so `@tbl:cash`'s REF lands, then
-    /// its literal source (its cells are not emitted yet).
+    /// its literal source (this fixture has no figure layout; the laid-out
+    /// cells are `DOCXTableFigureTests`).
     func test_aTableFigureLine_isCaptionedAsATable_andItsLabelIsBookmarked() throws {
         let e = try emit(Book(pieces: [("a", [
             ("a1b2", "| a |\n|---|\n| 1 |\nTable: Sales {#tbl:sales}"),
