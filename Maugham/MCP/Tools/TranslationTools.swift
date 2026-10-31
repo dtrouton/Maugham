@@ -484,7 +484,8 @@ public enum TranslationStatusTool: MCPTool {
         public let reason: String
     }
     /// One (table figure, language) pair: the figure's text-cell counts by
-    /// freshness. A figure with no translation file in a language reports its
+    /// freshness (`EditionStatus.figureRows`). A figure with no translation
+    /// file in a language the book has a translation layer in reports its
     /// cells as `missing`, not zero: its edition will not compile until they
     /// are translated.
     public struct FigureRow: Codable, Equatable {
@@ -520,8 +521,10 @@ public enum TranslationStatusTool: MCPTool {
         "questions raised against that language, whole-document ones included). A " +
         "language shows up here as soon as a " +
         "translator asks a query against it, even before any translation file exists for " +
-        "it — that row's coverage counts are all zero (nothing to derive yet) with " +
-        "`open_queries` real, distinct from a language that has files but nothing missing. " +
+        "it — while no document or table in the book has a translation in that language, " +
+        "its rows' coverage counts are all zero (not started) with `open_queries` real. " +
+        "Once the book has any translation in a language, a document with none of its own " +
+        "counts every paragraph `missing`, as the compile's coverage gate does. " +
         "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
         "names every document this call could not open, with the reason — its rows are " +
         "missing from `rows` rather than zero, so read it before concluding a chapter is " +
@@ -533,8 +536,9 @@ public enum TranslationStatusTool: MCPTool {
         "failed or was cancelled. " +
         "`figures` (always present) lists the table figures those documents use, one " +
         "row per (figure, language) with text-cell counts — `fresh`, `stale`, `missing`, " +
-        "`verbatim`, `orphans`; a language the figure has no translation in yet counts " +
-        "its every text cell `missing`. A figure whose translations would not read is " +
+        "`verbatim`, `orphans`, by the same rule: a table with no translation of its own " +
+        "counts every text cell `missing` once the book has a translation in that language. " +
+        "These are the cells the coverage gate refuses an edition over. A figure whose translations would not read is " +
         "named in `unreadable_documents` by its figure id. " +
         "Use it to see how much of a book is translated and where retranslation is due. " +
         "See get_help topic 'translation-pass' for the translation workflow."
@@ -591,8 +595,11 @@ public enum TranslationStatusTool: MCPTool {
             documentIds: docIds, store: entry.store, projectURL: entry.url)
         let rounds = TranslationRoundStore(projectURL: entry.url)
 
-        let figures = await figureRows(
-            onlyUsedIn: params.document_id, languages: Set(report.rows.map(\.language)),
+        // The tables those documents use — `EditionStatus`'s, with the desk's
+        // layer rule and the coverage gate's reader (`FigureUse`), so a
+        // table's `missing` here is what the gate refuses over.
+        let figures = await EditionStatus.figureRows(
+            documentIds: docIds, languages: Set(report.rows.map(\.language)),
             store: entry.store, projectURL: entry.url)
 
         return try JSONEncoder().encode(Result(rows: report.rows.map {
@@ -613,70 +620,14 @@ public enum TranslationStatusTool: MCPTool {
                               departures: $0.departures.count, declined: $0.declinedCount,
                               summary: $0.summary, stopped_at: $0.stoppedAt?.name)
                 })
-        }, figures: figures.rows, unreadable_documents: report.unreadable.map {
+        }, figures: figures.rows.map {
+            FigureRow(figure_id: $0.figureId, name: $0.name, language: $0.language,
+                      fresh: $0.fresh, stale: $0.stale, missing: $0.missing,
+                      verbatim: $0.verbatim, orphans: $0.orphans)
+        }, unreadable_documents: (report.unreadable + figures.unreadable).map {
             UnreadableDocument(document_id: $0.documentId,
                                title: $0.title,
                                reason: $0.reason)
-        } + figures.unreadable))
-    }
-
-    /// The `figures` section: each table figure a reported document uses
-    /// (every document when `documentId` is nil), unparked and registered —
-    /// a removed figure is not, so its translations are never counted — in
-    /// reading order, derived per language over its current table.
-    @MainActor
-    static func figureRows(
-        onlyUsedIn documentId: String?, languages: Set<String>,
-        store: ProjectStore, projectURL: URL
-    ) async -> (rows: [FigureRow], unreadable: [UnreadableDocument]) {
-        let listing = await FigureListingSource.rows(store: store)
-        let snapshot = await store.publishFigures()
-        let records = Dictionary(
-            snapshot.records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let used = listing.filter { row in
-            !snapshot.parked.contains(row.figureId)
-                && row.usedIn.contains { documentId == nil || $0.docId == documentId }
-        }
-        // One trust resolution for every figure, as `EditionStatus` does for
-        // the documents; a registry that will not read names each figure.
-        let resolved = Swift.Result {
-            try TrustResolution.resolve(projectURL: projectURL, identities: .current)
-        }
-        var rows: [FigureRow] = []
-        var unreadable: [UnreadableDocument] = []
-        for listed in used {
-            guard let record = records[listed.figureId] else { continue }
-            switch record.kind {
-            case .table: break
-            case .image, .unknown: continue
-            }
-            do {
-                guard let table = snapshot.states[record.id]?.table else {
-                    throw MCPError.invalidArgument("its op log would not fold")
-                }
-                let tongues = languages.union(
-                    TranslationStore.languages(forDocId: record.id, in: projectURL))
-                var perLanguage: [FigureRow] = []
-                for language in tongues.sorted() {
-                    let derived = FigureTranslationDeriver.derive(
-                        records: try TranslationStore.loadMerged(
-                            forDocId: record.id, language: language, in: projectURL,
-                            trust: try resolved.get()),
-                        table: table, language: language)
-                    perLanguage.append(FigureRow(
-                        figure_id: record.id, name: record.name, language: language,
-                        fresh: derived.freshCount, stale: derived.staleCount,
-                        missing: derived.missingCount,
-                        verbatim: derived.entries.filter(\.verbatim).count,
-                        orphans: derived.orphans.count))
-                }
-                rows += perLanguage
-            } catch {
-                unreadable.append(UnreadableDocument(
-                    document_id: record.id, title: "Table: \(record.name)",
-                    reason: error.localizedDescription))
-            }
-        }
-        return (rows, unreadable)
+        }))
     }
 }

@@ -40,7 +40,8 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `LanguageSet.swift` — reconciles `language`, `languages` and the `"source"` sentinel into ordered bodies; `identity` (e.g. `"en+sr"`) and `singleTag`.
 - `BodyPlan.swift` — one bound, folded `BodyPlan.Body` per rendered language; the language folds happen here once per body.
 - `LanguageSuffixedFile.swift` — resolves `template.es.tex`-style per-language variants of templates, styles and piece style files.
-- `TranslationCoverage.swift` — the blocking coverage gate for a translated compile, plus Fountain element-drift warnings.
+- `TranslationCoverage.swift` — the blocking coverage gate for a translated compile (paragraphs, and the text cells of the tables the edition uses), plus Fountain element-drift warnings.
+- `FigureUse.swift` — the tables a set of pieces uses and each one's cell-translation coverage: the one reader the gate and `EditionStatus` share.
 - `EditionStatus.swift` — where a book's language editions stand; the one derivation behind `translation_status` and the desk's language rows.
 
 ### Compiling and the catalogue

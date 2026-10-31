@@ -806,7 +806,8 @@ public struct PublishOrchestrator {
         var gateWarnings: [TectonicLogParser.Diagnostic] = []
         if let source = astSource as? ProjectStoreASTSource {
             switch try await TranslationCoverage.gateEveryTongue(
-                projectStore: source.projectStore, tags: set.translatedTags,
+                projectStore: source.projectStore, figures: source.figures,
+                tags: set.translatedTags,
                 excludedSectionIDs: excludedSectionIDs, allowStale: allowStale
             ) {
             case .blocked(let errors, let excerpt):

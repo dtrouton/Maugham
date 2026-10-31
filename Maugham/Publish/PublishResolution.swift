@@ -384,7 +384,7 @@ private struct Pass {
     /// A figure parked in Research: the snapshot's parked set, or its state's
     /// own parking.
     static func isParked(_ id: String, in figures: PublishFigures) -> Bool {
-        figures.parked.contains(id) || figures.states[id]?.parked != nil
+        figures.isParked(id)
     }
 
     /// Spec §9's problems and notes for one table-figure line, by what it

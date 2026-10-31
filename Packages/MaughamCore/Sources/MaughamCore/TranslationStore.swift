@@ -84,6 +84,22 @@ public enum TranslationStore {
         return Array(langs)
     }
 
+    /// **Every doc's languages from one directory listing** (report plan 9e-1
+    /// Task 6): `languages(forDocId:in:)`'s rule — a file counts only with a
+    /// well-formed tag — for every docId at once, so a whole-book question
+    /// ("which languages have a translation layer here at all") pays one scan,
+    /// not one per chapter and table.
+    public static func languagesByDocId(in projectURL: URL) -> [String: Set<String>] {
+        let dir = directoryURL(in: projectURL)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        var out: [String: Set<String>] = [:]
+        for n in names {
+            guard let p = parseFileName(n), TranslationRecord.isValidLanguageTag(p.language) else { continue }
+            out[p.docId, default: []].insert(p.language)
+        }
+        return out
+    }
+
     /// One record, one write — a thin wrapper over `appendBatch` so there is a
     /// single coordinated-write body (and a single tombstone rule) to reason
     /// about. No production caller today; the tests and seeding helpers that

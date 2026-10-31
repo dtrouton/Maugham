@@ -56,6 +56,12 @@ public struct PublishFigures: Sendable {
         self.cellTranslations = cellTranslations
     }
 
+    /// Whether a figure is parked in Research — listed so, or its state says
+    /// so. Parked figures print nothing and are never gated.
+    public func isParked(_ id: String) -> Bool {
+        parked.contains(id) || states[id]?.parked != nil
+    }
+
     /// One body's labels for one figure: nil for the source body (no
     /// language) and for a figure with nothing fresh in that language.
     public func cellLabels(figureId: String, language: String?) -> [CellKey: String]? {
