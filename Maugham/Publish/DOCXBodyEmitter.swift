@@ -361,17 +361,22 @@ enum DOCXBodyEmitter {
                                        scope.caption("Table", word: resolution.words.table, number: n,
                                                      label: scope.owned(label, kind: .tbl, index: index),
                                                      caption ?? [])))
-            out.append(table(header: header, alignments: alignments, rows: rows, scope: scope))
+            out.append(table(header: header.map(TableCell.inlines), jc: pipeJC(alignments),
+                             rows: rows.map { $0.map(TableCell.inlines) }, columns: header.count, scope: scope))
         case .figure(let caption, let path, let label):
             let source = InterimReportLiteral.figure(caption: caption, path: path, label: label)
             if let index, let n = resolution.tableNumbers[piece]?[index] {
                 // A table figure numbered as a table (R7a-1): "Table n." with
-                // the label's bookmark, so the REF lands, then its literal
-                // source. Its body is plan 9's.
+                // the label's bookmark, so the REF lands, then its cells as a
+                // native table (plan 9a), or its literal source without a layout.
                 out.append(scope.paragraph(Para(style: "Caption", keepNext: true),
                                            scope.caption("Table", word: resolution.words.table, number: n,
                                                          label: scope.owned(label, kind: .tbl, index: index),
                                                          caption)))
+                if let layout = resolution.tableFigures[piece]?[index] {
+                    out.append(table(figure: layout, scope: scope))
+                    return
+                }
                 return literal(source)
             }
             guard let index, let n = resolution.figureNumbers[piece]?[index] else { return literal(source) }
@@ -394,28 +399,34 @@ enum DOCXBodyEmitter {
         }
     }
 
-    /// A native table: the grid has the header's column count, a short row is
-    /// padded and a long one cut, as the PDF's are; the header row repeats on
-    /// every page; an aligned column's cells say so in `w:jc`.
-    private static func table(header: [[ProjectAST.Inline]], alignments: [TableAlignment],
-                              rows: [[[ProjectAST.Inline]]], scope: Scope) -> String {
-        let columns = max(header.count, 1)
+    /// One cell of a native table: a pipe table's parsed inlines, or a table
+    /// figure's already-formatted string (plain text, never parsed).
+    private enum TableCell {
+        case inlines([ProjectAST.Inline])
+        case text(String)
+    }
+
+    /// A native table: the grid has `columns` columns, a short row is padded
+    /// and a long one cut, as the PDF's are; the header row (when there is
+    /// one) repeats on every page and is bold; an aligned column's cells say
+    /// so in `w:jc`; a total row's cells are ruled above.
+    private static func table(header: [TableCell]?, jc alignments: [String?], rows: [[TableCell]],
+                              total: [TableCell]? = nil, columns: Int, scope: Scope) -> String {
+        let columns = max(columns, 1)
         let width = columnTwips / columns
-        func jc(_ column: Int) -> String? {
-            guard column < alignments.count else { return nil }
-            switch alignments[column] {
-            case .none:     return nil
-            case .leading:  return "left"
-            case .center:   return "center"
-            case .trailing: return "right"
-            }
-        }
-        func row(_ cells: [[ProjectAST.Inline]], isHeader: Bool) -> String {
+        func row(_ cells: [TableCell], isHeader: Bool, isTotal: Bool = false) -> String {
             "<w:tr>" + (isHeader ? "<w:trPr><w:tblHeader/></w:trPr>" : "")
                 + (0..<columns).map { column in
-                    let inlines = column < cells.count ? cells[column] : []
-                    return "<w:tc><w:tcPr><w:tcW w:w=\"\(width)\" w:type=\"dxa\"/></w:tcPr>"
-                        + scope.paragraph(Para(jc: jc(column)), scope.runs(inlines, Run(bold: isHeader)))
+                    let runs: String
+                    switch column < cells.count ? cells[column] : .inlines([]) {
+                    case .inlines(let inlines): runs = scope.runs(inlines, Run(bold: isHeader))
+                    case .text(let text):       runs = scope.textRun(text, Run(bold: isHeader))
+                    }
+                    let rule = isTotal
+                        ? "<w:tcBorders><w:top w:val=\"single\" w:sz=\"8\" w:space=\"0\" w:color=\"auto\"/></w:tcBorders>"
+                        : ""
+                    return "<w:tc><w:tcPr><w:tcW w:w=\"\(width)\" w:type=\"dxa\"/>\(rule)</w:tcPr>"
+                        + scope.paragraph(Para(jc: column < alignments.count ? alignments[column] : nil), runs)
                         + "</w:tc>"
                 }.joined() + "</w:tr>"
         }
@@ -425,8 +436,49 @@ enum DOCXBodyEmitter {
         return "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/><w:tblW w:w=\"5000\" w:type=\"pct\"/>"
             + "<w:tblBorders>\(border)</w:tblBorders><w:tblLook w:val=\"04A0\"/></w:tblPr>"
             + "<w:tblGrid>" + String(repeating: "<w:gridCol w:w=\"\(width)\"/>", count: columns) + "</w:tblGrid>"
-            + row(header, isHeader: true) + rows.map { row($0, isHeader: false) }.joined()
+            + (header.map { row($0, isHeader: true) } ?? "") + rows.map { row($0, isHeader: false) }.joined()
+            + (total.map { row($0, isHeader: false, isTotal: true) } ?? "")
             + "</w:tbl>"
+    }
+
+    /// A pipe table's `w:jc` per column.
+    private static func pipeJC(_ alignments: [TableAlignment]) -> [String?] {
+        alignments.map {
+            switch $0 {
+            case .none:     return nil
+            case .leading:  return "left"
+            case .center:   return "center"
+            case .trailing: return "right"
+            }
+        }
+    }
+
+    /// A table figure's `w:jc` per column (resolved: never automatic).
+    private static func figureJC(_ alignments: [CellAlignment]) -> [String?] {
+        alignments.map {
+            switch $0 {
+            case .automatic: return nil
+            case .left:      return "left"
+            case .center:    return "center"
+            case .right:     return "right"
+            }
+        }
+    }
+
+    /// A table figure's laid-out cells as a native table. A table with no
+    /// rows at all (Use in Document from an empty CSV) draws one empty row:
+    /// Word refuses a `<w:tbl>` with no `<w:tr>`, and the PDF and EPUB show
+    /// the same thing — the numbered caption over an empty table (M4).
+    private static func table(figure layout: FigureTableLayout, scope: Scope) -> String {
+        let columns = layout.header?.count ?? layout.body.first?.count ?? layout.total?.count
+            ?? layout.alignments.count
+        let empty = layout.header == nil && layout.body.isEmpty && layout.total == nil
+        let body = empty ? [Array(repeating: "", count: max(columns, 1))] : layout.body
+        return table(header: layout.header.map { $0.map(TableCell.text) },
+                     jc: figureJC(layout.alignments),
+                     rows: body.map { $0.map(TableCell.text) },
+                     total: layout.total.map { $0.map(TableCell.text) },
+                     columns: columns, scope: scope)
     }
 
     /// A screenplay piece in a Word document: Normal paragraphs laid out by

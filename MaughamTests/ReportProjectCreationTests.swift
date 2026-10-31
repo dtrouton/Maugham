@@ -238,7 +238,7 @@ final class ReportProjectCreationTests: XCTestCase {
         let golden: [String: String] = [
             "backmatter.tex": "f9e196a3871432d8e28dd1079a432d4474f6494c76b5089588df289892128e89",
             "config.json": "85dfc7c2b44b1457704bb965e0ebb682723ab7c1be132daaa3539f8caccb1c6a",
-            "EMISSION.md": "bf190e7326cc209eaaedbe91569d2e00579eac23605a5b1af7684469a812517c",  // report plan 7a final fix wave (I4): an unlabelled table figure's line numbers as a table too
+            "EMISSION.md": "0d0cb3ce961155d6cc1da1113614ed5d259fe8204a3d8649802a7c286db09e98",  // report plan 9a final fix wave (M3): the EPUB total row is ruled by its cells' own inline style
             "frontmatter.tex": "0537b0bf87fd28119e7c55134f786e95ed0ea5a6bdf972210f5b62521312390b",
             "preamble.tex": "6d6e044b7729318a1c25b75f0793e70124c9c1521f6faf2b6f27f31bb75525cc",
             "prose.tex": "233eea1e200b03d427a0bfc236138790d4b46b2be3d26654559ee6013e4f239d",

@@ -41,8 +41,15 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     /// nil, the source-language materialize path is byte-untouched.
     public let language: String?
 
-    public init(projectStore: ProjectStore, language: String? = nil) {
+    /// The book's figures as this publish snapshotted them
+    /// (`ProjectStore.publishFigures()`), handed through `publishContext()`.
+    /// Required, so every door that builds a source takes the snapshot first:
+    /// `publishContext()` is synchronous and cannot gather it itself.
+    public let figures: PublishFigures
+
+    public init(projectStore: ProjectStore, figures: PublishFigures, language: String? = nil) {
         self.projectStore = projectStore
+        self.figures = figures
         self.language = language
     }
 
@@ -108,8 +115,8 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
     ///   `removeResearchItem`), so only live sources are citable.
     /// - Piece paths come from the SAME `publishablePieces()` walk that
     ///   `orderedPieces()` makes, so every section has its path. A language
-    ///   rebinding (`rebound(toLanguage:)`) keeps the store, so a translated
-    ///   body answers the same context.
+    ///   rebinding (`rebound(toLanguage:)`) keeps the store and the figure
+    ///   snapshot, so a translated body answers the same context.
     public func publishContext() -> PublishContext {
         let manifest = projectStore.manifest
         let switches = manifest.effectiveSwitches
@@ -125,7 +132,8 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
                        listOfTables: switches.listOfTables),
             projectURL: projectStore.url,
             piecePaths: piecePaths,
-            projectTitle: manifest.title)
+            projectTitle: manifest.title,
+            figures: figures)
     }
 
     private func pieceRef(
@@ -236,6 +244,6 @@ public struct ProjectStoreASTSource: @MainActor ProjectASTBuilder.Source {
 /// whose `orderedPieces()` reads main-actor state.
 extension ProjectStoreASTSource: @MainActor LanguageRebindableSource {
     public func rebound(toLanguage tag: String?) -> ProjectASTBuilder.Source {
-        ProjectStoreASTSource(projectStore: projectStore, language: tag)
+        ProjectStoreASTSource(projectStore: projectStore, figures: figures, language: tag)
     }
 }

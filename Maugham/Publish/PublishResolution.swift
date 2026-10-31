@@ -50,6 +50,12 @@ public struct PublishResolution: Sendable {
     public let figureNumbers: [String: [Int: Int]]
     /// pieceID → top-level node index → n. Every table is numbered, captioned or not.
     public let tableNumbers: [String: [Int: Int]]
+    /// pieceID → top-level node index → a table figure's printed cells
+    /// (report plan 9a, spec §9), formatted in the body's own language. Set
+    /// only for a line that resolves to one unparked table figure with a
+    /// readable state; any other table-figure line keeps its number, its
+    /// list-of-tables entry and its label, and prints its literal source.
+    public let tableFigures: [String: [Int: FigureTableLayout]]
     /// pieceID → footnote label → n (R-P2-3): continuous across the book in
     /// first-reference order, counting only referenced labels that have a
     /// definition in their piece. A reference inside a used definition counts
@@ -127,11 +133,12 @@ public struct PublishResolution: Sendable {
     public static func forCompile(source: ProjectASTBuilder.Source, bodyTag: String?,
                                   imageAllowed: Set<String>,
                                   bodyLanguage: String? = nil,
-                                  words: ElementWords = .english) throws -> PublishResolution {
+                                  words: ElementWords = .english,
+                                  tableLocale: TableLocale = TableLocale(languageTag: nil)) throws -> PublishResolution {
         let scope = source.resolutionScope
         return resolve(try ProjectASTBuilder.build(from: scope), context: scope.publishContext(),
                        bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
-                       words: words)
+                       words: words, tableLocale: tableLocale)
     }
 
     /// `forCompile`, given the AST the compiler already built from `source`
@@ -142,26 +149,31 @@ public struct PublishResolution: Sendable {
     public static func forCompile(source: ProjectASTBuilder.Source, built ast: ProjectAST,
                                   bodyTag: String?, imageAllowed: Set<String>,
                                   bodyLanguage: String? = nil,
-                                  words: ElementWords = .english) throws -> PublishResolution {
+                                  words: ElementWords = .english,
+                                  tableLocale: TableLocale = TableLocale(languageTag: nil)) throws -> PublishResolution {
         guard source.isWholeBook else {
             return try forCompile(source: source, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                                  bodyLanguage: bodyLanguage, words: words)
+                                  bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale)
         }
         return resolve(ast, context: source.resolutionScope.publishContext(),
                        bodyTag: bodyTag, imageAllowed: imageAllowed, bodyLanguage: bodyLanguage,
-                       words: words)
+                       words: words, tableLocale: tableLocale)
     }
 
     /// - Parameters:
     ///   - imageAllowed: the output's lowercase image extensions (R-P2-7).
     ///   - words: the body's element words (R-S16); English when a caller has
     ///     no body to ask (tests, the emission contract).
+    ///   - tableLocale: how the body's table-figure cells print
+    ///     (`PublishProblemGate.tableLocale(for:macRegion:)`); with none,
+    ///     English in the Mac's region.
     public static func resolve(_ ast: ProjectAST, context: PublishContext, bodyTag: String?,
                                imageAllowed: Set<String>,
                                bodyLanguage: String? = nil,
-                               words: ElementWords = .english) -> PublishResolution {
+                               words: ElementWords = .english,
+                               tableLocale: TableLocale = TableLocale(languageTag: nil)) -> PublishResolution {
         var pass = Pass(context: context, bodyTag: bodyTag, imageAllowed: imageAllowed,
-                        bodyLanguage: bodyLanguage, words: words)
+                        bodyLanguage: bodyLanguage, words: words, tableLocale: tableLocale)
         pass.headingBase = ast.sections.flatMap(\.nodes).compactMap { node -> Int? in
             guard case .prose(.heading(let level, _, _)) = node else { return nil }
             return level
@@ -178,6 +190,7 @@ public struct PublishResolution: Sendable {
         headingNumbers = pass.headingNumbers
         figureNumbers = pass.figureNumbers
         tableNumbers = pass.tableNumbers
+        tableFigures = pass.tableFigures
         footnoteNumbers = pass.footnoteNumbers
         figureFiles = pass.figureFiles
         figureOrigins = pass.figureOrigins
@@ -201,11 +214,22 @@ private struct Pass {
     let imageAllowed: Set<String>
     let bodyLanguage: String?
     let words: ElementWords
+    let tableLocale: TableLocale
+    /// The registry keyed once for every table-figure line of the book.
+    private let figureIndex: FigureLineResolution.Index
+    /// The labels that would name a parked figure (`tbl:` a table's name,
+    /// `fig:` an image's): a reference to one is `figureInResearch`, not
+    /// unresolved — Send to Research removed its line.
+    private let parkedLabels: Set<ManuscriptLabel>
+    /// The figures whose table-figure problems this body has raised: each is
+    /// raised once per body however many lines name the figure.
+    private var judgedFigures = Set<String>()
 
     var targets: [ManuscriptLabel: PublishResolution.Target] = [:]
     var headingNumbers: [String: [Int: String]] = [:]
     var figureNumbers: [String: [Int: Int]] = [:]
     var tableNumbers: [String: [Int: Int]] = [:]
+    var tableFigures: [String: [Int: FigureTableLayout]] = [:]
     var footnoteNumbers: [String: [String: Int]] = [:]
     var figureFiles: [String: [Int: URL]] = [:]
     var figureOrigins: [String: [Int: (path: String, paragraph: String?)]] = [:]
@@ -227,8 +251,14 @@ private struct Pass {
     private var citations: [[CitationItem]] = []
 
     init(context: PublishContext, bodyTag: String?, imageAllowed: Set<String>,
-         bodyLanguage: String?, words: ElementWords) {
+         bodyLanguage: String?, words: ElementWords, tableLocale: TableLocale) {
         self.words = words
+        self.tableLocale = tableLocale
+        self.figureIndex = FigureLineResolution.Index(context.figures.records)
+        let figures = context.figures
+        self.parkedLabels = Set(figures.records.compactMap { record in
+            Self.isParked(record.id, in: figures) ? record.referenceLabel : nil
+        })
         self.context = context
         self.bodyTag = bodyTag
         self.imageAllowed = imageAllowed
@@ -273,7 +303,11 @@ private struct Pass {
                 let t = target("\(words.table) \(number)")
                 tables.append((number, caption, t))
                 register(label, expected: .tbl, target: t, piece: piece, paragraph: paragraph)
-                judgeTableFigurePath(path, piece: piece, paragraph: paragraph)
+                let line = judgeTableFigurePath(path, piece: piece, paragraph: paragraph)
+                if case .layout(_, let layout, _) = line {
+                    tableFigures[piece, default: [:]][index] = layout
+                }
+                raiseTableFigureProblems(line, path: path, piece: piece, paragraph: paragraph)
             case .figure(let caption, let path, let label):
                 let number = figures.count + 1
                 figureNumbers[piece, default: [:]][index] = number
@@ -324,14 +358,137 @@ private struct Pass {
         report(.malformedLabel(raw), piece: piece, paragraph: paragraph)
     }
 
-    /// A table figure's path is judged by `FigurePathRule.lexical` alone:
-    /// nothing is read from disk, since only its number and literal source
-    /// ship until plan 9 emits its cells. Asked only where an image would be.
-    private mutating func judgeTableFigurePath(_ path: String, piece: String, paragraph: String?) {
-        guard context.projectURL != nil, let piecePath = context.piecePaths[piece] else { return }
-        if case .notLocal = FigurePathRule.lexical(path, piecePath: piecePath) {
-            report(.figurePathNotLocal(path), piece: piece, paragraph: paragraph)
+    /// What a table-figure line resolved to (report plan 9a): only
+    /// `.layout` prints cells; every other outcome prints the line's literal
+    /// source, and its number and label stand either way.
+    enum TableFigureLine {
+        /// No project or no path for the piece: nothing was judged.
+        case unjudged
+        /// Fails the lexical rule (reported as `figurePathNotLocal`).
+        case notLocal
+        /// A local path into a Research folder, not `figures/`.
+        case outsideFigures
+        /// Inside `figures/` with no record on that path.
+        case missing
+        /// Two or more records share the line's path; it prints as written.
+        case ambiguous([FigureRecord])
+        /// The figure is parked in Research.
+        case parked(FigureRecord)
+        /// The record is no table, or its state did not read as one.
+        case unreadable(FigureRecord)
+        /// Its printed cells, and the A1 name of its first `NPV` cell whose
+        /// first flow is discounted (`Workbook.notes`), if any.
+        case layout(FigureRecord, FigureTableLayout, npvNoted: String?)
+    }
+
+    /// A figure parked in Research: the snapshot's parked set, or its state's
+    /// own parking.
+    static func isParked(_ id: String, in figures: PublishFigures) -> Bool {
+        figures.parked.contains(id) || figures.states[id]?.parked != nil
+    }
+
+    /// Spec §9's problems and notes for one table-figure line, by what it
+    /// resolved to. A figure's own problems are raised once per body, on the
+    /// first line that names it; a line the registry can't place is named
+    /// each time.
+    private mutating func raiseTableFigureProblems(_ line: TableFigureLine, path: String,
+                                                   piece: String, paragraph: String?) {
+        func once(_ record: FigureRecord, _ kinds: () -> [PublishProblem.Kind]) {
+            guard judgedFigures.insert(record.id).inserted else { return }
+            kinds().forEach { report($0, piece: piece, paragraph: paragraph) }
         }
+        switch line {
+        case .unjudged, .notLocal:
+            return
+        case .outsideFigures:
+            let file = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+            reportOnce(.tableInResearchFolder(name: file), piece: piece, paragraph: paragraph)
+        case .missing:
+            reportOnce(.figureNotFound(path), piece: piece, paragraph: paragraph)
+        case .ambiguous:
+            reportOnce(.figureAmbiguous(path), piece: piece, paragraph: paragraph)
+        case .parked(let record):
+            once(record) { [.figureInResearch(name: record.name)] }
+        case .unreadable(let record):
+            once(record) { [.tableFigureUnreadable(name: record.name)] }
+        case .layout(let record, let layout, let npvNoted):
+            once(record) { tableFigureProblems(record, layout: layout, npvNoted: npvNoted) }
+        }
+    }
+
+    /// A printed table's problems, then its notes: its first error cell, a
+    /// pin whose source is gone, that it reads Research at all, that a source
+    /// moved on, and the `NPV` note.
+    private func tableFigureProblems(_ record: FigureRecord, layout: FigureTableLayout,
+                                     npvNoted: String?) -> [PublishProblem.Kind] {
+        let name = record.name
+        let figures = context.figures
+        let pins = figures.pinStatus[record.id] ?? [:]
+        var kinds: [PublishProblem.Kind] = []
+        if let cell = layout.errorCells.first {
+            kinds.append(.tableFigureErrorCell(name: name, cell: cell,
+                                               error: Self.displayed(cell, in: layout)))
+        }
+        if pins.values.contains(.sourceMissing) { kinds.append(.tableFigureSourceMissing(name: name)) }
+        if !pins.isEmpty { kinds.append(.tableFigureReadsResearch(name: name)) }
+        let pinMoved = pins.values.contains { if case .sourceChanged = $0 { true } else { false } }
+        if pinMoved || figures.sourceChanged.contains(record.id) {
+            kinds.append(.tableFigureResearchChanged(name: name))
+        }
+        if let npvNoted { kinds.append(.tableFigureNPVNote(name: name, cell: npvNoted)) }
+        return kinds
+    }
+
+    /// The text `layout` prints at A1 name `cell` (its row counted over
+    /// header, body and total, as `errorCells` counts it).
+    static func displayed(_ cell: String, in layout: FigureTableLayout) -> String? {
+        guard let at = A1.parse(cell) else { return nil }
+        let rows = [layout.header].compactMap { $0 } + layout.body + [layout.total].compactMap { $0 }
+        guard rows.indices.contains(at.row), rows[at.row].indices.contains(at.column) else { return nil }
+        return rows[at.row][at.column]
+    }
+
+    /// A table figure's line: its path judged by `FigurePathRule.lexical`
+    /// (nothing is read from disk — the figure's truth is its op stream, and
+    /// `figures/<name>.csv` is written, never read), then resolved against the
+    /// publish's figure snapshot and, for an unparked table, laid out in this
+    /// body's `tableLocale`. Asked only where an image would be.
+    private mutating func judgeTableFigurePath(_ path: String, piece: String,
+                                               paragraph: String?) -> TableFigureLine {
+        guard context.projectURL != nil, let piecePath = context.piecePaths[piece] else { return .unjudged }
+        switch FigureLineResolution.status(linePath: path, documentPath: piecePath, index: figureIndex) {
+        case .notLocal:
+            report(.figurePathNotLocal(path), piece: piece, paragraph: paragraph)
+            return .notLocal
+        case .outsideFigures: return .outsideFigures
+        case .missing: return .missing
+        case .ambiguous(let records): return .ambiguous(records)
+        case .figure(let record): return tableFigure(record)
+        }
+    }
+
+    /// One registered figure's printed cells, its values evaluated in the
+    /// book's workbook with this state's table set in (as `FigureRender.csv`
+    /// does), or why it has none.
+    private func tableFigure(_ record: FigureRecord) -> TableFigureLine {
+        let figures = context.figures
+        let state = figures.states[record.id]
+        if Self.isParked(record.id, in: figures) { return .parked(record) }
+        guard record.kind == .table, let state, state.kind == .table else { return .unreadable(record) }
+        var book = figures.workbook ?? Workbook(pins: FigurePinIndex())
+        book.setTable(state.table, id: record.id)
+        let layout = FigureTableLayout.make(table: state.table, value: {
+            book.value(at: CellAddress(table: record.id, key: $0))
+        }, locale: tableLocale)
+        let table = state.table
+        let noted = book.notes.compactMap { note -> (row: Int, column: Int)? in
+            guard case .npvFirstFlowDiscounted(let address) = note, address.table == record.id,
+                  let row = table.rows.firstIndex(of: address.key.row),
+                  let column = table.columns.firstIndex(of: address.key.column) else { return nil }
+            return (row, column)
+        }.min { ($0.row, $0.column) < ($1.row, $1.column) }
+        return .layout(record, layout,
+                       npvNoted: noted.map { A1.columnLetters($0.column) + String($0.row + 1) })
     }
 
     private mutating func resolveImage(_ path: String, piece: String, index: Int, paragraph: String?) {
@@ -380,7 +537,10 @@ private struct Pass {
                         }
                     }
                 case .crossRef(let label):
-                    if targets[label] == nil {
+                    if targets[label] == nil, parkedLabels.contains(label) {
+                        // Send to Research removed its line: say where it went.
+                        report(.figureInResearch(name: label.name), piece: piece, paragraph: paragraph)
+                    } else if targets[label] == nil {
                         report(.unresolvedCrossRef(label), piece: piece, paragraph: paragraph)
                     }
                 }

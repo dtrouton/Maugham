@@ -29,7 +29,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
         _ = try await Document.load(
             url: docURL, device: "test", session: "test", presenter: nil)
 
-        let src = ProjectStoreASTSource(projectStore: store)
+        let src = ProjectStoreASTSource(projectStore: store, figures: .none)
         let pieces = try src.orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
@@ -52,7 +52,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
         _ = try await Document.load(
             url: docURL, device: "test", session: "test", presenter: nil)
 
-        let src = ProjectStoreASTSource(projectStore: store)
+        let src = ProjectStoreASTSource(projectStore: store, figures: .none)
         let pieces = try src.orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
@@ -80,7 +80,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
             url: tmp.appendingPathComponent(docPath),
             device: "test", session: "test", presenter: nil)
 
-        let pieces = try ProjectStoreASTSource(projectStore: store).orderedPieces()
+        let pieces = try ProjectStoreASTSource(projectStore: store, figures: .none).orderedPieces()
 
         XCTAssertEqual(pieces.count, 1)
         XCTAssertEqual(pieces.first?.mode, .fountain)
@@ -91,7 +91,7 @@ final class ProjectStoreASTSourceTests: XCTestCase {
         let url = try await ProjectFactory.createCollectionProject(
             named: "Empty", in: tmp)
         let store = try await ProjectStore.load(from: url)
-        let src = ProjectStoreASTSource(projectStore: store)
+        let src = ProjectStoreASTSource(projectStore: store, figures: .none)
         XCTAssertTrue(try src.orderedPieces().isEmpty)
     }
 }

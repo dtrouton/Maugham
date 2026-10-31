@@ -24,13 +24,28 @@ public struct TableLocale: Equatable, Sendable {
         self.financialYearStartMonth = (1...12).contains(financialYearStartMonth) ? financialYearStartMonth : 1
     }
 
-    private init(copying o: TableLocale, decimalSeparator: String, groupingSeparator: String) {
+    private init(copying o: TableLocale, decimalSeparator: String, groupingSeparator: String,
+                 currencySymbol: String? = nil) {
         locale = o.locale
         self.decimalSeparator = decimalSeparator
         self.groupingSeparator = groupingSeparator
-        currencySymbol = o.currencySymbol
+        self.currencySymbol = currencySymbol ?? o.currencySymbol
         dayFirst = o.dayFirst
         financialYearStartMonth = o.financialYearStartMonth
+    }
+
+    /// A stored `metadata.language` as a tag: trimmed, and a blank one as none (English and the
+    /// fallback region). The one normaliser the editor card and Publish share, so they agree.
+    public static func languageTag(fromStored language: String) -> String? {
+        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        return tag.isEmpty ? nil : tag
+    }
+
+    /// The same separators, dates and month names, with `other`'s currency symbol: a translated
+    /// body prints its own separators around the book's money (spec §5.1).
+    public func withCurrency(of other: TableLocale) -> TableLocale {
+        TableLocale(copying: self, decimalSeparator: decimalSeparator, groupingSeparator: groupingSeparator,
+                    currencySymbol: other.currencySymbol)
     }
 
     /// The same language with "," as the decimal mark ("." groups), for reading a ";"-separated file.

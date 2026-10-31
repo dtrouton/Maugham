@@ -152,8 +152,9 @@ extension DesignerOrchestrator.Environment {
                 "a design round was asked for a project with no publish templates to revise")
             return nil
         }
+        let figures = await store.publishFigures()
         guard let ast = try? ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: store, language: language)),
+            from: ProjectStoreASTSource(projectStore: store, figures: figures, language: language)),
               !ast.sections.isEmpty
         else {
             designerLog.error("a design round found no book to design for")
@@ -360,7 +361,8 @@ extension DesignerOrchestrator.Environment {
         store: ProjectStore,
         projectURL: URL
     ) async -> DesignProposalStore.SampleResult? {
-        let astSource = ProjectStoreASTSource(projectStore: store, language: context.language)
+        let astSource = ProjectStoreASTSource(
+            projectStore: store, figures: await store.publishFigures(), language: context.language)
         let ast = try? ProjectASTBuilder.build(from: astSource)
         let selection = ast.map {
             SamplePageSelection.choose(census: ElementCensus.take(from: $0), ast: $0)

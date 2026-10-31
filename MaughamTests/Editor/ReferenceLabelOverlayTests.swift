@@ -355,7 +355,8 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         let path = ns.range(of: "](figures/gone.csv)")
         XCTAssertEqual(coordinator.problemMarks.map(\.kind), [.figureNotFound("figures/gone.csv")])
         XCTAssertEqual(coordinator.problemMarks.map(\.range), [path], "on the line's ](path)")
-        XCTAssertEqual(underline(harness, at: path.location).color, .systemOrange)
+        XCTAssertEqual(underline(harness, at: path.location).color, .systemRed,
+                       "a Report won't publish a .csv line naming no figure (plan 9a)")
 
         harness.setCursor(to: ns.length)
         for c in " and" { harness.typeCharacter(c) }

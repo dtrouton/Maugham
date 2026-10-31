@@ -318,6 +318,24 @@ final class DeskCompileRunnerTests: XCTestCase {
         }
     }
 
+    /// **A Cancel pressed while the run snapshots the figures stops it** (plan
+    /// 9a M1). The press and the Cancel are back to back on the main actor,
+    /// so the run's task has not even begun its snapshot: no job is
+    /// registered yet. The desk settles as cancelled, and nothing is
+    /// published.
+    func test_aCancelBeforeTheJobRegistersStopsTheCompile() async throws {
+        let runner = DeskCompileRunner()
+        runner.start(book(), projectStore: store, projectURL: projectURL)
+        XCTAssertNil(runner.currentJobID, "premise: no job has registered yet")
+        runner.cancel()
+        await settle(runner)
+
+        XCTAssertEqual(runner.state.statusLine, DepartmentCompileState.cancelledLine,
+                       "got \(runner.state.phase)")
+        let catalog = try await stores.publicationStore.load()
+        XCTAssertTrue(catalog.isEmpty, "a Cancel pressed during the snapshot publishes nothing")
+    }
+
     /// **A Cancel with no compile of its own does nothing** — before the first
     /// press, and again once one has settled. Not a crash and not somebody
     /// else's job: nothing.

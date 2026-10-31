@@ -386,6 +386,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `figureCardVersion`. Built by `EditorHost`; nil on every other surface.
     var figureLineStatus: ((String) -> FigureLineResolution.Status?)?
 
+    /// **The labels that name a parked figure** (plan 9a I3,
+    /// `FigureCardCache.parkedLabels`): the problem check calls a reference
+    /// to one "in Research now", as Publish does. Memory only, re-read on a
+    /// new `figureCardVersion`. Built by `EditorHost`; nil elsewhere.
+    var parkedFigureLabels: (() -> Set<ManuscriptLabel>)?
+
     /// The card version last applied from `EditorControl.figureCardVersion`.
     private(set) var figureCardVersion = 0
     /// A card version landed mid-burst: the settle paint re-lays out the

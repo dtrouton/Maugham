@@ -171,6 +171,20 @@ final class ElementCensusTests: XCTestCase {
         XCTAssertEqual(census.firstPiece[.citation], "p2", "a citation inside a footnote definition counts")
     }
 
+    /// A table figure's line (`.csv`) draws a table, so the designer is told
+    /// the book has one — and its caption is walked like any other.
+    func testATableFigureLine_isCensusedAsATable_withItsCaption() {
+        let tbl = ManuscriptLabel(reference: "tbl:cash")!
+        let ast = ProjectAST(sections: [
+            .init(pieceID: "p1", title: "One", mode: .prose, nodes: [
+                .prose(.figure(caption: [.emphasis([.text("Cash")])], path: "../figures/cash.csv", label: tbl)),
+            ]),
+        ])
+        let census = ElementCensus.take(from: ast)
+        XCTAssertEqual(census.kinds, [.table, .emphasis])
+        XCTAssertEqual(census.firstPiece[.table], "p1")
+    }
+
     func testReportKinds_haveTheirWriterFacingLabels() {
         XCTAssertEqual(ElementCensus.label(for: .table), "table")
         XCTAssertEqual(ElementCensus.label(for: .figure), "figure")

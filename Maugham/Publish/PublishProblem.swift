@@ -39,12 +39,14 @@ public struct PublishProblem: Sendable, Hashable {
         /// `FigureImageResolver`'s reason, a sentence fragment that names the
         /// path ("there is no file at research/x.png").
         case imageUnreadable(String)
-        /// The editor's only (report plan 7b, R7b-4): a figure line's path,
-        /// as written, inside `figures/` naming no registered figure (one
-        /// removed, or never made).
+        /// A figure line's path, as written, inside `figures/` naming no
+        /// registered figure (one removed, or never made): the editor's
+        /// (report plan 7b, R7b-4), and Publish's for a table figure's line
+        /// (plan 9a).
         case figureNotFound(String)
-        /// The editor's only: two or more registered figures share a figure
-        /// line's path, as written, so the line shows neither.
+        /// Two or more registered figures share a figure line's path, as
+        /// written, so the line shows neither: the editor's, and Publish's for
+        /// a table figure's line (plan 9a).
         case figureAmbiguous(String)
         /// The editor's only (R7b-3): a table figure's line labelled `fig:`.
         /// Publish numbers it as a figure and reads it through the image
@@ -54,6 +56,30 @@ public struct PublishProblem: Sendable, Hashable {
         /// path the payload) shares its paragraph with text, so it is read as
         /// an inline image — no card, and no figure when published.
         case figureLineSharesParagraph(String)
+        /// A table figure showing a formula error (report plan 9a, spec §9):
+        /// its first error cell's A1 name and the error it shows (`#DIV/0!`),
+        /// nil when the printed cell can't be found; once per figure.
+        case tableFigureErrorCell(name: String, cell: String, error: String?)
+        /// A table figure whose formulas read a Research source that is gone.
+        case tableFigureSourceMissing(name: String)
+        /// A table figure its line can't print: its state did not read as a
+        /// table. The line keeps its number and prints its literal source.
+        case tableFigureUnreadable(name: String)
+        /// A figure parked in Research, by its name: a reference to it, or a
+        /// line still naming it.
+        case figureInResearch(name: String)
+        /// A note: a legacy table line into a Research folder (spec §4.4),
+        /// by its file's name. It keeps working — it publishes its literal
+        /// source — until it is moved into Figures.
+        case tableInResearchFolder(name: String)
+        /// A note: a table figure's formulas read numbers from Research.
+        case tableFigureReadsResearch(name: String)
+        /// A note: a Research source the table reads, or its own, has
+        /// changed since the table last took it.
+        case tableFigureResearchChanged(name: String)
+        /// A note: an `NPV` whose first flow is negative, which Excel
+        /// discounts one period (spec §5); the first such cell's A1 name.
+        case tableFigureNPVNote(name: String, cell: String)
     }
 
     public let kind: Kind
@@ -83,8 +109,8 @@ public struct PublishProblem: Sendable, Hashable {
     /// R-P2-1, the one severity table. In a Report its error kinds (the
     /// `isError(_:profile:)` switch) block a versioned compile; in every other
     /// project nothing does, so a novel that happens to contain `[@sarah]`
-    /// still compiles. The editor-only figure-line kinds Publish never emits,
-    /// so they colour an underline and block nothing.
+    /// still compiles. The editor-only figure-line kinds colour an underline;
+    /// Publish never emits them.
     public func isError(profile: ProjectProfile?) -> Bool {
         Self.isError(kind, profile: profile)
     }
@@ -105,28 +131,36 @@ public struct PublishProblem: Sendable, Hashable {
         case .unusedFootnoteDefinition, .duplicateFootnoteDefinition,
              .labelOnWrongElement, .malformedLabel:
             return false
-        // The editor's figure-line checks (report plan 7b) take the colour of
-        // what Publish would do with the line. A table figure ships its
-        // literal source, judged by the lexical path rule only, so a `.csv`
-        // naming no figure, or naming two, still publishes; an image naming
-        // two figures still has its file. But a figure line labelled `fig:`
-        // goes through the image door, which refuses a `.csv`
-        // (`.imageUnreadable`); and an image path naming no figure has lost
-        // its file with the figure (whole-branch review I3, M3). That last is
-        // a premise, not a probe: Publish's image door reads the disk, so an
-        // unregistered picture still sitting in `figures/` would publish
-        // though the editor says red — accepted, since the editor's checks
-        // never touch the disk (R7b-4; re-review N2).
-        case .figureNotFound(let path):
-            return !ManuscriptLabel.Kind.isTableFigurePath(path)
-        case .tableFigureLabelledFig:
+        // The figure-line checks take the colour of what Publish does with
+        // the line. A line naming no figure has nothing to print: a `.csv`
+        // has no table (report plan 9a checks it against the registry), and
+        // an image path has lost its file with the figure (whole-branch
+        // review I3, M3). That last is a premise, not a probe: Publish's image
+        // door reads the disk, so an unregistered picture still sitting in
+        // `figures/` would publish though the editor says red — accepted,
+        // since the editor's checks never touch the disk (R7b-4; re-review
+        // N2). A figure line labelled `fig:` goes through the image door,
+        // which refuses a `.csv` (`.imageUnreadable`). A line naming two
+        // figures still publishes an image's file, but a `.csv` one has no
+        // table to print and would ship its literal source line — red, as an
+        // unreadable table is (plan 9a M2).
+        case .figureNotFound, .tableFigureLabelledFig:
             return true
-        case .figureAmbiguous:
-            return false
+        case .figureAmbiguous(let path):
+            return ManuscriptLabel.Kind.isTableFigurePath(path)
         // Publish prints the line as an inline image in its sentence, and
         // blocks nothing on it: a warning, which the writer fixes with a
         // blank line.
         case .figureLineSharesParagraph:
+            return false
+        // Spec §9: a table that can't print right, or a figure in Research,
+        // is red in a Report; the Research and `NPV` notes are amber
+        // everywhere.
+        case .tableFigureErrorCell, .tableFigureSourceMissing, .tableFigureUnreadable,
+             .figureInResearch:
+            return true
+        case .tableFigureReadsResearch, .tableFigureResearchChanged, .tableFigureNPVNote,
+             .tableInResearchFolder:
             return false
         }
     }
@@ -176,6 +210,28 @@ public struct PublishProblem: Sendable, Hashable {
             let what = ManuscriptLabel.Kind.isTableFigurePath(path) ? "table" : "figure"
             return "This \(what) line shares a paragraph with text — it won't show or publish as a \(what). "
                 + "Add a blank line above and below it."
+        case .tableFigureErrorCell(let name, let cell, let error):
+            let shown = error.map { " (\($0))" } ?? ""
+            return "Table “\(name)” has an error in \(cell)\(shown). Fix the cell in the table to publish it."
+        case .tableFigureSourceMissing(let name):
+            return "Table “\(name)” reads numbers from a Research source that is gone. "
+                + "Bring the source back, or change the cells that read it."
+        case .tableFigureUnreadable(let name):
+            return "Table “\(name)” couldn't be read, so its line prints as written. "
+                + "Open it in the Figures area to check it."
+        case .figureInResearch(let name):
+            return "“\(name)” is in Research now, so it won’t publish. "
+                + "Bring it back into the Figures area to use it here."
+        case .tableInResearchFolder(let name):
+            return "Table “\(name)” is read from a Research folder, so it publishes as written. "
+                + "Move it into Figures to publish its cells."
+        case .tableFigureReadsResearch(let name):
+            return "Table “\(name)” uses numbers from Research."
+        case .tableFigureResearchChanged(let name):
+            return "Research has changed since table “\(name)” took its numbers. Refresh it in the Figures area."
+        case .tableFigureNPVNote(let name, let cell):
+            return "Table “\(name)” discounts the first cash flow in \(cell): NPV treats it as a year away, "
+                + "as Excel does. Add it outside the NPV if it falls today."
         }
     }
 
@@ -242,9 +298,13 @@ public enum PublishProblemGate {
     /// for one output format's images. A multi-body compile tags each body's
     /// problems with its language (R-P2-8); every body's problems carry it as
     /// `bodyLanguage` (R-S14). Each body is resolved in its own element words,
-    /// chosen here from its folded config and nowhere else (R-S16).
+    /// chosen here from its folded config and nowhere else (R-S16), and its
+    /// table figures' cells print in that config's language with the book's
+    /// money (`tableLocale(for:macRegion:)`, plan 9a). `macRegion` is the
+    /// region a regionless source tag borrows; a test pins it.
     static func resolve(bodies: [BodyPlan.Body],
-                        imageAllowed: Set<String>) throws -> [Body] {
+                        imageAllowed: Set<String>,
+                        macRegion: String? = Locale.current.region?.identifier) throws -> [Body] {
         try bodies.map { body in
             let pieces = try body.source.orderedPieces()
             let ast = ProjectASTBuilder.build(pieces: pieces)
@@ -253,9 +313,29 @@ public enum PublishProblemGate {
                 bodyTag: bodies.count > 1 ? body.displayTag : nil,
                 imageAllowed: imageAllowed,
                 bodyLanguage: body.tag,
-                words: ElementWords.forBody(body.config.metadata))
+                words: ElementWords.forBody(body.config.metadata),
+                tableLocale: tableLocale(for: body, macRegion: macRegion))
             return Body(ast: ast, resolution: resolution, pieces: pieces)
         }
+    }
+
+    /// How a body's table-figure cells print (spec §5.1, plan 9a C1/I1).
+    ///
+    /// - The source body is the editor card's constructor exactly: the book's
+    ///   language, a blank one as none, and a tag with no region borrowing the
+    ///   Mac's (`macRegion`), as the card does — so the card and the PDF agree.
+    /// - A translated body prints its OWN language's separators and month
+    ///   names with no borrowed region: the tags the translation layer writes
+    ///   are bare (`es`, `sr`), and `es` on a British Mac would otherwise print
+    ///   `1,234.5`. Its money keeps the book's symbol — translating a report
+    ///   never relabels its pounds as euros.
+    static func tableLocale(for body: BodyPlan.Body, macRegion: String?) -> TableLocale {
+        let own = TableLocale.languageTag(fromStored: body.config.metadata.language)
+        guard body.tag != nil else { return TableLocale(languageTag: own, fallbackRegion: macRegion) }
+        let book = TableLocale(
+            languageTag: TableLocale.languageTag(fromStored: body.sourceLanguage ?? body.config.metadata.language),
+            fallbackRegion: macRegion)
+        return TableLocale(languageTag: own, fallbackRegion: nil).withCurrency(of: book)
     }
 
     /// The verdict over a compile's problems.

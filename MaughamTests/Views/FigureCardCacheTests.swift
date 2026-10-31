@@ -275,6 +275,13 @@ final class FigureCardCacheTests: XCTestCase {
         cache.invalidate()
         await cache.idle()
         XCTAssertEqual(cache.model(forLinePath: line, documentPath: doc)?.kind, .parked)
+        // The editor's check reads the parked figures' labels (plan 9a I3):
+        // a reference to `@tbl:cash` then says "in Research now".
+        XCTAssertEqual(cache.parkedLabels, [ManuscriptLabel(reference: "tbl:cash")!])
+        fake.inputs = inputs([(cash, table([1]))])
+        cache.invalidate()
+        await cache.idle()
+        XCTAssertEqual(cache.parkedLabels, [], "brought back, it is no longer parked")
     }
 
     // MARK: - In a window

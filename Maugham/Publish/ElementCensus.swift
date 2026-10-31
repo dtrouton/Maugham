@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// A census of what block/inline element kinds a compiled book actually
 /// contains, keyed to the first piece each kind appears in. A publish
@@ -170,8 +171,11 @@ public struct ElementCensus: Equatable, Sendable {
                 for cell in header { walk(cell, in: pieceID) }
                 for row in rows { for cell in row { walk(cell, in: pieceID) } }
                 if let caption { walk(caption, in: pieceID) }
-            case .figure(let caption, _, _):
-                record(.figure, in: pieceID)
+            case .figure(let caption, let path, let label):
+                // A table figure's line draws a table (`MaughamTable`), the
+                // LaTeX emitter's own rule, so the designer is told to style one.
+                record(ManuscriptLabel.Kind.ofFigureLine(path: path, label: label) == .tbl ? .table : .figure,
+                       in: pieceID)
                 walk(caption, in: pieceID)
             }
         }

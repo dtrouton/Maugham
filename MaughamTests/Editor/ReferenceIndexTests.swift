@@ -68,7 +68,7 @@ final class ReferenceIndexTests: XCTestCase {
         }
 
         let resolution = try PublishResolution.forCompile(
-            source: ProjectStoreASTSource(projectStore: store), bodyTag: nil, imageAllowed: ["png"])
+            source: ProjectStoreASTSource(projectStore: store, figures: .none), bodyTag: nil, imageAllowed: ["png"])
         let index = ReferenceIndex.build(
             structure: store.manifest.structure, research: store.manifest.research,
             text: { try? store.derivedCache.displayText(forDocId: $0.id, in: store.url) },

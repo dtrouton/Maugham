@@ -80,6 +80,8 @@ public enum EmissionContract {
     public static let reportExamples: [ReportExample] = [
         .init(label: "Captioned table",
               source: "| Region | Sales |\n|:--|--:|\n| North | 120 |\nTable: Sales by region {#tbl:sales}"),
+        .init(label: "Table figure (a registered table, three rows: header, body, total)",
+              source: "![Cash flows](../figures/cash.csv){#tbl:cash}"),
         .init(label: "Figure (image staged under build/figures/)",
               source: "![The study area](../research/map.png){#fig:map}",
               figureFiles: ["ex01": [0: exampleStagedFigure]]),
@@ -104,8 +106,33 @@ public enum EmissionContract {
         ]),
         profile: .report,
         switches: (numberSections: true, listOfFigures: false, listOfTables: false),
-        projectURL: nil,
-        piecePaths: ["ex01": "manuscript/example.md"])
+        projectURL: URL(fileURLWithPath: "/nonexistent/emission-contract-example"),
+        piecePaths: ["ex01": "manuscript/example.md"],
+        figures: exampleFigures)
+
+    /// The one registered figure the table-figure example draws: a header, a
+    /// body row and a total (`=SUM`), so the output shows computed cells and
+    /// the ruled total. Registered, but only a line that names it uses it —
+    /// an unused figure is absent from every body.
+    static let exampleFigures: PublishFigures = {
+        let id = "fig-0a1b2c3d"
+        var table = FigureTable(rows: 3, columns: 2)
+        table.headerRows = 1
+        table.hasTotalRow = true
+        func set(_ r: Int, _ c: Int, _ content: CellContent) {
+            table.setCell(Cell(content: content), at: CellKey(row: table.rows[r], column: table.columns[c]))
+        }
+        set(0, 0, .value(.text("Item"))); set(0, 1, .value(.text("Amount")))
+        set(1, 0, .value(.text("Rent"))); set(1, 1, .value(.number(1200)))
+        set(2, 0, .value(.text("Total")))
+        if case .success(let f) = FormulaParser.parse("SUM(B2:B2)", in: table) { set(2, 1, .formula(f)) }
+        var book = Workbook(pins: FigurePinIndex())
+        book.setTable(table, id: id)
+        return PublishFigures(
+            records: [FigureRecord(id: id, name: "cash", kind: .table, piece: nil, path: "figures/cash.csv")],
+            states: [id: FigureState(kind: .table, table: table, parked: nil)],
+            workbook: book, pinStatus: [:], sourceChanged: [], parked: [])
+    }()
 
     /// Render the `body.tex` the emitter produces for a report example: the
     /// real resolution pass over the single-piece book, then the real emitter
@@ -115,7 +142,8 @@ public enum EmissionContract {
                                        text: example.source, context: reportContext)
         let ast = try! ProjectASTBuilder.build(from: source)
         let resolution = try! PublishResolution.forCompile(source: source, built: ast,
-                                                           bodyTag: nil, imageAllowed: ["png"])
+                                                           bodyTag: nil, imageAllowed: ["png"],
+                                                           tableLocale: TableLocale(languageTag: "en-US"))
         return LaTeXBodyEmitter.emit(ast, config: PublishConfig(), resolution: resolution,
                                      figureFiles: example.figureFiles)
     }
@@ -247,10 +275,25 @@ public enum EmissionContract {
     never reads it as an argument.
 
     A table figure's line (`![caption](figures/<name>.csv)`, labelled \
-    `{#tbl:name}` or unlabelled) numbers as a table, but its cells are not \
-    emitted yet: it prints as a \
-    kernel `table` float holding its anchor, its caption ("Table n", listed \
-    in the list of tables) and its literal source line.
+    `{#tbl:name}` or unlabelled) numbers as a table and draws its figure's \
+    computed cells, each formatted in the body's language and escaped, in a \
+    `MaughamTable` when it has a header row; its total row is ruled above \
+    (`\\hline`). A table figure with no header row is a \
+    `MaughamTableNoHead` environment with three arguments (the column spec, \
+    the list entry, the caption) and nothing repeated on later pages, guarded \
+    and branched as `MaughamTable` is. A template that defines its own \
+    `MaughamTable` must define `MaughamTableNoHead` too, or a headerless table \
+    figure draws in the starter's. A line whose figure does not lay out \
+    (not registered, parked in Research, unreadable) prints as a kernel \
+    `table` float holding its anchor, its caption ("Table n", listed in the \
+    list of tables) and its literal source line. The example above is a \
+    three-row figure (header, body, total); a figure no line names is absent \
+    from the body, and a pipe table is unchanged. The EPUB draws the same \
+    cells in a `<table>` (`<thead>` only with a header row, the total row \
+    `<tr class="total">`, its cells ruled above by their own inline style, \
+    so an older project's `styles.css` needs nothing), and Word \
+    in a native table with a repeating header row and the total's cells ruled \
+    above.
 
     ### Old templates degrade, they don't fail
 
@@ -258,7 +301,8 @@ public enum EmissionContract {
     load neither graphicx nor longtable. Each element asks at the point of use:
 
     - **No longtable** → `MaughamTable` becomes a `table` float around a \
-    plain `tabular` (one page; the header is not repeated).
+    plain `tabular` (one page; the header is not repeated). \
+    `MaughamTableNoHead` degrades the same way.
     - **No graphicx** → a figure keeps its float and caption, and its image \
     becomes its caption in a framed box: \
     `\\ifdefined\\includegraphics\\includegraphics[width=\\linewidth]{…}\\else\\fbox{\\parbox{0.9\\linewidth}{\\centering …}}\\fi`.

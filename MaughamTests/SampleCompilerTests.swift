@@ -492,7 +492,7 @@ final class SampleCompilerTests: XCTestCase {
         _ = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([fx.pieceID]),
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"),
             language: "es",
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
@@ -515,7 +515,7 @@ final class SampleCompilerTests: XCTestCase {
         _ = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([fx.pieceID]),
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             language: nil,
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
@@ -540,7 +540,7 @@ final class SampleCompilerTests: XCTestCase {
         _ = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([fx.pieceID]),
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"),
             language: "es",
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
@@ -578,7 +578,7 @@ final class SampleCompilerTests: XCTestCase {
         let outcome = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([fx.pieceID]),
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"),
             language: "es",
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")
@@ -615,7 +615,7 @@ final class SampleCompilerTests: XCTestCase {
         let outcome = try await SampleCompiler.compile(
             proposal: proposal, selection: selection([fx.pieceID]),
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store, language: "es"),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"),
             language: "es",
             jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "0.15.0")

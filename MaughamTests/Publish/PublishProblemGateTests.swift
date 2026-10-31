@@ -86,7 +86,7 @@ final class PublishProblemGateTests: XCTestCase {
 
     private func orchestrator(_ fx: Fixture) -> PublishOrchestrator {
         PublishOrchestrator(
-            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
+            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: fx.stores.configStore, publicationStore: fx.stores.publicationStore,
             snapshotStore: fx.stores.snapshotStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
@@ -94,7 +94,7 @@ final class PublishProblemGateTests: XCTestCase {
 
     private func republisher(_ fx: Fixture) -> Republisher {
         Republisher(
-            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
+            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             publicationStore: fx.stores.publicationStore, snapshotStore: fx.stores.snapshotStore,
             jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
@@ -102,7 +102,7 @@ final class PublishProblemGateTests: XCTestCase {
 
     /// The ¶id of the paragraph whose text contains `needle`, as the op log has it.
     private func paragraphID(containing needle: String, in fx: Fixture) throws -> String {
-        let piece = try XCTUnwrap(try ProjectStoreASTSource(projectStore: fx.store).orderedPieces()
+        let piece = try XCTUnwrap(try ProjectStoreASTSource(projectStore: fx.store, figures: .none).orderedPieces()
             .first { $0.pieceID == fx.pieceID })
         return try XCTUnwrap(piece.paragraphs?.first { $0.text.contains(needle) }?.id,
                              "premise: a paragraph reads \(needle)")
@@ -325,7 +325,7 @@ final class PublishProblemGateTests: XCTestCase {
         var cfg = try await fx.stores.configStore.load() ?? PublishConfig()
         cfg.sections["doc-draft"] = PublishConfig.Section(include: false)
         try await fx.stores.configStore.save(cfg)
-        let ids = try ProjectStoreASTSource(projectStore: fx.store).orderedPieces().map(\.pieceID)
+        let ids = try ProjectStoreASTSource(projectStore: fx.store, figures: .none).orderedPieces().map(\.pieceID)
         XCTAssertEqual(ids, [fx.pieceID, "doc-draft"], "premise: the draft is in the binder")
         return (fx, "doc-draft")
     }
@@ -364,7 +364,7 @@ final class PublishProblemGateTests: XCTestCase {
     func test_aPreviewOfAReportRendersWithWarnings() async throws {
         let fx = try await makeProject(report: true, text: "Intro.\n\nRevenue grew [@nobody].")
         let result = try await PreviewCompiler(
-            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store),
+            projectURL: fx.url, astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a"
         ).preview(format: .epub, sectionIDs: nil, maxPages: nil)

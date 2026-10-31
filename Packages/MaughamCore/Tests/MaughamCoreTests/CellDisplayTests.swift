@@ -146,4 +146,19 @@ final class CellDisplayTests: XCTestCase {
         XCTAssertEqual(CellDisplay.string(for: .bool(false), format: CellFormat(), locale: gb), "FALSE")
         XCTAssertEqual(CellDisplay.string(for: .text("hi"), format: CellFormat(number: .percent(decimals: 1)), locale: gb), "hi")
     }
+
+    /// A translated body prints its own separators around the book's money (spec §5.1).
+    func test_withCurrencyKeepsTheSeparatorsAndTakesTheSymbol() {
+        let spanish = TableLocale(languageTag: "es", fallbackRegion: nil).withCurrency(of: gb)
+        XCTAssertEqual(spanish.decimalSeparator, ",")
+        XCTAssertEqual(spanish.currencySymbol, "£")
+        let money = show(12345.5, .currency(symbol: nil, decimals: 2), spanish)
+        XCTAssertTrue(money.contains("12.345,50") && money.contains("£"), money)
+    }
+
+    /// The one stored-language normaliser: trimmed, blank as none.
+    func test_languageTagFromStored() {
+        XCTAssertNil(TableLocale.languageTag(fromStored: " \n\t "))
+        XCTAssertEqual(TableLocale.languageTag(fromStored: " es\n"), "es")
+    }
 }

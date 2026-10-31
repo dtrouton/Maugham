@@ -98,9 +98,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         // Doc is NOT registered → both sources take the closed-doc branch.
 
         let sourceAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none))
         let translatedAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"))
 
         XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
         XCTAssertEqual(
@@ -133,9 +133,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         try await writeIdentityTranslation(fx, language: "es")
 
         let sourceAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none))
         let translatedAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"))
 
         // Guard: the fixture really is a two-paragraph doc with a multi-line block.
         XCTAssertEqual(fx.doc.sequence.count, 2,
@@ -170,9 +170,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         // Doc is NOT registered → both sources take the closed-doc branch.
 
         let sourceAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none))
         let translatedAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"))
 
         XCTAssertFalse(sourceAST.sections.isEmpty, "fixture produced no sections")
         XCTAssertEqual(
@@ -207,9 +207,9 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         try await writeIdentityTranslation(fx, language: "es")
 
         let sourceAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none))
         let translatedAST = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"))
 
         // Guard: the fixture really includes the held-blank final paragraph.
         XCTAssertGreaterThan(fx.doc.sequence.count, 1,
@@ -243,7 +243,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
             in: fx.store.url)
 
         let ast = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "es"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "es"))
         let nodes = try XCTUnwrap(ast.sections.first?.nodes)
         XCTAssertEqual(nodes.count, 1)
 
@@ -292,7 +292,7 @@ final class ASTTranslationSubstitutionTests: XCTestCase {
         }
 
         let ast = try ProjectASTBuilder.build(
-            from: ProjectStoreASTSource(projectStore: fx.store, language: "sr"))
+            from: ProjectStoreASTSource(projectStore: fx.store, figures: .none, language: "sr"))
         let nodes = try XCTUnwrap(ast.sections.first?.nodes)
         let shape = nodes.map { node -> String in
             guard case .fountain(let f) = node else { return "prose" }

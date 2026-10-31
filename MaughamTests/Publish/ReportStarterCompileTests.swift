@@ -84,7 +84,7 @@ final class ReportStarterCompileTests: XCTestCase {
 
     private func pdf(_ store: ProjectStore) async throws -> PDFDocument {
         let compiler = try PDFCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: try installedConfig(store), jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
         return try await run(compiler)
     }
@@ -136,7 +136,7 @@ final class ReportStarterCompileTests: XCTestCase {
 
         // Word: the same project, through the starter's config.
         let compiler = try DOCXCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: try installedConfig(store), jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         let result = try await compiler.compile(label: "word")
@@ -157,7 +157,7 @@ final class ReportStarterCompileTests: XCTestCase {
         let store = try await makeReport("Quarterly Fixture", shape: .singleDocument)
         XCTAssertEqual(try installedConfig(store).metadata.title, "Untitled", "premise: the starter's title")
         let compiler = try EPUBCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: try installedConfig(store), jobManager: CompileJobManager(),
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a")
         let result = try await compiler.compile(label: nil)

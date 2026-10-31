@@ -286,7 +286,7 @@ public enum RepublishTool: MCPTool {
         let republisher = Republisher(
             projectURL: projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: store, language: nil),
+                projectStore: store, figures: await store.publishFigures(), language: nil),
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
             jobManager: stores.jobManager,

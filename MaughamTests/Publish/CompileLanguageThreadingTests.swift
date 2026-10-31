@@ -62,7 +62,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
     private func makeOrchestrator() -> PublishOrchestrator {
         PublishOrchestrator(
             projectURL: projectURL,
-            astSource: ProjectStoreASTSource(projectStore: store),
+            astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             configStore: stores.configStore,
             publicationStore: stores.publicationStore,
             snapshotStore: stores.snapshotStore,
@@ -143,7 +143,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
         cfg.metadata = cfg.effectiveMetadata(language: "es")
         let pdf = try PDFCompiler(
             projectURL: projectURL,
-            astSource: ProjectStoreASTSource(projectStore: store),
+            astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: cfg, jobManager: stores.jobManager,
             maughamVersion: "9.9.9", language: "es")
         // metadata.tex is written before tectonic is invoked; the compile may
@@ -160,7 +160,7 @@ final class CompileLanguageThreadingTests: XCTestCase {
         let cfg = try await stores.configStore.load()!
         let pdf = try PDFCompiler(
             projectURL: projectURL,
-            astSource: ProjectStoreASTSource(projectStore: store),
+            astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: cfg, jobManager: stores.jobManager,
             maughamVersion: "9.9.9", language: nil)
         _ = try? await pdf.compile(label: nil)

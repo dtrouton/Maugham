@@ -142,6 +142,10 @@ struct EditorSurfaceConfiguration {
         /// diagnostics: memory only, nil before the first fill. Wired by
         /// `EditorHost`; nil elsewhere, which skips the registry checks.
         var figureLineStatus: ((String) -> FigureLineResolution.Status?)? = nil
+        /// The labels that name a parked figure (plan 9a I3,
+        /// `FigureCardCache.parkedLabels`), so a reference to one is "in
+        /// Research now". Wired by `EditorHost`; nil elsewhere.
+        var parkedFigureLabels: (() -> Set<ManuscriptLabel>)? = nil
         /// Opens a table figure's grid in place (report plan 7c Task 6): the
         /// window's stores and the document's path. Wired by `EditorHost`;
         /// nil elsewhere, where a card never expands.
@@ -279,6 +283,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.figureImageResolver = pp.figureImageResolver
         coordinator.figureCardModel = pp.figureCardModel
         coordinator.figureLineStatus = pp.figureLineStatus
+        coordinator.parkedFigureLabels = pp.parkedFigureLabels
         coordinator.figureGridOpening = pp.figureGridOpening
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
@@ -560,6 +565,7 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.figureImageResolver = pp.figureImageResolver
         context.coordinator.figureCardModel = pp.figureCardModel
         context.coordinator.figureLineStatus = pp.figureLineStatus
+        context.coordinator.parkedFigureLabels = pp.parkedFigureLabels
         context.coordinator.figureGridOpening = pp.figureGridOpening
         context.coordinator.createAnnotationHandler = rp.createAnnotationHandler
         // Crafted-render providers — kept current so the model-driven recompute

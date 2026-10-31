@@ -238,7 +238,7 @@ final class RepublisherTests: XCTestCase {
         let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             configStore: fx.configStore,
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
@@ -264,7 +264,7 @@ final class RepublisherTests: XCTestCase {
         let r = Republisher(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: freshStore, language: "es"),
+                projectStore: freshStore, figures: .none, language: "es"),
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
             jobManager: fx.jobManager,
@@ -293,7 +293,7 @@ final class RepublisherTests: XCTestCase {
         let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             configStore: fx.configStore,
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
@@ -310,7 +310,7 @@ final class RepublisherTests: XCTestCase {
         let r = Republisher(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
             jobManager: fx.jobManager,
@@ -350,7 +350,7 @@ final class RepublisherTests: XCTestCase {
         let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             configStore: fx.configStore,
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
@@ -374,7 +374,7 @@ final class RepublisherTests: XCTestCase {
         let r = Republisher(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
             jobManager: fx.jobManager,
@@ -552,7 +552,7 @@ final class RepublisherTests: XCTestCase {
         let orch = PublishOrchestrator(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             configStore: fx.configStore,
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
@@ -572,7 +572,7 @@ final class RepublisherTests: XCTestCase {
         let r = Republisher(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             publicationStore: fx.publicationStore,
             snapshotStore: fx.snapshotStore,
             jobManager: fx.jobManager,

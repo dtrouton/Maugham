@@ -292,7 +292,7 @@ final class PreviewCompilerTests: XCTestCase {
         PreviewCompiler(
             projectURL: fx.projectURL,
             astSource: ProjectStoreASTSource(
-                projectStore: fx.store, language: "es"),
+                projectStore: fx.store, figures: .none, language: "es"),
             configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
             language: "es", allowStale: allowStale)
@@ -408,7 +408,7 @@ final class PreviewCompilerTests: XCTestCase {
             try await PreviewCompiler(
                 projectURL: fx.projectURL,
                 astSource: ProjectStoreASTSource(
-                    projectStore: fx.store, language: "es"),
+                    projectStore: fx.store, figures: .none, language: "es"),
                 configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
                 maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
                 language: "es", allowStale: false
@@ -999,7 +999,7 @@ final class PreviewCompilerTests: XCTestCase {
 
         let result = try await PreviewCompiler(
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
             languages: ["en", "sr", "es"]
@@ -1042,7 +1042,7 @@ final class PreviewCompilerTests: XCTestCase {
 
         let result = try await PreviewCompiler(
             projectURL: fx.projectURL,
-            astSource: ProjectStoreASTSource(projectStore: fx.store),
+            astSource: ProjectStoreASTSource(projectStore: fx.store, figures: .none),
             configStore: fx.stores.configStore, jobManager: fx.stores.jobManager,
             maughamVersion: "0.0.0-test", tectonicVersion: "n/a",
             languages: ["en", "sr", "es"]

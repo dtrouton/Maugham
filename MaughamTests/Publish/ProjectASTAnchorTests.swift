@@ -327,10 +327,10 @@ final class ProjectASTAnchorTests: XCTestCase {
         }
 
         let source = try ProjectASTBuilder
-            .build(from: ProjectStoreASTSource(projectStore: store))
+            .build(from: ProjectStoreASTSource(projectStore: store, figures: .none))
             .sections
         let translated = try ProjectASTBuilder
-            .build(from: ProjectStoreASTSource(projectStore: store, language: "es"))
+            .build(from: ProjectStoreASTSource(projectStore: store, figures: .none, language: "es"))
             .sections
 
         XCTAssertEqual(source.first?.anchors, [0: ids[0], 1: ids[1]],

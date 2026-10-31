@@ -469,10 +469,12 @@ final class PublishResolutionTests: XCTestCase {
     }
 
     /// Final review I2: a table figure's line is no image, so in a real
-    /// Report project its `.csv` on disk raises no problem (the image door
-    /// would call it unreadable and refuse a versioned compile); only the
-    /// lexical path rule judges it, so a path out of the project still is.
-    func test_aTableFigureLine_inARealReport_isJudgedByThePathRuleAlone() throws {
+    /// Report project its `.csv` on disk never goes through the image door
+    /// (which would call it unreadable); the lexical path rule judges it, so a
+    /// path out of the project still is, and since plan 9a a local path is
+    /// checked against the registry — a `.csv` on disk with no figure behind
+    /// it is not found.
+    func test_aTableFigureLine_inARealReport_isJudgedByThePathRuleAndTheRegistry_neverTheDisk() throws {
         let project = TestTemp.root.appendingPathComponent("Resolution-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: project.appendingPathComponent("figures"),
                                                 withIntermediateDirectories: true)
@@ -490,8 +492,12 @@ final class PublishResolutionTests: XCTestCase {
 
         XCTAssertEqual(r.tableNumbers["a"], [0: 1, 1: 2, 2: 3])
         XCTAssertEqual(r.figureFiles, [:], "a table figure stages no image")
-        XCTAssertEqual(r.problems.map(\.kind), [.figurePathNotLocal("/etc/cash.csv")])
-        XCTAssertEqual(r.problems.map(\.paragraphID), ["e5f6"])
+        // Plan 9a: a local line is checked against the registry, never the
+        // file on disk (tripwire 20) — this book registers no figure.
+        XCTAssertEqual(r.problems.map(\.kind), [.figureNotFound("../figures/cash.csv"),
+                                                 .figureNotFound("../figures/cash.csv"),
+                                                 .figurePathNotLocal("/etc/cash.csv")])
+        XCTAssertEqual(r.problems.map(\.paragraphID), ["a1b2", "c3d4", "e5f6"])
     }
 
     func test_withNoProjectContext_figureImagesAreNotChecked() throws {
@@ -517,10 +523,18 @@ final class PublishResolutionTests: XCTestCase {
         case .duplicateFootnoteDefinition: return false
         case .labelOnWrongElement: return false
         case .malformedLabel: return false
-        case .figureNotFound(let path): return !ManuscriptLabel.Kind.isTableFigurePath(path)
-        case .figureAmbiguous: return false
+        case .figureNotFound: return true
+        case .figureAmbiguous(let path): return path.lowercased().hasSuffix(".csv")
         case .tableFigureLabelledFig: return true
         case .figureLineSharesParagraph: return false
+        case .tableFigureErrorCell: return true
+        case .tableFigureSourceMissing: return true
+        case .tableFigureUnreadable: return true
+        case .figureInResearch: return true
+        case .tableInResearchFolder: return false
+        case .tableFigureReadsResearch: return false
+        case .tableFigureResearchChanged: return false
+        case .tableFigureNPVNote: return false
         }
     }
 
@@ -530,9 +544,14 @@ final class PublishResolutionTests: XCTestCase {
          .unusedFootnoteDefinition("1"), .labelOnWrongElement(label("sec:x")),
          .malformedLabel("eq:1"), .figurePathNotLocal("/x.png"), .imageUnreadable("no file"),
          .figureNotFound("figures/x.csv"), .figureNotFound("figures/x.png"),
-         .figureAmbiguous("figures/x.csv"),
+         .figureAmbiguous("figures/x.csv"), .figureAmbiguous("figures/x.png"),
          .tableFigureLabelledFig(label("fig:x")),
-         .figureLineSharesParagraph("figures/x.csv")]
+         .figureLineSharesParagraph("figures/x.csv"),
+         .tableFigureErrorCell(name: "x", cell: "A1", error: "#DIV/0!"), .tableFigureSourceMissing(name: "x"),
+         .tableFigureUnreadable(name: "x"), .figureInResearch(name: "x"), .tableInResearchFolder(name: "x"),
+         .tableFigureErrorCell(name: "x", cell: "A1", error: nil),
+         .tableFigureReadsResearch(name: "x"), .tableFigureResearchChanged(name: "x"),
+         .tableFigureNPVNote(name: "x", cell: "A1")]
     }
 
     func test_severity_everyKindInEveryProfile() {

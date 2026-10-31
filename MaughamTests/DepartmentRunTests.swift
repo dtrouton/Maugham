@@ -1079,7 +1079,7 @@ final class DepartmentRunTests: XCTestCase {
             StructureItem(id: "pathless", title: "No File", type: .document),
         ])
 
-        let source = ProjectStoreASTSource(projectStore: h.projectStore)
+        let source = ProjectStoreASTSource(projectStore: h.projectStore, figures: .none)
         let ast = try ProjectASTBuilder.build(from: source)
 
         XCTAssertEqual(source.publishablePieces().map(\.id), ["doc-1"],

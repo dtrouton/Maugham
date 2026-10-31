@@ -131,7 +131,7 @@ final class ReportPDFCompileTests: XCTestCase {
         var config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         config.template = template
         let compiler = try PDFCompiler(
-            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store),
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: .none),
             config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
         let result = try await compiler.compile(label: label)
         XCTAssertTrue(result.errors.isEmpty && !result.outputPath.isEmpty,
@@ -203,12 +203,15 @@ final class ReportPDFCompileTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(text.components(separatedBy: "Programme cash").count - 1, 3,
                                     "the list of tables, the caption and the literal source: \(text)")
         // I2: the door's own resolution for a PDF raises no image problem for
-        // the table figure (the fixture's `[@ghost]` is the gate's only error).
+        // the table figure. Its line names no registered figure here (the
+        // fixture registers none), so since plan 9a it is not found, beside
+        // the fixture's `[@ghost]`.
         let config = PublishConfig(metadata: .init(title: "Fixture Report", author: "Tester"))
         let bodies = try PDFCompiler.resolve(bodies: [BodyPlan.Body(
-            tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store), config: config)])
+            tag: nil, displayTag: "en", source: ProjectStoreASTSource(projectStore: store, figures: .none), config: config)])
         XCTAssertEqual(bodies[0].resolution.problems.filter { $0.isError(profile: .report) }.map(\.kind),
-                       [.unknownCitationKey("ghost")], "the table figure is no unreadable image")
+                       [.figureNotFound("../figures/cash.csv"), .unknownCitationKey("ghost")],
+                       "the table figure is no unreadable image")
         XCTAssertTrue(try embedsAnImage(result), "the figure's image is in the PDF")
         let metadata = try String(contentsOf: publish.appendingPathComponent("build/metadata.tex"),
                                   encoding: .utf8)
@@ -272,12 +275,103 @@ final class ReportPDFCompileTests: XCTestCase {
                                     "the framed box, the caption and the list of figures: \(text)")
     }
 
+    // MARK: - table figures (report plan 9a Task 5)
+
+    /// A Report whose one chapter holds a 60-row table figure — header, a
+    /// text cell of TeX specials, numbers, a `SUM` total — registered as the
+    /// snapshot a publish door takes, so the compile lays it out.
+    private func makeLongTableFigureReport() async throws -> (ProjectStore, PublishFigures) {
+        let url = try await ProjectFactory.createNovelProject(named: "Long Table", in: tmp)
+        let store = try await ProjectStore.load(from: url)
+        store.manifest.profile = .report
+        store.manifest.switches = ProjectSwitches(numberSections: false, listOfFigures: false,
+                                                  listOfTables: false)
+        try await store.saveManifest()
+
+        var table = FigureTable(rows: 62, columns: 2)
+        table.headerRows = 1
+        table.hasTotalRow = true
+        func set(_ r: Int, _ c: Int, _ value: CellValue) {
+            table.setCell(Cell(content: .value(value)), at: CellKey(row: table.rows[r], column: table.columns[c]))
+        }
+        set(0, 0, .text("LedgerItem")); set(0, 1, .text("LedgerAmount"))
+        for r in 1...60 {
+            set(r, 0, .text(r == 1 ? "[draft] <5% & #1_x" : "Row \(r)"))
+            set(r, 1, .number(Double(r * 10)))
+        }
+        set(61, 0, .text("Total"))
+        guard case .success(let sum) = FormulaParser.parse("SUM(B2:B61)", in: table)
+        else { throw FigureEditInvalid(reason: "the formula did not parse") }
+        table.setCell(Cell(content: .formula(sum)), at: CellKey(row: table.rows[61], column: table.columns[1]))
+        // A headless table whose last row is its total, opening with `[`.
+        var short = FigureTable(rows: 2, columns: 1)
+        short.hasTotalRow = true
+        short.setCell(Cell(content: .value(.text("[early] 7"))), at: CellKey(row: short.rows[0], column: short.columns[0]))
+        short.setCell(Cell(content: .value(.text("ShortTotal"))), at: CellKey(row: short.rows[1], column: short.columns[0]))
+        let id = "fig-1a2b3c4d", shortID = "fig-5e6f7a8b"
+        var book = Workbook(pins: FigurePinIndex())
+        book.setTable(table, id: id)
+        book.setTable(short, id: shortID)
+        let figures = PublishFigures(
+            records: [FigureRecord(id: id, name: "ledger", kind: .table, piece: nil, path: "figures/ledger.csv"),
+                      FigureRecord(id: shortID, name: "short", kind: .table, piece: nil, path: "figures/short.csv")],
+            states: [id: FigureState(kind: .table, table: table), shortID: FigureState(kind: .table, table: short)],
+            workbook: book, pinStatus: [:], sourceChanged: [], parked: [])
+
+        let chapters = store.manifest.structure.filter { $0.path != nil }
+        let first = try XCTUnwrap(chapters.first?.path, "premise: the novel has a chapter")
+        let up = String(repeating: "../", count: first.split(separator: "/").count - 1)
+        for item in chapters {
+            let docURL = url.appendingPathComponent(try XCTUnwrap(item.path))
+            let text = item.path == first
+                ? "The ledger follows.\n\n![The ledger](\(up)figures/ledger.csv){#tbl:ledger}\n\nSee @tbl:ledger.\n\n![Short](\(up)figures/short.csv)"
+                : "Another chapter."
+            try text.write(to: docURL, atomically: true, encoding: .utf8)
+            let doc = try await Document.load(url: docURL, actor: .author, session: "report",
+                                              presenter: nil)
+            await doc.close()
+        }
+        return (store, figures)
+    }
+
+    /// The table figure's cells reach the PDF through tectonic: its 60 rows
+    /// run past a page, the header repeats on the table's second page, the
+    /// total prints its computed sum, and the specials print literally; a
+    /// headless table figure (`MaughamTableNoHead`) compiles beside it.
+    func test_aLongTableFigure_repeatsItsHeaderOnItsSecondPage() async throws {
+        let (store, figures) = try await makeLongTableFigureReport()
+        let config = PublishConfig(metadata: .init(title: "Long Table", author: "Tester"))
+        let compiler = try PDFCompiler(
+            projectURL: store.url, astSource: ProjectStoreASTSource(projectStore: store, figures: figures),
+            config: config, jobManager: CompileJobManager(), maughamVersion: "0.0.0-test")
+        let result = try await compiler.compile(label: "ledger")
+        XCTAssertTrue(result.errors.isEmpty && !result.outputPath.isEmpty,
+                      "\(result.errors.map(\.message))\n\(result.logExcerpt.suffix(3000))")
+        let pages = try pages(of: result)
+        let all = pages.joined(separator: "\n---\n")
+        let first = try XCTUnwrap(pages.firstIndex { $0.contains("Table 1: The ledger") }, all)
+        XCTAssertTrue(pages[first].contains("LedgerItem LedgerAmount"), all)
+        guard pages.indices.contains(first + 1) else {
+            return XCTFail("premise: 60 rows run past a page: \(all)")
+        }
+        XCTAssertTrue(pages[first + 1].contains("LedgerItem LedgerAmount"),
+                      "the header repeats on the table's second page: \(pages[first + 1])")
+        XCTAssertTrue(all.contains("[draft] <5% & #1_x 10"), all)
+        XCTAssertTrue(all.contains("Row 60 600"), all)
+        XCTAssertTrue(all.contains("Total 18300"), "the total's computed sum: \(all)")
+        XCTAssertTrue(all.contains("See Table 1"), all)
+        XCTAssertFalse(all.contains("ledger.csv") || all.contains("{#"), "no literal source line: \(all)")
+        // The headless form compiles too: caption, its row, its ruled total.
+        XCTAssertTrue(all.contains("Table 2: Short [early] 7 ShortTotal"), all)
+        XCTAssertFalse(all.contains("short.csv"), all)
+    }
+
     // MARK: - element words (R-S16)
 
     /// The bodies of an en+sr edition, each folded to its language as
     /// `BodyPlan` folds them, over the same text.
     private func bilingualBodies(_ config: PublishConfig) -> [BodyPlan.Body] {
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         return [nil, "sr"].map { tag -> BodyPlan.Body in
             var folded = config
             folded.metadata = config.effectiveMetadata(language: tag)

@@ -95,16 +95,8 @@ public struct FigureCardModel: Equatable, Sendable {
         }
         let shown = headerCount + bodyIndexes.count
 
-        let alignments: [CellAlignment] = columns.map { column in
-            for i in bodyIndexes {
-                let key = CellKey(row: rows[i], column: column)
-                let v = values(key)
-                if v == .empty { continue }
-                if let a = table[key]?.alignment, a != .automatic { return a }
-                switch v { case .number, .date: return .right; default: return .left }
-            }
-            return .left
-        }
+        let alignments = FigureTableLayout.alignments(
+            table: table, columns: columns, rows: bodyIndexes.map { rows[$0] }, values: values)
 
         return FigureCardModel(
             kind: .table,

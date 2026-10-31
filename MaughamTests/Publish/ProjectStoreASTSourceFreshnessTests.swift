@@ -44,7 +44,7 @@ final class ProjectStoreASTSourceFreshnessTests: XCTestCase {
         // Mutate WITHOUT flushing the burst — no ops reach `.maugham/ops/`.
         doc.setFullText("Freshly typed sentence not yet flushed.")
 
-        let source = ProjectStoreASTSource(projectStore: store)
+        let source = ProjectStoreASTSource(projectStore: store, figures: .none)
         let pieces = try source.orderedPieces()
         let piece = try XCTUnwrap(pieces.first { $0.pieceID == docId })
 
