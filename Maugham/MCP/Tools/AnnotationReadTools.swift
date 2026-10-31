@@ -352,11 +352,14 @@ extension ListAnnotationsTool.Item {
 /// (`ReadFigureTool.Raw`, `CellDisplay`, `FormulaParser.render`), not a copy.
 enum FigureNoteReading {
 
-    /// `{ value, formula?, raw }` as `read_figure` reports a cell.
+    /// `{ value, formula?, raw, format }` as `read_figure` reports a cell. `value`
+    /// is `CellDisplay` under the cell's own format, which is exactly what
+    /// `read_figure`'s layout does for that cell once it is written.
     struct SuggestedCell: Codable, Equatable {
         let value: String
         let formula: String?
         let raw: ReadFigureTool.Raw
+        let format: CellFormat
     }
 
     struct View {
@@ -376,7 +379,7 @@ enum FigureNoteReading {
         func view(of ann: Annotation) -> View {
             let label = record.referenceLabel?.reference ?? record.name
             let anchor = ann.figureAddress.map { label + "!" + $0 } ?? label
-            return View(anchor: anchor, orphaned: ann.figureAnchor != nil && ann.figureAddress == nil && ann.isStale,
+            return View(anchor: anchor, orphaned: ann.figureOrphaned,
                         suggested: suggestedCell(of: ann))
         }
 
@@ -401,7 +404,7 @@ enum FigureNoteReading {
             }
             return SuggestedCell(
                 value: CellDisplay.string(for: value, format: cell.format, locale: locale),
-                formula: formula, raw: ReadFigureTool.Raw(value))
+                formula: formula, raw: ReadFigureTool.Raw(value), format: cell.format)
         }
     }
 
@@ -450,6 +453,7 @@ enum FigureNoteReading {
     @MainActor
     static func contexts(usedBy documentId: String, entry: ProjectRegistry.Entry) async -> [Context] {
         guard !(entry.store.manifest.figures ?? []).isEmpty else { return [] }
+        // Whole-book index, as `list_figures` builds: fine for an MCP read.
         let rows = await FigureListingSource.rows(store: entry.store)
             .filter { $0.kind == .table && $0.usedIn.contains { $0.docId == documentId } }
         guard !rows.isEmpty else { return [] }

@@ -97,6 +97,10 @@ public struct Annotation: Equatable, Sendable, Identifiable {
     /// current table. Nil when the anchor is orphaned (`isStale` says so), on
     /// a whole-figure note, and when the deriver was given no table.
     public let figureAddress: String?
+    /// **True when the deriver resolved the figure anchor to `.orphaned`** (a
+    /// corner's row or column deleted) — the deriver's own answer, not an
+    /// inference from `isStale`. False everywhere else.
+    public let figureOrphaned: Bool
 
     /// Did a compiler run write this note? The run id is the sole determinant:
     /// the round and the fingerprint say WHICH run, never WHETHER.
@@ -120,7 +124,8 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         lessonHeading: String? = nil,
         figureAnchor: FigureCellAnchor? = nil,
         suggestedCell: Cell? = nil,
-        figureAddress: String? = nil
+        figureAddress: String? = nil,
+        figureOrphaned: Bool = false
     ) {
         self.id = id; self.kind = kind; self.paragraphId = paragraphId
         self.body = body; self.suggestedText = suggestedText
@@ -141,6 +146,7 @@ public struct Annotation: Equatable, Sendable, Identifiable {
         self.figureAnchor = figureAnchor
         self.suggestedCell = suggestedCell
         self.figureAddress = figureAddress
+        self.figureOrphaned = figureOrphaned
     }
 }
 

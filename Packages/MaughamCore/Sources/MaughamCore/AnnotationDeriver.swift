@@ -234,7 +234,8 @@ public enum AnnotationDeriver {
                 lessonHeading: prov?.compilerLessonHeading,
                 figureAnchor: figureAnchor,
                 suggestedCell: suggestedCell,
-                figureAddress: figureAddress))
+                figureAddress: figureAddress,
+                figureOrphaned: figureIsStale))
         }
         // Newest first by createdAt; tie-break by op_id (descending) for
         // stable ordering of same-instant ops.

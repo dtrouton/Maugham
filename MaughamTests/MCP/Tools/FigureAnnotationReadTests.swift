@@ -39,15 +39,19 @@ final class FigureAnnotationReadTests: XCTestCase {
         let registry: ProjectRegistry
         let id: String
         let figure: FigureRecord
+        let paragraphId: String
     }
 
     /// A book with a 3x3 table `cash` (B2 = 100) and one image-less registry.
     private func openBook() async throws -> Book {
-        try "Opening.\n".write(to: projectURL.appendingPathComponent("manuscript/a.md"),
-                               atomically: true, encoding: .utf8)
+        try "Opening.\n\n![Cash flow](../figures/cash.csv){#tbl:cash}\n".write(
+            to: projectURL.appendingPathComponent("manuscript/a.md"), atomically: true, encoding: .utf8)
+        try "Elsewhere.\n".write(to: projectURL.appendingPathComponent("manuscript/b.md"),
+                                 atomically: true, encoding: .utf8)
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md")],
+            structure: [StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md"),
+                        StructureItem(id: "doc-b", title: "B", type: .document, path: "manuscript/b.md")],
             research: [])
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
@@ -56,7 +60,12 @@ final class FigureAnnotationReadTests: XCTestCase {
         let doc = try await Document.load(
             url: projectURL.appendingPathComponent("manuscript/a.md"),
             actor: .author, session: "boot", presenter: nil)
+        let paragraphId = try await doc.opLog().first(where: { $0.kind == .bootstrap })!.changes.first!.paragraphId
         await doc.close()
+        let docB = try await Document.load(
+            url: projectURL.appendingPathComponent("manuscript/b.md"),
+            actor: .author, session: "boot", presenter: nil)
+        await docB.close()
         let store = try await ProjectStore.load(from: projectURL)
         store.documentStore = ds
         ds.projectStore = store
@@ -69,7 +78,8 @@ final class FigureAnnotationReadTests: XCTestCase {
         let registry = ProjectRegistry()
         registry.register(url: projectURL, store: store)
         return Book(ds: ds, store: store, registry: registry,
-                    id: ProjectIdentifier.id(for: projectURL), figure: figure)
+                    id: ProjectIdentifier.id(for: projectURL), figure: figure,
+                    paragraphId: paragraphId)
     }
 
     private func make<T: MCPTool>(_ tool: T.Type, _ book: Book, _ rest: String) async throws -> String {
@@ -154,11 +164,71 @@ final class FigureAnnotationReadTests: XCTestCase {
         XCTAssertTrue(kinds.contains("claude_accept"), "\(kinds)")
     }
 
-    func test_paragraphOutputCarriesNoFigureKeys() async throws {
+    // MARK: - A document's list
+
+    private let figureKeys = ["figure_anchor", "orphaned", "suggested_cell"]
+
+    func test_aDocumentListCarriesTheNotesOnTheFiguresItUses() async throws {
         let book = try await openBook()
-        let items = try await list(book, #""document_id":"doc-a","statuses":["open"]"#)
-        XCTAssertTrue(items.isEmpty)
-        let bad = try? await list(book, #""figure":"tbl:cash","document_id":"doc-a""#)
-        XCTAssertNil(bad, "both forms is refused")
+        _ = try await make(AddCommentTool.self, book, #""figure":"tbl:cash","body":"Whole figure""#)
+        _ = try await make(AddCommentTool.self, book,
+                           #""document_id":"doc-a","paragraph_id":"\#(book.paragraphId)","body":"Paragraph""#)
+
+        let items = try await list(book, #""document_id":"doc-a""#)
+        XCTAssertEqual(Set(items.compactMap { $0["body"] as? String }), ["Paragraph", "Whole figure"])
+        let figureRow = try XCTUnwrap(items.first { $0["body"] as? String == "Whole figure" })
+        XCTAssertEqual(figureRow["figure_anchor"] as? String, "tbl:cash")
+        let paragraphRow = try XCTUnwrap(items.first { $0["body"] as? String == "Paragraph" })
+        for key in figureKeys { XCTAssertNil(paragraphRow[key], "a paragraph note has no \(key)") }
+        XCTAssertEqual(paragraphRow["paragraph_id"] as? String, book.paragraphId)
+
+        let other = try await list(book, #""document_id":"doc-b""#)
+        XCTAssertTrue(other.isEmpty, "a document that does not use the figure lists neither")
+
+        let narrowed = try await list(book, #""document_id":"doc-a","paragraph_id":"\#(book.paragraphId)""#)
+        XCTAssertEqual(narrowed.compactMap { $0["body"] as? String }, ["Paragraph"], "paragraph_id: paragraph note only")
+
+        let queries = try await list(book, #""document_id":"doc-a","kinds":["query"]"#)
+        XCTAssertTrue(queries.isEmpty, "kinds apply to the figure rows")
+        let archived = try await list(book, #""document_id":"doc-a","statuses":["archived"]"#)
+        XCTAssertTrue(archived.isEmpty, "statuses apply to the figure rows")
+        let comments = try await list(book, #""document_id":"doc-a","kinds":["comment"]"#)
+        XCTAssertEqual(comments.count, 2)
+    }
+
+    // MARK: - Errors and edges
+
+    func test_getAnUnknownAnnotationOnAFigureIsRefused() async throws {
+        let book = try await openBook()
+        do {
+            _ = try await get(book, #""figure":"tbl:cash","annotation_id":"nope""#)
+            XCTFail("expected a refusal")
+        } catch {
+            XCTAssertTrue("\(error)".contains("annotation_id not found: nope"), "\(error)")
+        }
+    }
+
+    func test_getOnAnOrphanedNoteReadsOrphaned() async throws {
+        let book = try await openBook()
+        let id = try await make(AddSuggestedChangeTool.self, book,
+                                #""figure":"tbl:cash!C3","body":"Sum","suggested_value":"5""#)
+        let t = try await book.ds.withFigureHost(book.figure.id) { $0.state.table }
+        try await book.ds.withFigureHost(book.figure.id) { try await $0.deleteRow(t.rows[2]) }
+        let one = try await get(book, #""figure":"tbl:cash","annotation_id":"\#(id)""#)
+        XCTAssertEqual(one["orphaned"] as? Bool, true)
+        XCTAssertEqual(one["figure_anchor"] as? String, "tbl:cash")
+        let cell = try XCTUnwrap(one["suggested_cell"] as? [String: Any])
+        XCTAssertNotNil(cell["format"], "format rides with the cell as read_figure's does")
+    }
+
+    func test_theCallFormsAreRefusedWithTheirMessages() async throws {
+        let book = try await openBook()
+        func message(_ rest: String) async -> String {
+            do { _ = try await list(book, rest); return "" } catch { return "\(error)" }
+        }
+        let both = await message(#""figure":"tbl:cash","document_id":"doc-a""#)
+        XCTAssertTrue(both.contains("not both"), both)
+        let neither = await message(#""kinds":["comment"]"#)
+        XCTAssertTrue(neither.contains("Pass `document_id` (a document) or `figure` (a table)"), neither)
     }
 }

@@ -345,26 +345,35 @@ extension ProjectStore {
     /// walk's key, so asking it per write would re-derive every closed piece.
     /// Empty when the stream will not read.
     func figureNotes(_ figureId: String) async -> [Annotation] {
-        let url = url, facts = DocumentClass.Facts(manifest), identities = LocalIdentities.current
+        let url = url, facts = DocumentClass.Facts(manifest)
+        let trust = await figureReadTrust()
         return await Task.detached(priority: .userInitiated) {
-            let trust = (try? TrustResolution.resolve(projectURL: url, identities: identities))
-                ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
-            return Self.figureAnnotations(figureId, in: url, trust: trust, facts: facts) ?? []
+            Self.figureAnnotations(figureId, in: url, trust: trust, facts: facts) ?? []
         }.value
     }
 
     /// **One figure's raw ops** (report plan 9c-1 Task 6, `get_annotation`'s
     /// history): the stream `figureNotes` derives from, read the same way
-    /// (trust resolved, merged across devices), for a reader that wants the
-    /// ops themselves. Empty when the stream will not read.
+    /// (same trust, merged across devices), for a reader that wants the ops
+    /// themselves. Raw like the manuscript's `Document.opLog()` — history is
+    /// not amendment-judged on either side. Empty when the stream will not read.
     func figureOps(_ figureId: String) async -> [Op] {
-        let url = url, facts = DocumentClass.Facts(manifest), identities = LocalIdentities.current
+        let url = url, facts = DocumentClass.Facts(manifest)
+        let trust = await figureReadTrust()
         return await Task.detached(priority: .userInitiated) {
-            let trust = (try? TrustResolution.resolve(projectURL: url, identities: identities))
-                ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
-            return (try? OpLogStore.loadSyncMerged(
+            (try? OpLogStore.loadSyncMerged(
                 forDocId: figureId, in: url, trust: trust, facts: facts,
                 amendmentPermits: AmendmentPermits())) ?? []
+        }.value
+    }
+
+    /// The trust a single-figure read judges under — resolved off the main
+    /// actor; the remembered (or keyless) table when it will not resolve.
+    private func figureReadTrust() async -> TrustTable {
+        let url = url, identities = LocalIdentities.current
+        return await Task.detached(priority: .userInitiated) {
+            (try? TrustResolution.resolve(projectURL: url, identities: identities))
+                ?? TrustResolution.rememberedOrKeyless(projectURL: url, identities: identities)
         }.value
     }
 
