@@ -416,14 +416,16 @@ public enum ReadFigureTool: MCPTool {
     private static func imageEnvelope(
         record: FigureRecord, state: FigureState?, params: Params, projectURL: URL
     ) throws -> Data {
+        // The picture is the one its op log names, inside `figures/`; a figure
+        // whose log names none has no picture to read (no fallback to the
+        // record's synced path, which could name a file outside `figures/`).
+        guard let image = state?.image else {
+            throw MCPError.invalidArgument("Figure '\(record.name)' has no picture file on this Mac yet.")
+        }
         let abs: URL
         do {
-            if let image = state?.image {
-                abs = try SafeRelativePath.resolveFile(
-                    named: image.filename, in: FigurePathRule.figuresFolder, under: projectURL)
-            } else {
-                abs = try SafeRelativePath.resolve(record.path, under: projectURL)
-            }
+            abs = try SafeRelativePath.resolveFile(
+                named: image.filename, in: FigurePathRule.figuresFolder, under: projectURL)
         } catch {
             throw MCPError.invalidArgument(
                 "Figure '\(record.name)' has an unsafe path: \(error.localizedDescription)")

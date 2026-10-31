@@ -303,4 +303,21 @@ final class ReadFigureToolTests: XCTestCase {
         }
         await book.ds.close()
     }
+
+    func test_anImageFigureWhoseLogNamesNoPictureReadsNothing() async throws {
+        let book = try await openBook()
+        let source = TestTemp.root.appendingPathComponent("pic-\(UUID().uuidString).png")
+        try writePNG(to: source, width: 20, height: 20)
+        let record = try await book.store.createImageFigure(fromURL: source, name: "photo", piece: nil)
+        let snapshot = await book.store.publishFigures()
+        var bare = try XCTUnwrap(snapshot.states[record.id])
+        bare.image = nil
+        do {
+            _ = try ReadFigureTool.imageEnvelopeForTesting(record: record, state: bare, projectURL: projectURL)
+            XCTFail("a figure whose log names no picture must not fall back to its record's path")
+        } catch let MCPError.invalidArgument(message) {
+            XCTAssertTrue(message.contains("no picture file"), message)
+        }
+        await book.ds.close()
+    }
 }
