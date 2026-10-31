@@ -144,8 +144,10 @@ enum AnnotationScopePolicy {
 /// through the figure's own host (`FigureDocument`'s verbs, via
 /// `DocumentStore.withFigureHost`), so the row is actable whether or not a
 /// grid is open. A suggested change writes a cell, so it is accepted in the
-/// grid only (plan ruling): its Accept is drawn disabled with
-/// `acceptInTheTable`, and an accepted one's Revert with `revertInTheTable`.
+/// grid only (plan ruling): its Accept opens the figure at its cell
+/// (`acceptTravels`, report plan 9c-2 Task 7), where the strip offers the
+/// real Accept — drawn disabled with `acceptCellDeleted` when the cell is
+/// gone — and an accepted one's Revert is disabled with `revertInTheTable`.
 /// The verbs that file elsewhere through a `Document` — *Answer as ruling…*,
 /// *This is a choice*, *Keep as lesson…*, Edit and Delete — and the triage
 /// mark have no figure-stream verb, so they are not drawn.
@@ -171,8 +173,17 @@ struct FigureRowGate: Equatable {
     /// keeps its disabled Revert instead.
     var reopensAnAccept: Bool = false
 
-    /// The reason a figure suggestion's Accept says (plan ruling, verbatim).
-    static let acceptInTheTable = "Accept it in the table"
+    /// Does Accept open the figure at the note's cell rather than answer it?
+    /// A live-anchored suggestion's does: the strip there writes the cell.
+    var acceptTravels: Bool = false
+
+    /// Why an orphaned figure suggestion's Accept is off: no cell to open.
+    static let acceptCellDeleted = "Its cell has been deleted"
+    /// What a travelling Accept says it does.
+    static let acceptOpensTheCell = "Open the table at its cell to accept it there"
+
+    /// Accept's tooltip: why it is off, or where it takes the writer.
+    var acceptHelp: String? { acceptDisabledReason ?? (acceptTravels ? Self.acceptOpensTheCell : nil) }
     /// The reason an accepted figure suggestion's Revert says: its cell is
     /// put back by changing it in the grid (or by the accept's own ⌘Z).
     static let revertInTheTable = "Change the cell back in the table"
@@ -190,12 +201,22 @@ struct FigureRowGate: Equatable {
     init(annotation: Annotation, figureId: String, figureTitle: String,
          cells: SuggestionDisplay.FigureCells?) {
         let inTheTable = FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: figureId)
+        let travels = inTheTable && Self.cell(of: annotation) != nil
         self.init(
             anchorLine: SuggestionDisplay.figureAnchorLine(for: annotation, figureTitle: figureTitle),
             cells: annotation.kind == .suggestedChange ? cells : nil,
-            acceptDisabledReason: inTheTable ? Self.acceptInTheTable : nil,
+            acceptDisabledReason: inTheTable && !travels ? Self.acceptCellDeleted : nil,
             revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
+        self.acceptTravels = travels
         self.reopensAnAccept = FigureAnnotationOps.reopensAnAccept(annotation, docId: figureId)
+    }
+
+    /// **The cell a figure note's travel selects**: its anchor's first
+    /// corner, which a range's strip lookup also contains; nil for a note on
+    /// the whole figure or one whose cell is gone.
+    static func cell(of annotation: Annotation) -> CellKey? {
+        guard !annotation.figureOrphaned, let anchor = annotation.figureAnchor else { return nil }
+        return CellKey(row: anchor.row, column: anchor.column)
     }
 
     /// **The posture's verbs, narrowed to what a figure stream can write.**

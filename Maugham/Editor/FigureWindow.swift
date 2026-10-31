@@ -257,6 +257,35 @@ final class FigureWindows {
         return nil
     }
 
+    // MARK: Travel to a cell (report plan 9c-2 Task 7)
+
+    /// Cells asked for figures no grid had yet: the next grid to mount on
+    /// the figure selects it (`takePendingCell`).
+    @ObservationIgnored private var pendingCells: [String: CellKey] = [:]
+
+    /// **Show `cell` of `figureId`** — a note's cell, from the queue or the
+    /// inspector. A grid already open on the figure, anywhere, comes front
+    /// and selects it there: true, and the caller travels nowhere (plan
+    /// ruling). Otherwise false, and — when `pending`, because the caller is
+    /// about to travel to the figure — the cell waits for the next grid to
+    /// mount on it (the centre's, a window's, one expanded in place).
+    @discardableResult
+    func reveal(_ figureId: String, cell: CellKey, pending: Bool = true) -> Bool {
+        if let controller = gridController(on: figureId) {
+            pendingCells[figureId] = nil
+            focus(figureId)
+            controller.select(cell)
+            return true
+        }
+        pendingCells[figureId] = pending ? cell : nil
+        return false
+    }
+
+    /// The cell a reveal left for `figureId`'s next grid, taken once.
+    func takePendingCell(_ figureId: String) -> CellKey? {
+        pendingCells.removeValue(forKey: figureId)
+    }
+
     /// The hold on `figureId` gives way, if it is one that does.
     private func yieldInPlace(_ figureId: String) {
         guard let hold = inPlaceHolds[figureId], let yield = inPlaceYielders[hold] else { return }
@@ -615,6 +644,8 @@ final class FigureWindowGrid {
         self.panel = panel
         container.mount(panel)
         controller.gridView.reloadData()
+        // A note's cell the queue or the inspector asked for before the grid was here.
+        if let cell = windows?.takePendingCell(controller.figureId) { controller.select(cell) }
         windows?.gridsChanged()   // its visit is open: Import and Refresh may reach it
         watchTheKeys()
         if frame?.takesTheKeysAtMount ?? true { container.window?.makeFirstResponder(controller.gridView) }

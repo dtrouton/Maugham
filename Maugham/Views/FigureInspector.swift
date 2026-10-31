@@ -488,10 +488,14 @@ struct FigureInspector: View {
                 Text("None").foregroundStyle(.secondary)
             }
             ForEach(model.notes, id: \.id) { note in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.noteHeading(note))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(note.body).lineLimit(3)
+                if let cell = FigureRowGate.cell(of: note) {
+                    // A note on a live cell: the grid selects it, and its
+                    // strip shows the note (report plan 9c-2 Task 7).
+                    Button { figureWindows?.reveal(figureId, cell: cell) } label: { noteLine(note) }
+                        .buttonStyle(.plain)
+                        .help(Self.showsTheCell)
+                } else {
+                    noteLine(note)
                 }
             }
             if !model.notes.isEmpty {
@@ -499,6 +503,19 @@ struct FigureInspector: View {
             }
         }
     }
+
+    private func noteLine(_ note: Annotation) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(Self.noteHeading(note))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(note.body).lineLimit(3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// A note line's tooltip, where it leads to its cell.
+    static let showsTheCell = "Select its cell in the table"
 
     @ViewBuilder
     private func actionsSection(_ row: FigureListing.Row) -> some View {

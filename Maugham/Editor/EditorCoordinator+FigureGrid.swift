@@ -535,6 +535,8 @@ extension EditorCoordinator {
         panel.skipTheTextInTheResponderChain()   // no text action reaches the text (I-N1)
         layoutFigureGrid()
         controller.gridView.reloadData()
+        // A note's cell the queue or the inspector asked for before the grid was here.
+        if let cell = figureGridOpening?.windows?.takePendingCell(expansion.figureId) { controller.select(cell) }
         textView.window?.makeFirstResponder(controller.gridView)
     }
 

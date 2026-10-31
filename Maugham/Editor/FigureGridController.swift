@@ -349,6 +349,20 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         refreshBars()
     }
 
+    /// **Select `key` and scroll it into view** (report plan 9c-2 Task 7):
+    /// the queue's or the inspector's travel to a note's cell, so the strip
+    /// shows the note. An open edit is committed first, as a click away
+    /// would; one that will not read stays open and nothing moves. False
+    /// when nothing moved for that reason, or the table has no such cell.
+    @discardableResult
+    func select(_ key: CellKey) -> Bool {
+        guard !isClosed, !isFolded, values.table.rowIndex(of: key.row) != nil,
+              values.table.columnIndex(of: key.column) != nil, commitOpenEdit() else { return false }
+        execute(model.select(key))
+        gridView.scrollTo(key)   // already selected, the cell may still be out of view
+        return true
+    }
+
     /// Every write asked for so far, landed (a test's and a fold's wait).
     func settleWrites() async {
         while let pending = writes {

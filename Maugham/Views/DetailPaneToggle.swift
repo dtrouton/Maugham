@@ -118,6 +118,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     var drawsFigure: (String) -> Bool = { _ in false }
     /// Shows that figure's row in the tree before the travel lands.
     var revealFigure: (String) -> Void = { _ in }
+    /// A figure note's cell selected in the grid holding it, or left for
+    /// the travel's grid (`AnnotationsPane.revealFigureCell`).
+    var revealFigureCell: (String, CellKey, Bool) -> Bool = { _, _, _ in false }
     @ViewBuilder var inspectorContent: () -> Inspector
 
     /// **Whether a visual-language proposal is standing** (translation
@@ -165,6 +168,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         onOpenProjectSettings: @escaping () -> Void = {},
         drawsFigure: @escaping (String) -> Bool = { _ in false },
         revealFigure: @escaping (String) -> Void = { _ in },
+        revealFigureCell: @escaping (String, CellKey, Bool) -> Bool = { _, _, _ in false },
         @ViewBuilder inspectorContent: @escaping () -> Inspector
     ) {
         self.store = store
@@ -193,6 +197,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.onOpenProjectSettings = onOpenProjectSettings
         self.drawsFigure = drawsFigure
         self.revealFigure = revealFigure
+        self.revealFigureCell = revealFigureCell
         self.inspectorContent = inspectorContent
     }
 
@@ -769,6 +774,7 @@ struct DetailPaneToggle<Inspector: View>: View {
                 },
                 drawsFigure: drawsFigure,
                 revealFigure: revealFigure,
+                revealFigureCell: revealFigureCell,
                 // The round cockpit's two stores (M4 P2 Task 3) — the same
                 // pair the Diagnostics arm takes, and `nil` in a host that
                 // surfaces no compiler, which draws no strip.

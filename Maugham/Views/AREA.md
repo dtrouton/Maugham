@@ -388,7 +388,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The nudge keys on the RECORDED active pass and takes no filter argument**, document scope only.
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.
 - **Four resolutions — Accept / Reject… / Stet / Archive — with Stet offered wherever Archive is; triage is a mark, not a resolution.** `AnnotationRow.showsReopen` is an exhaustive switch, so a new status must decide.
-- **A figure note's row acts through the figure's host** (`FigureRowGate`, `withFigureHost`): Reject, Stet, Archive, Reopen, Got it and Reply work; a suggestion's Accept is disabled, "Accept it in the table"; ⌘Z only where the window holds the figure. A piece's figures follow its section; the board counts them on `FigureRecord.piece`.
+- **A figure note's row acts through the figure's host** (`FigureRowGate`, `withFigureHost`): Reject, Stet, Archive, Reopen, Got it and Reply work; a suggestion's Accept travels to its cell (off once deleted); ⌘Z only where the window holds the figure. A piece's figures follow its section; the board counts them on `FigureRecord.piece`.
 - **`AnnotationScope` is window state, never persisted**; project scope lays out by the board's rows (`ReviewBoardRows.derive`), skips reference pieces, and never walks twice.
 - **The cockpit reaches for the coach's seat nowhere** (`ReviewRoundCockpitTests.test_theProductionMountNeverReachesForTheSeat`); with no pass, both run buttons disable with `noEditorReason`.
 - **A wide pass set scrolls inside the board** (`ReviewBoardPaneTests.test_aWidePassSetScrollsInsideThePaneAndNeverWidensTheWindow`).
