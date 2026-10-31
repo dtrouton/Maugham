@@ -38,6 +38,18 @@ final class PhoneFigureBook {
     private var index = FigureLineResolution.Index([])
     private var projectURL: URL?
 
+    /// **What a figure suggestion's text is read under** (report plan 9c-1
+    /// Task 7): the book's formula names — every registered figure with the
+    /// table this load folded, and the Research tree — and the book's locale,
+    /// exactly as the cards are, so a suggestion's `=other!A1` reads with
+    /// the other figure's name and never as a `#REF!` the author did not
+    /// write. Nil before a load, and when the load judged nothing.
+    struct SuggestionReading {
+        let names: FormulaNames
+        let locale: TableLocale
+    }
+    private(set) var reading: SuggestionReading?
+
     /// - Parameters:
     ///   - region: the region a language tag without one borrows — the
     ///     device's, as the Mac card borrows the Mac's; a test fixes it.
@@ -70,6 +82,7 @@ final class PhoneFigureBook {
         self.projectURL = projectURL
         index = FigureLineResolution.Index(records)
         book = nil
+        reading = nil
         guard !records.isEmpty else { return nil }
 
         let language = await bookLanguageTag(in: projectURL)
@@ -125,6 +138,10 @@ final class PhoneFigureBook {
             locale: TableLocale(languageTag: language, fallbackRegion: region),
             pinChanged: [], sourceChanged: [])
         book = built
+        reading = SuggestionReading(
+            names: FormulaNames(records: records, tables: states.mapValues(\.table),
+                                research: manifest.research),
+            locale: TableLocale(languageTag: language, fallbackRegion: region))
         return built
     }
 
@@ -170,6 +187,14 @@ final class PhoneFigureBook {
     func loadCurrent(projectURL: URL, opened: ProjectManifest) async -> FigureCardBook? {
         let manifest = await currentManifest(in: projectURL) ?? opened
         return await load(manifest: manifest, projectURL: projectURL)
+    }
+
+    /// The current manifest's book loaded, then what a figure suggestion's
+    /// text is read under — the Annotations detail's door to the cards'
+    /// one reader (download first, tripwire 18; one Core engine, 19).
+    func suggestionReading(projectURL: URL, opened: ProjectManifest) async -> SuggestionReading? {
+        await loadCurrent(projectURL: projectURL, opened: opened)
+        return reading
     }
 
     private func currentManifest(in projectURL: URL) async -> ProjectManifest? {

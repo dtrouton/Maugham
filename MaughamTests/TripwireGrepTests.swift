@@ -13300,7 +13300,7 @@ final class TripwireGrepTests: XCTestCase {
         "handleExternalLogChange": "a read — another device's lines, judged by the partition",
         "acceptAnnotation": "a disposition — requireDispositionPermitted, and a suggestion's text asks the host's yield-aware mayWrite (#79)",
         "revertAcceptedAnnotation": "a disposition — requireDispositionPermitted, and a suggestion's text asks the host's yield-aware mayWrite (#79)",
-        "reopenAnnotation": "undoing an archive, rejection or stet is a disposition — requireDispositionPermitted; undoing a withdrawal is the ownership rule's — requireRestoreHonoured (ruling P). FigureDocument's (report plan 9c-1) reopens a rejected, archived or stetted figure note behind requireNoteDisposition (.dispose); no cell moves",
+        "reopenAnnotation": "undoing an archive, rejection or stet is a disposition — requireDispositionPermitted; undoing a withdrawal is the ownership rule's — requireRestoreHonoured (ruling P). FigureDocument's (report plan 9c-1) reopens a rejected, archived or stetted figure note, or an accepted one that wrote no cell (a status-only revert, Task 7), behind requireNoteDisposition (.dispose); no cell moves",
         // A figure note's dispositions (report plan 9c-1): status-only lines
         // on the figure's stream, each behind `FigureDocument`'s
         // `requireNoteDisposition("…", verb)`, which asks the FIGURE's posture

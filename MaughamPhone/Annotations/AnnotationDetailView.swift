@@ -50,6 +50,9 @@ struct AnnotationDetailView: View {
     /// (report plan 9c-1 Task 7): its registry title (`FigureRecord.listTitle`)
     /// for the anchor line. Nil for a document's note.
     let figureTitle: String?
+    /// The book's formula names and locale a figure suggestion is read
+    /// under — the cards' one reader (`AnnotationsStore.figureReading`).
+    let figureReading: @MainActor () async -> PhoneFigureBook.SuggestionReading?
 
     /// A figure suggestion's before and after as cell text, read off the
     /// figure's table by the appear re-derive (`SuggestionDisplay.figureCells`).
@@ -103,6 +106,7 @@ struct AnnotationDetailView: View {
         recents: RecentsTracker,
         postures: PhonePosture,
         figureTitle: String? = nil,
+        figureReading: @escaping @MainActor () async -> PhoneFigureBook.SuggestionReading? = { nil },
         onResolved: @escaping () -> Void = {}
     ) {
         self.annotation = annotation
@@ -112,6 +116,7 @@ struct AnnotationDetailView: View {
         self.recents = recents
         self.postures = postures
         self.figureTitle = figureTitle
+        self.figureReading = figureReading
         self.onResolved = onResolved
         _current = State(initialValue: annotation)
         self.openedResolved = (annotation.status != .open)
@@ -665,22 +670,17 @@ struct AnnotationDetailView: View {
         let derived = AnnotationLoading.allAnnotations(judged, paragraphs: paragraphs)
         let fresh = derived.first(where: { $0.id == current.id })
         if let fresh { current = fresh }   // refresh context/status when still present
-        if figureTitle != nil, let table = AnnotationLoading.figureTable(judged) {
+        if figureTitle != nil, current.kind == .suggestedChange,
+           let table = AnnotationLoading.figureTable(judged) {
+            let reading = await figureReading()
             figureCells = SuggestionDisplay.figureCells(
-                for: current, table: table, locale: TableLocale(languageTag: bookLanguageTag()))
+                for: current, table: table, names: reading?.names ?? .empty,
+                locale: reading?.locale ?? TableLocale(languageTag: nil))
         }
         let decision = ResolvedEntryDecision.afterRederive(
             openedResolved: openedResolved, freshStatus: fresh?.status)
         if decision.raceCollapse { resolvedElsewhere = true }
         if decision.notifyList { onResolved() }
-    }
-
-    /// The book's language from its publish config, read coordinated (a
-    /// small file); nil — English and the region — when there is none.
-    private func bookLanguageTag() -> String? {
-        let url = BookLanguage.configURL(in: projectURL)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return (try? CoordinatedFileIO.live.coordinatedRead(at: url)).flatMap(BookLanguage.tag(fromConfigData:))
     }
 
     private var appVersion: String {

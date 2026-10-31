@@ -269,6 +269,44 @@ final class PhoneFigureBookTests: XCTestCase {
                        "a reference to a figure that no longer exists is the author's #REF!, still shown")
     }
 
+    /// **A figure suggestion on the phone reads with the book's names and
+    /// language** (report plan 9c-1 Task 7, fix round 1 I3): `=alpha!A1`
+    /// names the other figure, never a `#REF!` the author did not write,
+    /// and a value formats in the book's language — through this one reader.
+    func test_theSuggestionReadingNamesOtherFiguresAndUsesTheBooksLanguage() async throws {
+        let root = TestTemp.root.appendingPathComponent("PhoneFigureBook-\(UUID().uuidString)")
+        let a = "fig-aaaa0001", b = "fig-bbbb0002"
+        try await oneCellFigure(a, .value(.number(5)), in: root)
+        try await oneCellFigure(b, .value(.number(1)), in: root)
+        let config = BookLanguage.configURL(in: root)
+        try FileManager.default.createDirectory(
+            at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"metadata":{"title":"T","language":"es-ES"}}"#.utf8).write(to: config)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [], research: [],
+            figures: [FigureRecord(id: a, name: "alpha", kind: .table, piece: nil, path: "figures/alpha.csv"),
+                      FigureRecord(id: b, name: "beta", kind: .table, piece: nil, path: "figures/beta.csv")])
+        let book = loader()
+        let read = await book.suggestionReading(projectURL: root, opened: manifest)
+        let reading = try XCTUnwrap(read)
+
+        let alphaTable = try XCTUnwrap(reading.names.table(id: a))
+        let betaTable = try XCTUnwrap(reading.names.table(id: b))
+        guard case .success(let f) = FormulaParser.parse("alpha!A1", in: betaTable, names: reading.names) else {
+            return XCTFail("alpha!A1 did not parse")
+        }
+        XCTAssertNotNil(alphaTable)
+        let proposal = Cell(content: .formula(f))
+        XCTAssertEqual(SuggestionDisplay.cellText(proposal, table: betaTable, names: reading.names,
+                                                  locale: reading.locale), "=alpha!A1")
+        XCTAssertNotEqual(SuggestionDisplay.cellText(proposal, table: betaTable, names: .empty,
+                                                     locale: reading.locale), "=alpha!A1",
+                          "premise: empty names could not have named it")
+        XCTAssertEqual(SuggestionDisplay.cellText(Cell(content: .value(.number(11.5))), table: betaTable,
+                                                  names: reading.names, locale: reading.locale), "11,5")
+    }
+
     func test_trustResolvesOncePerLoad() async throws {
         let (root, manifest) = try await fixture(withImage: true)
         let calls = Counter()

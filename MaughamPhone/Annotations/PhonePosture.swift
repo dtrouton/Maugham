@@ -252,17 +252,27 @@ final class PhonePosture {
         return openNoteVerbs(under: posture).filter { !(inTheTable && $0 == .accept) }
     }
 
-    /// The reopen drawn for THIS resolved note: the posture's, less *Reopen &
-    /// Revert* on an accepted figure suggestion, whose cell is put back in
-    /// the Mac's grid (report plan 9c-1 Task 7).
+    /// The reopen drawn for THIS resolved note (report plan 9c-1 Task 7). A
+    /// document's note: `reopenVerb(for:under:)`. A figure's note never
+    /// offers *Reopen & Revert* — that restores a paragraph: an accepted
+    /// figure suggestion is put back in the Mac's grid (nothing here), and
+    /// an accepted figure note that wrote no cell offers a plain Reopen
+    /// (a status-only revert, as the Mac's queue does).
     nonisolated static func reopenVerb(
         for annotation: Annotation, docId: String, under posture: Posture
     ) -> Verb? {
-        let verb = reopenVerb(for: annotation.status, under: posture)
-        if verb == .reopenAndRevert, FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+        guard DocumentClass.isFigureDocId(docId) || annotation.figureAnchor != nil else {
+            return reopenVerb(for: annotation.status, under: posture)
+        }
+        switch annotation.status {
+        case .rejected, .archived, .stetted:
+            return offers(.reopen, under: posture) ? .reopen : nil
+        case .accepted:
+            if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) { return nil }
+            return offers(.reopen, under: posture) ? .reopen : nil
+        case .open:
             return nil
         }
-        return verb
     }
 
     /// The reopen drawn for a resolved note of `status`, or nil where none is

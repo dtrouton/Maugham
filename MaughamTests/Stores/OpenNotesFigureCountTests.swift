@@ -144,4 +144,28 @@ final class OpenNotesFigureCountTests: XCTestCase {
         XCTAssertNil(snapshot.figureCells[comment.opId])
         XCTAssertEqual(snapshot.annotations.first { $0.annotation.id == suggestion.opId }?.annotation.figureAddress, "A1")
     }
+
+    /// **An unreadable piece-owned figure makes its piece's count unknown**
+    /// (fix round 1, I4; RULING-54): no entry, and the piece is among the
+    /// board's unreadable rows — never a short number. A whole-book figure
+    /// that will not read leaves every piece's count alone.
+    func test_anUnreadableOwnedFigureMakesItsPiecesCountUnknown() async throws {
+        let (_, projectStore) = try await openBook()
+        let owned = try await projectStore.createFigure(kind: .table, name: "cash", piece: "doc-a")
+        let wholeBook = try await projectStore.createFigure(kind: .table, name: "ledger", piece: nil)
+        let open = Annotation(
+            id: "n1", kind: .comment, paragraphId: "k7m3", body: "x", suggestedText: nil,
+            priorText: nil, createdAt: Date(), createdBySession: nil, status: .open,
+            userResponse: nil, resolvedAt: nil, isStale: false)
+        let snapshot = ProjectAnnotationsSnapshot(
+            annotations: [ProjectAnnotation(docId: "doc-a", annotation: open),
+                          ProjectAnnotation(docId: "doc-b", annotation: open)],
+            unreadableDocIds: [owned.id, wholeBook.id], sequences: [:])
+
+        let summaries = projectStore.openNotesSummaries(in: snapshot)
+
+        XCTAssertNil(summaries["doc-a"], "a readable note plus an unreadable table is not a known count")
+        XCTAssertEqual(summaries["doc-b"]?.total, 1, "a whole-book figure's unreadability touches no piece")
+        XCTAssertEqual(projectStore.openNotesUnreadable(in: snapshot), [owned.id, wholeBook.id, "doc-a"])
+    }
 }

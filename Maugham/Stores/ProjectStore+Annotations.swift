@@ -134,9 +134,14 @@ extension ProjectStore {
         var totals: [String: Int] = [:]
         var passes: [String: [String: Int]] = [:]
         let owner = Self.figureNoteOwners(manifest.figures ?? [])
-        for entry in (snapshot ?? listAnnotationsAcrossProject()).annotations
+        let read = snapshot ?? listAnnotationsAcrossProject()
+        // A piece owning a figure that would not read has a count nobody
+        // knows (RULING-54): no entry, never a short number.
+        let unknown = Self.unknownCounts(unreadableDocIds: read.unreadableDocIds, owners: owner)
+        for entry in read.annotations
         where entry.annotation.status == .open {
-            guard let docId = Self.countsOn(entry.docId, owners: owner) else { continue }
+            guard let docId = Self.countsOn(entry.docId, owners: owner),
+                  !unknown.contains(docId) else { continue }
             totals[docId, default: 0] += 1
             if let pass = entry.annotation.reviewPassId {
                 passes[docId, default: [:]][pass, default: 0] += 1
@@ -146,6 +151,22 @@ extension ProjectStore {
             out[pair.key] = OpenNotesSummary(
                 total: pair.value, byPass: passes[pair.key] ?? [:])
         }
+    }
+
+    /// **The board rows whose open-notes count is unknown** (RULING-54): every
+    /// document the walk could not read, and every piece owning a figure it
+    /// could not read (report plan 9c-1 Task 7) — its notes count on that
+    /// piece, so the piece's count is not known either. The board draws these
+    /// as unknown, never as a number.
+    public func openNotesUnreadable(in snapshot: ProjectAnnotationsSnapshot) -> Set<String> {
+        Self.unknownCounts(unreadableDocIds: snapshot.unreadableDocIds,
+                           owners: Self.figureNoteOwners(manifest.figures ?? []))
+    }
+
+    nonisolated static func unknownCounts(
+        unreadableDocIds: [String], owners: [String: String?]
+    ) -> Set<String> {
+        Set(unreadableDocIds).union(unreadableDocIds.compactMap { owners[$0] ?? nil })
     }
 
     // MARK: - Helpers
@@ -196,6 +217,14 @@ extension ProjectStore {
                     sum &+= Int(mtime.timeIntervalSince1970 * 1000)
                 }
             }
+        }
+        // The book's language (report plan 9c-1 Task 7): a figure
+        // suggestion's cells are read as text in it, so a language change
+        // re-reads the walk.
+        if let attrs = try? FileManager.default.attributesOfItem(
+            atPath: BookLanguage.configURL(in: url).path),
+           let mtime = attrs[.modificationDate] as? Date {
+            sum &+= Int(mtime.timeIntervalSince1970 * 1000)
         }
         // The document count is in the key because adding or removing a piece
         // changes what the walk covers without necessarily moving the sum (a

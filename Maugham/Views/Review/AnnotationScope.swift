@@ -164,6 +164,12 @@ struct FigureRowGate: Equatable {
     let acceptDisabledReason: String?
     /// Why an accepted suggestion's Revert is disabled, nil where none is drawn.
     let revertDisabledReason: String?
+    /// Does an ACCEPTED note offer Reopen? True for a note that wrote no
+    /// cell (a *Got it*, a Reply): `FigureDocument.reopenAnnotation` takes it
+    /// back with a status-only revert, so an answer given from the queue is
+    /// reversible from the row with no grid open. An accepted suggestion
+    /// keeps its disabled Revert instead.
+    var reopensAnAccept: Bool = false
 
     /// The reason a figure suggestion's Accept says (plan ruling, verbatim).
     static let acceptInTheTable = "Accept it in the table"
@@ -189,6 +195,7 @@ struct FigureRowGate: Equatable {
             cells: annotation.kind == .suggestedChange ? cells : nil,
             acceptDisabledReason: inTheTable ? Self.acceptInTheTable : nil,
             revertDisabledReason: inTheTable ? Self.revertInTheTable : nil)
+        self.reopensAnAccept = !inTheTable && annotation.kind != .suggestedChange
     }
 
     /// **The posture's verbs, narrowed to what a figure stream can write.**
@@ -271,9 +278,13 @@ enum AnnotationScopeSections {
     ///     documents). A piece with no entry sorts into the queue's unanchored
     ///     tail rather than being dropped.
     ///   - figures: the manifest's figure registry. A figure's stream carries
-    ///     notes too (report plan 6a); they follow the board's rows under one
-    ///     "Figures" header, each figure titled by the registry
-    ///     (`FigureRecord.listTitle`) — the phone's grouping.
+    ///     notes too (report plan 6a), each figure titled by the registry
+    ///     (`FigureRecord.listTitle`). **A piece's own figures follow its
+    ///     section** (report plan 9c-1 Task 7): the board counts their notes
+    ///     on the piece, so the count's click-through lands on them — and a
+    ///     piece whose only notes are on its tables still has a section to
+    ///     land on. Whole-book figures (and a figure whose piece is no row)
+    ///     follow the board's rows under one "Figures" header.
     static func build(
         rows: [ReviewBoardRows.Row],
         annotations: [ProjectAnnotation],
@@ -287,6 +298,21 @@ enum AnnotationScopeSections {
             byDoc[entry.docId, default: []].append(entry.annotation)
         }
 
+        // A piece's own figures, by piece — only pieces the rows draw, so a
+        // figure whose piece is gone still shows, under "Figures".
+        let pieceIds = Set(rows.filter { $0.kind == .piece }.map(\.item.id))
+        var owned: [String: [FigureRecord]] = [:]
+        for figure in figures {
+            if let piece = figure.piece, pieceIds.contains(piece) { owned[piece, default: []].append(figure) }
+        }
+        let annotatedFigures: (String) -> [FigureRecord] = { piece in
+            (owned[piece] ?? []).filter { !(byDoc[$0.id] ?? []).isEmpty }
+        }
+        let figureSection: (FigureRecord) -> Section = { figure in
+            Section(kind: .piece, id: figure.id, title: figure.listTitle,
+                    annotations: AnnotationQueueOrder.sorted(byDoc[figure.id] ?? [], sequence: []))
+        }
+
         var sections: [Section] = []
         for row in rows {
             switch row.kind {
@@ -298,28 +324,32 @@ enum AnnotationScopeSections {
                 // carries no chips).
                 continue
             case .piece:
-                guard let notes = byDoc[row.item.id], !notes.isEmpty else { continue }
+                let notes = byDoc[row.item.id] ?? []
+                let itsFigures = annotatedFigures(row.item.id)
+                guard !notes.isEmpty || !itsFigures.isEmpty else { continue }
                 sections.append(Section(
                     kind: .piece,
                     item: row.item,
                     annotations: AnnotationQueueOrder.sorted(
                         notes, sequence: sequences[row.item.id] ?? [])))
+                sections.append(contentsOf: itsFigures.map(figureSection))
             case .group(let depth):
-                guard hasAnnotatedDescendant(row.item, byDoc: byDoc) else { continue }
+                guard hasAnnotatedDescendant(row.item, byDoc: byDoc,
+                                             figuresOf: { !annotatedFigures($0).isEmpty })
+                else { continue }
                 sections.append(Section(
                     kind: .group(depth: depth), item: row.item, annotations: []))
             }
         }
-        let annotatedFigures = figures.filter { !(byDoc[$0.id] ?? []).isEmpty }
-        if !annotatedFigures.isEmpty {
+        let shownWithAPiece = Set(owned.values.joined().map(\.id))
+        let bookFigures = figures.filter {
+            !shownWithAPiece.contains($0.id) && !(byDoc[$0.id] ?? []).isEmpty
+        }
+        if !bookFigures.isEmpty {
             sections.append(Section(
                 kind: .group(depth: 0), id: figuresHeaderId,
                 title: FigureRecord.listGroupTitle, annotations: []))
-            for figure in annotatedFigures {
-                sections.append(Section(
-                    kind: .piece, id: figure.id, title: figure.listTitle,
-                    annotations: AnnotationQueueOrder.sorted(byDoc[figure.id] ?? [], sequence: [])))
-            }
+            sections.append(contentsOf: bookFigures.map(figureSection))
         }
         return sections
     }
@@ -337,13 +367,14 @@ enum AnnotationScopeSections {
     /// than an ordering one, so this is not the second walk the type doc
     /// forbids.
     private static func hasAnnotatedDescendant(
-        _ item: StructureItem, byDoc: [String: [Annotation]]
+        _ item: StructureItem, byDoc: [String: [Annotation]],
+        figuresOf: (String) -> Bool
     ) -> Bool {
         for child in item.children ?? [] {
             if child.type == .group {
-                if hasAnnotatedDescendant(child, byDoc: byDoc) { return true }
+                if hasAnnotatedDescendant(child, byDoc: byDoc, figuresOf: figuresOf) { return true }
             } else if child.pieceKind != .reference,
-                      !(byDoc[child.id] ?? []).isEmpty {
+                      !(byDoc[child.id] ?? []).isEmpty || figuresOf(child.id) {
                 return true
             }
         }

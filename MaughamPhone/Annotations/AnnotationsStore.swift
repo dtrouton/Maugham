@@ -42,6 +42,16 @@ final class AnnotationsStore {
         postures.refresh()
     }
 
+    /// **What a figure suggestion in `projectURL` is read under** (report plan
+    /// 9c-1 Task 7): the book's formula names and locale, through the figure
+    /// cards' own reader (`PhoneFigureBook`, downloads first), so the detail
+    /// reads `=other!A1` as the Mac does. Nil for a project not browsed.
+    func figureReading(projectURL: URL) async -> PhoneFigureBook.SuggestionReading? {
+        guard let project = projectsBrowser.projects.first(where: { $0.url == projectURL }) else { return nil }
+        return await PhoneFigureBook(downloads: downloads)
+            .suggestionReading(projectURL: projectURL, opened: project.manifest)
+    }
+
     func loadIfNeeded() async {
         guard !didLoad, !isLoading else { return }
         await reload()

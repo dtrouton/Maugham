@@ -395,13 +395,15 @@ struct AnnotationsPaneVerbs {
     /// *Got it*, a craft note's Accept, or a query's Reply (`reply`): a
     /// status-only accept. A suggestion never reaches here (its Accept is the
     /// table's; the row draws it disabled).
-    func figureAccept(_ figureId: String, _ ann: Annotation, reply: String? = nil) {
+    @discardableResult
+    func figureAccept(_ figureId: String, _ ann: Annotation, reply: String? = nil) -> Task<Void, Never> {
         onFigureHost(figureId) { host, undo in
             try await host.acceptNote(id: ann.id, userResponse: reply, undoManager: undo)
         }
     }
 
-    func figureReject(_ figureId: String, _ ann: Annotation, reason: String) {
+    @discardableResult
+    func figureReject(_ figureId: String, _ ann: Annotation, reason: String) -> Task<Void, Never> {
         onFigureHost(figureId) { host, undo in
             try await host.rejectAnnotation(id: ann.id, reason: reason, undoManager: undo)
         }
@@ -409,9 +411,10 @@ struct AnnotationsPaneVerbs {
 
     /// Stet, wearing the same flourish as a document note's; a refusal
     /// takes it off at once.
-    func figureStet(_ figureId: String, _ ann: Annotation) {
+    @discardableResult
+    func figureStet(_ figureId: String, _ ann: Annotation) -> Task<Void, Never> {
         stetFlourishIds.insert(ann.id)
-        onFigureHost(figureId, after: { landed in
+        return onFigureHost(figureId, after: { landed in
             guard landed else {
                 stetFlourishIds.remove(ann.id)
                 return
@@ -423,13 +426,15 @@ struct AnnotationsPaneVerbs {
         }
     }
 
-    func figureArchive(_ figureId: String, _ ann: Annotation) {
+    @discardableResult
+    func figureArchive(_ figureId: String, _ ann: Annotation) -> Task<Void, Never> {
         onFigureHost(figureId) { host, undo in
             try await host.archiveAnnotation(id: ann.id, undoManager: undo)
         }
     }
 
-    func figureReopen(_ figureId: String, _ ann: Annotation) {
+    @discardableResult
+    func figureReopen(_ figureId: String, _ ann: Annotation) -> Task<Void, Never> {
         onFigureHost(figureId) { host, undo in
             try await host.reopenAnnotation(id: ann.id, undoManager: undo)
         }
@@ -439,14 +444,16 @@ struct AnnotationsPaneVerbs {
     /// window holds the figure open (`DocumentStore.holdsFigureOpen`): a host
     /// lent for the act is closed after it, so its answer is reversed from
     /// the row instead (Reopen, RULING-29). `after` runs once the act landed
-    /// (true) or was refused (false).
+    /// (true) or was refused (false). The act's task is returned, so a
+    /// caller (a test) can await what the press did.
+    @discardableResult
     private func onFigureHost(
         _ figureId: String,
         after: @escaping @MainActor (Bool) async -> Void = { _ in },
         _ act: @escaping @MainActor (FigureDocument, UndoManager?) async throws -> Void
-    ) {
+    ) -> Task<Void, Never> {
         let undo = documentStore.holdsFigureOpen(figureId) ? undoManager : nil
-        Task {
+        return Task {
             var landed = false
             do {
                 try await documentStore.withFigureHost(figureId) { host in

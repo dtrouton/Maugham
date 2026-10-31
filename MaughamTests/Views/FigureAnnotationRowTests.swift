@@ -91,16 +91,53 @@ final class FigureAnnotationRowTests: XCTestCase {
         XCTAssertFalse(FigureRowGate.drawsTriage, "no figure-stream verb writes a triage mark")
     }
 
-    /// A read-only host's figure verbs are inert.
-    func test_theReadOnlyWiringsFigureVerbsAreInert() {
-        let wiring = AnnotationRowWiring.readOnly(manifest: nil)
-        let n = note(.comment, anchor: anchor)
-        wiring.figure.onAccept(figureId, n)
-        wiring.figure.onReject(figureId, n)
-        wiring.figure.onStet(figureId, n)
-        wiring.figure.onArchive(figureId, n)
-        wiring.figure.onReply(figureId, n)
-        wiring.figure.onReopen(figureId, n)
+    /// An accepted note that wrote no cell reopens from the row (fix round
+    /// 1, I2); an accepted suggestion keeps its disabled Revert instead.
+    func test_anAcceptedCelllessNoteReopensFromTheRow_aSuggestionDoesNot() {
+        for kind in [AnnotationKind.comment, .query, .craftNote] {
+            XCTAssertTrue(FigureRowGate(
+                annotation: note(kind, anchor: nil, status: .accepted),
+                figureId: figureId, figureTitle: title, cells: nil).reopensAnAccept, "\(kind)")
+        }
+        let suggestion = FigureRowGate(
+            annotation: note(.suggestedChange, anchor: anchor, address: "C3", status: .accepted),
+            figureId: figureId, figureTitle: title, cells: cells)
+        XCTAssertFalse(suggestion.reopensAnAccept)
+        XCTAssertEqual(suggestion.revertDisabledReason, FigureRowGate.revertInTheTable)
+    }
+
+    // MARK: - The queue's sections (fix round 1, I1)
+
+    private func figureNote(_ id: String) -> ProjectAnnotation {
+        ProjectAnnotation(docId: id, annotation: Annotation(
+            id: "n-\(id)", kind: .comment, paragraphId: nil, body: "x", suggestedText: nil,
+            priorText: nil, createdAt: Date(timeIntervalSince1970: 0), createdBySession: nil,
+            status: .open, userResponse: nil, resolvedAt: nil, isStale: false))
+    }
+
+    /// A piece whose only notes are on its own table still has a section —
+    /// the board's count click-through lands on it — with the figure's
+    /// section right after it, inside its group; only a whole-book figure
+    /// goes under "Figures".
+    func test_aPiecesFigureFollowsItsPiece_andOnlyWholeBookFiguresGoUnderFigures() {
+        let structure = [
+            StructureItem(id: "grp-1", title: "Part", type: .group, children: [
+                StructureItem(id: "doc-a", title: "A", type: .document, path: "a.md"),
+                StructureItem(id: "doc-b", title: "B", type: .document, path: "b.md"),
+            ]),
+        ]
+        let owned = FigureRecord(id: "fig-aaaa1111", name: "cash", kind: .table, piece: "doc-a", path: "figures/cash.csv")
+        let book = FigureRecord(id: "fig-bbbb2222", name: "ledger", kind: .table, piece: nil, path: "figures/ledger.csv")
+        let orphan = FigureRecord(id: "fig-cccc3333", name: "old", kind: .table, piece: "doc-gone", path: "figures/old.csv")
+        let sections = AnnotationScopeSections.build(
+            rows: ReviewBoardRows.derive(structure: structure),
+            annotations: [figureNote(owned.id), figureNote(book.id), figureNote(orphan.id)],
+            figures: [owned, book, orphan])
+        XCTAssertEqual(sections.map(\.id),
+                       ["grp-1", "doc-a", owned.id, AnnotationScopeSections.figuresHeaderId, book.id, orphan.id])
+        XCTAssertEqual(sections[1].annotations, [], "the piece's own section, empty, is the count's landing place")
+        XCTAssertEqual(sections[2].title, "Table: cash")
+        XCTAssertEqual(sections[2].annotations.map(\.id), ["n-\(owned.id)"])
     }
 
     // MARK: - The inspector
@@ -204,6 +241,55 @@ final class FigureAnnotationQueueHostTests: XCTestCase {
         XCTAssertTrue(store.holdsFigureOpen(figure.id), "a grid's open figure takes the act's ⌘Z")
         await store.closeFigure(figureId: figure.id)
         XCTAssertFalse(store.holdsFigureOpen(figure.id))
+    }
+
+    private func verbs(_ store: ProjectStore, _ documentStore: DocumentStore, undo: UndoManager) -> AnnotationsPaneVerbs {
+        AnnotationsPaneVerbs(
+            store: store, documentStore: documentStore, world: nil,
+            userPreferences: UserPreferences(defaults: UserDefaults(suiteName: "fignote-\(UUID().uuidString)")!),
+            undoManager: undo, onChoiceOfferChanged: { _ in },
+            projectSnapshot: { store.listAnnotationsAcrossProject() },
+            visibleAnnotations: { _ in [] }, effectiveSelection: { _ in [] },
+            staleConfirm: .constant(nil), anchorLostNotice: .constant(nil),
+            revertConfirm: .constant(nil), rulingNotice: .constant(nil),
+            ledgerNotice: .constant(nil), choiceOffer: .constant(nil),
+            stetFlourishIds: .constant([]), bulkInFlight: .constant(false),
+            selectedIds: .constant([]), bulkNotice: .constant(nil),
+            letterLedgerRevision: .constant(0), projectRefreshToken: .constant(0))
+    }
+
+    /// **Through the queue's own verb** (fix round 1, M9): a reply on a figure
+    /// no grid holds lands with no ⌘Z registered, and the row's Reopen takes
+    /// it back (I2: a status-only revert, no cell moved); with the grid open,
+    /// the reply's ⌘Z is registered and reopens it.
+    func test_theQueuesReplyTakesUndoOnlyOnAHeldFigure_andReopenTakesItBack() async throws {
+        let (store, projectStore, figure) = try await openBook()
+        let q = try await query(on: figure, store: store)
+        let first = await projectStore.figureNotes(figure.id).first
+        let ann = try XCTUnwrap(first)
+        let um = UndoManager()
+        let queue = verbs(projectStore, store, undo: um)
+
+        await queue.figureAccept(figure.id, ann, reply: "The census").value
+        let afterReply = await projectStore.figureNotes(figure.id)
+        XCTAssertEqual(afterReply.first?.status, .accepted)
+        XCTAssertFalse(um.canUndo, "a lent host's act takes no ⌘Z — it would decline on a closed host")
+
+        await queue.figureReopen(figure.id, ann).value
+        var notes = await projectStore.figureNotes(figure.id)
+        XCTAssertEqual(notes.first?.status, .open, "Reopen from the row takes the reply back")
+        let ops = await projectStore.figureOps(figure.id).filter { $0.provenance?.sourceAnnotationId == q.opId }
+        XCTAssertEqual(ops.last?.kind, .claudeAcceptRevert)
+        XCTAssertNil(ops.last?.figure, "no cell moved")
+
+        let host = try await store.openFigure(figureId: figure.id)
+        await queue.figureAccept(figure.id, ann, reply: "Again").value
+        XCTAssertTrue(um.canUndo, "the window holds the figure: the reply's ⌘Z is registered")
+        um.undo()
+        await host.awaitPendingUndoWork()
+        notes = await projectStore.figureNotes(figure.id)
+        XCTAssertEqual(notes.first?.status, .open)
+        await store.closeFigure(figureId: figure.id)
     }
 
     /// A refused answer is a sentence the writer is told (a deleted note's

@@ -481,6 +481,15 @@ struct AnnotationRow: View {
                 }
             } else {
                 dispositions(useIcons: useIcons)
+                // An accepted figure note that wrote no cell (a Got it, a
+                // Reply) also offers Reopen — beside its dispositions, as an
+                // accepted row keeps Stet — so a queue answer on a figure no
+                // grid holds is reversible from the row (report plan 9c-1).
+                if annotation.status == .accepted, figure?.reopensAnAccept == true, offered.dispose {
+                    secondary("Reopen", symbol: "arrow.uturn.backward", useIcons: useIcons,
+                              help: "Return this to the open list — resolution is yours to reverse",
+                              action: onReopen)
+                }
             }
             if offered.dispose, figure == nil || FigureRowGate.drawsTriage { triageMenu }
             if offered.ownNote {

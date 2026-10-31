@@ -563,6 +563,43 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         await doc.close()
     }
 
+    /// **Reopen takes back an accepted note that wrote no cell** (fix round 1,
+    /// I2): a status-only `claudeAcceptRevert`, no cell; its ⌘Z re-accepts
+    /// with the reply. An accepted suggestion still refuses Reopen.
+    func test_reopenTakesBackACelllessAccept_andItsUndoKeepsTheReply() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let c = try await comment(on: b2, doc: doc)
+        try await doc.acceptNote(id: c, userResponse: "Noted")
+        let um = UndoManager()
+        try await doc.reopenAnnotation(id: c, undoManager: um)
+        let written = try ops(of: record.id)
+        XCTAssertEqual(written.last?.kind, .claudeAcceptRevert)
+        XCTAssertNil(written.last?.figure)
+        XCTAssertEqual(note(c, in: doc)?.status, .open)
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(note(c, in: doc)?.status, .accepted)
+        XCTAssertEqual(note(c, in: doc)?.userResponse, "Noted", "re-accepted with its reply")
+        await doc.close()
+    }
+
+    /// **Undoing a reply that replaced a reply puts the first back** (fix
+    /// round 1, M5).
+    func test_undoingAReplyOverAReplyRestoresTheFirst() async throws {
+        let (_, doc, b2) = try await makeTable()
+        let c = try await comment(on: b2, doc: doc)
+        try await doc.acceptNote(id: c, userResponse: "First")
+        let um = UndoManager()
+        try await doc.acceptNote(id: c, userResponse: "Second", undoManager: um)
+        XCTAssertEqual(note(c, in: doc)?.userResponse, "Second")
+        um.undo()
+        await doc.awaitPendingUndoWork()
+        XCTAssertEqual(note(c, in: doc)?.status, .accepted)
+        XCTAssertEqual(note(c, in: doc)?.userResponse, "First")
+        await doc.close()
+    }
+
     /// `acceptNote` refuses a suggestion (it is the table's), with nothing
     /// written. (A reviewer's refusal is in the who-may-answer test below.)
     func test_acceptNoteRefusesASuggestion() async throws {

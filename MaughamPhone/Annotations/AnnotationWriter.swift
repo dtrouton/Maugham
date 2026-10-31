@@ -282,7 +282,25 @@ struct AnnotationWriter: Sendable {
     ///
     /// An accepted suggestion has NO reopen inverse — use `makeAcceptRevert`
     /// instead, which also restores the pre-accept text (Mac Revert parity).
+    ///
+    /// On a figure's stream (report plan 9c-1 Task 7) it is Core's figure
+    /// reopen, or — for an accepted note that wrote no cell — Core's
+    /// status-only revert, the Mac's `FigureDocument.reopenAnnotation` line.
+    /// An accepted figure suggestion is the Mac grid's (`acceptsInTheTable`).
     func makeReopen(for annotation: Annotation) throws -> Op {
+        if let stamp = figureStamp {
+            switch annotation.status {
+            case .rejected, .archived, .stetted:
+                return FigureAnnotationOps.reopen(annotationId: annotation.id, stamp: stamp)
+            case .accepted:
+                if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+                    throw WriteError.acceptsInTheTable(annotationId: annotation.id)
+                }
+                return FigureAnnotationOps.statusOnlyRevert(annotationId: annotation.id, stamp: stamp)
+            case .open:
+                throw WriteError.notReopenable(annotationId: annotation.id)
+            }
+        }
         let undone: OpKind
         switch annotation.status {
         case .rejected: undone = .claudeReject

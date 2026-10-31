@@ -104,6 +104,36 @@ final class FigureAnnotationDetailTests: XCTestCase {
         XCTAssertEqual(PhonePosture.reopenVerb(for: rejected, docId: figureId, under: author), .reopen)
     }
 
+    /// **A figure note never offers *Reopen & Revert*** (fix round 1, M7): an
+    /// accepted figure comment offers a plain Reopen, built by Core as a
+    /// status-only revert that reopens it; a rejected one's Reopen is Core's
+    /// figure reopen.
+    func test_aFigureNotesReopenIsCoresAndNeverRevertsAParagraph() throws {
+        let author = Self.posture(.bookAuthor, nil)
+        let creation = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: r1, column: c1), body: "Check",
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: figureId, device: "assistant-x"))
+        let accept = FigureAnnotationOps.statusOnlyAccept(
+            annotationId: creation.opId, stamp: .init(figureId: figureId, device: "mac"))
+        let accepted = try XCTUnwrap(AnnotationDeriver.derive(ops: [creation, accept], paragraphs: [:]).first)
+        XCTAssertEqual(PhonePosture.reopenVerb(for: accepted, docId: figureId, under: author), .reopen)
+        let revert = try writer(docId: figureId).makeReopen(for: accepted)
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertNil(revert.figure)
+        XCTAssertTrue(revert.changes.isEmpty, "no paragraph is restored")
+        XCTAssertEqual(AnnotationDeriver.derive(ops: [creation, accept, revert], paragraphs: [:]).first?.status, .open)
+
+        let reject = FigureAnnotationOps.reject(
+            annotationId: creation.opId, reason: nil, stamp: .init(figureId: figureId, device: "mac"))
+        let rejected = try XCTUnwrap(AnnotationDeriver.derive(ops: [creation, reject], paragraphs: [:]).first)
+        let reopen = try writer(docId: figureId).makeReopen(for: rejected)
+        XCTAssertEqual(reopen.kind, .annotationReopen)
+        XCTAssertEqual(reopen.docId, figureId)
+        XCTAssertEqual(reopen.provenance?.sourceAnnotationId, creation.opId)
+        XCTAssertEqual(AnnotationDeriver.derive(ops: [creation, reject, reopen], paragraphs: [:]).first?.status, .open)
+    }
+
     // MARK: - The writer
 
     /// The gate is structural: the writer refuses to build an accept for a

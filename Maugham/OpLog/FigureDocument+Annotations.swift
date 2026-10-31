@@ -25,8 +25,9 @@ public enum FigureNoteError: LocalizedError, Equatable {
     /// The cell no longer holds what it held when the suggestion was made.
     /// The surface asks, then accepts again with `confirmChanged: true`.
     case cellChangedSinceSuggestion
-    /// Reopen answers a rejected, archived or stetted note only — an accepted
-    /// suggestion is taken back by undoing its accept, which puts the cell back.
+    /// Reopen answers a rejected, archived or stetted note, or an accepted
+    /// one that wrote no cell — an accepted suggestion is taken back by
+    /// undoing its accept, which puts the cell back.
     case cannotReopen
     /// A suggested change writes a cell, so it is accepted in the table, never
     /// by `acceptNote` (which writes no cell).
@@ -344,35 +345,47 @@ extension FigureDocument {
         case .rejected: try await rejectAnnotation(id: id, reason: reason, undoManager: undoManager)
         case .archived: try await archiveAnnotation(id: id, undoManager: undoManager)
         case .stetted: try await stetAnnotation(id: id, undoManager: undoManager)
-        case .accepted: try await reacceptAnnotation(id: id)
+        case .accepted: try await reacceptAnnotation(id: id, userResponse: reason)
         case .open: throw FigureNoteError.cannotReopen
         }
     }
 
     /// **The note back to accepted, status only** — what a stet's or
     /// archive's ⌘Z puts back over an accepted note, whose cell was never
-    /// taken back (`FigureAnnotationOps.statusOnlyAccept`; writes no cell).
-    private func reacceptAnnotation(id: String) async throws {
+    /// taken back (`FigureAnnotationOps.statusOnlyAccept`; writes no cell),
+    /// and a reply's ⌘Z over an earlier reply: `userResponse` is the answer
+    /// it displaced, kept.
+    private func reacceptAnnotation(id: String, userResponse: String? = nil) async throws {
         try await requireNoteDisposition("reacceptAnnotation", .acceptOrReject)
         _ = try note(id)
-        try await commitNoteOp(FigureAnnotationOps.statusOnlyAccept(annotationId: id, stamp: noteStamp), render: false)
+        try await commitNoteOp(
+            FigureAnnotationOps.statusOnlyAccept(annotationId: id, userResponse: userResponse, stamp: noteStamp),
+            render: false)
         notesChanged()
     }
 
     // MARK: - Reopen
 
-    /// **Reopen a rejected, archived or stetted note.** An accepted
+    /// **Reopen a rejected, archived or stetted note — or an accepted note
+    /// that wrote no cell** (a *Got it*, a Reply; Task 7), by a status-only
+    /// revert, as the manuscript reopens a textless accept. An accepted
     /// suggestion is not reopened here — its accept's ⌘Z puts the cell back
-    /// as it reopens. ⌘Z settles the note again as it was (a rejection with
-    /// its reason), while it is still open.
+    /// as it reopens. ⌘Z settles the note again as it was (a rejection or a
+    /// reply with its words), while it is still open.
     public func reopenAnnotation(id: String, undoManager: UndoManager? = nil) async throws {
         try await requireNoteDisposition("reopenAnnotation", .dispose)
         let note = try note(id)
         let prior = note.status, priorReason = note.userResponse
-        guard prior == .rejected || prior == .archived || prior == .stetted else {
+        let built: Op
+        switch prior {
+        case .rejected, .archived, .stetted:
+            built = FigureAnnotationOps.reopen(annotationId: id, stamp: noteStamp)
+        case .accepted where note.kind != .suggestedChange:
+            built = FigureAnnotationOps.statusOnlyRevert(annotationId: id, stamp: noteStamp)
+        case .accepted, .open:
             throw FigureNoteError.cannotReopen
         }
-        try await commitNoteOp(FigureAnnotationOps.reopen(annotationId: id, stamp: noteStamp), render: false)
+        try await commitNoteOp(built, render: false)
         notesChanged()
         OpUndoRegistrar.register(
             undoManager, actionName: "Reopen Annotation", target: self,

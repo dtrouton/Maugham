@@ -441,7 +441,7 @@ struct CentreColumn: View {
     private func refreshOpenNotes(store: ProjectStore) {
         let snapshot = store.listAnnotationsAcrossProject()
         openNotesCounts = store.openNotesSummaries(in: snapshot)
-        openNotesUnreadable = Set(snapshot.unreadableDocIds)
+        openNotesUnreadable = store.openNotesUnreadable(in: snapshot)
     }
 
     /// **The one place the canvas is mounted in production.** Every route to the
