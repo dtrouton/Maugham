@@ -11,6 +11,10 @@ protocol FigureGridDataSource: AnyObject {
     func figureGridDisplay(at key: CellKey) -> String
     func figureGridValue(at key: CellKey) -> CellValue
     var figureGridSelection: FigureGridSelection? { get }
+    /// The cell carries an open note's dot (its top-left cell, report plan
+    /// 9c-2): a lookup in what the data source keeps, asked for the visible
+    /// cells only.
+    func figureGridIsMarked(_ key: CellKey) -> Bool
     /// The reference a formula is composing, drawn as a dashed box.
     var figureGridReference: FigureGridReference? { get }
 }
@@ -597,7 +601,8 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
                                    display: dataSource.figureGridDisplay(at:),
                                    value: dataSource.figureGridValue(at:),
                                    selection: dataSource.figureGridSelection,
-                                   reference: dataSource.figureGridReference)
+                                   reference: dataSource.figureGridReference,
+                                   marked: dataSource.figureGridIsMarked(_:))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -628,6 +633,7 @@ final class FigureGridView: NSView, NSTextFieldDelegate, NSUserInterfaceValidati
         for cell in plan.cells where cell.rect.intersects(dirtyRect) {
             FigureCardDrawing.drawText(cell, font: cell.bold ? bold : font, color: .labelColor, alpha: 1)
         }
+        FigureCardDrawing.drawMarks(plan.marks.filter { $0.intersects(dirtyRect) }, alpha: 1)
         if let active = plan.active {
             NSColor.controlAccentColor.setStroke()
             let box = NSBezierPath(rect: active.insetBy(dx: 1, dy: 1))

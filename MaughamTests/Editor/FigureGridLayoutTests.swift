@@ -214,6 +214,30 @@ final class FigureGridLayoutTests: XCTestCase {
         XCTAssertNotNil(plan.scroller, "forty rows overflow")
     }
 
+    /// **Dots for the visible cells only** (report plan 9c-2 Task 4): `marked`
+    /// is asked of the visible cells alone, and a marked cell off screen
+    /// draws no dot; each dot sits in its cell's top-right corner.
+    func test_thePlanMarksTheVisibleMarkedCellsOnly() {
+        let table = FigureTable(rows: 40, columns: 2)
+        var l = FigureGridLayout(columnWidths: [50, 80], rowCount: 40, rowHeight: 20, gutterWidth: 30,
+                                 size: CGSize(width: 300, height: 120))
+        l.scroll = l.clamped(CGPoint(x: 0, y: 200))
+        let onScreen = CellKey(row: table.rows[12], column: table.columns[1])
+        let offScreen = CellKey(row: table.rows[2], column: table.columns[0])
+        var asked = Set<Int>()
+        let plan = FigureGridPlan.make(layout: l, table: table, display: { _ in "" }, value: { _ in .empty },
+                                       selection: nil, reference: nil,
+                                       marked: { key in
+                                           asked.insert(table.rowIndex(of: key.row)!)
+                                           return key == onScreen || key == offScreen
+                                       })
+        XCTAssertEqual(asked, Set(10..<15), "asked of the visible rows only")
+        XCTAssertEqual(plan.marks, [FigureCardDrawing.markRect(inCell: l.cellFrame(row: 12, column: 1))])
+        let mark = plan.marks[0], box = l.cellFrame(row: 12, column: 1)
+        XCTAssertEqual(mark.maxX, box.maxX - FigureCardDrawing.markInset, "at the cell's right")
+        XCTAssertEqual(mark.minY, box.minY + FigureCardDrawing.markInset, "at the cell's top")
+    }
+
     func test_thePlanDrawsTheSelectionItsActiveCellAndAComposedReference() throws {
         let table = smallTable()
         let l = FigureGridLayout(columnWidths: [50, 80], rowCount: 4, rowHeight: 20, gutterWidth: 30,

@@ -19,6 +19,25 @@ enum FigureCardDrawing {
     static let cornerSize: CGFloat = 10
     /// The space left and right of a labelled card's words.
     static let labelInset: CGFloat = 8
+    /// The side of an open note's dot on its cell (report plan 9c-2).
+    static let markSize: CGFloat = 5
+    /// The dot's distance from its cell's top and right edges.
+    static let markInset: CGFloat = 2
+
+    /// **An open note's dot**: a small circle in the top-right corner of its
+    /// cell's box (the column's box, inset included) — on the card and in
+    /// the grid alike.
+    static func markRect(inCell box: CGRect) -> CGRect {
+        CGRect(x: box.maxX - markInset - markSize, y: box.minY + markInset,
+               width: markSize, height: markSize)
+    }
+
+    /// Paint `marks` (dots) at `alpha`.
+    static func drawMarks(_ marks: [CGRect], alpha: CGFloat) {
+        guard !marks.isEmpty else { return }
+        NSColor.systemOrange.withAlphaComponent(alpha).setFill()
+        for mark in marks { NSBezierPath(ovalIn: mark).fill() }
+    }
 
     struct Text: Equatable {
         var string: String

@@ -92,6 +92,8 @@ final class ResearchTableHost: FigureGridHost {
     private(set) var isClosed = false
     var offers: FigureGridOffers { .none }
     var asksTheFigureDoor: Bool { false }
+    /// A Research table carries no notes: its grid never marks a cell.
+    var openCellNotes: FigureCellNotes { .none }
 
     /// The file's separator, line ending and byte-order mark, kept by every save.
     @ObservationIgnored private(set) var separator: Character

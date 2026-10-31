@@ -21,7 +21,9 @@ import MaughamCore
 /// - **It observes `host.state`** (`withObservationTracking`; the coordinator
 ///   never does, tripwire 6) and advances the values incrementally, repainting
 ///   the visible cells that changed; a `figureCardVersion` edge reseeds
-///   (`figureCardsChanged`).
+///   (`figureCardsChanged`). It observes `host.openCellNotes` the same way
+///   and keeps it (`cellNotes`): a note arriving or answered repaints the
+///   dots that came or went, with no change to the table (report plan 9c-2).
 /// - Writes run one after another, in the order asked; a refusal is said as
 ///   a notice (a sort says its own).
 /// - **The caption** is text, so it is committed by the coordinator through
@@ -77,6 +79,10 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
 
     private let values: FigureGridValues
     private(set) var model: FigureGridModel
+    /// **The host's open notes on live cells, as last caught up with**: the
+    /// dots and the strip read this, a dictionary lookup per cell — never
+    /// the host's projection per draw or per selection.
+    private(set) var cellNotes: FigureCellNotes
     private weak var store: DocumentStore?
     private weak var projectStore: ProjectStore?
     private var names: FormulaNames
@@ -201,6 +207,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         let recordName = projectStore.manifest.figures?.first(where: { $0.id == host.figureId })?.name
         self.name = name ?? recordName ?? ""
         values = FigureGridValues(figureId: host.figureId, state: host.state, locale: locale, store: store)
+        cellNotes = host.openCellNotes
         gridView = FigureGridView(typography: typography)
         // A placeholder first, so the real model's closure may capture `self`.
         model = FigureGridModel(table: host.state.table, editText: { _ in "" })
@@ -320,6 +327,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
     func figureGridDisplay(at key: CellKey) -> String { values.display(at: key) }
     func figureGridValue(at key: CellKey) -> CellValue { values.value(at: key) }
     var figureGridSelection: FigureGridSelection? { model.selection }
+    func figureGridIsMarked(_ key: CellKey) -> Bool { cellNotes.byAnchor[key] != nil }
     var figureGridReference: FigureGridReference? {
         if case .composing(_, let reference) = model.edit { return reference }
         return nil
@@ -1435,6 +1443,7 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         guard !isClosed else { return }
         withObservationTracking {
             _ = host.state
+            _ = host.openCellNotes
         } onChange: { [weak self] in
             // The host is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
@@ -1448,13 +1457,21 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
         }
     }
 
-    /// **Catch up with the host's state**: the values advanced (only the cells
-    /// that read what changed), the model's selection checked against the
-    /// table, the visible cells that changed repainted.
+    /// **Catch up with the host**: its state, then its open cell notes.
     private func syncFromHost() {
         guard !isClosed else { return }
+        let stateMoved = syncStateFromHost()
+        let notesMoved = syncNotesFromHost()
+        if stateMoved || notesMoved { refreshBars() }
+    }
+
+    /// **Catch up with the host's state**: the values advanced (only the cells
+    /// that read what changed), the model's selection checked against the
+    /// table, the visible cells that changed repainted. Answers whether the
+    /// state had moved.
+    private func syncStateFromHost() -> Bool {
         let next = host.state
-        guard next != values.state else { return }
+        guard next != values.state else { return false }
         let tableChanged = next.table != values.table
         // An open edit whose row or column goes with this change is closed
         // by the model; typing it held is said, never lost (final review I3).
@@ -1472,7 +1489,19 @@ final class FigureGridController: FigureGridDataSource, FigureGridViewDelegate, 
             execute(effects)
         }
         if repaint == .everything { gridView.reloadData() } else { gridView.repaint(repaint) }
-        refreshBars()
+        return true
+    }
+
+    /// **Catch up with the host's open cell notes**: kept, and the cells
+    /// whose dot came or went repainted (after the table, so they are found
+    /// where they now stand). Answers whether they had moved.
+    private func syncNotesFromHost() -> Bool {
+        let next = host.openCellNotes
+        guard next != cellNotes else { return false }
+        let changed = cellNotes.marked.symmetricDifference(next.marked)
+        cellNotes = next
+        gridView.repaint(.cells(changed))
+        return true
     }
 
     // MARK: Showing

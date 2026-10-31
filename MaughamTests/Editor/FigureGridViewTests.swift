@@ -29,6 +29,7 @@ final class FigureGridViewTests: XCTestCase {
             return "r\(row)"
         }
         func figureGridValue(at key: CellKey) -> CellValue { .empty }
+        func figureGridIsMarked(_ key: CellKey) -> Bool { false }
     }
 
     private final class Recorder: FigureGridViewDelegate {

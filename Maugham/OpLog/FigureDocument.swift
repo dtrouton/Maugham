@@ -240,6 +240,24 @@ public final class FigureDocument {
     /// Closed: abandoned by contract; every mutator refuses.
     public private(set) var isClosed = false
 
+    /// **The figure's open notes on live cells, as this host shows them**
+    /// (report plan 9c-2): observed, so an open grid sees a note arrive or
+    /// be answered with no change to `state`. Rebuilt once per change that
+    /// can move it — a note's line, a reload, a structure edit that moves
+    /// the cells a note sits on (`openCellNotesMayHaveMoved`) — never per
+    /// draw or per selection (`annotations()` re-derives every call).
+    public private(set) var openCellNotes: FigureCellNotes = .none
+
+    /// The last rebuild saw an open cell-anchored note, live or orphaned: a
+    /// structure edit can move (or revive) its cell only then.
+    @ObservationIgnored private var hasOpenAnchoredNotes = false
+    /// A run of ops (a sort, a batch, a ⌘Z's compensation, a restore, a
+    /// return) holds the rebuild until its last op (`holdOpenCellNotes`).
+    @ObservationIgnored private var openCellNotesHeld = 0
+    @ObservationIgnored private var openCellNotesOwed = false
+    /// Test seam: how many times `openCellNotes` was rebuilt.
+    @ObservationIgnored private(set) var openCellNotesRebuildCount = 0
+
     /// Whose amendment to a note stands (`Document.judgedAmendments`, the
     /// load's): what `annotations()` judges the stream's notes by.
     @ObservationIgnored private(set) var annotationAmendments: AnnotationAmendments = .honourEverything
@@ -367,6 +385,7 @@ public final class FigureDocument {
             session: session, opStore: opStore, ops: ops, streams: streams, provenance: provenance)
         doc.annotationAmendments = amendments
         doc.documentStore = documentStore
+        doc.rebuildOpenCellNotes()
         return doc
     }
 
@@ -417,6 +436,7 @@ public final class FigureDocument {
         self.provenance = provenance
         annotationAmendments = amendments
         state = Self.derive(_ops)
+        rebuildOpenCellNotes()
     }
 
     /// The newest reload generation that has finished (landed, thrown, or
@@ -1054,6 +1074,8 @@ public final class FigureDocument {
             .sorted { $0.key.row.raw == $1.key.row.raw ? $0.key.column.raw < $1.key.column.raw : $0.key.row.raw < $1.key.row.raw }
         var written: [Op] = []
         var failure: Error?
+        holdOpenCellNotes()
+        defer { releaseOpenCellNotes() }
         do {
             for m in moves {
                 let priorAfter = rowPredecessor(m.row) ?? nil
@@ -1150,6 +1172,8 @@ public final class FigureDocument {
         }
         var written: [Op] = []
         var failure: Error?
+        holdOpenCellNotes()
+        defer { releaseOpenCellNotes() }
         do {
             for c in changes {
                 written.append(try await commit(c.kind, c.payload, render: false))
@@ -1505,6 +1529,8 @@ public final class FigureDocument {
         }
         var applied = 0
         var resumed = false
+        holdOpenCellNotes()
+        defer { releaseOpenCellNotes() }
         do {
             // It names the park it resumes: a copy of an earlier park,
             // brought back after the figure was sent again, folds nothing.
@@ -1636,6 +1662,8 @@ public final class FigureDocument {
         let generation = reloadGeneration
         var appended = 0
         var stop: FigureRestoreOutcome.Stop?
+        holdOpenCellNotes()
+        defer { releaseOpenCellNotes() }
         do {
             for change in restoreChanges {
                 if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
@@ -2008,6 +2036,8 @@ public final class FigureDocument {
             decline(.pictureNotKept)
             return false
         }
+        holdOpenCellNotes()
+        defer { releaseOpenCellNotes() }
         do {
             // A visit renders once, after its last inverse. An accept or its
             // revert is stamped with the note it answers, and the notes are
@@ -2154,7 +2184,9 @@ public final class FigureDocument {
         streams[device, default: []].append(op.opId)
         newestOpId = op.opId
         unconfirmedLocalOpIds.insert(op.opId)
+        let shapeBefore = TableShape(state.table)
         if FigureOpPayload.folds(op) { FigureDeriver.fold(op, into: &state) }
+        openCellNotesMayHaveMoved(by: op, shapeBefore: shapeBefore)
         do {
             try Self.beforeCommitAppendForTesting?(op)
             try await opStore.append(op)
@@ -2165,7 +2197,9 @@ public final class FigureDocument {
             unconfirmedLocalOpIds.remove(op.opId)
             _ops.removeAll { $0.opId == op.opId }
             streams[device]?.removeAll { $0 == op.opId }
+            let shapeBefore = TableShape(state.table)
             state = Self.derive(_ops)
+            openCellNotesMayHaveMoved(by: op, shapeBefore: shapeBefore)
             throw error
         }
         // The render follows every op this host appends (report plan 6a
@@ -2173,6 +2207,56 @@ public final class FigureDocument {
         // Windowless, there is no coordinated door to write through.
         if render { await documentStore?.figureHostAppended(figureId) }
         return op
+    }
+
+    // MARK: - Open cell notes (report plan 9c-2)
+
+    /// The rows and columns in order: what a note's top-left cell is
+    /// counted against. A cell's value moving leaves it as it was.
+    private struct TableShape: Equatable {
+        let rows: [RowID]
+        let columns: [ColumnID]
+        init(_ table: FigureTable) { rows = table.rows; columns = table.columns }
+    }
+
+    /// **`openCellNotes` rebuilt from the stream** — one projection
+    /// (`annotations()`) against the table this host shows. Assigned only
+    /// when it differs, so an observer hears a real change only; and then
+    /// the window's cards refill (a card reads an open host's notes first).
+    private func rebuildOpenCellNotes() {
+        openCellNotesRebuildCount += 1
+        let notes = annotations()
+        hasOpenAnchoredNotes = notes.contains { $0.status == .open && $0.figureAnchor != nil }
+        let next = FigureCellNotes(notes: notes, table: state.table)
+        guard next != openCellNotes else { return }
+        openCellNotes = next
+        documentStore?.invalidateFigureCards()
+    }
+
+    /// **After `op` folded (or was taken back out)**: a note's line always
+    /// rebuilds; a structure edit only while an open note is anchored, and
+    /// only when the rows or columns moved (an insert, a delete, a move, a
+    /// sort's step) — a cell edit never does. Inside a run it waits for the
+    /// run's end.
+    private func openCellNotesMayHaveMoved(by op: Op, shapeBefore: TableShape) {
+        let noteLine = Self.noteLifecycleKinds.contains(op.kind)
+        guard noteLine || (hasOpenAnchoredNotes && TableShape(state.table) != shapeBefore) else { return }
+        if openCellNotesHeld > 0 {
+            openCellNotesOwed = true
+        } else {
+            rebuildOpenCellNotes()
+        }
+    }
+
+    /// A run of ops begins: `openCellNotes` is rebuilt once, at its end
+    /// (`releaseOpenCellNotes`), however many of its ops move it.
+    private func holdOpenCellNotes() { openCellNotesHeld += 1 }
+
+    private func releaseOpenCellNotes() {
+        openCellNotesHeld -= 1
+        guard openCellNotesHeld == 0, openCellNotesOwed else { return }
+        openCellNotesOwed = false
+        rebuildOpenCellNotes()
     }
 
     // MARK: - A note's lines (report plan 9c-1)
