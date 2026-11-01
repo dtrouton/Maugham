@@ -419,7 +419,7 @@
    "note": "New claim, filed VIOLATES against the code before the fix and flipped VIOLATES→COMPLIES with it (hardening 11-01 reverse stranding)."
   },
   "fix_2": {
-   "commit": "PENDING",
+   "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
    "date": "2026-11-01",
    "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
    "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen"
@@ -459,7 +459,7 @@
    "note": "Found by the reverse-stranding whole-branch review; flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding fix)."
   },
   "fix_2": {
-   "commit": "PENDING",
+   "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
    "date": "2026-11-01",
    "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
    "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_strandsAnAcceptMadeSince"
