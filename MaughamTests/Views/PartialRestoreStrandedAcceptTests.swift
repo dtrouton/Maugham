@@ -276,6 +276,38 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
                        "the .md renders the log, so text the log never took is not written")
     }
 
+    /// A legacy log — no op carries a sequence, so the order is synthesised
+    /// from first appearance, as `Document.load` derives it. The revert's
+    /// `.md` renders every paragraph, not the empty render `derive` gives.
+    func test_aRevertOfASequencelessLogRendersEveryParagraph() async throws {
+        let store = try await openBook()
+        let opStore = OpLogStore(projectURL: projectURL)
+        func burst(_ changes: [Op.ParagraphChange]) -> Op {
+            Op(opId: ULID.generate(), docId: "doc-a", at: Date(), device: "m",
+               session: "legacy", kind: .typingBurst, changes: changes, sequence: nil)
+        }
+        let seed = burst([.init(paragraphId: "a1b2", prior: nil, next: "One."),
+                          .init(paragraphId: "c3d4", prior: nil, next: "Two.")])
+        try await opStore.append(seed)
+        let cp = Checkpoint(
+            checkpointId: "ckpt-legacy", label: "Then", labelSource: .user,
+            at: Date(), device: "m", activeDoc: "doc-a",
+            docPointers: ["doc-a": seed.opId], manuscriptWordCount: 2)
+        try await opStore.append(burst([.init(paragraphId: "a1b2", prior: "One.", next: "One, since.")]))
+
+        let sentence = await picker(cp, store).restore(.document("doc-a"))
+        try await store.flushPendingSave()
+
+        XCTAssertNil(sentence)
+        XCTAssertTrue(try rawOps("doc-a").allSatisfy { $0.sequence == nil },
+                      "precondition: no op in the log carries a sequence")
+        let md = try String(contentsOf: file("manuscript/a.md"), encoding: .utf8)
+        XCTAssertFalse(md.contains("One, since."), "precondition: the revert landed — \(md)")
+        let one = try XCTUnwrap(md.range(of: "One."), "the reverted paragraph renders — \(md)")
+        let two = try XCTUnwrap(md.range(of: "Two."), "every other paragraph renders — \(md)")
+        XCTAssertLessThan(one.lowerBound, two.lowerBound, "in first-appearance order")
+    }
+
     // MARK: - The confirm line
 
     /// A scope changed while its plan was worked out cancels the sheet's

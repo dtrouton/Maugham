@@ -606,10 +606,16 @@ struct PartialRestorePicker: View {
     /// would sit at the old text until the next load found it diverged.
     /// The save coordinates with the store's own presenter, so an open
     /// editor learns of the revert from the log (`reReadAfterExternalChange`),
-    /// not from this write.
+    /// not from this write. Its render agrees with this one unless it holds
+    /// typing not yet flushed to the log; its next autosave then writes the
+    /// `.md` over this one.
+    ///
+    /// Derived as `Document.load` derives (`deriveWithSequenceFallback`), so
+    /// a legacy log whose bursts carry no sequence renders whole — `derive`
+    /// would render it empty, and the next load would back it up as diverged.
     private func renderAndScheduleSave(docId: String, ops: [Op]) {
         guard let path = docPaths[docId] else { return }
-        let state = Deriver.derive(ops: ops)
+        let state = Deriver.deriveWithSequenceFallback(ops: ops)
         // The clean render (ADR 0019), as the Document writes it: no anchors.
         let markdown = MarkdownDisplayFilter.stripAnchors(Materializer.materialize(
             paragraphs: state.paragraphs, sequence: state.sequence))
