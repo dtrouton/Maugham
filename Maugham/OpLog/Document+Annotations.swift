@@ -870,40 +870,23 @@ extension Document {
         id: String, userResponse: String? = nil,
         undoManager: UndoManager? = nil
     ) async throws {
+        // Captured BEFORE the append, unfiltered (M5-AN-002): the answer this
+        // rejection may displace, which its ⌘Z puts back (#128).
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
         try await appendLifecycleOp(
             kind: .claudeReject,
             sourceAnnotationId: id,
             userResponse: userResponse)
 
-        // ⌘Z: undo reopens (annotationReopen → .open); redo re-rejects,
-        // forwarding the original userResponse (fdbf12f precedent) AND the
-        // LIVE undo manager so ⇧⌘Z re-arms a fresh undo pair (accept's
-        // precedent — indefinite ⌘Z/⇧⌘Z cycling; `[weak undoManager]` because
-        // NSUndoManager retains the closure). Lifecycle ops never touch
-        // manuscript text, so no coherent-flag choreography.
-        OpUndoRegistrar.register(
-            undoManager, actionName: "Reject Annotation", target: self,
-            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { doc in
-                // Fire-time re-check with a LOUD decline (#51, RULING-22 —
-                // `stetAnnotation`'s shape). `reopenAnnotation` dispatches on
-                // the status NOW, not on what this undo wrote: unguarded, a
-                // note archived since would be reopened out of its archive,
-                // and one withdrawn since RESTORED, both under "Undo Reject".
-                // Unfiltered query — a `.rejected` note is invisible to the
-                // default `[.open]` filter (M5-AN-002).
-                guard doc.undoTargetStillShows(.rejected, id: id) else {
-                    documentLog.error("rejectAnnotation undo: \(id, privacy: .public) drifted — ignoring")
-                    doc.declineUndo(.reject)
-                    return
-                }
-                await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
-            },
-            redo: { [weak undoManager] doc in
-                await doc.refusingLoudly {
-                    try await doc.rejectAnnotation(
-                        id: id, userResponse: userResponse, undoManager: undoManager)
-                }
+        // ⌘Z puts back what the rejection displaced; ⇧⌘Z re-rejects with the
+        // original userResponse (fdbf12f precedent).
+        registerResolutionUndo(
+            undoManager, actionName: "Reject Annotation", id: id,
+            settled: .rejected, drifted: .reject, prior: prior,
+            redo: { doc, undoManager in
+                try await doc.rejectAnnotation(
+                    id: id, userResponse: userResponse, undoManager: undoManager)
             })
     }
 
@@ -931,12 +914,12 @@ extension Document {
     /// and the accept underneath, with the reply the writer typed into
     /// **Reply…**, was gone; one ⌘Z took two of their decisions (RULING-22,
     /// M5-AN-036's shape at the fourth resolution). The capture-and-re-apply
-    /// below is `withdrawReviewerAnnotation`'s, for the same reason and in the
-    /// same place: the obligation is the UNDO's, and the undo is the Mac's —
+    /// (`registerResolutionUndo`, shared with reject and archive since #128) is
+    /// `withdrawReviewerAnnotation`'s: the obligation is the UNDO's, and the undo is the Mac's —
     /// `AnnotationInverse.reopenOp` is cross-surface (tripwire 19) and the
     /// phone's Reopen means "reopen this", which is what it already does.
     ///
-    /// **And when the re-apply fails, it says so** (`declineUndo(.stetRestore)`,
+    /// **And when the re-apply fails, it says so** (`declineUndo(.putBack)`,
     /// #41's final review): the reopen has landed, so the note is in the queue
     /// open with its earlier resolution missing — indistinguishable, from the
     /// writer's side, from the defect this fixed. A failure the writer can't
@@ -957,133 +940,106 @@ extension Document {
         // (M5-AN-002).
         let prior = annotations(filter: AnnotationFilter(statuses: nil))
             .first { $0.id == id }
-        let priorStatus = prior?.status
-        let priorResponse = prior?.userResponse
 
         try await appendLifecycleOp(
             kind: .annotationStet,
             sourceAnnotationId: id,
             userResponse: userResponse)
 
-        // ⌘Z: undo reopens (annotationReopen → .open) and then puts back the
-        // resolution the stet was sitting on top of — a status-only lifecycle
-        // op, withdraw's shape. Redo re-stets, forwarding the original
-        // userResponse AND the LIVE undo manager so ⇧⌘Z re-arms a fresh undo
-        // pair (reject's precedent — indefinite ⌘Z/⇧⌘Z cycling;
-        // `[weak undoManager]` because NSUndoManager retains the closure).
-        OpUndoRegistrar.register(
-            undoManager, actionName: "Stet Annotation", target: self,
-            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
-            undo: { doc in
-                // Fire-time re-check with a LOUD decline (RULING-22,
-                // `editReviewerAnnotation`'s shape). Reject and archive lean on
-                // `reopenAnnotation`'s own drift guard, which declines to
-                // `documentLog` and to nobody else; the Edit menu still read
-                // "Undo Stet Annotation" and the writer pressed it. Unfiltered
-                // query — a `.stetted` note is invisible to the default
-                // `[.open]` filter (M5-AN-002).
-                let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
-                    .first { $0.id == id }
-                guard live?.status == .stetted else {
-                    // `declineUndo`, not `notifyWriter` (#41 A1): the bulk
-                    // bar's Stet registers one of these per note and
-                    // `groupsByEvent` folds them into one ⌘Z, so the burst
-                    // spends one sentence carrying the count.
-                    documentLog.error("stetAnnotation undo: \(id, privacy: .public) drifted (\(String(describing: live?.status), privacy: .public)) — ignoring")
-                    doc.declineUndo(.stet)
-                    return
-                }
-                // The restore below — and therefore the sentence it may have to
-                // say — WAIT on this having landed (#41's final review). If the
-                // reopen itself fails the note is still `.stetted`, and
-                // "it's open again" would be a lie about the queue the writer
-                // is looking at; nothing was displaced-and-not-put-back,
-                // because nothing moved at all. That case keeps the log-only
-                // behaviour it has always had — a failed reopen is not
-                // something this branch changed.
-                do {
-                    try await doc.reopenAnnotation(id: id)
-                } catch {
-                    // Refused at the posture door (P3c Task 5): said, like any
-                    // other refused ⌘Z — and nothing moved, so nothing else is.
-                    if error is PostureRefusal {
-                        doc.declineUndo(.notPermitted)
-                        documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) was refused at the posture door — the note is still stetted, nothing is restored, and the writer is told why")
-                        return
-                    }
-                    documentLog.error("stetAnnotation undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is still stetted, so nothing is restored and nothing is said")
-                    return
-                }
-
-                // …and put back what the stet displaced. `.open`/nil needs no
-                // second op — that is what the reopen already leaves. A
-                // `.stetted` prior cannot occur: this closure only runs past a
-                // guard that says the note is `.stetted` NOW, and a stet over a
-                // stet would have had to drift back, which is the guard's
-                // business rather than this switch's.
-                switch priorStatus {
-                case .accepted, .rejected, .archived:
-                    let kind: OpKind = switch priorStatus {
-                    case .rejected: .claudeReject
-                    case .archived: .claudeArchive
-                    default:        .claudeAccept
-                    }
-                    do {
-                        try await doc.appendLifecycleOp(
-                            kind: kind, sourceAnnotationId: id,
-                            userResponse: priorResponse)
-                    } catch {
-                        // LOUD, through the same accumulator as the refusals
-                        // above (RULING-22, #41's final review). The reopen
-                        // landed and this second op did not, so the note is
-                        // sitting in the queue OPEN with its accept/reject/
-                        // archive missing — which is precisely what the
-                        // pre-A2 defect looked like from the writer's side.
-                        // Logging it and saying nothing leaves them to
-                        // rediscover a fixed bug on their own; the sentence
-                        // names the state they are actually in.
-                        documentLog.error("stetAnnotation undo: restoring the prior \(String(describing: priorStatus), privacy: .public) status for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
-                        doc.declineUndo(.stetRestore)
-                    }
-                case .open, .stetted, nil:
-                    break
-                }
-            },
-            redo: { [weak undoManager] doc in
-                await doc.refusingLoudly {
-                    try await doc.stetAnnotation(
-                        id: id, userResponse: userResponse, undoManager: undoManager)
-                }
+        // ⌘Z puts back what the stet displaced (#41 A2); ⇧⌘Z re-stets with
+        // the original userResponse.
+        registerResolutionUndo(
+            undoManager, actionName: "Stet Annotation", id: id,
+            settled: .stetted, drifted: .stet, prior: prior,
+            redo: { doc, undoManager in
+                try await doc.stetAnnotation(
+                    id: id, userResponse: userResponse, undoManager: undoManager)
             })
     }
 
     public func archiveAnnotation(
         id: String, undoManager: UndoManager? = nil
     ) async throws {
+        // Reject's capture (#128): the answer an archive may displace.
+        let prior = annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }
         try await appendLifecycleOp(
             kind: .claudeArchive,
             sourceAnnotationId: id,
             userResponse: nil)
 
-        // ⌘Z: undo reopens; redo re-archives with the LIVE undo manager so
-        // ⇧⌘Z re-arms a fresh undo pair (accept's precedent).
+        registerResolutionUndo(
+            undoManager, actionName: "Archive Annotation", id: id,
+            settled: .archived, drifted: .archive, prior: prior,
+            redo: { doc, undoManager in
+                try await doc.archiveAnnotation(id: id, undoManager: undoManager)
+            })
+    }
+
+    /// Reject's, archive's and stet's ⌘Z — **one ⌘Z undoes one decision**
+    /// (RULING-22). The manuscript lets the writer answer over an answer, so
+    /// a bare reopen would throw away the earlier answer too: #41 A2 fixed
+    /// that for stet, #128 for reject and archive (M5-AN-060, M5-AN-069; the
+    /// figure verbs' `registerSettlingUndo` is the same rule).
+    ///
+    /// At fire time, while the note still shows `settled` (else decline out
+    /// loud with `drifted`, #51): reopen it, then put back `prior` — its
+    /// status and its words — as one status-only lifecycle op. An open prior
+    /// needs nothing more. `AnnotationInverse.reopenOp` and
+    /// `reopenAnnotation(id:)` stay untouched (tripwire 19; the phone's Reopen
+    /// means "reopen this"). ⇧⌘Z runs `redo` with the LIVE undo manager so
+    /// the pair re-arms (`[weak undoManager]`: NSUndoManager retains it).
+    private func registerResolutionUndo(
+        _ undoManager: UndoManager?, actionName: String, id: String,
+        settled: AnnotationStatus, drifted: UndoDecline, prior: Annotation?,
+        redo: @escaping @MainActor (Document, UndoManager?) async throws -> Void
+    ) {
+        let priorStatus = prior?.status
+        let priorResponse = prior?.userResponse
         OpUndoRegistrar.register(
-            undoManager, actionName: "Archive Annotation", target: self,
+            undoManager, actionName: actionName, target: self,
             workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
             undo: { doc in
-                // The reject undo's re-check (#51): only an archive this undo
-                // can see is one it may reopen.
-                guard doc.undoTargetStillShows(.archived, id: id) else {
-                    documentLog.error("archiveAnnotation undo: \(id, privacy: .public) drifted — ignoring")
-                    doc.declineUndo(.archive)
+                guard doc.undoTargetStillShows(settled, id: id) else {
+                    documentLog.error("\(actionName, privacy: .public) undo: \(id, privacy: .public) drifted — ignoring")
+                    doc.declineUndo(drifted)
                     return
                 }
-                await doc.refusingLoudly { try await doc.reopenAnnotation(id: id) }
+                // The put-back WAITS on the reopen having landed: if it
+                // failed, nothing moved, so nothing else is said or done.
+                do {
+                    try await doc.reopenAnnotation(id: id)
+                } catch let refusal as PostureRefusal {
+                    doc.declineUndo(refusal.undoDecline)
+                    return
+                } catch {
+                    documentLog.error("\(actionName, privacy: .public) undo: the reopen for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — nothing moved")
+                    return
+                }
+                guard doc.undoTargetStillShows(.open, id: id) else { return }
+
+                let kind: OpKind
+                switch priorStatus {
+                case .accepted: kind = .claudeAccept
+                case .rejected: kind = .claudeReject
+                case .archived: kind = .claudeArchive
+                case .stetted:  kind = .annotationStet
+                case .open, nil: return
+                }
+                do {
+                    try await doc.appendLifecycleOp(
+                        kind: kind, sourceAnnotationId: id,
+                        userResponse: priorResponse)
+                } catch {
+                    // LOUD: the note is open with its earlier answer missing,
+                    // which from the writer's side reads exactly like the
+                    // defect this fixes (#41's final review).
+                    documentLog.error("\(actionName, privacy: .public) undo: putting back the prior \(String(describing: priorStatus), privacy: .public) for \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public) — the note is back but open")
+                    doc.declineUndo(.putBack)
+                }
             },
             redo: { [weak undoManager] doc in
-                await doc.refusingLoudly {
-                    try await doc.archiveAnnotation(id: id, undoManager: undoManager)
-                }
+                await doc.refusingLoudly { try await redo(doc, undoManager) }
             })
     }
 

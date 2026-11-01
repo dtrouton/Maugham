@@ -465,9 +465,9 @@ public final class Document {
     /// apart. A verb added here without a plural won't compile.
     ///
     /// The first four are REFUSALS — the undo declined to act because the note
-    /// drifted. `stetRestore` is the odd one and belongs here anyway: the stet
-    /// undo's second half (#41 A2, putting back the resolution the stet
-    /// displaced) FAILED after the reopen had landed, so the writer's note is
+    /// drifted. `putBack` is the odd one and belongs here anyway: the second
+    /// half of a stet's, reject's or archive's undo (#41 A2, #128 — putting
+    /// back the answer the decision displaced) FAILED after the reopen had landed, so the writer's note is
     /// open again with its earlier accept/reject/archive missing. That reads
     /// from the queue exactly like the pre-A2 defect, and a defect the writer
     /// cannot tell from a bug is one they will report as a bug — so it says so
@@ -478,7 +478,7 @@ public final class Document {
     /// demotion landed between the press and its ⌘Z or ⇧⌘Z. The door refused
     /// the compensating op before it was written (`refusingLoudly`).
     internal enum UndoDecline: Hashable, CaseIterable {
-        case annotationEdit, acceptNote, stet, triage, stetRestore, notPermitted
+        case annotationEdit, acceptNote, stet, triage, putBack, notPermitted
         /// The reject, archive and pane-Reopen undos' drift declines (#51).
         case reject, archive, reopen
         /// A task op this Mac's permit refuses (P3c Task 8's task door).
@@ -512,7 +512,7 @@ public final class Document {
                 "Couldn't undo reopening \(count) notes — they changed on another device."
             case .triage:
                 "Couldn't undo \(count) triage marks — they changed on another device."
-            case .stetRestore:
+            case .putBack:
                 "Couldn't put back \(count) notes' earlier resolutions — they're open again."
             case .notPermitted:
                 "Couldn't change \(count) notes — this Mac can no longer answer notes in this piece."
@@ -541,7 +541,7 @@ public final class Document {
                 "Couldn't undo reopening the note — it changed on another device."
             case .triage:
                 "Couldn't undo the triage mark — it changed on another device."
-            case .stetRestore:
+            case .putBack:
                 "Couldn't put back the note's earlier resolution — it's open again."
             case .notPermitted:
                 "Couldn't change that note — this Mac can no longer answer notes in this piece."
