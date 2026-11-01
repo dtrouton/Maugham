@@ -422,9 +422,10 @@ final class RewindReturningAcceptTests: XCTestCase {
     // MARK: - momentEnd, pure
 
     private func op(_ id: String, _ kind: OpKind, changes: [Op.ParagraphChange] = [],
-                    source: SynthesisSource? = nil, checkpoint: String? = nil) -> Op {
-        Op(opId: id, docId: "d", at: Date(), device: "m", session: "s", kind: kind,
-           changes: changes, sequence: nil,
+                    source: SynthesisSource? = nil, checkpoint: String? = nil,
+                    device: String = "m", sequence: [String]? = nil) -> Op {
+        Op(opId: id, docId: "d", at: Date(), device: device, session: "s", kind: kind,
+           changes: changes, sequence: sequence,
            provenance: .init(sourceCheckpoint: checkpoint, synthesisSource: source,
                              sourceAnnotationId: "n"))
     }
@@ -449,7 +450,7 @@ final class RewindReturningAcceptTests: XCTestCase {
             op("01A", .checkpointRestore, changes: text, source: .rewind, checkpoint: "00Z"),
             op("01B", .claudeArchive, source: .rewind),
             op("01C", .claudeAcceptRevert, source: .rewind),
-            op("01D", .checkpointRestore, source: .rewind, checkpoint: "00Y"),
+            op("01D", .checkpointRestore, source: .rewind, checkpoint: "00Y", sequence: ["a1b2"]),
             op("01E", .claudeArchive, source: .rewind),
         ]
         XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: rewind), "01C",
@@ -464,5 +465,29 @@ final class RewindReturningAcceptTests: XCTestCase {
         ]
         XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: undo), "01D",
                        "an undo's task-window closer is inside the undo's moment")
+
+        // Another device's line merged into the run is skipped, not its end.
+        let merged = [
+            op("01A", .checkpointRestore, changes: text, source: .rewind, checkpoint: "00Z"),
+            op("01B", .claudeAcceptRevert, source: .rewind),
+            op("01C", .typingBurst, changes: text, device: "other"),
+            op("01D", .claudeAccept, source: .rewind),
+            op("01E", .typingBurst, changes: text),
+        ]
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: merged), "01D",
+                       "a foreign op does not end the restore's run")
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01C", in: merged), "01C",
+                       "and is not itself in it")
+
+        // Inside an undo's run, a marker-only rewind (it carries a sequence)
+        // is a new moment, not the undo's closer.
+        let undoThenRewind = [
+            op("01A", .checkpointRestore, changes: text, source: .undoRewind, checkpoint: "00Z"),
+            op("01B", .claudeAccept, source: .undoRewind),
+            op("01C", .checkpointRestore, source: .rewind, checkpoint: "00X", sequence: ["a1b2"]),
+            op("01D", .claudeAcceptRevert, source: .rewind),
+        ]
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: undoThenRewind), "01B",
+                       "a fresh marker-only rewind is not absorbed into the undo")
     }
 }

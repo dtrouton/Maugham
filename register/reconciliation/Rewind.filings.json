@@ -354,9 +354,10 @@
   "amendment": {
    "commit": "bac02988d95e29e258bd9f04acc4a8ee92e2c97c",
    "date": "2026-11-01",
+   "authorised_by": "RULING-26",
    "outcome_of_the_undo_half": "VIOLATES→COMPLIES",
    "note": "The ⌘Z half of RULING-26's headline case was a violation the original filing did not see: the re-accept survived the undo, leaving an .accepted note on a removed paragraph instead of the .archived status it had before the travel. Found by the reverse-stranding whole-branch review; fixed by a re-archive loop in restoreToOpUndoable.",
-   "pinned_by": "RewindReturningAcceptTests.test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted"
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted"
   }
  },
  {
@@ -418,11 +419,12 @@
    "pinned_by": "RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince",
    "note": "New claim, filed VIOLATES against the code before the fix and flipped VIOLATES→COMPLIES with it (hardening 11-01 reverse stranding)."
   },
-  "fix_2": {
+  "amendment": {
    "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
    "date": "2026-11-01",
-   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
-   "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen"
+   "authorised_by": "RULING-57",
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen, test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd. The run was then held to the restore's own device and session, and an undo's closer to a sequence-free marker (the tail commit after it)."
   }
  },
  {
@@ -458,11 +460,12 @@
    "pinned_by": "RewindReturningAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted + PartialRestoreStrandedAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted",
    "note": "Found by the reverse-stranding whole-branch review; flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding fix)."
   },
-  "fix_2": {
+  "amendment": {
    "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
    "date": "2026-11-01",
-   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
-   "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_strandsAnAcceptMadeSince"
+   "authorised_by": "RULING-26",
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_strandsAnAcceptMadeSince, test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd. The run was then held to the restore's own device and session, and an undo's closer to a sequence-free marker (the tail commit after it)."
   }
  },
  {

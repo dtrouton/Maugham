@@ -284,21 +284,32 @@ enum RewindImpact {
     /// statuses from before the travel over text from after it.
     ///
     /// So when the target is a restore op, or one of its trailing lines, the
-    /// cut extends over the contiguous run of lines that restore wrote. A
-    /// trailing line is changes-free, of a lifecycle kind, and stamped as
-    /// that restore's: `.rewind`/`.undoRewind` behind a rewind or its undo,
+    /// cut extends over the run of lines that restore wrote — same device and
+    /// session; another hand's op merged between is skipped. A trailing line
+    /// is changes-free, of a lifecycle kind, and stamped as that restore's: `.rewind`/`.undoRewind` behind a rewind or its undo,
     /// the restore op's own `sourceCheckpoint` behind a checkpoint revert.
     /// Inside an undo's run (an `.undoRewind` restore) the task-window closer
-    /// — a changes-free `.rewind` restore op — is part of it; anywhere else a
+    /// — a changes-free `.rewind` restore op with no sequence — is part of it; anywhere else a
     /// restore op starts a new moment. Decided by kind and stamp, never by
     /// text. Any other target is its own moment.
     static func momentEnd(of targetOpId: String, in ops: [Op]) -> String {
-        guard let t = ops.firstIndex(where: { $0.opId == targetOpId }) else { return targetOpId }
-        func trails(_ op: Op, _ restore: Op) -> Bool {
+        guard let t = ops.firstIndex(where: { $0.opId == targetOpId }),
+              let start = ops[...t].lastIndex(where: { $0.kind == .checkpointRestore })
+        else { return targetOpId }
+        let restore = ops[start]
+        // Written by that same restore's hand. Another device's or session's
+        // op merged into the run is skipped, never read as its end.
+        func mine(_ op: Op) -> Bool {
+            op.device == restore.device && op.session == restore.session
+        }
+        func trails(_ op: Op) -> Bool {
             guard op.changes.isEmpty else { return false }
             let source = op.provenance?.synthesisSource
             if op.kind == .checkpointRestore {
-                return source == .rewind
+                // Only an undo's task-window closer: `.rewind`, no sequence
+                // (`appendTaskRewindCloser`). A fresh marker-only rewind
+                // carries its target's sequence and is its own moment.
+                return source == .rewind && op.sequence == nil
                     && restore.provenance?.synthesisSource == .undoRewind
             }
             guard Document.isLifecycleOpKind(op.kind) else { return false }
@@ -309,21 +320,18 @@ enum RewindImpact {
                   let stamp = restore.provenance?.sourceCheckpoint else { return false }
             return op.provenance?.sourceCheckpoint == stamp
         }
-        // Back from the target to the restore op whose run it is in, over
-        // lines that could trail one; anything else means no restore's run.
-        // (Behind an undo's task-window closer the walk stops at the closer,
-        // whose own run is the rest of the undo's — the same end.)
-        var start = t
-        while ops[start].kind != .checkpointRestore {
-            guard start > 0, ops[start].changes.isEmpty else { return targetOpId }
-            start -= 1
-        }
-        let restore = ops[start]
-        guard ops[start...t].dropFirst().allSatisfy({ trails($0, restore) }) else {
-            return targetOpId
-        }
+        // The target is the restore op or one of its own trailing lines, with
+        // nothing of its own hand between that is not; otherwise its own moment.
+        // (Behind an undo's task-window closer the nearest restore op is the
+        // closer, whose run is the rest of the undo's — the same end.)
+        guard start == t || (mine(ops[t])
+                && ops[(start + 1)...t].allSatisfy({ !mine($0) || trails($0) }))
+        else { return targetOpId }
         var end = t
-        while end + 1 < ops.count, trails(ops[end + 1], restore) { end += 1 }
+        for j in ops.indices.dropFirst(t + 1) where mine(ops[j]) {
+            guard trails(ops[j]) else { break }
+            end = j
+        }
         return ops[end].opId
     }
 
