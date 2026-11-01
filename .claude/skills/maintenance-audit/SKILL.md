@@ -22,7 +22,7 @@ Mode: `monthly` (or >4 weeks since the last full audit) → Full audit. Otherwis
 
 ## Weekly sweep (delta-focused, ~3 agents)
 
-1. Window = commits since the last sweep/audit note date. `git log --name-only` over the window → touched areas, mini-hotspots.
+1. Window = the rev-range `<previous note's recorded HEAD sha>..origin/main`, never a date cutoff: merged branches carry older commit dates, so a date window silently skips whole merges (the 2026-11-01 sweep missed report plans 9a–9e-2 this way). Every note records the exact HEAD sha it covered. `git log --name-only` over the window → touched areas, mini-hotspots.
 2. Doc-truth check (coordinator, cheap): roadmap •→✓ flips in the window → grep sibling docs (CLAUDE.md, touched `AREA.md`s, `docs/guide/`) for now-false claims; verify any prose counts not yet covered by generation tests.
 3. Dispatch 2–3 agents with the contract: **delta bug-hunt** (opus) over the window's diffs, prioritized by mini-hotspots; **doc/test-truth checker** (sonnet) for touched areas; if one seam dominated the window, **one tracer** (opus) end-to-end through it.
 4. Synthesize over the maps: collide this week's invariants-assumed/data-flows against the *prior audit's maps* (scratchpad mirrors or the note's map summaries), hunting the four classes below. Probe only if a suspicion is concrete.
