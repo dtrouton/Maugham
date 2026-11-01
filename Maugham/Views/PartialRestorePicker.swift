@@ -32,6 +32,9 @@ struct PartialRestorePicker: View {
     /// wave, C1): the sheet stays up and says which, rather than closing over
     /// a revert that did less than it was asked.
     @State private var leftAloneSentence: String?
+    /// What Revert will reopen in the chosen scope (RULING-28's BEFORE
+    /// half), worked out whenever the scope changes.
+    @State private var confirmSentence: String?
 
     /// What `_scope` **actually holds** before the sheet is installed on a
     /// view — the value the picker opens with.
@@ -133,11 +136,17 @@ struct PartialRestorePicker: View {
             scopeIsOffered: Self.offered(
                 scope, allDocIds: allDocIds, mayWrite: mayWrite) != nil,
             isRestoring: isRestoring,
+            confirmSentence: confirmSentence,
             leftAloneSentence: leftAloneSentence,
             onCancel: onCancel,
             onRevert: { Task { await performRestore() } },
             onDone: onComplete
         )
+        .task(id: scope) {
+            confirmSentence = nil
+            guard let scope else { return }
+            confirmSentence = await revertNotes(for: scope).confirmSentence
+        }
     }
 
     // MARK: - Posture (P3c whole-branch fix wave, C1)
@@ -249,43 +258,35 @@ struct PartialRestorePicker: View {
             docs = [id]
         }
         let (writable, leftAlone) = await Self.splitByTheDoor(docs, documentStore: documentStore)
+        var reopened: [RevertNotes.Entry] = []
         for docId in writable {
-            let allOps = (try? await opStore.load(docId: docId)) ?? []
-            let current = Deriver.derive(ops: allOps)
-            let targetOpId = checkpoint.docPointers[docId]
-            let pastOps = allOps.prefix(while: { op in
-                guard let target = targetOpId else { return true }
-                return op.opId <= target
-            })
-            let target = Deriver.derive(ops: Array(pastOps))
-            if let restoreOp = Restore.buildRestoreOp(
-                current: current,
-                target: target,
-                scope: .document,
-                docId: docId,
-                device: device,
-                session: session,
-                sourceCheckpoint: checkpoint.checkpointId
-            ) {
-                // LOG (can't propagate): `performRestore` is an `async`
-                // non-throwing SwiftUI action callback. The restore op is a
-                // source-of-truth write — a swallowed `try?` would let the UI
-                // report a completed restore while the op never persisted (the
-                // restore silently doesn't survive a relaunch). Surface it; we
-                // still materialize so the editor shows the intended state.
-                do { try await opStore.append(restoreOp) }
-                catch {
-                    partialRestoreLog.error(
-                        "partial-restore op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-                // Materialize the new state and schedule a save so the .md
-                // on disk (and the editor) reflects the restored content.
-                materializeAndScheduleSave(
-                    docId: docId,
-                    newState: target,
-                    restoreOp: restoreOp
-                )
+            let plan = await revertPlan(docId, opStore: opStore)
+            guard let restoreOp = plan.restoreOp else { continue }
+            // LOG (can't propagate): `performRestore` is an `async`
+            // non-throwing SwiftUI action callback. The restore op is a
+            // source-of-truth write — a swallowed `try?` would let the UI
+            // report a completed restore while the op never persisted (the
+            // restore silently doesn't survive a relaunch). Surface it; we
+            // still materialize so the editor shows the intended state.
+            do {
+                try await opStore.append(restoreOp)
+                // The accepts this restore takes back (RULING-28), each
+                // reopened by a status-only revert right behind the text it
+                // answers — never without it, so a failed restore reopens
+                // nothing.
+                let count = await reopenStrandedAccepts(plan, opStore: opStore)
+                reopened.append(.init(title: title(of: docId), reopened: count))
+            } catch {
+                partialRestoreLog.error(
+                    "partial-restore op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
+            // Materialize the new state and schedule a save so the .md
+            // on disk (and the editor) reflects the restored content.
+            materializeAndScheduleSave(
+                docId: docId,
+                newState: plan.target,
+                restoreOp: restoreOp
+            )
         }
         // The sheet's list, each re-checked against the live registry.
         let figureResults = await Self.restoreFigures(
@@ -293,9 +294,144 @@ struct PartialRestorePicker: View {
         let sentences = [
             Self.leftAloneSentence(
                 for: leftAlone, in: documentStore?.projectStore?.manifest.structure),
+            RevertNotes(entries: reopened).reportSentence,
             Self.figureSentence(for: figureResults),
         ].compactMap { $0 }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+
+    // MARK: - Accepted suggestions (#128 item 2, RULING-28)
+
+    /// **One document's revert, worked out before anything is written**: the
+    /// state at the checkpoint, the restore op that puts it back (nil when
+    /// nothing differs), and the accepts that op strands
+    /// (`RewindImpact.strandedAccepts(in:revertedBy:through:amendments:)`).
+    /// The sheet's confirm line counts it and `restore` appends it, so what
+    /// the sheet promises is what Revert does.
+    struct RevertPlan {
+        let docId: String
+        let target: Deriver.DerivedState
+        let restoreOp: Op?
+        let stranded: [RewindImpact.StrandedAccept]
+        /// The reopens the writer is told of: a deleted note still gets its
+        /// revert in the log but is not named, as the full rewind's step 8.
+        var namedReopens: Int { stranded.filter { !$0.isWithdrawn }.count }
+    }
+
+    /// `docId`'s plan, from its log now. The notes are judged as the pane
+    /// judges them: an open document's own amendment table, or the table a
+    /// load would build for a closed one (`Document.closedPieceHistory`).
+    func revertPlan(_ docId: String, opStore: OpLogStore) async -> RevertPlan {
+        let allOps = (try? await opStore.load(docId: docId)) ?? []
+        let current = Deriver.derive(ops: allOps)
+        let targetOpId = checkpoint.docPointers[docId]
+        let pastOps = allOps.prefix(while: { op in
+            guard let target = targetOpId else { return true }
+            return op.opId <= target
+        })
+        let target = Deriver.derive(ops: Array(pastOps))
+        let restoreOp = Restore.buildRestoreOp(
+            current: current,
+            target: target,
+            scope: .document,
+            docId: docId,
+            device: device,
+            session: session,
+            sourceCheckpoint: checkpoint.checkpointId
+        )
+        var stranded: [RewindImpact.StrandedAccept] = []
+        if let restoreOp, let targetOpId {
+            let amendments: AnnotationAmendments
+            if let open = documentStore?.document(forDocId: docId) {
+                amendments = open.annotationAmendments
+            } else {
+                amendments = await Document.closedPieceHistory(
+                    docId: docId, projectURL: projectURL).amendments
+            }
+            stranded = RewindImpact.strandedAccepts(
+                in: allOps, revertedBy: restoreOp, through: targetOpId,
+                amendments: amendments)
+        }
+        return RevertPlan(docId: docId, target: target, restoreOp: restoreOp, stranded: stranded)
+    }
+
+    /// Appends a changes-free `claudeAcceptRevert` for each accept `plan`
+    /// strands — the full rewind's instrument, stamped with this checkpoint
+    /// instead of `.rewind` — and answers how many the writer is told of.
+    /// One that will not write is logged and not counted.
+    private func reopenStrandedAccepts(_ plan: RevertPlan, opStore: OpLogStore) async -> Int {
+        var named = 0
+        for stranded in plan.stranded {
+            let revert = Op(
+                opId: ULID.generate(),
+                docId: plan.docId, at: Date(),
+                device: device, session: session,
+                kind: .claudeAcceptRevert,
+                changes: [],
+                sequence: nil,
+                provenance: Op.Provenance(
+                    sessionId: session,
+                    sourceCheckpoint: checkpoint.checkpointId,
+                    sourceAnnotationId: stranded.annotationId))
+            do {
+                try await opStore.append(revert)
+                if !stranded.isWithdrawn { named += 1 }
+            } catch {
+                partialRestoreLog.error(
+                    "partial-restore reopen failed for note \(stranded.annotationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if !plan.stranded.isEmpty {
+            MaughamEvent.postAnnotationsChanged(docId: plan.docId, projectURL: projectURL)
+        }
+        return named
+    }
+
+    /// **What a revert in `scope` will reopen**, before it runs — RULING-28's
+    /// BEFORE half, from the same plans `restore` acts on. Only documents
+    /// this Mac may write are counted: the rest are left alone.
+    func revertNotes(for scope: ScopeChoice) async -> RevertNotes {
+        let opStore = OpLogStore(projectURL: projectURL)
+        let docs: [String]
+        switch scope {
+        case .wholeProject: docs = allDocIds
+        case .document(let id): docs = [id]
+        }
+        var entries: [RevertNotes.Entry] = []
+        for docId in docs.filter(Self.mayWrite(through: documentStore)) {
+            let plan = await revertPlan(docId, opStore: opStore)
+            entries.append(.init(title: title(of: docId), reopened: plan.namedReopens))
+        }
+        return RevertNotes(entries: entries)
+    }
+
+    private func title(of docId: String) -> String {
+        Self.titles(of: [docId], in: documentStore?.projectStore?.manifest.structure)[0]
+    }
+
+    /// **The accepted suggestions a revert reopens, by document** — what the
+    /// sheet says before Revert (`confirmSentence`, the full rewind's "will
+    /// be reopened") and after (`reportSentence`, the figure restore's
+    /// "Reopened … on …"). A document with none is not named; with none
+    /// anywhere, both are nil.
+    struct RevertNotes: Equatable {
+        struct Entry: Equatable { let title: String; let reopened: Int }
+        var entries: [Entry]
+
+        private var total: Int { entries.map(\.reopened).reduce(0, +) }
+        private var named: String {
+            entries.filter { $0.reopened > 0 }.map(\.title).joined(separator: ", ")
+        }
+        private var suggestions: String {
+            total == 1 ? "1 accepted suggestion" : "\(total) accepted suggestions"
+        }
+
+        var confirmSentence: String? {
+            total > 0 ? "\(suggestions) will be reopened on \(named)." : nil
+        }
+        var reportSentence: String? {
+            total > 0 ? "Reopened \(suggestions) on \(named)." : nil
+        }
     }
 
     // MARK: - Figures (report plan 6c Task 3, rulings Q-1, Q-2, Q-3)
@@ -475,6 +611,7 @@ private struct RestorePickerContent: View {
     @Binding var scope: PartialRestorePicker.ScopeChoice?
     let scopeIsOffered: Bool
     let isRestoring: Bool
+    let confirmSentence: String?
     let leftAloneSentence: String?
     let onCancel: () -> Void
     let onRevert: () -> Void
@@ -498,6 +635,12 @@ private struct RestorePickerContent: View {
                 }
             }
             .pickerStyle(.radioGroup)
+            if leftAloneSentence == nil, let confirmSentence {
+                Text(confirmSentence)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let leftAloneSentence {
                 Text(leftAloneSentence)
                     .font(.callout)

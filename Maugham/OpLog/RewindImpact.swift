@@ -207,6 +207,23 @@ enum RewindImpact {
         }
     }
 
+    /// **The accepts a checkpoint revert strands** (#128 item 2): the list
+    /// above, past the checkpoint's `pointer`, kept to the paragraphs
+    /// `restoreOp` writes. A revert never removes a paragraph — it rewrites
+    /// the ones whose text differs at the checkpoint and leaves the rest — so
+    /// an accept on a paragraph it does not write keeps its text and stays
+    /// accepted, and each one it strands is reopened, never archived.
+    /// `PartialRestorePicker`'s confirm line counts this and its restore acts
+    /// on it.
+    static func strandedAccepts(
+        in ops: [Op], revertedBy restoreOp: Op, through pointer: String,
+        amendments: AnnotationAmendments
+    ) -> [StrandedAccept] {
+        let written = Set(restoreOp.changes.map(\.paragraphId))
+        return strandedAccepts(in: ops, pastTarget: pointer, amendments: amendments)
+            .filter { written.contains($0.paragraphId) }
+    }
+
     /// The confirm-sheet sentence: every non-zero class named, zero classes
     /// omitted entirely.
     static func confirmSummary(_ p: Preview) -> String {

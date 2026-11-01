@@ -562,5 +562,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M4-RW-039",
+  "scope": "PartialRestorePicker.restore / revertNotes (History's Revert here…, manuscript text)",
+  "kind": "POSTCONDITION",
+  "statement": "a checkpoint revert answers the accepted suggestions it takes back: each note `RewindImpact.strandedAccepts(in:revertedBy:through:amendments:)` names — the full rewind's list past the checkpoint's pointer, kept to the paragraphs the restore op writes — is reopened by a changes-free `.claudeAcceptRevert` stamped with the checkpoint id, appended right after the restore op and only when that op landed. A revert never removes a paragraph, so a stranded accept is always reopened, never archived; an accept on a paragraph the revert does not write keeps its text and stays accepted, and a Stet, reject, archive or reopen over the accept stands (the deriver's honoured-lifecycle rule). Both halves of RULING-28 come from one plan per document (`PartialRestorePicker.RevertPlan`): the sheet's confirm line ('N accepted suggestion(s) will be reopened on A, B.') before Revert and the sheet's result ('Reopened N accepted suggestion(s) on A, B.') after; a deleted (withdrawn) note still gets its revert in the log but is neither promised nor reported. Not registered for ⌘Z, as no checkpoint revert is (plan 6c ruling Q-2). Before #128 item 2 the path did no stranded-accept handling: a revert to a checkpoint from before an accept left the note 'accepted' over text that no longer held the change, and the sheet named nothing",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Views/PartialRestoreStrandedAcceptTests.swift: test_aRevertReopensTheAcceptItTakesBack_andLeavesEveryOtherAnswer, test_documentScopeAnswersOnlyThatDocumentsNotes, test_aWithdrawnStrandedAcceptIsLoggedButNotNamed, test_theSheetNamesTheReopensBeforeAndConfirmsThemAfter, test_theNotesSentences"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-28 both halves)",
+  "reachability": "LIVE — History → a checkpoint row → Revert here…, over a suggestion accepted since that checkpoint",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

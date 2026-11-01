@@ -30,7 +30,7 @@ Every file in `Maugham/OpLog/` appears once.
 - `CheckpointCapture.swift` — ⌘S: `run`, `documentSubject(of:in:)`.
 - `Restore.swift` — builds the `checkpointRestore` op for a scope.
 - `RewindCursor.swift` — `.now` vs `.atOp(opId, at)`, the scrub state.
-- `RewindImpact.swift` — the rewind sheet's and toast's numbers; `preview`.
+- `RewindImpact.swift` — rewind and revert numbers; `preview`, `strandedAccepts`.
 - `RewindRestoreResult.swift` — what `restoreToOp` returns.
 - `Deriver+Rewind.swift` — `derive(ops:upTo:)`, the state as of a cursor.
 

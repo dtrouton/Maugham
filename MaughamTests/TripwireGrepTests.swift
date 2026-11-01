@@ -13073,7 +13073,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   restore, which appends through its own store: the settled posture per
     ///   document before the build; the rows and the History button are drawn
     ///   only for documents this Mac may write, and what the door left alone is
-    ///   named in the sheet. Its `restoreToCheckpoint(` winds back each figure
+    ///   named in the sheet. Behind a landed restore op it reopens the accepts
+    ///   that op takes back (status-only `claudeAcceptRevert`, #128 item 2) —
+    ///   the same door, no new text. Its `restoreToCheckpoint(` winds back each figure
     ///   in scope (report plan 6c Task 3) after asking that figure's settled
     ///   `.editFigure` posture, through its host (which asks again); a refused,
     ///   parked or part-restored figure is named in the same sentence.
