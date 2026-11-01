@@ -372,6 +372,7 @@
   "call_path": "Rewind modal → confirm sheet (RewindImpact.confirmSummary) → Restore → RewindModifier toast (RewindImpact.toast)",
   "violation_or_enhancement": "violation",
   "fix": {
+   "commit": "8b264d8109646428514d46dacdfec02ca917cf34",
    "date": "2026-11-01",
    "authorised_by": "RULING-28",
    "pinned_by": "RewindImpactTests.test_preview_namesAStrandedAcceptOnARemovedParagraphAsAnArchive + test_aWithdrawnStrandedAccept_isNeitherPromisedNorReported",
