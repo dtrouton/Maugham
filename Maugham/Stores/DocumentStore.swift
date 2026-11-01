@@ -935,15 +935,37 @@ public final class DocumentStore {
         }
     }
 
-    /// **A file under the project changed on disk**: a Research table open in
-    /// a grid on it is asked whether to read it again
-    /// (`ResearchTableHost.fileMayHaveChanged`).
+    /// **A file under the project changed on disk**: when it is a Research
+    /// asset a figure can read — a table a `research:` formula pins, or a
+    /// table, picture or PDF a figure was made from — every window's figure
+    /// cards refill (sweep 11-01 S1, #131: the card owners watch
+    /// `manifest.research` by identity, which a content change leaves alone),
+    /// grid open or not. A Research table open in a grid on it is asked
+    /// whether to read it again (`ResearchTableHost.fileMayHaveChanged`).
     func researchFileMayHaveChanged(at relativePath: String) {
-        guard !researchTables.isEmpty, let research = projectStore?.manifest.research else { return }
+        guard let research = projectStore?.manifest.research else { return }
+        let changed = relativePath.lowercased()
+        if TreeWalk.first(in: research, where: {
+            $0.path?.lowercased() == changed && Self.aFigureCanRead($0)
+        }) != nil {
+            invalidateFigureCards()
+        }
+        guard !researchTables.isEmpty else { return }
         for (id, host) in researchTables {
             guard let path = TreeWalk.find(id: id, in: research)?.path,
                   path.lowercased() == relativePath.lowercased() else { continue }
             Task { @MainActor in await host.fileMayHaveChanged() }
+        }
+    }
+
+    /// Whether a figure can read `item`'s file: a `research:` pin reads a
+    /// table, and *Use in document* makes a figure from a table, picture or
+    /// PDF (`ProjectStore.useInDocument`), whose card says when it changed.
+    private static func aFigureCanRead(_ item: ResearchItem) -> Bool {
+        guard item.type == .asset else { return false }
+        switch item.kind {
+        case .table?, .image?, .pdf?: return true
+        case .document?, .audio?, .link?, nil: return false
         }
     }
 
@@ -2211,7 +2233,8 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // authoritative way to recognize a manuscript here — anything
             // not registered is research, binder metadata, or user-dropped
             // files. A Research table open in a grid is told (report plan 8b
-            // Task 7: an outside change is read again, never overwritten).
+            // Task 7: an outside change is read again, never overwritten), and
+            // a Research asset a figure can read refills the figure cards.
             researchFileMayHaveChanged(at: relativePath)
             guard let doc = document(for: relativePath) else { return }
             let projectRoot = projectURL

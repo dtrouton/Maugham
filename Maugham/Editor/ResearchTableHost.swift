@@ -33,8 +33,9 @@ private let researchTableLog = Logger(
 ///   says "changed".
 /// - **An outside change is never overwritten silently** (Denver's ruling):
 ///   the hash of the bytes last read or written is kept (`diskHash`). The file
-///   changed while the grid holds no edit → read again and said
-///   (`fileMayHaveChanged`, from the window's file presenter); changed under a
+///   changed while the grid holds no edit → read again and said, and the
+///   figure cards told (`fileMayHaveChanged`, from the window's file
+///   presenter); changed under a
 ///   pending edit → the outside version is kept as a conflict backup under
 ///   `.maugham/conflicts/` (`Document.writeConflictBackup`), said, then the
 ///   grid's version is written.
@@ -261,6 +262,9 @@ final class ResearchTableHost: FigureGridHost {
         diskHash = read.hash
         names = context.names
         state = FigureState(kind: .table, table: Self.table(of: read, context: context))
+        // A figure pinning this table reads the file just read: its card
+        // follows the grid on screen (sweep 11-01 S2, #131).
+        store.invalidateFigureCards()
         return true
     }
 

@@ -893,4 +893,132 @@ final class ResearchTableGridTests: XCTestCase {
         for sub in view.subviews { if let grid = gridView(in: sub) { return grid } }
         return nil
     }
+
+    // MARK: - An outside change reaches the figure cards (#131, sweep 11-01 S1/S2)
+
+    /// A figure whose formula pins `item` (`research:model!B2*2`), and a
+    /// window's card cache over the store, filled: its card says unchanged.
+    private func pinnedCard(_ item: ResearchItem, _ store: DocumentStore,
+                            _ projectStore: ProjectStore) async throws -> (figure: FigureRecord, cache: FigureCardCache) {
+        let summary = try await projectStore.createFigure(kind: .table, name: "summary", piece: nil)
+        let figure = try await store.openFigure(figureId: summary.id)
+        guard case .success(let f) = FormulaParser.parse(
+            "research:model!B2*2", in: figure.state.table, names: FormulaNames(research: [(item.id, item.title)]))
+        else { XCTFail("the formula did not parse"); return (summary, FigureCardCache()) }
+        try await figure.setCell(Cell(content: .formula(f)), at: key(figure, 1, 1))
+        await store.closeFigure(figureId: summary.id)
+        let cache = FigureCardCache()
+        cache.attach(.init(read: { [weak store] in await store?.figureCardInputs() }))
+        store.attachFigureCardCache(cache)
+        await cache.idle()
+        XCTAssertEqual(cache.model(forFigureId: summary.id)?.pinChanged, false, "control: the card says unchanged")
+        return (summary, cache)
+    }
+
+    private func letGo(_ cache: FigureCardCache, _ store: DocumentStore) {
+        store.detachFigureCardCache(cache)
+        cache.attach(nil)
+    }
+
+    /// **S1 — a Research table changed outside Maugham, with no grid open on
+    /// it, refills the cards**: the presenter's `.otherProjectFile` arm tells
+    /// them, so the pinning figure's card says "changed" without waiting for
+    /// an unrelated fill.
+    func test_anOutsideChangeToAPinnedTable_refillsTheCards_withNoGridOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n2026,20\n", in: projectStore)
+        let (summary, cache) = try await pinnedCard(item, store, projectStore)
+        XCTAssertTrue(store.researchTables.isEmpty, "precondition: no grid open")
+        let fills = cache.fills
+
+        let url = file(try XCTUnwrap(item.path))
+        try Data("Year,Revenue\n2025,15\n2026,20\n".utf8).write(to: url)
+        store.presenterDidChangeSubitem(at: url)
+        await cache.idle()
+
+        XCTAssertGreaterThan(cache.fills, fills, "the outside change refilled the cards")
+        XCTAssertEqual(cache.model(forFigureId: summary.id)?.pinChanged, true, "the pinning figure's card says changed")
+        letGo(cache, store)
+    }
+
+    /// **S1 with a grid open** — the same outside change, the table open in a
+    /// grid: the grid reads it again and the card says "changed".
+    func test_anOutsideChangeToAPinnedTable_refillsTheCards_withTheGridOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n2026,20\n", in: projectStore)
+        let (summary, cache) = try await pinnedCard(item, store, projectStore)
+        let host = try await store.openResearchTable(itemId: item.id)
+        let fills = cache.fills
+
+        let url = file(try XCTUnwrap(item.path))
+        try Data("Year,Revenue\n2025,15\n2026,20\n".utf8).write(to: url)
+        store.presenterDidChangeSubitem(at: url)
+        let reread = await RunLoopPump.until(deadline: 5) {
+            host.state.table[self.key(host, 2, 2)]?.content == .value(.number(15))
+        }
+        XCTAssertTrue(reread, "the grid read the outside version")
+        await cache.idle()
+
+        XCTAssertGreaterThan(cache.fills, fills, "the outside change refilled the cards")
+        XCTAssertEqual(cache.model(forFigureId: summary.id)?.pinChanged, true, "the pinning figure's card says changed")
+        await store.releaseResearchTable(host)
+        letGo(cache, store)
+    }
+
+    /// **S2 — an open grid's reload of an outside change refills the cards**
+    /// on its own (the grid's window coming front asks
+    /// `fileMayHaveChanged` with no presenter call), so table and figure
+    /// agree on screen.
+    func test_anOpenGridsReloadOfAnOutsideChange_refillsTheCards() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n2026,20\n", in: projectStore)
+        let (summary, cache) = try await pinnedCard(item, store, projectStore)
+        let host = try await store.openResearchTable(itemId: item.id)
+        let fills = cache.fills
+        let revision = store.figureRevision
+
+        try Data("Year,Revenue\n2025,15\n2026,20\n".utf8).write(to: file(try XCTUnwrap(item.path)))
+        await host.fileMayHaveChanged()
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(15)), "the grid read it again")
+        await cache.idle()
+
+        XCTAssertGreaterThan(store.figureRevision, revision, "the reload told the cards")
+        XCTAssertGreaterThan(cache.fills, fills)
+        XCTAssertEqual(cache.model(forFigureId: summary.id)?.pinChanged, true, "the pinning figure's card says changed")
+        await store.releaseResearchTable(host)
+        letGo(cache, store)
+    }
+
+    /// **A project file that is no Research asset a figure could read leaves
+    /// the cards alone**: a loose file, a chapter's `.md` and a Research note
+    /// changing outside fill nothing — only a Research table, picture or PDF
+    /// does (the control, last).
+    func test_anOutsideChangeToAFileNoFigureCanRead_leavesTheCardsAlone() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n2026,20\n", in: projectStore)
+        let note = try await projectStore.createResearchNote(scope: .shared, title: "Notes")
+        let (_, cache) = try await pinnedCard(item, store, projectStore)
+        let fills = cache.fills
+        let revision = store.figureRevision
+
+        let loose = file("loose.csv")
+        try Data("a,b\n1,2\n".utf8).write(to: loose)
+        store.presenterDidChangeSubitem(at: loose)
+        try "Other words.\n".write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
+        store.presenterDidChangeSubitem(at: file("manuscript/a.md"))
+        let noteURL = file(try XCTUnwrap(note.path))
+        try "Changed elsewhere.\n".write(to: noteURL, atomically: true, encoding: .utf8)
+        store.presenterDidChangeSubitem(at: noteURL)
+        await cache.idle()
+
+        XCTAssertEqual(store.figureRevision, revision, "no Research table, picture or PDF changed")
+        XCTAssertEqual(cache.fills, fills, "so the cards did not refill")
+
+        let url = file(try XCTUnwrap(item.path))
+        try Data("Year,Revenue\n2025,15\n2026,20\n".utf8).write(to: url)
+        store.presenterDidChangeSubitem(at: url)
+        await cache.idle()
+        XCTAssertGreaterThan(store.figureRevision, revision, "control: the table's change does")
+        letGo(cache, store)
+    }
 }
