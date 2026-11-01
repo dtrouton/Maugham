@@ -6,8 +6,8 @@ extension Document {
     /// `restoreToOp` wrapped in a single grouped ⌘Z action that reverses the
     /// WHOLE rewind: text back to the pre-restore tip, each D3-reopened accept
     /// re-accepted (status-only, preserving each original `userResponse`),
-    /// each step-8b re-accept reopened, and each sweep-archived annotation
-    /// reopened. Redo re-runs `restoreToOp` from
+    /// each step-8b re-accept reopened, each step-9 re-accept re-archived,
+    /// and each sweep-archived annotation reopened. Redo re-runs `restoreToOp` from
     /// scratch so it can never disagree with a fresh rewind.
     ///
     /// Choreography follows the manuscript-text-apply pattern (accept /
@@ -124,6 +124,10 @@ extension Document {
         // 8b, RULING-57/26): the undo reopens these status-only, over the
         // reverted text the compensating restore puts back.
         let returned = result.returnedAcceptAnnotationIds
+        // Creation ids of archived accepts the return journey re-accepted
+        // (step 9, RULING-26): the undo takes their paragraph away again, so
+        // it re-archives them.
+        let travelReaccepted = result.travelReacceptedAnnotationIds
         // `archivedAnnotationOpIds` are appended `claudeArchive` OP ids; resolve
         // each back to its annotation (creation) id so the undo can reopen it.
         let sweepArchivedAnnotationIds: [String] = result.archivedAnnotationOpIds.compactMap { aid in
@@ -222,6 +226,22 @@ extension Document {
                             synthesisSource: .undoRewind)
                     } catch {
                         documentLog.error("restoreToOpUndoable undo: status-only reopen failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+                // Re-archive each note step 9 re-accepted: its paragraph is
+                // gone again, as when step 8 first archived it. Stamped
+                // `.rewind`, as the compensating restore's own sweep archives
+                // are, so a later forward travel's step 9 reads it as
+                // Maugham's and returns it again (M4-RW-035).
+                for src in travelReaccepted {
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: .claudeArchive,
+                            sourceAnnotationId: src,
+                            userResponse: nil,
+                            synthesisSource: .rewind)
+                    } catch {
+                        documentLog.error("restoreToOpUndoable undo: re-archive failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
                 // Reopen each sweep-archived annotation (its paragraph is back).

@@ -128,8 +128,8 @@ enum RewindImpact {
         // paragraph's accept is reverted; a removed one's is archived, which
         // the toast counts with the sweep's archives. A deleted note is not
         // promised, as step 8 does not report it.
-        for stranded in strandedAccepts(in: ops, pastTarget: cursorOpId, amendments: amendments)
-        where !stranded.isWithdrawn {
+        let travel = travelStatusChanges(in: ops, target: cursorOpId, amendments: amendments)
+        for stranded in strandedAccepts(travel) where !stranded.isWithdrawn {
             if targetSet.contains(stranded.paragraphId) {
                 p.acceptsToReopen += 1
             } else {
@@ -141,8 +141,7 @@ enum RewindImpact {
         // accepted text this return writes back returns to accepted, named
         // with the return journey's re-accepts as the toast names them.
         p.acceptsToRestore += returningAccepts(
-            in: ops, returningTo: cursorOpId,
-            writing: paragraphsWritten(from: now, to: target), amendments: amendments)
+            travel, writing: paragraphsWritten(from: now, to: target))
             .filter { !$0.isWithdrawn }.count
 
         let textChanges = now.paragraphs != target.paragraphs
@@ -191,7 +190,9 @@ enum RewindImpact {
     /// rewind-undo's, a put-back ⌘Z) stands in for the text-applying accept
     /// it re-instated, so strandedness is judged against the newest
     /// CHANGES-CARRYING accept (M4-RW-031) — and that accept is past the
-    /// target.
+    /// target, and the note was NOT accepted with its text at the target
+    /// (accept → checkpoint → Revert → accept again keeps its change there;
+    /// M4-RW-042).
     ///
     /// Returning: at the target the latest op is an accept with a
     /// changes-carrying accept at or before it; now the latest op is the one
@@ -203,9 +204,11 @@ enum RewindImpact {
     /// (`returningAccepts`): RULING-57 applies only where the travel itself
     /// puts the text back.
     ///
-    /// Sorted by annotation id. Step 8 and its sibling act on these lists,
-    /// `preview` and the partial-restore sheet count them, so promise and
-    /// act cannot disagree. O(ops): the preview runs it on every scrub.
+    /// Sorted by annotation id. Each caller walks ONCE — `restoreToOp`,
+    /// `preview`, `PartialRestorePicker.revertPlan` — and hands the result to
+    /// the filters below; step 8 and its sibling act on those lists and the
+    /// preview and the revert sheet count them, so promise and act cannot
+    /// disagree. O(ops): the preview runs it on every scrub.
     static func travelStatusChanges(
         in ops: [Op], target targetOpId: String,
         amendments: AnnotationAmendments
@@ -233,7 +236,12 @@ enum RewindImpact {
         }
         let changes = latest.keys.sorted().compactMap { src -> TravelStatusChange? in
             guard let now = latest[src] else { return nil }
-            if now.kind == .claudeAccept,
+            // Accepted with its text at the target: the return keeps the
+            // change, so there is nothing to strand — however many Reverts
+            // and re-accepts came since.
+            let acceptedAtTarget = latestAtTarget[src]?.kind == .claudeAccept
+                && textAcceptAtTarget[src] != nil
+            if now.kind == .claudeAccept, !acceptedAtTarget,
                let accept = textAccept[src], accept.opId > targetOpId,
                let pid = accept.changes.first?.paragraphId {
                 return .init(annotationId: src, class: .stranded, paragraphId: pid,
@@ -241,8 +249,7 @@ enum RewindImpact {
             }
             let tookTheChangeOut = now.kind == .claudeAcceptRevert
                 || (now.kind == .annotationReopen && now.provenance?.synthesisSource == .rewind)
-            if tookTheChangeOut, now.opId > targetOpId,
-               latestAtTarget[src]?.kind == .claudeAccept,
+            if tookTheChangeOut, now.opId > targetOpId, acceptedAtTarget,
                let accept = textAcceptAtTarget[src],
                let pid = accept.changes.first?.paragraphId {
                 return .init(annotationId: src, class: .returning, paragraphId: pid,
@@ -260,46 +267,39 @@ enum RewindImpact {
         }
     }
 
-    /// **The accepts a return to `targetOpId` strands** (RULING-28):
-    /// `travelStatusChanges`' stranded class. `restoreToOp`'s step 8 acts on
-    /// this list and `preview` counts it.
+    /// **The accepts a return strands** (RULING-28): the stranded class of
+    /// one `travelStatusChanges` walk. `restoreToOp`'s step 8 acts on this
+    /// list and `preview` counts it.
     static func strandedAccepts(
-        in ops: [Op], pastTarget targetOpId: String,
-        amendments: AnnotationAmendments
+        _ changes: [TravelStatusChange]
     ) -> [TravelStatusChange] {
-        travelStatusChanges(in: ops, target: targetOpId, amendments: amendments)
-            .filter { $0.class == .stranded }
+        changes.filter { $0.class == .stranded }
     }
 
     /// **The accepts a checkpoint revert strands** (#128 item 2): the list
-    /// above, past the checkpoint's `pointer`, kept to the paragraphs
-    /// `restoreOp` writes. A revert never removes a paragraph — it rewrites
-    /// the ones whose text differs at the checkpoint and leaves the rest — so
-    /// an accept on a paragraph it does not write keeps its text and stays
-    /// accepted, and each one it strands is reopened, never archived.
-    /// `PartialRestorePicker`'s confirm line counts this and its restore acts
-    /// on it.
+    /// above, kept to the paragraphs `restoreOp` writes. A revert never
+    /// removes a paragraph — it rewrites the ones whose text differs at the
+    /// checkpoint and leaves the rest — so an accept on a paragraph it does
+    /// not write keeps its text and stays accepted, and each one it strands is
+    /// reopened, never archived. `PartialRestorePicker`'s confirm line counts
+    /// this and its restore acts on it.
     static func strandedAccepts(
-        in ops: [Op], revertedBy restoreOp: Op, through pointer: String,
-        amendments: AnnotationAmendments
+        _ changes: [TravelStatusChange], revertedBy restoreOp: Op
     ) -> [TravelStatusChange] {
         let written = Set(restoreOp.changes.map(\.paragraphId))
-        return strandedAccepts(in: ops, pastTarget: pointer, amendments: amendments)
-            .filter { written.contains($0.paragraphId) }
+        return strandedAccepts(changes).filter { written.contains($0.paragraphId) }
     }
 
-    /// **The suggestions a return to `targetOpId` puts back to accepted**
-    /// (RULING-57, RULING-26): `travelStatusChanges`' returning class, kept
-    /// to the paragraphs the return writes — `written` is
+    /// **The suggestions a return puts back to accepted** (RULING-57,
+    /// RULING-26): the returning class of one `travelStatusChanges` walk,
+    /// kept to the paragraphs the return writes — `written` is
     /// `paragraphsWritten(from:to:)` for a full rewind, the restore op's
     /// changes for a checkpoint revert. `restoreToOp` acts on it beside step
     /// 8, `preview` counts it, and the partial restore does both.
     static func returningAccepts(
-        in ops: [Op], returningTo targetOpId: String, writing written: Set<String>,
-        amendments: AnnotationAmendments
+        _ changes: [TravelStatusChange], writing written: Set<String>
     ) -> [TravelStatusChange] {
-        travelStatusChanges(in: ops, target: targetOpId, amendments: amendments)
-            .filter { $0.class == .returning && written.contains($0.paragraphId) }
+        changes.filter { $0.class == .returning && written.contains($0.paragraphId) }
     }
 
     /// The paragraphs a return from `current` to `target` writes: those the

@@ -296,4 +296,78 @@ final class RewindReturningAcceptTests: XCTestCase {
         XCTAssertEqual(status(h.doc, id), .accepted)
         XCTAssertTrue(h.doc.materialize().contains("First, improved."))
     }
+
+    // MARK: - Accepted with its text at the target (M4-RW-042)
+
+    /// Accept → checkpoint → Revert → accept again → other typing → rewind to
+    /// the checkpoint: the change is in the text at the checkpoint and after
+    /// the rewind, so the note is not stranded and stays accepted.
+    func test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted() async throws {
+        let h = try await makeHarness("First.\n\nSecond.")
+        let p2 = try XCTUnwrap(h.doc.sequence.last)
+        let id = try await acceptFirst(h.doc, h.pid)
+        let checkpoint = try await tip(h.doc)
+        try await h.doc.revertAcceptedAnnotation(id: id)
+        try await h.doc.acceptAnnotation(id: id, userResponse: "again")
+        h.doc.setParagraph(id: p2, text: "Second, since.")
+        try await h.doc.flushBurstNow()
+
+        let p = RewindImpact.preview(ops: try await h.doc.opLog(), cursorOpId: checkpoint)
+        let r = try await h.doc.restoreToOp(opId: checkpoint)
+
+        XCTAssertNotNil(r.restoreOp, "precondition: the restore did something")
+        XCTAssertEqual(p.acceptsToReopen, 0, "nothing is promised reopened")
+        XCTAssertTrue(r.reopenedAnnotationOpIds.isEmpty)
+        XCTAssertTrue(h.doc.materialize().contains("First, improved."), "the change is still in the text")
+        XCTAssertEqual(status(h.doc, id), .accepted, "so the note stays accepted")
+    }
+
+    // MARK: - The reject control
+
+    /// Revert, then reject, after the checkpoint: the reject is the writer's
+    /// answer and stands, though the rewind puts the accepted text back.
+    func test_aRejectAfterTheRevert_stands() async throws {
+        let (doc, id, checkpoint) = try await acceptCheckpointRevert()
+        try await doc.rejectAnnotation(id: id, userResponse: "no")
+        try await doc.flushBurstNow()
+
+        let p = RewindImpact.preview(ops: try await doc.opLog(), cursorOpId: checkpoint)
+        let r = try await doc.restoreToOp(opId: checkpoint)
+
+        XCTAssertTrue(doc.materialize().contains("First, improved."), "precondition: text back")
+        XCTAssertEqual(status(doc, id), .rejected)
+        XCTAssertEqual(p.acceptsToRestore, 0)
+        XCTAssertTrue(r.returnedAcceptAnnotationIds.isEmpty)
+    }
+
+    // MARK: - Step 9's re-accept under ⌘Z (M4-RW-035)
+
+    /// An accept archived with its paragraph, re-accepted by a forward
+    /// travel: ⌘Z takes the paragraph away again and re-archives the note;
+    /// redo returns it again.
+    func test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted() async throws {
+        let h = try await makeHarness()
+        let early = try await tip(h.doc)
+        h.doc.setFullText("First.\n\nSecond.\n")
+        try await h.doc.flushBurstNow()
+        let p2 = try XCTUnwrap(h.doc.sequence.last)
+        let id = try await h.doc.addAnnotation(kind: .suggestedChange, paragraphId: p2,
+                                               body: "b", suggestedText: "Second, improved.")
+        try await h.doc.acceptAnnotation(id: id)
+        let later = try await tip(h.doc)
+        _ = try await h.doc.restoreToOp(opId: early)
+        XCTAssertEqual(status(h.doc, id), .archived, "precondition: step 8 archived it")
+        let um = UndoManager()
+
+        let forward = try await h.doc.restoreToOpUndoable(opId: later, undoManager: um)
+        XCTAssertEqual(forward.travelReacceptedAnnotationIds, [id], "precondition")
+        XCTAssertEqual(status(h.doc, id), .accepted)
+
+        um.undo(); await h.doc.awaitPendingUndoWork()
+        XCTAssertFalse(h.doc.sequence.contains(p2), "precondition: the paragraph is gone again")
+        XCTAssertEqual(status(h.doc, id), .archived, "the re-accept is undone")
+
+        um.redo(); await h.doc.awaitPendingUndoWork()
+        XCTAssertEqual(status(h.doc, id), .accepted, "redo is a fresh forward travel")
+    }
 }

@@ -198,8 +198,10 @@ extension Document {
         //    A deleted (withdrawn) note still gets its op, but is not
         //    reported: the writer cannot see it, and the preview does not
         //    promise it.
-        for stranded in RewindImpact.strandedAccepts(
-            in: currentOps, pastTarget: targetOpId, amendments: annotationAmendments) {
+        // One walk for step 8 and step 8b (`RewindImpact.travelStatusChanges`).
+        let travel = RewindImpact.travelStatusChanges(
+            in: currentOps, target: targetOpId, amendments: annotationAmendments)
+        for stranded in RewindImpact.strandedAccepts(travel) {
             let src = stranded.annotationId
             let paragraphSurvives = newIds.contains(stranded.paragraphId)
             let resolutionOp = Op(
@@ -238,9 +240,8 @@ extension Document {
         var returnedIds: [String] = []
         if synthesisSource == .rewind {
             for returning in RewindImpact.returningAccepts(
-                in: currentOps, returningTo: targetOpId,
-                writing: RewindImpact.paragraphsWritten(from: currentState, to: targetState),
-                amendments: annotationAmendments) {
+                travel,
+                writing: RewindImpact.paragraphsWritten(from: currentState, to: targetState)) {
                 let reaccept = Op(
                     opId: ULID.generate(),
                     docId: docId, at: Date(),

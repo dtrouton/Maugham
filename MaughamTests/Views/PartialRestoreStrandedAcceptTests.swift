@@ -549,4 +549,32 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
                        + "Restored 2 suggestions to accepted on A. "
                        + "Couldn't restore 1 suggestion to accepted on B — still open.")
     }
+
+    /// Accept → checkpoint → Revert → accept again → typed over: the revert
+    /// writes the paragraph back to the accepted text it held at the
+    /// checkpoint, so the note is not stranded and stays accepted (M4-RW-042).
+    func test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted() async throws {
+        let store = try await openBook()
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        let cp = try await checkpoint(["doc-a"])
+        let a2 = try await load("a")
+        try await a2.revertAcceptedAnnotation(id: id)
+        try await a2.acceptAnnotation(id: id, userResponse: "again")
+        a2.setParagraph(id: a2.sequence[0], text: "One, improved, and more.")
+        try await a2.flushBurstNow()
+        await a2.close()
+        let sheet = picker(cp, store)
+
+        let before = await sheet.revertNotes(for: .document("doc-a"))
+        let sentence = await sheet.restore(.document("doc-a"))
+
+        let restore = try XCTUnwrap(rawOps("doc-a").last { $0.kind == .checkpointRestore })
+        XCTAssertTrue(restore.changes.contains { $0.next == "One, improved." },
+                      "precondition: the revert wrote the note's paragraph")
+        XCTAssertNil(before.confirmSentence, "nothing is promised")
+        XCTAssertNil(sentence, "nothing is reported")
+        XCTAssertEqual(try statuses("doc-a")[id], .accepted)
+    }
 }

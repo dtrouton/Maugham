@@ -314,8 +314,8 @@ struct PartialRestorePicker: View {
     /// **One document's revert, worked out before anything is written**: the
     /// state at the checkpoint, the restore op that puts it back (nil when
     /// nothing differs), and the notes that op moves the text under — the
-    /// accepts it strands (`RewindImpact.strandedAccepts(in:revertedBy:
-    /// through:amendments:)`) and the reverted accepts it returns
+    /// accepts it strands (`RewindImpact.strandedAccepts(_:revertedBy:)`)
+    /// and the reverted accepts it returns
     /// (`RewindImpact.returningAccepts`, RULING-57 / RULING-26). The sheet's
     /// confirm line counts it and `restore` appends it, so what the sheet
     /// promises is what Revert does.
@@ -363,13 +363,12 @@ struct PartialRestorePicker: View {
                 amendments = await Document.closedPieceHistory(
                     docId: docId, projectURL: projectURL).amendments
             }
-            notes = RewindImpact.strandedAccepts(
-                in: allOps, revertedBy: restoreOp, through: targetOpId,
-                amendments: amendments)
+            // One walk, both classes.
+            let travel = RewindImpact.travelStatusChanges(
+                in: allOps, target: targetOpId, amendments: amendments)
+            notes = RewindImpact.strandedAccepts(travel, revertedBy: restoreOp)
                 + RewindImpact.returningAccepts(
-                    in: allOps, returningTo: targetOpId,
-                    writing: Set(restoreOp.changes.map(\.paragraphId)),
-                    amendments: amendments)
+                    travel, writing: Set(restoreOp.changes.map(\.paragraphId)))
         }
         return RevertPlan(docId: docId, ops: allOps, restoreOp: restoreOp, notes: notes)
     }

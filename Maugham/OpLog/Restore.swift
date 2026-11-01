@@ -51,8 +51,8 @@ public enum Restore {
 
     /// **The lines that answer the notes a checkpoint revert moves the text
     /// under** (#128 item 2, RULING-28; RULING-57, RULING-26): per note in
-    /// `changes` (`RewindImpact.strandedAccepts(in:revertedBy:through:
-    /// amendments:)` and `returningAccepts`), a changes-free
+    /// `changes` (`RewindImpact.strandedAccepts(_:revertedBy:)` and
+    /// `returningAccepts`), a changes-free
     /// `claudeAcceptRevert` for one it strands and a changes-free
     /// `claudeAccept` carrying the accept's reply for one it returns — the
     /// full rewind's instruments, stamped with the checkpoint rather than

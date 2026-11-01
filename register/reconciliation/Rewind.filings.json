@@ -350,6 +350,13 @@
    "date": "2026-08-08",
    "authorised_by": "RULING-26 — Denver 2026-08-08, no recommendation offered",
    "pinned_by": "RewindTravelReopenTests (production)"
+  },
+  "amendment": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "outcome_of_the_undo_half": "VIOLATES→COMPLIES",
+   "note": "The ⌘Z half of RULING-26's headline case was a violation the original filing did not see: the re-accept survived the undo, leaving an .accepted note on a removed paragraph instead of the .archived status it had before the travel. Found by the reverse-stranding whole-branch review; fixed by a re-archive loop in restoreToOpUndoable.",
+   "pinned_by": "RewindReturningAcceptTests.test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted"
   }
  },
  {
@@ -430,13 +437,30 @@
   }
  },
  {
+  "claim_id": "M4-RW-042",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns",
+  "why_in_scope": "Step 8's revert is Maugham closing an accepted suggestion on its own initiative during travel. At the travelled-to moment the note was accepted, with its change in the text, so .accepted is the status that must hold after the return. RULING-57 does not fit: the writer's latest act is an accept, not a Revert. WHY_IT_VIOLATED: the stranded rule never read the status at the target, so a re-accept after a Revert made the note look stranded. It reopened the note over text that still held the change, and the sheet promised it.",
+  "intent_expressed_when": "contemporaneous: the Restore or Revert here…",
+  "call_path": "Rewind modal → Restore → restoreToOp step 8 (RewindImpact.strandedAccepts over travelStatusChanges); HistoryPane → Revert here… → PartialRestorePicker.revertPlan → answerNotes",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26",
+   "pinned_by": "RewindReturningAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted + PartialRestoreStrandedAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted",
+   "note": "Found by the reverse-stranding whole-branch review; flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding fix)."
+  }
+ },
+ {
   "_summary": {
-   "reached": 24,
-   "complies": 24,
+   "reached": 25,
+   "complies": 25,
    "violates": 0,
    "no_ruling": 14,
-   "total": 38,
-   "coverage": "63%",
+   "total": 39,
+   "coverage": "64%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -460,7 +484,8 @@
     "RULING-26": [
      "M4-RW-035",
      "M4-RW-036",
-     "M4-RW-041"
+     "M4-RW-041",
+     "M4-RW-042"
     ],
     "RULING-27": [
      "M4-RW-008",
@@ -491,7 +516,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "11 violations over 9 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (34504b1f, 2026-11-01, hardening 11-01 reverse stranding)"
+   "distinct_defects": "13 violations over 11 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (34504b1f, 2026-11-01, hardening 11-01 reverse stranding); M4-RW-042 (RULING-26: a note accepted again since the target reopened over its own text) and M4-RW-035's undo half (RULING-26: ⌘Z left step 9's re-accept on a removed paragraph), both from the branch review (hardening 11-01 reverse stranding fix, PENDING)"
   }
  }
 ]
