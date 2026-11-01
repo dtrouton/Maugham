@@ -173,26 +173,37 @@ enum RewindImpact {
         in ops: [Op], pastTarget targetOpId: String,
         amendments: AnnotationAmendments
     ) -> [StrandedAccept] {
+        // One walk: per note, the latest honoured lifecycle op and the newest
+        // changes-carrying accept. The preview runs this on every cursor
+        // scrub (`RewindWindow`), so it stays O(ops), not O(notes × ops).
         var latest: [String: Op] = [:]
-        for op in ops where AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
+        var textAccept: [String: Op] = [:]
+        for op in ops {
             guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if let prior = latest[src], prior.opId > op.opId { continue }
-            latest[src] = op
+            if op.kind == .claudeAccept, !op.changes.isEmpty,
+               textAccept[src].map({ op.opId > $0.opId }) ?? true {
+                textAccept[src] = op
+            }
+            if AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments),
+               latest[src].map({ $0.opId <= op.opId }) ?? true {
+                latest[src] = op
+            }
         }
-        return latest.keys.sorted().compactMap { src in
+        let stranded = latest.keys.sorted().compactMap { src -> (String, String)? in
             guard latest[src]?.kind == .claudeAccept,
-                  let textAccept = ops
-                      .filter({ $0.kind == .claudeAccept
-                                    && $0.provenance?.sourceAnnotationId == src
-                                    && !$0.changes.isEmpty })
-                      .max(by: { $0.opId < $1.opId }),
-                  textAccept.opId > targetOpId,          // past the target (ULID order)
-                  let pid = textAccept.changes.first?.paragraphId
+                  let accept = textAccept[src],
+                  accept.opId > targetOpId,          // past the target (ULID order)
+                  let pid = accept.changes.first?.paragraphId
             else { return nil }
-            return StrandedAccept(
-                annotationId: src, paragraphId: pid,
-                isWithdrawn: AnnotationDeriver.isWithdrawn(
-                    annotationId: src, in: ops, amendments: amendments))
+            return (src, pid)
+        }
+        guard !stranded.isEmpty else { return [] }
+        // The deriver's withdrawn walk, once for the whole log.
+        let withdrawn = Set(AnnotationDeriver.deriveWithdrawn(
+            ops: ops, amendments: amendments).map(\.id))
+        return stranded.map {
+            StrandedAccept(annotationId: $0.0, paragraphId: $0.1,
+                           isWithdrawn: withdrawn.contains($0.0))
         }
     }
 
