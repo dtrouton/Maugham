@@ -112,6 +112,23 @@ public enum ManuscriptBlocks {
         return (split.text.trimmingCharacters(in: .whitespaces), split.label)
     }
 
+    /// A one-line figure line whose trailing `{#…}` block the label rule
+    /// refused (`![x](a.png){#fig:}`): the raw block, braces included, else nil.
+    /// The block layer leaves such a line plain text, so this is how a caller
+    /// (the editor's checks, publish's resolution walk) warns about it as it
+    /// does for a heading or a caption. The one implementation.
+    public static func malformedFigureBlock(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard figure(trimmed) == nil, trimmed.hasSuffix("}"),
+              let open = trimmed.range(of: "{#", options: .backwards) else { return nil }
+        let block = trimmed[open.lowerBound...]
+        // `{#x} and {y}` ends in some other brace pair, not in a `{#…}` block.
+        guard !block.dropLast().contains("}") else { return nil }
+        let image = String(trimmed[..<open.lowerBound]).trimmingCharacters(in: .whitespaces)
+        guard match(imageRegex, image) != nil else { return nil }
+        return String(block)
+    }
+
     /// True when `raw` has a `|` that is not escaped as `\|`.
     private static func hasUnescapedPipe(_ raw: String) -> Bool {
         var escaped = false
@@ -124,7 +141,8 @@ public enum ManuscriptBlocks {
 
     /// The parser keeps a `Table: …` line that bears a column pipe as a data
     /// row. Take it back as the caption only when it cannot be data: no
-    /// unescaped pipe, or a valid `{#…}` label (a data row never ends in one).
+    /// unescaped pipe, or a valid `{#…}` label (a data row never ends in one;
+    /// a pinned caption such as `Table: Revenue | EMEA {#tbl:rev}` relies on it).
     /// `Table: old totals | 5` stays a row, so a grid Save cannot drop it.
     private static func reclaimedCaption(_ raw: String) -> (text: String, label: ManuscriptLabel?)? {
         guard let caption = captionLine(raw) else { return nil }

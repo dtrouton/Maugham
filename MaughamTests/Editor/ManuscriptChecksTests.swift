@@ -438,4 +438,17 @@ final class ManuscriptChecksTests: XCTestCase {
         XCTAssertEqual(frame, CGRect(x: 242, y: 183, width: 58, height: 16))
         XCTAssertLessThan(frame.maxY, 200, "never over the line itself")
     }
+
+    // MARK: - Malformed figure label (hardening 11-01 task 7, F7)
+
+    /// Denver's ruling: a malformed `{#…}` on a figure line warns. (The editor
+    /// has no such mark for a heading or a caption; this is the figure line's.)
+    func test_aMalformedFigureLabelIsMarked_aGoodOneAndCodeAreNot() {
+        let bad = problems("Intro.\n\n![Broken](x.png){#fig:}\n\nOutro.")
+        XCTAssertEqual(bad.map(\.text), ["![Broken](x.png){#fig:}"])
+        XCTAssertEqual(bad.map(\.kind), [.malformedLabel("fig:")])
+        XCTAssertTrue(problems("![Fine](x.png){#fig:y}").isEmpty)
+        XCTAssertTrue(problems("Prose that ends in {#fig:x y}").isEmpty)
+        XCTAssertTrue(problems("```\n![Broken](x.png){#fig:}\n```").isEmpty)
+    }
 }
