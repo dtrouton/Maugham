@@ -6,7 +6,7 @@ The Mac's in-place auto-updater: finding the latest Mac release on GitHub, downl
 
 Every file in `Maugham/Updates/` appears once.
 
-- `UpdateInstaller.swift` — stage-and-verify (`stageAndVerifySync`, `stageAndVerifyUnchecked`), the verify logic, the zip-size gate (`archiveTotals`, `parseZipinfoTotals`, `extractionDecision`), `discardRefusedArchive`, `installMode(installedBundlePath:)`, the atomic swap (`atomicSwap(staged:installed:)`, `pyAtomicSwapSource`), the helper (`helperScript(tools:)`, `helperArguments`, `HelperTools`, `HelperFailureStep`, `launchSwapHelper`), `runningAppTeamID()`, and `PendingUpdateReveal` (the Finder reveal deferred to next launch when a quit-time helper could not be launched).
+- `UpdateInstaller.swift` — stage-and-verify (`stageAndVerifySync`, `stageAndVerifyUnchecked`), the verify logic, the zip-size gate (`archiveTotals`, `parseZipinfoTotals`, `extractionDecision`), `discardRefusedArchive`, `installMode(installedBundlePath:)`, the atomic swap (`pyAtomicSwapSource`), the helper (`helperScript(tools:)`, `helperArguments`, `HelperTools`, `HelperFailureStep`, `launchSwapHelper`), `runningAppTeamID()`, and `PendingUpdateReveal` (the Finder reveal deferred to next launch when a quit-time helper could not be launched).
 - `UpdateChecker.swift` — the background poll, download into place (a `.download` temp, then moved to `Maugham-<ver>.<ext>`; a complete file already there is reused), the trusted-URL check and the pre-download size refusal, stage-and-verify dispatch, `pendingQuitInstall`, `reportInstallStatus(in:)`, `installNotice`, `sweepAfterStage`, and `InstallRefusalMemory` (the two-refusal background guard).
 - `UpdateDownload.swift` — the download itself: a `URLSessionDownloadTask` on its own session (delegate `UpdateDownloadSession`, progress from `didWriteData`), one retry, the cap, the redirect policy (`followsRedirect`), the extension taken from the asset's name.
 - `UpdateLimits.swift` — the size ceilings, `UpdateLimits.standard`: `maxDownloadBytes` 512 MB, `maxUncompressedBytes` 1 GB, `maxFiles` 20 000.
@@ -65,7 +65,7 @@ Every update is checked **twice**: when it is staged (in-app, `stageAndVerifySyn
 ### The atomic swap
 - **The swap is `renamex_np(src, dst, RENAME_SWAP)`, never `rm` then `mv`**: a crash between `rm -rf "<installed>"` and `mv` left `/Applications/Maugham.app` missing until a manual reinstall. `RENAME_SWAP` exchanges the two directory entries atomically; both paths exist throughout (`test_helperScript_usesAtomicSwap_notRmMv`).
 - **`.inflight` is always a sibling of the installed bundle**, so it is on the same volume by construction, which `renamex_np` requires. After the swap it holds the old bundle; if removing it fails, the stale `.inflight` is harmless and is cleaned on the next update.
-- **The `RENAME_SWAP` constant (`0x00000002`) and the call live in two places that must agree**: `UpdateInstaller.pyAtomicSwapSource` (the Python embedded in the bash helper) and `UpdateInstaller.atomicSwap(staged:installed:)` (the Swift unit-testable entry point). The Python source is flush-left (`test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines`).
+- **The Python helper is the one swap**: `UpdateInstaller.pyAtomicSwapSource` (embedded in the bash helper) holds the `RENAME_SWAP` constant (`0x00000002`) and the call; there is no Swift mirror. The Python source is flush-left (`test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines`).
 - **`FileManager.replaceItemAt` is not the primitive**: it moves the destination to a backup path first, so the install location transiently holds the backup, and it is built for files, not bundles.
 
 | Crash point | State | Recovery |
@@ -137,8 +137,6 @@ The app cannot replace its own running bundle, so a detached helper does it.
 | No rm+mv on the installed bundle | Yes | `test_helperScript_usesAtomicSwap_notRmMv` |
 | **The helper end to end**: accept swaps in (no `.inflight`, no status); a codesign or spctl refusal leaves the installed bundle byte-identical, no `.inflight`, `refused <v>`, and with relaunch reopens the old app (stub `open` receives exactly the installed path) and without it opens nothing; a failed copy records `failed <v> ditto` over an older line and reopens; a malformed team stops it before codesign; directory names carrying `"`, `$(touch PWNED)` and a backtick install, reach `open` as one argument, and run nothing; a run that outlives 10 s is terminated and fails rather than hanging | Yes (real `/bin/bash`, `ditto`, `python3`; stub `codesign`/`spctl`/`open` under `TestTemp.root`; an exited pid; skipped without python3) | `UpdateSwapHelperEndToEndTests` |
 | Python swap source is flush-left | Yes | `test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines` |
-| `atomicSwap` same-volume: destination never absent, content swapped | Yes (temp dirs) | `test_atomicSwap_sameVolume_*` |
-| `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
 | Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
 | Download delegate path: completes into place / progress never decreases and ends at 1.0 / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
 | An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |
@@ -157,7 +155,7 @@ The app cannot replace its own running bundle, so a detached helper does it.
 
 ### Change the helper script or the swap (the real-update smoke)
 The full install cycle (codesign + notarize + download + verify + swap + relaunch) is verified only by the real-update smoke; run it after any change to `helperScript` or `pyAtomicSwapSource` in `UpdateInstaller.swift`.
-1. Make the change in `UpdateInstaller.swift`, and keep `atomicSwap(staged:installed:)` and `pyAtomicSwapSource` agreeing.
+1. Make the change in `UpdateInstaller.swift`.
 2. Extend `UpdateSwapHelperEndToEndTests` (stubbed `codesign`/`spctl`/`open`, real `ditto`/`python3`) and the string-inspection tests in `UpdateInstallerTests`.
 3. Cut a throwaway `v0.0.x` tag (`docs/RELEASING.md`); CI builds, signs and notarizes it.
 4. Install the throwaway on a real Mac in `/Applications`.

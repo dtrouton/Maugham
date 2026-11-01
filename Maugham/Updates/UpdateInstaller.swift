@@ -304,64 +304,6 @@ public enum UpdateInstaller {
 }
 
 extension UpdateInstaller {
-    /// Errors from the atomic bundle swap.
-    public enum SwapError: LocalizedError, Equatable {
-        /// The two paths are on different volumes; `renamex_np` requires same-volume.
-        case crossVolume
-        /// The `renamex_np` syscall returned a non-zero status.
-        case renamexFailed(Int32)
-        /// The staged source path does not exist.
-        case sourceNotFound
-        public var errorDescription: String? {
-            switch self {
-            case .crossVolume: return "Bundle swap failed: paths are on different volumes"
-            case .renamexFailed(let code): return "Bundle swap failed: renamex_np returned \(code)"
-            case .sourceNotFound: return "Bundle swap failed: staged bundle not found"
-            }
-        }
-    }
-
-    /// Atomically exchange `stagedURL` ↔ `installedURL` using `renamex_np(RENAME_SWAP)`.
-    ///
-    /// - Both paths must be on the **same volume** (an `.inflight` sibling of the
-    ///   install location satisfies this by construction).
-    /// - After a successful swap, `installedURL` contains the new bundle and
-    ///   `stagedURL` contains the old bundle (which the caller should remove).
-    /// - The install location is **never absent** during this operation —
-    ///   `RENAME_SWAP` exchanges the two directory entries atomically.
-    /// - On failure, neither path is modified.
-    ///
-    /// This function is intentionally small and synchronous so it can be unit-tested
-    /// against real temp-dir paths. The detached bash helper calls it indirectly via
-    /// the equivalent Python ctypes call; this Swift version is used in tests and
-    /// is available for any future Swift-side staging path.
-    public static func atomicSwap(staged stagedURL: URL, installed installedURL: URL) throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: stagedURL.path) else {
-            throw SwapError.sourceNotFound
-        }
-        // Guard same-volume to guarantee renamex_np succeeds.
-        // Use the parent directories' device IDs — they always exist and are
-        // a stable proxy for the volume of their children.
-        let stagedParent   = stagedURL.deletingLastPathComponent().path
-        let installedParent = installedURL.deletingLastPathComponent().path
-        let stagedAttrs   = try fm.attributesOfItem(atPath: stagedParent)
-        let installedAttrs = try fm.attributesOfItem(atPath: installedParent)
-        guard let devStaged    = stagedAttrs[.systemNumber] as? Int,
-              let devInstalled  = installedAttrs[.systemNumber] as? Int,
-              devStaged == devInstalled else {
-            throw SwapError.crossVolume
-        }
-        // RENAME_SWAP (0x2): atomically exchange the two filesystem entries.
-        // Both entries continue to exist throughout — no window where either is absent.
-        let RENAME_SWAP: UInt32 = 0x00000002
-        let rc = renamex_np(stagedURL.path, installedURL.path, RENAME_SWAP)
-        guard rc == 0 else { throw SwapError.renamexFailed(rc) }
-        // After swap, stagedURL holds the OLD bundle. Caller removes it.
-    }
-}
-
-extension UpdateInstaller {
     /// Whether `python3` is resolvable on PATH (it backs the atomic swap via
     /// ctypes → `renamex_np`). Ships with the Command Line Tools, which a clean
     /// macOS may lack — see audit N2. Used as a pre-quit gate in `launchSwapHelper`.
