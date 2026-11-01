@@ -405,7 +405,7 @@
   "call_path": "Rewind modal → confirm sheet (RewindImpact.preview → returningAccepts) → Restore → restoreToOpUndoable → restoreToOp step 8b → RewindModifier toast; HistoryPane → Revert here… → PartialRestorePicker (revertNotes → revertPlan) → restore → answerNotes → Restore.travelStatusLines",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING",
+   "commit": "34504b1f2911eee82b100950885d921b887938b8",
    "date": "2026-11-01",
    "authorised_by": "RULING-57, Denver 2026-11-01 (recommended option accepted)",
    "pinned_by": "RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince",
@@ -422,7 +422,7 @@
   "call_path": "Rewind modal → Restore (target before the accept) → Restore (target after it) → restoreToOp step 8b; or Revert here… to two checkpoints in turn → PartialRestorePicker.answerNotes",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "PENDING",
+   "commit": "34504b1f2911eee82b100950885d921b887938b8",
    "date": "2026-11-01",
    "authorised_by": "RULING-26 (the controller filed it there on 2026-11-01 rather than under RULING-57)",
    "pinned_by": "RewindReturningAcceptTests.test_forwardTravelOverARewindsOwnRevert_returnsTheSuggestionToAccepted + test_forwardTravelOverTheReturnJourneysReopen_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted",
@@ -491,7 +491,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "11 violations over 9 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (hardening 11-01 reverse stranding, PENDING)"
+   "distinct_defects": "11 violations over 9 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (34504b1f, 2026-11-01, hardening 11-01 reverse stranding)"
   }
  }
 ]
