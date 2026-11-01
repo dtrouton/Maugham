@@ -43,10 +43,10 @@ extension ProjectWindow {
     /// expressible and the guard went with the enum it was asked of. Its
     /// successor question is about the find OVERLAY — with the panel over the
     /// column there is no row to click — and the answer is asserted rather than
-    /// assumed: `treeFindActive` is window `@State` no relaunch restores and
-    /// Escape puts the tree back
-    /// (`ProjectSubjectReachabilityTests.test_theFindOverlayIsNotATrapBecauseTheTreeComesBack`),
-    /// which are exactly the two properties that Critical lacked. So the overlay
+    /// assumed: `treeFindActive` is window `@State` no relaunch restores,
+    /// Escape puts the tree back, and ⌘⌥O reaches the project row with the
+    /// overlay up (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`),
+    /// which are exactly the properties that Critical lacked. So the overlay
     /// is deliberately NOT a term here.
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)

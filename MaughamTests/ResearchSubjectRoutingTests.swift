@@ -103,7 +103,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// into it. That is the 2a Critical, and Task 7 removed the state rather
     /// than the guard: Plan has one left column, it is the tree, and the tree
     /// gives the column back
-    /// (`ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`).
+    /// (`ProjectSubjectReachabilityTests.test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway`).
     func test_planPreviewsBesideTheCanvasAndNeverGivesTheBoardAway() {
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(

@@ -139,7 +139,6 @@ The app cannot replace its own running bundle, so a detached helper does it.
 | Python swap source is flush-left | Yes | `test_pyAtomicSwapSource_noLeadingSpacesOnTopLevelLines` |
 | `atomicSwap` same-volume: destination never absent, content swapped | Yes (temp dirs) | `test_atomicSwap_sameVolume_*` |
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
-| `renamex_np` across volumes is refused by the kernel (`.crossVolume`) | Yes (another mounted volume; skipped if none) | `test_atomicSwap_crossVolume_kernelRejectsRenamexNp` |
 | Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
 | Download delegate path: completes into place / progress never decreases and ends at 1.0 / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
 | An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |

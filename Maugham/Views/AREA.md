@@ -288,7 +288,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Research subjects and the palette wall
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
-- **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`.
+- **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway`.
 - **Where the centre is the canvas, a research subject never swaps the centre out**; it previews in the right column. Elsewhere it takes the centre.
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.

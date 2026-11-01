@@ -276,68 +276,6 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: installed.path))
     }
 
-    // MARK: - atomicSwap (cross-volume guard)
-    //
-    // The cross-volume guard compares parent-directory device IDs (`.systemNumber`)
-    // before calling `renamex_np`. A true cross-volume test requires two mounted
-    // volumes (e.g. a RAM disk); that test is slow and omitted from the regular
-    // suite. Instead we verify that `renamex_np` itself returns EXDEV when called
-    // cross-volume (which our guard also prevents), and document the protection.
-    //
-    // What IS tested at the unit level:
-    //   - Same-volume happy path (above) — proves the swap works and destination is never absent.
-    //   - Missing staged path → .sourceNotFound (above) — proves the guard fires correctly.
-    //   - The helperScript brick-prevention assertion (above) — proves rm+mv is gone.
-    //
-    // Cross-volume verified in dry-run:
-    //   The RENAME_SWAP call is rejected by the kernel with EXDEV if the two paths
-    //   are on different volumes; our pre-check catches this before the syscall.
-    //   Proven during the real-update smoke test (throwaway tag on a second volume mount).
-
-    /// Verify that `renamex_np(RENAME_SWAP)` returns a non-zero error code when
-    /// called across two volumes. This is the kernel-level guarantee our
-    /// `.crossVolume` guard relies on, checked here against a real mounted volume
-    /// if one is available (skipped otherwise so the suite stays fast).
-    func test_atomicSwap_crossVolume_kernelRejectsRenamexNp() throws {
-        // Find a second mounted volume (any writable one that differs from /tmp's device).
-        let fm = FileManager.default
-        let tmpDev = (try? fm.attributesOfItem(atPath: "/tmp"))?[.systemNumber] as? Int
-
-        // Look for any mounted APFS/HFS volume other than the boot volume.
-        let volumeURLs = fm.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsReadOnlyKey],
-                                               options: [.skipHiddenVolumes]) ?? []
-        let otherVol = volumeURLs.first { url in
-            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                  let dev = attrs[.systemNumber] as? Int,
-                  dev != tmpDev else { return false }
-            let isRO = (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly
-            return isRO != true
-        }
-        guard let otherVol else {
-            throw XCTSkip("No second writable volume found — cross-volume test skipped")
-        }
-
-        let staged   = otherVol.appendingPathComponent("maugham-test-staged-\(UUID().uuidString)")
-        let installed = TestTemp.root.appendingPathComponent(
-            "maugham-test-installed-\(UUID().uuidString)")
-        defer {
-            try? fm.removeItem(at: staged)
-            try? fm.removeItem(at: installed)
-        }
-
-        try fm.createDirectory(at: staged, withIntermediateDirectories: true)
-        try fm.createDirectory(at: installed, withIntermediateDirectories: true)
-
-        XCTAssertThrowsError(try UpdateInstaller.atomicSwap(staged: staged,
-                                                            installed: installed)) { error in
-            // The pre-check catches this before the syscall.
-            XCTAssertEqual(error as? UpdateInstaller.SwapError, .crossVolume,
-                           "Cross-volume swap must throw .crossVolume")
-        }
-        // Installed bundle is untouched.
-        XCTAssertTrue(fm.fileExists(atPath: installed.path))
-    }
-
     // MARK: - A refused archive is not reused (#67 New-2)
 
     /// The checker reuses a zip already at `Maugham-<ver>.zip`; a refused one

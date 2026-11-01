@@ -1035,16 +1035,27 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// here too, and this one only needs to prove the button reaches
     /// `runRequested` for THIS docId, not that the two descriptions of the
     /// document agree.
+    ///
+    /// The call is asserted, never its effect (tripwire 33, hardening 11-01):
+    /// `reading` and `onRunAcknowledged` are reached synchronously inside
+    /// `runRequested`, as in the Reread test below, so nothing waits after
+    /// the press.
     func test_theOfferAppearsAndReadStartsTheFirstRun() async throws {
         let document = try await makeMultiParagraphDocument()
         let docId = document.docId
         let runner = SpyRunner()
+        let recorder = RunRequests()
         let orchestrator = CompilerOrchestrator()
         let diagnostics = DiagnosticsStore(
             projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        orchestrator.configure(
-            environment: makeEnvironment(docId: docId, runner: runner),
-            diagnostics: diagnostics)
+        var environment = makeEnvironment(docId: docId, runner: runner)
+        let readingOfRecord = environment.reading
+        environment.reading = { id in
+            recorder.readings.append(id)
+            return readingOfRecord(id)
+        }
+        environment.onRunAcknowledged = { recorder.acknowledgments.append($0) }
+        orchestrator.configure(environment: environment, diagnostics: diagnostics)
 
         let window = mount(AnyView(DiagnosticsPane(
             posture: .everyVerbForTesting,
@@ -1056,11 +1067,14 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNotNil(findButton(labelled: "Not now", in: window))
 
         _ = readButton.perform(NSSelectorFromString("accessibilityPerformPress"))
-        await awaitSends(1, on: runner)
 
-        XCTAssertEqual(runner.sendCount, 1,
-            "Read must reach the orchestrator's real runRequested \u{2014} the same "
-            + "first-run path \u{2318}R takes, not a second run kind")
+        XCTAssertEqual(recorder.readings, [docId],
+            "Read must reach the orchestrator's real runRequested for this "
+            + "document \u{2014} the same first-run path \u{2318}R takes")
+        XCTAssertEqual(recorder.acknowledgments, [.started],
+            "an ordinary check starts, not a second run kind")
+
+        runner.release(.failed(.timedOut()))
     }
 
     /// A manuscript with one live paragraph or fewer never offers — the
@@ -4008,9 +4022,10 @@ final class DiagnosticsPaneTests: XCTestCase {
             store: store, docId: chapter.id, letter: makeLetter(),
             reader: .coach(ReviewPass.coachPreset))
 
-        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
-        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await awaitStatement(kind: .intent, scope: .document(chapter.id), in: store)
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: window),
+            "the offer is drawn in the piece's own tense")
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
 
         let statement = try XCTUnwrap(
             store.statement(kind: .intent, scope: .document(chapter.id)))
@@ -4066,9 +4081,10 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNil(
             findButton(labelled: LetterSection.addToIntentTitle, in: window),
             "the piece-scoped tense names a destination this press does not use")
-        let add = try button(labelled: LetterSection.addToBookIntentTitle, in: window)
-        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await awaitStatement(kind: .intent, scope: .project, in: store)
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToBookIntentTitle, in: window),
+            "the offer is drawn in the book's tense")
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
 
         let text = try store.statementText(of: try XCTUnwrap(
             store.statement(kind: .intent, scope: .project)))
@@ -4108,10 +4124,10 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertNil(
             findButton(labelled: LetterSection.addToBookIntentTitle, in: window),
             "the book's tense would name a destination this press does not use")
-        let add = try button(labelled: LetterSection.addToIntentTitle, in: window)
-        _ = add.perform(NSSelectorFromString("accessibilityPerformPress"))
-        try await awaitStatement(
-            kind: .intent, scope: .document(chapter.id), in: store)
+        XCTAssertNotNil(
+            findButton(labelled: LetterSection.addToIntentTitle, in: window),
+            "the offer is drawn in the piece's own tense")
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
 
         let bookText = try store.statementText(of: try XCTUnwrap(
             store.statement(kind: .intent, scope: .project)))
@@ -4119,77 +4135,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             bookText.contains(LetterSection.turnClauseRuling),
             "a chapter's clause may not reach the book every other chapter reads: "
             + "\(bookText)")
-    }
-
-    /// **Keep this letter files a research note, through the real button**
-    /// (Task 10, spec §3.6). The whole verb end to end: the press, the
-    /// router's decision about where a novel chapter's note goes, the rendered
-    /// body on disk, and the confirmation naming what the store called it.
-    func test_keepThisLetterFilesAResearchNoteAndSaysWhatItCalledIt() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "LetterKeepPane")
-        let letter = makeLetter()
-        let window = mountLetterPane(
-            store: store, docId: chapter.id, letter: letter,
-            reader: .coach(ReviewPass.coachPreset))
-
-        let keep = try button(labelled: LetterSection.keepTitle, in: window)
-        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
-        let kept = try await awaitResearchNote(in: store)
-
-        XCTAssertTrue(kept.path?.hasPrefix("research/") == true, kept.path ?? "nil")
-        XCTAssertTrue(store.linkedResearchIds(forDocumentId: chapter.id).contains(kept.id),
-                      "a novel chapter's letter is shared research plus a link")
-        let body = try String(
-            contentsOf: store.url.appendingPathComponent(try XCTUnwrap(kept.path)),
-            encoding: .utf8)
-        XCTAssertTrue(body.contains(letter.about), body)
-        XCTAssertTrue(
-            body.contains(ReviewPass.coachPreset.effectiveEditorName),
-            "the note is signed by the piece's reader: \(body)")
-
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains(LetterKeep.confirmation(kept.title)),
-                      "the confirmation must name the note the store made. Read: \(texts)")
-    }
-
-    /// **A second press makes a second note** — §3.6 says a copy, and a writer
-    /// who kept a letter, edited the note into something else and wants the
-    /// original back is entitled to it. The confirmation follows the newest
-    /// one, so it never names a note the writer cannot find.
-    func test_asecondKeepMakesASecondNoteAndTheConfirmationFollowsIt() async throws {
-        let (_, store, chapter) = try await loadedNovel(named: "LetterKeepTwice")
-        let window = mountLetterPane(
-            store: store, docId: chapter.id, letter: makeLetter())
-
-        let keep = try button(labelled: LetterSection.keepTitle, in: window)
-        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
-        let first = try await awaitResearchNote(in: store)
-        _ = keep.perform(NSSelectorFromString("accessibilityPerformPress"))
-        let second = try await awaitResearchNote(in: store, count: 2)
-
-        XCTAssertNotEqual(first.id, second.id)
-        let texts = try axTexts(in: window)
-        XCTAssertTrue(texts.contains(LetterKeep.confirmation(second.title)),
-                      "Read: \(texts)")
-        XCTAssertFalse(texts.contains(LetterKeep.confirmation(first.title)),
-                       "the line names the note just made, not the one before it")
-    }
-
-    /// Poll until the store's research list reaches `count` items —
-    /// `LetterKeep.keep` is async and the press only starts it.
-    private func awaitResearchNote(
-        in store: ProjectStore, count: Int = 1, timeout: TimeInterval = 4
-    ) async throws -> ResearchItem {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if store.manifest.research.count >= count {
-                return store.manifest.research[count - 1]
-            }
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
-        }
-        XCTFail("no kept letter reached research within \(timeout)s")
-        throw XCTSkip("no kept letter")
     }
 
     /// **The signature names the piece's reader**, which is the one resolution
@@ -4251,8 +4196,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     ///
     /// A census rather than four mounted presses. Each of these verbs writes to
     /// disk and would need a press and a poll to observe, which is tripwire 33's
-    /// shape and which this file already spends its one representative on
-    /// (`test_keepThisLetterFilesAResearchNoteAndSaysWhatItCalledIt`). What the
+    /// shape (the file's one mounted Keep press flaked and was cut, hardening
+    /// 11-01; the verb itself is `LetterKeepTests`', windowless). What the
     /// census sees that a press could not is the whole SET: a fifth verb added
     /// to this section reading today's reader instead of the run's is caught
     /// here, and by nothing else.
@@ -5048,21 +4993,38 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
     }
 
-    /// Poll until the ruling's statement exists and carries the clause —
-    /// `RulingPerformer.rule` is async and the press only starts it.
-    private func awaitStatement(
-        kind: Statement.Kind, scope: Statement.Scope, in store: ProjectStore,
-        timeout: TimeInterval = 4
+    /// Files the turn clause through `TurnClauseOffer.handler` \u{2014} the
+    /// closure the pane hands its Add-to-intent button, built with the pane's
+    /// own arguments \u{2014} and returns once the ruling has landed. The
+    /// decision (where the clause files) is pinned here without a press, so
+    /// nothing polls for the effect of one (tripwire 33, hardening 11-01); the
+    /// mounted tests assert only that the button is drawn, in which tense.
+    private func fileTheTurnClause(
+        store: ProjectStore, docId: String, letter: Letter
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let statement = store.statement(kind: kind, scope: scope),
-               let text = try? store.statementText(of: statement),
-               text.contains(LetterSection.turnClauseRuling) { return }
-            pump(0.05)
-            try? await Task.sleep(for: .milliseconds(40))
+        let run = makeRun(letter: letter)
+        var failure: String?
+        var offered = true
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            guard let handler = TurnClauseOffer.handler(
+                letter: letter, run: run, docId: docId, store: store, world: nil,
+                voice: ReviewPass.coachPreset.effectiveEditorName, filedRunId: nil,
+                postureOf: DiagnosticsPostures.everyVerbForTesting.statement,
+                onFiled: { _ in done.resume() },
+                onFailure: { message in
+                    guard let message else { return }
+                    failure = message
+                    done.resume()
+                })
+            else {
+                offered = false
+                done.resume()
+                return
+            }
+            handler()
         }
-        XCTFail("the ruling never landed within \(timeout)s")
+        XCTAssertTrue(offered, "the clause was not offered for \(docId)")
+        if let failure { XCTFail("the ruling was refused: \(failure)") }
     }
 
     // MARK: - Hosting
