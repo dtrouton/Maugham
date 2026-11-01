@@ -328,7 +328,15 @@ private struct Pass {
                 figures.append((number, caption, t))
                 register(label, expected: .fig, target: t, piece: piece, paragraph: paragraph)
                 resolveImage(path, piece: piece, index: index, paragraph: paragraph)
-            case .paragraph, .blockquote, .sceneBreak, .list, .verbatim:
+            case .paragraph(let inlines):
+                // A figure line whose `{#…}` block the block layer refused
+                // stays plain text; warn, as a heading or a caption does.
+                if inlines.count == 1, case .text(let line) = inlines[0], !line.contains("\n"),
+                   let raw = ManuscriptIndex.malformedFigureBlock(line) {
+                    report(.malformedLabel(String(raw.dropFirst(2).dropLast())),
+                           piece: piece, paragraph: paragraph)
+                }
+            case .blockquote, .sceneBreak, .list, .verbatim:
                 continue
             }
         }
@@ -362,8 +370,9 @@ private struct Pass {
 
     /// A trailing `{#…}` that `ManuscriptAttributes.split` refused stays as
     /// the last text inline of a heading or a table caption. Reliable there,
-    /// and only there: a figure with a bad block isn't a figure at all (it
-    /// degrades to a paragraph), and prose may say `{#x}` on purpose.
+    /// and only there: prose may say `{#x}` on purpose. A figure line with a bad block
+    /// degrades to a paragraph; `collect` warns for it through
+    /// `ManuscriptIndex.malformedFigureBlock`.
     private mutating func checkMalformed(_ inlines: [ProjectAST.Inline], piece: String, paragraph: String?) {
         guard case .text(let last)? = inlines.last, last.hasSuffix("}"),
               let open = last.range(of: "{#", options: .backwards) else { return }

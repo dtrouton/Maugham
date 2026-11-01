@@ -180,8 +180,9 @@ public struct ManuscriptIndex: Sendable {
     }
 
     /// A one-line paragraph that is a figure line but for its malformed
-    /// trailing `{#…}` block (the block layer left it plain text).
-    private static func malformedFigureBlock(_ line: String) -> String? {
+    /// trailing `{#…}` block (the block layer left it plain text). Public:
+    /// publish's resolution walk asks the same question.
+    public static func malformedFigureBlock(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard let raw = trailingBlock(trimmed) else { return nil }
         let image = String(trimmed.dropLast(raw.count)).trimmingCharacters(in: .whitespaces)

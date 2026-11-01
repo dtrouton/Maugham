@@ -43,7 +43,7 @@ public enum ManuscriptBlocks {
                 let aligns = alignments(rawLines, count: header.count)
                 // The parser keeps a `Table: a | b` caption as a row; take it back.
                 if !rows.isEmpty, let last = rawLines.last,
-                   let caption = captionLine(last) {
+                   let caption = reclaimedCaption(last) {
                     rows.removeLast()
                     out.append((.table(header: header, alignments: aligns, rows: rows,
                                        caption: caption.text, label: caption.label), lines))
@@ -110,6 +110,25 @@ public enum ManuscriptBlocks {
         guard trimmed.hasPrefix("Table: ") else { return nil }
         let split = ManuscriptAttributes.split(String(trimmed.dropFirst("Table: ".count)))
         return (split.text.trimmingCharacters(in: .whitespaces), split.label)
+    }
+
+    /// True when `raw` has a `|` that is not escaped as `\|`.
+    private static func hasUnescapedPipe(_ raw: String) -> Bool {
+        var escaped = false
+        for ch in raw {
+            if escaped { escaped = false; continue }
+            if ch == "\\" { escaped = true } else if ch == "|" { return true }
+        }
+        return false
+    }
+
+    /// The parser keeps a `Table: …` line that bears a column pipe as a data
+    /// row. Take it back as the caption only when it cannot be data: no
+    /// unescaped pipe, or a valid `{#…}` label (a data row never ends in one).
+    /// `Table: old totals | 5` stays a row, so a grid Save cannot drop it.
+    private static func reclaimedCaption(_ raw: String) -> (text: String, label: ManuscriptLabel?)? {
+        guard let caption = captionLine(raw) else { return nil }
+        return hasUnescapedPipe(raw) && caption.label == nil ? nil : caption
     }
 
     // The caption may contain `]` but not `](`, so two images on a line never

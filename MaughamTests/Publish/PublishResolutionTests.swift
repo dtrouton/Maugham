@@ -269,6 +269,20 @@ final class PublishResolutionTests: XCTestCase {
         ])
     }
 
+    /// F7 (Denver: warn): a figure line whose `{#…}` block is malformed warns
+    /// like a heading or a caption; a healthy figure, plain prose that merely
+    /// ends in a brace block, and a two-image line stay quiet.
+    func test_aMalformedLabel_onAFigureLine_isAWarning() throws {
+        let book = Book(pieces: [("a", [
+            ("a1b2", "![Broken](x.png){#fig:}"),
+            ("c3d4", "![Fine](y.png){#fig:y}"),
+            ("e5f6", "Prose that ends in {#fig:x y}"),
+        ])], context: context())
+        let r = try resolve(book)
+        XCTAssertEqual(r.problems.filter { if case .malformedLabel = $0.kind { return true } else { return false } },
+                       [.init(kind: .malformedLabel("fig:"), pieceID: "a", paragraphID: "a1b2", bodyTag: nil)])
+    }
+
     func test_anUnresolvedCrossRef_namesItsParagraph() throws {
         let book = Book(pieces: [("a", [("a1b2", "Intro."), ("c3d4", "See @fig:revenue.")])],
                         context: context())
