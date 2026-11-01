@@ -370,4 +370,99 @@ final class RewindReturningAcceptTests: XCTestCase {
         um.redo(); await h.doc.awaitPendingUndoWork()
         XCTAssertEqual(status(h.doc, id), .accepted, "redo is a fresh forward travel")
     }
+
+    // MARK: - A tick on a restore op (M4-RW-042, M4-RW-040)
+
+    /// accept → rewind to before it (restore op R, then step 8's reopen V) →
+    /// accept again → rewind to the tick R. R's text lacks the change, and
+    /// at R's moment — R with the lines it wrote — the note was open; the
+    /// second accept is stranded and is reopened, and the sheet says so.
+    func test_aTickOnARestoreOp_strandsAnAcceptMadeSince() async throws {
+        let h = try await makeHarness()
+        let early = try await tip(h.doc)
+        let id = try await acceptFirst(h.doc, h.pid)
+        let back = try await h.doc.restoreToOp(opId: early)
+        let tick = try XCTUnwrap(back.restoreOp?.opId)
+        XCTAssertEqual(status(h.doc, id), .open, "precondition: step 8 reopened it")
+        try await h.doc.acceptAnnotation(id: id, userResponse: "again")
+        XCTAssertTrue(h.doc.materialize().contains("First, improved."), "precondition")
+
+        let p = RewindImpact.preview(ops: try await h.doc.opLog(), cursorOpId: tick)
+        let r = try await h.doc.restoreToOp(opId: tick)
+
+        XCTAssertFalse(h.doc.materialize().contains("improved"), "R's text lacks the change")
+        XCTAssertEqual(status(h.doc, id), .open, "so the accept is stranded and reopened")
+        XCTAssertEqual(p.acceptsToReopen, 1, "and the sheet promised it")
+        XCTAssertEqual(r.reopenedAnnotationOpIds, [id])
+    }
+
+    /// accept → rewind to before it (R, V) → type in that paragraph → rewind
+    /// to the tick R. At R's moment the note was open over text without the
+    /// change, so nothing returns to accepted.
+    func test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen() async throws {
+        let h = try await makeHarness()
+        let early = try await tip(h.doc)
+        let id = try await acceptFirst(h.doc, h.pid)
+        let back = try await h.doc.restoreToOp(opId: early)
+        let tick = try XCTUnwrap(back.restoreOp?.opId)
+        h.doc.setParagraph(id: h.pid, text: "First, typed.")
+        try await h.doc.flushBurstNow()
+
+        let p = RewindImpact.preview(ops: try await h.doc.opLog(), cursorOpId: tick)
+        let r = try await h.doc.restoreToOp(opId: tick)
+
+        XCTAssertTrue(r.restoreOp?.changes.contains { $0.paragraphId == h.pid } == true,
+                      "precondition: the restore wrote the note's paragraph")
+        XCTAssertFalse(h.doc.materialize().contains("improved"))
+        XCTAssertEqual(status(h.doc, id), .open)
+        XCTAssertEqual(p.acceptsToRestore, 0)
+        XCTAssertTrue(r.returnedAcceptAnnotationIds.isEmpty)
+    }
+
+    // MARK: - momentEnd, pure
+
+    private func op(_ id: String, _ kind: OpKind, changes: [Op.ParagraphChange] = [],
+                    source: SynthesisSource? = nil, checkpoint: String? = nil) -> Op {
+        Op(opId: id, docId: "d", at: Date(), device: "m", session: "s", kind: kind,
+           changes: changes, sequence: nil,
+           provenance: .init(sourceCheckpoint: checkpoint, synthesisSource: source,
+                             sourceAnnotationId: "n"))
+    }
+
+    /// A checkpoint revert's lines carry its checkpoint stamp, and are its
+    /// moment; a rewind's lines carry `.rewind`; a fresh marker-only rewind
+    /// after them starts its own moment; a target that is no restore's is
+    /// its own.
+    func test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther() {
+        let text = [Op.ParagraphChange(paragraphId: "a1b2", prior: "x", next: "y")]
+        let revert = [
+            op("01A", .checkpointRestore, changes: text, checkpoint: "ck"),
+            op("01B", .claudeAcceptRevert, checkpoint: "ck"),
+            op("01C", .claudeAccept, checkpoint: "ck"),
+            op("01D", .claudeAccept, changes: text),
+        ]
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: revert), "01C")
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01B", in: revert), "01C")
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01D", in: revert), "01D")
+
+        let rewind = [
+            op("01A", .checkpointRestore, changes: text, source: .rewind, checkpoint: "00Z"),
+            op("01B", .claudeArchive, source: .rewind),
+            op("01C", .claudeAcceptRevert, source: .rewind),
+            op("01D", .checkpointRestore, source: .rewind, checkpoint: "00Y"),
+            op("01E", .claudeArchive, source: .rewind),
+        ]
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: rewind), "01C",
+                       "a marker-only rewind after the run is its own moment")
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01D", in: rewind), "01E")
+
+        let undo = [
+            op("01A", .checkpointRestore, changes: text, source: .undoRewind, checkpoint: "00Z"),
+            op("01B", .claudeArchive, source: .rewind),
+            op("01C", .checkpointRestore, source: .rewind, checkpoint: "00Y"),
+            op("01D", .claudeAccept, source: .undoRewind),
+        ]
+        XCTAssertEqual(RewindImpact.momentEnd(of: "01A", in: undo), "01D",
+                       "an undo's task-window closer is inside the undo's moment")
+    }
 }

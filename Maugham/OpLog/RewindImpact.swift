@@ -204,6 +204,10 @@ enum RewindImpact {
     /// (`returningAccepts`): RULING-57 applies only where the travel itself
     /// puts the text back.
     ///
+    /// "At the target" means at the END of the moment the target names
+    /// (`momentEnd`): a tick on a restore op includes the lines that restore
+    /// wrote behind it.
+    ///
     /// Sorted by annotation id. Each caller walks ONCE — `restoreToOp`,
     /// `preview`, `PartialRestorePicker.revertPlan` — and hands the result to
     /// the filters below; step 8 and its sibling act on those lists and the
@@ -213,6 +217,9 @@ enum RewindImpact {
         in ops: [Op], target targetOpId: String,
         amendments: AnnotationAmendments
     ) -> [TravelStatusChange] {
+        // The moment a tick names: a restore op and the status lines that
+        // same restore wrote behind it are ONE moment (`momentEnd`).
+        let cut = momentEnd(of: targetOpId, in: ops)
         var latest: [String: Op] = [:], latestAtTarget: [String: Op] = [:]
         var textAccept: [String: Op] = [:], textAcceptAtTarget: [String: Op] = [:]
         func newer(_ op: Op, than held: Op?, ties: Bool) -> Bool {
@@ -220,7 +227,7 @@ enum RewindImpact {
         }
         for op in ops {
             guard let src = op.provenance?.sourceAnnotationId else { continue }
-            let atTarget = op.opId <= targetOpId           // ULID order
+            let atTarget = op.opId <= cut                   // ULID order
             if op.kind == .claudeAccept, !op.changes.isEmpty {
                 if newer(op, than: textAccept[src], ties: false) { textAccept[src] = op }
                 if atTarget, newer(op, than: textAcceptAtTarget[src], ties: false) {
@@ -242,14 +249,14 @@ enum RewindImpact {
             let acceptedAtTarget = latestAtTarget[src]?.kind == .claudeAccept
                 && textAcceptAtTarget[src] != nil
             if now.kind == .claudeAccept, !acceptedAtTarget,
-               let accept = textAccept[src], accept.opId > targetOpId,
+               let accept = textAccept[src], accept.opId > cut,
                let pid = accept.changes.first?.paragraphId {
                 return .init(annotationId: src, class: .stranded, paragraphId: pid,
                              userResponse: nil, isWithdrawn: false)
             }
             let tookTheChangeOut = now.kind == .claudeAcceptRevert
                 || (now.kind == .annotationReopen && now.provenance?.synthesisSource == .rewind)
-            if tookTheChangeOut, now.opId > targetOpId, acceptedAtTarget,
+            if tookTheChangeOut, now.opId > cut, acceptedAtTarget,
                let accept = textAcceptAtTarget[src],
                let pid = accept.changes.first?.paragraphId {
                 return .init(annotationId: src, class: .returning, paragraphId: pid,
@@ -265,6 +272,59 @@ enum RewindImpact {
             .init(annotationId: $0.annotationId, class: $0.class, paragraphId: $0.paragraphId,
                   userResponse: $0.userResponse, isWithdrawn: withdrawn.contains($0.annotationId))
         }
+    }
+
+    /// **The last op of the moment `targetOpId` names.** A restore appends
+    /// its restore op first and the status lines that answer it after:
+    /// `restoreToOp`'s sweep archives (step 7), reopens (step 8), re-accepts
+    /// (8b, 9), an undo's compensations, a checkpoint revert's
+    /// `Restore.travelStatusLines`. The restore op's text already reflects
+    /// the travel, so a tick on it (rewound ticks are selectable) means the
+    /// moment AFTER those lines; a cut at the restore op alone reads the
+    /// statuses from before the travel over text from after it.
+    ///
+    /// So when the target is a restore op, or one of its trailing lines, the
+    /// cut extends over the contiguous run of lines that restore wrote. A
+    /// trailing line is changes-free, of a lifecycle kind, and stamped as
+    /// that restore's: `.rewind`/`.undoRewind` behind a rewind or its undo,
+    /// the restore op's own `sourceCheckpoint` behind a checkpoint revert.
+    /// Inside an undo's run (an `.undoRewind` restore) the task-window closer
+    /// — a changes-free `.rewind` restore op — is part of it; anywhere else a
+    /// restore op starts a new moment. Decided by kind and stamp, never by
+    /// text. Any other target is its own moment.
+    static func momentEnd(of targetOpId: String, in ops: [Op]) -> String {
+        guard let t = ops.firstIndex(where: { $0.opId == targetOpId }) else { return targetOpId }
+        func trails(_ op: Op, _ restore: Op) -> Bool {
+            guard op.changes.isEmpty else { return false }
+            let source = op.provenance?.synthesisSource
+            if op.kind == .checkpointRestore {
+                return source == .rewind
+                    && restore.provenance?.synthesisSource == .undoRewind
+            }
+            guard Document.isLifecycleOpKind(op.kind) else { return false }
+            if source == .rewind || source == .undoRewind {
+                return restore.provenance?.synthesisSource != nil
+            }
+            guard restore.provenance?.synthesisSource == nil,
+                  let stamp = restore.provenance?.sourceCheckpoint else { return false }
+            return op.provenance?.sourceCheckpoint == stamp
+        }
+        // Back from the target to the restore op whose run it is in, over
+        // lines that could trail one; anything else means no restore's run.
+        // (Behind an undo's task-window closer the walk stops at the closer,
+        // whose own run is the rest of the undo's — the same end.)
+        var start = t
+        while ops[start].kind != .checkpointRestore {
+            guard start > 0, ops[start].changes.isEmpty else { return targetOpId }
+            start -= 1
+        }
+        let restore = ops[start]
+        guard ops[start...t].dropFirst().allSatisfy({ trails($0, restore) }) else {
+            return targetOpId
+        }
+        var end = t
+        while end + 1 < ops.count, trails(ops[end + 1], restore) { end += 1 }
+        return ops[end].opId
     }
 
     /// **The accepts a return strands** (RULING-28): the stranded class of

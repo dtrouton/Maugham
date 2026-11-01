@@ -417,6 +417,12 @@
    "authorised_by": "RULING-57, Denver 2026-11-01 (recommended option accepted)",
    "pinned_by": "RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince",
    "note": "New claim, filed VIOLATES against the code before the fix and flipped VIOLATES→COMPLIES with it (hardening 11-01 reverse stranding)."
+  },
+  "fix_2": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
+   "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen"
   }
  },
  {
@@ -451,6 +457,12 @@
    "authorised_by": "RULING-26",
    "pinned_by": "RewindReturningAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted + PartialRestoreStrandedAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted",
    "note": "Found by the reverse-stranding whole-branch review; flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding fix)."
+  },
+  "fix_2": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd.",
+   "pinned_by": "RewindReturningAcceptTests.test_aTickOnARestoreOp_strandsAnAcceptMadeSince"
   }
  },
  {
