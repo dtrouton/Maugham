@@ -4,8 +4,7 @@ import Foundation
 /// can be decided about a figure line's path from the STRING alone, no disk.
 /// Publish's `FigureImageResolver` calls it before touching the disk, and the
 /// editor's figure-line lookup (`FigureLineResolution`) and plan 7b's F9
-/// diagnostic share it, so the editor and a build agree on what a path means
-/// (never the weaker dead `ManuscriptIndex` rule).
+/// diagnostic share it, so the editor and a build agree on what a path means.
 ///
 /// A figure path is written relative to its piece's own file; it is accepted
 /// only inside the project's `figures/`, the project's `research/`, or, for a

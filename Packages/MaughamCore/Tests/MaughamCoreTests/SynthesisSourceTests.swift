@@ -87,11 +87,21 @@ final class SynthesisSourceTests: XCTestCase {
             modified: Date(timeIntervalSince1970: 0),
             structure: [], research: [])
         let bytes = try ProjectManifest.makeEncoder().encode(manifest)
-        let decoded = try ProjectManifest.makeDecoder()
-            .decode(ProjectManifest.self, from: bytes)
-        XCTAssertEqual(decoded.schemaVersion, 9)
-        XCTAssertGreaterThan(decoded.schemaVersion, 8,
-            "an older build's decodeGuardingSchema ceiling")
+        XCTAssertThrowsError(try ProjectManifest.decodeGuardingSchema(bytes, ceiling: 8)) { error in
+            guard let e = error as? ProjectManifest.SchemaTooNewError else {
+                return XCTFail("Expected SchemaTooNewError, got \(error)")
+            }
+            XCTAssertEqual(e.found, 9)
+            XCTAssertEqual(e.supported, 8)
+        }
+        XCTAssertNoThrow(try ProjectManifest.decodeGuardingSchema(bytes, ceiling: 9))
+        // A ceiling-9 build refuses a schema-10 manifest.
+        let ten = try ProjectManifest.makeEncoder().encode(ProjectManifest(
+            schemaVersion: 10, type: .novel, title: "T", author: "A",
+            created: Date(timeIntervalSince1970: 0),
+            modified: Date(timeIntervalSince1970: 0),
+            structure: [], research: []))
+        XCTAssertThrowsError(try ProjectManifest.decodeGuardingSchema(ten, ceiling: 9))
         // And this build accepts it.
         XCTAssertNoThrow(try ProjectManifest.decodeGuardingSchema(bytes))
     }

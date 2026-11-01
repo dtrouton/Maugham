@@ -49,8 +49,8 @@ public extension ManuscriptLabel.Kind {
     /// (`figures/<name>.csv`, any case), read off the line alone, no
     /// registry. An image line labelled `tbl:` or a table figure labelled
     /// `fig:` is a kind mismatch that keeps the figure answer here (diagnosed
-    /// in plan 7b). The one rule the editor's index, its live checks,
-    /// `ManuscriptIndex` and Publish's numbering share, so they agree.
+    /// in plan 7b). The one rule the editor's index, its live checks
+    /// and Publish's numbering share, so they agree.
     static func ofFigureLine(path: String, label: ManuscriptLabel?) -> Self {
         isTableFigurePath(path) && label?.kind != .fig ? .tbl : .fig
     }

@@ -93,7 +93,6 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `TableClipboard.swift` — spreadsheet cells as tab-separated text, read and written by Excel's quoting.
 - `ManuscriptLabel.swift` — `ManuscriptLabel` (`fig`/`tbl`/`sec`) and `ManuscriptAttributes.split`, the trailing `{#kind:name}` reader.
 - `ManuscriptInlineScanner.swift` — finds footnote references, citations and cross-references inside sentences.
-- `ManuscriptIndex.swift` — the project index: labels, cited keys and every diagnostic, line by line.
 - `MarkdownDisplayFilter.swift` — strips the op-log anchors for display; the single anchor-stripping source.
 - `InlineEmphasisScanner.swift` — flattens asterisk emphasis into runs and marker ranges for any renderer.
 - `EmphasisTraits.swift` — the bold/italic option set an emphasis run carries.
@@ -282,7 +281,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 
 ### Add a manuscript element
 1. Recognise it: a block in `ManuscriptBlocks.swift` (over `MarkdownBlockParser`), or an inline in `ManuscriptInlineScanner.swift`. A label it carries is read by `ManuscriptLabel.swift`.
-2. Index and diagnose it in `ManuscriptIndex.swift`: record what it defines or cites, and report each way it can be wrong.
+2. Diagnose it where the checks live: the editor's `Maugham/Editor/ManuscriptChecks.swift` and Publish's `PublishResolution.swift`; each way it can be wrong is reported there.
 3. Publish it, reading the recognised element rather than re-parsing the text: map it into a node or inline of `Maugham/Publish/ProjectAST.swift` in `Maugham/Publish/ProjectASTBuilder.swift` (inlines via `Maugham/Publish/InlineParser.swift`); number, resolve and report it in `Maugham/Publish/PublishResolution.swift`, with any new problem kind in `Maugham/Publish/PublishProblem.swift` and its severity in `isError`; render it in `Maugham/Publish/LaTeXBodyEmitter.swift` and `Maugham/Publish/XHTMLBodyEmitter.swift`, guarded so an old template still compiles; add a report example to `Maugham/Publish/EmissionContract.swift` and regenerate `Maugham/Resources/PublishStarter/EMISSION.md`. The editor does not read the layer yet.
 
 Checks: the manuscript grammar tests in `MaughamCoreTests`; `PublishResolutionTests` and the emitter tests in `MaughamTests`.
