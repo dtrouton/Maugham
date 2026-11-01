@@ -85,7 +85,6 @@ enum ManuscriptChecks {
         problems += notes.problems
         problems += figureLineProblems(in: tokens, text: text, status: figureLineStatus)
         problems += gluedFigureLineProblems(in: tokens, text: text)
-        problems += malformedFigureLabelProblems(in: tokens, text: text)
 
         // Labels defined here: twice here, or here and in another piece.
         var seen = Set<ManuscriptLabel>()
@@ -190,32 +189,6 @@ enum ManuscriptChecks {
                   !FigureLineSeparation.isInCode(lineAt: start, in: text)
             else { continue }
             out.append(Problem(range: line, kind: .figureLineSharesParagraph(path)))
-        }
-        return out
-    }
-
-    /// A figure line whose `{#…}` block is malformed (`![x](a.png){#fig:}`):
-    /// the parser leaves it a plain paragraph, so no figure token marks it.
-    /// Publish's `.malformedLabel`, on the whole line, as publishing warns.
-    /// Never in code, and not on a line that is glued (that has its own).
-    static func malformedFigureLabelProblems(in tokens: [Token], text: NSString) -> [Problem] {
-        let code = tokens.filter { $0.kind == .code }.map(\.range)
-        var out: [Problem] = []
-        var search = 0
-        while search < text.length {
-            let found = text.range(of: "{#", range: NSRange(location: search, length: text.length - search))
-            guard found.location != NSNotFound else { break }
-            var start = 0, end = 0, contentsEnd = 0
-            text.getLineStart(&start, end: &end, contentsEnd: &contentsEnd,
-                              for: NSRange(location: found.location, length: 0))
-            search = max(end, NSMaxRange(found))
-            let line = NSRange(location: start, length: contentsEnd - start)
-            guard let raw = ManuscriptBlocks.malformedFigureBlock(text.substring(with: line)),
-                  !code.contains(where: { NSIntersectionRange($0, line).length > 0 }),
-                  !isGlued(line, isAFigure: false, in: text),
-                  !FigureLineSeparation.isInCode(lineAt: start, in: text)
-            else { continue }
-            out.append(Problem(range: line, kind: .malformedLabel(String(raw.dropFirst(2).dropLast()))))
         }
         return out
     }
