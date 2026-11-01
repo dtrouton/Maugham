@@ -43,6 +43,7 @@ final class ResearchTableGridTests: XCTestCase {
     override func tearDown() async throws {
         ResearchTableHost.wroteForTesting = nil
         ResearchTableHost.duringReloadForTesting = nil
+        ResearchTableHost.sidecarWriteForTesting = nil
         for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
         noticeObservers = []
         for mount in mounts {
@@ -240,6 +241,37 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual([sidecar.figureId, sidecar.name, sidecar.caption], ["fig-q3", "Q3", "Third quarter"])
         XCTAssertEqual(sidecar.headerRows, 1)
         await store.releaseResearchTable(host)
+    }
+
+    /// **A sidecar that fails to write is said, and the next save writes the pair
+    /// again** (#133): the reopened table keeps its header row.
+    func test_aFailedSidecarWriteIsSaidAndTheNextSaveRetriesIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("q3.csv", "Quarter,Revenue\nQ3,10\n", in: projectStore)
+        try ResearchTableSidecar.write(
+            ResearchTableSidecar(figureId: "fig-q3", contentHash: ContentHash.of(try bytes(of: item)),
+                                 name: "Q3", caption: nil, headerRows: 1),
+            forItem: item.id, in: projectURL)
+        let heard = listen()
+        let host = try await store.openResearchTable(itemId: item.id)
+        struct Refused: Error {}
+        ResearchTableHost.sidecarWriteForTesting = { _ in throw Refused() }
+
+        try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
+        await host.flush()
+        XCTAssertTrue(heard.notices.contains { $0.contains("formatting") }, "said: \(heard.notices)")
+        XCTAssertTrue(host.isDirty, "and left to be written again")
+
+        ResearchTableHost.sidecarWriteForTesting = nil
+        await host.flush()   // no further edit: the retry alone
+        XCTAssertFalse(host.isDirty)
+        let sidecar = try XCTUnwrap(ResearchTableSidecar.read(forItem: item.id, in: projectURL))
+        XCTAssertEqual(sidecar.contentHash, ContentHash.of(try bytes(of: item)), "the pair converged")
+        await store.releaseResearchTable(host)
+
+        let reopened = try await store.openResearchTable(itemId: item.id)
+        XCTAssertEqual(reopened.state.table.headerRows, 1, "the header row survived")
+        await store.releaseResearchTable(reopened)
     }
 
     /// **A figure pinning the table says "changed" once the grid's save

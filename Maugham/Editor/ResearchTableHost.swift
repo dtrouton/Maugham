@@ -150,6 +150,8 @@ final class ResearchTableHost: FigureGridHost {
 
     /// Test seam: told the text of each write that landed.
     static var wroteForTesting: (@MainActor (String) -> Void)?
+    /// Test seam: replaces the sidecar write, so a test can make it fail.
+    static var sidecarWriteForTesting: (@MainActor (ResearchTableSidecar) throws -> Void)?
 
     private init(itemId: String, projectURL: URL, store: DocumentStore, table: FigureTable,
                  read: FileRead, locale: TableLocale, names: FormulaNames) {
@@ -620,11 +622,22 @@ final class ResearchTableHost: FigureGridHost {
         next.name = sidecar?.name
         next.writtenBy = writer
         do {
-            try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
+            if let seam = Self.sidecarWriteForTesting {
+                try seam(next)
+            } else {
+                try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
+            }
             sidecar = next
         } catch {
+            // The CSV has new bytes the old sidecar does not describe, so the next
+            // open would drop its formats. Said, and left dirty: the next save or
+            // the close writes the pair again.
+            isDirty = true
             researchTableLog.error(
                 "\(path, privacy: .public)'s sidecar was not written: \(error.localizedDescription, privacy: .public)")
+            MaughamEvent.postNotice(
+                "Couldn’t save the formatting of “\(item.title)”: \(error.localizedDescription). Maugham will try again on the next save.",
+                projectURL: projectURL)
         }
         store.invalidateFigureCards()
         if restoring, !kept { store.researchVersionsRevision += 1 }
