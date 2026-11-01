@@ -115,7 +115,7 @@ public enum ManuscriptBlocks {
     /// A one-line figure line whose trailing `{#…}` block the label rule
     /// refused (`![x](a.png){#fig:}`): the raw block, braces included, else nil.
     /// The block layer leaves such a line plain text, so this is how a caller
-    /// (the editor's checks, publish's resolution walk) warns about it as it
+    /// (publish's resolution walk, `PublishResolution`) warns about it as it
     /// does for a heading or a caption. The one implementation.
     public static func malformedFigureBlock(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)

@@ -569,7 +569,7 @@
   "call_path": "AnnotationsPane row / EditorHost margin card / the bulk bar → Document.rejectAnnotation / archiveAnnotation(…undoManager:) → Document.registerResolutionUndo → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "(this commit — hardening 11-01 task 4)",
+   "commit": "a013ec7a",
    "date": "2026-11-01",
    "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; issue #128 item 1 scoped it",
    "pinned_by": "MaughamTests/AnnotationRejectArchiveUndoTests.swift (the two accept put-backs, the earlier-reason put-back, the redo cycle, and the two open-note controls)",

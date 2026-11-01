@@ -37,7 +37,7 @@ Each has exactly one form on disk (spec §3.1). The editor writes these forms an
 Rules that come with them:
 
 - Labels are unique per project. A duplicate is a diagnostic in the editor and a publish problem.
-- An image path must resolve inside the project's research. A path outside the project, or a remote URL, is always a diagnostic and a publish problem; under the Report profile it is an error that blocks a versioned compile ("refused"), and in every other project kind it is a warning.
+- An image path must resolve inside the project's research. A path outside the project, or a remote URL, is a publish problem whenever the project context is known (with none, image paths are not checked); under the Report profile it is an error that blocks a versioned compile ("refused"), and in every other project kind it is a warning.
 - A citation of a key that does not exist is a diagnostic and a publish problem, an error under the Report profile and a warning elsewhere (`PublishProblem.isError(_:profile:)` is the one severity table). The elements themselves work in every project kind (D8); only the severity differs.
 
 ### 2. Everything else ADR 0022 excludes stays OUT.

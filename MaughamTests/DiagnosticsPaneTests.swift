@@ -4994,8 +4994,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     /// Files the turn clause through `TurnClauseOffer.handler` \u{2014} the
-    /// closure the pane hands its Add-to-intent button, built with the pane's
-    /// own arguments \u{2014} and returns once the ruling has landed. The
+    /// closure the pane hands its Add-to-intent button, from the same builder
+    /// the pane calls \u{2014} and returns once the ruling has landed. The
     /// decision (where the clause files) is pinned here without a press, so
     /// nothing polls for the effect of one (tripwire 33, hardening 11-01); the
     /// mounted tests assert only that the button is drawn, in which tense.

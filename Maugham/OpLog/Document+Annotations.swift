@@ -928,8 +928,8 @@ extension Document {
     /// **A coalesced bulk stet can never span differing priors**, which is what
     /// makes the A2×A1 interaction a non-case: `AnnotationBulkActions.applies`
     /// gates `.stet` on `annotation.status == .open`, so every note the bulk
-    /// bar stets has the same (absent) prior and the restore switch's `.open`
-    /// arm breaks for all of them. A stet OVER a resolution arrives one row at
+    /// bar stets has the same (absent) prior and `registerResolutionUndo`'s
+    /// `.open` arm simply returns for all of them. A stet OVER a resolution arrives one row at
     /// a time.
     public func stetAnnotation(
         id: String, userResponse: String? = nil,

@@ -1099,7 +1099,7 @@
    "ref": "MaughamTests/AnnotationRejectArchiveUndoTests.swift: test_undoOfARejectOverAnAcceptedNoteRestoresTheAcceptAndItsReply, test_undoOfAnArchiveOverAnAcceptedNoteRestoresTheAcceptAndItsReply, test_undoOfARejectOverARejectionRestoresTheEarlierReason, test_redoReRejects_andTheNextUndoPutsTheAcceptBackAgain, test_undoOfARejectOverAnOpenNoteJustReopens, test_undoOfAnArchiveOverAnOpenNoteJustReopens (the controls)"
   },
   "warrant": "HIGH",
-  "intent": "INTENTIONAL",
+  "intent": "INTENTIONAL — ruled (RULING-22); issue #128",
   "reachability": "LIVE — AnnotationsPane row with show-resolved on (an accepted comment draws its dispositions) / margin card / bulk bar → Reject or Archive → ⌘Z",
   "evidence": {
    "property_test": null
