@@ -284,11 +284,11 @@ struct PartialRestorePicker: View {
             // reaches it.
             do {
                 try await opStore.append(restoreOp)
-                // The accepts this restore takes back (RULING-28), each
-                // reopened by a status-only revert right behind the text it
-                // answers — never without it, so a failed restore reopens
-                // nothing.
-                reopened.append(await reopenStrandedAccepts(plan, opStore: opStore))
+                // The accepts this restore takes back (RULING-28) and the
+                // reverted ones it puts back (RULING-57, RULING-26), each
+                // answered status only right behind the text it answers —
+                // never without it, so a failed restore answers nothing.
+                reopened.append(await answerNotes(plan, opStore: opStore))
                 renderAndScheduleSave(docId: docId, ops: plan.ops + [restoreOp])
             } catch {
                 partialRestoreLog.error(
@@ -313,19 +313,24 @@ struct PartialRestorePicker: View {
 
     /// **One document's revert, worked out before anything is written**: the
     /// state at the checkpoint, the restore op that puts it back (nil when
-    /// nothing differs), and the accepts that op strands
-    /// (`RewindImpact.strandedAccepts(in:revertedBy:through:amendments:)`).
-    /// The sheet's confirm line counts it and `restore` appends it, so what
-    /// the sheet promises is what Revert does.
+    /// nothing differs), and the notes that op moves the text under — the
+    /// accepts it strands (`RewindImpact.strandedAccepts(in:revertedBy:
+    /// through:amendments:)`) and the reverted accepts it returns
+    /// (`RewindImpact.returningAccepts`, RULING-57 / RULING-26). The sheet's
+    /// confirm line counts it and `restore` appends it, so what the sheet
+    /// promises is what Revert does.
     struct RevertPlan {
         let docId: String
         /// The log the plan was worked out from.
         let ops: [Op]
         let restoreOp: Op?
-        let stranded: [RewindImpact.StrandedAccept]
-        /// The reopens the writer is told of: a deleted note still gets its
-        /// revert in the log but is not named, as the full rewind's step 8.
-        var namedReopens: Int { stranded.filter { !$0.isWithdrawn }.count }
+        /// Stranded first, then returning — the order the lines append.
+        let notes: [RewindImpact.TravelStatusChange]
+        /// What the writer is told of: a deleted note still gets its line in
+        /// the log but is not named, as the full rewind's step 8.
+        func named(_ kind: RewindImpact.TravelStatusChange.Class) -> Int {
+            notes.filter { $0.class == kind && !$0.isWithdrawn }.count
+        }
     }
 
     /// `docId`'s plan, from its log now. The notes are judged as the pane
@@ -349,7 +354,7 @@ struct PartialRestorePicker: View {
             session: session,
             sourceCheckpoint: checkpoint.checkpointId
         )
-        var stranded: [RewindImpact.StrandedAccept] = []
+        var notes: [RewindImpact.TravelStatusChange] = []
         if let restoreOp, let targetOpId {
             let amendments: AnnotationAmendments
             if let open = documentStore?.document(forDocId: docId) {
@@ -358,43 +363,57 @@ struct PartialRestorePicker: View {
                 amendments = await Document.closedPieceHistory(
                     docId: docId, projectURL: projectURL).amendments
             }
-            stranded = RewindImpact.strandedAccepts(
+            notes = RewindImpact.strandedAccepts(
                 in: allOps, revertedBy: restoreOp, through: targetOpId,
                 amendments: amendments)
+                + RewindImpact.returningAccepts(
+                    in: allOps, returningTo: targetOpId,
+                    writing: Set(restoreOp.changes.map(\.paragraphId)),
+                    amendments: amendments)
         }
-        return RevertPlan(docId: docId, ops: allOps, restoreOp: restoreOp, stranded: stranded)
+        return RevertPlan(docId: docId, ops: allOps, restoreOp: restoreOp, notes: notes)
     }
 
-    /// Appends the lines that reopen each accept `plan` strands
-    /// (`Restore.strandedAcceptReverts`) and answers what the writer is told:
-    /// how many reopened, and how many would not write — each of those is
-    /// left accepted over text without its change, so it is NAMED, never
-    /// only logged. A withdrawn note is in neither count.
-    private func reopenStrandedAccepts(
+    /// Appends the lines that answer each note `plan` names
+    /// (`Restore.travelStatusLines`: a reopen per stranded accept, a
+    /// re-accept per returning one) and answers what the writer is told: how
+    /// many of each landed, and how many would not write — each of those is
+    /// left with a status its text contradicts, so it is NAMED, never only
+    /// logged. A withdrawn note is in no count.
+    private func answerNotes(
         _ plan: RevertPlan, opStore: OpLogStore
     ) async -> RevertNotes.Entry {
-        var reopened = 0, failed = 0, appended = 0
-        let reverts = Restore.strandedAcceptReverts(
-            plan.stranded, docId: plan.docId, device: device, session: session,
+        var entry = RevertNotes.Entry(title: title(of: plan.docId), reopened: 0)
+        var appended = 0
+        let lines = Restore.travelStatusLines(
+            plan.notes, docId: plan.docId, device: device, session: session,
             sourceCheckpoint: checkpoint.checkpointId)
-        for (stranded, revert) in zip(plan.stranded, reverts) {
+        for (note, line) in zip(plan.notes, lines) {
+            let landed: Bool
             do {
-                try await opStore.append(revert)
+                try await opStore.append(line)
                 appended += 1
-                if !stranded.isWithdrawn { reopened += 1 }
+                landed = true
             } catch {
                 partialRestoreLog.error(
-                    "partial-restore reopen failed for note \(stranded.annotationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                if !stranded.isWithdrawn { failed += 1 }
+                    "partial-restore status line failed for note \(note.annotationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                landed = false
+            }
+            guard !note.isWithdrawn else { continue }
+            switch (note.class, landed) {
+            case (.stranded, true): entry.reopened += 1
+            case (.stranded, false): entry.notReopened += 1
+            case (.returning, true): entry.reaccepted += 1
+            case (.returning, false): entry.notReaccepted += 1
             }
         }
         if appended > 0 {
             MaughamEvent.postAnnotationsChanged(docId: plan.docId, projectURL: projectURL)
         }
-        return .init(title: title(of: plan.docId), reopened: reopened, notReopened: failed)
+        return entry
     }
 
-    /// **What a revert in `scope` will reopen**, before it runs — RULING-28's
+    /// **What a revert in `scope` will reopen or restore to accepted**, before it runs — RULING-28's
     /// BEFORE half, from the same plans `restore` acts on, behind the SAME
     /// door: `splitByTheDoor`'s settled (acting) posture, not the drawing one,
     /// because the acting answer is the one Revert obeys — a document the
@@ -413,7 +432,8 @@ struct PartialRestorePicker: View {
         let (writable, _) = await Self.splitByTheDoor(docs, documentStore: documentStore)
         for docId in writable {
             let plan = await revertPlan(docId, opStore: opStore)
-            entries.append(.init(title: title(of: docId), reopened: plan.namedReopens))
+            entries.append(.init(title: title(of: docId), reopened: plan.named(.stranded),
+                                 reaccepted: plan.named(.returning)))
         }
         return RevertNotes(entries: entries)
     }
@@ -431,32 +451,49 @@ struct PartialRestorePicker: View {
     struct RevertNotes: Equatable {
         struct Entry: Equatable {
             let title: String
-            let reopened: Int
+            var reopened: Int
             /// Stranded accepts whose reopen did not write: still accepted.
             var notReopened: Int = 0
+            /// Suggestions returned to accepted (RULING-57, RULING-26).
+            var reaccepted: Int = 0
+            /// Returning accepts whose re-accept did not write: still open.
+            var notReaccepted: Int = 0
         }
         var entries: [Entry]
 
-        private static func suggestions(_ n: Int) -> String {
-            n == 1 ? "1 accepted suggestion" : "\(n) accepted suggestions"
+        private static func suggestions(_ n: Int, accepted: Bool = true) -> String {
+            let noun = accepted ? "accepted suggestion" : "suggestion"
+            return n == 1 ? "1 \(noun)" : "\(n) \(noun)s"
         }
-        /// "<n> accepted suggestion(s)" and the titles counted by `count`.
-        private func phrase(_ count: (Entry) -> Int) -> (String, String)? {
+        /// "<n> [accepted] suggestion(s)" and the titles counted by `count`.
+        private func phrase(_ count: (Entry) -> Int, accepted: Bool = true) -> (String, String)? {
             let total = entries.map(count).reduce(0, +)
             guard total > 0 else { return nil }
             let named = entries.filter { count($0) > 0 }.map(\.title).joined(separator: ", ")
-            return (Self.suggestions(total), named)
+            return (Self.suggestions(total, accepted: accepted), named)
+        }
+
+        private static func joined(_ parts: [String?]) -> String? {
+            let present = parts.compactMap { $0 }
+            return present.isEmpty ? nil : present.joined(separator: " ")
         }
 
         var confirmSentence: String? {
-            phrase(\.reopened).map { "\($0) will be reopened on \($1)." }
+            Self.joined([
+                phrase(\.reopened).map { "\($0) will be reopened on \($1)." },
+                phrase(\.reaccepted, accepted: false)
+                    .map { "\($0) will be restored to accepted on \($1)." },
+            ])
         }
         var reportSentence: String? {
-            let parts = [
+            Self.joined([
                 phrase(\.reopened).map { "Reopened \($0) on \($1)." },
+                phrase(\.reaccepted, accepted: false)
+                    .map { "Restored \($0) to accepted on \($1)." },
                 phrase(\.notReopened).map { "Couldn't reopen \($0) on \($1) — still marked accepted." },
-            ].compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: " ")
+                phrase(\.notReaccepted, accepted: false)
+                    .map { "Couldn't restore \($0) to accepted on \($1) — still open." },
+            ])
         }
     }
 

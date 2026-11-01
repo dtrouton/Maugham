@@ -396,13 +396,47 @@
   }
  },
  {
+  "claim_id": "M4-RW-040",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-57",
+  "clause_that_reaches_it": "Where the writer has REVERTED an accepted suggestion (the pane's Revert, accept's ⌘Z, or the phone's Reopen & Revert), and a restore to a moment at which that suggestion was accepted puts its accepted text back, the suggestion returns to ACCEPTED: the status it had at the travelled-to moment.",
+  "why_in_scope": "The claim is the ruling's case exactly: the writer's Revert after the moment, then a restore to that moment that writes the accepted text back. Its controls are the scope boundary note's edges: a Revert before the moment, a later Stet, reject or archive, and a paragraph the restore does not write. WHY_IT_VIOLATED: neither step 8 (it needs an accepted note) nor step 9 (it needs an archived one) acted, nor did the partial restore, so the note stayed open over its own accepted text and offered Accept again.",
+  "intent_expressed_when": "contemporaneous: the Restore or Revert here… is the writer asking for that moment back",
+  "call_path": "Rewind modal → confirm sheet (RewindImpact.preview → returningAccepts) → Restore → restoreToOpUndoable → restoreToOp step 8b → RewindModifier toast; HistoryPane → Revert here… → PartialRestorePicker (revertNotes → revertPlan) → restore → answerNotes → Restore.travelStatusLines",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-57, Denver 2026-11-01 (recommended option accepted)",
+   "pinned_by": "RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince",
+   "note": "New claim, filed VIOLATES against the code before the fix and flipped VIOLATES→COMPLIES with it (hardening 11-01 reverse stranding)."
+  }
+ },
+ {
+  "claim_id": "M4-RW-041",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns",
+  "why_in_scope": "A rewind's status-only revert, a checkpoint revert's, and the return journey's before-accept reopen are Maugham closing an accepted suggestion on its own initiative during travel, which is RULING-26's scope. A later restore to a moment at or after the accept returns the paragraph and the applied text, so the status the note had there (.accepted) is what returns. WHY_IT_VIOLATED: step 9's accepted arm reads only archived notes, so the return worked when step 8 had ARCHIVED the note (M4-RW-035) and failed when it had REOPENED it. The note stayed open over its accepted text, and only the rewind-undo re-accepted.",
+  "intent_expressed_when": "contemporaneous: the forward Restore",
+  "call_path": "Rewind modal → Restore (target before the accept) → Restore (target after it) → restoreToOp step 8b; or Revert here… to two checkpoints in turn → PartialRestorePicker.answerNotes",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "PENDING",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26 (the controller filed it there on 2026-11-01 rather than under RULING-57)",
+   "pinned_by": "RewindReturningAcceptTests.test_forwardTravelOverARewindsOwnRevert_returnsTheSuggestionToAccepted + test_forwardTravelOverTheReturnJourneysReopen_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted",
+   "note": "Found while checking RULING-57's premise: the same contradiction, reached with no act by the writer. Flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding)."
+  }
+ },
+ {
   "_summary": {
-   "reached": 22,
-   "complies": 22,
+   "reached": 24,
+   "complies": 24,
    "violates": 0,
    "no_ruling": 14,
-   "total": 36,
-   "coverage": "61%",
+   "total": 38,
+   "coverage": "63%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -425,7 +459,8 @@
     ],
     "RULING-26": [
      "M4-RW-035",
-     "M4-RW-036"
+     "M4-RW-036",
+     "M4-RW-041"
     ],
     "RULING-27": [
      "M4-RW-008",
@@ -445,6 +480,9 @@
      "M4-RW-017",
      "M4-RW-018",
      "M4-RW-031"
+    ],
+    "RULING-57": [
+     "M4-RW-040"
     ]
    },
    "reached_by_a_root_only": [
@@ -453,7 +491,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "9 violations over 7 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2)"
+   "distinct_defects": "11 violations over 9 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (hardening 11-01 reverse stranding, PENDING)"
   }
  }
 ]

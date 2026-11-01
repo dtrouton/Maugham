@@ -5,8 +5,9 @@ extension Document {
 
     /// `restoreToOp` wrapped in a single grouped ⌘Z action that reverses the
     /// WHOLE rewind: text back to the pre-restore tip, each D3-reopened accept
-    /// re-accepted (status-only, preserving each original `userResponse`), and
-    /// each sweep-archived annotation reopened. Redo re-runs `restoreToOp` from
+    /// re-accepted (status-only, preserving each original `userResponse`),
+    /// each step-8b re-accept reopened, and each sweep-archived annotation
+    /// reopened. Redo re-runs `restoreToOp` from
     /// scratch so it can never disagree with a fresh rewind.
     ///
     /// Choreography follows the manuscript-text-apply pattern (accept /
@@ -119,6 +120,10 @@ extension Document {
         // Creation ids of accepts the restore reopened (status → .open) on
         // SURVIVING paragraphs: the undo re-accepts these status-only.
         let reopened = result.reopenedAnnotationOpIds
+        // Creation ids of suggestions the restore returned to accepted (step
+        // 8b, RULING-57/26): the undo reopens these status-only, over the
+        // reverted text the compensating restore puts back.
+        let returned = result.returnedAcceptAnnotationIds
         // `archivedAnnotationOpIds` are appended `claudeArchive` OP ids; resolve
         // each back to its annotation (creation) id so the undo can reopen it.
         let sweepArchivedAnnotationIds: [String] = result.archivedAnnotationOpIds.compactMap { aid in
@@ -204,6 +209,19 @@ extension Document {
                             synthesisSource: .undoRewind)
                     } catch {
                         documentLog.error("restoreToOpUndoable undo: status-only re-accept failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+                // Reopen each suggestion step 8b returned to accepted — the
+                // mirror of the re-accepts above, the same loud failure.
+                for src in returned {
+                    do {
+                        try await doc.appendLifecycleOp(
+                            kind: .claudeAcceptRevert,
+                            sourceAnnotationId: src,
+                            userResponse: nil,
+                            synthesisSource: .undoRewind)
+                    } catch {
+                        documentLog.error("restoreToOpUndoable undo: status-only reopen failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
                 // Reopen each sweep-archived annotation (its paragraph is back).

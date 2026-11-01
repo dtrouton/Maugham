@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-56 rulings, 4 principles.
+57 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -585,6 +585,18 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *settles:* figures-and-tables spec §10.1 version history scope (every save of a Research table, not only assistant writes); and the direction for Research notes, which are not yet versioned.
 
+### RULING-57 — N — a reverted accept rides travel back (RULING-26's family)  `RATIFIED_FROM_OPTIONS`
+
+> Where the writer has REVERTED an accepted suggestion (the pane's Revert, accept's ⌘Z, or the phone's Reopen & Revert), and a restore to a moment at which that suggestion was accepted puts its accepted text back, the suggestion returns to ACCEPTED: the status it had at the travelled-to moment. It never stays open offering Accept for a change already in the text. This holds for a full rewind and for a checkpoint revert alike, and only where the restore itself writes the suggestion's paragraph back.
+
+*basis:* Denver, 2026-11-01, answering 'yes' to a recommended option, during the hardening 11-01 branch. The example put to him: a suggestion is accepted, a checkpoint is taken, the writer later takes the change back out, and restoring the checkpoint (full rewind or partial restore) puts the accepted text back while the note stays OPEN and offers Accept. The recommendation: when travel brings an accepted suggestion's applied text back, the note returns to ACCEPTED, the status it had at the travelled-to moment.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver with a 'yes'. That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The example as put to Denver said the writer 'reopens' the note. A writer's Reopen is never offered on an accepted suggestion (M5-AN-034; the row offers Revert), and the act that takes the change back out is Revert, a changes-carrying `claudeAcceptRevert`. The controller corrected the wording to 'reverts' on Denver's behalf (2026-11-01). The act ruled on, taking an accepted change back out of the text, is unchanged.
+
+*scope boundary note:* RULING-25's boundary note holds that the writer's own lifecycle ops have duration, and travel does not undo them. This ruling is a deliberate, narrow exception. It applies only where the travel itself puts the accepted change's text back, because otherwise the note's status would contradict the text. The writer's later Revert governed text that the travel has now replaced. A Stet, reject or archive the writer gave the note after the travelled-to moment is not text and stands. So does a Revert made before that moment, because the note was open then. Where Maugham's OWN travel took the change out (a rewind's or a checkpoint revert's status-only reopen, or the return journey's before-accept reopen), RULING-26 already rules the return, and this ruling does not.
+
+*mechanism note:* One rule, `RewindImpact.travelStatusChanges`, compares each note's status at the target with its status now. Its stranded class is step 8's (RULING-28). Its returning class is this ruling's and RULING-26's, kept to the paragraphs the restore writes (`returningAccepts`). The instrument is RULING-26's status-only `.claudeAccept`: `.rewind`-stamped in `restoreToOp`'s step 8b, and checkpoint-stamped in the partial restore (`Restore.travelStatusLines`). The rewind preview and the revert sheet count it, and the toast and the sheet's result report it. ⌘Z of a full rewind reopens it status-only. A checkpoint revert has no ⌘Z (plan 6c ruling Q-2).
+
 ## The enforcement gradient — how each ruling is held
 
 prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a
@@ -635,6 +647,7 @@ promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling 
 - **RULING-43** `type+test` — TrashSubject.internalArtifact + refusal pins
 - **RULING-44** `prose` — ruled-quiet: no warning owed — nothing to enforce
 - **RULING-45** `type+test` — carriesFile:false entries + link round-trip pins
+- **RULING-57** `test` — RewindReturningAcceptTests + PartialRestoreStrandedAcceptTests returning pins
 
 ## Principles — how to judge, not what to decide
 

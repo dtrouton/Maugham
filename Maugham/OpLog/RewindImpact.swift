@@ -8,7 +8,8 @@ import MaughamCore
 /// post-restore report confirms what actually happened. Naming one class and
 /// omitting another is worse than naming none, so `preview` mirrors every
 /// class `Document.restoreToOp` acts on (the step-7 sweep, the step-8
-/// stranded-accept resolution, the step-9 return journey) and `toast` renders
+/// stranded-accept resolution and its returning sibling, the step-9 return
+/// journey) and `toast` renders
 /// the result those steps produced. `changesAnything` is RULING-37's view
 /// half: Restore is not offered when there is nothing to do. Pure — computed
 /// from the modal's op snapshot, no I/O.
@@ -28,7 +29,8 @@ enum RewindImpact {
         var acceptsToReopen: Int
         /// Archived-from-accepted suggestions whose paragraph and accept both
         /// sit at-or-before the cursor — the step-9 accepted arm's mirror
-        /// (RULING-26).
+        /// (RULING-26) — plus reverted accepts whose text the return writes
+        /// back (`returningAccepts`, RULING-57).
         var acceptsToRestore: Int
         var changesAnything: Bool
     }
@@ -135,6 +137,14 @@ enum RewindImpact {
             }
         }
 
+        // Step 8's sibling, asked of the rule it runs: a suggestion whose
+        // accepted text this return writes back returns to accepted, named
+        // with the return journey's re-accepts as the toast names them.
+        p.acceptsToRestore += returningAccepts(
+            in: ops, returningTo: cursorOpId,
+            writing: paragraphsWritten(from: now, to: target), amendments: amendments)
+            .filter { !$0.isWithdrawn }.count
+
         let textChanges = now.paragraphs != target.paragraphs
             || now.sequence != target.sequence
         let cursorIdx = ops.firstIndex { $0.opId == cursorOpId }
@@ -145,66 +155,120 @@ enum RewindImpact {
         return p
     }
 
-    /// An accepted suggestion a return to the target strands.
-    struct StrandedAccept: Equatable {
+    /// **A suggestion whose status a return to a moment contradicts** — the
+    /// note's status now against its status at the target, for the one thing
+    /// travel changes underneath it: whether its accepted change is in the
+    /// text. Two classes, one walk (`travelStatusChanges`):
+    ///
+    /// - `.stranded` — accepted now, its change applied past the target, so
+    ///   the return takes the text out (step 8; RULING-28, #128 item 3).
+    /// - `.returning` — open now, accepted at the target with its change
+    ///   applied, the change since taken out by a revert (the writer's
+    ///   Revert, RULING-57; a travel's own status-only revert or return-
+    ///   journey reopen, RULING-26), so a return that writes its paragraph
+    ///   puts the text back and the note returns to accepted.
+    struct TravelStatusChange: Equatable {
+        enum Class: Equatable { case stranded, returning }
         let annotationId: String
-        /// The paragraph its newest changes-carrying accept wrote.
+        let `class`: Class
+        /// `.stranded`: the paragraph its newest changes-carrying accept
+        /// wrote. `.returning`: the paragraph of the accept the target held.
         let paragraphId: String
-        /// Deleted by the writer: still resolved in the log, never counted.
+        /// `.returning`: that accept's reply, which the re-accept carries.
+        let userResponse: String?
+        /// Deleted by the writer: still answered in the log, never counted.
         let isWithdrawn: Bool
     }
 
-    /// **The accepts a return to `targetOpId` strands** (RULING-28): each note
-    /// whose latest HONOURED lifecycle op is an accept, and whose newest
-    /// changes-carrying accept lies past the target. The latest op is asked
-    /// of the deriver's own rule (`AnnotationDeriver.isHonouredLifecycleOp`),
-    /// so a Stet, reject, archive or reopen the writer put over the accept is
-    /// their answer and stands — the walk once hand-listed four kinds without
-    /// Stet and reopen, and reverted a Stet over an accept (#128 item 3).
+    /// **The notes a return to `targetOpId` answers.** Per note, one walk
+    /// finds the latest HONOURED lifecycle op (`AnnotationDeriver
+    /// .isHonouredLifecycleOp`, so a Stet, reject, archive or reopen the
+    /// writer put over an accept is their answer and stands — #128 item 3),
+    /// the same at the target, and the newest changes-carrying accept overall
+    /// and at the target.
     ///
-    /// The latest op may be ANY accept — changes-carrying or STATUS-ONLY. A
-    /// status-only accept is a re-accept (the rewind-undo's `.undoRewind`, a
-    /// put-back ⌘Z) standing in for the text-applying accept it re-instated,
-    /// so strandedness is judged against the newest CHANGES-CARRYING accept;
-    /// otherwise a rewind after an undo would disagree with a fresh one
-    /// (M4-RW-031). Sorted by annotation id. `restoreToOp`'s step 8 acts on
-    /// this list and `preview` counts it, so the two cannot disagree.
-    static func strandedAccepts(
-        in ops: [Op], pastTarget targetOpId: String,
+    /// Stranded: the latest op is ANY accept — a status-only re-accept (the
+    /// rewind-undo's, a put-back ⌘Z) stands in for the text-applying accept
+    /// it re-instated, so strandedness is judged against the newest
+    /// CHANGES-CARRYING accept (M4-RW-031) — and that accept is past the
+    /// target.
+    ///
+    /// Returning: at the target the latest op is an accept with a
+    /// changes-carrying accept at or before it; now the latest op is the one
+    /// that took the change out — a `claudeAcceptRevert` (the writer's
+    /// Revert carries the text; travel's own is status only) or a
+    /// `.rewind`-stamped reopen (the return journey's before-accept arm). A
+    /// writer's later Stet, reject or archive is latest instead and stands.
+    /// Whether the return writes the paragraph is the caller's half
+    /// (`returningAccepts`): RULING-57 applies only where the travel itself
+    /// puts the text back.
+    ///
+    /// Sorted by annotation id. Step 8 and its sibling act on these lists,
+    /// `preview` and the partial-restore sheet count them, so promise and
+    /// act cannot disagree. O(ops): the preview runs it on every scrub.
+    static func travelStatusChanges(
+        in ops: [Op], target targetOpId: String,
         amendments: AnnotationAmendments
-    ) -> [StrandedAccept] {
-        // One walk: per note, the latest honoured lifecycle op and the newest
-        // changes-carrying accept. The preview runs this on every cursor
-        // scrub (`RewindWindow`), so it stays O(ops), not O(notes × ops).
-        var latest: [String: Op] = [:]
-        var textAccept: [String: Op] = [:]
+    ) -> [TravelStatusChange] {
+        var latest: [String: Op] = [:], latestAtTarget: [String: Op] = [:]
+        var textAccept: [String: Op] = [:], textAcceptAtTarget: [String: Op] = [:]
+        func newer(_ op: Op, than held: Op?, ties: Bool) -> Bool {
+            held.map { ties ? $0.opId <= op.opId : $0.opId < op.opId } ?? true
+        }
         for op in ops {
             guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if op.kind == .claudeAccept, !op.changes.isEmpty,
-               textAccept[src].map({ op.opId > $0.opId }) ?? true {
-                textAccept[src] = op
+            let atTarget = op.opId <= targetOpId           // ULID order
+            if op.kind == .claudeAccept, !op.changes.isEmpty {
+                if newer(op, than: textAccept[src], ties: false) { textAccept[src] = op }
+                if atTarget, newer(op, than: textAcceptAtTarget[src], ties: false) {
+                    textAcceptAtTarget[src] = op
+                }
             }
-            if AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments),
-               latest[src].map({ $0.opId <= op.opId }) ?? true {
-                latest[src] = op
+            if AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
+                if newer(op, than: latest[src], ties: true) { latest[src] = op }
+                if atTarget, newer(op, than: latestAtTarget[src], ties: true) {
+                    latestAtTarget[src] = op
+                }
             }
         }
-        let stranded = latest.keys.sorted().compactMap { src -> (String, String)? in
-            guard latest[src]?.kind == .claudeAccept,
-                  let accept = textAccept[src],
-                  accept.opId > targetOpId,          // past the target (ULID order)
-                  let pid = accept.changes.first?.paragraphId
-            else { return nil }
-            return (src, pid)
+        let changes = latest.keys.sorted().compactMap { src -> TravelStatusChange? in
+            guard let now = latest[src] else { return nil }
+            if now.kind == .claudeAccept,
+               let accept = textAccept[src], accept.opId > targetOpId,
+               let pid = accept.changes.first?.paragraphId {
+                return .init(annotationId: src, class: .stranded, paragraphId: pid,
+                             userResponse: nil, isWithdrawn: false)
+            }
+            let tookTheChangeOut = now.kind == .claudeAcceptRevert
+                || (now.kind == .annotationReopen && now.provenance?.synthesisSource == .rewind)
+            if tookTheChangeOut, now.opId > targetOpId,
+               latestAtTarget[src]?.kind == .claudeAccept,
+               let accept = textAcceptAtTarget[src],
+               let pid = accept.changes.first?.paragraphId {
+                return .init(annotationId: src, class: .returning, paragraphId: pid,
+                             userResponse: accept.provenance?.userResponse, isWithdrawn: false)
+            }
+            return nil
         }
-        guard !stranded.isEmpty else { return [] }
+        guard !changes.isEmpty else { return [] }
         // The deriver's withdrawn walk, once for the whole log.
         let withdrawn = Set(AnnotationDeriver.deriveWithdrawn(
             ops: ops, amendments: amendments).map(\.id))
-        return stranded.map {
-            StrandedAccept(annotationId: $0.0, paragraphId: $0.1,
-                           isWithdrawn: withdrawn.contains($0.0))
+        return changes.map {
+            .init(annotationId: $0.annotationId, class: $0.class, paragraphId: $0.paragraphId,
+                  userResponse: $0.userResponse, isWithdrawn: withdrawn.contains($0.annotationId))
         }
+    }
+
+    /// **The accepts a return to `targetOpId` strands** (RULING-28):
+    /// `travelStatusChanges`' stranded class. `restoreToOp`'s step 8 acts on
+    /// this list and `preview` counts it.
+    static func strandedAccepts(
+        in ops: [Op], pastTarget targetOpId: String,
+        amendments: AnnotationAmendments
+    ) -> [TravelStatusChange] {
+        travelStatusChanges(in: ops, target: targetOpId, amendments: amendments)
+            .filter { $0.class == .stranded }
     }
 
     /// **The accepts a checkpoint revert strands** (#128 item 2): the list
@@ -218,10 +282,35 @@ enum RewindImpact {
     static func strandedAccepts(
         in ops: [Op], revertedBy restoreOp: Op, through pointer: String,
         amendments: AnnotationAmendments
-    ) -> [StrandedAccept] {
+    ) -> [TravelStatusChange] {
         let written = Set(restoreOp.changes.map(\.paragraphId))
         return strandedAccepts(in: ops, pastTarget: pointer, amendments: amendments)
             .filter { written.contains($0.paragraphId) }
+    }
+
+    /// **The suggestions a return to `targetOpId` puts back to accepted**
+    /// (RULING-57, RULING-26): `travelStatusChanges`' returning class, kept
+    /// to the paragraphs the return writes — `written` is
+    /// `paragraphsWritten(from:to:)` for a full rewind, the restore op's
+    /// changes for a checkpoint revert. `restoreToOp` acts on it beside step
+    /// 8, `preview` counts it, and the partial restore does both.
+    static func returningAccepts(
+        in ops: [Op], returningTo targetOpId: String, writing written: Set<String>,
+        amendments: AnnotationAmendments
+    ) -> [TravelStatusChange] {
+        travelStatusChanges(in: ops, target: targetOpId, amendments: amendments)
+            .filter { $0.class == .returning && written.contains($0.paragraphId) }
+    }
+
+    /// The paragraphs a return from `current` to `target` writes: those the
+    /// target holds whose text differs now — `Restore.buildRestoreOp`'s own
+    /// test, so a full rewind and a checkpoint revert ask the same question.
+    static func paragraphsWritten(
+        from current: Deriver.DerivedState, to target: Deriver.DerivedState
+    ) -> Set<String> {
+        Set(target.paragraphs.compactMap { pid, text in
+            current.paragraphs[pid] == text ? nil : pid
+        })
     }
 
     /// The confirm-sheet sentence: every non-zero class named, zero classes
@@ -260,6 +349,7 @@ enum RewindImpact {
             let archived = r.archivedAnnotationOpIds.count
             let reopened = r.travelReopenedAnnotationIds.count
             let reaccepted = r.travelReacceptedAnnotationIds.count
+                + r.returnedAcceptAnnotationIds.count
             let acceptsReopened = r.reopenedAnnotationOpIds.count
             if archived > 0 { body += " \(archived) note\(archived == 1 ? "" : "s") auto-archived." }
             if reopened > 0 { body += " \(reopened) note\(reopened == 1 ? "" : "s") reopened." }

@@ -12706,9 +12706,10 @@ final class TripwireGrepTests: XCTestCase {
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
         "setCells(", "sortRows(", "applyChanges(", "retargetFigureLine(",
         "acceptSuggestion(",
-        // The lines reopening the accepts a checkpoint revert takes back
-        // (#128 item 2): built in the op-log layer, counted where appended.
-        "strandedAcceptReverts(",
+        // The lines answering the notes a checkpoint revert moves the text
+        // under (#128 item 2, RULING-57): built in the op-log layer, counted
+        // where appended.
+        "travelStatusLines(",
         figureOpMintSpelling,
     ]
 
@@ -13077,9 +13078,9 @@ final class TripwireGrepTests: XCTestCase {
     ///   document before the build; the rows and the History button are drawn
     ///   only for documents this Mac may write, and what the door left alone is
     ///   named in the sheet. Behind a landed restore op it appends
-    ///   `strandedAcceptReverts(`'s lines, reopening the accepts that op takes
-    ///   back (status-only `claudeAcceptRevert`, #128 item 2) — the same
-    ///   door, no new text. Its `restoreToCheckpoint(` winds back each figure
+    ///   `travelStatusLines(`' lines, reopening the accepts that op takes
+    ///   back and re-accepting the reverted ones it puts back (status only,
+    ///   #128 item 2, RULING-57) — the same door, no new text. Its `restoreToCheckpoint(` winds back each figure
     ///   in scope (report plan 6c Task 3) after asking that figure's settled
     ///   `.editFigure` posture, through its host (which asks again); a refused,
     ///   parked or part-restored figure is named in the same sentence.
@@ -13145,7 +13146,7 @@ final class TripwireGrepTests: XCTestCase {
         // History's undoable Rewind, inside the window's `RewindModifier`.
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
         "PartialRestorePicker.swift": [
-            "buildRestoreOp(": 1, "restoreToCheckpoint(": 1, "strandedAcceptReverts(": 1,
+            "buildRestoreOp(": 1, "restoreToCheckpoint(": 1, "travelStatusLines(": 1,
         ],
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
@@ -13595,7 +13596,7 @@ final class TripwireGrepTests: XCTestCase {
         _ = try await doc.restoreToOp(opId: id)
         _ = try await doc.restoreToOpUndoable(opId: id, undoManager: um)
         let op = Restore.buildRestoreOp(current: a, target: b, scope: .document,
-        let reverts = Restore.strandedAcceptReverts(plan.stranded, docId: d, device: m,
+        let reverts = Restore.travelStatusLines(plan.notes, docId: d, device: m,
         try await store.replaceAll(in: results, with: text)
         try await store.replaceMatch(match, with: text)
         try await replaceInManuscript(path: p, title: t, query: q,

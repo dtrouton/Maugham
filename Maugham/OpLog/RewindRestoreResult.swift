@@ -65,6 +65,15 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// travelled-to moment. A target before the accept lands in
     /// `travelReopenedAnnotationIds` instead — the change was unapplied then.
     public let travelReacceptedAnnotationIds: [String]
+    /// Creation ids of suggestions this restore returned to `.accepted`
+    /// because it puts their accepted text back (`RewindImpact
+    /// .travelStatusChanges`' returning class): open now, accepted at the
+    /// target, the change since taken out by the writer's Revert (RULING-57)
+    /// or by Maugham's own travel (RULING-26). A status-only `.rewind`
+    /// `.claudeAccept` each; the toast counts them with
+    /// `travelReacceptedAnnotationIds`, and the undo reopens them. A deleted
+    /// note gets its op but is not listed.
+    public let returnedAcceptAnnotationIds: [String]
     /// See `TargetResolution`.
     public let targetResolution: TargetResolution
 
@@ -78,6 +87,7 @@ public struct RewindRestoreResult: Equatable, Sendable {
         rewoundTaskOps: Bool = false,
         travelReopenedAnnotationIds: [String] = [],
         travelReacceptedAnnotationIds: [String] = [],
+        returnedAcceptAnnotationIds: [String] = [],
         targetResolution: TargetResolution = .exact
     ) {
         self.restoreOp = restoreOp
@@ -89,6 +99,7 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.rewoundTaskOps = rewoundTaskOps
         self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
         self.travelReacceptedAnnotationIds = travelReacceptedAnnotationIds
+        self.returnedAcceptAnnotationIds = returnedAcceptAnnotationIds
         self.targetResolution = targetResolution
     }
 }

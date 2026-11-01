@@ -224,6 +224,42 @@ extension Document {
                 archivedIds.append(resolutionOp.opId)
             }
         }
+        // 8b. Step 8's mirror (RULING-57; RULING-26 for travel's own
+        //    revert): a suggestion accepted at the target whose change was
+        //    taken out since — the writer's Revert, a rewind's or revert's
+        //    status-only reopen, the return journey's before-accept reopen —
+        //    is open over text this restore writes back. A status-only
+        //    `.claudeAccept` (RULING-26's instrument) returns the status it
+        //    had at the target. One rule with step 8
+        //    (`RewindImpact.travelStatusChanges`), so the preview's count is
+        //    this loop's. Gated to `.rewind`, as step 9 is: the `.undoRewind`
+        //    compensating restore's statuses are `restoreToOpUndoable`'s
+        //    choreography, and it re-accepts step 8's reopens itself.
+        var returnedIds: [String] = []
+        if synthesisSource == .rewind {
+            for returning in RewindImpact.returningAccepts(
+                in: currentOps, returningTo: targetOpId,
+                writing: RewindImpact.paragraphsWritten(from: currentState, to: targetState),
+                amendments: annotationAmendments) {
+                let reaccept = Op(
+                    opId: ULID.generate(),
+                    docId: docId, at: Date(),
+                    device: device, session: session,
+                    kind: .claudeAccept,
+                    changes: [],
+                    sequence: nil,
+                    provenance: Op.Provenance(
+                        sessionId: session,
+                        synthesisSource: .rewind,
+                        sourceAnnotationId: returning.annotationId,
+                        userResponse: returning.userResponse))
+                try await opStore.append(reaccept)
+                appendToMirror(reaccept)
+                strandedAcceptResolved = true
+                // A deleted note gets its op, unreported — step 8's rule.
+                if !returning.isWithdrawn { returnedIds.append(returning.annotationId) }
+            }
+        }
         if strandedAcceptResolved {
             _hasAnyAnnotationOps = true
             invalidateAnnotationsCache()
@@ -324,6 +360,7 @@ extension Document {
             rewoundTaskOps: hasTaskOpsAfterTarget,
             travelReopenedAnnotationIds: travelReopenedIds,
             travelReacceptedAnnotationIds: travelReacceptedIds,
+            returnedAcceptAnnotationIds: returnedIds,
             targetResolution: resolution)
     }
 

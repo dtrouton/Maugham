@@ -49,30 +49,34 @@ public enum Restore {
                 synthesisSource: synthesisSource))
     }
 
-    /// **The lines that reopen the accepts a checkpoint revert takes back**
-    /// (#128 item 2, RULING-28): one changes-free `claudeAcceptRevert` per
-    /// note in `stranded` (`RewindImpact.strandedAccepts(in:revertedBy:
-    /// through:amendments:)`) — the full rewind's step-8 instrument, stamped
-    /// with the checkpoint rather than `.rewind`. Built, never appended: the
-    /// caller appends them behind the restore op they answer, and the writer
-    /// census counts that caller (`manuscriptWriterCallSites`).
-    static func strandedAcceptReverts(
-        _ stranded: [RewindImpact.StrandedAccept],
+    /// **The lines that answer the notes a checkpoint revert moves the text
+    /// under** (#128 item 2, RULING-28; RULING-57, RULING-26): per note in
+    /// `changes` (`RewindImpact.strandedAccepts(in:revertedBy:through:
+    /// amendments:)` and `returningAccepts`), a changes-free
+    /// `claudeAcceptRevert` for one it strands and a changes-free
+    /// `claudeAccept` carrying the accept's reply for one it returns — the
+    /// full rewind's instruments, stamped with the checkpoint rather than
+    /// `.rewind`. Built, never appended: the caller appends them behind the
+    /// restore op they answer, and the writer census counts that caller
+    /// (`manuscriptWriterCallSites`).
+    static func travelStatusLines(
+        _ changes: [RewindImpact.TravelStatusChange],
         docId: String, device: String, session: String,
         sourceCheckpoint: String
     ) -> [Op] {
-        stranded.map { note in
+        changes.map { note in
             Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
                 device: device, session: session,
-                kind: .claudeAcceptRevert,
+                kind: note.class == .stranded ? .claudeAcceptRevert : .claudeAccept,
                 changes: [],
                 sequence: nil,
                 provenance: Op.Provenance(
                     sessionId: session,
                     sourceCheckpoint: sourceCheckpoint,
-                    sourceAnnotationId: note.annotationId))
+                    sourceAnnotationId: note.annotationId,
+                    userResponse: note.class == .returning ? note.userResponse : nil))
         }
     }
 }

@@ -83,7 +83,7 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
         return id
     }
 
-    private func checkpoint(_ ids: [String]) async throws -> Checkpoint {
+    private func checkpoint(_ ids: [String], id: String = "ckpt-acc") async throws -> Checkpoint {
         let opStore = OpLogStore(projectURL: projectURL)
         var pointers: [String: String] = [:]
         for id in ids {
@@ -91,7 +91,7 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
             pointers[id] = try XCTUnwrap(ops.last?.opId)
         }
         return Checkpoint(
-            checkpointId: "ckpt-acc", label: "Then", labelSource: .user,
+            checkpointId: id, label: "Then", labelSource: .user,
             at: Date(), device: "m", activeDoc: "doc-a",
             docPointers: pointers, manuscriptWordCount: 6)
     }
@@ -424,5 +424,129 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
         XCTAssertEqual(mixed.reportSentence,
                        "Reopened 2 accepted suggestions on A. "
                        + "Couldn't reopen 3 accepted suggestions on A, B — still marked accepted.")
+    }
+
+    // MARK: - An accept the revert puts back (RULING-57, RULING-26)
+
+    /// Accept → checkpoint → the writer's Revert: reverting to the checkpoint
+    /// puts the accepted text back, so the note returns to accepted — said
+    /// before and after, and written status only behind the restore op.
+    func test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince() async throws {
+        let store = try await openBook()
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        let cp = try await checkpoint(["doc-a"])
+        let a2 = try await load("a")
+        try await a2.revertAcceptedAnnotation(id: id)
+        try await a2.flushBurstNow()
+        await a2.close()
+        XCTAssertEqual(try statuses("doc-a")[id], .open, "precondition: the Revert reopened it")
+        let sheet = picker(cp, store)
+
+        let before = await sheet.revertNotes(for: .document("doc-a"))
+        XCTAssertEqual(before.confirmSentence, "1 suggestion will be restored to accepted on A.")
+        let sentence = await sheet.restore(.document("doc-a"))
+
+        XCTAssertEqual(sentence, "Restored 1 suggestion to accepted on A.")
+        XCTAssertEqual(try statuses("doc-a")[id], .accepted)
+        let ops = try rawOps("doc-a")
+        let reaccept = try XCTUnwrap(ops.last {
+            $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == id })
+        XCTAssertEqual(reaccept.changes, [], "status only: the restore op carries the text")
+        XCTAssertEqual(reaccept.provenance?.sourceCheckpoint, cp.checkpointId)
+        XCTAssertEqual(reaccept.provenance?.userResponse, "yes", "the writer's reply is kept")
+        let restore = try XCTUnwrap(ops.last { $0.kind == .checkpointRestore })
+        XCTAssertTrue(restore.changes.contains { $0.next == "One, improved." })
+        XCTAssertLessThan(restore.opId, reaccept.opId, "the re-accept follows the text it answers")
+        let after = await sheet.revertNotes(for: .document("doc-a"))
+        XCTAssertNil(after.confirmSentence, "nothing is left to restore")
+    }
+
+    /// A revert's own reopen (Maugham's travel, RULING-26) comes back the
+    /// same way: revert to a checkpoint from before the accept, then to one
+    /// after it.
+    func test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted() async throws {
+        let store = try await openBook()
+        await (try await load("a")).close()
+        let early = try await checkpoint(["doc-a"], id: "ckpt-early")
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        let later = try await checkpoint(["doc-a"], id: "ckpt-later")
+        _ = await picker(early, store).restore(.document("doc-a"))
+        XCTAssertEqual(try statuses("doc-a")[id], .open, "precondition: the first revert reopened it")
+
+        let sentence = await picker(later, store).restore(.document("doc-a"))
+
+        XCTAssertEqual(sentence, "Restored 1 suggestion to accepted on A.")
+        XCTAssertEqual(try statuses("doc-a")[id], .accepted)
+    }
+
+    /// A paragraph the revert does not write keeps the writer's answer: the
+    /// note stays open though the checkpoint had it accepted.
+    func test_aParagraphTheRevertDoesNotWriteStaysOpen() async throws {
+        let store = try await openBook()
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        let cp = try await checkpoint(["doc-a"])
+        let a2 = try await load("a")
+        try await a2.revertAcceptedAnnotation(id: id)
+        a2.setParagraph(id: a2.sequence[0], text: "One, improved.")
+        a2.setParagraph(id: a2.sequence[1], text: "Two, since.")
+        try await a2.flushBurstNow()
+        await a2.close()
+        let sheet = picker(cp, store)
+
+        let before = await sheet.revertNotes(for: .document("doc-a"))
+        let sentence = await sheet.restore(.document("doc-a"))
+
+        XCTAssertNotNil(try rawOps("doc-a").last { $0.kind == .checkpointRestore },
+                        "precondition: the revert wrote something")
+        XCTAssertNil(before.confirmSentence)
+        XCTAssertNil(sentence)
+        XCTAssertEqual(try statuses("doc-a")[id], .open)
+    }
+
+    /// A re-accept that will not write is named, never only logged.
+    func test_aReacceptThatWillNotWriteIsNamed() async throws {
+        let store = try await openBook()
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        let cp = try await checkpoint(["doc-a"])
+        let a2 = try await load("a")
+        try await a2.revertAcceptedAnnotation(id: id)
+        try await a2.flushBurstNow()
+        await a2.close()
+        let opStore = OpLogStore(projectURL: projectURL)
+        opStore.beforeChainedAppendForTesting = { [unowned opStore] in
+            opStore.appendFailureForTesting = DiskFull()
+        }
+
+        let sentence = await picker(cp, store).restore(.document("doc-a"), opStore: opStore)
+
+        XCTAssertEqual(try statuses("doc-a")[id], .open, "precondition: the re-accept did not land")
+        XCTAssertEqual(sentence,
+                       "Couldn't restore 1 suggestion to accepted on A — still open.")
+    }
+
+    /// The re-accept sentences' wording, beside the reopens'.
+    func test_theReacceptSentences() {
+        typealias Notes = PartialRestorePicker.RevertNotes
+        let one = Notes(entries: [.init(title: "A", reopened: 0, reaccepted: 1)])
+        XCTAssertEqual(one.confirmSentence, "1 suggestion will be restored to accepted on A.")
+        XCTAssertEqual(one.reportSentence, "Restored 1 suggestion to accepted on A.")
+        let mixed = Notes(entries: [
+            .init(title: "A", reopened: 1, reaccepted: 2),
+            .init(title: "B", reopened: 0, reaccepted: 0, notReaccepted: 1)])
+        XCTAssertEqual(mixed.confirmSentence,
+                       "1 accepted suggestion will be reopened on A. "
+                       + "2 suggestions will be restored to accepted on A.")
+        XCTAssertEqual(mixed.reportSentence,
+                       "Reopened 1 accepted suggestion on A. "
+                       + "Restored 2 suggestions to accepted on A. "
+                       + "Couldn't restore 1 suggestion to accepted on B — still open.")
     }
 }
