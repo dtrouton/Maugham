@@ -134,6 +134,9 @@ final class ResearchTableHost: FigureGridHost {
     @ObservationIgnored private(set) var sidecar: ResearchTableSidecar?
     /// An edit not yet written.
     @ObservationIgnored private(set) var isDirty = false
+    /// The sidecar for the CSV now on disk whose write failed; the next save
+    /// writes it alone (the CSV did save, so the host is not dirty).
+    @ObservationIgnored private(set) var pendingSidecar: ResearchTableSidecar?
     @ObservationIgnored private(set) var scheduledSave: Task<Void, Never>?
     /// The last save asked; each waits for the one before it.
     @ObservationIgnored private(set) var saving: Task<Void, Never>?
@@ -256,6 +259,7 @@ final class ResearchTableHost: FigureGridHost {
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
+        pendingSidecar = nil   // it described bytes that are gone
         run.end()   // what is on disk now is not this run's: the next save keeps it
         sidecar = read.sidecar
         separator = TableCSV.rows(read.text).separator
@@ -362,7 +366,8 @@ final class ResearchTableHost: FigureGridHost {
         let previous = saving
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            guard let self, self.isDirty else { return }
+            guard let self else { return }
+            guard self.isDirty else { self.retryPendingSidecar(); return }
             self.isDirty = false
             await self.write(self.state.table)
         }
@@ -622,17 +627,13 @@ final class ResearchTableHost: FigureGridHost {
         next.name = sidecar?.name
         next.writtenBy = writer
         do {
-            if let seam = Self.sidecarWriteForTesting {
-                try seam(next)
-            } else {
-                try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
-            }
+            try writeSidecar(next)
             sidecar = next
+            pendingSidecar = nil
         } catch {
-            // The CSV has new bytes the old sidecar does not describe, so the next
-            // open would drop its formats. Said, and left dirty: the next save or
-            // the close writes the pair again.
-            isDirty = true
+            // The CSV saved, so the host stays clean (an outside change is still
+            // adopted); only the sidecar is kept to write again at the next save.
+            pendingSidecar = next
             researchTableLog.error(
                 "\(path, privacy: .public)'s sidecar was not written: \(error.localizedDescription, privacy: .public)")
             MaughamEvent.postNotice(
@@ -643,6 +644,30 @@ final class ResearchTableHost: FigureGridHost {
         if restoring, !kept { store.researchVersionsRevision += 1 }
         Self.wroteForTesting?(text)
         return true
+    }
+
+    private func writeSidecar(_ next: ResearchTableSidecar) throws {
+        if let seam = Self.sidecarWriteForTesting {
+            try seam(next)
+        } else {
+            try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
+        }
+    }
+
+    /// Writes the sidecar a failed save left, if it still describes the file
+    /// on disk. A repeat failure is logged, not said again.
+    private func retryPendingSidecar() {
+        guard let pending = pendingSidecar else { return }
+        guard pending.contentHash == diskHash else { pendingSidecar = nil; return }
+        do {
+            try writeSidecar(pending)
+            sidecar = pending
+            pendingSidecar = nil
+            store?.invalidateFigureCards()
+        } catch {
+            researchTableLog.error(
+                "\(self.itemId, privacy: .public)'s sidecar was not written again: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Whether the item's file (or a link where it was) is on disk.

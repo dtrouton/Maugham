@@ -260,11 +260,12 @@ final class ResearchTableGridTests: XCTestCase {
         try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
         await host.flush()
         XCTAssertTrue(heard.notices.contains { $0.contains("formatting") }, "said: \(heard.notices)")
-        XCTAssertTrue(host.isDirty, "and left to be written again")
+        XCTAssertFalse(host.isDirty, "the CSV saved: the host is clean")
+        XCTAssertNotNil(host.pendingSidecar, "and the sidecar waits")
 
         ResearchTableHost.sidecarWriteForTesting = nil
         await host.flush()   // no further edit: the retry alone
-        XCTAssertFalse(host.isDirty)
+        XCTAssertNil(host.pendingSidecar)
         let sidecar = try XCTUnwrap(ResearchTableSidecar.read(forItem: item.id, in: projectURL))
         XCTAssertEqual(sidecar.contentHash, ContentHash.of(try bytes(of: item)), "the pair converged")
         await store.releaseResearchTable(host)
@@ -272,6 +273,32 @@ final class ResearchTableGridTests: XCTestCase {
         let reopened = try await store.openResearchTable(itemId: item.id)
         XCTAssertEqual(reopened.state.table.headerRows, 1, "the header row survived")
         await store.releaseResearchTable(reopened)
+    }
+
+    /// **A sidecar failure leaves the host clean**: an outside change is then
+    /// adopted, not sent to conflicts, and the stale pending sidecar is dropped.
+    func test_afterASidecarFailureAnOutsideChangeIsAdoptedNotConflicted() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("q3.csv", "Quarter,Revenue\nQ3,10\n", in: projectStore)
+        let host = try await store.openResearchTable(itemId: item.id)
+        struct Refused: Error {}
+        ResearchTableHost.sidecarWriteForTesting = { _ in throw Refused() }
+        try await host.setCell(Cell(content: .value(.number(12))), at: key(host, 2, 2), undoManager: nil)
+        await host.flush()
+        ResearchTableHost.sidecarWriteForTesting = nil
+        XCTAssertNotNil(host.pendingSidecar, "precondition: the sidecar waits")
+
+        let outside = "Quarter,Revenue\nQ3,99\n"
+        try Data(outside.utf8).write(to: file(try XCTUnwrap(item.path)))
+        await host.fileMayHaveChanged()
+        await host.flush()
+
+        XCTAssertNil(host.pendingSidecar, "the stale sidecar was dropped")
+        XCTAssertEqual(try text(of: item), outside, "the outside version stands")
+        let conflicts = projectURL.appendingPathComponent(".maugham/conflicts")
+        XCTAssertTrue(((try? FileManager.default.contentsOfDirectory(atPath: conflicts.path)) ?? []).isEmpty,
+                      "and nothing went to conflicts")
+        await store.releaseResearchTable(host)
     }
 
     /// **A figure pinning the table says "changed" once the grid's save
