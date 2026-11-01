@@ -261,13 +261,66 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
         let (store, cp, id) = try await oneStrandedAccept()
         let opStore = OpLogStore(projectURL: projectURL)
         opStore.appendFailureForTesting = DiskFull()
+        // A marker no render would write: any save over the `.md` replaces it.
+        let md = file("manuscript/a.md")
+        try "untouched\n".write(to: md, atomically: true, encoding: .utf8)
 
         let sentence = await picker(cp, store).restore(.document("doc-a"), opStore: opStore)
+        try await store.flushPendingSave()
 
         XCTAssertEqual(sentence, "Not restored: A (disk full).")
         XCTAssertEqual(try statuses("doc-a")[id], .accepted)
         XCTAssertFalse(try rawOps("doc-a").contains { $0.kind == .claudeAcceptRevert },
                        "no reopen behind a restore that did not land")
+        XCTAssertEqual(try String(contentsOf: md, encoding: .utf8), "untouched\n",
+                       "the .md renders the log, so text the log never took is not written")
+    }
+
+    // MARK: - The confirm line
+
+    /// A scope changed while its plan was worked out cancels the sheet's
+    /// task; that plan's sentence must not land and promise the old scope's
+    /// notes. The work cancels its own task mid-flight, as a scope change does.
+    func test_aCancelledScopesSentenceDoesNotLand() async {
+        let stale = await Task { () -> String?? in
+            await PartialRestorePicker.unlessCancelled { () -> String? in
+                withUnsafeCurrentTask { $0?.cancel() }
+                return "the old scope's notes"
+            }
+        }.value
+        XCTAssertNil(stale, "a cancelled scope's sentence is dropped")
+        let live = await PartialRestorePicker.unlessCancelled { () -> String? in "fresh" }
+        XCTAssertEqual(live, .some("fresh"), "a live scope's sentence lands")
+    }
+
+    // MARK: - The render
+
+    /// A landed revert renders the log as it now stands: the reverted
+    /// paragraph is back, and a paragraph made since the checkpoint — which
+    /// the restore op leaves alone — is still in the `.md`.
+    func test_aRevertsRenderKeepsAParagraphMadeSinceTheCheckpoint() async throws {
+        let store = try await openBook()
+        await (try await load("a")).close()
+        let cp = try await checkpoint(["doc-a"])
+        let a = try await load("a")
+        a.setParagraph(id: a.sequence[0], text: "One, since.")
+        a.setFullText(a.displayText + "\n\nFour.")
+        try await a.flushBurstNow()
+        await a.close()
+
+        let sentence = await picker(cp, store).restore(.document("doc-a"))
+        try await store.flushPendingSave()
+
+        XCTAssertNil(sentence)
+        let md = try String(contentsOf: file("manuscript/a.md"), encoding: .utf8)
+        XCTAssertTrue(md.contains("One.") && !md.contains("One, since."),
+                      "precondition: the revert put the first paragraph back — \(md)")
+        XCTAssertTrue(md.contains("Four."), "a paragraph made since the checkpoint stays — \(md)")
+        let log = Deriver.derive(ops: try rawOps("doc-a"))
+        XCTAssertEqual(md, MarkdownDisplayFilter.stripAnchors(Materializer.materialize(
+            paragraphs: log.paragraphs, sequence: log.sequence)),
+                       "the .md is the log's clean render (ADR 0019)")
+        XCTAssertFalse(md.contains("¶"), "no anchors in the .md")
     }
 
     // MARK: - An open document

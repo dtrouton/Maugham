@@ -145,8 +145,20 @@ struct PartialRestorePicker: View {
         .task(id: scope) {
             confirmSentence = nil
             guard let scope else { return }
-            confirmSentence = await revertNotes(for: scope).confirmSentence
+            guard let sentence = await Self.unlessCancelled({
+                await revertNotes(for: scope).confirmSentence
+            }) else { return }
+            confirmSentence = sentence
         }
+    }
+
+    /// `work`'s answer, or nil when the task was cancelled while it ran. A
+    /// scope change cancels `.task(id: scope)`, and a slow plan (a whole
+    /// project) must not land after a faster one's and promise another
+    /// scope's notes — RULING-28's BEFORE half.
+    static func unlessCancelled<T>(_ work: () async -> T) async -> T? {
+        let value = await work()
+        return Task.isCancelled ? nil : value
     }
 
     // MARK: - Posture (P3c whole-branch fix wave, C1)
@@ -267,8 +279,9 @@ struct PartialRestorePicker: View {
             guard let restoreOp = plan.restoreOp else { continue }
             // The restore op is a source-of-truth write: a failed append is
             // logged AND said in the sheet (RULING-52 — what did not land is
-            // named), which stays up. We still materialize so the editor
-            // shows the intended state, as before.
+            // named), which stays up, and nothing is rendered — the `.md` is
+            // a render of the log, so text the log does not hold never
+            // reaches it.
             do {
                 try await opStore.append(restoreOp)
                 // The accepts this restore takes back (RULING-28), each
@@ -276,18 +289,12 @@ struct PartialRestorePicker: View {
                 // answers — never without it, so a failed restore reopens
                 // nothing.
                 reopened.append(await reopenStrandedAccepts(plan, opStore: opStore))
+                renderAndScheduleSave(docId: docId, ops: plan.ops + [restoreOp])
             } catch {
                 partialRestoreLog.error(
                     "partial-restore op append failed for doc \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 notRestored.append("\(title(of: docId)) (\(error.localizedDescription))")
             }
-            // Materialize the new state and schedule a save so the .md
-            // on disk (and the editor) reflects the restored content.
-            materializeAndScheduleSave(
-                docId: docId,
-                newState: plan.target,
-                restoreOp: restoreOp
-            )
         }
         // The sheet's list, each re-checked against the live registry.
         let figureResults = await Self.restoreFigures(
@@ -312,7 +319,8 @@ struct PartialRestorePicker: View {
     /// the sheet promises is what Revert does.
     struct RevertPlan {
         let docId: String
-        let target: Deriver.DerivedState
+        /// The log the plan was worked out from.
+        let ops: [Op]
         let restoreOp: Op?
         let stranded: [RewindImpact.StrandedAccept]
         /// The reopens the writer is told of: a deleted note still gets its
@@ -354,7 +362,7 @@ struct PartialRestorePicker: View {
                 in: allOps, revertedBy: restoreOp, through: targetOpId,
                 amendments: amendments)
         }
-        return RevertPlan(docId: docId, target: target, restoreOp: restoreOp, stranded: stranded)
+        return RevertPlan(docId: docId, ops: allOps, restoreOp: restoreOp, stranded: stranded)
     }
 
     /// Appends the lines that reopen each accept `plan` strands
@@ -590,30 +598,21 @@ struct PartialRestorePicker: View {
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 
-    /// Derive the post-restore state and push it to disk via DocumentStore.scheduleFileSave.
-    private func materializeAndScheduleSave(
-        docId: String,
-        newState: Deriver.DerivedState,
-        restoreOp: Op
-    ) {
+    /// **The `.md` after a landed restore**: the log as it now stands (the
+    /// plan's ops plus the restore op), rendered and saved. Not the
+    /// checkpoint's state — the restore op leaves paragraphs made since
+    /// alone, so they stay in the render. Explicit, because a closed
+    /// document has no `Document` to re-read the log and autosave; its `.md`
+    /// would sit at the old text until the next load found it diverged.
+    /// The save coordinates with the store's own presenter, so an open
+    /// editor learns of the revert from the log (`reReadAfterExternalChange`),
+    /// not from this write.
+    private func renderAndScheduleSave(docId: String, ops: [Op]) {
         guard let path = docPaths[docId] else { return }
-        // Incorporate the restore op into the state so the sequence is updated.
-        let finalState: Deriver.DerivedState
-        if let seq = restoreOp.sequence {
-            // The restore op carries an updated sequence — use it.
-            var paragraphs = newState.paragraphs
-            for change in restoreOp.changes {
-                paragraphs[change.paragraphId] = change.next
-            }
-            finalState = Deriver.DerivedState(paragraphs: paragraphs, sequence: seq)
-        } else {
-            // No explicit sequence in the restore op; use target state as-is.
-            finalState = newState
-        }
-        let markdown = Materializer.materialize(
-            paragraphs: finalState.paragraphs,
-            sequence: finalState.sequence
-        )
+        let state = Deriver.derive(ops: ops)
+        // The clean render (ADR 0019), as the Document writes it: no anchors.
+        let markdown = MarkdownDisplayFilter.stripAnchors(Materializer.materialize(
+            paragraphs: state.paragraphs, sequence: state.sequence))
         documentStore?.scheduleFileSave(for: path, text: markdown)
     }
 }
