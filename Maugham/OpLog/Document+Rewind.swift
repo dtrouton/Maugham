@@ -181,8 +181,8 @@ extension Document {
         //    AFTER `targetOpId` is already reverted — but the accept op itself
         //    survives (append-only), so the annotation would still derive
         //    `.accepted` while its change no longer exists. For each accept
-        //    `strandedAccepts` names (the writer's later answer — a stet, a
-        //    reject, a reopen — stands; #128 item 3):
+        //    `RewindImpact.strandedAccepts` names (the writer's later answer —
+        //    a stet, a reject, a reopen — stands; #128 item 3):
         //
         //    - paragraph SURVIVES the rewind → append a changes-free
         //      claudeAcceptRevert (status-only reopen: the restore op already
@@ -195,8 +195,13 @@ extension Document {
         //      OPEN annotations, and this one derives `.accepted`.
         var reopenedIds: [String] = []
         var strandedAcceptResolved = false
-        for (src, pid) in strandedAccepts(in: currentOps, pastTarget: targetOpId) {
-            let paragraphSurvives = newIds.contains(pid)
+        //    A deleted (withdrawn) note still gets its op, but is not
+        //    reported: the writer cannot see it, and the preview does not
+        //    promise it.
+        for stranded in RewindImpact.strandedAccepts(
+            in: currentOps, pastTarget: targetOpId, amendments: annotationAmendments) {
+            let src = stranded.annotationId
+            let paragraphSurvives = newIds.contains(stranded.paragraphId)
             let resolutionOp = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
@@ -211,7 +216,9 @@ extension Document {
             try await opStore.append(resolutionOp)
             appendToMirror(resolutionOp)
             strandedAcceptResolved = true
-            if paragraphSurvives {
+            if stranded.isWithdrawn {
+                // logged, not reported
+            } else if paragraphSurvives {
                 reopenedIds.append(src)
             } else {
                 archivedIds.append(resolutionOp.opId)
@@ -481,48 +488,5 @@ extension Document {
         autosaveScheduler.schedule(())
 
         return stampedOp
-    }
-}
-
-extension Document {
-    /// **The accepts a return to `targetOpId` strands** (RULING-28): each note
-    /// whose latest HONOURED lifecycle op is an accept, and whose newest
-    /// changes-carrying accept lies past the target, with the paragraph that
-    /// accept wrote. The latest op is asked of the deriver's own rule
-    /// (`AnnotationDeriver.isHonouredLifecycleOp`), so a Stet, reject,
-    /// archive or reopen the writer put over the accept is their answer and
-    /// stands — the walk once hand-listed four kinds without Stet and reopen,
-    /// and reverted a Stet over an accept (#128 item 3).
-    ///
-    /// The latest op may be ANY accept — changes-carrying or STATUS-ONLY
-    /// (empty changes). A status-only accept is a re-accept (the rewind-undo's
-    /// `.undoRewind`, a put-back ⌘Z) standing in for the text-applying accept
-    /// it re-instated, so strandedness is judged against the newest
-    /// CHANGES-CARRYING accept. Without that, a rewind following an undo (⇧⌘Z,
-    /// or a second Restore to the same target) would leave the note accepted
-    /// over rewound text — disagreeing with a fresh rewind (M4-RW-031).
-    /// Sorted by annotation id. Rewind's step 8 asks this.
-    func strandedAccepts(
-        in ops: [Op], pastTarget targetOpId: String
-    ) -> [(annotationId: String, paragraphId: String)] {
-        let amendments = annotationAmendments
-        var latest: [String: Op] = [:]
-        for op in ops where AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
-            guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if let prior = latest[src], prior.opId > op.opId { continue }
-            latest[src] = op
-        }
-        return latest.keys.sorted().compactMap { src in
-            guard latest[src]?.kind == .claudeAccept,
-                  let textAccept = ops
-                      .filter({ $0.kind == .claudeAccept
-                                    && $0.provenance?.sourceAnnotationId == src
-                                    && !$0.changes.isEmpty })
-                      .max(by: { $0.opId < $1.opId }),
-                  textAccept.opId > targetOpId,          // past the target (ULID order)
-                  let pid = textAccept.changes.first?.paragraphId
-            else { return nil }
-            return (src, pid)
-        }
     }
 }

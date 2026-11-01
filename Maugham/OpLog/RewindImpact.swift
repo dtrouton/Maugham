@@ -18,7 +18,7 @@ enum RewindImpact {
         var wordsUndone: Int
         var paragraphsRemoved: Int
         /// Open annotations anchored to paragraphs the rewind removes — the
-        /// step-7 sweep's mirror.
+        /// step-7 sweep's mirror — plus accepts stranded on them (step 8).
         var annotationsToArchive: Int
         /// Sweep-archived annotations whose paragraph exists at the cursor —
         /// the step-9 reopen arm's mirror (RULING-25).
@@ -109,13 +109,7 @@ enum RewindImpact {
                     }
                 }
             case .accepted:
-                if let textAccept = (lifecycleBySource[ann.id] ?? []).filter({
-                       $0.kind == .claudeAccept && !$0.changes.isEmpty })
-                       .max(by: { $0.opId < $1.opId }),
-                   textAccept.opId > cursorOpId,
-                   targetSet.contains(pid) {
-                    p.acceptsToReopen += 1
-                }
+                break   // step 8's mirror, below: `strandedAccepts`
             case .rejected, .stetted:
                 // Neither moved any text, so a restore past one restores no
                 // text either, and neither is a class the rewind reopens: the
@@ -128,6 +122,19 @@ enum RewindImpact {
             }
         }
 
+        // Step 8's mirror, asked of the rule step 8 itself runs. A surviving
+        // paragraph's accept is reverted; a removed one's is archived, which
+        // the toast counts with the sweep's archives. A deleted note is not
+        // promised, as step 8 does not report it.
+        for stranded in strandedAccepts(in: ops, pastTarget: cursorOpId, amendments: amendments)
+        where !stranded.isWithdrawn {
+            if targetSet.contains(stranded.paragraphId) {
+                p.acceptsToReopen += 1
+            } else {
+                p.annotationsToArchive += 1
+            }
+        }
+
         let textChanges = now.paragraphs != target.paragraphs
             || now.sequence != target.sequence
         let cursorIdx = ops.firstIndex { $0.opId == cursorOpId }
@@ -136,6 +143,57 @@ enum RewindImpact {
         } ?? false
         p.changesAnything = textChanges || taskOpsAfter
         return p
+    }
+
+    /// An accepted suggestion a return to the target strands.
+    struct StrandedAccept: Equatable {
+        let annotationId: String
+        /// The paragraph its newest changes-carrying accept wrote.
+        let paragraphId: String
+        /// Deleted by the writer: still resolved in the log, never counted.
+        let isWithdrawn: Bool
+    }
+
+    /// **The accepts a return to `targetOpId` strands** (RULING-28): each note
+    /// whose latest HONOURED lifecycle op is an accept, and whose newest
+    /// changes-carrying accept lies past the target. The latest op is asked
+    /// of the deriver's own rule (`AnnotationDeriver.isHonouredLifecycleOp`),
+    /// so a Stet, reject, archive or reopen the writer put over the accept is
+    /// their answer and stands — the walk once hand-listed four kinds without
+    /// Stet and reopen, and reverted a Stet over an accept (#128 item 3).
+    ///
+    /// The latest op may be ANY accept — changes-carrying or STATUS-ONLY. A
+    /// status-only accept is a re-accept (the rewind-undo's `.undoRewind`, a
+    /// put-back ⌘Z) standing in for the text-applying accept it re-instated,
+    /// so strandedness is judged against the newest CHANGES-CARRYING accept;
+    /// otherwise a rewind after an undo would disagree with a fresh one
+    /// (M4-RW-031). Sorted by annotation id. `restoreToOp`'s step 8 acts on
+    /// this list and `preview` counts it, so the two cannot disagree.
+    static func strandedAccepts(
+        in ops: [Op], pastTarget targetOpId: String,
+        amendments: AnnotationAmendments
+    ) -> [StrandedAccept] {
+        var latest: [String: Op] = [:]
+        for op in ops where AnnotationDeriver.isHonouredLifecycleOp(op, amendments: amendments) {
+            guard let src = op.provenance?.sourceAnnotationId else { continue }
+            if let prior = latest[src], prior.opId > op.opId { continue }
+            latest[src] = op
+        }
+        return latest.keys.sorted().compactMap { src in
+            guard latest[src]?.kind == .claudeAccept,
+                  let textAccept = ops
+                      .filter({ $0.kind == .claudeAccept
+                                    && $0.provenance?.sourceAnnotationId == src
+                                    && !$0.changes.isEmpty })
+                      .max(by: { $0.opId < $1.opId }),
+                  textAccept.opId > targetOpId,          // past the target (ULID order)
+                  let pid = textAccept.changes.first?.paragraphId
+            else { return nil }
+            return StrandedAccept(
+                annotationId: src, paragraphId: pid,
+                isWithdrawn: AnnotationDeriver.isWithdrawn(
+                    annotationId: src, in: ops, amendments: amendments))
+        }
     }
 
     /// The confirm-sheet sentence: every non-zero class named, zero classes

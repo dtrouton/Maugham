@@ -370,7 +370,13 @@
   "why_in_scope": "Both halves shipped from one mirror: the confirm sheet's summary names archives, reopens and re-accepts beside the word count, and the post-restore toast reports what happened — including the nearest-moment substitution with its Revert (RULING-27's notice clause, Denver's own). The `_ =` discard the ruling's settles clause named is gone.",
   "intent_expressed_when": "contemporaneous — the Restore confirmation and its aftermath",
   "call_path": "Rewind modal → confirm sheet (RewindImpact.confirmSummary) → Restore → RewindModifier toast (RewindImpact.toast)",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "date": "2026-11-01",
+   "authorised_by": "RULING-28",
+   "pinned_by": "RewindImpactTests.test_preview_namesAStrandedAcceptOnARemovedParagraphAsAnArchive + test_aWithdrawnStrandedAccept_isNeitherPromisedNorReported",
+   "note": "Filed COMPLIES at reconciliation, but false: the preview omitted step 8's stranded-accept archives on removed paragraphs (sheet silent, toast '1 note auto-archived'), and the toast counted withdrawn notes the preview did not. Found by the #128 hardening review; VIOLATES→COMPLIES with this fix."
+  }
  },
  {
   "_summary": {
@@ -429,7 +435,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08)"
+   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08); M4-RW-038 (filed COMPLIES but false; fixed 2026-11-01, #128 hardening)"
   }
  }
 ]
