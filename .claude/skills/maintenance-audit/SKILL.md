@@ -18,6 +18,7 @@ Mode: `monthly` (or >4 weeks since the last full audit) → Full audit. Otherwis
 3. **Every High/Critical is coordinator-verified against source** before it ships. No exceptions.
 4. **Binary triage** (user rule, `feedback_no_defer_bucket`): each finding → scheduled task, or dropped on merit with the reason recorded. No "defer until touching that code" bucket. Fuzzy checks (heuristic greps, perf-budget tests) are merit-drops: false-positiving tripwires teach sessions to ignore tripwires.
 5. **Always end with a dated note** in `docs/superpowers/notes/` — trend-metrics row appended (longitudinal), findings with `file:line` + fix-shape + effort, triage verdicts incl. merit-drops, refuted suspicions — then commit it. A verbal report is a process failure: the next sweep needs the artifact.
+6. **Every scheduled finding is a GitHub issue; the note is the index.** Before filing, read ALL issues, open and closed (not only `audit`-labelled ones — a finding may rediscover a hand-filed bug). Match on code location and failure shape, not title wording. Open match → comment on it (date, `file:line`, still present / worse). Closed match → reopen it (or file a new one linked to it if the shape changed) and say it regressed. No match → new issue labelled `audit`, linking the note. Unsure → comment on the likely match and say so; never file a near-duplicate. The note's shortlist records each finding's issue number and which of the three happened. Merit-drops get no issue.
 
 ## Weekly sweep (delta-focused, ~3 agents)
 
@@ -25,7 +26,7 @@ Mode: `monthly` (or >4 weeks since the last full audit) → Full audit. Otherwis
 2. Doc-truth check (coordinator, cheap): roadmap •→✓ flips in the window → grep sibling docs (CLAUDE.md, touched `AREA.md`s, `docs/guide/`) for now-false claims; verify any prose counts not yet covered by generation tests.
 3. Dispatch 2–3 agents with the contract: **delta bug-hunt** (opus) over the window's diffs, prioritized by mini-hotspots; **doc/test-truth checker** (sonnet) for touched areas; if one seam dominated the window, **one tracer** (opus) end-to-end through it.
 4. Synthesize over the maps: collide this week's invariants-assumed/data-flows against the *prior audit's maps* (scratchpad mirrors or the note's map summaries), hunting the four classes below. Probe only if a suspicion is concrete.
-5. Verify → triage → write + commit the sweep note.
+5. Verify → triage → file/comment/reopen issues (invariant 6) → write + commit the sweep note.
 
 ## Monthly full audit
 
