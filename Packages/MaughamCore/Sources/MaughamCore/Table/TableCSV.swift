@@ -124,19 +124,9 @@ public enum TableCSV {
             let c = scalars[i]
             if c == "\"" && field.isEmpty {
                 rowOpen = true
-                i += 1
-                while i < scalars.count {
-                    if scalars[i] == "\"" {
-                        if i + 1 < scalars.count && scalars[i + 1] == "\"" { field.append("\""); i += 2; continue }
-                        i += 1
-                        break
-                    }
-                    field.append(scalars[i]); i += 1
-                }
-                // Text after the closing quote joins the field.
-                while i < scalars.count, scalars[i] != sepScalar, scalars[i] != "\n", scalars[i] != "\r" {
-                    field.append(scalars[i]); i += 1
-                }
+                let (end, text) = quotedField(scalars, at: i, separator: sepScalar)
+                field.append(contentsOf: text.unicodeScalars)
+                i = end
                 continue
             }
             if c == sepScalar { rowOpen = true; endField(); i += 1; continue }
@@ -151,16 +141,52 @@ public enum TableCSV {
         return (rows, sep)
     }
 
-    private static func detectSeparator(_ scalars: [Unicode.Scalar]) -> Character {
-        var counts: [Character: Int] = [",": 0, ";": 0, "\t": 0]
-        var inQuotes = false
-        for c in scalars {
-            if c == "\"" { inQuotes.toggle(); continue }
-            if inQuotes { continue }
-            if c == "\n" || c == "\r" { break }
-            let ch = Character(c)
-            if counts[ch] != nil { counts[ch]! += 1 }
+    /// The one rule for a quoted field, shared by `rows` and `detectSeparator`: `at` is an opening
+    /// quote at a field's start. Returns the field's text (`""` unescaped; any text after the closing
+    /// quote joins it, up to `separator` or a line end) and the index just past it.
+    private static func quotedField(_ scalars: [Unicode.Scalar], at start: Int,
+                                    separator: Unicode.Scalar) -> (end: Int, text: String) {
+        var i = start + 1
+        var field = String.UnicodeScalarView()
+        while i < scalars.count {
+            if scalars[i] == "\"" {
+                if i + 1 < scalars.count && scalars[i + 1] == "\"" { field.append("\""); i += 2; continue }
+                i += 1
+                break
+            }
+            field.append(scalars[i]); i += 1
         }
+        while i < scalars.count, scalars[i] != separator, scalars[i] != "\n", scalars[i] != "\r" {
+            field.append(scalars[i]); i += 1
+        }
+        return (i, String(field))
+    }
+
+    /// How many `separator`s the first line holds outside quoted fields, quoting exactly as `rows` does
+    /// (a quote opens a field only at its start, so a mid-field `5"` is plain text).
+    private static func firstLineSeparatorCount(_ scalars: [Unicode.Scalar], separator: Unicode.Scalar) -> Int {
+        var count = 0
+        var atFieldStart = true
+        var i = 0
+        while i < scalars.count {
+            let c = scalars[i]
+            if c == "\n" || c == "\r" { break }
+            if c == "\"" && atFieldStart {
+                i = quotedField(scalars, at: i, separator: separator).end
+                atFieldStart = false
+                continue
+            }
+            if c == separator { count += 1; atFieldStart = true } else { atFieldStart = false }
+            i += 1
+        }
+        return count
+    }
+
+    private static func detectSeparator(_ scalars: [Unicode.Scalar]) -> Character {
+        let candidates: [Character] = [",", ";", "\t"]
+        let counts = Dictionary(uniqueKeysWithValues: candidates.map {
+            ($0, firstLineSeparatorCount(scalars, separator: $0.unicodeScalars.first!))
+        })
         let best = counts.values.max() ?? 0
         guard best > 0 else { return "," }
         let winners = counts.filter { $0.value == best }.map(\.key)

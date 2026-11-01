@@ -350,6 +350,14 @@
    "date": "2026-08-08",
    "authorised_by": "RULING-26 — Denver 2026-08-08, no recommendation offered",
    "pinned_by": "RewindTravelReopenTests (production)"
+  },
+  "amendment": {
+   "commit": "bac02988d95e29e258bd9f04acc4a8ee92e2c97c",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26",
+   "outcome_of_the_undo_half": "VIOLATES→COMPLIES",
+   "note": "The ⌘Z half of RULING-26's headline case was a violation the original filing did not see: the re-accept survived the undo, leaving an .accepted note on a removed paragraph instead of the .archived status it had before the travel. Found by the reverse-stranding whole-branch review; fixed by a re-archive loop in restoreToOpUndoable.",
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted"
   }
  },
  {
@@ -370,16 +378,104 @@
   "why_in_scope": "Both halves shipped from one mirror: the confirm sheet's summary names archives, reopens and re-accepts beside the word count, and the post-restore toast reports what happened — including the nearest-moment substitution with its Revert (RULING-27's notice clause, Denver's own). The `_ =` discard the ruling's settles clause named is gone.",
   "intent_expressed_when": "contemporaneous — the Restore confirmation and its aftermath",
   "call_path": "Rewind modal → confirm sheet (RewindImpact.confirmSummary) → Restore → RewindModifier toast (RewindImpact.toast)",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "8b264d8109646428514d46dacdfec02ca917cf34",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-28",
+   "pinned_by": "RewindImpactTests.test_preview_namesAStrandedAcceptOnARemovedParagraphAsAnArchive + test_aWithdrawnStrandedAccept_isNeitherPromisedNorReported",
+   "note": "Filed COMPLIES at reconciliation, but false: the preview omitted step 8's stranded-accept archives on removed paragraphs (sheet silent, toast '1 note auto-archived'), and the toast counted withdrawn notes the preview did not. Found by the #128 hardening review; VIOLATES→COMPLIES with this fix."
+  }
+ },
+ {
+  "claim_id": "M4-RW-039",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-28",
+  "clause_that_reaches_it": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER.",
+  "why_in_scope": "Reverting text to a checkpoint is asked about the words; reopening the accepted suggestions whose change it takes back is collateral to it, as the full rewind's step 8 is. WHY_IT_VIOLATED: the manuscript revert did no stranded-accept handling at all and its sheet named no collateral, so a note stayed accepted over text without its change and the writer was told nothing; the figure revert already reopened and named its notes (#128 item 2). As of the fix the same plan feeds the confirm line, the appended reopens and the result sentence.",
+  "intent_expressed_when": "contemporaneous — the Revert sheet and its aftermath",
+  "call_path": "HistoryPane → Revert here… → PartialRestorePicker (confirm line: revertNotes → RevertNotes.confirmSentence) → Revert → restore(_:) → revertPlan → restore op + claudeAcceptRevert per stranded accept → RevertNotes.reportSentence",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "18fb58c247d94f491edc4a0253f2da493aefb794",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-28",
+   "pinned_by": "PartialRestoreStrandedAcceptTests.test_aRevertReopensTheAcceptItTakesBack_andLeavesEveryOtherAnswer + test_theSheetNamesTheReopensBeforeAndConfirmsThemAfter"
+  }
+ },
+ {
+  "claim_id": "M4-RW-040",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-57",
+  "clause_that_reaches_it": "Where the writer has REVERTED an accepted suggestion (the pane's Revert, accept's ⌘Z, or the phone's Reopen & Revert), and a restore to a moment at which that suggestion was accepted puts its accepted text back, the suggestion returns to ACCEPTED: the status it had at the travelled-to moment.",
+  "why_in_scope": "The claim is the ruling's case exactly: the writer's Revert after the moment, then a restore to that moment that writes the accepted text back. Its controls are the scope boundary note's edges: a Revert before the moment, a later Stet, reject or archive, and a paragraph the restore does not write. WHY_IT_VIOLATED: neither step 8 (it needs an accepted note) nor step 9 (it needs an archived one) acted, nor did the partial restore, so the note stayed open over its own accepted text and offered Accept again.",
+  "intent_expressed_when": "contemporaneous: the Restore or Revert here… is the writer asking for that moment back",
+  "call_path": "Rewind modal → confirm sheet (RewindImpact.preview → returningAccepts) → Restore → restoreToOpUndoable → restoreToOp step 8b → RewindModifier toast; HistoryPane → Revert here… → PartialRestorePicker (revertNotes → revertPlan) → restore → answerNotes → Restore.travelStatusLines",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "34504b1f2911eee82b100950885d921b887938b8",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-57, Denver 2026-11-01 (recommended option accepted)",
+   "pinned_by": "RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince",
+   "note": "New claim, filed VIOLATES against the code before the fix and flipped VIOLATES→COMPLIES with it (hardening 11-01 reverse stranding)."
+  },
+  "amendment": {
+   "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-57",
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen, test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd. The run was then held to the restore's own device and session, and an undo's closer to a sequence-free marker (the tail commit after it)."
+  }
+ },
+ {
+  "claim_id": "M4-RW-041",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns",
+  "why_in_scope": "A rewind's status-only revert, a checkpoint revert's, and the return journey's before-accept reopen are Maugham closing an accepted suggestion on its own initiative during travel, which is RULING-26's scope. A later restore to a moment at or after the accept returns the paragraph and the applied text, so the status the note had there (.accepted) is what returns. WHY_IT_VIOLATED: step 9's accepted arm reads only archived notes, so the return worked when step 8 had ARCHIVED the note (M4-RW-035) and failed when it had REOPENED it. The note stayed open over its accepted text, and only the rewind-undo re-accepted.",
+  "intent_expressed_when": "contemporaneous: the forward Restore",
+  "call_path": "Rewind modal → Restore (target before the accept) → Restore (target after it) → restoreToOp step 8b; or Revert here… to two checkpoints in turn → PartialRestorePicker.answerNotes",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "34504b1f2911eee82b100950885d921b887938b8",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26 (the controller filed it there on 2026-11-01 rather than under RULING-57)",
+   "pinned_by": "RewindReturningAcceptTests.test_forwardTravelOverARewindsOwnRevert_returnsTheSuggestionToAccepted + test_forwardTravelOverTheReturnJourneysReopen_returnsTheSuggestionToAccepted + PartialRestoreStrandedAcceptTests.test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted",
+   "note": "Found while checking RULING-57's premise: the same contradiction, reached with no act by the writer. Flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding)."
+  }
+ },
+ {
+  "claim_id": "M4-RW-042",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-26",
+  "clause_that_reaches_it": "Where Maugham itself closed an annotation during history travel, the status it had at the travelled-to moment is what returns",
+  "why_in_scope": "Step 8's revert is Maugham closing an accepted suggestion on its own initiative during travel. At the travelled-to moment the note was accepted, with its change in the text, so .accepted is the status that must hold after the return. RULING-57 does not fit: the writer's latest act is an accept, not a Revert. WHY_IT_VIOLATED: the stranded rule never read the status at the target, so a re-accept after a Revert made the note look stranded. It reopened the note over text that still held the change, and the sheet promised it.",
+  "intent_expressed_when": "contemporaneous: the Restore or Revert here…",
+  "call_path": "Rewind modal → Restore → restoreToOp step 8 (RewindImpact.strandedAccepts over travelStatusChanges); HistoryPane → Revert here… → PartialRestorePicker.revertPlan → answerNotes",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "bac02988d95e29e258bd9f04acc4a8ee92e2c97c",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26",
+   "pinned_by": "RewindReturningAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted + PartialRestoreStrandedAcceptTests.test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted",
+   "note": "Found by the reverse-stranding whole-branch review; flipped VIOLATES→COMPLIES (hardening 11-01 reverse stranding fix)."
+  },
+  "amendment": {
+   "commit": "c2b4c577aa5d0d883aa8b1c3c3445e014c0dfd48",
+   "date": "2026-11-01",
+   "authorised_by": "RULING-26",
+   "pinned_by": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_strandsAnAcceptMadeSince, test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther",
+   "note": "Fix round 2 (re-review): the status at the target was read at the restore op itself, before the status lines that same restore wrote behind it, so a tick on a restore op judged a pre-travel status against post-travel text. VIOLATES→COMPLIES with RewindImpact.momentEnd. The run was then held to the restore's own device and session, and an undo's closer to a sequence-free marker (the tail commit after it)."
+  }
  },
  {
   "_summary": {
-   "reached": 21,
-   "complies": 21,
+   "reached": 25,
+   "complies": 25,
    "violates": 0,
    "no_ruling": 14,
-   "total": 35,
-   "coverage": "60%",
+   "total": 39,
+   "coverage": "64%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -402,14 +498,17 @@
     ],
     "RULING-26": [
      "M4-RW-035",
-     "M4-RW-036"
+     "M4-RW-036",
+     "M4-RW-041",
+     "M4-RW-042"
     ],
     "RULING-27": [
      "M4-RW-008",
      "M4-RW-022"
     ],
     "RULING-28": [
-     "M4-RW-038"
+     "M4-RW-038",
+     "M4-RW-039"
     ],
     "RULING-37": [
      "M4-RW-021"
@@ -421,6 +520,9 @@
      "M4-RW-017",
      "M4-RW-018",
      "M4-RW-031"
+    ],
+    "RULING-57": [
+     "M4-RW-040"
     ]
    },
    "reached_by_a_root_only": [
@@ -429,7 +531,7 @@
     "M4-RW-012"
    ],
    "specificity_current_ruling_set": "12/15 = 80%",
-   "distinct_defects": "5 violations over 4 distinct defects — M4-RW-003 and M4-RW-008 are two pinned faces of one silent no-op, counted once. Fixed and flipped: M4-RW-002 (2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08)"
+   "distinct_defects": "13 violations over 11 distinct defects, all fixed and flipped. M4-RW-003, -008 and -022 are faces of one silent no-op on a vanished target (the code's 'M4-RW-003/008/022 silent no-op family'), counted once; M4-RW-022's undo-stack half is M4-RW-021's defect (a no-op Restore cleared ⌘Z). Fixed and flipped: M4-RW-002 (7f741db4, 2026-08-08), M4-RW-019 (fb08aaf96b, 2026-08-08), M4-RW-021 (57a24a06, 2026-08-09), M4-RW-003 / -008 / -022 (6b15e905, 2026-08-09), M4-RW-026 (234eb143, 2026-08-09), M4-RW-038 (8b264d81, 2026-11-01 — filed COMPLIES but false, #128 hardening), M4-RW-039 (18fb58c2, 2026-11-01 — the checkpoint revert's stranded accepts, #128 item 2), M4-RW-040 (RULING-57, a writer's Revert) and M4-RW-041 (RULING-26, travel's own reopen): one reverse-stranding defect each side of the ruling line, fixed together (34504b1f, 2026-11-01, hardening 11-01 reverse stranding); M4-RW-042 (RULING-26: a note accepted again since the target reopened over its own text) and M4-RW-035's undo half (RULING-26: ⌘Z left step 9's re-accept on a removed paragraph), both from the branch review (bac02988, 2026-11-01)"
   }
  }
 ]

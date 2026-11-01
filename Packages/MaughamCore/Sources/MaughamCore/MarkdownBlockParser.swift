@@ -39,7 +39,10 @@ public enum MarkdownBlockParser {
     public static func parseWithLineRanges(
         _ text: String
     ) -> [(block: MarkdownBlock, lines: Range<Int>)] {
-        let lines = text.components(separatedBy: "\n")
+        // CRLF → LF once, here. `\r\n` is one line break either way, so the
+        // returned line indices still index the caller's original string split
+        // on "\n" (a `\r` rides at the end of each original line).
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         var blocks: [(block: MarkdownBlock, lines: Range<Int>)] = []
         var i = 0
         while i < lines.count {
@@ -122,8 +125,7 @@ public enum MarkdownBlockParser {
             // non-marker, non-blank line stays inside the current item's
             // text. A blank line ends the block; so does an UNINDENTED
             // non-marker line — that line is left for the outer loop to
-            // reprocess as a normal block (verbatim port of
-            // ProjectASTBuilder.parseProseBlocks's list loop).
+            // reprocess as a normal block.
             if let (ordered, firstContent) = parseListMarker(lines[i]) {
                 var items: [[String]] = [[firstContent]]
                 i += 1
@@ -158,7 +160,7 @@ public enum MarkdownBlockParser {
             // Paragraph: gather consecutive raw lines until a blank line
             // or the start of another block kind. Quote is the ONLY new
             // block kind that interrupts accumulation without a blank line
-            // — a verbatim port of ProjectASTBuilder's paragraph loop. Table
+            // — this is the sole rule. Table
             // and solo image do NOT interrupt accumulation: a table/image line
             // FOLLOWING prose (e.g. `text\n| a | b |`) stays in the one
             // paragraph, byte-for-byte with publish's old paragraph loop. A
@@ -208,8 +210,7 @@ public enum MarkdownBlockParser {
 
     /// Match `^\s*([-*+]|\d{1,9}[.)])\s+` and return whether the marker is
     /// ordered plus the content that follows the marker's whitespace run.
-    /// Verbatim port of `ProjectASTBuilder.parseListMarker`. Called after
-    /// the thematic-break check, so `* * *` never reaches here.
+    /// Called after the thematic-break check, so `* * *` never reaches here.
     private static func parseListMarker(_ line: String) -> (ordered: Bool, content: String)? {
         var idx = line.startIndex
         while idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
@@ -242,7 +243,6 @@ public enum MarkdownBlockParser {
     }
 
     /// Strip leading whitespace, one `>`, and one optional following space.
-    /// Verbatim port of `ProjectASTBuilder.stripQuoteMarker`.
     private static func stripQuoteMarker(_ line: String) -> String {
         let trimmedLeading = String(line.drop(while: { $0 == " " || $0 == "\t" }))
         guard trimmedLeading.hasPrefix(">") else { return line }
@@ -252,7 +252,6 @@ public enum MarkdownBlockParser {
     }
 
     /// A GFM-style delimiter row: pipe-separated cells each matching `:?-+:?`.
-    /// Verbatim port of `GuideMarkdownView.isTableDelimiterRow`.
     private static func isTableDelimiterRow(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.contains("|") else { return false }
@@ -268,7 +267,6 @@ public enum MarkdownBlockParser {
 
     /// Splits a table row on unescaped `|`, trims each cell, and drops a
     /// leading/trailing empty cell produced by enclosing pipes (`| a | b |`).
-    /// Verbatim port of `GuideMarkdownView.splitTableRow`.
     static func splitTableRow(_ line: String) -> [String] {
         var cells: [String] = []
         var current = ""

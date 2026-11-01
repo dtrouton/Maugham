@@ -357,6 +357,54 @@ final class RewindCharacterization: XCTestCase {
         XCTAssertEqual(doc.paragraph(id: pid), "Original sentence here.")
     }
 
+    /// M4-RW-017 — a Stet the writer put over the accept is their later answer:
+    /// rewinding past the accept leaves the note stetted (#128 item 3). The
+    /// latest-answer walk used to omit Stet, read the accept as the latest,
+    /// and revert it to open over the Stet. The preview agrees.
+    func test_rewind_leavesAStetOverAnAcceptStetted() async throws {
+        let h = try await makeHarness("Original sentence here.")
+        let doc = h.doc, pid = h.pid
+        let annId = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                                body: "b", suggestedText: "Improved sentence.")
+        let beforeAccept = try await doc.opLog().last!.opId
+        try await doc.acceptAnnotation(id: annId)
+        try await doc.stetAnnotation(id: annId, userResponse: "leave it")
+        XCTAssertEqual(annotation(doc, annId)?.status, .stetted)
+
+        let preview = RewindImpact.preview(ops: doc._opLogMirror, cursorOpId: beforeAccept)
+        XCTAssertEqual(preview.acceptsToReopen, 0, "the preview promises nothing for a stetted note")
+
+        let r = try await doc.restoreToOp(opId: beforeAccept)
+
+        XCTAssertEqual(annotation(doc, annId)?.status, .stetted,
+                       "the writer's Stet stands; a rewind does not answer over it")
+        XCTAssertEqual(annotation(doc, annId)?.userResponse, "leave it")
+        XCTAssertTrue(r.reopenedAnnotationOpIds.isEmpty)
+        let reverts = try await doc.opLog().filter {
+            $0.kind == .claudeAcceptRevert && $0.provenance?.sourceAnnotationId == annId }
+        XCTAssertTrue(reverts.isEmpty, "no revert is appended over the Stet")
+    }
+
+    /// M4-RW-017 — a note reopened after its accept is already open: the rewind
+    /// neither appends a revert for it nor reports it as one it reopened.
+    func test_rewind_doesNotReportAReopenedNoteAsAStrandedAccept() async throws {
+        let h = try await makeHarness("Original sentence here.")
+        let doc = h.doc, pid = h.pid
+        let annId = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                                body: "b", suggestedText: "Improved sentence.")
+        let beforeAccept = try await doc.opLog().last!.opId
+        try await doc.acceptAnnotation(id: annId)
+        try await doc.stetAnnotation(id: annId)
+        try await doc.reopenAnnotation(id: annId)
+        XCTAssertEqual(annotation(doc, annId)?.status, .open)
+
+        let r = try await doc.restoreToOp(opId: beforeAccept)
+
+        XCTAssertEqual(annotation(doc, annId)?.status, .open)
+        XCTAssertTrue(r.reopenedAnnotationOpIds.isEmpty,
+                      "the writer reopened it; the rewind did not")
+    }
+
     /// M4-RW-018 — an accept past the target whose paragraph was REMOVED is
     /// archived instead, and reported in the archive list.
     func test_rewind_archivesAnAcceptWhoseParagraphWasRemoved() async throws {

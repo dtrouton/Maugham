@@ -981,8 +981,9 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
     ///
     /// **The gate is the observation, deliberately, and never `#available`.** A
     /// version check asserts a belief about which systems are affected and we
-    /// have measured exactly one; this predicate is the fold itself, so the test
-    /// starts running again on its own if Apple fixes it, and it catches the same
+    /// have measured two (macOS 27.2, build 26B123, folds the lone card into its
+    /// container too, with the screen unlocked); this predicate
+    /// is the fold itself, so the test starts running again on its own if Apple fixes it, and it catches the same
     /// behaviour wherever else it appears. **It is not unfalsifiable**: the
     /// multi-card round trip above is ungated and asserts a published width of
     /// 240 against a container 800 wide, which is this predicate exercised in its
@@ -1006,8 +1007,8 @@ final class CanvasViewMountingSurfaceTests: CanvasViewMountingCase {
                 + "element is published correctly in every other respect and carries "
                 + "the CANVAS's rectangle rather than its own, so an assistive cursor "
                 + "over a canvas holding exactly one card gets the whole canvas. "
-                + "Measured on macOS 15.7.7 (24G720); macOS 26.5 publishes the card's "
-                + "own rectangle, and this same platform publishes distinct frames "
+                + "Measured on macOS 15.7.7 (24G720) and macOS 27.2 (26B123); macOS 26.5 "
+                + "publishes the card's own rectangle, and this same platform publishes distinct frames "
                 + "for three cards. \(observed)")
         }
 

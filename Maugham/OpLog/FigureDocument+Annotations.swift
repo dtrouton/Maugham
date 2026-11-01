@@ -323,7 +323,7 @@ extension FigureDocument {
                 }
                 guard reopened, prior != .open else { return }
                 // The reopen landed: a put-back that fails now leaves the note
-                // open, and says THAT (the manuscript's `.stetRestore`), never
+                // open, and says THAT (the manuscript's `.putBack`), never
                 // a refusal it was not.
                 do {
                     try await d.settle(id, as: prior, reason: priorReason, undoManager: nil)

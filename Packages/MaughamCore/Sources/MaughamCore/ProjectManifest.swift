@@ -585,12 +585,18 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     ///
     /// Throws `SchemaTooNewError` for a too-new schema, or rethrows the
     /// underlying decode error for malformed/incompatible bytes.
-    public static func decodeGuardingSchema(_ data: Data) throws -> ProjectManifest {
+    ///
+    /// `ceiling` is the newest schema this build reads; it defaults to
+    /// `currentSchemaVersion` and is lowered only by a test standing in for
+    /// an older build.
+    public static func decodeGuardingSchema(
+        _ data: Data, ceiling: Int = ProjectManifest.currentSchemaVersion
+    ) throws -> ProjectManifest {
         let manifest = try makeDecoder().decode(ProjectManifest.self, from: data)
-        guard manifest.schemaVersion <= currentSchemaVersion else {
+        guard manifest.schemaVersion <= ceiling else {
             throw SchemaTooNewError(
                 found: manifest.schemaVersion,
-                supported: currentSchemaVersion)
+                supported: ceiling)
         }
         return manifest
     }

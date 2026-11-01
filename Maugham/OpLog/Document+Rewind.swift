@@ -180,9 +180,9 @@ extension Document {
         //    derived from the log PREFIX, so text applied by any claudeAccept
         //    AFTER `targetOpId` is already reverted — but the accept op itself
         //    survives (append-only), so the annotation would still derive
-        //    `.accepted` while its change no longer exists. For each
-        //    annotation whose LATEST lifecycle op is such a post-target,
-        //    changes-carrying accept:
+        //    `.accepted` while its change no longer exists. For each accept
+        //    `RewindImpact.strandedAccepts` names (the writer's later answer —
+        //    a stet, a reject, a reopen — stands; #128 item 3):
         //
         //    - paragraph SURVIVES the rewind → append a changes-free
         //      claudeAcceptRevert (status-only reopen: the restore op already
@@ -195,39 +195,15 @@ extension Document {
         //      OPEN annotations, and this one derives `.accepted`.
         var reopenedIds: [String] = []
         var strandedAcceptResolved = false
-        var latestLifecycleBySource: [String: Op] = [:]
-        for op in currentOps
-        where [.claudeAccept, .claudeReject, .claudeArchive,
-               .claudeAcceptRevert].contains(op.kind) {
-            guard let src = op.provenance?.sourceAnnotationId else { continue }
-            if let prior = latestLifecycleBySource[src], prior.opId > op.opId { continue }
-            latestLifecycleBySource[src] = op
-        }
-        for (src, lifecycleOp) in latestLifecycleBySource.sorted(by: { $0.key < $1.key }) {
-            // Strandedness = the latest lifecycle op is ANY `.claudeAccept` —
-            // changes-carrying or STATUS-ONLY (empty changes). A status-only
-            // accept exists as the undo-of-rewind's re-accept
-            // (`restoreToOpUndoable`, `.undoRewind`); it stands in for the
-            // text-applying accept it re-instated, so strandedness is judged
-            // against the latest CHANGES-CARRYING accept for the same
-            // annotation. Without this, a rewind that FOLLOWS an undo (⇧⌘Z
-            // redo, or a second manual Restore to the same target) would leave
-            // the annotation `.accepted` while its applied text was rewound
-            // away — disagreeing with what a fresh rewind produces. For a
-            // plain accept the two clauses collapse to one op (the old
-            // condition exactly); accept→revert chains skip at the first
-            // guard (latest isn't an accept); the removed-paragraph archive
-            // branch below is untouched.
-            guard lifecycleOp.kind == .claudeAccept else { continue }
-            guard let textAccept = currentOps
-                      .filter({ $0.kind == .claudeAccept
-                                    && $0.provenance?.sourceAnnotationId == src
-                                    && !$0.changes.isEmpty })
-                      .max(by: { $0.opId < $1.opId }),
-                  textAccept.opId > targetOpId,          // accept lies past the target (ULID order)
-                  let pid = textAccept.changes.first?.paragraphId
-            else { continue }
-            let paragraphSurvives = newIds.contains(pid)
+        //    A deleted (withdrawn) note still gets its op, but is not
+        //    reported: the writer cannot see it, and the preview does not
+        //    promise it.
+        // One walk for step 8 and step 8b (`RewindImpact.travelStatusChanges`).
+        let travel = RewindImpact.travelStatusChanges(
+            in: currentOps, target: targetOpId, amendments: annotationAmendments)
+        for stranded in RewindImpact.strandedAccepts(travel) {
+            let src = stranded.annotationId
+            let paragraphSurvives = newIds.contains(stranded.paragraphId)
             let resolutionOp = Op(
                 opId: ULID.generate(),
                 docId: docId, at: Date(),
@@ -242,10 +218,47 @@ extension Document {
             try await opStore.append(resolutionOp)
             appendToMirror(resolutionOp)
             strandedAcceptResolved = true
-            if paragraphSurvives {
+            if stranded.isWithdrawn {
+                // logged, not reported
+            } else if paragraphSurvives {
                 reopenedIds.append(src)
             } else {
                 archivedIds.append(resolutionOp.opId)
+            }
+        }
+        // 8b. Step 8's mirror (RULING-57; RULING-26 for travel's own
+        //    revert): a suggestion accepted at the target whose change was
+        //    taken out since — the writer's Revert, a rewind's or revert's
+        //    status-only reopen, the return journey's before-accept reopen —
+        //    is open over text this restore writes back. A status-only
+        //    `.claudeAccept` (RULING-26's instrument) returns the status it
+        //    had at the target. One rule with step 8
+        //    (`RewindImpact.travelStatusChanges`), so the preview's count is
+        //    this loop's. Gated to `.rewind`, as step 9 is: the `.undoRewind`
+        //    compensating restore's statuses are `restoreToOpUndoable`'s
+        //    choreography, and it re-accepts step 8's reopens itself.
+        var returnedIds: [String] = []
+        if synthesisSource == .rewind {
+            for returning in RewindImpact.returningAccepts(
+                travel,
+                writing: RewindImpact.paragraphsWritten(from: currentState, to: targetState)) {
+                let reaccept = Op(
+                    opId: ULID.generate(),
+                    docId: docId, at: Date(),
+                    device: device, session: session,
+                    kind: .claudeAccept,
+                    changes: [],
+                    sequence: nil,
+                    provenance: Op.Provenance(
+                        sessionId: session,
+                        synthesisSource: .rewind,
+                        sourceAnnotationId: returning.annotationId,
+                        userResponse: returning.userResponse))
+                try await opStore.append(reaccept)
+                appendToMirror(reaccept)
+                strandedAcceptResolved = true
+                // A deleted note gets its op, unreported — step 8's rule.
+                if !returning.isWithdrawn { returnedIds.append(returning.annotationId) }
             }
         }
         if strandedAcceptResolved {
@@ -348,6 +361,7 @@ extension Document {
             rewoundTaskOps: hasTaskOpsAfterTarget,
             travelReopenedAnnotationIds: travelReopenedIds,
             travelReacceptedAnnotationIds: travelReacceptedIds,
+            returnedAcceptAnnotationIds: returnedIds,
             targetResolution: resolution)
     }
 

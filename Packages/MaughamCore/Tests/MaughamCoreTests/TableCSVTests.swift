@@ -61,6 +61,15 @@ final class TableCSVTests: XCTestCase {
         XCTAssertEqual(TableCSV.rows("\"a;b;c\",d").separator, ",") // inside quotes doesn't count
     }
 
+    func test_rows_aMidFieldQuoteOnLineOneDoesNotDesynchroniseSeparatorDetection() {
+        let parsed = TableCSV.rows("5\" pipe;qty;x\n1,5;2;3")
+        XCTAssertEqual(parsed.separator, ";")
+        XCTAssertEqual(parsed.rows, [["5\" pipe", "qty", "x"], ["1,5", "2", "3"]])
+        // A quote that does open a field still hides its separators.
+        XCTAssertEqual(TableCSV.rows("a;\"b;c;d\";e;f").separator, ";")
+        XCTAssertEqual(TableCSV.rows("a;\"b;c;d\";e;f").rows[0], ["a", "b;c;d", "e", "f"])
+    }
+
     func test_rows_totalOnAwkwardInput() {
         XCTAssertEqual(TableCSV.rows("").rows, [])
         XCTAssertEqual(TableCSV.rows("a,\"unterminated\nx").rows, [["a", "unterminated\nx"]])

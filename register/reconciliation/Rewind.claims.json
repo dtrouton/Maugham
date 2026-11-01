@@ -259,14 +259,14 @@
   "claim_id": "M4-RW-017",
   "scope": "Document.restoreToOp",
   "kind": "POSTCONDITION",
-  "statement": "an accepted suggestion whose changes-carrying accept lies PAST the target, on a paragraph that SURVIVES, is returned to .open by a changes-free .claudeAcceptRevert and reported in reopenedAnnotationOpIds — so the annotation's status and the manuscript text agree again",
+  "statement": "an accepted suggestion whose changes-carrying accept lies PAST the target, on a paragraph that SURVIVES, is returned to .open by a changes-free .claudeAcceptRevert and reported in reopenedAnnotationOpIds — so the annotation's status and the manuscript text agree again. Only a note whose latest HONOURED lifecycle op is still an accept is stranded: the walk (`RewindImpact.strandedAccepts` over one `travelStatusChanges` walk, which the rewind preview also counts — M4-RW-038) asks `AnnotationDeriver.isHonouredLifecycleOp`, so a Stet, reject, archive or reopen the writer put over the accept is their later answer and stands — a stetted note stays stetted with its reply, and a note they reopened is not reported as reopened by the rewind. Before #128 item 3 the walk hand-listed accept/reject/archive/revert without Stet or reopen, read the accept under a Stet as the latest answer and reverted the note to open over the writer's Stet",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_rewind_reopensAnAcceptWhoseParagraphSurvives"
+   "ref": "RewindCharacterization.test_rewind_reopensAnAcceptWhoseParagraphSurvives; RewindCharacterization.test_rewind_leavesAStetOverAnAcceptStetted (the Stet stands, preview included); RewindCharacterization.test_rewind_doesNotReportAReopenedNoteAsAStrandedAccept"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — accept a suggestion, then rewind past the accept",
+  "reachability": "LIVE — accept a suggestion, then rewind past the accept; the Stet arm: accept, then Stet the accepted note from its row (show-resolved on), then rewind past the accept",
   "evidence": {
    "property_test": null
   }
@@ -519,10 +519,10 @@
   "claim_id": "M4-RW-035",
   "scope": "Document.restoreToOp — step 9's accepted branch",
   "kind": "POSTCONDITION",
-  "statement": "an accepted suggestion archived by the stranded-accept resolution returns to .accepted when a .rewind restore's target lies at-or-after its changes-carrying accept — via a status-only .rewind-stamped .claudeAccept preserving the original userResponse; the applied text is back via the restore fold",
+  "statement": "an accepted suggestion archived by the stranded-accept resolution returns to .accepted when a .rewind restore's target lies at-or-after its changes-carrying accept — via a status-only .rewind-stamped .claudeAccept preserving the original userResponse; the applied text is back via the restore fold; ⌘Z of that forward travel (restoreToOpUndoable) takes the paragraph away again and re-archives the note with a `.rewind`-stamped `.claudeArchive` (the stamp the compensating restore's own sweep uses, so redo's step 9 reads it as Maugham's and returns it again). Before the hardening 11-01 reverse-stranding fix round, the undo had no loop for `travelReacceptedAnnotationIds`, so the note stayed .accepted on a paragraph the undo had removed",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_forwardTravelPastTheAccept_restoresTheSuggestionToAccepted"
+   "ref": "MaughamTests/Integration/RewindTravelReopenTests.test_forwardTravelPastTheAccept_restoresTheSuggestionToAccepted + MaughamTests/Integration/RewindReturningAcceptTests.swift: test_undoOfAForwardTravel_reArchivesWhatStep9Reaccepted (the undo half)"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-26, Denver 2026-08-08)",
@@ -551,14 +551,78 @@
   "claim_id": "M4-RW-038",
   "scope": "RewindImpact + RewindWindow footer + RewindModifier toast",
   "kind": "POSTCONDITION",
-  "statement": "the confirm-time preview and the after-toast derive from ONE source of numbers (RewindImpact): the preview mirrors every class restoreToOp acts on — sweep archives, return-journey reopens and re-accepts, stranded-accept reopens, words — naming each non-zero class and omitting zero ones; the toast renders the actual result (ProjectWindow no longer discards it) and always names a .nearest resolution with Revert in the notice; Restore is disabled when changesAnything is false",
+  "statement": "the confirm-time preview and the after-toast derive from ONE source of numbers (RewindImpact): the preview mirrors every class restoreToOp acts on — sweep archives, return-journey reopens and re-accepts, step 8b's returning re-accepts (counted with the return journey's as 'restored to accepted', as the toast counts them), stranded-accept reopens, stranded-accept ARCHIVES on a paragraph the rewind removes (counted with the sweep's archives, as the toast's 'auto-archived' counts them), words — naming each non-zero class and omitting zero ones; the toast renders the actual result (ProjectWindow no longer discards it) and always names a .nearest resolution with Revert in the notice; Restore is disabled when changesAnything is false. The stranded and returning classes are counted from `RewindImpact.travelStatusChanges` (`strandedAccepts`, `returningAccepts`), the lists steps 8 and 8b act on, so sheet and toast cannot disagree. A deleted (withdrawn) note step 8 resolves still gets its revert or archive in the log, but neither the sheet promises nor the toast reports it. Before #128 (hardening 11-01 task 6 fix) the preview's `.accepted` arm required the paragraph to survive and the archive count took only `.open` notes, so a rewind archiving a stranded accept named no note on the sheet and then toasted '1 note auto-archived'; and a withdrawn stranded note was counted by the toast alone",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "MaughamTests/RewindImpactTests (pure preview/summary/toast pins; the overlay rendering is view glue over the pinned formatter)"
+   "ref": "MaughamTests/RewindImpactTests (pure preview/summary/toast pins; the overlay rendering is view glue over the pinned formatter); test_preview_namesAStrandedAcceptOnARemovedParagraphAsAnArchive and test_aWithdrawnStrandedAccept_isNeitherPromisedNorReported (sheet and toast agree on step 8's classes); RewindReturningAcceptTests.test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted and test_aWithdrawnNote_isNeitherPromisedNorReported (the returning class: sheet, act and toast agree)"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-28 both halves; RULING-27's notice; RULING-37's view half)",
   "reachability": "LIVE — every Restore from the rewind modal",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-039",
+  "scope": "PartialRestorePicker.restore / revertNotes (History's Revert here…, manuscript text)",
+  "kind": "POSTCONDITION",
+  "statement": "a checkpoint revert answers the accepted suggestions it takes back, and the reverted ones it puts back: each note `RewindImpact.strandedAccepts(_:revertedBy:)` names — the full rewind's list past the checkpoint's pointer, kept to the paragraphs the restore op writes — is reopened by a changes-free `.claudeAcceptRevert` stamped with the checkpoint id, appended right after the restore op and only when that op landed. Each note `RewindImpact.returningAccepts` names on a paragraph the restore op writes (accepted at the checkpoint, reverted since, M4-RW-040 / M4-RW-041) is returned to accepted by a changes-free `.claudeAccept` carrying the accept's reply, stamped and appended the same way. A revert never removes a paragraph, so a stranded accept is always reopened, never archived; an accept on a paragraph the revert does not write keeps its text and stays accepted, and a Stet, reject, archive or reopen over the accept stands (the deriver's honoured-lifecycle rule). Both halves of RULING-28 come from one plan per document (`PartialRestorePicker.RevertPlan`): the sheet's confirm line ('N accepted suggestion(s) will be reopened on A, B.', 'N suggestion(s) will be restored to accepted on A.') before Revert and the sheet's result ('Reopened N accepted suggestion(s) on A, B.', 'Restored N suggestion(s) to accepted on A.') after; a deleted (withdrawn) note still gets its revert in the log but is neither promised nor reported. Both halves ask one door (`splitByTheDoor`'s settled posture), so the promise and the act cannot count different documents. What does not land is NAMED, never only logged (RULING-52): a restore op that will not write says 'Not restored: A (why).' and reopens nothing; a reopen that will not write says 'Couldn't reopen N accepted suggestion(s) on A — still marked accepted.'; a re-accept that will not write says 'Couldn't restore N suggestion(s) to accepted on A — still open.'; either keeps the sheet up. The reopen and re-accept lines are built by `Restore.travelStatusLines` and their append is a counted writer site (`manuscriptWriterCallSites`). An open document sees both text and status through the presenter re-read (`DocumentStore.reReadAfterExternalChange`). The revert's `.md` is rendered only after the restore op lands — a restore op that will not write renders nothing — from the log plus the restore op (so paragraphs made since the checkpoint stay), derived as `Document.load` derives it (`deriveWithSequenceFallback`), with anchors stripped (ADR 0019). Not registered for ⌘Z, as no checkpoint revert is (plan 6c ruling Q-2). Before #128 item 2 the path did no stranded-accept handling: a revert to a checkpoint from before an accept left the note 'accepted' over text that no longer held the change, and the sheet named nothing",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Views/PartialRestoreStrandedAcceptTests.swift: test_aRevertReopensTheAcceptItTakesBack_andLeavesEveryOtherAnswer, test_documentScopeAnswersOnlyThatDocumentsNotes, test_aWithdrawnStrandedAcceptIsLoggedButNotNamed, test_theSheetNamesTheReopensBeforeAndConfirmsThemAfter, test_theNotesSentences, test_aReopenThatWillNotWriteIsNamed, test_aRestoreThatWillNotWriteIsNamedAndReopensNothing, test_anOpenDocumentReReadsTheRevertAndTheReopen, test_aRevertsRenderKeepsAParagraphMadeSinceTheCheckpoint, test_aRevertOfASequencelessLogRendersEveryParagraph, test_aCancelledScopesSentenceDoesNotLand, test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince, test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted, test_aParagraphTheRevertDoesNotWriteStaysOpen, test_aReacceptThatWillNotWriteIsNamed, test_theReacceptSentences"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-28 both halves)",
+  "reachability": "LIVE — History → a checkpoint row → Revert here…, over a suggestion accepted since that checkpoint",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-040",
+  "scope": "RewindImpact.travelStatusChanges (returning class) → Document.restoreToOp step 8b, RewindImpact.preview/toast, Document.restoreToOpUndoable; PartialRestorePicker.revertPlan / answerNotes",
+  "kind": "POSTCONDITION",
+  "statement": "a suggestion the WRITER accepted, then Reverted after the target (the pane's Revert, accept's ⌘Z, the phone's Reopen & Revert: a changes-carrying `.claudeAcceptRevert`), returns to .accepted when a restore to the target writes its paragraph back. Concretely: the note derives .accepted at the target, with a changes-carrying accept at or before it; its latest honoured lifecycle op now is that revert, past the target; and the restore writes the paragraph (`RewindImpact.paragraphsWritten` for a full rewind, the restore op's changes for a checkpoint revert). A status-only `.claudeAccept` carrying the accept's reply is appended: `.rewind`-stamped in step 8b of a `.rewind` restore, checkpoint-stamped behind a landed partial-restore op. The rewind sheet ('N suggestion(s) restored to accepted.') and the revert sheet ('N suggestion(s) will be restored to accepted on A.') promise it; the toast and the revert result report it, and a re-accept that will not write is named. Controls: a Revert made before the target leaves the note open; a Stet, reject or archive the writer put after the target stands; a paragraph the restore does not write leaves the note open; a deleted note gets its op but is neither promised nor reported. ⌘Z of the full rewind reopens it status-only (`.undoRewind`), beside the re-accept of step 8's reopens, so every note's status is as before the rewind; redo re-runs the rewind. The reject/splice repair (RULING-33) never fires on the re-accept. Before the fix the note stayed open, offering Accept for a change already in the text. \"At the target\" means the END of the moment the target names (`RewindImpact.momentEnd`). When the target is a restore op, or one of its trailing lines, the cut extends over the changes-free status lines that same restore wrote behind it: stamped `.rewind`/`.undoRewind`, or with the restore op's own `sourceCheckpoint`, plus an undo's task-window closer. The restore op's text already reflects the travel, so its moment's statuses must too. Before fix round 2 the cut sat on the restore op itself and read the pre-travel status: a tick on a rewind's restore op re-accepted a note that its own step 8 had reopened, over text without the change",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_travelBackOverAWritersRevert_returnsTheSuggestionToAccepted, test_aRevertBeforeTheCheckpoint_staysOpen, test_aStetOrArchiveAfterTheCheckpoint_stands, test_aRejectAfterTheRevert_stands, test_aParagraphTheRestoreDoesNotWrite_staysOpen, test_aWithdrawnNote_isNeitherPromisedNorReported, test_undoOfTheRewind_putsBothRulesStatusesBack; MaughamTests/Views/PartialRestoreStrandedAcceptTests.swift: test_aRevertRestoresToAcceptedTheAcceptTheWriterRevertedSince, test_aParagraphTheRevertDoesNotWriteStaysOpen, test_aReacceptThatWillNotWriteIsNamed, test_theReacceptSentences; MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_returnsNothingItsMomentHadOpen"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-57, Denver 2026-11-01)",
+  "reachability": "LIVE — accept a suggestion, checkpoint, Revert it, then Restore or Revert here… to the checkpoint",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-041",
+  "scope": "RewindImpact.travelStatusChanges (returning class) → Document.restoreToOp step 8b; PartialRestorePicker.answerNotes",
+  "kind": "POSTCONDITION",
+  "statement": "a suggestion MAUGHAM's own travel took the change out of returns to .accepted when a later restore to a moment at or after its accept writes the paragraph back. Maugham's own travel means a rewind's status-only `.claudeAcceptRevert` (step 8), a checkpoint revert's checkpoint-stamped one, or the return journey's `.rewind`-stamped `.annotationReopen` (step 9's before-accept arm). It is the same rule and instrument as M4-RW-040. A full rewind back then forward, two return journeys, or a revert to an earlier checkpoint and then a later one each end .accepted, with the text and the reported count. Before the fix only the rewind-undo re-accepted. A second, forward travel left the note open over the accepted text, because step 8 needs an accepted note and step 9 an archived one",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_forwardTravelOverARewindsOwnRevert_returnsTheSuggestionToAccepted, test_forwardTravelOverTheReturnJourneysReopen_returnsTheSuggestionToAccepted, test_theRejectRepairLeavesAReacceptAlone; MaughamTests/Views/PartialRestoreStrandedAcceptTests.swift: test_aRevertOverAnEarlierRevertsReopen_restoresToAccepted"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26's principle clause)",
+  "reachability": "LIVE — Restore to before an accept, then Restore to after it (or Revert here… to two checkpoints in turn)",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M4-RW-042",
+  "scope": "RewindImpact.travelStatusChanges (stranded class) → Document.restoreToOp step 8, RewindImpact.preview; PartialRestorePicker.revertPlan",
+  "kind": "INVARIANT",
+  "statement": "a note that was accepted WITH its text at the target is never stranded by a return to it. One case: accept → checkpoint → Revert → accept again (or ⌘Z the Revert) → other typing → restore to the checkpoint. Its newest changes-carrying accept lies past the target, but the target already holds the change. So step 8 appends no revert, the preview promises no reopen, and a checkpoint revert that writes the paragraph back to its accepted text neither reopens nor names it. The note stays .accepted over text that holds its change. Before the hardening 11-01 reverse-stranding fix round, the stranded rule read only the newest changes-carrying accept against the target, and reopened such a note over its own accepted text. \"At the target\" means the END of the moment the target names (`RewindImpact.momentEnd`). When the target is a restore op, or one of its trailing lines, the cut extends over the changes-free status lines that same restore wrote behind it: stamped `.rewind`/`.undoRewind`, or with the restore op's own `sourceCheckpoint`, plus an undo's task-window closer. The restore op's text already reflects the travel, so its moment's statuses must too. Before fix round 2 the cut sat on the restore op itself and read the pre-travel status: a tick on a rewind's restore op left an accept made since it `.accepted` over text without its change, and the sheet said nothing",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aNoteAcceptedAgainSinceTheCheckpoint_staysAccepted; MaughamTests/Views/PartialRestoreStrandedAcceptTests.swift: test_aNoteAcceptedAgainSinceTheCheckpointStaysAccepted; MaughamTests/Integration/RewindReturningAcceptTests.swift: test_aTickOnARestoreOp_strandsAnAcceptMadeSince, test_momentEnd_extendsOverTheLinesARestoreWroteAndNoFurther"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-26's principle clause)",
+  "reachability": "LIVE — accept, checkpoint, Revert, accept again, then Restore or Revert here… to the checkpoint",
   "evidence": {
    "property_test": null
   }

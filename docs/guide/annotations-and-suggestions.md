@@ -121,6 +121,8 @@ If you open the **History pane** and rewind to a point *before* you accepted a s
 
 If the rewind also removed the paragraph the suggestion was attached to, the suggestion is archived instead — there's nothing left for it to apply to.
 
+It works the other way too. Say you accepted a suggestion, later pressed **Revert** on it, and then rewind (or **Revert here…** to a checkpoint) to a point after the accept. The accepted text comes back, and the suggestion is marked **Accepted** again rather than offering you an Accept you've already made. A Stet, reject or archive you gave it after that point stays as you left it.
+
 If you rewind to before a suggestion was added, it disappears from the annotations list entirely.
 
 **Undoing a Rewind restore** — a History Rewind is itself undoable. Press **⌘Z** right after restoring to an earlier point and Maugham reverses the *whole* rewind in one grouped action: the manuscript text returns to where it was before you rewound, and any suggestions the rewind reopened or archived along the way go back to how they were. **⌘⇧Z** re-runs the same rewind from scratch, so redoing a rewind can never disagree with a fresh one.

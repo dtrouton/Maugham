@@ -33,8 +33,9 @@ private let researchTableLog = Logger(
 ///   says "changed".
 /// - **An outside change is never overwritten silently** (Denver's ruling):
 ///   the hash of the bytes last read or written is kept (`diskHash`). The file
-///   changed while the grid holds no edit → read again and said
-///   (`fileMayHaveChanged`, from the window's file presenter); changed under a
+///   changed while the grid holds no edit → read again and said, and the
+///   figure cards told (`fileMayHaveChanged`, from the window's file
+///   presenter); changed under a
 ///   pending edit → the outside version is kept as a conflict backup under
 ///   `.maugham/conflicts/` (`Document.writeConflictBackup`), said, then the
 ///   grid's version is written.
@@ -133,6 +134,9 @@ final class ResearchTableHost: FigureGridHost {
     @ObservationIgnored private(set) var sidecar: ResearchTableSidecar?
     /// An edit not yet written.
     @ObservationIgnored private(set) var isDirty = false
+    /// The sidecar for the CSV now on disk whose write failed; the next save
+    /// writes it alone (the CSV did save, so the host is not dirty).
+    @ObservationIgnored private(set) var pendingSidecar: ResearchTableSidecar?
     @ObservationIgnored private(set) var scheduledSave: Task<Void, Never>?
     /// The last save asked; each waits for the one before it.
     @ObservationIgnored private(set) var saving: Task<Void, Never>?
@@ -149,6 +153,8 @@ final class ResearchTableHost: FigureGridHost {
 
     /// Test seam: told the text of each write that landed.
     static var wroteForTesting: (@MainActor (String) -> Void)?
+    /// Test seam: replaces the sidecar write, so a test can make it fail.
+    static var sidecarWriteForTesting: (@MainActor (ResearchTableSidecar) throws -> Void)?
 
     private init(itemId: String, projectURL: URL, store: DocumentStore, table: FigureTable,
                  read: FileRead, locale: TableLocale, names: FormulaNames) {
@@ -253,6 +259,7 @@ final class ResearchTableHost: FigureGridHost {
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
+        pendingSidecar = nil   // it described bytes that are gone
         run.end()   // what is on disk now is not this run's: the next save keeps it
         sidecar = read.sidecar
         separator = TableCSV.rows(read.text).separator
@@ -261,6 +268,9 @@ final class ResearchTableHost: FigureGridHost {
         diskHash = read.hash
         names = context.names
         state = FigureState(kind: .table, table: Self.table(of: read, context: context))
+        // A figure pinning this table reads the file just read: its card
+        // follows the grid on screen (sweep 11-01 S2, #131).
+        store.invalidateFigureCards()
         return true
     }
 
@@ -356,7 +366,8 @@ final class ResearchTableHost: FigureGridHost {
         let previous = saving
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            guard let self, self.isDirty else { return }
+            guard let self else { return }
+            guard self.isDirty else { self.retryPendingSidecar(); return }
             self.isDirty = false
             await self.write(self.state.table)
         }
@@ -616,16 +627,47 @@ final class ResearchTableHost: FigureGridHost {
         next.name = sidecar?.name
         next.writtenBy = writer
         do {
-            try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
+            try writeSidecar(next)
             sidecar = next
+            pendingSidecar = nil
         } catch {
+            // The CSV saved, so the host stays clean (an outside change is still
+            // adopted); only the sidecar is kept to write again at the next save.
+            pendingSidecar = next
             researchTableLog.error(
                 "\(path, privacy: .public)'s sidecar was not written: \(error.localizedDescription, privacy: .public)")
+            MaughamEvent.postNotice(
+                "Couldn’t save the formatting of “\(item.title)”: \(error.localizedDescription). Maugham will try again on the next save.",
+                projectURL: projectURL)
         }
         store.invalidateFigureCards()
         if restoring, !kept { store.researchVersionsRevision += 1 }
         Self.wroteForTesting?(text)
         return true
+    }
+
+    private func writeSidecar(_ next: ResearchTableSidecar) throws {
+        if let seam = Self.sidecarWriteForTesting {
+            try seam(next)
+        } else {
+            try ResearchTableSidecar.write(next, forItem: itemId, in: projectURL)
+        }
+    }
+
+    /// Writes the sidecar a failed save left, if it still describes the file
+    /// on disk. A repeat failure is logged, not said again.
+    private func retryPendingSidecar() {
+        guard let pending = pendingSidecar else { return }
+        guard pending.contentHash == diskHash else { pendingSidecar = nil; return }
+        do {
+            try writeSidecar(pending)
+            sidecar = pending
+            pendingSidecar = nil
+            store?.invalidateFigureCards()
+        } catch {
+            researchTableLog.error(
+                "\(self.itemId, privacy: .public)'s sidecar was not written again: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Whether the item's file (or a link where it was) is on disk.

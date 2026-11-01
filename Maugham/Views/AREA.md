@@ -4,7 +4,7 @@ The SwiftUI view layer of the project window and the app's other windows. The on
 
 ## Map
 
-Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here. **→ Compiler** / **→ Canvas**: that guide's Rules also govern the file (search for its name or types).
+Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here. **→ Compiler** / **→ Canvas**: that guide's Rules govern the file (search for its name or types).
 
 ### The window family
 - `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
@@ -171,7 +171,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `HistoryPane.swift` — forensic timeline. Children: `HistoryPaneNotices.swift` (`HeldLineNoticeRow`, `SetAsideRecordsDisclosure`), `HistoryPaneTimeline.swift`, `HistoryRow.swift`, `HistoryPaneVerbs.swift` (tripwire 50), `HistoryPaneStatics.swift`.
 - `RecoveredHistorySheet.swift` — the copyable orphan report with Append to End.
 - `RewindWindow.swift`, `RewindTickLayout.swift`, `RewindAction.swift`, `RewindScope.swift` — the per-doc rewind modal, its scrubber decimation, its terminal actions, its scope.
-- `PartialRestorePicker.swift` — per-doc vs project picker for checkpoint-row reverts; a project revert winds back every registered figure with a pointer, each behind its own `.editFigure` door through `withFigureHost`;
+- `PartialRestorePicker.swift` — checkpoint-row reverts, per document or project: winds back each registered figure with a pointer behind its `.editFigure` door (`withFigureHost`); reopens accepts it takes back, said before and after (`RevertNotes`);
 - `CheckpointLabelPromptSheet.swift` — the label sheet for ⌘⇧S and Snapshot here.
 - `RestoreWindow.swift` — restore from a backup generation.
 
@@ -288,7 +288,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Research subjects and the palette wall
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
-- **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt`.
+- **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway`.
 - **Where the centre is the canvas, a research subject never swaps the centre out**; it previews in the right column. Elsewhere it takes the centre.
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
@@ -371,7 +371,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The board and the desk take values and closures, never a store**; every verb is the MOUNT's.
 - **A chip click writes `selectedSubject` and `recordActivePass`, never the persona**; a count click opens the queue in project scope and moves neither subject nor persona (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
-- **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would actually run.
+- **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
 - **The per-piece pass-state writers are the files in `PersonaPaneRegistryTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
@@ -516,7 +516,7 @@ Checks: `CanvasRouteTests`, `ProjectSubjectReachabilityTests`.
 2. Draw it from `DocumentStore.posture(forDocId:)` of the row's own document; hide it when refused.
 3. Act through `settledPosture(forDocId:as:)` and the store or `Document` door, and say a refusal in words.
 4. If it writes manuscript text outside the editor, add the call to `TripwireGrepTests.manuscriptWriterCallSites` with its gate (`Maugham/OpLog/AREA.md`, "Add a permit-checked writer").
-5. If it hides in a `.contextMenu` or `Menu`, also draw a visible control; census the wiring from source.
+5. If it hides in a `.contextMenu` or `Menu`, draw a visible control; census the wiring from source.
 
 Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`, `test_aPermitRungIsComparedOnlyInThePermitLayer`.
 

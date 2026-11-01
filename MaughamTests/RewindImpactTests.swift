@@ -89,6 +89,64 @@ final class RewindImpactTests: XCTestCase {
         XCTAssertEqual(p.annotationsToArchive, 0)
     }
 
+    /// M4-RW-038 — an accept stranded on a paragraph the rewind REMOVES is
+    /// archived by step 8 (M4-RW-018), so the sheet names it with the other
+    /// archives, and the toast's count matches what the sheet promised.
+    func test_preview_namesAStrandedAcceptOnARemovedParagraphAsAnArchive() async throws {
+        let h = try await makeHarness("First.")
+        try await h.doc.flushBurstNow()
+        let early = try await h.doc.opLog().last!.opId
+        h.doc.setFullText("First.\n\nSecond.\n"); try await h.doc.flushBurstNow()
+        let p2 = try await paragraphId(in: h.doc, containing: "Second")
+        let annId = try await h.doc.addAnnotation(kind: .suggestedChange, paragraphId: p2,
+                                                  body: "b", suggestedText: "Second, improved.")
+        try await h.doc.acceptAnnotation(id: annId)
+
+        let p = RewindImpact.preview(ops: try await h.doc.opLog(), cursorOpId: early)
+        XCTAssertEqual(p.annotationsToArchive, 1,
+                       "the accepted suggestion on the paragraph being rewound away")
+        XCTAssertEqual(p.acceptsToReopen, 0)
+
+        let r = try await h.doc.restoreToOp(opId: early)
+        XCTAssertEqual(r.archivedAnnotationOpIds.count, p.annotationsToArchive,
+                       "the toast counts what the sheet promised")
+    }
+
+    /// M4-RW-038 — a deleted (withdrawn) note the rewind strands still gets its
+    /// revert or archive in the log, but neither the sheet nor the toast counts
+    /// a note the writer cannot see.
+    func test_aWithdrawnStrandedAccept_isNeitherPromisedNorReported() async throws {
+        let h = try await makeHarness("First.")
+        try await h.doc.flushBurstNow()
+        let early = try await h.doc.opLog().last!.opId
+        h.doc.setFullText("First.\n\nSecond.\n"); try await h.doc.flushBurstNow()
+        let p2 = try await paragraphId(in: h.doc, containing: "Second")
+        let survives = try await h.doc.addReviewerAnnotation(
+            kind: .suggestedChange, paragraphId: h.pid, span: nil, body: "b",
+            suggestedText: "First, improved.", authorName: "Denver")
+        let removed = try await h.doc.addReviewerAnnotation(
+            kind: .suggestedChange, paragraphId: p2, span: nil, body: "b",
+            suggestedText: "Second, improved.", authorName: "Denver")
+        for id in [survives, removed] {
+            try await h.doc.acceptAnnotation(id: id)
+            try await h.doc.withdrawReviewerAnnotation(id: id, authorName: "Denver")
+        }
+
+        let p = RewindImpact.preview(ops: try await h.doc.opLog(), cursorOpId: early)
+        XCTAssertEqual(p.acceptsToReopen, 0)
+        XCTAssertEqual(p.annotationsToArchive, 0)
+
+        let r = try await h.doc.restoreToOp(opId: early)
+        XCTAssertTrue(r.reopenedAnnotationOpIds.isEmpty, "a deleted note is not reported")
+        XCTAssertTrue(r.archivedAnnotationOpIds.isEmpty, "a deleted note is not reported")
+        let ops = try await h.doc.opLog()
+        XCTAssertTrue(ops.contains { $0.kind == .claudeAcceptRevert
+            && $0.provenance?.sourceAnnotationId == survives },
+            "the log still records the revert, should the note be restored")
+        XCTAssertTrue(ops.contains { $0.kind == .claudeArchive
+            && $0.provenance?.sourceAnnotationId == removed })
+    }
+
     func test_confirmSummary_namesEveryNonZeroClass_andOmitsZeroOnes() {
         var p = RewindImpact.Preview(
             wordsUndone: 240, paragraphsRemoved: 3, annotationsToArchive: 2,

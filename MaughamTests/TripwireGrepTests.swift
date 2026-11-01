@@ -12706,6 +12706,10 @@ final class TripwireGrepTests: XCTestCase {
         "resumeFromResearch(", "bringBack(", "refreshPins(", "restoreToCheckpoint(",
         "setCells(", "sortRows(", "applyChanges(", "retargetFigureLine(",
         "acceptSuggestion(",
+        // The lines answering the notes a checkpoint revert moves the text
+        // under (#128 item 2, RULING-57): built in the op-log layer, counted
+        // where appended.
+        "travelStatusLines(",
         figureOpMintSpelling,
     ]
 
@@ -13073,7 +13077,10 @@ final class TripwireGrepTests: XCTestCase {
     ///   restore, which appends through its own store: the settled posture per
     ///   document before the build; the rows and the History button are drawn
     ///   only for documents this Mac may write, and what the door left alone is
-    ///   named in the sheet. Its `restoreToCheckpoint(` winds back each figure
+    ///   named in the sheet. Behind a landed restore op it appends
+    ///   `travelStatusLines(`' lines, reopening the accepts that op takes
+    ///   back and re-accepting the reverted ones it puts back (status only,
+    ///   #128 item 2, RULING-57) — the same door, no new text. Its `restoreToCheckpoint(` winds back each figure
     ///   in scope (report plan 6c Task 3) after asking that figure's settled
     ///   `.editFigure` posture, through its host (which asks again); a refused,
     ///   parked or part-restored figure is named in the same sentence.
@@ -13138,7 +13145,9 @@ final class TripwireGrepTests: XCTestCase {
         "RecoveredHistorySheet.swift": ["insertParagraph(": 1],
         // History's undoable Rewind, inside the window's `RewindModifier`.
         "type:RewindModifier": ["restoreToOpUndoable(": 1],
-        "PartialRestorePicker.swift": ["buildRestoreOp(": 1, "restoreToCheckpoint(": 1],
+        "PartialRestorePicker.swift": [
+            "buildRestoreOp(": 1, "restoreToCheckpoint(": 1, "travelStatusLines(": 1,
+        ],
         "TestEditTool.swift": ["setFullText(": 1],
         // Figures (report plan 6a): each asks posture before it writes.
         // **Undo paths are not counted at their callers** (final review M10):
@@ -13587,6 +13596,7 @@ final class TripwireGrepTests: XCTestCase {
         _ = try await doc.restoreToOp(opId: id)
         _ = try await doc.restoreToOpUndoable(opId: id, undoManager: um)
         let op = Restore.buildRestoreOp(current: a, target: b, scope: .document,
+        let reverts = Restore.travelStatusLines(plan.notes, docId: d, device: m,
         try await store.replaceAll(in: results, with: text)
         try await store.replaceMatch(match, with: text)
         try await replaceInManuscript(path: p, title: t, query: q,

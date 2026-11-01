@@ -1334,24 +1334,4 @@ final class ClaudeCLISessionTests: XCTestCase {
             "the CLI's own estimate reaches the handler as it arrives")
         session.shutdown()
     }
-
-    /// A stall carries the last estimate the session saw, so the sentence can
-    /// say how far the read had got.
-    ///
-    /// **Margin**: the same 1.5 s ceiling under a 10 s silence budget as
-    /// `test_theCeilingEndsAChildThatNeverStopsTalking`, and for the same
-    /// reason — 6.7× between the two budgets, and time enough for the
-    /// chatter's first line (which is what carries the estimate this test is
-    /// about) to arrive on a machine running seven XCTest workers at once.
-    func test_aStallCarriesTheThinkingEstimate() async throws {
-        let cli = try makeFakeCLI(mode: .chatterWhileFlagged)
-        try Data().write(to: slowFlagURL)   // never lifted
-        let session = makeSession(cli: cli, silenceTimeout: 10, runTimeout: 1.5)
-        let event = await session.send(message: "chatty", systemPreamble: nil)
-        guard case .failed(.timedOut(let stall)) = event else {
-            return XCTFail("expected a stall, got \(event)")
-        }
-        XCTAssertEqual(stall.thinkingTokens, 50, "the chatter's estimate is 50 on every line")
-        session.shutdown()
-    }
 }

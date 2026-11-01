@@ -250,81 +250,28 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
     // MARK: - The way out of a research subject (stage-2a final review, C)
 
-    /// **Every window state that lets a research subject stand must also be able
-    /// to clear it.**
+    /// **The tree's head row writes a research subject away** \u{2014} the one
+    /// mounted representative of the way out of the 2a Critical's trap.
     ///
-    /// The missing class of test, and the one the Critical fell through. Stage
-    /// 2a's Task 5 asked *which column does a research subject take* and
-    /// answered it exhaustively; nobody asked *and how does the writer get
-    /// back*. Two of Plan's four left-hand tabs took a column apiece from a
-    /// subject their panes could not write — the old research pane wrote its own
-    /// private selection, `TrashView` wrote nothing — so the region, scrap, line
-    /// and item inspectors were replaced with no control anywhere in the window
-    /// to give them back, and the subject persists through `UIState` into the
-    /// next launch.
+    /// It was one of three. A loop that mounted the tree in every persona and
+    /// a second that mounted each persona twice around the find overlay both
+    /// timed out under a loaded gate and were cut (hardening 11-01, #129):
+    /// neither guarded a hard invariant, and their per-persona halves are
+    /// windowless already \u{2014} where a research subject goes in each persona
+    /// is `ResearchSubjectRoutingTests`' (`researchSubjectPlacement`), every
+    /// persona's left column is this same tree (stage 2b Task 7), and \u{2318}\u{2325}O
+    /// still lands on the project row with find covering the column
+    /// (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
     ///
-    /// **Driven through the real binder shell**, in each persona, with the
-    /// subject seeded the way a persona switch delivers it: if selecting the
-    /// head row of the left column cannot move the subject off the research
-    /// item, the state is a trap. Row 0 is the project row in every tree, which
-    /// is exactly the population this loop is about.
-    ///
-    /// **The segment dimension left the loop in stage 2b Task 7**, and the
-    /// answer moved with it rather than shrinking: the two panes that could not
-    /// write the subject are gone, every persona's left column is the tree, and
-    /// the placement no longer refuses anybody. The two helpers that paired a
-    /// segment with the persona and project type it was a real state in
-    /// (`persona(hosting:)`, `projectType(hosting:)`) went with the enum — they
-    /// existed so a mount could not model a state no writer could reach, and
-    /// there is no unreachable pairing left to guard against.
-    func test_everyWindowStateThatLetsAResearchSubjectStandCanAlsoClearIt() async throws {
-        let stuck = BinderSubject.research("r1")
-        var held = 0
-        for persona in Persona.allCases {
-            let placement = ProjectWindow.researchSubjectPlacement(
-                persona: persona, subject: stuck)
-            guard placement != .nothingMoves else { continue }
-            held += 1
-
-            let store = try await project(of: .novel)
-            let (window, probe) = try await host(
-                store: store, script: nil, persona: persona, subject: stuck)
-            let table = try XCTUnwrap(
-                firstTableView(in: window),
-                "\(persona) lets a research subject take a column "
-                + "(\(placement)) and its left pane puts no List in the "
-                + "hierarchy at all — there is no row to select, so nothing can "
-                + "clear the subject and the window's own columns never come "
-                + "back")
-
-            await select(row: 0, in: table, until: { probe.subject != stuck })
-
-            XCTAssertNotEqual(
-                probe.subject, stuck,
-                "\(persona): a research subject takes a column here "
-                + "(\(placement)), so some control in a visible column has to be "
-                + "able to write the subject away again. The head row of the "
-                + "left column wrote nothing — this is the trap: it survives a "
-                + "relaunch, because the subject is persisted in `UIState`")
-        }
-        XCTAssertEqual(
-            held,
-            Persona.allCases.filter { !$0.previewsThePublishedBook }.count,
-            "the control: every persona but Publish holds a research subject in "
-            + "one column or the other, so a `continue` beyond the expected one "
-            + "would mean the placement started refusing somebody else and this "
-            + "loop went quiet about it")
-    }
-
-    /// **Publish's `.nothingMoves` is exempt from the loop above by that loop's
-    /// own rule, and this is what says it is not a trap** (shell-finish stage 3b
-    /// Task 5).
+    /// **Publish is the persona it is driven in, on purpose** (shell-finish
+    /// stage 3b Task 5): Publish's `.nothingMoves` is the case most easily
+    /// waved through as exempt.
     ///
     /// The rule is *"every window state that lets a research subject STAND must
     /// be able to clear it"*. Publish no longer lets one stand: the placement
     /// moves neither column (spec §4's "—" row), so the centre shows the
     /// compiled book or the project at altitude and the subject is holding
-    /// nothing hostage. The trap the loop guards against needs a surface that
+    /// nothing hostage. The trap needs a surface that
     /// the subject took AND no control able to give it back; Publish has neither
     /// half.
     ///
@@ -336,8 +283,7 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(persona: .publish, subject: stuck),
             .nothingMoves,
-            "premise: Publish takes neither column for a research subject, "
-            + "which is why the loop above skips it")
+            "premise: Publish takes neither column for a research subject")
 
         let store = try await project(of: .novel)
         let (window, probe) = try await host(
@@ -353,56 +299,6 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
             "the subject persists through `UIState`, so even a subject holding "
             + "no column has to be clearable — otherwise a relaunch reopens onto "
             + "it and the writer cannot tell what the window is about")
-    }
-
-    /// **And the surviving form of the same question.**
-    ///
-    /// Since Task 7 the tree is the whole left column in every persona, so
-    /// "can the writer point the window somewhere else again" is answered yes by
-    /// construction — with ONE exception, and it is the reason the question
-    /// survives at all: the find overlay REPLACES the column
-    /// (`BinderPaneToggle.body`), so while it is up there is no row to click.
-    ///
-    /// **That is not a trap, and this is what says so rather than assuming it.**
-    /// The 2a Critical was a trap because nothing in the window could clear the
-    /// subject AND the state persisted — the binder segment was written to
-    /// `UIState` on every change and Plan landed on one whose pane could not
-    /// write the subject, so a relaunch reopened into it. The overlay has
-    /// neither property: `treeFindActive` is window `@State` that no `UIState`
-    /// carries, and `close()` puts the tree back. So the research subject may
-    /// stand while find is open, the way out is Escape rather than a row, and
-    /// the tree that comes back can clear it.
-    func test_theFindOverlayIsNotATrapBecauseTheTreeComesBack() async throws {
-        let stuck = BinderSubject.research("r1")
-        for persona in Persona.allCases {
-            let placement = ProjectWindow.researchSubjectPlacement(
-                persona: persona, subject: stuck)
-            let store = try await project(of: .novel)
-
-            // With the overlay up there is no tree at all — which is the
-            // premise, not the finding.
-            let (covered, _) = try await host(
-                store: store, script: nil, persona: persona,
-                subject: stuck, findActive: true)
-            XCTAssertNil(firstTableView(in: covered),
-                         "\(persona): premise — the overlay replaces the "
-                         + "column, so no tree row is available to clear a "
-                         + "subject with")
-
-            // And the way out restores it. `applyCloseFind` is the production
-            // path both exits take (the ✕ and `.onExitCommand`).
-            let (window, probe) = try await host(
-                store: store, script: nil, persona: persona,
-                subject: stuck)
-            guard placement != .nothingMoves else { continue }
-            let table = try XCTUnwrap(
-                firstTableView(in: window),
-                "\(persona): with find closed the tree is back, and it is the "
-                + "control that can write the subject away")
-            await select(row: 0, in: table, until: { probe.subject != stuck })
-            XCTAssertNotEqual(probe.subject, stuck,
-                              "\(persona): the restored tree cleared it")
-        }
     }
 
     // MARK: - Clicking a slugline in Plan (slice 2 review, F2)

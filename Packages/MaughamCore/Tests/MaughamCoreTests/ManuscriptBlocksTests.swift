@@ -382,4 +382,47 @@ final class ManuscriptBlocksTests: XCTestCase {
             XCTAssertEqual(ours, baseLines, src.debugDescription)
         }
     }
+
+    // MARK: - hardening 11-01 task 7 (#113 F5, F6)
+
+    /// F5: an unlabelled last row with an unescaped column pipe is data, not a
+    /// caption; a grid Save must not drop it.
+    func test_table_aTableColonRowWithAColumnPipeAndNoLabel_staysARow() {
+        XCTAssertEqual(blocks(tableSource + "\nTable: old totals | 5"),
+                       [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none],
+                               rows: [["Q3", "12"], ["Table: old totals", "5"]],
+                               caption: nil, label: nil)])
+    }
+
+    /// F5 control: a caption is still a caption (plain, escaped pipe, and a
+    /// labelled one that carries a pipe).
+    func test_table_aRealCaptionIsStillACaption() {
+        for (line, text, lbl) in [
+            ("Table: Q3 revenue", "Q3 revenue", nil),
+            ("Table: EMEA \\| APAC", "EMEA \\| APAC", nil),
+            ("Table: Revenue | EMEA {#tbl:rev}", "Revenue | EMEA", label(.tbl, "rev")),
+        ] as [(String, String, ManuscriptLabel?)] {
+            XCTAssertEqual(blocks(tableSource + "\n" + line),
+                           [.table(header: ["Quarter", "Revenue"], alignments: [.none, .none],
+                                   rows: [["Q3", "12"]], caption: text, label: lbl)], line)
+        }
+    }
+
+    /// F6: CRLF text reads exactly as its LF twin, ranges included, and the
+    /// ranges still index the caller's original (CRLF) lines.
+    func test_crlf_readsAsItsLFTwin_andRangesMapOntoTheOriginal() {
+        let lf = "# Title {#sec:t}\n\n| a | b |\n|---|:-:|\n| 1 | 2 |\nTable: Cap {#tbl:c}\n\nafter"
+        let crlf = lf.replacingOccurrences(of: "\n", with: "\r\n")
+        let a = ManuscriptBlocks.parse(lf), b = ManuscriptBlocks.parse(crlf)
+        XCTAssertEqual(b.map(\.block), a.map(\.block))
+        XCTAssertEqual(b.map(\.lines), a.map(\.lines))
+        XCTAssertEqual(b.first.map { $0.block },
+                       .heading(level: 1, text: "Title", label: label(.sec, "t")))
+        let original = crlf.components(separatedBy: "\n")
+        XCTAssertEqual(original.count, lf.components(separatedBy: "\n").count)
+        XCTAssertTrue(b.allSatisfy { $0.lines.upperBound <= original.count })
+        XCTAssertEqual(original[b[1].lines.lowerBound], "| a | b |\r")
+        let raw = MarkdownBlockParser.parseWithLineRanges(crlf)
+        XCTAssertEqual(raw.map(\.lines), MarkdownBlockParser.parseWithLineRanges(lf).map(\.lines))
+    }
 }
