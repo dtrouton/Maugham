@@ -566,13 +566,13 @@
   "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "The Edit menu reads 'Undo Reject Annotation' / 'Undo Archive Annotation' and the writer's expectation came from that wording. WHY_IT_VIOLATED: the undo ended in a bare `reopenAnnotation(id:)`, whose only outcome is `.open`, so over a note the writer had already answered (the manuscript allows answering over an answer) one ⌘Z reversed the rejection or archive AND the accept and reply underneath it — two decisions under a label naming one. M5-AN-060's defect at the two remaining resolutions, found during the figure-notes work (#128 item 1), whose figure verbs already put the displaced answer back (M5-AN-065). As of the fix the undo puts back the answer the decision displaced, through the same helper as stet's.",
   "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one action",
-  "call_path": "AnnotationsPane row / EditorHost margin card / the bulk bar → Document.rejectAnnotation / archiveAnnotation(…undoManager:) → Document.registerResolutionUndo → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
+  "call_path": "AnnotationsPane row / EditorHost margin card → Document.rejectAnnotation / archiveAnnotation(…undoManager:) → Document.registerResolutionUndo → OpUndoRegistrar.register → ⌘Z → Document.reopenAnnotation(id:) then Document.appendLifecycleOp restoring the prior status",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "a013ec7a",
    "date": "2026-11-01",
    "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'; issue #128 item 1 scoped it",
-   "pinned_by": "MaughamTests/AnnotationRejectArchiveUndoTests.swift (the two accept put-backs, the earlier-reason put-back, the redo cycle, and the two open-note controls)",
+   "pinned_by": "MaughamTests/AnnotationRejectArchiveUndoTests.swift (the two accept put-backs, the earlier-reason put-back, the Stet put-back test_undoOfARejectOverAStetRestoresTheStetAndItsReply, the redo cycle, and the two open-note controls)",
    "note": "Filed already fixed: the defect was found in an issue, not a reconciliation pass, so it never carried a VIOLATES filing. reopenAnnotation(id:) and AnnotationInverse deliberately untouched (M5-AN-034/040)"
   }
  },

@@ -97,6 +97,28 @@ final class AnnotationRejectArchiveUndoTests: XCTestCase {
         XCTAssertEqual(annotation(doc, cid)?.userResponse, "the rhythm needs it")
     }
 
+    /// A reject over a Stet: ⌘Z puts the Stet back with the writer's reply,
+    /// not an open note (the `.stetted` arm of the put-back).
+    func test_undoOfARejectOverAStetRestoresTheStetAndItsReply() async throws {
+        let (doc, pid) = try await makeDoc(prefix: "RejectUndo-OverStet")
+        let cid = try await doc.addAnnotation(
+            kind: .comment, paragraphId: pid, body: "is this too florid?")
+        try await doc.stetAnnotation(id: cid, userResponse: "leave it as it is")
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted, "precondition")
+        let um = UndoManager()
+
+        try await doc.rejectAnnotation(id: cid, userResponse: "on reflection, no", undoManager: um)
+        XCTAssertEqual(annotation(doc, cid)?.status, .rejected)
+        um.undo()
+        await doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(annotation(doc, cid)?.status, .stetted,
+                       "not .open — the Stet the rejection displaced is back")
+        XCTAssertEqual(annotation(doc, cid)?.userResponse, "leave it as it is",
+                       "and back whole: the writer's reply returns with it")
+        XCTAssertEqual(doc._opLogMirror.suffix(2).map(\.kind), [.annotationReopen, .annotationStet])
+    }
+
     /// ⇧⌘Z re-rejects and re-arms: a second ⌘Z puts the accept back again.
     func test_redoReRejects_andTheNextUndoPutsTheAcceptBackAgain() async throws {
         let (doc, pid) = try await makeDoc(prefix: "RejectUndo-Cycle")

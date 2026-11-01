@@ -915,9 +915,10 @@ extension Document {
     /// **Reply…**, was gone; one ⌘Z took two of their decisions (RULING-22,
     /// M5-AN-036's shape at the fourth resolution). The capture-and-re-apply
     /// (`registerResolutionUndo`, shared with reject and archive since #128) is
-    /// `withdrawReviewerAnnotation`'s: the obligation is the UNDO's, and the undo is the Mac's —
-    /// `AnnotationInverse.reopenOp` is cross-surface (tripwire 19) and the
-    /// phone's Reopen means "reopen this", which is what it already does.
+    /// `withdrawReviewerAnnotation`'s: the obligation is the UNDO's, and the
+    /// undo is the Mac's — `AnnotationInverse.reopenOp` is cross-surface
+    /// (tripwire 19) and the phone's Reopen means "reopen this", which is
+    /// what it already does.
     ///
     /// **And when the re-apply fails, it says so** (`declineUndo(.putBack)`,
     /// #41's final review): the reopen has landed, so the note is in the queue
@@ -929,8 +930,8 @@ extension Document {
     /// makes the A2×A1 interaction a non-case: `AnnotationBulkActions.applies`
     /// gates `.stet` on `annotation.status == .open`, so every note the bulk
     /// bar stets has the same (absent) prior and `registerResolutionUndo`'s
-    /// `.open` arm simply returns for all of them. A stet OVER a resolution arrives one row at
-    /// a time.
+    /// `.open` arm simply returns for all of them. A stet OVER a resolution
+    /// arrives one row at a time.
     public func stetAnnotation(
         id: String, userResponse: String? = nil,
         undoManager: UndoManager? = nil

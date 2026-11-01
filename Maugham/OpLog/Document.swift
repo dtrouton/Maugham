@@ -467,11 +467,12 @@ public final class Document {
     /// The first four are REFUSALS — the undo declined to act because the note
     /// drifted. `putBack` is the odd one and belongs here anyway: the second
     /// half of a stet's, reject's or archive's undo (#41 A2, #128 — putting
-    /// back the answer the decision displaced) FAILED after the reopen had landed, so the writer's note is
-    /// open again with its earlier accept/reject/archive missing. That reads
-    /// from the queue exactly like the pre-A2 defect, and a defect the writer
-    /// cannot tell from a bug is one they will report as a bug — so it says so
-    /// rather than reaching `documentLog` alone.
+    /// back the answer the decision displaced) FAILED after the reopen had
+    /// landed, so the writer's note is open again with its earlier
+    /// accept/reject/archive missing. That reads from the queue exactly like
+    /// the pre-A2 defect, and a defect the writer cannot tell from a bug is
+    /// one they will report as a bug — so it says so rather than reaching
+    /// `documentLog` alone.
     ///
     /// `notPermitted` (P3c Task 5) is a refusal of the other kind: nothing
     /// drifted, but this Mac may no longer write that act in this piece — a
