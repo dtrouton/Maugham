@@ -48,4 +48,31 @@ public enum Restore {
                 sourceCheckpoint: sourceCheckpoint,
                 synthesisSource: synthesisSource))
     }
+
+    /// **The lines that reopen the accepts a checkpoint revert takes back**
+    /// (#128 item 2, RULING-28): one changes-free `claudeAcceptRevert` per
+    /// note in `stranded` (`RewindImpact.strandedAccepts(in:revertedBy:
+    /// through:amendments:)`) — the full rewind's step-8 instrument, stamped
+    /// with the checkpoint rather than `.rewind`. Built, never appended: the
+    /// caller appends them behind the restore op they answer, and the writer
+    /// census counts that caller (`manuscriptWriterCallSites`).
+    static func strandedAcceptReverts(
+        _ stranded: [RewindImpact.StrandedAccept],
+        docId: String, device: String, session: String,
+        sourceCheckpoint: String
+    ) -> [Op] {
+        stranded.map { note in
+            Op(
+                opId: ULID.generate(),
+                docId: docId, at: Date(),
+                device: device, session: session,
+                kind: .claudeAcceptRevert,
+                changes: [],
+                sequence: nil,
+                provenance: Op.Provenance(
+                    sessionId: session,
+                    sourceCheckpoint: sourceCheckpoint,
+                    sourceAnnotationId: note.annotationId))
+        }
+    }
 }

@@ -217,6 +217,84 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
         }, "the log still records the revert, should the note be restored")
     }
 
+    // MARK: - Failures are said (RULING-52)
+
+    private struct DiskFull: LocalizedError {
+        var errorDescription: String? { "disk full" }
+    }
+
+    /// A book with one accept on A since the checkpoint.
+    private func oneStrandedAccept() async throws -> (DocumentStore, Checkpoint, String) {
+        let store = try await openBook()
+        await (try await load("a")).close()
+        let cp = try await checkpoint(["doc-a"])
+        let a = try await load("a")
+        let id = try await accept(a, 0, "One, improved.")
+        await a.close()
+        return (store, cp, id)
+    }
+
+    /// The restore op lands and the reopen behind it will not write: the note
+    /// is still accepted over text without its change, so the sheet names it
+    /// rather than closing — never only a log line.
+    func test_aReopenThatWillNotWriteIsNamed() async throws {
+        let (store, cp, id) = try await oneStrandedAccept()
+        let opStore = OpLogStore(projectURL: projectURL)
+        // Every append after the first (the restore op) fails.
+        opStore.beforeChainedAppendForTesting = { [unowned opStore] in
+            opStore.appendFailureForTesting = DiskFull()
+        }
+
+        let sentence = await picker(cp, store).restore(.document("doc-a"), opStore: opStore)
+
+        XCTAssertEqual(try rawOps("doc-a").filter { $0.kind == .checkpointRestore }.count, 1,
+                       "precondition: the text was restored")
+        XCTAssertEqual(try statuses("doc-a")[id], .accepted, "precondition: the reopen did not land")
+        XCTAssertEqual(sentence,
+                       "Couldn't reopen 1 accepted suggestion on A — still marked accepted.",
+                       "a failed reopen is said, and the sheet stays up on it")
+    }
+
+    /// The restore op itself will not write: the document is named as not
+    /// restored, and nothing is reopened behind text that did not change.
+    func test_aRestoreThatWillNotWriteIsNamedAndReopensNothing() async throws {
+        let (store, cp, id) = try await oneStrandedAccept()
+        let opStore = OpLogStore(projectURL: projectURL)
+        opStore.appendFailureForTesting = DiskFull()
+
+        let sentence = await picker(cp, store).restore(.document("doc-a"), opStore: opStore)
+
+        XCTAssertEqual(sentence, "Not restored: A (disk full).")
+        XCTAssertEqual(try statuses("doc-a")[id], .accepted)
+        XCTAssertFalse(try rawOps("doc-a").contains { $0.kind == .claudeAcceptRevert },
+                       "no reopen behind a restore that did not land")
+    }
+
+    // MARK: - An open document
+
+    /// A revert of an open document reaches it through the presenter path
+    /// (`DocumentStore.reReadAfterExternalChange`): its text and the note's
+    /// status both come back as the log now says. The picker is handed the
+    /// store a load builds, so the open document trusts its lines.
+    func test_anOpenDocumentReReadsTheRevertAndTheReopen() async throws {
+        let (store, cp, id) = try await oneStrandedAccept()
+        let a = try await load("a")
+        store.register(document: a, for: "manuscript/a.md")
+        XCTAssertEqual(a.annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.status, .accepted, "precondition")
+
+        let sentence = await picker(cp, store).restore(
+            .document("doc-a"),
+            opStore: Document.makeLoadOpStore(projectURL: projectURL, presenter: nil))
+        try await store.reReadAfterExternalChange(a)
+
+        XCTAssertEqual(sentence, "Reopened 1 accepted suggestion on A.")
+        XCTAssertEqual(a.annotations(filter: AnnotationFilter(statuses: nil))
+            .first { $0.id == id }?.status, .open, "the open document shows the reopen")
+        XCTAssertEqual(a.paragraph(id: a.sequence[0]), "One.", "and the reverted text")
+        await a.close()
+    }
+
     // MARK: - The sheet
 
     /// RULING-28's BEFORE half: the sheet names what Revert will reopen, from
@@ -255,5 +333,11 @@ final class PartialRestoreStrandedAcceptTests: XCTestCase {
         XCTAssertEqual(one.reportSentence, "Reopened 1 accepted suggestion on A.")
         let two = Notes(entries: [.init(title: "A", reopened: 1), .init(title: "B", reopened: 2)])
         XCTAssertEqual(two.reportSentence, "Reopened 3 accepted suggestions on A, B.")
+        let mixed = Notes(entries: [.init(title: "A", reopened: 2, notReopened: 1),
+                                    .init(title: "B", reopened: 0, notReopened: 2)])
+        XCTAssertEqual(mixed.confirmSentence, "2 accepted suggestions will be reopened on A.")
+        XCTAssertEqual(mixed.reportSentence,
+                       "Reopened 2 accepted suggestions on A. "
+                       + "Couldn't reopen 3 accepted suggestions on A, B — still marked accepted.")
     }
 }
