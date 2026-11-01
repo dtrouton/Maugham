@@ -259,14 +259,14 @@
   "claim_id": "M4-RW-017",
   "scope": "Document.restoreToOp",
   "kind": "POSTCONDITION",
-  "statement": "an accepted suggestion whose changes-carrying accept lies PAST the target, on a paragraph that SURVIVES, is returned to .open by a changes-free .claudeAcceptRevert and reported in reopenedAnnotationOpIds — so the annotation's status and the manuscript text agree again",
+  "statement": "an accepted suggestion whose changes-carrying accept lies PAST the target, on a paragraph that SURVIVES, is returned to .open by a changes-free .claudeAcceptRevert and reported in reopenedAnnotationOpIds — so the annotation's status and the manuscript text agree again. Only a note whose latest HONOURED lifecycle op is still an accept is stranded: the walk (`Document.strandedAccepts(in:pastTarget:)`) asks `AnnotationDeriver.isHonouredLifecycleOp`, so a Stet, reject, archive or reopen the writer put over the accept is their later answer and stands — a stetted note stays stetted with its reply, and a note they reopened is not reported as reopened by the rewind. Before #128 item 3 the walk hand-listed accept/reject/archive/revert without Stet or reopen, read the accept under a Stet as the latest answer and reverted the note to open over the writer's Stet. `RewindImpact.preview` already agreed (it counts only notes deriving `.accepted`)",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_rewind_reopensAnAcceptWhoseParagraphSurvives"
+   "ref": "RewindCharacterization.test_rewind_reopensAnAcceptWhoseParagraphSurvives; RewindCharacterization.test_rewind_leavesAStetOverAnAcceptStetted (the Stet stands, preview included); RewindCharacterization.test_rewind_doesNotReportAReopenedNoteAsAStrandedAccept"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — accept a suggestion, then rewind past the accept",
+  "reachability": "LIVE — accept a suggestion, then rewind past the accept; the Stet arm: accept, then Stet the accepted note from its row (show-resolved on), then rewind past the accept",
   "evidence": {
    "property_test": null
   }
