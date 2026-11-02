@@ -1,6 +1,7 @@
 // Maugham/Updates/UpdateChecker.swift
 import Foundation
 import MaughamCore
+import AppKit
 import SwiftUI
 
 /// Tier 1.5 updater. Polls GitHub Releases; downloads a newer `.zip` (or `.dmg`) silently;
@@ -68,8 +69,10 @@ public final class UpdateChecker: ObservableObject {
             return
         }
         state = .checking
+        UpdateSchedule.recordAttempt(at: Date(), defaults: refusalDefaults)
         do {
             let release = try await fetchLatest()
+            UpdateSchedule.recordCompleted(at: Date(), defaults: refusalDefaults)
             guard let newVersion = release.semanticVersion,
                   let currentVersion = SemanticVersion(currentVersionString) else {
                 state = trigger == .manual
@@ -297,27 +300,99 @@ public final class UpdateChecker: ObservableObject {
     @MainActor public static var performInstall: ((URL, String, Bool) async -> Void)?
 
     private var backgroundTask: Task<Void, Never>?
+    private var observerTokens: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private static let initialDelaySeconds: UInt64 = 60
-    private static let intervalSeconds: UInt64 = 24 * 60 * 60
+    private static let tickSeconds: UInt64 = 30 * 60
 
-    /// Start the background poll loop. Idempotent — calling more than once
-    /// is a no-op. Only starts when the current build variant has updater
-    /// enabled.
+    /// Start the background schedule: a check 60 s after launch, then on a
+    /// 30-minute tick, on wake and on app activation, each only when
+    /// `UpdateSchedule.isDue`. Idempotent. Only starts when the current build
+    /// variant has the updater enabled.
     public func startBackgroundLoop() {
         guard BuildVariant.current.updaterEnabled else { return }
         guard backgroundTask == nil else { return }
         backgroundTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.initialDelaySeconds * 1_000_000_000)
             while !Task.isCancelled {
-                await self?.performCheck(trigger: .background)
-                try? await Task.sleep(nanoseconds: Self.intervalSeconds * 1_000_000_000)
+                await self?.checkInBackgroundIfDue()
+                try? await Task.sleep(nanoseconds: Self.tickSeconds * 1_000_000_000)
             }
+        }
+        let triggers: [(NotificationCenter, Notification.Name)] = [
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+            (NotificationCenter.default, NSApplication.didBecomeActiveNotification),
+        ]
+        for (center, name) in triggers {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in await self?.checkInBackgroundIfDue() }
+            }
+            observerTokens.append((center, token))
         }
     }
 
-    /// Force a check now (e.g. from the menu item). Bypasses the 24h gate.
+    /// Stop the schedule and drop its observers.
+    public func stopBackgroundLoop() {
+        backgroundTask?.cancel()
+        backgroundTask = nil
+        for (center, token) in observerTokens { center.removeObserver(token) }
+        observerTokens = []
+    }
+
+    /// A background trigger: checks only when due, and never while a check or
+    /// download is in flight.
+    func checkInBackgroundIfDue(now: Date = Date()) async {
+        switch state {
+        case .checking, .downloading: return
+        default: break
+        }
+        guard UpdateSchedule.isDue(
+            lastCompleted: UpdateSchedule.lastCompleted(defaults: refusalDefaults),
+            lastAttempt: UpdateSchedule.lastAttempt(defaults: refusalDefaults),
+            now: now) else { return }
+        await performCheck(trigger: .background)
+    }
+
+    /// Force a check now (e.g. from the menu item). Bypasses `isDue`; its
+    /// times are recorded like any other check's.
     public func checkNow() async {
         await performCheck(trigger: .manual)
+    }
+}
+
+/// When a background check is due, on the wall clock (the uptime clock pauses
+/// in sleep). Times persist in the checker's injected defaults.
+enum UpdateSchedule {
+    static let completedKey = "updateLastCompletedCheck"
+    static let attemptKey = "updateLastAttemptedCheck"
+    /// A completed check this old is stale.
+    static let staleAfter: TimeInterval = 6 * 60 * 60
+    /// An attempt newer than this blocks another, so offline activations
+    /// don't hammer the API.
+    static let attemptCooldown: TimeInterval = 15 * 60
+
+    /// A last-completed time in the future (clock moved back) counts as due;
+    /// a last-attempt in the future is ignored.
+    static func isDue(lastCompleted: Date?, lastAttempt: Date?, now: Date) -> Bool {
+        if let attempt = lastAttempt {
+            let since = now.timeIntervalSince(attempt)
+            if since >= 0, since < attemptCooldown { return false }
+        }
+        guard let completed = lastCompleted else { return true }
+        let since = now.timeIntervalSince(completed)
+        return since < 0 || since >= staleAfter
+    }
+
+    static func lastCompleted(defaults: UserDefaults) -> Date? {
+        defaults.object(forKey: completedKey) as? Date
+    }
+    static func lastAttempt(defaults: UserDefaults) -> Date? {
+        defaults.object(forKey: attemptKey) as? Date
+    }
+    static func recordAttempt(at date: Date, defaults: UserDefaults) {
+        defaults.set(date, forKey: attemptKey)
+    }
+    static func recordCompleted(at date: Date, defaults: UserDefaults) {
+        defaults.set(date, forKey: completedKey)
     }
 }
 
