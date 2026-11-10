@@ -69,9 +69,11 @@ final class ResearchNoteDoor {
         /// replace it): the last moment that text exists.
         case editorFlush
         /// Anyone else's write (`saveResearchNote`): a restore, the assistant,
-        /// a rename. `keepsWhatItReplaces` when the editor's pending edit was
-        /// flushed first, so that edit is the version this write replaces.
-        case direct(keepsWhatItReplaces: Bool)
+        /// a rename, Replace, a promotion. It always keeps what it replaces
+        /// and ends the writer's run. `mustLand` when it is saved even if
+        /// that version cannot be kept (a move's asset refs: the move has
+        /// already happened).
+        case direct(mustLand: Bool)
     }
 
     /// **P3 (pending Denver, asked 2026-11-10): when the bytes a save replaces
@@ -79,7 +81,8 @@ final class ResearchNoteDoor {
     /// (controller, Task 3), by source: a timer-fired edit is stopped and stays
     /// pending; a flushed edit is saved anyway, with a notice (the spec's
     /// anti-goal: no text lost because its previous version could not be
-    /// kept); anyone else's write is stopped, as tables. Changing it is this
+    /// kept); anyone else's write is stopped, as tables, unless it must land
+    /// (saved anyway, with the notice). Changing it is this
     /// one function; `ResearchNoteDoorTests.test_aKeepThatFailsStopsTheSave`,
     /// `test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush`
     /// and `test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo` change with it.
@@ -88,7 +91,7 @@ final class ResearchNoteDoor {
         switch source {
         case .editorTimer: return .stopTheSave
         case .editorFlush: return .saveAnyway
-        case .direct: return .stopTheSave
+        case .direct(let mustLand): return mustLand ? .saveAnyway : .stopTheSave
         }
     }
 
@@ -218,16 +221,14 @@ final class ResearchNoteDoor {
     /// note is saved first (a flush), and is then the version this write
     /// replaces; once written, an editor open on the note reloads.
     func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-              in store: DocumentStore) async -> ResearchNoteSave {
-        var flushedAnEdit = false
+              mustLand: Bool, in store: DocumentStore) async -> ResearchNoteSave {
         if let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
             _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
                               source: .editorFlush, in: store)
-            flushedAnEdit = true
         }
         return await enqueue(itemId, text: text, by: writer, restoring: restoring,
-                             source: .direct(keepsWhatItReplaces: flushedAnEdit), in: store).asSave
+                             source: .direct(mustLand: mustLand), in: store).asSave
     }
 
     /// One save, queued behind any save of the same note already in flight.
@@ -294,7 +295,7 @@ final class ResearchNoteDoor {
         if let onDisk, onDisk == newBytes {
             notes[itemId, default: NoteState()].knownHash = ContentHash.of(newBytes)
             notes[itemId]?.timerStopSaid = false
-            counted(itemId, by: writer, restoring: restoring, at: at)
+            counted(itemId, by: writer, source: source, at: at)
             wroteBehindTheEditor(itemId, newBytes, source: source)
             return .saved(keptAVersion: false)
         }
@@ -338,7 +339,7 @@ final class ResearchNoteDoor {
                 }
             }
         }
-        counted(itemId, by: writer, restoring: restoring, at: at)
+        counted(itemId, by: writer, source: source, at: at)
 
         // The keep was awaited: the note may have moved (written where it now
         // is) or left Research meanwhile (written nowhere, so a trashed note's
@@ -372,15 +373,16 @@ final class ResearchNoteDoor {
         return .saved(keptAVersion: kept)
     }
 
-    /// A save keeps what it replaces whatever the run says when it is a
-    /// write made right after the editor's edit was flushed (that edit is
-    /// its version), or the editor's own save over text another writer put
-    /// there that the editor never showed (the writer typed before the
-    /// reload landed).
+    /// A save keeps what it replaces whatever the run says when it is anyone
+    /// else's write (a rename, Replace, a promotion, the assistant, a
+    /// restore: none has an undo, and the run is the editor's typing), or the
+    /// editor's own save over text another writer put there that the editor
+    /// never showed (the writer typed before the reload landed). A retry of
+    /// the same bytes still keeps once (`lastKeptHash`).
     private static func keepsRegardlessOfTheRun(_ source: SaveSource, onDiskHash: String,
                                                  _ writtenBehind: String?) -> Bool {
         switch source {
-        case .direct(let keepsWhatItReplaces): return keepsWhatItReplaces
+        case .direct: return true
         case .editorTimer, .editorFlush: return onDiskHash == writtenBehind
         }
     }
@@ -395,12 +397,14 @@ final class ResearchNoteDoor {
     }
 
     /// Counted once the version is kept, saved or not: a retry after a failed
-    /// save is still the run whose start is kept. A restore, and an
-    /// assistant's save, end it.
-    private func counted(_ itemId: String, by writer: ResearchWriter, restoring: Bool, at date: Date) {
-        if restoring {
+    /// save is still the run whose start is kept. Anyone else's write (a
+    /// restore, the assistant's, a rename, Replace, a promotion) ends it, so
+    /// the writer's next typed save keeps again.
+    private func counted(_ itemId: String, by writer: ResearchWriter, source: SaveSource, at date: Date) {
+        switch source {
+        case .direct:
             notes[itemId, default: NoteState()].run.end()
-        } else {
+        case .editorTimer, .editorFlush:
             notes[itemId, default: NoteState()].run.saved(by: writer, at: date)
         }
     }
@@ -523,14 +527,18 @@ private enum PriorBytes: Sendable {
 extension DocumentStore {
 
     /// **The one door every write of an existing Research note's text goes
-    /// through** (`ResearchNoteDoor`): the bytes it replaces are kept as a
-    /// version first when the run, a restore (`restoring`) or bytes this store
-    /// did not write say so. `writer` is whose text this is. Refuses a
+    /// through** (`ResearchNoteDoor`) outside the editor: the bytes it
+    /// replaces are always kept as a version first (a retry of the same bytes
+    /// once), and the writer's typing run ends. `writer` is whose text this is. Refuses a
     /// palette card, a table, or an id that names no note.
+    /// `mustLand`: saved even when that version cannot be kept, with a
+    /// notice saying so (a write whose reason has already happened, as a
+    /// moved note's asset refs).
     @discardableResult
     func saveResearchNote(itemId: String, text: String, by writer: ResearchWriter = .writer,
-                          restoring: Bool = false) async -> ResearchNoteSave {
-        await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring, in: self)
+                          restoring: Bool = false, mustLand: Bool = false) async -> ResearchNoteSave {
+        await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring,
+                                    mustLand: mustLand, in: self)
     }
 
     /// **Moves each time the door writes note `itemId` for anyone but the

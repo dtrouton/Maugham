@@ -124,6 +124,14 @@ final class ResearchNoteDoorTests: XCTestCase {
         return heard
     }
 
+    /// The editor's own save of `text` (its debounced edit, flushed now):
+    /// the writer's typing run, which a direct save is not.
+    private func typed(_ text: String, into item: ResearchItem, _ store: DocumentStore) async throws {
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: text)
+        try await store.flushPendingSave()
+    }
+
     private func lock(_ url: URL, _ permissions: Int) throws {
         try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
         lockedPaths.append(url)
@@ -136,16 +144,14 @@ final class ResearchNoteDoorTests: XCTestCase {
         let item = try await note("Before the run.", in: projectStore)
         try read(item, store, projectStore)
 
-        let first = await store.saveResearchNote(itemId: item.id, text: "First pause.")
-        XCTAssertEqual(first, .saved(keptAVersion: true))
+        try await typed("First pause.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 1)
         XCTAssertEqual(try versionText(try XCTUnwrap(versions(of: item).first)), "Before the run.")
         XCTAssertEqual(versions(of: item).first?.payload, .note)
         XCTAssertEqual(versions(of: item).first?.replacedBy, .writer)
 
         clock.advance(seconds: 60)
-        let second = await store.saveResearchNote(itemId: item.id, text: "Second pause.")
-        XCTAssertEqual(second, .saved(keptAVersion: false))
+        try await typed("Second pause.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 1, "a save inside the run keeps nothing")
         XCTAssertEqual(try text(of: item, projectStore), "Second pause.")
     }
@@ -154,11 +160,10 @@ final class ResearchNoteDoorTests: XCTestCase {
         let (store, projectStore) = try await openBook()
         let item = try await note("Before the run.", in: projectStore)
         try read(item, store, projectStore)
-        await store.saveResearchNote(itemId: item.id, text: "First pause.")
+        try await typed("First pause.", into: item, store)
 
         clock.advance(seconds: ResearchSaveRun.gap + 1)
-        let later = await store.saveResearchNote(itemId: item.id, text: "After a long pause.")
-        XCTAssertEqual(later, .saved(keptAVersion: true))
+        try await typed("After a long pause.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 2)
     }
 
@@ -175,15 +180,14 @@ final class ResearchNoteDoorTests: XCTestCase {
         let (store, projectStore) = try await openBook()
         let item = try await note("Before the run.", in: projectStore)
         try read(item, store, projectStore)
-        await store.saveResearchNote(itemId: item.id, text: "Mine.")
+        try await typed("Mine.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 1)
 
         // Another Mac (or a Finder edit) rewrites the note inside the run.
         try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
         clock.advance(seconds: 30)
-        let saved = await store.saveResearchNote(itemId: item.id, text: "Mine again.")
-        XCTAssertEqual(saved, .saved(keptAVersion: true), "bytes the store did not write are kept")
-        XCTAssertEqual(versions(of: item).count, 2)
+        try await typed("Mine again.", into: item, store)
+        XCTAssertEqual(versions(of: item).count, 2, "bytes the store did not write are kept")
         XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
     }
 
@@ -428,7 +432,7 @@ final class ResearchNoteDoorTests: XCTestCase {
         let (store, projectStore) = try await openBook()
         let item = try await note("The writer's.", in: projectStore)
         try read(item, store, projectStore)
-        await store.saveResearchNote(itemId: item.id, text: "The writer's run.")
+        try await typed("The writer's run.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 1)
 
         clock.advance(seconds: 10)
@@ -439,8 +443,7 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(marked.writtenBy, .writer)
 
         clock.advance(seconds: 10)
-        let writers = await store.saveResearchNote(itemId: item.id, text: "The writer again.")
-        XCTAssertEqual(writers, .saved(keptAVersion: true), "the assistant's save ended the writer's run")
+        try await typed("The writer again.", into: item, store)
         let assistantsVersion = try XCTUnwrap(versions(of: item).first { (try? versionText($0)) == "The assistant's." })
         XCTAssertEqual(assistantsVersion.writtenBy, .assistant)
         XCTAssertEqual(assistantsVersion.replacedBy, .writer)

@@ -405,6 +405,55 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertEqual(try newestVersionText(of: note, in: root), "My own words.\n")
     }
 
+    /// The editor's own save of `text`, flushed: the store knows the bytes
+    /// and the writer's typing run is under way.
+    private func typed(_ text: String, into item: ResearchItem, _ store: ProjectStore) async throws {
+        let ds = try XCTUnwrap(store.documentStore)
+        ds.researchNoteDoor.saveDelay = .seconds(3600)
+        ds.scheduleNoteSave(itemId: item.id, text: text)
+        try await ds.flushPendingSave()
+    }
+
+    private func versionTexts(of item: ResearchItem, in root: URL) throws -> [String] {
+        let versions = ResearchVersionStore(projectURL: root)
+        return try versions.versions(itemId: item.id).map {
+            String(decoding: try versions.read($0).0, as: UTF8.self)
+        }
+    }
+
+    /// Fix round 1: a direct write keeps what it replaces even inside the
+    /// writer's typing run.
+    func test_aRewriteInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try await typed("Typed in the research pane.\n", into: note, store)
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+
+        XCTAssertTrue(try versionTexts(of: note, in: root).contains("Typed in the research pane.\n"))
+    }
+
+    func test_aLinePromotionInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try await typed("Typed in the research pane.\n", into: note, store)
+
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[October's doctor]]"))
+        XCTAssertTrue(try versionTexts(of: note, in: root).contains("Typed in the research pane.\n"))
+    }
+
     func test_updatingAnArtifactThatHasSinceBeenDeletedRefusesRatherThanCreating() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)

@@ -496,9 +496,9 @@ struct PromotionPerformer {
     /// **P1 (pending Denver, asked 2026-11-10): a Rewrite keeps the replaced
     /// text as a Trash `priorVersion` entry (M6-PR-037) and, through the note
     /// door, as a version. Replace the Trash entry with the version, or keep
-    /// both?** Default built: keep both. `false` leaves the version alone —
-    /// but a Rewrite inside the writer's own typing run keeps no version
-    /// (the door's run rule), so flipping it wants the door to keep regardless.
+    /// both?** Default built: keep both. `false` leaves the version alone,
+    /// which the note door always keeps for a Rewrite (a direct write keeps
+    /// what it replaces whatever the writer's typing run says).
     static let aRewriteAlsoTrashesWhatItReplaces = true
 
     // MARK: - The four targets
@@ -737,6 +737,9 @@ struct PromotionPerformer {
             throw PromotionFailure.artifactMissing(link.intoItemID)
         case .researchFile(let item, let path):
             try? await store.documentStore?.flushPendingSave()
+            // An edit queued during the flush's own awaits lands before the
+            // read, which reaches the door with no await between.
+            await store.documentStore?.settleResearchNoteEdits(itemId: item.id)
             let body = try readBody(atPath: path)
             // The plan's own check was against a SNAPSHOT taken when the sheet
             // opened. This one is against the file — and it compares link

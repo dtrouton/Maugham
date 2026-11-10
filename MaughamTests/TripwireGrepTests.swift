@@ -15648,23 +15648,23 @@ extension TripwireGrepTests {
             + "same commit. Found: \(found.sorted(by: { $0.key < $1.key }))")
     }
 
-    /// **Every `.write(` in the files whose note writers now go through the
-    /// door, counted per file.** What is left is a no-`DocumentStore`
-    /// fallback, a palette card's write (P2), or not note text at all:
+    /// **A ceiling, not a census of raw note writes**: the count of every
+    /// `.write(` in the five files whose note writers go through the door,
+    /// whatever bytes it writes. It sees nothing outside these files, and it
+    /// cannot tell a note's text from other bytes, so it cannot prove a file
+    /// free of raw note writes. What it does: a `.write(` added to one of
+    /// these files (a note writer going back to a raw write is the case it
+    /// exists for) fails it until the new one is named here. Today's:
     /// - `PromotionPerformer.swift` × 1 — `write(_:toPath:)`'s no-store fallback.
     /// - `ProjectStore+Structure.swift` × 3 — a new manuscript file's empty
-    ///   create, a staged manuscript's bytes, and the link sweep's no-store
-    ///   fallback.
+    ///   create, a staged manuscript's bytes, the link sweep's no-store fallback.
     /// - `ProjectStore+Search.swift` × 1 — Replace's write of a file the door
     ///   does not take, or with no store.
     /// - `ProjectStore+Research.swift` × 3 — a new note's empty create, a
     ///   staged table's bytes, a table's sidecar.
     /// - `ProjectStore+ResearchMove.swift` × 1 — the asset-ref rewrite's
     ///   no-store fallback.
-    /// A grep cannot tell a note's text from other bytes, so this is a
-    /// per-file ceiling, not a proof: a raw write of note text added to one
-    /// of these files fails it; one added elsewhere is not seen.
-    static let noteWriterFilesRawWrites: [String: Int] = [
+    static let noteWriterFilesWriteCeiling: [String: Int] = [
         "PromotionPerformer.swift": 1,
         "ProjectStore+Structure.swift": 3,
         "ProjectStore+Search.swift": 1,
@@ -15672,25 +15672,27 @@ extension TripwireGrepTests {
         "ProjectStore+ResearchMove.swift": 1,
     ]
 
-    /// The raw writes in `roots`, per file, for the files the list names.
-    private func noteWriterFilesRawWritesFound(in roots: [URL]) throws -> [String: Int] {
+    /// Every `.write(` in `roots`, per file, for the files the ceiling names.
+    private func noteWriterFilesWritesFound(in roots: [URL]) throws -> [String: Int] {
         Self.byFile(try occurrences(of: ".write(", in: roots), combine: +)
-            .filter { Self.noteWriterFilesRawWrites.keys.contains($0.key) }
+            .filter { Self.noteWriterFilesWriteCeiling.keys.contains($0.key) }
     }
 
-    func test_theNoteWriterFilesHoldOnlyTheirNamedRawWrites() throws {
-        let found = try noteWriterFilesRawWritesFound(in: admissionRoots)
-        XCTAssertEqual(Self.missingScope(Set(Self.noteWriterFilesRawWrites.keys), seen: Set(found.keys)), [])
-        XCTAssertEqual(found, Self.noteWriterFilesRawWrites,
+    func test_theNoteWriterFilesStayAtTheirWriteCeiling() throws {
+        let found = try noteWriterFilesWritesFound(in: admissionRoots)
+        XCTAssertEqual(Self.missingScope(Set(Self.noteWriterFilesWriteCeiling.keys),
+                                         seen: Set(found.keys)), [])
+        XCTAssertEqual(found, Self.noteWriterFilesWriteCeiling,
             "A `.write(` was added to (or left) a file whose Research-note writers "
             + "go through the note door (`saveResearchNote`). Write a note's text "
             + "through the door; for bytes that are not a note's text, update "
-            + "`noteWriterFilesRawWrites` with what it writes. Found: "
+            + "`noteWriterFilesWriteCeiling` with what it writes. Found: "
             + "\(found.sorted(by: { $0.key < $1.key }))")
     }
 
-    /// Both censuses fire: a planted caller of the door is counted under its
-    /// type, a planted raw write in a named file raises its count, and a
+    /// The caller census and the write ceiling fire: a planted caller of the
+    /// door is counted under its type, a planted raw write in a named file
+    /// raises its count, and a
     /// comment or the door's own declaration is counted by neither.
     func test_theNoteDoorCensusesFireOnPlantedOffenders() throws {
         let dir = TestTemp.root.appendingPathComponent("note-door-census-\(UUID().uuidString)")
@@ -15715,8 +15717,9 @@ extension TripwireGrepTests {
                        "the call is counted; the comment and the declaration are not")
         XCTAssertNotEqual(callers, Self.researchNoteDoorCallers)
 
-        let raw = try noteWriterFilesRawWritesFound(in: [dir])
+        let raw = try noteWriterFilesWritesFound(in: [dir])
         XCTAssertEqual(raw, ["ProjectStore+Search.swift": 2], "both raw writes, not the comment")
-        XCTAssertNotEqual(raw["ProjectStore+Search.swift"], Self.noteWriterFilesRawWrites["ProjectStore+Search.swift"])
+        XCTAssertNotEqual(raw["ProjectStore+Search.swift"],
+                          Self.noteWriterFilesWriteCeiling["ProjectStore+Search.swift"])
     }
 }

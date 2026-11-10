@@ -303,8 +303,8 @@ extension ProjectStore {
     /// the manifest names where it now is. A note goes through the note door
     /// (what it held is kept as a version; an editor open on it reloads); a
     /// palette card (P2) keeps the coordinated write, and no `DocumentStore`
-    /// the raw one. Best effort: a write that fails, or the door writing
-    /// nothing, is logged and the move stands.
+    /// the raw one. It lands even when the earlier version cannot be kept
+    /// (`mustLand`); a write that fails is logged and the move stands.
     func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
               let path = item.path,
@@ -314,7 +314,11 @@ extension ProjectStore {
             oldStem: oldStem, newStem: newStem, noteURL: noteURL,
             write: { [self] text, url in
                 if let ds = documentStore, ResearchNoteDoor.takes(item) {
-                    guard case .saved = await ds.saveResearchNote(itemId: itemId, text: text) else {
+                    // It must land: the move has happened, so refs left
+                    // stale point at a folder that is gone (the door says
+                    // when the earlier version could not be kept).
+                    guard case .saved = await ds.saveResearchNote(
+                        itemId: itemId, text: text, mustLand: true) else {
                         throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
                     }
                 } else if let ds = documentStore {

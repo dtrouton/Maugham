@@ -37,6 +37,8 @@ final class ResearchNoteWritersTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
         }
         lockedPaths = []
+        for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
+        noticeObservers = []
         for store in stores { await store.close() }
         stores = []
         Document.localIdentitiesForTesting = nil
@@ -108,6 +110,36 @@ final class ResearchNoteWritersTests: XCTestCase {
         store.researchNoteDoor.saveDelay = .seconds(3600)
         store.scheduleNoteSave(itemId: item.id, text: text)
         XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// The editor's own save of `text`, flushed now: afterwards the store
+    /// knows the bytes on disk and the writer's typing run is under way.
+    private func typed(_ text: String, into item: ResearchItem, _ store: DocumentStore) async throws {
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: text)
+        try await store.flushPendingSave()
+    }
+
+    private func versionTexts(of item: ResearchItem) throws -> [String] {
+        let versions = ResearchVersionStore(projectURL: projectURL)
+        return try versions.versions(itemId: item.id).map {
+            String(decoding: try versions.read($0).0, as: UTF8.self)
+        }
+    }
+
+    private final class Heard: @unchecked Sendable { var notices: [String] = [] }   // touched on the main actor only
+    private var noticeObservers: [NSObjectProtocol] = []
+
+    private func listen() -> Heard {
+        let heard = Heard()
+        noticeObservers.append(NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                MainActor.assumeIsolated { heard.notices.append(message) }
+            }
+        })
+        return heard
     }
 
     private func search(_ query: String, _ projectStore: ProjectStore) async -> SearchResults {
@@ -266,5 +298,76 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "![](./sarah-2_assets/img.png)")
         XCTAssertEqual(try newestVersionText(of: item), "![](./sarah_assets/img.png)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: file("research/sarah.md").path))
+    }
+
+    // MARK: - A direct write inside the writer's typing run (fix round 1)
+
+    /// The editor saved a moment ago, so the store knows the bytes and the
+    /// writer's run is open: Replace still keeps what it replaces (it has no
+    /// undo), whatever the run says.
+    func test_aReplaceInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try await typed("The fog I typed.", into: item, store)
+        let before = versions(of: item).count
+
+        try await projectStore.replaceAll(in: await search("fog", projectStore), with: "mist")
+
+        XCTAssertEqual(try text(of: item, projectStore), "The mist I typed.")
+        XCTAssertEqual(versions(of: item).count, before + 1)
+        XCTAssertTrue(try versionTexts(of: item).contains("The fog I typed."))
+    }
+
+    func test_aRenameSweepInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try await typed("Typed: see [[Alpha]].", into: item, store)
+        let before = versions(of: item).count
+
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Typed: see [[Omega]].")
+        XCTAssertEqual(versions(of: item).count, before + 1)
+        XCTAssertTrue(try versionTexts(of: item).contains("Typed: see [[Alpha]]."))
+    }
+
+    /// A direct write ends the writer's run: their next typed save keeps the
+    /// direct write's text, so it can be got back too.
+    func test_theWritersNextTypedSaveAfterADirectWriteKeepsAgain() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try await typed("The fog I typed.", into: item, store)
+        try await projectStore.replaceAll(in: await search("fog", projectStore), with: "mist")
+        // The open editor reloads what the Replace wrote (it has now seen it).
+        store.researchNoteWasRead(itemId: item.id, bytes: Data(try text(of: item, projectStore).utf8))
+        let before = versions(of: item).count
+
+        try await typed("The mist I typed, and more.", into: item, store)
+
+        XCTAssertEqual(versions(of: item).count, before + 1, "the run ended at the Replace")
+        XCTAssertTrue(try versionTexts(of: item).contains("The mist I typed."))
+    }
+
+    // MARK: - Asset refs land even when the version cannot be kept (fix round 1)
+
+    /// The move has happened, so refs left stale would point at a folder that
+    /// is gone: the rewrite is saved anyway, and the writer is told the
+    /// earlier version was not kept.
+    func test_anAssetRefRewriteWhoseVersionCannotBeKeptStillLands_andSaysSo() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("![](./harbor_assets/img.png)", titled: "Harbor", in: projectStore)
+        let assets = file("research/harbor_assets")
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assets.appendingPathComponent("img.png"))
+        try lock(file(".maugham/research-versions"))
+        let heard = listen()
+
+        try await projectStore.updateResearchItem(id: item.id, title: "Quay")
+
+        XCTAssertEqual(try text(of: item, projectStore), "![](./quay_assets/img.png)",
+                       "the refs follow the folder that moved")
+        XCTAssertTrue(versions(of: item).isEmpty)
+        XCTAssertTrue(heard.notices.contains { $0.contains("previous version couldn’t be kept") },
+                      "\(heard.notices)")
     }
 }
