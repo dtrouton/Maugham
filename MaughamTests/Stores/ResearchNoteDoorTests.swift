@@ -305,13 +305,18 @@ final class ResearchNoteDoorTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try lock(folder, 0o555)
 
-        // The debounce's own timer, at no delay, awaited by its hook — no clock.
+        // The debounce's own timer, at no delay, awaited by its hook — no
+        // clock. Two typing pauses: the notice is said once, not per pause.
         store.researchNoteDoor.saveDelay = .zero
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
-            store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        for typed in ["Typ", "Typed."] {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+                store.scheduleNoteSave(itemId: item.id, text: typed)
+            }
         }
         store.researchNoteDoor.timerSaveFinishedForTesting = nil
+        XCTAssertEqual(heard.notices.filter { $0.contains("aren’t saved yet") }.count, 1,
+                       "said once, not once per typing pause: \(heard.notices)")
 
         XCTAssertEqual(try text(of: item, projectStore), "Kept or not saved over.", "the timer's save stopped")
         XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
@@ -327,6 +332,36 @@ final class ResearchNoteDoorTests: XCTestCase {
     /// A flush is the last moment the editor's text exists (a note switch,
     /// ⌘S, the mover, the close): it saves even when the version cannot be
     /// kept, and says so — the spec's anti-goal is losing text to a failed keep.
+    /// Fix round 1: a flush takes each note out of `pending` only as its own
+    /// save begins. A door write to a note still waiting its turn flushes
+    /// that note's edit first (kept as the version it replaces) — never the
+    /// stale edit written over the door's text afterwards.
+    func test_aDoorWriteDuringAFlushToANoteNotYetReachedKeepsItsEditAndIsNotOverwritten() async throws {
+        let (store, projectStore) = try await openBook()
+        let one = try await note("One.", in: projectStore)
+        let two = try await note("Two.", in: projectStore)
+        try read(one, store, projectStore)
+        try read(two, store, projectStore)
+        let (first, second) = one.id < two.id ? (one, two) : (two, one)
+        store.scheduleNoteSave(itemId: first.id, text: "First, typed.")
+        store.scheduleNoteSave(itemId: second.id, text: "T")
+
+        var fired = false
+        var direct: ResearchNoteSave?
+        store.researchNoteDoor.keepWillRunForTesting = {
+            guard !fired else { return }
+            fired = true   // the first note's keep: the second has not been reached
+            direct = await store.saveResearchNote(itemId: second.id, text: "B")
+        }
+        try await store.flushPendingSave()
+
+        XCTAssertEqual(direct, .saved(keptAVersion: true))
+        XCTAssertEqual(try text(of: second, projectStore), "B", "the stale edit was not written over B")
+        XCTAssertEqual(try versions(of: second).first.map(versionText), "T",
+                       "the edit is the version B replaced")
+        XCTAssertEqual(try text(of: first, projectStore), "First, typed.")
+    }
+
     func test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo() async throws {
         let (store, projectStore) = try await openBook()
         let heard = listen()

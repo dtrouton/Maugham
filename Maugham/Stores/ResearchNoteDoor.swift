@@ -119,6 +119,9 @@ final class ResearchNoteDoor {
         /// has read since: the editor's save over them keeps them, run or
         /// not — the writer typed over text they had not seen.
         var writtenBehindTheEditor: String?
+        /// The timer-stop notice was posted: said once, not once per typing
+        /// pause, until a save of the note lands or the note is read again.
+        var timerStopSaid = false
     }
 
     /// One note's edit waiting for its debounce.
@@ -144,6 +147,7 @@ final class ResearchNoteDoor {
         if state.knownHash != hash { state.run.end() }
         state.knownHash = hash
         state.writtenBehindTheEditor = nil
+        state.timerStopSaid = false
         notes[itemId] = state
     }
 
@@ -197,11 +201,12 @@ final class ResearchNoteDoor {
     }
 
     /// Every note's pending edit, saved now as a flush.
+    /// One note at a time, each taken out of `pending` only as its own save
+    /// begins: a note still waiting its turn stays pending, so a door write
+    /// meanwhile flushes it first and the editor does not reload under it.
     func flushPending(in store: DocumentStore) async {
-        let entries = pending
-        pending = [:]
-        for entry in entries.values { entry.timer?.cancel() }
-        for (itemId, entry) in entries.sorted(by: { $0.key < $1.key }) {
+        while let itemId = pending.keys.min(), let entry = pending.removeValue(forKey: itemId) {
+            entry.timer?.cancel()
             _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
                               source: .editorFlush, in: store)
         }
@@ -288,6 +293,7 @@ final class ResearchNoteDoor {
         // nothing to keep and nothing to write.
         if let onDisk, onDisk == newBytes {
             notes[itemId, default: NoteState()].knownHash = ContentHash.of(newBytes)
+            notes[itemId]?.timerStopSaid = false
             counted(itemId, by: writer, restoring: restoring, at: at)
             wroteBehindTheEditor(itemId, newBytes, source: source)
             return .saved(keptAVersion: false)
@@ -306,9 +312,12 @@ final class ResearchNoteDoor {
                         "\(item.title, privacy: .public)'s previous version was not kept: \(failure.localizedDescription, privacy: .public)")
                     switch Self.whenTheKeepFails(source) {
                     case .stopTheSave where source == .editorTimer:
-                        MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note.",
-                            projectURL: projectURL)
+                        if !(notes[itemId]?.timerStopSaid ?? false) {
+                            notes[itemId, default: NoteState()].timerStopSaid = true
+                            MaughamEvent.postNotice(
+                                "“\(item.title)”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note.",
+                                projectURL: projectURL)
+                        }
                         return .stoppedAtTheKeep
                     case .stopTheSave:
                         MaughamEvent.postNotice(
@@ -349,6 +358,7 @@ final class ResearchNoteDoor {
         }
         let writtenHash = ContentHash.of(newBytes)
         notes[itemId]?.knownHash = writtenHash
+        notes[itemId]?.timerStopSaid = false
         wroteForTesting?(itemId, text)
         do {
             try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: writtenHash, writtenBy: writer),
