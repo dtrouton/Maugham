@@ -93,7 +93,7 @@ EditorHost: Binding(get: { doc.displayText }, set: { doc.setFullText($0) })
    ↓
 Document.setFullText: parse → diff → record paragraph changes → write displayText ONCE at end
    ↓
-debounced burst flush → op log + autosave → eventual disk write → Document.lastDiskEcho updates inside the coordinated-write block
+debounced burst flush → op log + autosave → off-main render+write → Document.lastDiskEcho: in-flight bytes, then landed
 ```
 **If you change the shape here, every cursor race you've heard about returns.**
 - **`displayText` is written exactly once per `setFullText` call**: that closes the binding-loop race (tripwire 6). `EditorIntegrationHarnessTests.test_endOfFileTyping_doesNotFireApplyExternalText` is the canonical assertion; extend it whenever you touch the binding shape.

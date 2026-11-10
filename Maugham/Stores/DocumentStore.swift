@@ -1117,11 +1117,11 @@ public final class DocumentStore {
                 let tmpURL = writeURL.appendingPathExtension("tmp")
                 try bytes.write(to: tmpURL, options: [.atomic])
                 _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
-                // Stamp the echo synchronously inside the coordinated block —
-                // mirrors `Document.performAutosave` setting `lastDiskEcho`
-                // inside its write block, so a presenter callback racing this
-                // write can't see a half-updated state. The bytes are exactly
-                // what we wrote.
+                // Stamp the echo synchronously inside the coordinated block,
+                // so a presenter callback racing this write can't see a
+                // half-updated state. The bytes are exactly what we wrote.
+                // (`Document`'s autosave writes off the main actor and so
+                // records its bytes as in flight first: `EchoState.writing`.)
                 self.lastWrittenManifest = .afterWrite(bytes: bytes)
             } catch {
                 writeError = error

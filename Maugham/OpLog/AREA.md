@@ -22,7 +22,7 @@ Every file in `Maugham/OpLog/` appears once.
 ### Typing, echo, recovery
 - `PendingBuffer.swift` — the burst buffer mirrored to the pending file (`{ basis?, changes, sequence }`).
 - `BurstScheduler.swift` — closes a burst on idle or on maximum age.
-- `EchoState.swift` — the bytes we last wrote; private init, two factories (`initialLoad`, `afterWrite`).
+- `EchoState.swift` — the bytes landed and in flight; private init; factories `initialLoad`, `afterWrite`; moves `writing`, `writeFailed`.
 - `RecoveryCause.swift` — why a load refused, for the recovery ladder.
 - `SetAsideAcknowledgement.swift` — set-aside records already shown; `unacknowledged`.
 
@@ -74,14 +74,14 @@ Every file in `Maugham/OpLog/` appears once.
 - **`Op.at` is display-only.** Resolution is by opId; never put a wall-clock comparison in merge or derive.
 - **`sequence: nil` on a typing burst means "ordering unchanged"**: `flushBurstNow` attaches `sequence` only when ordering changed, at the keyframe floor (`Document.sequenceKeyframeInterval`, 50) or on the first burst after load, and the deriver carries the last explicit one forward (`SequenceKeyframingTests`).
 - **First bootstrap wins**: the Deriver honours only the first `.bootstrap` op's sequence (ULID order) and keeps a later one's changes.
-- Accepted limits, stated: a clock-lagged re-mint can sort first; same-paragraph concurrent edits resolve by sequence LWW with no conflict surfacing (single editor by ethos; `CrossDeviceIntegrationTests` case 4 is `XCTSkip`-marked).
 
 ### Typing, the pending file and close
 - **Don't bypass `PendingBuffer`**. The pending file carries the live `sequence`.
 - **A sequence-only burst is gated on `_orderingChangedSinceLoad`, never `_orderingDirty`** (which starts true): otherwise every transient load (MCP read, search, rename sweep) appends a junk op whose sequence can revert a peer's delete.
 - **A clean `close()` leaves no pending file; a failed flush keeps it**. Quit never runs `close()`, so a quit leaves a basis-stamped file by design. On load an empty-changes pending file folds only when its `sequence` differs from the derived one AND its `basis` is the log's newest opId.
 - **`close()` husks the instance only after flush, trailing autosave, `pending.clear` and seal.** `isClosed` is set first and gates every mutation entry (`setFullText`, `setParagraph`, `insert`, `delete`, `reorder` → no-op and log); `performAutosave` bails (data-safety-critical); `handleExternal*` bail. A `Document` is abandoned after `close()` (`DocumentDoubleCloseTests`).
-- **The echo guard is `Document.lastDiskEcho: EchoState`**; don't add a parallel "last text" string, and build it only through its factories (ADR 0010).
+- **The echo guard is `Document.lastDiskEcho: EchoState`**; don't add a parallel "last text" string, and build it only through its factories (ADR 0010). Landed and in-flight bytes are both ours (`isOurOwn`).
+- **Autosave renders and writes off the main actor, one queued run at a time**: each snapshots in its turn, re-asks `isClosed`/`rendersToDisk` after each suspension, and returns when its write lands or fails; `close()` drains the queue (`AutosaveOffMainTests`).
 - **The orphan sweep is gated on `_pendingSweep: SweepReason?`** (never a bool) and archives only annotations on `reason.removed`, never "anything missing from sequence". It reports through `_sweptSinceLastReport`, spent as one sentence at the burst boundary.
 - **The read-only recovery door writes nothing** — no op, checkpoint, seal or quarantine record. `Document.load(recovery: .readOnlyPartial)` is reached only after the strict load refused; `DocumentRecoveryError` is its own refusal. Every `Document*.swift` function reaching `opStore.append(`/`pending.recordChange(` consults the writability choke point (`rejectMutationIfNotWritable`/`requireWritable` or their recovery siblings) first (`ReadOnlyRecoveryTests.test_everyOpLogWriterConsultsTheWritabilityChokePoint`). Such a `Document` is never handed to `documentStore.register` (`ReadOnlyRecoveryTests.test_editorHostRefusalWiring_census`).
 - **Quarantine-and-continue** (`OpLogQuarantine`, tripwire 14's typed mover for this case): the `QuarantineRecord` sidecar is written FIRST, the bytes are moved byte-identically and never opened, a dataless stub is refused (`QuarantineError.datalessStub`). `attemptReturn` reads strictly, loads the current log first, never overwrites an existing destination, and treats `.returned` as terminal. `RecoveredHistory.report`'s `mergeHappened` is the caller's fact, not a guess; a sweep says one thing through `RecoveredHistoryReport.aggregate`, and nothing at a surface hand-builds a report (`RecoveredHistoryTests`, `HistoryPaneQuarantineNoticeTests`).
@@ -169,7 +169,7 @@ Every file in `Maugham/OpLog/` appears once.
 - **The opening before a person's first event turns on its kind** (`PermitTimeline.opening(before:)`): a demotion never reaches back, so a re-admission mints `.readmitted`, never `.admitted`.
 - **The check runs after `RevocationSplit` and before the parse, line by line.** A refusal is `QuarantineCause.notPermitted`; an unjudgeable line is pending with no record. The call sites are `TripwireGrepTests.partitionCallSites` (tripwire 45); a missing site applies unjudged text. Census: `TripwireGrepTests.test_thePartitionsCallSitesAreExactlyTheNamedList`.
 - **Annotation amendments are judged as of the line** (`AmendmentPermits`, `AnnotationOwnership`), never by the signer's current permit.
-- **The cost exits turn on NARROWING, never on events** (`TrustTable.hasNarrowingPermits`): admissions write events too. The actor rows bind in every book. The exits, for anyone editing the partition: a registerless book judges nothing (`judgesAnything`); a book author's author key skips the per-line decode (`Permit.allowsEverything`); a one-kind stream an allowed actor wrote is answered whole (`PermitPartition.answersWholeFile`); the document class travels as a closure in the `PermitJudge`, so no manifest is read where nothing is judged.
+- **The cost exits turn on NARROWING, never on events** (`TrustTable.hasNarrowingPermits`): admissions write events too. The actor rows bind in every book. The exits: a registerless book judges nothing (`judgesAnything`); a book author's author key skips the per-line decode (`Permit.allowsEverything`); a one-kind stream an allowed actor wrote is answered whole (`PermitPartition.answersWholeFile`); the document class travels as a closure in the `PermitJudge`, so no manifest is read where nothing is judged.
 - **Nothing proves possession of a listed non-author key**: `Registry.actorKeyOwners` is the one resolution; a non-author key two records claim is nobody's, forever, and standing plays no part.
 - **Which writer a key is has two sources, and the second only narrows**: a device record decides (`TrustTable.actor(forSealKey:)`); without one, `DeviceIdentity.actor(ofDeviceId:signingWith:)` believes the slug's actor word only where its hex is a prefix of the key. Unreadable actor word, no slug, or a mismatched run stay nil (pending) (`PermitLoadTests`).
 - **The role check reads `PermitTimeline`, never `PersonRecord.role`/`.scope`/`.pieces`** (tripwire 43). Census: `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField`.
@@ -254,7 +254,6 @@ Every file in `Maugham/OpLog/` appears once.
 - **An unanchored paragraph is reattached in three tiers**: exact text; word-shingle overlap ≥ 0.6 (`ShingleMatcher.bestMatch`, k = 4); character bigram ≥ 0.6 with a margin over the second-best (`RenderFilter.bigramReuseThreshold` 0.6, `bigramReuseMargin` 0.1). The bigram tier lives in `RenderFilter`, not `ShingleMatcher`.
 - **On a tier-2-vs-tier-3 disagreement, tier 2 wins whenever it clears 0.6**: the bigram tier is a fallback, and a tier-3 score never steals an id from a tier-2 pairing (`RenderFilterTests.test_restoreComments_tier2WordShingleWins_overTier3BigramFalsePositive`).
 - **An ambiguous bigram tie mints fresh**; a single high-overlap candidate keeps its id (`CrossDeviceIntegrationTests.test_case3a_singleCandidateMinorEdit_keepsItsId`, `test_case3b_nearDuplicateTie_reusesIdWithNoMargin`).
-- Failure modes: all tiers miss → orphan paragraph (logged); tier 2 matching the wrong near-duplicate → silent corruption.
 - **The task-anchor round trip `restoreTaskAnchors(prior, stripComments(prior)) == prior` holds** (`RenderFilterTaskAnchorTests`).
 
 ### Behavioural claims

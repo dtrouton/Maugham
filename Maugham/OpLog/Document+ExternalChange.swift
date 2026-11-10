@@ -12,8 +12,10 @@ extension Document {
         // a PARTIAL view, so the "diverged" backup it would write and the .md it
         // would then rewrite are both derived from an incomplete history.
         if rejectMutationIfNotWritable("handleExternalDiskChange") { return }
-        // Echo guard: the change we ourselves just wrote.
-        guard diskMd != lastDiskEcho.bytes else { return }
+        // Echo guard: the change we ourselves wrote, or are writing — the
+        // autosave writes off the main actor, so a callback can carry the
+        // bytes in flight or the previous write's (`EchoState.isOurOwn`).
+        guard !lastDiskEcho.isOurOwn(diskMd) else { return }
         // The on-disk file is the clean render (ADR 0019). If it already matches
         // what we would write, there is nothing to discard.
         let ourClean = MarkdownDisplayFilter.stripAnchors(materialize())
@@ -293,7 +295,7 @@ extension Document {
         //
         // Its own write comes back as the presenter's `.otherProjectFile`
         // callback, and `handleExternalDiskChange`'s echo guard
-        // (`lastDiskEcho = .afterWrite`) absorbs it.
+        // (`lastDiskEcho.isOurOwn`) absorbs it.
         if rendersOnItsOwnAccount { autosaveScheduler.schedule(()) }
     }
 

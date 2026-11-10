@@ -2346,3 +2346,12 @@ To make room for the sort's range rule (a sort keeps every range's positional sp
 - `mergeSortedDedup`'s total order means directory enumeration order cannot change the survivor.
 - A failed flush keeps the pending file because it is the recovery source.
 - A figure restore judges pins by the book's park cycles so a live pin never becomes an inert one.
+
+## Moved by typing loop plan 1 task 2 (2026-11-10)
+
+To make room for the off-main autosave rule and the in-flight echo under the 8,000-word cap:
+
+- Accepted limits, stated: a clock-lagged re-mint can sort first; same-paragraph concurrent edits resolve by sequence LWW with no conflict surfacing (single editor by ethos; `CrossDeviceIntegrationTests` case 4 is `XCTSkip`-marked).
+- RenderFilter failure modes: all tiers miss → orphan paragraph (logged); tier 2 matching the wrong near-duplicate → silent corruption.
+- The cost exits are listed "for anyone editing the partition".
+- Why the autosave's test hook replaces the coordination as well as the write: two coordinated writers of one file in one process queue behind each other, so a hook held inside the block orders the writes by itself and hides whether the run queue does.
