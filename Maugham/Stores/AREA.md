@@ -66,7 +66,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
-- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteItem(atPath:)`) and `ResearchTextRole`, the one note-or-card predicate.
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave` (one pending edit per note), `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`) and `ResearchTextRole`, the one note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.

@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import Maugham
 @testable import MaughamCore
 
@@ -258,6 +259,118 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file(oldPath).path),
                        "nothing is written where it was")
         XCTAssertEqual(try versions(of: item).map(versionText), ["Before the move."])
+    }
+
+    /// The move lands while the keep is off the main actor: the door asks
+    /// the path again after it, so the text is written where the note now is
+    /// — not at the stale path, which would make a second file. The bytes
+    /// kept were read at the old path; a move carries the same bytes, so
+    /// they are exactly what the write replaces.
+    func test_aNoteMovedDuringTheKeepIsWrittenWhereItNowIs() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before the move.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        let newPath = "research/moved-during-the-keep.md"
+        // The typed mover flushes (and so waits for this save) before it moves,
+        // so it cannot run inside the keep; the move is made by hand here, as
+        // the manifest and the disk would show it.
+        store.researchNoteDoor.keepWillRunForTesting = { [self] in
+            try? FileManager.default.moveItem(at: file(oldPath), to: file(newPath))
+            projectStore.manifest.research = projectStore.manifest.research.map { top in
+                var top = top
+                if top.id == item.id { top.path = newPath }
+                return top
+            }
+        }
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "After the move.")
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try current(item, projectStore).path, newPath, "premise: the note moved")
+        XCTAssertEqual(String(decoding: try Data(contentsOf: file(newPath)), as: UTF8.self), "After the move.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file(oldPath).path),
+                       "nothing is written at the path it had when the save began")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Before the move."])
+    }
+
+    /// Controller's interim ruling on P3: an edit whose debounce elapsed is
+    /// not saved over a version that cannot be kept, and is not dropped
+    /// either — the flush still has it.
+    func test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Kept or not saved over.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(ResearchVersionStore.folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try lock(folder, 0o555)
+
+        // The debounce's own timer, at no delay, awaited by its hook — no clock.
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+
+        XCTAssertEqual(try text(of: item, projectStore), "Kept or not saved over.", "the timer's save stopped")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
+        XCTAssertTrue(heard.notices.contains(
+            "“Notes”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note."),
+            "\(heard.notices)")
+
+        try await store.flushPendingSave()
+        XCTAssertEqual(try text(of: item, projectStore), "Typed.", "the flush saved what the timer could not")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// A flush is the last moment the editor's text exists (a note switch,
+    /// ⌘S, the mover, the close): it saves even when the version cannot be
+    /// kept, and says so — the spec's anti-goal is losing text to a failed keep.
+    func test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Not kept.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(ResearchVersionStore.folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try lock(folder, 0o555)
+
+        store.scheduleNoteSave(itemId: item.id, text: "Saved anyway.")
+        try await store.flushPendingSave()
+
+        XCTAssertEqual(try text(of: item, projectStore), "Saved anyway.")
+        XCTAssertTrue(heard.notices.contains("“Notes”’s previous version couldn’t be kept; your edits were saved anyway."),
+                      "\(heard.notices)")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// Controller ruling 4: a reader of one note's reload count is
+    /// invalidated by another writer's save of THAT note only — not by a save
+    /// of another note, and not by the editor's own debounced save.
+    func test_theReloadCountIsObservedPerNote_andTheEditorsOwnSaveDoesNotMoveIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let watched = try await note("Watched.", in: projectStore)
+        let other = try await projectStore.createResearchNote(scope: .shared, title: "Other")
+        try read(watched, store, projectStore)
+        final class Fired: @unchecked Sendable { var count = 0 }   // touched on the main actor only
+        let fired = Fired()
+        func observe() {
+            withObservationTracking {
+                _ = store.researchNoteReloadCount(itemId: watched.id)
+            } onChange: { fired.count += 1 }
+        }
+
+        observe()
+        await store.saveResearchNote(itemId: other.id, text: "Another note.", by: .assistant)
+        store.scheduleNoteSave(itemId: watched.id, text: "The editor's own.")
+        try await store.flushPendingSave()
+        XCTAssertEqual(fired.count, 0, "another note's write and the editor's own save invalidate nothing")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: watched.id), 0)
+
+        await store.saveResearchNote(itemId: watched.id, text: "Written behind.", by: .assistant)
+        XCTAssertEqual(fired.count, 1, "a write behind the editor reaches its reader")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: watched.id), 1)
     }
 
     func test_aKeepThatFailsStopsTheSave() async throws {

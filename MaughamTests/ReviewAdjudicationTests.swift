@@ -131,7 +131,7 @@ final class ReviewAdjudicationTests: XCTestCase {
     /// `shouldChangeTextIn` refuse the markdown ref. The write is not text
     /// mutation, so `lockEditing` never gated it on its own — the fix is
     /// `ResearchNoteEditor` not wiring the handler at all while locked
-    /// (`imagePasteHandler: lockEditing ? nil : makeImagePasteHandler()`),
+    /// (`imagePasteHandler: locked ? nil : makeImagePasteHandler()`),
     /// which this test pins from the outside: drive the REAL paste path
     /// (`MaughamTextView.paste(_:)`, not a hand call into the store) and
     /// assert nothing landed in the well.

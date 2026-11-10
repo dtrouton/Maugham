@@ -1,5 +1,6 @@
 import Foundation
 import MaughamCore
+import Observation
 import os
 
 private let researchNoteLog = Logger(
@@ -41,25 +42,71 @@ enum ResearchNoteSave: Equatable {
 /// (`ResearchTableHost.write`) keeps its run state per host; a note has no
 /// host, so this keeps it per note id for the store's life. Owned by
 /// `DocumentStore` (`researchNoteDoor`), never observed: a save invalidates
-/// no view. Saves of one note run one after another (`inFlight`); saves of
-/// different notes do not wait for each other.
+/// no view (each note's reload signal is its own observed object). Saves of
+/// one note run one after another (`inFlight`); saves of different notes do
+/// not wait for each other. The editor's debounced edits wait here too, one
+/// pending text per note (`pending`).
 @MainActor
 final class ResearchNoteDoor {
 
     /// The run-rule clock (as `ResearchTableHost.now`); tests move it.
     var now: @MainActor () -> Date = { Date() }
+    /// How long after the last keystroke the editor's edit is saved.
+    var saveDelay: Duration = .milliseconds(750)
     /// Told (item id, text) after each file write the door makes.
     var wroteForTesting: (@MainActor (String, String) -> Void)?
     /// Called on the main actor just before a keep goes off it.
-    var keepWillRunForTesting: (@MainActor () -> Void)?
+    var keepWillRunForTesting: (@MainActor () async -> Void)?
+    /// Told the item id once a timer-fired save has finished.
+    var timerSaveFinishedForTesting: (@MainActor (String) -> Void)?
+
+    /// Where a save came from: what the keep-failure rule asks.
+    enum SaveSource: Equatable {
+        /// The editor's edit, its debounce elapsed.
+        case editorTimer
+        /// The editor's edit, flushed (`flushPendingSave`: a note switch, ⌘S,
+        /// the typed mover, the store's close; or a door write about to
+        /// replace it): the last moment that text exists.
+        case editorFlush
+        /// Anyone else's write (`saveResearchNote`): a restore, the assistant,
+        /// a rename. `keepsWhatItReplaces` when the editor's pending edit was
+        /// flushed first, so that edit is the version this write replaces.
+        case direct(keepsWhatItReplaces: Bool)
+    }
 
     /// **P3 (pending Denver, asked 2026-11-10): when the bytes a save replaces
-    /// cannot be kept, is the save stopped or made anyway?** The default built
-    /// is the table's — stopped. Flipping it is this one constant;
-    /// `ResearchNoteDoorTests.test_aKeepThatFailsStopsTheSave` is the test to
-    /// change with it.
+    /// cannot be kept, is the save stopped or made anyway?** Interim ruling
+    /// (controller, Task 3), by source: a timer-fired edit is stopped and stays
+    /// pending; a flushed edit is saved anyway, with a notice (the spec's
+    /// anti-goal: no text lost because its previous version could not be
+    /// kept); anyone else's write is stopped, as tables. Changing it is this
+    /// one function; `ResearchNoteDoorTests.test_aKeepThatFailsStopsTheSave`,
+    /// `test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush`
+    /// and `test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo` change with it.
     enum WhenTheKeepFails { case stopTheSave, saveAnyway }
-    static let whenTheKeepFails: WhenTheKeepFails = .stopTheSave
+    static func whenTheKeepFails(_ source: SaveSource) -> WhenTheKeepFails {
+        switch source {
+        case .editorTimer: return .stopTheSave
+        case .editorFlush: return .saveAnyway
+        case .direct: return .stopTheSave
+        }
+    }
+
+    /// What one write did, as the door's callers need it.
+    enum Outcome: Equatable {
+        case saved(keptAVersion: Bool)
+        case notSaved
+        /// Stopped because the version could not be kept: the editor's text
+        /// stays pending.
+        case stoppedAtTheKeep
+
+        var asSave: ResearchNoteSave {
+            switch self {
+            case .saved(let kept): return .saved(keptAVersion: kept)
+            case .notSaved, .stoppedAtTheKeep: return .notSaved
+            }
+        }
+    }
 
     private struct NoteState {
         /// The hash of the bytes this store last read or wrote for the note;
@@ -68,11 +115,25 @@ final class ResearchNoteDoor {
         var run = ResearchSaveRun()
         /// A keep of the same bytes again (a retry) keeps nothing.
         var lastKeptHash: String?
+        /// The hash of what another writer wrote (`.direct`) that no editor
+        /// has read since: the editor's save over them keeps them, run or
+        /// not — the writer typed over text they had not seen.
+        var writtenBehindTheEditor: String?
+    }
+
+    /// One note's edit waiting for its debounce.
+    private struct Pending {
+        var text: String
+        var generation: Int
+        var timer: Task<Void, Never>?
     }
 
     private var notes: [String: NoteState] = [:]
-    private var inFlight: [String: (token: Int, task: Task<ResearchNoteSave, Never>)] = [:]
+    private var inFlight: [String: (token: Int, task: Task<Outcome, Never>)] = [:]
     private var nextToken = 0
+    private var pending: [String: Pending] = [:]
+    private var nextGeneration = 0
+    private var reloadSignals: [String: ResearchNoteReloadSignal] = [:]
 
     /// The bytes `itemId` holds were read (an editor's load): they are known.
     /// Bytes that are not the ones known end the writer's run, so the next
@@ -82,26 +143,110 @@ final class ResearchNoteDoor {
         var state = notes[itemId] ?? NoteState()
         if state.knownHash != hash { state.run.end() }
         state.knownHash = hash
+        state.writtenBehindTheEditor = nil
         notes[itemId] = state
     }
 
-    /// One save, queued behind any save of the same note already in flight.
+    // MARK: The reload signal
+
+    /// **Moves when the door wrote `itemId` for anyone but the editor**: an
+    /// open editor on the note re-reads it. Reading it observes this note's
+    /// signal only, so a save of another note invalidates nothing here.
+    func reloadCount(_ itemId: String) -> Int { signal(itemId).count }
+
+    private func signal(_ itemId: String) -> ResearchNoteReloadSignal {
+        if let existing = reloadSignals[itemId] { return existing }
+        let made = ResearchNoteReloadSignal()
+        reloadSignals[itemId] = made
+        return made
+    }
+
+    // MARK: The editor's pending edits
+
+    /// The editor's edit of `itemId`, saved `saveDelay` after the last one.
+    /// Each note has its own slot: a schedule for another note never drops
+    /// this one.
+    func schedule(_ itemId: String, text: String, in store: DocumentStore) {
+        pending[itemId]?.timer?.cancel()
+        nextGeneration += 1
+        let generation = nextGeneration
+        let delay = saveDelay
+        let timer = Task { @MainActor [weak self, weak store] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, let store else { return }
+            await self.fire(itemId, generation: generation, in: store)
+        }
+        pending[itemId] = Pending(text: text, generation: generation, timer: timer)
+    }
+
+    /// Whether the editor's edit of `itemId` is waiting to be saved.
+    func hasPending(_ itemId: String) -> Bool { pending[itemId] != nil }
+
+    /// The debounce elapsed. The edit stays pending until it lands: a save
+    /// stopped at the keep leaves it for the next attempt (a keystroke's
+    /// timer, or a flush), and a newer keystroke's edit replaces it.
+    private func fire(_ itemId: String, generation: Int, in store: DocumentStore) async {
+        guard let entry = pending[itemId], entry.generation == generation else { return }
+        pending[itemId]?.timer = nil
+        let outcome = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+                                    source: .editorTimer, in: store)
+        if outcome != .stoppedAtTheKeep, pending[itemId]?.generation == generation {
+            pending[itemId] = nil
+        }
+        timerSaveFinishedForTesting?(itemId)
+    }
+
+    /// Every note's pending edit, saved now as a flush.
+    func flushPending(in store: DocumentStore) async {
+        let entries = pending
+        pending = [:]
+        for entry in entries.values { entry.timer?.cancel() }
+        for (itemId, entry) in entries.sorted(by: { $0.key < $1.key }) {
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+                              source: .editorFlush, in: store)
+        }
+    }
+
+    // MARK: Saves
+
+    /// **Anyone else's write** of `itemId`. The editor's pending edit of the
+    /// note is saved first (a flush), and is then the version this write
+    /// replaces; once written, an editor open on the note reloads.
     func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
               in store: DocumentStore) async -> ResearchNoteSave {
+        var flushedAnEdit = false
+        if let entry = pending.removeValue(forKey: itemId) {
+            entry.timer?.cancel()
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+                              source: .editorFlush, in: store)
+            flushedAnEdit = true
+        }
+        return await enqueue(itemId, text: text, by: writer, restoring: restoring,
+                             source: .direct(keepsWhatItReplaces: flushedAnEdit), in: store).asSave
+    }
+
+    /// One save, queued behind any save of the same note already in flight.
+    private func enqueue(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
+                         source: SaveSource, in store: DocumentStore) async -> Outcome {
         let before = inFlight[itemId]?.task
         nextToken += 1
         let token = nextToken
         // Unstructured, so a caller's cancellation (the debounce task a new
         // schedule cancels) never cuts a save in half.
-        let task = Task { @MainActor [weak self, weak store] () -> ResearchNoteSave in
+        let task = Task { @MainActor [weak self, weak store] () -> Outcome in
+            // Cleared on every way out, so `settle` never waits on a save that ended.
+            defer { self?.finished(itemId, token: token) }
             _ = await before?.value
             guard let self, let store else { return .notSaved }
-            let result = await self.write(itemId, text: text, by: writer, restoring: restoring, in: store)
-            if self.inFlight[itemId]?.token == token { self.inFlight[itemId] = nil }
-            return result
+            return await self.write(itemId, text: text, by: writer, restoring: restoring,
+                                    source: source, in: store)
         }
         inFlight[itemId] = (token, task)
         return await task.value
+    }
+
+    private func finished(_ itemId: String, token: Int) {
+        if inFlight[itemId]?.token == token { inFlight[itemId] = nil }
     }
 
     /// Returns once no save is in flight (the store's flush, and so its close).
@@ -119,7 +264,7 @@ final class ResearchNoteDoor {
     /// this store did not write say so; then the file; then the record of who
     /// wrote it.
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-                       in store: DocumentStore) async -> ResearchNoteSave {
+                       source: SaveSource, in store: DocumentStore) async -> Outcome {
         let projectURL = store.projectURL
         guard let found = noteItem(itemId, in: store) else { return .notSaved }
         let (item, path) = found
@@ -144,6 +289,7 @@ final class ResearchNoteDoor {
         if let onDisk, onDisk == newBytes {
             notes[itemId, default: NoteState()].knownHash = ContentHash.of(newBytes)
             counted(itemId, by: writer, restoring: restoring, at: at)
+            wroteBehindTheEditor(itemId, newBytes, source: source)
             return .saved(keptAVersion: false)
         }
 
@@ -152,12 +298,18 @@ final class ResearchNoteDoor {
             let state = notes[itemId] ?? NoteState()
             let onDiskHash = ContentHash.of(onDisk)
             let overOwnBytes = onDiskHash == state.knownHash
-            if restoring || state.run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes),
+            if restoring || Self.keepsRegardlessOfTheRun(source, onDiskHash: onDiskHash, state.writtenBehindTheEditor)
+                || state.run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes),
                onDiskHash != state.lastKeptHash {
                 if let failure = await keepThePriorVersion(onDisk, of: itemId, at: at, by: writer, in: store) {
                     researchNoteLog.error(
                         "\(item.title, privacy: .public)'s previous version was not kept: \(failure.localizedDescription, privacy: .public)")
-                    switch Self.whenTheKeepFails {
+                    switch Self.whenTheKeepFails(source) {
+                    case .stopTheSave where source == .editorTimer:
+                        MaughamEvent.postNotice(
+                            "“\(item.title)”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note.",
+                            projectURL: projectURL)
+                        return .stoppedAtTheKeep
                     case .stopTheSave:
                         MaughamEvent.postNotice(
                             "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
@@ -206,7 +358,30 @@ final class ResearchNoteDoor {
             researchNoteLog.error(
                 "\(itemId, privacy: .public)'s note record was not written: \(error.localizedDescription, privacy: .public)")
         }
+        wroteBehindTheEditor(itemId, newBytes, source: source)
         return .saved(keptAVersion: kept)
+    }
+
+    /// A save keeps what it replaces whatever the run says when it is a
+    /// write made right after the editor's edit was flushed (that edit is
+    /// its version), or the editor's own save over text another writer put
+    /// there that the editor never showed (the writer typed before the
+    /// reload landed).
+    private static func keepsRegardlessOfTheRun(_ source: SaveSource, onDiskHash: String,
+                                                 _ writtenBehind: String?) -> Bool {
+        switch source {
+        case .direct(let keepsWhatItReplaces): return keepsWhatItReplaces
+        case .editorTimer, .editorFlush: return onDiskHash == writtenBehind
+        }
+    }
+
+    /// After anyone else's write: the bytes are marked unread by the editor,
+    /// and an editor open on the note is told to re-read it. The editor's
+    /// own saves move nothing.
+    private func wroteBehindTheEditor(_ itemId: String, _ bytes: Data, source: SaveSource) {
+        guard case .direct = source else { return }
+        notes[itemId, default: NoteState()].writtenBehindTheEditor = ContentHash.of(bytes)
+        signal(itemId).count += 1
     }
 
     /// Counted once the version is kept, saved or not: a retry after a failed
@@ -258,7 +433,7 @@ final class ResearchNoteDoor {
         let versions = ResearchVersionStore(projectURL: store.projectURL)
         let projectURL = store.projectURL
         let device = DeviceIdentity.author.slug
-        keepWillRunForTesting?()
+        await keepWillRunForTesting?()
         return await Task.detached { () -> Error? in
             let record = (try? ResearchNoteRecord.read(forItem: itemId, in: projectURL)) ?? nil
             let author = record?.contentHash == ContentHash.of(prior) ? record?.writtenBy : nil
@@ -292,6 +467,15 @@ final class ResearchNoteDoor {
     }
 }
 
+/// One note's reload signal (`ResearchNoteDoor.reloadCount`): its own
+/// observed object, so a view reading it is invalidated by this note's
+/// writes only.
+@Observable
+@MainActor
+final class ResearchNoteReloadSignal {
+    var count = 0
+}
+
 /// A note's file as the door found it, read off the main actor.
 private enum PriorBytes: Sendable {
     /// Nothing at the path: nothing to keep, and the save proceeds.
@@ -318,6 +502,19 @@ extension DocumentStore {
     func saveResearchNote(itemId: String, text: String, by writer: ResearchWriter = .writer,
                           restoring: Bool = false) async -> ResearchNoteSave {
         await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring, in: self)
+    }
+
+    /// **Moves each time the door writes note `itemId` for anyone but the
+    /// editor's own debounced save** (a restore, the assistant, a rename): an
+    /// editor open on the note re-reads its file. Observed per note — reading
+    /// it invalidates the reader on that note's writes only.
+    func researchNoteReloadCount(itemId: String) -> Int {
+        researchNoteDoor.reloadCount(itemId)
+    }
+
+    /// Whether the editor's edit of note `itemId` is waiting to be saved.
+    func researchNoteHasPendingSave(itemId: String) -> Bool {
+        researchNoteDoor.hasPending(itemId)
     }
 
     /// The note `itemId`'s `bytes` were read (the editor's load): a later save

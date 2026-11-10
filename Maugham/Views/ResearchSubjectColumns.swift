@@ -266,7 +266,8 @@ struct ResearchSubjectCentre: View {
                 path: path,
                 itemId: item.id,
                 previewVisible: previewVisible,
-                lockEditing: readOnly)
+                lockEditing: readOnly,
+                shareIsReadOnly: shareIsReadOnly)
         case .table(let item, _):
             ResearchTableGrid(
                 itemId: item.id, title: item.title, store: store, documentStore: documentStore,

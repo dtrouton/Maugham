@@ -161,3 +161,8 @@ act at the op log.
 - Binder / outline / inspector UI — `Maugham/Views/`.
 - Find/replace data model — `Maugham/Stores/` (`ProjectStore.currentSearch`; ⌘⌥F is an overlay of the left column, not a binder segment).
 - Wiki-link resolution to other docs — `Maugham/Stores/ProjectStore` (WikiLink extension); the *hit-testing* (mouse over `[[…]]`) lives here but resolution doesn't.
+
+
+## Trimmed from the guide during note versions plan 2 Task 3 (2026-11-10)
+
+Clause cut from `Maugham/Editor/AREA.md` to make room for the note editor's reload line: `FigureCentreGrid` sits beside the canvas in Plan.
