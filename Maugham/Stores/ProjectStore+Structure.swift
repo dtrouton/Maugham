@@ -623,7 +623,10 @@ extension ProjectStore {
             // Commit through the same path normal typing uses (appends an op).
             resolved.setFullText(rewritten)
 
-            // Refresh per-doc word-count cache since the body changed.
+            // Refresh per-doc word-count cache since the body changed. A
+            // burst pending for this piece holds the text before the rewrite;
+            // settled first, so it cannot land on top of this count later.
+            documentStore?.settleWordCount()
             let count = WritingModeFactory.mode(for: path)
                 .wordCount(rewritten)
             recordWordCount(forDocumentId: doc.id, wordCount: count)

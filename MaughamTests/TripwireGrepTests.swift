@@ -12253,6 +12253,22 @@ final class TripwireGrepTests: XCTestCase {
     /// - `sendHeldWordsToInbox` — §7.4's held-line door. One production
     ///   caller: History's held row, where the sentence and the control sit
     ///   together.
+    /// - `settleWordCount(` — the typing loop's deferred word count (plan 1,
+    ///   Task 1). A keystroke keeps its burst's text uncounted; every reader of
+    ///   the project total AS FINAL counts it first. `DocumentStore` holds the
+    ///   definition, the trailing edge, the piece switch inside
+    ///   `recordEditorTextWrite`, the idle timer, `excludeForeignWords`, the
+    ///   re-read's two (before `cachedAtEntry`, and after the suspension for
+    ///   what was typed meanwhile), `flushSessionOnQuit`, `close` and
+    ///   `register`. `ProjectStore` settles before its two passes read a
+    ///   piece's `prior`, before an adoption forgets a piece's count, and
+    ///   before the wiki-rename records a rewritten piece's count; the MCP
+    ///   outline before it reports `word_count`. A MISSING one is a planted
+    ///   offender of the kind this census exists for: a reader that reads the
+    ///   total without settling sees the burst's words as not yet typed —
+    ///   quit loses them from the session event, an arriving piece's shift
+    ///   takes them out as someone else's. An EXTRA one is a new final reader:
+    ///   name it here.
     static let countedLists: [String: [String: Int]] = [
         "expectedStreams(": [
             "type:DocumentStore": 5, "OpLogDeviceState.swift": 1,
@@ -12270,6 +12286,10 @@ final class TripwireGrepTests: XCTestCase {
             "type:DocumentStore": 2,
         ],
         "documentStore.sendHeldWordsToInbox(": ["type:HistoryPaneVerbs": 1],
+        "settleWordCount(": [
+            "type:DocumentStore": 10, "type:ProjectStore": 4,
+            "ProjectTools.swift": 1,
+        ],
     ]
 
     /// Every line naming `pattern` under `roots`, comments excluded.

@@ -102,7 +102,7 @@ debounced burst flush → op log + autosave → eventual disk write → Document
 - **No heavy work inside a synchronous SwiftUI binding setter** (tripwire 3, `TripwireGrepTests+EditorHost.swift`). It caused a trailing-space autosave that moved the cursor, an async restore racing key events, and a binding loop reading stale text. Debounce, and isolate the write side from the read side.
 - **No SwiftUI ↔ AppKit two-way sync guarded by flags**: `.onChange` fires after the synchronous flag-clear, so the guard leaks (tripwire 2, prose only).
 - **The echo guard for our own writes lives on `Document`** (`lastDiskEcho: EchoState`). The editor never sees it, so don't add "last text" state in the editor layer.
-- **The binding setter's side effects are part of the contract**: `recordEditorTextWrite` → `recordWordCount`/`recordSessionActivity` (`EditorBindingSideEffectsTests`).
+- **The binding setter's side effects are part of the contract**: `recordEditorTextWrite` → `recordSessionActivity`/deferred-`settleWordCount` (`EditorBindingSideEffectsTests`).
 - **`EditorCoordinator` records the cursor into `Document.recordCursorAt(_:)` on selection change**: `Document.setFullText` reads it as `preEditCursor` to align a cut-and-paste of anchored task lines between paragraphs.
 - **No `NSTextStorage` subclass fronting several files** (tripwire 1, `TripwireGrepTests.test_noNSTextStorageSubclassInProduction`): AppKit's layout, undo and selection caches cannot be steered from a subclass, and multi-file screenplay is dead.
 - **The Fountain extension is spelled in `DocumentFormat` only; ask it, never a `"fountain"` literal** (tripwire 54, `TripwireGrepTests.test_theFountainExtensionIsSpelledInDocumentFormatOnly`).

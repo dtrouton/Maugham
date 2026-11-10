@@ -557,3 +557,14 @@ The final review found rules among the clauses Task 6 moved here. Back in the gu
 - The promotion's figure notice is said in a Promote to Project alert (the `PiecePromotion` Map row names `figureNotice`); a moved parked figure's Trash entry: `bringBack` refuses there and its pins read `sourceMissing`.
 
 Cut from the Stores guide in report plan 8b Task 10: a moved parked figure's Trash entry restores parked, its copy gone; `ProjectStore.load` runs before `ProjectSession.open` sets `documentStore`, which is why its raw moves are a fallback branch.
+
+## Moved here by typing loop plan 1, Task 1 (2026-11-10)
+
+The deferred word count's rule joined the guide; these clauses left it to pay for it.
+
+- `settleWordCount()`'s final readers: the idle timer, quit and close, `register`, the re-read (before `cachedAtEntry`, and again after its suspension for what was typed meanwhile), `excludeForeignWords`, `ProjectStore`'s two counting passes before they read `prior`, an adoption before it forgets a piece, the wiki-rename, the MCP outline. The trailing edge is `wordCountSettleDelay` (350 ms). A session's baseline is the total before its first burst, so that burst's words are the session's.
+- The settle moves the live total by the burst's own difference, not to `projectWordCount`: a caller of `excludeForeignWords` has already moved the cache for the arriving words, and a reset would count them twice. `lastKnownProjectWordCount` is written only when it changes, so typing inside a word invalidates no view.
+- A re-read's baseline moves by the difference (`SessionTracker.shiftBaseline`).
+- `register` counting a piece as it opens is what leaves the first keystroke carrying only what it typed; the load-time pass skips a piece that left the structure since it began.
+- `recountFromOpLogs` runs off the presenter callback, with a yield between pieces.
+- `ProjectStore.derivedCache`: open docs read the live `Document`; it is `ProjectStore`'s because the weak `documentStore` is not wired during `load`.

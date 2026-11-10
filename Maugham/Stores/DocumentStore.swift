@@ -264,21 +264,93 @@ public final class DocumentStore {
 
     /// Net word delta of the currently-active session — the live count of
     /// words added (or removed, if negative) since the session started.
-    /// Returns 0 when no session is active. Updated implicitly each time
-    /// `recordSessionActivity(...)` is called (which writes the observable
-    /// `lastKnownProjectWordCount`), so SwiftUI views reading this property
-    /// re-render correctly while the user types.
+    /// Returns 0 when no session is active. Moves when a burst settles
+    /// (`settleWordCount()` writes the observable `lastKnownProjectWordCount`,
+    /// only when its value changes), so SwiftUI views reading this property
+    /// re-render as the words land — not on every keystroke.
     public var liveSessionWordsNet: Int {
         guard let session = sessionTracker.activeSession else { return 0 }
         return lastKnownProjectWordCount - session.startWordCount
     }
 
     private var idleTimerToken: DispatchWorkItem?
-    /// Snapshot of the most recent project-wide word count seen on a
-    /// `recordSessionActivity` call. Used by `flushSessionOnQuit` so the
-    /// session's net delta is computed against the live total even when
-    /// the caller can't pass one in.
+    /// The live project-wide word count the session measures against: set
+    /// by `recordSessionActivity`, moved by each settled burst and by
+    /// `excludeForeignWords`. Used by `flushSessionOnQuit` and the idle timer
+    /// (each settles first) so the session's net delta is computed against
+    /// the live total. Written through `setLastKnownProjectWordCount`.
     private var lastKnownProjectWordCount: Int = 0
+
+
+    /// The latest text of a typing burst, not yet counted (typing loop plan 1).
+    /// Holding the `String` is free; counting it is the whole-document walk a
+    /// keystroke no longer pays. `settleWordCount()` consumes it.
+    private struct PendingWordCount {
+        let documentId: String
+        let text: String
+        let mode: any WritingMode
+        weak var store: ProjectStore?
+    }
+    @ObservationIgnored private var pendingWordCount: PendingWordCount?
+
+    /// Whole-document word counts the typing path has run — one per settled
+    /// burst, never one per keystroke. The typing-loop probe reads it.
+    @ObservationIgnored internal private(set) var wordCountRunCount = 0
+
+    /// How long a burst rests before its words are counted. A test sets
+    /// `.zero` and awaits `wordCountSettleScheduler.flush()`.
+    @ObservationIgnored var wordCountSettleDelay: Duration = .milliseconds(350) {
+        didSet {
+            _wordCountSettleScheduler?.cancel()
+            _wordCountSettleScheduler = nil
+        }
+    }
+
+    /// The burst's trailing edge. Built on first use, with the delay then in
+    /// force; changing the delay discards it (and its pending run — the burst
+    /// itself stays pending until the next keystroke or reader settles it).
+    @ObservationIgnored private var _wordCountSettleScheduler: DebounceScheduler<Int>?
+    var wordCountSettleScheduler: DebounceScheduler<Int> {
+        if let existing = _wordCountSettleScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: wordCountSettleDelay) { [weak self] _ in
+            self?.settleWordCount()
+        }
+        _wordCountSettleScheduler = scheduler
+        return scheduler
+    }
+    @ObservationIgnored private var wordCountBurstGeneration = 0
+
+    /// **Count the pending burst now** — called before every read of the
+    /// project total as final: the trailing edge, the idle timer, quit and
+    /// close, a piece opening, another device's words arriving or leaving,
+    /// and every non-view reader of `ProjectStore`'s counts. Nothing pending,
+    /// nothing done.
+    ///
+    /// The live total moves by the burst's OWN difference (what it counts
+    /// minus what the cache held for that piece), not to `projectWordCount`:
+    /// a reader that settles after it has already moved the cache for
+    /// another device's words (`excludeForeignWords`'s callers) would
+    /// otherwise see those words in the total twice — once here, once in
+    /// its own shift.
+    func settleWordCount() {
+        guard let burst = pendingWordCount else { return }
+        pendingWordCount = nil
+        _wordCountSettleScheduler?.cancel()
+        guard let store = burst.store else { return }
+        let count = burst.mode.wordCount(burst.text)
+        wordCountRunCount += 1
+        let prior = store.cachedWordCount(for: burst.documentId) ?? 0
+        store.recordWordCount(forDocumentId: burst.documentId, wordCount: count)
+        setLastKnownProjectWordCount(lastKnownProjectWordCount + count - prior)
+    }
+
+    /// `lastKnownProjectWordCount` is observed (`liveSessionWordsNet` reads
+    /// it, and `ProjectWindow`'s body reads that): it is written only when
+    /// its value changes, so a keystroke inside a word invalidates nothing.
+    private func setLastKnownProjectWordCount(_ value: Int) {
+        guard value != lastKnownProjectWordCount else { return }
+        lastKnownProjectWordCount = value
+    }
 
     /// Debounced save scheduler used by callers that aren't Documents —
     /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
@@ -719,6 +791,9 @@ public final class DocumentStore {
     }
 
     public func close() async {
+        // A pending burst is counted, and the trailing edge disarmed, before
+        // anything reads the total for the last time.
+        settleWordCount()
         // Flush an in-progress session first so it lands in sessions.json
         // before the presenter is removed and writes become uncoordinated.
         await flushSessionOnQuit()
@@ -1273,9 +1348,10 @@ public final class DocumentStore {
     }
 
     /// Records all the side-effects that must fire when the editor writes
-    /// new text into a Document. Computes the word count for `newText`,
-    /// updates the project's per-document word-count cache, and pings the
-    /// SessionTracker so live session metrics tick.
+    /// new text into a Document. Keeps `newText` as the pending burst (its
+    /// count lands in the project's per-document cache when the burst
+    /// settles — `settleWordCount()`), and pings the SessionTracker so the
+    /// session starts and its idle timer re-arms on every keystroke.
     ///
     /// **Load-bearing.** This is the single bridge between the editor and
     /// the project-level word/session bookkeeping. Skipping this call (or
@@ -1297,15 +1373,29 @@ public final class DocumentStore {
         mode: any WritingMode,
         store: ProjectStore
     ) {
-        // wordCount(_:) NOT metrics(_:): metrics runs a whole-document
-        // Fountain parse for pageCount, which this per-keystroke path
-        // discards (2026-06-10 live profile — one of three redundant
-        // per-keystroke parses behind the 5-10s typing stalls at 70pp).
-        let count = mode.wordCount(newText)
-        store.recordWordCount(forDocumentId: documentId, wordCount: count)
+        // **Nothing is counted here** (typing loop plan 1): the whole-document
+        // count was 10.9 ms of a 38.4 ms keystroke at 250 KB. The burst's text
+        // is kept and counted once, at the trailing edge or by the first
+        // reader that needs the total as final (`settleWordCount()`). When it
+        // IS counted, it is `wordCount(_:)`, never `metrics(_:)`: metrics runs
+        // a whole-document Fountain parse for pageCount that this path
+        // discards (2026-06-10 live profile).
+        //
+        // Another piece's burst is that piece's: settled before this one is
+        // taken, so a piece switch inside the delay loses no words.
+        if let pending = pendingWordCount, pending.documentId != documentId {
+            settleWordCount()
+        }
+        pendingWordCount = PendingWordCount(
+            documentId: documentId, text: newText, mode: mode, store: store)
+        // The session takes the total as cached: a session starting on this
+        // keystroke starts from the words before the burst, so the burst's
+        // words are the session's.
         recordSessionActivity(
             documentId: documentId,
             projectWordCount: store.projectWordCount)
+        wordCountBurstGeneration &+= 1
+        wordCountSettleScheduler.schedule(wordCountBurstGeneration)
     }
 
     /// Called by EditorHost on every text change. Records activity with the
@@ -1316,7 +1406,7 @@ public final class DocumentStore {
         documentId: String,
         projectWordCount: Int
     ) {
-        lastKnownProjectWordCount = projectWordCount
+        setLastKnownProjectWordCount(projectWordCount)
         sessionTracker.recordTextChange(
             at: Date(), projectWordCount: projectWordCount)
 
@@ -1324,6 +1414,9 @@ public final class DocumentStore {
         let token = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // The burst's words are the session's: counted before the
+                // total is read as final.
+                self.settleWordCount()
                 // `lastKnownProjectWordCount` rather than a value captured
                 // here: it is this keystroke's total unless another device's
                 // piece arrived or left since, in which case
@@ -1346,7 +1439,12 @@ public final class DocumentStore {
     /// moved the project total by `delta`; the live total and the session's
     /// baseline move together, so `liveSessionWordsNet` and the event the
     /// session ends with count only what was typed here.
+    ///
+    /// A burst still pending is settled first, by its own difference
+    /// (`settleWordCount`), so the typed words land as the writer's whatever
+    /// the caller has already done to the cache.
     func excludeForeignWords(_ delta: Int) {
+        settleWordCount()
         guard delta != 0, sessionTracker.activeSession != nil else { return }
         lastKnownProjectWordCount += delta
         sessionTracker.shiftBaseline(by: delta)
@@ -1377,6 +1475,9 @@ public final class DocumentStore {
     func reReadAfterExternalChange(_ document: Document) async throws {
         let path = openDocuments.first { $0.value === document }?.key
         let before = document.displayText
+        // The cache must hold what was typed before the re-read, or the
+        // burst's words would read as arrived ones.
+        settleWordCount()
         let cachedAtEntry = projectStore?.cachedWordCount(for: document.docId)
         // Ruling H: a re-read can re-stamp Option A's arm; the drawn posture
         // follows it in the same turn.
@@ -1385,6 +1486,10 @@ public final class DocumentStore {
         }
         let after = document.displayText
         guard after != before, let path, let store = projectStore else { return }
+        // Keystrokes that landed while the re-read was suspended are a
+        // pending burst, not yet in the cache: counted now, so the cache's
+        // movement below is what they typed.
+        settleWordCount()
         let mode = WritingModeFactory.mode(for: path)
         let was = mode.wordCount(before)
         let now = mode.wordCount(after)
@@ -1400,6 +1505,8 @@ public final class DocumentStore {
     public func flushSessionOnQuit() async {
         idleTimerToken?.cancel()
         idleTimerToken = nil
+        // ⌘Q inside the settle delay: the burst's words are in the event.
+        settleWordCount()
         if let event = sessionTracker.endSessionImmediately(
             at: Date(),
             currentProjectWordCount: lastKnownProjectWordCount) {
@@ -1707,6 +1814,10 @@ public final class DocumentStore {
         // count as the writer's. Counting it here, and moving the session's
         // baseline by whatever that changed, leaves the first keystroke with
         // only what it typed.
+        //
+        // A burst pending for another piece is settled first, so its words
+        // are in the cache before this piece's `prior` is read.
+        settleWordCount()
         if let store = projectStore {
             let count = WritingModeFactory.mode(for: path).wordCount(document.displayText)
             let prior = store.cachedWordCount(for: document.docId) ?? 0

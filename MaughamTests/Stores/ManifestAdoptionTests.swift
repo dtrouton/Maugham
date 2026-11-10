@@ -658,6 +658,7 @@ final class ManifestAdoptionTests: XCTestCase {
         ds.recordEditorTextWrite(
             documentId: doc.docId, newText: typed,
             mode: WritingModeFactory.mode(for: path), store: store)
+        ds.settleWordCount()
 
         XCTAssertEqual(ds.liveSessionWordsNet, 1, "one word typed, one word in the session")
         XCTAssertEqual(store.cachedWordCount(for: added.id), 7, "and the piece shows its true count")

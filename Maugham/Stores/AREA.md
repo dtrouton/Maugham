@@ -178,11 +178,12 @@ Two things deliberately live elsewhere:
 - **The editor never binds a closed `Document`**: `EditorHost.needsReload` answers true for an `isClosed` one, so a piece returning at the same path reopens.
 
 ### Word counts and the session
-- **Another person's words never enter this writer's session.** Every re-read of an OPEN piece's op log goes through `DocumentStore.reReadAfterExternalChange`, which moves the baseline by the difference; `excludeForeignWords` moves the baseline and live total together (`SessionTracker.shiftBaseline`).
-- **`register(document:for:)` counts a piece as it opens**, so the first keystroke carries only what it typed; the load-time pass skips a piece that left the structure since it began.
-- **A piece that left drops out of `projectWordCount` at once; one that arrived is counted by `ProjectStore.recountFromOpLogs` off the presenter callback** (one trust table per pass off the main actor, a yield between pieces, open pieces skipped, a removed one never revived).
+- **A keystroke counts no words** (`DeferredWordCountTests`): `recordEditorTextWrite` keeps the burst and starts the session from the cached total; `settleWordCount()` counts it at the trailing edge or before any final read. A new final reader settles first (`TripwireGrepTests.countedLists`).
+- **Another person's words never enter this writer's session**: an open piece re-reads through `DocumentStore.reReadAfterExternalChange`; `excludeForeignWords` moves baseline and live total together.
+- **`register(document:for:)` counts a piece as it opens**; the load-time pass skips a piece that left the structure.
+- **A piece that left drops out of `projectWordCount` at once; one that arrived is counted by `ProjectStore.recountFromOpLogs`** (one trust table per pass off the main actor, open pieces skipped, a removed one never revived).
 - **`invalidateTrust` drops the `DerivedManuscriptCache`** (it keys on op-log mtimes, and a trust change moves no file) and recounts every closed piece.
-- **`ProjectStore.derivedCache` fronts `DerivedManuscript` for CLOSED docs only**, keyed on each op-log file's `(url, mtime, size)`; open docs read the live `Document`. It is `ProjectStore`'s (the weak `documentStore` is not wired during `load`) and `@ObservationIgnored`.
+- **`ProjectStore.derivedCache` fronts `DerivedManuscript` for CLOSED docs only**, keyed on op-log `(url, mtime, size)`; `@ObservationIgnored`.
 - **Project-open word counts are async** (`beginWordCountPopulation`, held as `wordCountPopulationTask`): `projectWordCount` is briefly partial after open. Perf guards assert derive counts, never wall-clock.
 
 ### Project sessions

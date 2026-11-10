@@ -321,6 +321,9 @@ public enum GetOutlineTool: MCPTool {
         // The projection, never `manifest.reviewPasses` raw — an absent or
         // emptied stored list IS the presets, and is never written back.
         let passes = store.manifest.effectiveReviewPasses
+        // `word_count` is read as final: a burst still in its settle delay
+        // is counted first.
+        store.documentStore?.settleWordCount()
         let nodes = Self.toNodes(store.manifest.structure, store: store, passes: passes)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

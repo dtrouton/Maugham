@@ -724,6 +724,9 @@ public final class ProjectStore {
                     // count — stays forgotten (F7 second fix round, m3).
                     guard TreeWalk.contains(id: item.id, in: self.manifest.structure),
                           let count = self.derivedWordCount(of: item) else { return true }
+                    // A pending burst is counted before `prior` is read, or
+                    // its words would be shifted out as arrived ones.
+                    self.documentStore?.settleWordCount()
                     let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     // Counting what is already on disk is not the writer
@@ -799,6 +802,7 @@ public final class ProjectStore {
                           self.documentStore?.document(forDocId: item.id) == nil,
                           let count = self.derivedWordCount(of: item, trust: trust)
                     else { return true }
+                    self.documentStore?.settleWordCount()
                     let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     self.documentStore?.excludeForeignWords(count - prior)

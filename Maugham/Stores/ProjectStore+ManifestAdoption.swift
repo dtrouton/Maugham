@@ -136,6 +136,9 @@ extension ProjectStore {
     private func refreshWordCounts(
         from old: [StructureItem], to new: [StructureItem]
     ) -> Int {
+        // A burst pending for a piece that left is counted BEFORE its count
+        // is forgotten — settled after, it would put the piece back.
+        documentStore?.settleWordCount()
         let before = projectWordCount
         let oldIds = Set(Self.collectDocuments(in: old).map(\.id))
         let newDocs = Self.collectDocuments(in: new)

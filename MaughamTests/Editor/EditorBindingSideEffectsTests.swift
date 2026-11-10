@@ -20,6 +20,7 @@ final class EditorBindingSideEffectsTests: XCTestCase {
             "empty doc → zero project word count baseline")
 
         await h.harness.typeString("Hello world.")
+        h.documentStore.settleWordCount()
 
         XCTAssertGreaterThan(h.projectStore.projectWordCount, 0,
             "typing must refresh ProjectStore.projectWordCount via " +
@@ -49,14 +50,16 @@ final class EditorBindingSideEffectsTests: XCTestCase {
         let h = try await EditorIntegrationHarness.withRealDocument()
 
         await h.harness.typeString("One.")
-        // First text write seeds the session baseline at the post-write
-        // word count, so liveSessionWordsNet is 0 immediately after the
-        // first write. Confirmed by DocumentStoreEditorTextWriteTests.
-        XCTAssertEqual(h.documentStore.liveSessionWordsNet, 0,
-            "first write establishes the session baseline; delta is 0")
+        // The session starts from the total as cached BEFORE the burst
+        // (typing loop plan 1), so the first burst's words are the
+        // session's: 1 once it settles.
+        h.documentStore.settleWordCount()
+        XCTAssertEqual(h.documentStore.liveSessionWordsNet, 1,
+            "the first burst's words count; the baseline is the total before it")
 
         await h.harness.typeString(" Two three four five.")
-        XCTAssertEqual(h.documentStore.liveSessionWordsNet, 4,
+        h.documentStore.settleWordCount()
+        XCTAssertEqual(h.documentStore.liveSessionWordsNet, 5,
             "subsequent typing must accumulate in liveSessionWordsNet")
 
         await h.documentStore.close()
@@ -67,6 +70,7 @@ final class EditorBindingSideEffectsTests: XCTestCase {
             mode: ScreenplayMode())
 
         await h.harness.typeString("Hello world.")
+        h.documentStore.settleWordCount()
 
         XCTAssertGreaterThan(h.projectStore.projectWordCount, 0,
             "screenplay mode must track word count too")

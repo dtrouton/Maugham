@@ -47,6 +47,7 @@ final class DocumentStoreEditorTextWriteTests: XCTestCase {
             newText: "Hello world.",
             mode: ProseMode(),
             store: ps)
+        ds.settleWordCount()
 
         XCTAssertEqual(ps.projectWordCount, 2,
             "projectWordCount should reflect the 2 words in newText")
@@ -79,6 +80,7 @@ final class DocumentStoreEditorTextWriteTests: XCTestCase {
             newText: "One two three.",
             mode: ProseMode(),
             store: ps)
+        ds.settleWordCount()
         let after3 = ps.projectWordCount
 
         ds.recordEditorTextWrite(
@@ -86,6 +88,7 @@ final class DocumentStoreEditorTextWriteTests: XCTestCase {
             newText: "One two three four five six.",
             mode: ProseMode(),
             store: ps)
+        ds.settleWordCount()
         let after6 = ps.projectWordCount
 
         XCTAssertEqual(after3, 3)
@@ -102,21 +105,22 @@ final class DocumentStoreEditorTextWriteTests: XCTestCase {
             newText: "One.",
             mode: ProseMode(),
             store: ps)
-        // First write seeds the session with startWordCount = 1, so the
-        // delta should be 0 (no growth yet — the session started with this
-        // word count). Confirmed by SessionTrackerTests: startWordCount is
-        // captured on the FIRST call only and stays fixed for subsequent
-        // calls until the session ends.
-        XCTAssertEqual(ds.liveSessionWordsNet, 0,
-            "first write establishes the session baseline; delta is 0")
+        ds.settleWordCount()
+        // The session starts from the total as cached BEFORE the first
+        // burst (typing loop plan 1), so that burst's one word is the
+        // session's. SessionTrackerTests: startWordCount is captured on the
+        // FIRST call only and stays fixed until the session ends.
+        XCTAssertEqual(ds.liveSessionWordsNet, 1,
+            "the first burst's words count; the baseline is the total before it")
 
         ds.recordEditorTextWrite(
             documentId: docId,
             newText: "One two three four five.",
             mode: ProseMode(),
             store: ps)
-        XCTAssertEqual(ds.liveSessionWordsNet, 4,
-            "second write added 4 words on top of the seeded baseline of 1")
+        ds.settleWordCount()
+        XCTAssertEqual(ds.liveSessionWordsNet, 5,
+            "the second burst added 4 words to the first burst's 1")
         await ds.close()
     }
 
@@ -131,6 +135,7 @@ final class DocumentStoreEditorTextWriteTests: XCTestCase {
             newText: "Hello world.",
             mode: ScreenplayMode(),
             store: ps)
+        ds.settleWordCount()
         XCTAssertEqual(ps.projectWordCount, 2)
         await ds.close()
     }
