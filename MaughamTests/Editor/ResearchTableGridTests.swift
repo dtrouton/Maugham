@@ -913,7 +913,7 @@ final class ResearchTableGridTests: XCTestCase {
     func test_theCentreMountsTheGridForAResearchTable() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
-        XCTAssertEqual(ProjectWindow.researchCentreRoute(id: item.id, in: projectStore.manifest.research),
+        XCTAssertEqual(ProjectWindow.researchCentreRoute(id: item.id, in: projectStore.manifest),
                        .table(item: item, path: try XCTUnwrap(item.path)))
         let window = TestWindow.mount(
             ResearchSubjectCentre(store: projectStore, documentStore: store, itemID: item.id,

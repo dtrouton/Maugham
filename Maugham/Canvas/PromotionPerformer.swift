@@ -975,11 +975,17 @@ struct PromotionPerformer {
 
     /// **A note's text goes through the note door** (note versions plan 2):
     /// what it replaces is kept as a version, and an editor open on it
-    /// reloads. Anything the door does not take (a palette card, P2) — and
-    /// any write with no `DocumentStore` — keeps `write(_:toPath:)`. The door
-    /// writing nothing throws, so the promotion says the note is unchanged.
+    /// reloads. A palette card the door does not take (P2) — and any write
+    /// with no `DocumentStore` — keeps `write(_:toPath:)`. The door writing
+    /// nothing throws, so the promotion says the note is unchanged. An item
+    /// that is neither a note nor a card inside a research root
+    /// (`ResearchTextRole` nil: a synced manifest's `.document` naming the
+    /// manuscript or a `.maugham/` file) is refused and never written.
     private func write(_ text: String, over item: ResearchItem, at path: String) async throws {
-        guard let ds = store.documentStore, ResearchNoteDoor.takes(item) else {
+        guard ResearchTextRole.of(item, structure: store.manifest.structure) != nil else {
+            throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
+        }
+        guard let ds = store.documentStore, ResearchNoteDoor.takes(item, structure: store.manifest.structure) else {
             try await write(text, toPath: path)
             return
         }

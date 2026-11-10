@@ -367,7 +367,135 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "![](./quay_assets/img.png)",
                        "the refs follow the folder that moved")
         XCTAssertTrue(versions(of: item).isEmpty)
-        XCTAssertTrue(heard.notices.contains { $0.contains("previous version couldn’t be kept") },
-                      "\(heard.notices)")
+        XCTAssertTrue(heard.notices.contains("“Quay”’s previous version couldn’t be kept; its picture links were updated anyway."),
+                      "the notice speaks of the refs, not of edits the writer never typed: \(heard.notices)")
+    }
+
+    // MARK: - A writer that reads the note waits for a save in flight (whole-branch C1)
+
+    /// An edit is pending; a flush (a note switch, ⌘S, any MCP tool's
+    /// `flushPendingSave`) takes it and is in its keep when a
+    /// read-modify-write writer reaches the note. The writer must read the
+    /// flushed text, not the bytes before it: its own save queues behind the
+    /// flush, so text made from the older bytes would be written over the
+    /// writer's edit.
+    func test_aWriterThatReadsTheNoteWaitsForAFlushAlreadyInFlight() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("v1 ![](./harbor_assets/img.png)", titled: "Harbor", in: projectStore)
+        queueEdit("v2, typed ![](./harbor_assets/img.png)", of: item, store)
+
+        var writer: Task<Void, Never>?
+        store.researchNoteDoor.keepWillRunForTesting = {
+            guard writer == nil else { return }
+            // Started, not awaited: the writer waits for this very save.
+            writer = Task { @MainActor in
+                await projectStore.rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: "harbor", newStem: "quay")
+            }
+            // Let it run as far as it goes while this save is mid-keep.
+            for _ in 0..<20 { await Task.yield() }
+        }
+        try await store.flushPendingSave()
+        let started = try XCTUnwrap(writer)
+        await started.value
+
+        XCTAssertEqual(try text(of: item, projectStore), "v2, typed ![](./quay_assets/img.png)",
+                       "the typed text and the writer's change both stand")
+    }
+
+    /// Two direct writers on one note: the second, reaching the note while
+    /// the first's save is mid-keep, reads the first's text.
+    func test_twoWritersOnOneNoteEachKeepTheOthersChange() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("![](./a_assets/1.png) ![](./b_assets/2.png)", titled: "Harbor", in: projectStore)
+
+        var second: Task<Void, Never>?
+        store.researchNoteDoor.keepWillRunForTesting = {
+            guard second == nil else { return }
+            second = Task { @MainActor in
+                await projectStore.rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: "b", newStem: "d")
+            }
+            for _ in 0..<20 { await Task.yield() }
+        }
+        await projectStore.rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: "a", newStem: "c")
+        let started = try XCTUnwrap(second)
+        await started.value
+
+        XCTAssertEqual(try text(of: item, projectStore), "![](./c_assets/1.png) ![](./d_assets/2.png)")
+    }
+
+    // MARK: - No writer's fallback writes outside a research root (whole-branch C2)
+
+    /// A `.document` Research item planted at `path` (as a synced manifest
+    /// can list one), its file holding `text`.
+    private func stray(_ path: String, _ text: String, id: String,
+                       in projectStore: ProjectStore) throws -> ResearchItem {
+        let url = file(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+        let item = ResearchItem(id: id, title: "Stray \(id)", type: .asset, kind: .document, path: path)
+        projectStore.manifest.research.append(item)
+        return item
+    }
+
+    private static let outsidePaths = ["manuscript/stray.md", ".maugham/stray.md", "research-old/stray.md"]
+
+    func test_theRenameSweepWritesNothingOutsideAResearchRoot() async throws {
+        let (_, projectStore) = try await openBook()
+        let strays = try Self.outsidePaths.enumerated().map {
+            try stray($1, "See [[Alpha]].", id: "res-sweep00\($0)", in: projectStore)
+        }
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+        for item in strays {
+            XCTAssertEqual(try text(of: item, projectStore), "See [[Alpha]].", item.path ?? "")
+            XCTAssertTrue(versions(of: item).isEmpty)
+        }
+    }
+
+    func test_anAssetRefRewriteWritesNothingOutsideAResearchRoot() async throws {
+        let (_, projectStore) = try await openBook()
+        for (n, path) in Self.outsidePaths.enumerated() {
+            let item = try stray(path, "![](./a_assets/1.png)", id: "res-asset00\(n)", in: projectStore)
+            await projectStore.rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: "a", newStem: "b")
+            XCTAssertEqual(try text(of: item, projectStore), "![](./a_assets/1.png)", path)
+            XCTAssertTrue(versions(of: item).isEmpty)
+        }
+    }
+
+    /// Replace All leaves a file outside a research root as it was and names
+    /// it (its existing "left alone" story); Replace (one match) throws.
+    /// A Research file with no manifest item keeps its raw write only inside
+    /// a research root.
+    func test_replaceWritesNothingOutsideAResearchRoot() async throws {
+        let (_, projectStore) = try await openBook()
+        let strays = try Self.outsidePaths.enumerated().map {
+            try stray($1, "The fog.", id: "res-repla00\($0)", in: projectStore)
+        }
+        let loose = try stray("research/loose.md", "The fog.", id: "res-loose000", in: projectStore)
+        let unlisted = try stray("manuscript/unlisted.md", "The fog.", id: "res-unlist00", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(Set(results.matches.map(\.documentPath)),
+                       Set(Self.outsidePaths + ["research/loose.md", "manuscript/unlisted.md"]),
+                       "premise: Search finds every planted file")
+        // Gone from the manifest since the search: no item names these paths.
+        projectStore.manifest.research.removeAll { $0.id == loose.id || $0.id == unlisted.id }
+
+        projectStore.currentSearch = results
+        for path in Self.outsidePaths {
+            let match = try XCTUnwrap(results.matches.first { $0.documentPath == path })
+            do {
+                try await projectStore.replaceMatch(match, with: "mist")
+                XCTFail("\(path): a replace outside a research root must refuse")
+            } catch {}
+        }
+        let outcome = try await projectStore.replaceAll(in: results, with: "mist")
+
+        for item in strays {
+            XCTAssertEqual(try String(contentsOf: file(try XCTUnwrap(item.path)), encoding: .utf8), "The fog.")
+            XCTAssertTrue(outcome.leftAlone.contains(item.title), "\(outcome.leftAlone)")
+        }
+        XCTAssertEqual(try String(contentsOf: file("manuscript/unlisted.md"), encoding: .utf8), "The fog.")
+        XCTAssertEqual(try String(contentsOf: file("research/loose.md"), encoding: .utf8), "The mist.",
+                       "an unlisted file inside research/ keeps its raw write")
     }
 }

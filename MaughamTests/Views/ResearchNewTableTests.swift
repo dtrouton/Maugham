@@ -118,7 +118,7 @@ final class ResearchNewTableTests: XCTestCase {
         XCTAssertEqual(subject.value, .research(item.id), "selected", file: file, line: line)
         XCTAssertEqual(state.pendingRenameId, item.id, "in rename, as a new note is", file: file, line: line)
         guard case .table(let routed, _) = ProjectWindow.researchCentreRoute(
-            id: item.id, in: store.manifest.research) else {
+            id: item.id, in: store.manifest) else {
             return XCTFail("the centre opens it in the grid", file: file, line: line)
         }
         XCTAssertEqual(routed.id, item.id, file: file, line: line)

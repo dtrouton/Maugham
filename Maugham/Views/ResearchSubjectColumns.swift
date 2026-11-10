@@ -209,11 +209,11 @@ extension ProjectWindow {
     /// the note-vs-preview decision inside the view, which is the split this
     /// function exists to close.
     static func researchCentreRoute(id: String?,
-                                    in research: [ResearchItem]) -> ResearchCentreRoute {
-        guard let id, let item = TreeWalk.find(id: id, in: research) else { return .missing }
+                                    in manifest: ProjectManifest) -> ResearchCentreRoute {
+        guard let id, let item = TreeWalk.find(id: id, in: manifest.research) else { return .missing }
         if item.type == .asset, item.kind == .table, let path = item.path { return .table(item: item, path: path) }
         // Note or card is asked of the one predicate the note door asks too.
-        switch ResearchTextRole.of(item) {
+        switch ResearchTextRole.of(item, structure: manifest.structure) {
         case .paletteCard: return .paletteCard(item.id)
         case .note(let path): return .note(item: item, path: path)
         case nil: return .preview(item)
@@ -252,7 +252,7 @@ struct ResearchSubjectCentre: View {
     var window: NSWindow? = nil
 
     var body: some View {
-        switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest.research) {
+        switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest) {
         case .paletteCard(let cardID):
             if readOnly {
                 PaletteCardReadHost(store: store, cardId: cardID)
@@ -373,7 +373,7 @@ struct ResearchSubjectInspector: View {
     @ViewBuilder
     private func preview(of item: ResearchItem) -> some View {
         switch ProjectWindow.researchCentreRoute(id: item.id,
-                                                 in: store.manifest.research) {
+                                                 in: store.manifest) {
         case .paletteCard(let cardID):
             PaletteCardEditor(store: store, cardId: cardID)
         case .table(let item, _):

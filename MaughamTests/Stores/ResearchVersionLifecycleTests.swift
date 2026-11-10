@@ -273,4 +273,35 @@ final class ResearchVersionLifecycleTests: XCTestCase {
         XCTAssertEqual(counts(table.id, in: collection).own, 0, "and left the Collection")
         XCTAssertEqual(counts(table.id, in: collection).other, 0)
     }
+
+    /// **A note's record travels with it** (note versions plan 2, whole-branch
+    /// Minor 3): promote-to-project carries `.maugham/research-notes/<id>.json`
+    /// beside the table sidecars and the versions, so a note the assistant
+    /// wrote is still labelled the assistant's in the promoted book.
+    func test_promotingAPieceCarriesItsNotesRecord() async throws {
+        let collection = try await ProjectFactory.createCollectionProject(named: "Anthology", in: root)
+        let projectStore = try await ProjectStore.load(from: collection)
+        let piece = try await projectStore.addLoosePiece(title: "Story A", format: .markdown)
+        let store = try await DocumentStore.open(url: collection)
+        projectStore.documentStore = store
+        store.projectStore = projectStore
+        defer { withExtendedLifetime(store) {} }
+        let doc = try await Document.load(
+            url: collection.appendingPathComponent(try XCTUnwrap(piece.path)),
+            actor: .author, session: "boot", presenter: nil)
+        doc.setFullText("Words.\n")
+        await doc.close()
+
+        let note = try await projectStore.createResearchNote(scope: .document(piece.id), title: "Harbour")
+        let saved = await store.saveResearchNote(itemId: note.id, text: "The assistant's.", by: .assistant)
+        XCTAssertEqual(saved, .saved(keptAVersion: false))
+        let record = try XCTUnwrap(try ResearchNoteRecord.read(forItem: note.id, in: collection))
+
+        let promotion = try await projectStore.promotePieceToProject(
+            pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
+
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: note.id, in: promotion.url), record,
+                       "the record travelled")
+        XCTAssertNil(try ResearchNoteRecord.read(forItem: note.id, in: collection), "and left the Collection")
+    }
 }

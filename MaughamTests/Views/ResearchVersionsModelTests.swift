@@ -93,10 +93,12 @@ final class ResearchVersionsModelTests: XCTestCase {
         func item(_ kind: ResearchItem.AssetKind, _ path: String?) -> ResearchItem {
             ResearchItem(id: "i", title: "T", type: .asset, kind: kind, path: path)
         }
-        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.document, "research/n.md")), .note)
-        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.table, "research/t.csv")), .table)
-        XCTAssertNil(ResearchVersionsModel.kind(for: item(.image, "research/p.png")))
-        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, nil)))
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.document, "research/n.md"), structure: []), .note)
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.table, "research/t.csv"), structure: []), .table)
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.image, "research/p.png"), structure: []))
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, nil), structure: []))
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, "manuscript/a.md"), structure: []),
+                     "a text file outside a research root is not a note: no Versions section")
     }
 
     /// A refusal names what it refuses: a note's section says "note", a

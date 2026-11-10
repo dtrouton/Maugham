@@ -951,12 +951,11 @@ public final class DocumentStore {
         for closing in Array(researchTableClosings.values) { await closing.value }
         if let fileSaveScheduler { await fileSaveScheduler.flush() }
         // Every note's pending edit, saved now (a flush saves even when the
-        // version it replaces cannot be kept: `ResearchNoteDoor.whenTheKeepFails`).
-        await researchNoteDoor.flushPending(in: self)
-        // A note save in flight (the debounce's own run, or a direct
-        // `saveResearchNote`) lands before the flush returns: ⌘S, the typed
-        // mover and the close all wait for it.
-        await researchNoteDoor.settle()
+        // version it replaces cannot be kept: `ResearchNoteDoor.whenTheKeepFails`),
+        // and every note save in flight (the debounce's own run, or a direct
+        // `saveResearchNote`) landed before the flush returns: ⌘S, the typed
+        // mover and the close all wait for them.
+        await researchNoteDoor.settle(in: self)
     }
 
     /// **Research item `itemId`'s table, for a grid** — the one this store

@@ -333,9 +333,6 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
     }
 
-    /// A flush is the last moment the editor's text exists (a note switch,
-    /// ⌘S, the mover, the close): it saves even when the version cannot be
-    /// kept, and says so — the spec's anti-goal is losing text to a failed keep.
     /// Fix round 1: a flush takes each note out of `pending` only as its own
     /// save begins. A door write to a note still waiting its turn flushes
     /// that note's edit first (kept as the version it replaces) — never the
@@ -366,6 +363,9 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try text(of: first, projectStore), "First, typed.")
     }
 
+    /// A flush is the last moment the editor's text exists (a note switch,
+    /// ⌘S, the mover, the close): it saves even when the version cannot be
+    /// kept, and says so — the spec's anti-goal is losing text to a failed keep.
     func test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo() async throws {
         let (store, projectStore) = try await openBook()
         let heard = listen()
@@ -444,6 +444,8 @@ final class ResearchNoteDoorTests: XCTestCase {
 
         clock.advance(seconds: 10)
         try await typed("The writer again.", into: item, store)
+        XCTAssertEqual(try text(of: item, projectStore), "The writer again.")
+        XCTAssertEqual(versions(of: item).count, 3, "the assistant's save ended the writer's run")
         let assistantsVersion = try XCTUnwrap(versions(of: item).first { (try? versionText($0)) == "The assistant's." })
         XCTAssertEqual(assistantsVersion.writtenBy, .assistant)
         XCTAssertEqual(assistantsVersion.replacedBy, .writer)
@@ -533,5 +535,96 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(saved, .saved(keptAVersion: true))
         let onDiskWhenFlushed = try await XCTUnwrap(flushing).value
         XCTAssertEqual(onDiskWhenFlushed, "Landed.", "the flush returned only once the save had landed")
+    }
+
+    // MARK: - A file that will not take the text keeps the editor's (whole-branch Minor 2)
+
+    /// A timer save whose WRITE fails (the note's folder will not take a
+    /// file) leaves the edit pending, as a stopped keep does: the flush still
+    /// has the text once the folder takes it.
+    func test_aTimerSaveWhoseWriteFailsLeavesTheEditPending() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder, 0o555)
+
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+        XCTAssertEqual(try text(of: item, projectStore), "Before.", "premise: the write failed")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        try await store.flushPendingSave()
+        XCTAssertEqual(try text(of: item, projectStore), "Typed.", "the flush saved what the timer could not")
+    }
+
+    /// RULING-7 stays: a flush never saves over a file that will not read.
+    /// The editor's text is the last copy there is, so it is kept as a
+    /// conflict backup, and the notice says where.
+    func test_aFlushOverAnUnreadableFileKeepsTheEditInAConflictBackup_andSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Not readable.", in: projectStore)
+        let noteURL = file(try XCTUnwrap(item.path))
+        try lock(noteURL, 0o000)
+
+        store.scheduleNoteSave(itemId: item.id, text: "The only copy of this.")
+        try await store.flushPendingSave()
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: noteURL.path)
+        XCTAssertEqual(try text(of: item, projectStore), "Not readable.", "nothing written over it")
+        let conflicts = file(".maugham/conflicts")
+        let backups = (try? FileManager.default.contentsOfDirectory(atPath: conflicts.path)) ?? []
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertTrue(backup.contains(item.id), backup)
+        XCTAssertEqual(try String(contentsOf: conflicts.appendingPathComponent(backup), encoding: .utf8),
+                       "The only copy of this.")
+        XCTAssertTrue(heard.notices.contains { $0.contains("couldn’t read “Notes”") && $0.contains(backup) },
+                      "\(heard.notices)")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    // MARK: - Only a note inside a research root (whole-branch C2)
+
+    /// A synced manifest (stale, corrupt, or another Mac's) can list a
+    /// `.document` Research item whose path is the manuscript or Maugham's
+    /// own files. The door writes none of them, keeps no version, and the
+    /// path → note lookup does not find them. A near miss (`research-old/`)
+    /// and a dot component inside `research/` are refused too.
+    func test_theDoorRefusesAPathOutsideAResearchRoot() async throws {
+        let (store, projectStore) = try await openBook()
+        let paths = ["manuscript/a.md", ".maugham/ops/stray.jsonl", "research-old/x.md",
+                     "research/.hidden.md", "research/../manuscript/a.md"]
+        var planted: [ResearchItem] = []
+        for (n, path) in paths.enumerated() {
+            let url = file(path)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data("Not a note \(n).".utf8).write(to: url)
+            }
+            let item = ResearchItem(id: "res-stray00\(n)", title: "Stray \(n)", type: .asset,
+                                    kind: .document, path: path)
+            projectStore.manifest.research.append(item)
+            planted.append(item)
+        }
+        for item in planted {
+            let path = try XCTUnwrap(item.path)
+            let before = try Data(contentsOf: file(path))
+            for writer in [ResearchWriter.writer, .assistant] {
+                let saved = await store.saveResearchNote(itemId: item.id, text: "Over it.", by: writer)
+                XCTAssertEqual(saved, .notSaved, path)
+            }
+            XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path) is untouched")
+            XCTAssertTrue(versions(of: item).isEmpty, "\(path): no version kept")
+            XCTAssertNil(store.researchNoteItem(atPath: path), path)
+            XCTAssertNil(ResearchTextRole.of(item, structure: projectStore.manifest.structure), path)
+        }
     }
 }

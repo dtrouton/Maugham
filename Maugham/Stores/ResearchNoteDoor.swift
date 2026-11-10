@@ -7,17 +7,23 @@ private let researchNoteLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.maugham.Maugham", category: "ResearchNoteDoor")
 
 /// **What a Research text document is** — the one predicate, asked by the
-/// centre column's router (`ProjectWindow.researchCentreRoute`) and by the
-/// note door. A text document (`type == .asset`, `kind == .document`, a
-/// path) is a palette card when its path is inside the palette folder, and a
-/// note otherwise. Anything else (a table, a picture, a PDF, audio, a link, a
-/// group, a pathless item) is neither: nil.
+/// centre column's router (`ProjectWindow.researchCentreRoute`), the
+/// Versions section, the note door, `researchNoteItem(atPath:)` and
+/// `update_note`. A text document (`type == .asset`, `kind == .document`, a
+/// path) inside a research root (`isInsideAResearchRoot`) is a palette card
+/// when its path is inside the palette folder, and a note otherwise.
+/// Anything else (a table, a picture, a PDF, audio, a link, a group, a
+/// pathless item, and a text item whose path is anywhere else) is neither:
+/// nil, and nothing writes it as Research text. Pure: views call it.
 enum ResearchTextRole: Equatable {
     case note(path: String)
     case paletteCard
 
-    static func of(_ item: ResearchItem) -> ResearchTextRole? {
-        guard item.type == .asset, item.kind == .document, let path = item.path else { return nil }
+    /// `structure` says which `pieces/…` folders are loose pieces, whose
+    /// `research/` folders are research roots.
+    static func of(_ item: ResearchItem, structure: [StructureItem]) -> ResearchTextRole? {
+        guard item.type == .asset, item.kind == .document, let path = item.path,
+              isInsideAResearchRoot(path, structure: structure) else { return nil }
         // **A path prefix ending in the SEPARATOR**, not a name test and not a
         // bare `hasPrefix`: a research group called "Palette research" gives its
         // notes paths that start with the palette folder's characters and are
@@ -26,6 +32,23 @@ enum ResearchTextRole: Equatable {
         // (`test_aNoteBesideThePaletteFolderIsStillANote`).
         if path.hasPrefix(ProjectStore.paletteFolderPath + "/") { return .paletteCard }
         return .note(path: path)
+    }
+
+    /// **Whether `path` sits inside a research root** — the shared
+    /// `research/` folder, or a loose piece's own research folder (asked of
+    /// `ProjectStore.researchScopePieceId(ofPath:structure:)`, that root's one
+    /// spelling) — with no component that is empty or starts with "." (so
+    /// nothing under `.maugham/` or `.trash/`, no dotfile, no `..`). Compared
+    /// by component, so `research-old/x.md` is not inside `research/`; case
+    /// as written, as every research path Maugham mints is. The manifest is
+    /// synced, untrusted input (tripwire 58's reason): a `.document` item
+    /// naming the manuscript or the op log is never Research text.
+    static func isInsideAResearchRoot(_ path: String, structure: [StructureItem]) -> Bool {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.count >= 2,
+              components.allSatisfy({ !$0.isEmpty && !$0.hasPrefix(".") }) else { return false }
+        if components[0] == "research" { return true }
+        return ProjectStore.researchScopePieceId(ofPath: path, structure: structure) != nil
     }
 }
 
@@ -99,14 +122,15 @@ final class ResearchNoteDoor {
     enum Outcome: Equatable {
         case saved(keptAVersion: Bool)
         case notSaved
-        /// Stopped because the version could not be kept: the editor's text
-        /// stays pending.
-        case stoppedAtTheKeep
+        /// A timer's save that did not land and whose text must not be lost:
+        /// the version could not be kept, the file would not read, or the
+        /// write failed. The editor's text stays pending for the next attempt.
+        case stoppedTextStaysPending
 
         var asSave: ResearchNoteSave {
             switch self {
             case .saved(let kept): return .saved(keptAVersion: kept)
-            case .notSaved, .stoppedAtTheKeep: return .notSaved
+            case .notSaved, .stoppedTextStaysPending: return .notSaved
             }
         }
     }
@@ -190,14 +214,15 @@ final class ResearchNoteDoor {
     func hasPending(_ itemId: String) -> Bool { pending[itemId] != nil }
 
     /// The debounce elapsed. The edit stays pending until it lands: a save
-    /// stopped at the keep leaves it for the next attempt (a keystroke's
-    /// timer, or a flush), and a newer keystroke's edit replaces it.
+    /// stopped at the keep, at a file that will not read, or at a failed
+    /// write leaves it for the next attempt (a keystroke's timer, or a
+    /// flush), and a newer keystroke's edit replaces it.
     private func fire(_ itemId: String, generation: Int, in store: DocumentStore) async {
         guard let entry = pending[itemId], entry.generation == generation else { return }
         pending[itemId]?.timer = nil
         let outcome = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
                                     source: .editorTimer, in: store)
-        if outcome != .stoppedAtTheKeep, pending[itemId]?.generation == generation {
+        if outcome != .stoppedTextStaysPending, pending[itemId]?.generation == generation {
             pending[itemId] = nil
         }
         timerSaveFinishedForTesting?(itemId)
@@ -255,10 +280,25 @@ final class ResearchNoteDoor {
         if inFlight[itemId]?.token == token { inFlight[itemId] = nil }
     }
 
-    /// Returns once no save is in flight (the store's flush, and so its close).
-    func settle() async {
-        while let next = inFlight.values.first {
-            _ = await next.task.value
+    /// **Returns once `itemId` (nil: every note) has no edit pending and no
+    /// save in flight** — the one loop for the store's flush (and so its
+    /// close) and for a writer about to read one note's file. Waiting only
+    /// for pending edits is not enough: a flush takes an edit out of
+    /// `pending` as its save begins, so while that save is in its keep a
+    /// writer that saw nothing pending would read the bytes before it, and
+    /// its own save, queued behind the flush, would write them back over the
+    /// edit (`test_aWriterThatReadsTheNoteWaitsForAFlushAlreadyInFlight`).
+    /// Never called from inside a door save (its task would wait on itself).
+    func settle(_ itemId: String? = nil, in store: DocumentStore) async {
+        while true {
+            if itemId.map({ pending[$0] != nil }) ?? !pending.isEmpty {
+                await flushPending(in: store)
+                continue
+            }
+            let saving: Task<Outcome, Never>?
+            if let itemId { saving = inFlight[itemId]?.task } else { saving = inFlight.values.first?.task }
+            guard let saving else { return }
+            _ = await saving.value
         }
     }
 
@@ -282,11 +322,10 @@ final class ResearchNoteDoor {
         case .missing: onDisk = nil
         case .bytes(let data): onDisk = data
         case .unreadable:
-            // A file that is there but will not read cannot be kept: nothing is written over it.
-            MaughamEvent.postNotice(
-                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer, restoring: restoring)) saved over it.",
-                projectURL: projectURL)
-            return .notSaved
+            // A file that is there but will not read cannot be kept: nothing
+            // is written over it (RULING-7), whatever the source.
+            return refusedOverAnUnreadableFile(itemId, item, fileURL, text: text, by: writer,
+                                               restoring: restoring, source: source, projectURL: projectURL)
         }
         let newBytes = Data(text.utf8)
         let at = now()
@@ -313,18 +352,21 @@ final class ResearchNoteDoor {
                         "\(item.title, privacy: .public)'s previous version was not kept: \(failure.localizedDescription, privacy: .public)")
                     switch Self.whenTheKeepFails(source) {
                     case .stopTheSave where source == .editorTimer:
-                        if !(notes[itemId]?.timerStopSaid ?? false) {
-                            notes[itemId, default: NoteState()].timerStopSaid = true
-                            MaughamEvent.postNotice(
-                                "“\(item.title)”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note.",
-                                projectURL: projectURL)
-                        }
-                        return .stoppedAtTheKeep
+                        sayOnceForTheTimer(itemId,
+                            "“\(item.title)”’s previous version couldn’t be kept, so your edits aren’t saved yet. They stay in the editor and are saved when you leave the note.",
+                            projectURL: projectURL)
+                        return .stoppedTextStaysPending
                     case .stopTheSave:
                         MaughamEvent.postNotice(
                             "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
                             projectURL: projectURL)
                         return .notSaved
+                    case .saveAnyway where source == .direct(mustLand: true):
+                        // Not the writer's edits: the text a move's refs
+                        // were rewritten in (the only write that must land).
+                        MaughamEvent.postNotice(
+                            "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway.",
+                            projectURL: projectURL)
                     case .saveAnyway:
                         MaughamEvent.postNotice(
                             "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway.",
@@ -353,9 +395,17 @@ final class ResearchNoteDoor {
         } catch {
             researchNoteLog.error(
                 "\(pathNow, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
-            MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
-                                    projectURL: projectURL)
-            return .notSaved
+            // A timer's text stays pending (the next keystroke's timer, or
+            // the flush, tries again); anyone else's write is not made.
+            guard source == .editorTimer else {
+                MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
+                                        projectURL: projectURL)
+                return .notSaved
+            }
+            sayOnceForTheTimer(itemId,
+                "Couldn’t save “\(item.title)” yet: \(error.localizedDescription) Your edits stay in the editor and are saved when you leave the note.",
+                projectURL: projectURL)
+            return .stoppedTextStaysPending
         }
         let writtenHash = ContentHash.of(newBytes)
         notes[itemId]?.knownHash = writtenHash
@@ -371,6 +421,53 @@ final class ResearchNoteDoor {
         }
         wroteBehindTheEditor(itemId, newBytes, source: source)
         return .saved(keptAVersion: kept)
+    }
+
+    /// **A file that is there but will not read is never saved over**
+    /// (RULING-7; Review Focus 4). A timer's text stays pending, said once.
+    /// A flush is the last moment the editor's text exists, so it is kept as
+    /// a conflict backup under `.maugham/conflicts/` (the helper the table
+    /// door keeps an outside version with) and the notice names it; anyone
+    /// else's write is refused and said.
+    private func refusedOverAnUnreadableFile(_ itemId: String, _ item: ResearchItem, _ fileURL: URL,
+                                             text: String, by writer: ResearchWriter, restoring: Bool,
+                                             source: SaveSource, projectURL: URL) -> Outcome {
+        let unread = "Maugham couldn’t read “\(item.title)” to keep its previous version"
+        switch source {
+        case .editorTimer:
+            sayOnceForTheTimer(itemId,
+                "\(unread), so your edits aren’t saved over it. They stay in the editor, and when you leave the note they are kept as a conflict backup.",
+                projectURL: projectURL)
+            return .stoppedTextStaysPending
+        case .editorFlush:
+            do {
+                let backup = try Document.writeConflictBackup(
+                    forFileAt: fileURL, docId: itemId, text: text, kind: "unsaved")
+                MaughamEvent.postNotice(
+                    "\(unread), so your edits weren’t saved over it. They were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
+                    projectURL: projectURL)
+            } catch {
+                researchNoteLog.error(
+                    "\(itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
+                MaughamEvent.postNotice(
+                    "\(unread), so your edits weren’t saved over it, and they couldn’t be kept anywhere else.",
+                    projectURL: projectURL)
+            }
+            return .notSaved
+        case .direct:
+            MaughamEvent.postNotice(
+                "\(unread), so \(Self.whose(writer, restoring: restoring)) saved over it.",
+                projectURL: projectURL)
+            return .notSaved
+        }
+    }
+
+    /// A timer-stop notice, said once — not once per typing pause — until a
+    /// save of the note lands or the note is read again.
+    private func sayOnceForTheTimer(_ itemId: String, _ sentence: String, projectURL: URL) {
+        guard !(notes[itemId]?.timerStopSaid ?? false) else { return }
+        notes[itemId, default: NoteState()].timerStopSaid = true
+        MaughamEvent.postNotice(sentence, projectURL: projectURL)
     }
 
     /// A save keeps what it replaces whatever the run says when it is anyone
@@ -419,7 +516,7 @@ final class ResearchNoteDoor {
                                     projectURL: store.projectURL)
             return nil
         }
-        guard Self.takes(item) else {
+        guard Self.takes(item, structure: store.projectStore?.manifest.structure ?? []) else {
             researchNoteLog.error("\(itemId, privacy: .public) is not a Research note; the note door wrote nothing")
             return nil
         }
@@ -437,8 +534,8 @@ final class ResearchNoteDoor {
     /// **Whether a write of `item`'s text goes through the door** — the one
     /// question every writer of existing Research text asks (`ResearchTextRole`
     /// says what the item is; P2 says whether a card is the door's).
-    nonisolated static func takes(_ item: ResearchItem) -> Bool {
-        switch ResearchTextRole.of(item) {
+    nonisolated static func takes(_ item: ResearchItem, structure: [StructureItem]) -> Bool {
+        switch ResearchTextRole.of(item, structure: structure) {
         case .note: return true
         case .paletteCard: return paletteCardsKeepVersions
         case nil: return false
@@ -594,16 +691,15 @@ extension DocumentStore {
         researchNoteDoor.hasPending(itemId)
     }
 
-    /// **Returns once no edit of note `itemId` is waiting.** A writer that
-    /// reads a note's file to write a changed copy back (a rename's link
-    /// sweep, Replace, a promotion's appended link) reads after this, with no
-    /// `await` before its `saveResearchNote`: otherwise an edit typed during
-    /// its earlier awaits is flushed by the door and then written over by
-    /// text made from the bytes before it.
+    /// **Returns once note `itemId` has no edit waiting and no save in
+    /// flight** (`ResearchNoteDoor.settle`). A writer that reads a note's
+    /// file to write a changed copy back (a rename's link sweep, Replace, a
+    /// promotion's appended link, a move's asset refs) reads after this, with
+    /// no `await` before its `saveResearchNote`: otherwise an edit typed
+    /// during its earlier awaits, or one another caller's flush is saving,
+    /// is written over by text made from the bytes before it.
     func settleResearchNoteEdits(itemId: String) async {
-        while researchNoteDoor.hasPending(itemId) {
-            await researchNoteDoor.flushPending(in: self)
-        }
+        await researchNoteDoor.settle(itemId, in: self)
     }
 
     /// The note `itemId`'s `bytes` were read (the editor's load): a later save
@@ -618,7 +714,7 @@ extension DocumentStore {
     func researchNoteItem(atPath path: String) -> ResearchItem? {
         guard let projectStore else { return nil }
         return TreeWalk.first(in: projectStore.manifest.research) { item in
-            item.path == path && ResearchNoteDoor.takes(item)
+            item.path == path && ResearchNoteDoor.takes(item, structure: projectStore.manifest.structure)
         }
     }
 }

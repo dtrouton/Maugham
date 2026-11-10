@@ -303,17 +303,24 @@ extension ProjectStore {
     /// the manifest names where it now is. A note goes through the note door
     /// (what it held is kept as a version; an editor open on it reloads); a
     /// palette card (P2) keeps the coordinated write, and no `DocumentStore`
-    /// the raw one. It lands even when the earlier version cannot be kept
+    /// the raw one. Anything else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
     /// (`mustLand`); a write that fails is logged and the move stands.
     func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
-              let path = item.path,
-              let noteURL = try? resolvedProjectPathToChange(path) else { return }
+              let path = item.path else { return }
+        // Only a note or a palette card inside a research root is rewritten:
+        // a synced manifest's `.document` naming any other file is left alone.
+        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+            projectStoreLog.error(
+                "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
+            return
+        }
+        guard let noteURL = try? resolvedProjectPathToChange(path) else { return }
         await documentStore?.settleResearchNoteEdits(itemId: itemId)
         await Self.rewriteAssetRefsBestEffort(
             oldStem: oldStem, newStem: newStem, noteURL: noteURL,
             write: { [self] text, url in
-                if let ds = documentStore, ResearchNoteDoor.takes(item) {
+                if let ds = documentStore, ResearchNoteDoor.takes(item, structure: manifest.structure) {
                     // It must land: the move has happened, so refs left
                     // stale point at a folder that is gone (the door says
                     // when the earlier version could not be kept).

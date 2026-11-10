@@ -137,11 +137,16 @@ extension ProjectStore {
                 replacement: replacement, occurrenceIndices: [ordinal])
 
         case .research:
+            // A path that escapes the project is refused as unsafe first (tripwire 58).
+            let url = try resolvedProjectPathToChange(match.documentPath)
+            guard let target = researchReplaceTarget(at: match.documentPath) else {
+                throw ProjectStoreError.fileSystemError(
+                    "“\(match.documentTitle)” is not a Research note Maugham can change.")
+            }
             // The editor's queued edits land first, so the bytes read below
             // are the newest and the write cannot be undone by a later save.
             try? await documentStore?.flushPendingSave()
-            await settleResearchEdits(at: match.documentPath)
-            let url = try resolvedProjectPathToChange(match.documentPath)
+            await settleResearchEdits(target)
             let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
             let ns = original as NSString
             guard match.charRangeInDocument.location
@@ -151,18 +156,43 @@ extension ProjectStore {
             }
             let updated = ns.replacingCharacters(
                 in: match.charRangeInDocument, with: replacement) as String
-            try await writeReplacedResearchText(updated, path: match.documentPath, url: url)
+            try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
         }
+    }
+
+    /// How Replace may write the Research file at `path`.
+    private enum ResearchReplaceTarget {
+        /// A note the door takes: written through it.
+        case note(ResearchItem)
+        /// A palette card (P2), a note with no `DocumentStore`, or a file
+        /// inside a research root with no manifest item: the raw atomic
+        /// write, keeping nothing.
+        case raw
+    }
+
+    /// **What Replace may write at `path`, nil — nothing** (whole-branch C2):
+    /// a manifest item there is written only when `ResearchTextRole` calls it
+    /// a note or a palette card; a file no item names, only when the path is
+    /// inside a research root (`ResearchTextRole.isInsideAResearchRoot`). A
+    /// synced manifest's `.document` naming the manuscript or a `.maugham/`
+    /// file is never written.
+    private func researchReplaceTarget(at path: String) -> ResearchReplaceTarget? {
+        guard let item = TreeWalk.first(in: manifest.research, where: { $0.path == path }) else {
+            return ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure) ? .raw : nil
+        }
+        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else { return nil }
+        if documentStore != nil, ResearchNoteDoor.takes(item, structure: manifest.structure) { return .note(item) }
+        return .raw
     }
 
     /// A research file's text after a replace. **A note goes through the note
     /// door** — what it held is kept as a version, and an editor open on it
     /// reloads — and the door writing nothing throws, as any other failure of
-    /// this write does (`replaceAll` stops there, as it always has). A file
-    /// the door does not take (a palette card, P2), or any file with no
-    /// `DocumentStore`, keeps the raw atomic write and keeps nothing.
-    private func writeReplacedResearchText(_ text: String, path: String, url: URL) async throws {
-        guard let ds = documentStore, let note = ds.researchNoteItem(atPath: path) else {
+    /// this write does (`replaceAll` stops there, as it always has). Anything
+    /// else `researchReplaceTarget` allows keeps the raw atomic write.
+    private func writeReplacedResearchText(_ text: String, to target: ResearchReplaceTarget,
+                                           path: String, url: URL) async throws {
+        guard case .note(let note) = target, let ds = documentStore else {
             try text.write(to: url, atomically: true, encoding: .utf8)
             return
         }
@@ -171,11 +201,11 @@ extension ProjectStore {
         }
     }
 
-    /// An edit of the note at `path` typed since the replace's flush is saved
-    /// before its file is read (`settleResearchNoteEdits`). Nothing for a
-    /// file that is not a note.
-    private func settleResearchEdits(at path: String) async {
-        guard let ds = documentStore, let note = ds.researchNoteItem(atPath: path) else { return }
+    /// An edit of the note typed since the replace's flush is saved before
+    /// its file is read (`settleResearchNoteEdits`). Nothing for a file that
+    /// is not a note.
+    private func settleResearchEdits(_ target: ResearchReplaceTarget) async {
+        guard case .note(let note) = target, let ds = documentStore else { return }
         await ds.settleResearchNoteEdits(itemId: note.id)
     }
 
@@ -215,8 +245,14 @@ extension ProjectStore {
                 }
 
             case .research:
-                await settleResearchEdits(at: path)
+                // A path that escapes the project is refused as unsafe first (tripwire 58).
                 let url = try resolvedProjectPathToChange(path)
+                // Not Research text Maugham may change: left as it was, and named.
+                guard let target = researchReplaceTarget(at: path) else {
+                    leftAlone.append(matches[0].documentTitle)
+                    continue
+                }
+                await settleResearchEdits(target)
                 let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
                 var ns = original as NSString
                 // Right-to-left so earlier offsets aren't shifted by later edits.
@@ -232,7 +268,7 @@ extension ProjectStore {
                         in: match.charRangeInDocument,
                         with: replacement) as NSString
                 }
-                try await writeReplacedResearchText(ns as String, path: path, url: url)
+                try await writeReplacedResearchText(ns as String, to: target, path: path, url: url)
             }
         }
         return ReplaceAllOutcome(leftAlone: leftAlone)

@@ -139,7 +139,7 @@ Two things deliberately live elsewhere:
 - **Test-only `wait*` helpers do not go in production code**: mark them `#if DEBUG` or move them to a test helper. `waitForStructuralVerbs` is production (`readManifest` uses it).
 - **Apply an id prefix once, in the generator** (ADR 0008): `scene-scene-…` or `doc-doc-…` is a bug.
 - **Use `DebounceScheduler` for autosave-like behaviour**; for a different cadence add a configured instance, never ad-hoc debouncing.
-- **An existing Research note's text is written through `saveResearchNote`** (`researchNoteDoorCallers`): its path asked at the save, one note's saves queued; `flushPendingSave` waits for them. A writer reading the file first calls `settleResearchNoteEdits`; asset refs are rewritten after the manifest save. `ResearchNoteDoor.takes` leaves palette cards their write.
+- **An existing Research note's text is written through `saveResearchNote`** (`researchNoteDoorCallers`): path asked per save, one note's saves queued; `flushPendingSave` waits. A writer reading the file first calls `settleResearchNoteEdits`; asset refs follow the manifest save. Palette cards keep theirs; nothing outside a research root (`ResearchTextRole`) is written.
 - **Only the owner writes a `.maugham/` path** (the table above). The OpLog area writing `.maugham/ops/` and the checkpoints file is the ownership exception.
 - **A new top-level `.maugham/` directory needs a reason**, and is a lowercase noun, plural for a collection of records.
 - **Read and write cloud-synced manuscript and project files through `NSFileCoordinator`** (`coordinatedMove`/`coordinatedWrite`): iCloud otherwise races you.

@@ -54,11 +54,12 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
     }
 }
 
-/// **Every save of a Research table keeps the previous version** (spec
-/// §10.1, report plan 9d Task 1): the bytes on disk before the save, exactly
-/// (BOM and encoding kept), and the sidecar that described them, at
-/// `.maugham/research-versions/<itemId>/<stamp>-<deviceSlug>[-n].csv` plus
-/// `.json`.
+/// **Every save of a Research table or note keeps the previous version**
+/// (spec §10.1, report plan 9d Task 1; note versions plan 2): the bytes on
+/// disk before the save, exactly (BOM and encoding kept), and for a table
+/// the sidecar that described them, at
+/// `.maugham/research-versions/<itemId>/<stamp>-<deviceSlug>[-n].csv` (a
+/// note's: `.note`) plus `.json`.
 ///
 /// - **Write-once, per device** (tripwire 17): the writing device's slug is in
 ///   every name (tripwire 24 — a `DeviceSlug`, never a hand-built string), so
@@ -76,8 +77,8 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
 /// - **Versions follow the item id**: the caller keeps them while the item is
 ///   in the Trash (it counts as live for `sweepOrphans`).
 ///
-/// Shared by both apps (tripwire 19); the Mac's `ResearchTableHost` is the one
-/// writer.
+/// Shared by both apps (tripwire 19); the Mac's `ResearchTableHost` (a table)
+/// and `ResearchNoteDoor` (a note) are its writers.
 public struct ResearchVersionStore: Sendable {
 
     public let projectURL: URL
@@ -272,10 +273,10 @@ public struct ResearchVersionStore: Sendable {
     // MARK: - Keeping
 
     /// **Keeps `priorBytes`** — what was on disk before a save (a table's CSV
-    /// or, with `payload: .note`, a note's text) — with
-    /// `priorSidecar`, the sidecar that described them, `writtenBy`, whose
-    /// bytes they were, and `replacedBy`, whose save replaces them, as one new version of `itemId` named for `device` and
-    /// `at`. Written once: the `.json` then the payload, each staged and moved
+    /// or, with `payload: .note`, a note's text) — with `priorSidecar`, the
+    /// sidecar that described them, `writtenBy`, whose bytes they were, and
+    /// `replacedBy`, whose save replaces them, as one new version of `itemId`
+    /// named for `device` and `at`. Written once: the `.json` then the payload, each staged and moved
     /// into place, under the first free `-n`. Throws for an id that cannot
     /// name a file (`SafeRelativePath.PathError.notADocId`) before anything is
     /// written.

@@ -62,9 +62,9 @@ enum ResearchVersionsModel {
 
     /// What the Versions section lists for `item`: a table's or a note's
     /// kept versions; nil for anything else (no section).
-    static func kind(for item: ResearchItem) -> ResearchVersionPayload? {
+    static func kind(for item: ResearchItem, structure: [StructureItem]) -> ResearchVersionPayload? {
         if item.kind == .table, item.type == .asset { return .table }
-        if ResearchNoteDoor.takes(item) { return .note }
+        if ResearchNoteDoor.takes(item, structure: structure) { return .note }
         return nil
     }
 

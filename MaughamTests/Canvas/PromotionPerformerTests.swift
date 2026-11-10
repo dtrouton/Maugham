@@ -1718,4 +1718,34 @@ final class PromotionPerformerTests: XCTestCase {
         } catch PromotionFailure.linkAlreadyPresent {}
         _ = root
     }
+
+    /// **A line's link is never written outside a research root** (note
+    /// versions plan 2, whole-branch C2): a synced manifest can list a
+    /// `.document` Research item whose path is the manuscript or a `.maugham/`
+    /// file, and `write(_:over:at:)`'s fallback used to raw-write anything
+    /// the note door did not take. It now refuses, and the file is as it was.
+    func test_aLinkIntoATextItemOutsideAResearchRootIsRefused_andNothingIsWritten() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        for (n, path) in ["manuscript/stray.md", ".maugham/stray.md"].enumerated() {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a note.\n".utf8).write(to: url)
+            let stray = ResearchItem(id: "res-prom000\(n)", title: "Stray", type: .asset,
+                                     kind: .document, path: path)
+            store.manifest.research.append(stray)
+            let linkPlan = PromotionPlan(
+                source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
+                destinationDescription: "the note “Stray”", discards: [], offeredLinks: [],
+                wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: stray.id,
+                                             targetTitle: "X", linkText: "[[X]]"),
+                mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: false, pictures: [])
+            do {
+                _ = try await PromotionPerformer(store: store, model: model).perform(linkPlan)
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a note.\n", path)
+        }
+    }
 }

@@ -723,6 +723,14 @@ extension ProjectStore {
         for item in TreeWalk.collect(in: manifest.research,
                                      where: { $0.kind == .document }) {
             guard let path = item.path else { continue }
+            // Only a note or a palette card inside a research root is
+            // Research text: a synced manifest's `.document` naming the
+            // manuscript or a `.maugham/` file is never read or written here.
+            guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+                projectStoreLog.error(
+                    "Wiki-rename: \(path, privacy: .public) is not inside a research root, skipped")
+                continue
+            }
             // An edit typed during this loop's earlier awaits is saved before
             // the read below, which reaches the door with no await between.
             await documentStore?.settleResearchNoteEdits(itemId: item.id)
@@ -755,14 +763,15 @@ extension ProjectStore {
             // version, and an editor open on it reloads rather than typing
             // over the rewrite. Not saved is this loop's per-item failure —
             // logged (the door says why), and the sweep goes on.
-            if let ds = documentStore, ResearchNoteDoor.takes(item) {
+            if let ds = documentStore, ResearchNoteDoor.takes(item, structure: manifest.structure) {
                 if case .notSaved = await ds.saveResearchNote(itemId: item.id, text: rewritten) {
                     projectStoreLog.error(
                         "Wiki-rename: research note \(path, privacy: .public) not saved, skipped")
                 }
                 continue
             }
-            // A palette card (P2) keeps the write it had, and keeps nothing.
+            // A palette card (P2) keeps the write it had, and keeps nothing;
+            // so does a note with no `DocumentStore` (a load-only context).
             do {
                 if let ds = documentStore {
                     try await ds.performFileSave(path: path, text: rewritten)

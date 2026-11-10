@@ -281,4 +281,68 @@ final class UpdateNoteToolTests: XCTestCase {
         XCTAssertEqual(message, "The project's window is not ready for a Research note.")
         XCTAssertEqual(try text(of: item), "Before.")
     }
+
+    // MARK: - Only a Research note inside a research root (whole-branch C2, I1)
+
+    /// A synced manifest can list a `.document` Research item whose path is
+    /// the manuscript or Maugham's own files (`.maugham/ops/…`): the tool
+    /// refuses it as not a Research note Maugham can change, and nothing on
+    /// disk moves — the hard invariant, MCP never writes manuscript text.
+    func test_aResearchItemWhosePathIsOutsideAResearchRootIsRefused_andNothingOnDiskChanges() async throws {
+        let book = try await openBook()
+        try FileManager.default.createDirectory(at: file(".maugham/ops"), withIntermediateDirectories: true)
+        try Data("{\"op\":1}\n".utf8).write(to: file(".maugham/ops/doc-a.jsonl"))
+        for (n, path) in ["manuscript/a.md", ".maugham/ops/doc-a.jsonl"].enumerated() {
+            let item = ResearchItem(id: "res-stray00\(n)", title: "Stray \(n)", type: .asset,
+                                    kind: .document, path: path)
+            book.store.manifest.research.append(item)
+            let before = try Data(contentsOf: file(path))
+
+            let message = await refusal { try await self.update(book, item.id, "assistant text") }
+            XCTAssertTrue(message.hasPrefix("'Stray \(n)' (\(item.id)) is not a Research note Maugham can change"),
+                          message)
+            XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path) is untouched")
+            XCTAssertTrue(versions(of: item).isEmpty)
+        }
+    }
+
+    /// A piece's own Research (`pieces/<NN>-<slug>/research/…`) is a research
+    /// root: its note is taken by the door and by `update_note`.
+    func test_aPieceScopedNoteIsTakenByTheDoorAndByUpdateNote() async throws {
+        let url = try await ProjectFactory.createCollectionProject(named: "Anthology", in: projectURL)
+        let store = try await ProjectStore.load(from: url)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
+        let ds = try await DocumentStore.open(url: url)
+        stores.append(ds)
+        store.documentStore = ds
+        ds.projectStore = store
+        let registry = ProjectRegistry()
+        registry.register(url: url, store: store)
+        let book = Book(ds: ds, store: store, registry: registry, id: ProjectIdentifier.id(for: url))
+        let item = try await store.createResearchNote(scope: .document(piece.id), title: "Harbour")
+        let path = try XCTUnwrap(item.path)
+        XCTAssertTrue(path.hasPrefix("pieces/") && path.contains("/research/"), "premise: \(path)")
+
+        let saved = await ds.saveResearchNote(itemId: item.id, text: "The writer's.")
+        XCTAssertEqual(saved, .saved(keptAVersion: false))
+        let result = try await update(book, item.id, "The assistant's.")
+        XCTAssertEqual(result.path, path)
+        XCTAssertTrue(result.kept_previous_version)
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(path), encoding: .utf8),
+                       "The assistant's.")
+    }
+
+    /// I1: the tool's refusal of a palette card does not rest on P2
+    /// (`ResearchNoteDoor.paletteCardsKeepVersions`): it asks the role
+    /// function for a note itself, so flipping P2 cannot open cards to the
+    /// assistant.
+    func test_aPaletteCardIsRefusedWhateverP2Says() async throws {
+        let book = try await openBook()
+        let card = try await book.store.addPaletteCard(title: "Fog", kind: .other)
+        XCTAssertEqual(ResearchTextRole.of(card, structure: book.store.manifest.structure), .paletteCard)
+        XCTAssertThrowsError(try UpdateNoteTool.noteItem(card.id, in: book.store))
+        let source = try CanvasSourceCensus.source(at: "Maugham/MCP/Tools/UpdateNoteTool.swift")
+        XCTAssertFalse(source.contains("ResearchNoteDoor.takes"),
+                       "the tool asks `ResearchTextRole.of` for `.note`, never the door's P2-dependent `takes`")
+    }
 }

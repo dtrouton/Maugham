@@ -59,15 +59,18 @@ public enum UpdateNoteTool: MCPTool {
         return try JSONEncoder().encode(result)
     }
 
-    /// The Research note `id` names (`ResearchNoteDoor.takes`), or a refusal
-    /// that says what the id is instead.
+    /// The Research note `id` names, or a refusal that says what the id is
+    /// instead. Asked of `ResearchTextRole` directly, not of the door's
+    /// `takes`: a palette card is never the assistant's to write, whatever
+    /// P2 (`paletteCardsKeepVersions`) says.
     @MainActor
     static func noteItem(_ id: String, in store: ProjectStore) throws -> ResearchItem {
         guard let item = store.findResearchItem(id: id, in: store.manifest.research) else {
             throw MCPError.invalidArgument(notInResearch(id, in: store))
         }
-        if ResearchNoteDoor.takes(item) { return item }
-        throw MCPError.invalidArgument("'\(item.title)' (\(id)) \(whatItIs(item))")
+        let role = ResearchTextRole.of(item, structure: store.manifest.structure)
+        if case .note = role { return item }
+        throw MCPError.invalidArgument("'\(item.title)' (\(id)) \(whatItIs(item, role: role))")
     }
 
     /// An id outside Research: a manuscript document, a figure or a statement
@@ -88,9 +91,9 @@ public enum UpdateNoteTool: MCPTool {
         return "No Research item with id '\(id)'. Use list_research for the ids."
     }
 
-    /// What a Research item the door does not take is, and where to go instead.
-    private static func whatItIs(_ item: ResearchItem) -> String {
-        if case .paletteCard = ResearchTextRole.of(item) {
+    /// What a Research item that is not a note is, and where to go instead.
+    private static func whatItIs(_ item: ResearchItem, role: ResearchTextRole?) -> String {
+        if case .paletteCard = role {
             return "is a palette card, not a note; read it with read_palette_card."
         }
         switch item.type {
@@ -103,8 +106,12 @@ public enum UpdateNoteTool: MCPTool {
             case .pdf: return "is a PDF in Research, not a note; only a note’s text can be changed."
             case .audio: return "is a recording in Research, not a note; only a note’s text can be changed."
             case .link: return "is a web link in Research, not a note; only a note’s text can be changed."
-            case .document:
+            case .document where item.path == nil:
                 return "has no file of its own, so it is not a note whose text can be changed."
+            case .document:
+                // Listed in Research, but its file is not in a Research
+                // folder (the manuscript, Maugham's own files): never written.
+                return "is not a Research note Maugham can change: its file is not in a Research folder."
             case nil:
                 return "is not a Research note; only a note’s text can be changed."
             }
