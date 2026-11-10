@@ -247,10 +247,16 @@ These are Claude's calls, not Denver's rulings; each is open to correction.
   project total as final (the idle session end, quit, a document switch or
   close, a checkpoint, the window closing) calls one function first. A
   census names its callers.
-- **The echo is recorded before the write is issued**, on the main actor,
-  for the bytes about to be written; a write that fails puts the previous
-  echo back. An outside change that lands in that window is the accepted
-  risk; it is the same window the coordinated block has today.
+- **The echo knows the bytes in flight.** While a write is in flight, disk
+  bytes equal to the last landed bytes or to the in-flight bytes are both
+  our own; a landed write becomes the echo, a failed one is dropped and the
+  landed echo stands. (Corrected while planning: recording the echo before
+  the write would misread a late callback for the previous write.)
+- **A session's starting count is the total before its first burst**, so
+  the first burst's words count. Today it is the total after the first
+  keystroke; the pinned test changes with it.
+- **The project window stops being invalidated on every key.** The
+  observed total is written only when it changes, once per burst.
 
 **Plan 2**
 
