@@ -178,7 +178,26 @@ Denver's ruling: same as tables — an assistant's write always keeps a version
 and is marked ("Written by assistant", "Before the assistant's change").
 
 Today the assistant has no way to change an existing note through Maugham:
-`add_note` only creates. See the open question below.
+`add_note` only creates. Denver's ruling (2026-11-10): this milestone adds
+one.
+
+- A new MCP tool replaces an existing Research note's body. It joins
+  `MCPToolCatalog.all`; every tool count in help and skills derives from the
+  catalogue.
+- Its write goes through the note door as the assistant: it always keeps the
+  text it replaces, and ends the writer's run.
+- The inspector marks the versions as it does a table's: "Written by
+  assistant" on a version whose text the assistant wrote, "Before the
+  assistant's change" on the text an assistant's write replaced. Knowing who
+  wrote the text now on disk needs a small record per note (a content hash
+  and a writer, as a table's sidecar carries); where it lives is the
+  builder's.
+- A note open in the editor takes the assistant's text the way it takes a
+  restore, and a pending unsaved edit is saved first, so it is the version
+  the assistant's write replaces.
+- It refuses what is not a Research note (a table, a picture, a manuscript
+  piece) and says what the item is. MCP still never writes manuscript text.
+- Scope over the inbox is unchanged.
 
 ### The store
 
@@ -260,19 +279,12 @@ These are Claude's calls, not Denver's rulings; each is open to correction.
   binding and the one `applyExternalText` call. No second caller
   (tripwire 7), and the reload stays keyed on the path (tripwire 22).
 
-## Open question for Denver
-
-**Should this milestone add a way for the assistant to rewrite an existing
-note?** Tables have MCP write tools, so their assistant writes are versioned
-and marked. Notes have none; the assistant can only create one. Without a
-tool, the "assistant" marks never appear on a note, and an assistant that
-edits the file directly on disk is caught only as an outside change (kept,
-but unattributed).
-
 ## Smoke
 
 Type in a long manuscript piece and watch the footer's counts settle; pause,
 quit, relaunch: text and today's words intact. Edit a Research note, wait
 past a save, edit again; the inspector lists the earlier version; Restore
 brings it back; Restore again returns the newer text. Trash the note; its
-versions go after the Trash expiry.
+versions go after the Trash expiry. Ask the assistant to rewrite a
+note; the inspector marks the version it replaced, and Restore brings the
+writer's text back.
