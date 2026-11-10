@@ -432,12 +432,12 @@ final class ResearchNoteDoor {
     /// link sweep, Replace, a promotion's link). Flipping this routes those
     /// sweeps' card writes through the door too; the palette's own writer
     /// (`paletteCoordinatedWrite`) would still need routing by hand.
-    static let paletteCardsKeepVersions = false
+    nonisolated static let paletteCardsKeepVersions = false
 
     /// **Whether a write of `item`'s text goes through the door** — the one
     /// question every writer of existing Research text asks (`ResearchTextRole`
     /// says what the item is; P2 says whether a card is the door's).
-    static func takes(_ item: ResearchItem) -> Bool {
+    nonisolated static func takes(_ item: ResearchItem) -> Bool {
         switch ResearchTextRole.of(item) {
         case .note: return true
         case .paletteCard: return paletteCardsKeepVersions
@@ -524,7 +524,47 @@ private enum PriorBytes: Sendable {
     }
 }
 
+/// Why a note's version was not put back; the note is as it was.
+struct ResearchNoteRestoreError: LocalizedError, Equatable {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 extension DocumentStore {
+
+    /// **Research note `itemId` put back to a kept `version`**, through the
+    /// door (`restoring: true`: what it replaces is kept, so restoring again
+    /// undoes it). Refused under a view-only share (as `restoreResearchTable`),
+    /// for a version that is not a note's, and for bytes that are not UTF-8
+    /// (nothing is written). A version's bytes are the file's bytes verbatim:
+    /// the text is those bytes decoded without normalising (a BOM and CRLF
+    /// survive). Restoring the text the note already holds writes and keeps
+    /// nothing, and succeeds.
+    func restoreResearchNote(itemId: String, to version: ResearchVersion,
+                             shareIsReadOnly: Bool) async throws {
+        if shareIsReadOnly { throw ResearchTableHost.Refused(reason: .viewOnlyShare) }
+        guard version.payload == .note else {
+            throw ResearchNoteRestoreError(message: "That version is of a table, not a note.")
+        }
+        let projectURL = self.projectURL
+        let bytes: Data
+        do {
+            bytes = try await Task.detached {
+                try ResearchVersionStore(projectURL: projectURL).read(version).0
+            }.value
+        } catch {
+            throw ResearchNoteRestoreError(message: "That version couldn’t be read, so the note is as it was.")
+        }
+        guard String(data: bytes, encoding: .utf8) != nil else {
+            throw ResearchNoteRestoreError(
+                message: "That version isn’t UTF-8 text, so it wasn’t restored and the note is as it was.")
+        }
+        // `decoding:` keeps a leading BOM, which `String(data:encoding:)` may drop.
+        let text = String(decoding: bytes, as: UTF8.self)
+        guard case .saved = await saveResearchNote(itemId: itemId, text: text, restoring: true) else {
+            throw ResearchNoteRestoreError(message: "That version wasn’t restored; the note is as it was.")
+        }
+    }
 
     /// **The one door every write of an existing Research note's text goes
     /// through** (`ResearchNoteDoor`) outside the editor: the bytes it

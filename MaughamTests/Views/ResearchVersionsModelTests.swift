@@ -75,4 +75,27 @@ final class ResearchVersionsModelTests: XCTestCase {
         XCTAssertEqual(ResearchVersionsModel.sentence(for: .whole), "Restored.")
         XCTAssertTrue(ResearchVersionsModel.sentence(for: .cellsOnly).contains("couldn’t be restored"))
     }
+
+    /// A version of another kind is listed with Restore off, and "Restore
+    /// previous version" skips to the newest that can be restored.
+    func test_aVersionOfAnotherKindIsListedButNotOffered() {
+        let list = [ResearchVersion(itemId: "n", name: "b", savedAt: Date(timeIntervalSince1970: 2),
+                                    writtenBy: nil, payload: .table),
+                    ResearchVersion(itemId: "n", name: "a", savedAt: Date(timeIntervalSince1970: 1),
+                                    writtenBy: nil, payload: .note)]
+        let rows = ResearchVersionsModel.rows(from: list, refusal: nil, kind: .note)
+        XCTAssertEqual(rows.map(\.id), ["b", "a"])
+        XCTAssertEqual(rows.map(\.canRestore), [false, true])
+        XCTAssertEqual(ResearchVersionsModel.previous(in: rows)?.id, "a")
+    }
+
+    func test_theSectionShowsForANote() {
+        func item(_ kind: ResearchItem.AssetKind, _ path: String?) -> ResearchItem {
+            ResearchItem(id: "i", title: "T", type: .asset, kind: kind, path: path)
+        }
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.document, "research/n.md")), .note)
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.table, "research/t.csv")), .table)
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.image, "research/p.png")))
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, nil)))
+    }
 }
