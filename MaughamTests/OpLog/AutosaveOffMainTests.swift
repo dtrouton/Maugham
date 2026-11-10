@@ -223,6 +223,32 @@ final class AutosaveOffMainTests: XCTestCase {
             "a write queued before the piece stopped rendering must not land")
     }
 
+    /// Another Mac renamed the piece; iCloud moved the file here while this
+    /// Mac's write was already past its last main-actor check. Once
+    /// `stopRendering()` returns, nothing may write at the old path.
+    func test_stopRenderingDuringAWriteInFlightLeavesNoPhantomAtTheOldPath() async throws {
+        let doc = try await makeDoc()
+        let gate = WriteGate(hold: [1])
+        doc.autosaveWriteHook = gate.hook
+
+        doc.setFullText("Typed before the rename arrived.")
+        let write = Task { try await doc.performAutosave() }
+        await gate.waitForEntry(1)
+
+        let moved = doc.url.deletingLastPathComponent()
+            .appendingPathComponent("renamed.md")
+        try FileManager.default.moveItem(at: doc.url, to: moved)
+        let movedBytes = try String(contentsOf: moved, encoding: .utf8)
+        doc.stopRendering()
+
+        gate.release(1)
+        try await write.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: doc.url.path),
+            "a write in flight when stopRendering() returned must not re-create the old path")
+        XCTAssertEqual(try String(contentsOf: moved, encoding: .utf8), movedBytes)
+        XCTAssertNil(doc.lastDiskEcho.inFlight)
+    }
+
     // MARK: - Helpers
 
     /// Delivers a presenter callback and returns once its synchronous part —
@@ -248,8 +274,10 @@ final class AutosaveOffMainTests: XCTestCase {
     }
 }
 
-/// Stands in for the `.md` write: counts calls, records the thread, holds a
-/// numbered call on a semaphore until the test releases it, or fails one.
+/// Sits just before the `.md` write: counts calls, records the thread, holds
+/// a numbered call on a semaphore until the test releases it, or fails one
+/// (and with it the write). The real, permit-checked write follows a call
+/// that returns.
 /// Every field is under `lock`, hence `@unchecked Sendable`.
 private final class WriteGate: @unchecked Sendable {
     struct Injected: Error {}
@@ -288,7 +316,6 @@ private final class WriteGate: @unchecked Sendable {
         ready.forEach { $0.resume(returning: true) }
         semaphore?.wait()
         if failing.contains(n) { throw Injected() }
-        try data.write(to: url, options: .atomic)
         lock.withLock { completed += 1 }
     }
 

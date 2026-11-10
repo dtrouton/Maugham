@@ -48,9 +48,21 @@ public final class Document {
     public private(set) var rendersToDisk = true
 
     /// Stop rendering the `.md` for good. See `rendersToDisk`.
+    ///
+    /// **Exact: after this returns, nothing writes at `url`.** The autosave
+    /// renders and writes off the main actor, so the observable flag alone
+    /// would let a write already past its last main-actor check land at the
+    /// old path. `renderPermit` is the flag's off-main twin, checked under its
+    /// lock immediately before the bytes are written; revoking it waits out
+    /// at most the one atomic write holding that lock. Both are flipped here
+    /// and nowhere else, so they cannot disagree.
     public func stopRendering() {
+        renderPermit.revoke()
         rendersToDisk = false
     }
+
+    /// The off-main twin of `rendersToDisk`. See `stopRendering()`.
+    @ObservationIgnored private let renderPermit = RenderPermit()
 
     /// Recovery spec §4: the read-only partial open. Set only by
     /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
@@ -846,8 +858,9 @@ public final class Document {
     /// opId order by every append path, so its last element is the newest.
     internal var currentFoldBasis: String? { _opLogMirror.last?.opId }
 
-    /// Test seam: called in place of the `.md`'s coordinated write, off the
-    /// main actor, with the bytes and `url`. Tests gate, fail or observe a
+    /// Test seam: called off the main actor with the bytes and `url`, after
+    /// the run's last main-actor check and before the coordinated,
+    /// permit-checked write. Tests gate (block), fail (throw) or observe a
     /// write through it. Nil in production.
     @ObservationIgnored internal var autosaveWriteHook: (@Sendable (Data, URL) throws -> Void)?
 
@@ -953,17 +966,26 @@ public final class Document {
         lastDiskEcho = lastDiskEcho.writing(bytes)
         let url = self.url
         let hook = self.autosaveWriteHook
+        let permit = self.renderPermit
         nonisolated(unsafe) let presenter = self.presenter
+        let wrote: Bool
         do {
-            try await Self.offMain {
+            wrote = try await Self.offMain {
                 try Self.coordinatedWrite(
-                    Data(bytes.utf8), to: url, presenter: presenter, hook: hook)
+                    Data(bytes.utf8), to: url, presenter: presenter,
+                    permit: permit, hook: hook)
             }
         } catch {
             // Nothing landed (the write is atomic): the landed echo still
             // describes what is on disk.
             lastDiskEcho = lastDiskEcho.writeFailed()
             throw error
+        }
+        // `stopRendering()` came while the bytes were on their way: nothing
+        // was written, and the landed echo still describes the disk.
+        guard wrote else {
+            lastDiskEcho = lastDiskEcho.writeFailed()
+            return
         }
         lastDiskEcho = .afterWrite(bytes: bytes)
     }
@@ -993,32 +1015,42 @@ public final class Document {
         }
     }
 
-    /// The coordinated atomic write of the `.md`, or the test hook in its
-    /// place. Synchronous; called off the main actor.
+    /// The coordinated atomic write of the `.md`. Synchronous; called off
+    /// the main actor. Returns false when the render permit was revoked and
+    /// nothing was written.
     ///
-    /// The hook replaces the coordination too: two coordinated writers of one
-    /// file in one process queue behind each other, so a hook held inside the
-    /// block would order the writes by itself and hide whether the run queue
-    /// does (`AutosaveOffMainTests`' disable experiment).
+    /// The test hook runs first, outside the coordination: two coordinated
+    /// writers of one file in one process queue behind each other, so a hook
+    /// held inside the block would order the writes by itself and hide
+    /// whether the run queue does (`AutosaveOffMainTests`' disable
+    /// experiment). The permit is asked inside the accessor block, under its
+    /// lock, immediately before the bytes go down; the lock is held across
+    /// the atomic write and nothing else — never a coordination wait, never
+    /// an `await`.
     nonisolated private static func coordinatedWrite(
         _ data: Data, to url: URL, presenter: NSFilePresenter?,
+        permit: RenderPermit,
         hook: (@Sendable (Data, URL) throws -> Void)?
-    ) throws {
-        if let hook { return try hook(data, url) }
+    ) throws -> Bool {
+        try hook?(data, url)
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
         var writeErr: Error?
+        var wrote = false
         coord.coordinate(
             writingItemAt: url, options: .forReplacing, error: &coordErr
         ) { wu in
             do {
-                try data.write(to: wu, options: .atomic)
+                wrote = try permit.writeIfGranted {
+                    try data.write(to: wu, options: .atomic)
+                }
             } catch {
                 writeErr = error
             }
         }
         if let coordErr { throw coordErr }
         if let writeErr { throw writeErr }
+        return wrote
     }
 
     /// **Whether `url` names a place inside `root`** — `Document.load`'s guard
@@ -2047,5 +2079,35 @@ public final class Document {
         if rejectMutationIfReadOnlyRecovery(site) {
             throw DocumentNotWritableError(site: "\(site)")
         }
+    }
+}
+
+/// **`Document.rendersToDisk`'s off-main twin** (typing loop plan 1's
+/// whole-branch fix wave). The autosave's write runs on a global queue; this
+/// is what it asks, under the lock, immediately before the bytes go down, so
+/// `stopRendering()` is exact: once `revoke()` returns, no write at the old
+/// path is in progress or still to come. Revoking waits for the lock, so it
+/// waits out at most the one atomic write holding it. `@unchecked Sendable`:
+/// `granted` is only touched under `lock`.
+final class RenderPermit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var granted = true
+
+    /// Withdraw the permit for good, waiting out a write in progress.
+    func revoke() {
+        lock.lock()
+        granted = false
+        lock.unlock()
+    }
+
+    /// Runs `write` under the lock if the permit still stands; false if it
+    /// was revoked (and `write` did not run). Synchronous: the lock is never
+    /// held across a suspension.
+    func writeIfGranted(_ write: () throws -> Void) rethrows -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard granted else { return false }
+        try write()
+        return true
     }
 }

@@ -90,15 +90,15 @@ final class TypingLoopCensusTests: XCTestCase {
             ProcessInfo.processInfo.environment["MAUGHAM_PERF_FIXTURE"] == "1",
             "perf probe: run with TEST_RUNNER_MAUGHAM_PERF_FIXTURE=1")
 
-        let corpora: [(String, Bool, String, Bool)] = [
-            ("prose 30 KB", false, TypingLatencyProbeTests.generateProse(bytes: 30_000), false),
-            ("prose 250 KB", false, TypingLatencyProbeTests.generateProse(bytes: 250_000), false),
-            ("report prose 250 KB", false, TypingLatencyProbeTests.generateProse(bytes: 250_000, report: true), true),
-            ("fountain 60 KB", true, Self.generateFountain(bytes: 60_000), false),
-            ("fountain 250 KB", true, Self.generateFountain(bytes: 250_000), false),
+        let corpora: [(String, Bool, String)] = [
+            ("prose 30 KB", false, TypingLatencyProbeTests.generateProse(bytes: 30_000)),
+            ("prose 250 KB", false, TypingLatencyProbeTests.generateProse(bytes: 250_000)),
+            ("report prose 250 KB", false, TypingLatencyProbeTests.generateProse(bytes: 250_000, report: true)),
+            ("fountain 60 KB", true, Self.generateFountain(bytes: 60_000)),
+            ("fountain 250 KB", true, Self.generateFountain(bytes: 250_000)),
         ]
         var report = ""
-        for (label, screenplay, body, _) in corpora {
+        for (label, screenplay, body) in corpora {
             do { report += try await measure(label: label, screenplay: screenplay, body: body) }
             catch { XCTFail("\(label) threw \(error)"); throw error }
         }

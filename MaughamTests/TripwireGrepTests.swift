@@ -12269,6 +12269,16 @@ final class TripwireGrepTests: XCTestCase {
     ///   quit loses them from the session event, an arriving piece's shift
     ///   takes them out as someone else's. An EXTRA one is a new final reader:
     ///   name it here.
+    /// - `.wordCount(` — whole-text word counts (typing loop plan 1). In
+    ///   `DocumentStore`: `countBurst` (the typing path's one count, which
+    ///   also moves `wordCountRunCount`), the re-read's before/after pair and
+    ///   `register`. An EXTRA one in `DocumentStore` is the planted offender
+    ///   this exists for: a bare `mode.wordCount(newText)` put back in
+    ///   `recordEditorTextWrite` re-runs the 10.9 ms walk on every key while
+    ///   the probe's counter stays still. Elsewhere: `ProjectStore`'s derived
+    ///   count and the wiki-rename's rewritten piece; the editor's status-bar
+    ///   metrics (debounced, its own concern). It cannot see a count spelled
+    ///   another way (`metrics(_:)`, a helper of a new name).
     static let countedLists: [String: [String: Int]] = [
         "expectedStreams(": [
             "type:DocumentStore": 5, "OpLogDeviceState.swift": 1,
@@ -12289,6 +12299,10 @@ final class TripwireGrepTests: XCTestCase {
         "settleWordCount(": [
             "type:DocumentStore": 10, "type:ProjectStore": 4,
             "ProjectTools.swift": 1,
+        ],
+        ".wordCount(": [
+            "type:DocumentStore": 4, "type:ProjectStore": 2,
+            "EditorCoordinator+Typography.swift": 1,
         ],
     ]
 
@@ -12332,6 +12346,30 @@ final class TripwireGrepTests: XCTestCase {
                 + "an extra one each mean. Found: "
                 + "\(found.sorted(by: { $0.key < $1.key }))")
         }
+    }
+
+    /// The control for `countedLists[".wordCount("]`: a bare count planted in
+    /// a `DocumentStore` extension is found under the type's key, and a
+    /// comment naming it is not.
+    func test_theWordCountCensusFindsABareCountInDocumentStore() throws {
+        let dir = TestTemp.root
+            .appendingPathComponent("wordcount-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+            extension DocumentStore {
+                // mode.wordCount(newText) in a comment is fine.
+                func recordEditorTextWrite(newText: String, mode: any WritingMode) {
+                    _ = mode.wordCount(newText)
+                }
+            }
+            """.write(to: dir.appendingPathComponent("DocumentStore+Planted.swift"),
+                      atomically: true, encoding: .utf8)
+        let (found, unresolved) = try countedListFound(
+            of: ".wordCount(", keyedLike: ["type:DocumentStore": 1], in: [dir])
+        XCTAssertEqual(unresolved, [])
+        XCTAssertEqual(found, ["type:DocumentStore": 1])
     }
 
     // MARK: - …and the planted offenders that prove they fire

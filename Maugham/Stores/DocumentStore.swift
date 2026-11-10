@@ -281,7 +281,6 @@ public final class DocumentStore {
     /// the live total. Written through `setLastKnownProjectWordCount`.
     private var lastKnownProjectWordCount: Int = 0
 
-
     /// The latest text of a typing burst, not yet counted (typing loop plan 1).
     /// Holding the `String` is free; counting it is the whole-document walk a
     /// keystroke no longer pays. `settleWordCount()` consumes it.
@@ -337,11 +336,20 @@ public final class DocumentStore {
         pendingWordCount = nil
         _wordCountSettleScheduler?.cancel()
         guard let store = burst.store else { return }
-        let count = burst.mode.wordCount(burst.text)
-        wordCountRunCount += 1
+        let count = countBurst(burst.text, mode: burst.mode)
         let prior = store.cachedWordCount(for: burst.documentId) ?? 0
         store.recordWordCount(forDocumentId: burst.documentId, wordCount: count)
         setLastKnownProjectWordCount(lastKnownProjectWordCount + count - prior)
+    }
+
+    /// **The typing path's one whole-document count**, and the only place
+    /// `wordCountRunCount` moves, so the probe's count cannot drift from the
+    /// work. `TripwireGrepTests.countedLists[".wordCount("]` pins the type's
+    /// count sites: a bare `mode.wordCount(newText)` put back in
+    /// `recordEditorTextWrite` is an extra one.
+    private func countBurst(_ text: String, mode: any WritingMode) -> Int {
+        wordCountRunCount += 1
+        return mode.wordCount(text)
     }
 
     /// `lastKnownProjectWordCount` is observed (`liveSessionWordsNet` reads
