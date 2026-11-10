@@ -1,4 +1,4 @@
-# Milestone (proposed) — research protection
+# Milestone — research protection (RESOLVED 2026-11-10)
 
 **Status:** SCHEDULED 2026-08-09 by RULING-48 ("Bridge now, milestone scheduled" — Denver,
 structured question GAP-P1). The roadmap entry lives in `docs/roadmap.md` Group 4 (Foundations &
@@ -7,6 +7,29 @@ ruled into existence by Denver during the reconciliation interview: *"yes this i
 IMO, and I think this is pushing me to a research protection milestone in future."* The
 rewrite-keeps-a-version bridge shipped 2026-08-09 (`TrashSubject.priorVersion`) and holds the
 line until this milestone is scoped.
+
+
+## Resolution (2026-11-10)
+
+Answered by Denver: **tier 2 means versioned, split by asset kind** (RULING-56, 2026-10-30:
+Research text is versioned apart from files and images; 2026-11-10: notes get what tables have).
+Research tables shipped first (v0.43.0, claim `M5-AN-067`); **Research notes shipped on branch
+`claude/typing-loop-and-note-versions`** (ADR 0034 for the assistant's `update_note`):
+
+- A note keeps earlier versions in `.maugham/research-versions/<itemId>/`, 50 per note per device.
+  The writer's typing keeps one per editing run; every other writer (canvas Rewrite and link
+  append, wiki-link rename, Search & Replace, asset-reference rewrite, Restore, `update_note`)
+  always keeps what it replaced; an outside change is kept at the next save. Claims `M5-AN-070`,
+  `M5-AN-071`, `M5-AN-072`.
+- `M1-C-055`'s second half is closed: a whole-file replacement of a note keeps the prior text.
+- The Rewrite's Trash `priorVersion` entry stays as well (`M6-PR-037`, unchanged and still
+  COMPLIES), so a Rewrite leaves two records.
+- Files and images (pictures, PDFs, audio) stay unversioned and covered by backups; palette
+  cards are not versioned (default, not yet ruled). ⌘S is unchanged: a checkpoint of the work.
+- RULING-24's wording still says "not versioned" and is Denver's to amend:
+  `docs/superpowers/notes/2026-11-10-ruling-24-amendment-draft.md`.
+
+The text below is the finding as it stood on 2026-08-09.
 
 ---
 
