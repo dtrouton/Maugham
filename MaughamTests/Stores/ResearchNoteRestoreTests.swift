@@ -119,6 +119,7 @@ final class ResearchNoteRestoreTests: XCTestCase {
             XCTFail("refused")
         } catch let refused as ResearchTableHost.Refused {
             XCTAssertEqual(refused.reason, .viewOnlyShare)
+            XCTAssertEqual(refused.errorDescription, "This share is view-only, so the note can’t be changed.")
         }
         XCTAssertEqual(try bytes(of: item, projectStore), Data("Two.".utf8))
     }

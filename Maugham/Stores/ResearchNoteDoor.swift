@@ -542,7 +542,7 @@ extension DocumentStore {
     /// nothing, and succeeds.
     func restoreResearchNote(itemId: String, to version: ResearchVersion,
                              shareIsReadOnly: Bool) async throws {
-        if shareIsReadOnly { throw ResearchTableHost.Refused(reason: .viewOnlyShare) }
+        if shareIsReadOnly { throw ResearchTableHost.Refused(reason: .viewOnlyShare, noun: "note") }
         guard version.payload == .note else {
             throw ResearchNoteRestoreError(message: "That version is of a table, not a note.")
         }

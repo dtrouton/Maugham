@@ -98,4 +98,21 @@ final class ResearchVersionsModelTests: XCTestCase {
         XCTAssertNil(ResearchVersionsModel.kind(for: item(.image, "research/p.png")))
         XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, nil)))
     }
+
+    /// A refusal names what it refuses: a note's section says "note", a
+    /// table's sentence is unchanged.
+    func test_refusalsNameTheNoteOrTheTable() {
+        XCTAssertEqual(FigureGridGate.Reason.viewOnlyShare.sentence,
+                       "This share is view-only, so the table can’t be changed.")
+        XCTAssertEqual(FigureGridGate.Reason.viewOnlyShare.sentence(noun: "note"),
+                       "This share is view-only, so the note can’t be changed.")
+        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence(noun: "note"),
+                       "You’re reviewing — the note can be read, not changed.")
+        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence,
+                       "You’re reviewing — the table can be read, not changed.")
+        XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare, noun: "note").errorDescription,
+                       "This share is view-only, so the note can’t be changed.")
+        XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare).errorDescription,
+                       "This share is view-only, so the table can’t be changed.")
+    }
 }

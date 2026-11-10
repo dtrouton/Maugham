@@ -53,13 +53,16 @@ enum FigureGridGate {
         case reviewMode
 
         /// The line the read-only grid answers typing with.
-        var sentence: String {
+        var sentence: String { sentence(noun: "table") }
+
+        /// The same line for what the Versions section restores: "table" or "note".
+        func sentence(noun: String) -> String {
             switch self {
             case .parked: return FigureParkedRefused.notice(for: .table)
             case .closed: return "This table was closed, so it can’t be changed here."
             case .notYours: return "This table isn’t yours to change — you can read it."
-            case .viewOnlyShare: return "This share is view-only, so the table can’t be changed."
-            case .reviewMode: return "You’re reviewing — the table can be read, not changed."
+            case .viewOnlyShare: return "This share is view-only, so the \(noun) can’t be changed."
+            case .reviewMode: return "You’re reviewing — the \(noun) can be read, not changed."
             }
         }
     }

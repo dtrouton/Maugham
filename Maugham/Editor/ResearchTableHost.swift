@@ -78,7 +78,9 @@ final class ResearchTableHost: FigureGridHost {
     /// Why a Research table refused an edit.
     struct Refused: LocalizedError, Equatable {
         let reason: FigureGridGate.Reason
-        var errorDescription: String? { reason.sentence }
+        /// What was refused: "table", or "note" for a note's restore.
+        var noun = "table"
+        var errorDescription: String? { reason.sentence(noun: noun) }
     }
 
     /// Why a Research table could not be opened in the grid.

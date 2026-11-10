@@ -202,6 +202,30 @@ final class ResearchNoteEditorReloadTests: XCTestCase {
         XCTAssertEqual(textView.string, "B")
     }
 
+    /// **`restoreResearchNote` itself, with the note open and an edit pending**:
+    /// the edit is saved first and is the version the restore replaces, the
+    /// editor shows the restored text, and its next keystroke builds on it.
+    func test_restoringANoteOpenWithAPendingEditKeepsTheEdit_showsTheRestore_andTheNextKeystrokeBuildsOnIt() async throws {
+        let item = try await note("A")
+        let (_, textView) = try await mount(item)
+        await documentStore.saveResearchNote(itemId: item.id, text: "B")
+        await pumpUntil(deadline: 5) { textView.string == "B" }
+        let kept = try XCTUnwrap(ResearchVersionStore(projectURL: store.url).versions(itemId: item.id)
+            .first { (try? String(decoding: ResearchVersionStore(projectURL: store.url).read($0).0, as: UTF8.self)) == "A" })
+
+        typeAtEnd("1", into: textView)
+        XCTAssertTrue(documentStore.researchNoteHasPendingSave(itemId: item.id), "premise: unflushed")
+        try await documentStore.restoreResearchNote(itemId: item.id, to: kept, shareIsReadOnly: false)
+
+        XCTAssertEqual(try onDisk(item), "A")
+        XCTAssertTrue(try versionTexts(item).contains("B1"), "the pending edit was saved and kept")
+        await pumpUntil(deadline: 5) { textView.string == "A" }
+        XCTAssertEqual(textView.string, "A", "the editor shows the restored text")
+        typeAtEnd("x", into: textView)
+        try await documentStore.flushPendingSave()
+        XCTAssertEqual(try onDisk(item), "Ax", "the next keystroke did not put the old text back")
+    }
+
     /// Typing that lands between the door's write and the editor's reload:
     /// the writer's text stands (it is what they see), and its save keeps what
     /// was written behind it — nothing is lost either way. Made deterministic

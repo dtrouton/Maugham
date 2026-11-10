@@ -116,7 +116,7 @@ struct ResearchVersionsSection: View {
                 .disabled(ResearchVersionsModel.previous(in: rows ?? []) == nil || isRestoring)
             }
             if let refusal {
-                Text(refusal.sentence).font(.caption).foregroundStyle(.secondary)
+                Text(refusal.sentence(noun: kind == .note ? "note" : "table")).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let empty = ResearchVersionsModel.emptyLine(for: rows) {
