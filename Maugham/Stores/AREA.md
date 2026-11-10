@@ -139,7 +139,7 @@ Two things deliberately live elsewhere:
 - **Test-only `wait*` helpers do not go in production code**: mark them `#if DEBUG` or move them to a test helper. `waitForStructuralVerbs` is production (`readManifest` uses it).
 - **Apply an id prefix once, in the generator** (ADR 0008): `scene-scene-…` or `doc-doc-…` is a bug.
 - **Use `DebounceScheduler` for autosave-like behaviour**; for a different cadence add a configured instance, never ad-hoc debouncing.
-- **An existing Research note's text is written through `saveResearchNote`** (`researchTableWriteSites`): its path asked at the save, one note's saves queued; `flushPendingSave` waits for them.
+- **An existing Research note's text is written through `saveResearchNote`** (`researchNoteDoorCallers`): its path asked at the save, one note's saves queued; `flushPendingSave` waits for them. A writer reading the file first calls `settleResearchNoteEdits`; asset refs are rewritten after the manifest save. `ResearchNoteDoor.takes` leaves palette cards their write.
 - **Only the owner writes a `.maugham/` path** (the table above). The OpLog area writing `.maugham/ops/` and the checkpoints file is the ownership exception.
 - **A new top-level `.maugham/` directory needs a reason**, and is a lowercase noun, plural for a collection of records.
 - **Read and write cloud-synced manuscript and project files through `NSFileCoordinator`** (`coordinatedMove`/`coordinatedWrite`): iCloud otherwise races you.
@@ -263,9 +263,9 @@ Two things deliberately live elsewhere:
 - **A rename moves the document's title AND the composed title of every statement scoped to it** (`ArtifactIndex.statementTitle`); the old title is composed from a closure answering the OLD name.
 - **The renamed document is excluded from the document-title pair only**; the composed pairs still apply to it. A document with no scoped statements is skipped.
 - **Manuscripts and statements receive ops**; statements go through `withStatementDocument`, never a second dance.
-- **A research note gets a coordinated whole-file write behind one `flushPendingSave()`** (a raw write with no `DocumentStore`): without the flush a queued 750 ms note save lands after it with the stale body.
+- **A research note is rewritten through the note door** after one `flushPendingSave()` (a raw write with no `DocumentStore`).
 - **An empty derive is not "nothing to do"**: the manuscript loop falls through to `Document.load`; the statements loop does too when the statement's file has non-zero size (a `stat`, never a read).
-- **Not covered**: an open `ResearchNoteEditor` can write its body back over the rewrite; the renamed document's own composed-title rewrite can be lost to its own path-keyed reload.
+- **Not covered**: the renamed document's own composed-title rewrite can be lost to its own path-keyed reload.
 
 ### Craft intent, palette and role identity
 - **Palette cards and research notes are plain-edited** (no op log, no `¶id`), and absence is valid. Cards are research assets under `research/palette/`, parsed by Core's `PaletteCard`; the typed mover covers them.

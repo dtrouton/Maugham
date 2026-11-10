@@ -159,7 +159,7 @@ extension ProjectStore {
         struct Pending {
             let oldPath: String?
             let newPath: String?
-            let refRewrite: (oldStem: String, newStem: String, noteRelPath: String)?
+            let refRewrite: (oldStem: String, newStem: String)?
         }
         var steps: [RenamePlan.Step] = []
         var pendings: [Pending] = []
@@ -232,7 +232,7 @@ extension ProjectStore {
             let newPath = "\(dest.folder)/\(dedupedLeaf)"
             steps.append(.init(oldRelativePath: oldPath, newRelativePath: newPath))
 
-            var refRewrite: (String, String, String)? = nil
+            var refRewrite: (String, String)? = nil
             if travelsWithAssets {
                 let newStem = (dedupedLeaf as NSString).deletingPathExtension
                 let newAssetsLeaf = "\(newStem)_assets"
@@ -241,7 +241,7 @@ extension ProjectStore {
                     oldRelativePath: oldAssetsRel,
                     newRelativePath: "\(dest.folder)/\(newAssetsLeaf)"))
                 if oldStem != newStem {
-                    refRewrite = (oldStem, newStem, newPath)
+                    refRewrite = (oldStem, newStem)
                 }
             }
             pendings.append(Pending(
@@ -255,16 +255,6 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError("DocumentStore not available")
             }
             try await documentStore.relocate(plan: plan)
-            // Dedup changed a note's stem → its assets folder was renamed to
-            // match; rewrite the note's ./<stem>_assets/ image refs.
-            for pending in pendings {
-                guard let (oldStem, newStem, noteRelPath) = pending.refRewrite,
-                      let noteURL = try? resolvedProjectPathToChange(noteRelPath) else { continue }
-                await Self.rewriteAssetRefsBestEffort(
-                    oldStem: oldStem, newStem: newStem,
-                    noteURL: noteURL,
-                    write: { try await documentStore.coordinatedWrite(text: $0, to: $1) })
-            }
         }
 
         // ---- Phase 4: rewrite the manifest, one save ----
@@ -299,6 +289,40 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+
+        // Dedup changed a note's stem → its assets folder was renamed to
+        // match; rewrite the note's ./<stem>_assets/ image refs, now that the
+        // manifest names where the note is (the note door asks it).
+        for (item, pending) in zip(items, pendings) {
+            guard let (oldStem, newStem) = pending.refRewrite else { continue }
+            await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
+        }
+    }
+
+    /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
+    /// the manifest names where it now is. A note goes through the note door
+    /// (what it held is kept as a version; an editor open on it reloads); a
+    /// palette card (P2) keeps the coordinated write, and no `DocumentStore`
+    /// the raw one. Best effort: a write that fails, or the door writing
+    /// nothing, is logged and the move stands.
+    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
+        guard let item = findResearchItem(id: itemId, in: manifest.research),
+              let path = item.path,
+              let noteURL = try? resolvedProjectPathToChange(path) else { return }
+        await documentStore?.settleResearchNoteEdits(itemId: itemId)
+        await Self.rewriteAssetRefsBestEffort(
+            oldStem: oldStem, newStem: newStem, noteURL: noteURL,
+            write: { [self] text, url in
+                if let ds = documentStore, ResearchNoteDoor.takes(item) {
+                    guard case .saved = await ds.saveResearchNote(itemId: itemId, text: text) else {
+                        throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
+                    }
+                } else if let ds = documentStore {
+                    try await ds.coordinatedWrite(text: text, to: url)
+                } else {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                }
+            })
     }
 
     /// Dedup a note leaf JOINTLY with its sibling `<stem>_assets` folder: the

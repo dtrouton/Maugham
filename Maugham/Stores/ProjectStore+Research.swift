@@ -787,6 +787,7 @@ extension ProjectStore {
         // Attempt to rename file/folder on disk when title changes.
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
+        var assetRefs: (oldStem: String, newStem: String)?
         if let newTitle = title, newTitle != oldItem.title {
             // The second door: a rename that re-slugs a group onto the
             // reserved `research/palette` path is the same defect as
@@ -813,6 +814,7 @@ extension ProjectStore {
                     via: documentStore) {
                     newPathForRenamed = result.newPath
                     childPathRewrites = result.childPathRewrites
+                    assetRefs = result.assetRefs
                 }
             }
             if let ds = documentStore {
@@ -841,11 +843,20 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+
+        // The renamed note's `./<old>_assets/` refs, once the manifest names
+        // where it now is: the note door asks the item's path at the write.
+        if let assetRefs {
+            await rewriteMovedNoteAssetRefs(
+                itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem)
+        }
     }
 
     /// Rename the backing file or folder when a research item's title changes.
-    /// Returns (newRelativePath, childPathRewrites) or nil if no rename is
-    /// needed. Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
+    /// Returns (newRelativePath, childPathRewrites, assetRefs) or nil if no
+    /// rename is needed; `assetRefs` is the stem pair a note that travelled
+    /// with its `<slug>_assets/` folder has its refs rewritten by, after the
+    /// manifest is saved (`rewriteMovedNoteAssetRefs`). Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
     /// (not raw `FileManager`) and is invoked only from inside the typed mover's
     /// `relocateUserContent(perform:)` closure, so the close+flush discipline
     /// has already run (tripwire 14). The `via` DocumentStore supplies the
@@ -855,7 +866,8 @@ extension ProjectStore {
         oldTitle: String,
         newTitle: String,
         via ds: DocumentStore?
-    ) async throws -> (newPath: String, childPathRewrites: [(String, String)])? {
+    ) async throws -> (newPath: String, childPathRewrites: [(String, String)],
+                       assetRefs: (oldStem: String, newStem: String)?)? {
         guard let oldRelPath = item.path else { return nil }
         let oldURL = try resolvedProjectPathToChange(oldRelPath)
         let oldSlug = Slugifier.slug(from:oldTitle)
@@ -897,7 +909,7 @@ extension ProjectStore {
                 }
             }
             walk(item.children ?? [])
-            return (newRelative, rewrites)
+            return (newRelative, rewrites, nil)
         } else {
             // Asset: rename file, preserve extension.
             let ext = oldURL.pathExtension
@@ -927,27 +939,18 @@ extension ProjectStore {
             try await move(oldURL, newURL)
 
             // Propagate to the sibling <slug>_assets/ folder when there is one.
+            // The note's internal refs are rewritten by the caller once the
+            // manifest names the new path (`rewriteMovedNoteAssetRefs`):
+            // cosmetic, and it MUST NOT abort the rename — the moves here have
+            // already committed (the 2026-07-19 sweep W1's class).
+            var assetRefs: (oldStem: String, newStem: String)?
             if travelsWithAssets {
                 let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
                 try await move(oldAssetsURL, newAssetsURL)
-
-                // Update internal refs in the renamed note. Cosmetic post-move
-                // fix — MUST NOT abort the rename: the FS moves above have
-                // already committed, so a throw here would leave manifest↔disk
-                // diverged (same class as the 2026-07-19 sweep W1). The shared
-                // helper is non-throwing by design.
-                await Self.rewriteAssetRefsBestEffort(
-                    oldStem: oldSlug, newStem: dedupedSlug, noteURL: newURL,
-                    write: { text, dest in
-                        if let ds {
-                            try await ds.coordinatedWrite(text: text, to: dest)
-                        } else {
-                            try text.write(to: dest, atomically: true, encoding: .utf8)
-                        }
-                    })
+                assetRefs = (oldSlug, dedupedSlug)
             }
 
-            return (relativeResearchPath(newURL), [])
+            return (relativeResearchPath(newURL), [], assetRefs)
         }
     }
 

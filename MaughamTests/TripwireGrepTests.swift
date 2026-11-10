@@ -15552,9 +15552,10 @@ extension TripwireGrepTests {
     ///   × 1 (a research NOTE's save, debounced or not); `type:DocumentStore`
     ///   × 1 (`scheduleFileSave`'s debounce: a manuscript's clean render for
     ///   `PartialRestorePicker`); `type:ProjectStore` × 2 (the
-    ///   wiki-rename's rewrite of linking notes, a palette card's body);
-    ///   `type:PromotionPerformer` × 1 (a promoted note's body). None writes a
-    ///   CSV; a new one must say what it writes.
+    ///   wiki-rename's rewrite of a linking palette card — a note goes through
+    ///   the note door — and a palette card's body); `type:PromotionPerformer`
+    ///   × 1 (a promotion's text into a palette card, P2). None writes a CSV;
+    ///   a new one must say what it writes.
     /// - `TableCSV.renderResearch(` — the one renderer of a Research CSV's
     ///   text: `type:ResearchTableHost` × 1 (the door); `type:ProjectStore`
     ///   × 3 (a NEW file: Send to Research's working copy and New Table; and a
@@ -15613,5 +15614,109 @@ extension TripwireGrepTests {
                 + "and not in its comment or the look-alikes: \(planted)")
             XCTAssertNotEqual(planted, expected, "and a file not on the list fails the census")
         }
+    }
+
+    // MARK: - A Research note's text is written over through the note door (note versions plan 2, Task 4)
+
+    /// **The production callers of the note door, by type and count.**
+    /// `DocumentStore.saveResearchNote` keeps the text a write replaces as a
+    /// version and has an open editor reload; every writer of an existing
+    /// note's text outside the editor calls it (the editor's own debounced
+    /// save is `scheduleNoteSave`):
+    /// - `type:ProjectStore` × 3 — the rename's link sweep
+    ///   (`propagateWikiLinkRename`), Replace (`writeReplacedResearchText`,
+    ///   both verbs), a moved or renamed note's asset refs
+    ///   (`rewriteMovedNoteAssetRefs`).
+    /// - `type:PromotionPerformer` × 1 — `write(_:over:at:)`: a Rewrite, a
+    ///   new note's body, a line's link, an accepted offer's links.
+    /// A new caller is a new writer of note text: name it here. The census
+    /// sees the `.saveResearchNote(` spelling only; a bare call from inside a
+    /// `DocumentStore` extension would escape it.
+    static let researchNoteDoorCallers: [String: Int] = [
+        "type:ProjectStore": 3,
+        "type:PromotionPerformer": 1,
+    ]
+
+    func test_theNoteDoorsCallersAreExactlyTheNamedList() throws {
+        let (found, unresolved) = try countedListFound(
+            of: ".saveResearchNote(", keyedLike: Self.researchNoteDoorCallers, in: admissionRoots)
+        XCTAssertTrue(unresolved.isEmpty, "researchNoteDoorCallers: \(unresolved)")
+        XCTAssertEqual(found, Self.researchNoteDoorCallers,
+            "The production callers of `saveResearchNote` moved. Every writer of "
+            + "an existing Research note's text goes through the note door; update "
+            + "`researchNoteDoorCallers` with what the new caller writes, in the "
+            + "same commit. Found: \(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// **Every `.write(` in the files whose note writers now go through the
+    /// door, counted per file.** What is left is a no-`DocumentStore`
+    /// fallback, a palette card's write (P2), or not note text at all:
+    /// - `PromotionPerformer.swift` × 1 — `write(_:toPath:)`'s no-store fallback.
+    /// - `ProjectStore+Structure.swift` × 3 — a new manuscript file's empty
+    ///   create, a staged manuscript's bytes, and the link sweep's no-store
+    ///   fallback.
+    /// - `ProjectStore+Search.swift` × 1 — Replace's write of a file the door
+    ///   does not take, or with no store.
+    /// - `ProjectStore+Research.swift` × 3 — a new note's empty create, a
+    ///   staged table's bytes, a table's sidecar.
+    /// - `ProjectStore+ResearchMove.swift` × 1 — the asset-ref rewrite's
+    ///   no-store fallback.
+    /// A grep cannot tell a note's text from other bytes, so this is a
+    /// per-file ceiling, not a proof: a raw write of note text added to one
+    /// of these files fails it; one added elsewhere is not seen.
+    static let noteWriterFilesRawWrites: [String: Int] = [
+        "PromotionPerformer.swift": 1,
+        "ProjectStore+Structure.swift": 3,
+        "ProjectStore+Search.swift": 1,
+        "ProjectStore+Research.swift": 3,
+        "ProjectStore+ResearchMove.swift": 1,
+    ]
+
+    /// The raw writes in `roots`, per file, for the files the list names.
+    private func noteWriterFilesRawWritesFound(in roots: [URL]) throws -> [String: Int] {
+        Self.byFile(try occurrences(of: ".write(", in: roots), combine: +)
+            .filter { Self.noteWriterFilesRawWrites.keys.contains($0.key) }
+    }
+
+    func test_theNoteWriterFilesHoldOnlyTheirNamedRawWrites() throws {
+        let found = try noteWriterFilesRawWritesFound(in: admissionRoots)
+        XCTAssertEqual(Self.missingScope(Set(Self.noteWriterFilesRawWrites.keys), seen: Set(found.keys)), [])
+        XCTAssertEqual(found, Self.noteWriterFilesRawWrites,
+            "A `.write(` was added to (or left) a file whose Research-note writers "
+            + "go through the note door (`saveResearchNote`). Write a note's text "
+            + "through the door; for bytes that are not a note's text, update "
+            + "`noteWriterFilesRawWrites` with what it writes. Found: "
+            + "\(found.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// Both censuses fire: a planted caller of the door is counted under its
+    /// type, a planted raw write in a named file raises its count, and a
+    /// comment or the door's own declaration is counted by neither.
+    func test_theNoteDoorCensusesFireOnPlantedOffenders() throws {
+        let dir = TestTemp.root.appendingPathComponent("note-door-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+        extension ProjectStore {
+            // A comment may name .saveResearchNote( and .write( freely.
+            func saveResearchNote(itemId: String, text: String) async {}
+            func sweep(_ ds: DocumentStore, _ id: String, _ text: String, _ url: URL) async throws {
+                _ = await ds.saveResearchNote(itemId: id, text: text)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+        """.write(to: dir.appendingPathComponent("ProjectStore+Search.swift"), atomically: true, encoding: .utf8)
+
+        let (callers, unresolved) = try countedListFound(
+            of: ".saveResearchNote(", keyedLike: ["type:ProjectStore": 1], in: [dir])
+        XCTAssertEqual(unresolved, [])
+        XCTAssertEqual(callers, ["type:ProjectStore": 1],
+                       "the call is counted; the comment and the declaration are not")
+        XCTAssertNotEqual(callers, Self.researchNoteDoorCallers)
+
+        let raw = try noteWriterFilesRawWritesFound(in: [dir])
+        XCTAssertEqual(raw, ["ProjectStore+Search.swift": 2], "both raw writes, not the comment")
+        XCTAssertNotEqual(raw["ProjectStore+Search.swift"], Self.noteWriterFilesRawWrites["ProjectStore+Search.swift"])
     }
 }

@@ -54,8 +54,8 @@ extension ProjectStore {
     // We route manuscript replacements through the same `Document.setFullText`
     // path normal typing uses (open doc → live instance; closed doc →
     // `Document.load` → setFullText → persist via `close()`). Research notes
-    // are NOT op-log-backed (plain files persisted via DocumentStore), so they
-    // keep the raw atomic write.
+    // are NOT op-log-backed: they are written whole through the note door
+    // (`writeReplacedResearchText`), after one flush per replace.
     //
     // Coordinate-space subtlety: `SearchMatch.charRangeInDocument` /
     // `lineNumber` are DISPLAY-form coordinates — `ProjectSearchEngine` strips
@@ -137,6 +137,10 @@ extension ProjectStore {
                 replacement: replacement, occurrenceIndices: [ordinal])
 
         case .research:
+            // The editor's queued edits land first, so the bytes read below
+            // are the newest and the write cannot be undone by a later save.
+            try? await documentStore?.flushPendingSave()
+            await settleResearchEdits(at: match.documentPath)
             let url = try resolvedProjectPathToChange(match.documentPath)
             let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
             let ns = original as NSString
@@ -147,8 +151,32 @@ extension ProjectStore {
             }
             let updated = ns.replacingCharacters(
                 in: match.charRangeInDocument, with: replacement) as String
-            try updated.write(to: url, atomically: true, encoding: .utf8)
+            try await writeReplacedResearchText(updated, path: match.documentPath, url: url)
         }
+    }
+
+    /// A research file's text after a replace. **A note goes through the note
+    /// door** — what it held is kept as a version, and an editor open on it
+    /// reloads — and the door writing nothing throws, as any other failure of
+    /// this write does (`replaceAll` stops there, as it always has). A file
+    /// the door does not take (a palette card, P2), or any file with no
+    /// `DocumentStore`, keeps the raw atomic write and keeps nothing.
+    private func writeReplacedResearchText(_ text: String, path: String, url: URL) async throws {
+        guard let ds = documentStore, let note = ds.researchNoteItem(atPath: path) else {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return
+        }
+        guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text) else {
+            throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
+        }
+    }
+
+    /// An edit of the note at `path` typed since the replace's flush is saved
+    /// before its file is read (`settleResearchNoteEdits`). Nothing for a
+    /// file that is not a note.
+    private func settleResearchEdits(at path: String) async {
+        guard let ds = documentStore, let note = ds.researchNoteItem(atPath: path) else { return }
+        await ds.settleResearchNoteEdits(itemId: note.id)
     }
 
     /// Replace all matches in the given results with `replacement`.
@@ -166,6 +194,11 @@ extension ProjectStore {
     ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         var leftAlone: [String] = []
+        // Once for the whole replace: the editor's queued note edits land
+        // before any research file below is read.
+        if results.matches.contains(where: { $0.documentSource == .research }) {
+            try? await documentStore?.flushPendingSave()
+        }
         for path in grouped.keys.sorted() {
             guard let matches = grouped[path],
                   let source = matches.first?.documentSource else { continue }
@@ -182,6 +215,7 @@ extension ProjectStore {
                 }
 
             case .research:
+                await settleResearchEdits(at: path)
                 let url = try resolvedProjectPathToChange(path)
                 let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
                 var ns = original as NSString
@@ -198,8 +232,7 @@ extension ProjectStore {
                         in: match.charRangeInDocument,
                         with: replacement) as NSString
                 }
-                try (ns as String).write(
-                    to: url, atomically: true, encoding: .utf8)
+                try await writeReplacedResearchText(ns as String, path: path, url: url)
             }
         }
         return ReplaceAllOutcome(leftAlone: leftAlone)

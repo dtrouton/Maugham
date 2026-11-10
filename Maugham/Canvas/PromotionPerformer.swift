@@ -89,6 +89,10 @@ enum PromotionFailure: LocalizedError, Equatable {
     /// The destination exists on disk and could not be READ. Distinct from
     /// "no file there", which is legitimately empty — see `readBody`.
     case unreadableFile(String)
+    /// The note door wrote nothing (`DocumentStore.saveResearchNote` said
+    /// `.notSaved`): its previous version could not be kept, or the save
+    /// failed. The door's own notice says which; the note is as it was.
+    case noteNotSaved(title: String)
     /// The piece association names something a research note cannot be created
     /// under: the piece is gone (title nil), or it is a Collection reference
     /// piece, which keeps its research in its own project.
@@ -160,6 +164,8 @@ enum PromotionFailure: LocalizedError, Equatable {
         case .unreadableFile(let path):
             return "Maugham could not read what is already in \(path), so it did not "
                 + "write over it."
+        case .noteNotSaved(let title):
+            return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .pieceIsNotAResearchTarget(let title, let inherited, let canCarryItsOwnPiece):
             // Composed from halves rather than written out six times: what is
             // wrong, then the act that fixes it. The second half is the one that
@@ -487,6 +493,14 @@ struct PromotionPerformer {
         }
     }
 
+    /// **P1 (pending Denver, asked 2026-11-10): a Rewrite keeps the replaced
+    /// text as a Trash `priorVersion` entry (M6-PR-037) and, through the note
+    /// door, as a version. Replace the Trash entry with the version, or keep
+    /// both?** Default built: keep both. `false` leaves the version alone —
+    /// but a Rewrite inside the writer's own typing run keeps no version
+    /// (the door's run rule), so flipping it wants the door to keep regardless.
+    static let aRewriteAlsoTrashesWhatItReplaces = true
+
     // MARK: - The four targets
 
     private func performResearchNote(_ plan: PromotionPlan) async throws -> PromotionResult {
@@ -530,10 +544,11 @@ struct PromotionPerformer {
             // `Promotion.plannedTitle` now carries the artifact's own name, and
             // this arm reads no name at all.
             //
-            // Keep what is there before writing over it: research is recoverable
-            // but not versioned (RULING-24), and this is the only route back to
-            // the afternoon the writer spent in that note.
-            try await preservePriorVersion(ofItem: existing)
+            // Keep what is there before writing over it in the Trash too
+            // (M6-PR-037), beside the version the note door keeps: P1.
+            if Self.aRewriteAlsoTrashesWhatItReplaces {
+                try await preservePriorVersion(ofItem: existing)
+            }
             itemID = existing
         }
         try await writeBody(plan.body, toItem: itemID)
@@ -731,7 +746,7 @@ struct PromotionPerformer {
                 throw PromotionFailure.linkAlreadyPresent(
                     destination: plan.destinationDescription)
             }
-            try await write(body + link.appendedText, toPath: path)
+            try await write(body + link.appendedText, over: item, at: path)
             return PromotionResult(createdItemID: item.id, title: item.title, writtenLinks: [])
         case .statement(let statement):
             // **The freshest text, and not the file.** `statementText`'s live arm
@@ -916,7 +931,10 @@ struct PromotionPerformer {
             switch writableDestination(of: offer.itemID) {
             case nil:
                 continue   // genuinely gone since the sheet opened — the honest skip
-            case .researchFile(_, let path):
+            case .researchFile(let item, let path):
+                // An edit typed during this loop's earlier awaits lands before
+                // the read, which reaches the door with no await between.
+                await store.documentStore?.settleResearchNoteEdits(itemId: item.id)
                 let body = try readBody(atPath: path)
                 // Target-based, one spelling with `performWikiLink`'s guards
                 // (RULING-50). For the plain link this pass writes the raw
@@ -924,7 +942,7 @@ struct PromotionPerformer {
                 // the token — but two spellings of one identity is how the
                 // asymmetry shipped in the first place.
                 guard !Promotion.alreadyLinks(to: artifactTitle, in: body) else { continue }
-                try await write(body + "\n\n" + link + "\n", toPath: path)
+                try await write(body + "\n\n" + link + "\n", over: item, at: path)
                 written.append(offer.node)
             case .statement(let statement):
                 guard !Promotion.alreadyLinks(to: artifactTitle,
@@ -949,7 +967,22 @@ struct PromotionPerformer {
         guard let item = TreeWalk.find(id: id, in: store.manifest.research),
               let path = item.path else { throw PromotionFailure.itemHasNoFile(id) }
         try? await store.documentStore?.flushPendingSave()
-        try await write(text, toPath: path)
+        try await write(text, over: item, at: path)
+    }
+
+    /// **A note's text goes through the note door** (note versions plan 2):
+    /// what it replaces is kept as a version, and an editor open on it
+    /// reloads. Anything the door does not take (a palette card, P2) — and
+    /// any write with no `DocumentStore` — keeps `write(_:toPath:)`. The door
+    /// writing nothing throws, so the promotion says the note is unchanged.
+    private func write(_ text: String, over item: ResearchItem, at path: String) async throws {
+        guard let ds = store.documentStore, ResearchNoteDoor.takes(item) else {
+            try await write(text, toPath: path)
+            return
+        }
+        guard case .saved = await ds.saveResearchNote(itemId: item.id, text: text) else {
+            throw PromotionFailure.noteNotSaved(title: item.title)
+        }
     }
 
     /// Send the artifact's CURRENT file to the project trash before a rewrite
@@ -988,10 +1021,11 @@ struct PromotionPerformer {
         try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
     }
 
-    /// Through the same `NSFileCoordinator` path research-note saves use, so a
-    /// promotion into a cloud-synced project does not race iCloud. The direct
-    /// write is the no-`DocumentStore` fallback (load-only contexts), mirroring
-    /// `ProjectStore+Palette.paletteCoordinatedWrite`.
+    /// A palette card's text (P2), or any text with no `DocumentStore`: the
+    /// same `NSFileCoordinator` path research-note saves use, so a promotion
+    /// into a cloud-synced project does not race iCloud. The direct write is
+    /// the no-`DocumentStore` fallback (load-only contexts), mirroring
+    /// `ProjectStore+Palette.paletteCoordinatedWrite`. It keeps nothing.
     private func write(_ text: String, toPath path: String) async throws {
         if let ds = store.documentStore {
             try await ds.performFileSave(path: path, text: text)

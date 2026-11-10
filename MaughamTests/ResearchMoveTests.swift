@@ -25,6 +25,7 @@ final class ResearchMoveTests: XCTestCase {
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
+        ds.projectStore = store   // both ways, as ProjectSession.open: the note door finds notes through it
         let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
         return (url, store, ds, piece)
     }

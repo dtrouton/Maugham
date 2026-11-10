@@ -55,6 +55,9 @@ final class PromotionPerformerTests: XCTestCase {
         let store = try await ProjectStore.load(from: tmp)
         let ds = try await DocumentStore.open(url: tmp)
         store.documentStore = ds
+        // Both ways, as `ProjectSession.open` wires them: the note door
+        // finds a note through the store's `projectStore`.
+        ds.projectStore = store
         documentStores.append(ds)
         return (tmp, store)
     }
@@ -305,6 +308,101 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertFalse(text.contains("Sodium light on the spray."),
                        "an update REWRITES the body — that is what the preview says "
                        + "it will do")
+    }
+
+    // MARK: - The note door (note versions plan 2, Task 4)
+
+    /// The newest version the note door kept for `item`.
+    private func newestVersionText(of item: ResearchItem, in root: URL) throws -> String {
+        let versions = ResearchVersionStore(projectURL: root)
+        let newest = try XCTUnwrap(versions.versions(itemId: item.id).max(by: { $0.savedAt < $1.savedAt }),
+                                   "no version was kept")
+        return String(decoding: try versions.read(newest).0, as: UTF8.self)
+    }
+
+    /// The writer's own words in the note, written behind the store's back
+    /// (the research pane of another session, or by hand).
+    private func writersOwnWords(_ text: String, into item: ResearchItem, in root: URL) throws {
+        try Data(text.utf8).write(to: root.appendingPathComponent(item.path ?? ""))
+    }
+
+    /// P1's default: a Rewrite keeps what it replaced as a version AND as the
+    /// Trash `priorVersion` entry M6-PR-037 filed.
+    func test_aRewriteKeepsTheNotesTextAsAVersion_andStillTrashesIt() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("An afternoon of my own prose.\n", into: note, in: root)
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+
+        XCTAssertEqual(try body(of: note, in: root), "The falls at night\n\nRewritten on the canvas.")
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "An afternoon of my own prose.\n")
+        let trashed = try await store.trashStore.list()
+        XCTAssertNotNil(trashed.first { $0.subject == .priorVersion }, "P1: the Trash entry is still made")
+        XCTAssertEqual(first.createdItemID, note.id)
+    }
+
+    /// `.notSaved` is not swallowed: the Rewrite throws and the note is as it was.
+    func test_aRewriteWhoseVersionCannotBeKeptSaysTheNoteIsUnchanged() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("An afternoon of my own prose.\n", into: note, in: root)
+        let versionsDir = root.appendingPathComponent(".maugham/research-versions")
+        try FileManager.default.createDirectory(at: versionsDir, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: versionsDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: versionsDir.path) }
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        do {
+            _ = try await performer.perform(
+                plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+            XCTFail("a Rewrite the door refused must say so")
+        } catch PromotionFailure.noteNotSaved(let title) {
+            XCTAssertEqual(title, "The falls at night")
+        }
+        XCTAssertEqual(try body(of: note, in: root), "An afternoon of my own prose.\n")
+    }
+
+    func test_aLinePromotionKeepsTheNotesTextAsAVersion() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("My own words.\n", into: note, in: root)
+
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[October's doctor]]"))
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "My own words.\n")
+    }
+
+    func test_anAcceptedOfferKeepsEachMembersNoteAsAVersion() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("My own words.\n", into: note, in: root)
+        var p = plan(.region(r1), .paletteCard, store: store, model: model)
+        p.linksAccepted = true
+
+        _ = try await PromotionPerformer(store: store, model: model).perform(p)
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[Act II fog]]"))
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "My own words.\n")
     }
 
     func test_updatingAnArtifactThatHasSinceBeenDeletedRefusesRatherThanCreating() async throws {

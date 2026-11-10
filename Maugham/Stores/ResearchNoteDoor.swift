@@ -406,20 +406,39 @@ final class ResearchNoteDoor {
     }
 
     /// The note `itemId` names and its path, asked of the manifest now; nil —
-    /// write nothing — when it is gone (said) or is not a note (logged: P2's
-    /// default keeps palette cards, and a table has its own door).
+    /// write nothing — when it is gone (said) or the door does not take it
+    /// (logged: a palette card under P2's default, and a table has its own door).
     private func noteItem(_ itemId: String, in store: DocumentStore) -> (ResearchItem, String)? {
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
-              item.path != nil else {
+              let path = item.path else {
             MaughamEvent.postNotice("A Research note’s edits couldn’t be saved: it is no longer in Research.",
                                     projectURL: store.projectURL)
             return nil
         }
-        guard case .note(let path) = ResearchTextRole.of(item) else {
+        guard Self.takes(item) else {
             researchNoteLog.error("\(itemId, privacy: .public) is not a Research note; the note door wrote nothing")
             return nil
         }
         return (item, path)
+    }
+
+    /// **P2 (pending Denver, asked 2026-11-10): do palette cards get
+    /// versions?** Default built: no. A writer whose target is a card keeps
+    /// the write it had (`ProjectStore.paletteCoordinatedWrite`, the rename's
+    /// link sweep, Replace, a promotion's link). Flipping this routes those
+    /// sweeps' card writes through the door too; the palette's own writer
+    /// (`paletteCoordinatedWrite`) would still need routing by hand.
+    static let paletteCardsKeepVersions = false
+
+    /// **Whether a write of `item`'s text goes through the door** — the one
+    /// question every writer of existing Research text asks (`ResearchTextRole`
+    /// says what the item is; P2 says whether a card is the door's).
+    static func takes(_ item: ResearchItem) -> Bool {
+        switch ResearchTextRole.of(item) {
+        case .note: return true
+        case .paletteCard: return paletteCardsKeepVersions
+        case nil: return false
+        }
     }
 
     private func resolved(_ path: String, in store: DocumentStore) -> URL? {
@@ -527,19 +546,31 @@ extension DocumentStore {
         researchNoteDoor.hasPending(itemId)
     }
 
+    /// **Returns once no edit of note `itemId` is waiting.** A writer that
+    /// reads a note's file to write a changed copy back (a rename's link
+    /// sweep, Replace, a promotion's appended link) reads after this, with no
+    /// `await` before its `saveResearchNote`: otherwise an edit typed during
+    /// its earlier awaits is flushed by the door and then written over by
+    /// text made from the bytes before it.
+    func settleResearchNoteEdits(itemId: String) async {
+        while researchNoteDoor.hasPending(itemId) {
+            await researchNoteDoor.flushPending(in: self)
+        }
+    }
+
     /// The note `itemId`'s `bytes` were read (the editor's load): a later save
     /// over them is over known bytes.
     func researchNoteWasRead(itemId: String, bytes: Data) {
         researchNoteDoor.wasRead(itemId: itemId, bytes: bytes)
     }
 
-    /// **The Research note at `path`**, nil for a path that names no note (a
-    /// palette card, a table, anything else) — the one path → note lookup.
+    /// **The Research note at `path`**, nil for a path whose text the door
+    /// does not take (a palette card under P2, a table, anything else) — the
+    /// one path → note lookup.
     func researchNoteItem(atPath path: String) -> ResearchItem? {
         guard let projectStore else { return nil }
         return TreeWalk.first(in: projectStore.manifest.research) { item in
-            if case .note(let notePath) = ResearchTextRole.of(item) { return notePath == path }
-            return false
+            item.path == path && ResearchNoteDoor.takes(item)
         }
     }
 }

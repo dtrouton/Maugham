@@ -19,7 +19,7 @@ final class DocBudgetTests: XCTestCase {
         "Maugham/OpLog/AREA.md": 7_995,
         "Maugham/Views/AREA.md": 7_994,
         "Maugham/Compiler/AREA.md": 7_951,
-        "Maugham/Stores/AREA.md": 7_997,
+        "Maugham/Stores/AREA.md": 7_992,
         "Maugham/MCP/AREA.md": 6_875,
         "MaughamPhone/AREA.md": 4_359,
         "Maugham/Editor/AREA.md": 6_814,

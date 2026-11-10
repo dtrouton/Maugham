@@ -73,6 +73,7 @@ final class StatementMountFixture: RunLoopPumping {
         await store.wordCountPopulationTask?.value
         let documentStore = try await DocumentStore.open(url: projectURL)
         store.documentStore = documentStore
+        documentStore.projectStore = store   // both ways, as ProjectSession.open: the note door finds notes through it
 
         guard let item = store.manifest.structure.first(where: { $0.type == .document }) else {
             throw NSError(domain: "StatementMountFixture", code: 1, userInfo: [

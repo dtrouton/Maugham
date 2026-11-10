@@ -716,14 +716,16 @@ extension ProjectStore {
         // describe and the file contradicts.
         //
         // A note is NOT op-logged (no `¶id` anchors, no second representation),
-        // so the rewrite is an ordinary coordinated whole-file write rather
-        // than an op. The flush first is what keeps it: a `ResearchNoteEditor`
-        // save queued on the 750 ms debounce would otherwise land after this
-        // write and put the stale body back.
+        // so the rewrite is a whole-file write (the note door's) rather than
+        // an op. The flush first means the bodies read below hold every
+        // queued edit.
         try? await documentStore?.flushPendingSave()
         for item in TreeWalk.collect(in: manifest.research,
                                      where: { $0.kind == .document }) {
             guard let path = item.path else { continue }
+            // An edit typed during this loop's earlier awaits is saved before
+            // the read below, which reaches the door with no await between.
+            await documentStore?.settleResearchNoteEdits(itemId: item.id)
             let noteURL: URL
             do { noteURL = try resolvedProjectPathToChange(path) } catch {
                 projectStoreLog.error(
@@ -749,6 +751,18 @@ extension ProjectStore {
             }
             guard let rewritten = WikiLinkRewriter.rewriteAll(
                 body: body, pairs: pairs) else { continue }
+            // A note goes through the note door: what it held is kept as a
+            // version, and an editor open on it reloads rather than typing
+            // over the rewrite. Not saved is this loop's per-item failure —
+            // logged (the door says why), and the sweep goes on.
+            if let ds = documentStore, ResearchNoteDoor.takes(item) {
+                if case .notSaved = await ds.saveResearchNote(itemId: item.id, text: rewritten) {
+                    projectStoreLog.error(
+                        "Wiki-rename: research note \(path, privacy: .public) not saved, skipped")
+                }
+                continue
+            }
+            // A palette card (P2) keeps the write it had, and keeps nothing.
             do {
                 if let ds = documentStore {
                     try await ds.performFileSave(path: path, text: rewritten)
