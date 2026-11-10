@@ -1,6 +1,6 @@
 # Stores — area guide
 
-The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores; and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
+The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` and `DocumentStore`; the inbox and its transcription; the small stores; and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
 
 ## Map
 
@@ -13,7 +13,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DocumentStore.swift` — the project-folder coordinator: the `NSFilePresenter` callbacks (`presenterDidChangeSubitem`), the `Document` registry, manifest IO and adoption hand-off, sessions and UI state, the typed mover (`relocate(plan:)`, `relocateUserContent`, `trash`), `coordinatedMove`/`coordinatedWrite`, `admit`, `invalidateTrust`, `reReadAfterExternalChange`. Tripwires 14, 40, 49, 50.
 - `DocumentStore+Registry.swift` — `revoke(person:)`, `retire(device:)`, `claim(adopting:)`, `forgetPersonKey(person:)`, `settle`, `heldLines()`/`heldLinesByDevice()`, `highestOpIdApplied(fromPerson:)`, the silent-admission queue. Tripwires 41, 53.
 - `DocumentStore+ClosedHeldLines.swift` — held lines in documents nobody has open (`closedProvenance`, `sweepClosedProvenance`).
-- `DocumentStore+Figures.swift`, `DocumentStore+CellTranslations.swift` — figures in a window: `openFigure` (this store is the figure's door), the presenter's figure pass (reload, re-render the figure and its readers), `renderFigures` over `assembledFigures()`, `pinSources(for:)` (what a figure's research pins read), the figure cache's trust drop, a table's cell translations; `withFigureHost` lends a host for one act, closed when the last loan ends unless kept.
+- `DocumentStore+Figures.swift`, `DocumentStore+CellTranslations.swift` — figures in a window: `openFigure`, the presenter's figure pass, `renderFigures` over `assembledFigures()`, `pinSources(for:)`, the figure cache's trust drop, a table's cell translations; `withFigureHost` lends a host for one act, closed when the last loan ends unless kept.
 - `DocumentStore+FigureAnnotations.swift` — `addFigureAnnotation`: a figure note's creation.
 - `DocumentStore+Posture.swift` — the Mac's posture door: `PostureBook`, `posture(forDocId:as:)`, `settledPosture(forDocId:as:)`, `posture(forPath:)`, `translationPosture(forDocId:as:)`/`settledTranslationPosture(forDocId:as:)`, `overrideYield(docId:)`. Tripwires 46, 51.
 - `ProjectFolderPresenter.swift` — the `NSFilePresenter` forwarding callbacks to `DocumentStore`.
@@ -36,7 +36,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
 - `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` refuses a parked figure, asks every door first, then relabels the text; `removeFigure` always trashes the record (with its file, a fresh render, or alone), and restoring it re-registers the figure. Tripwire 52.
 - `ProjectStore+FigureTranslations.swift` — a rename's fresh translation records: read and door-checked first, relabelled after the text, all or nothing.
-- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack` (unchanged: resumed; changed: three-way); `sendToResearch` parks one; `retargetFigureLine` repoints a legacy line at its new figure (*Move into Figures*); `pinSourceRead` reads a pin's source. A figure from shared Research is whole-book; a piece's Research makes that piece's.
+- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack`; `sendToResearch` parks one; `retargetFigureLine` repoints a legacy line at its new figure (*Move into Figures*); `pinSourceRead` reads a pin's source. A figure from shared Research is whole-book; a piece's Research makes that piece's.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
@@ -66,6 +66,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteItem(atPath:)`) and `ResearchTextRole`, the one note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -98,7 +99,8 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
-| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table save's prior bytes and sidecar, write-once, per device |
+| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table or note save's prior bytes (a table's with its sidecar), write-once, per device |
+| `.maugham/research-notes/` | `ResearchNoteRecord` (Core) | who wrote each note's text on disk |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
@@ -137,6 +139,7 @@ Two things deliberately live elsewhere:
 - **Test-only `wait*` helpers do not go in production code**: mark them `#if DEBUG` or move them to a test helper. `waitForStructuralVerbs` is production (`readManifest` uses it).
 - **Apply an id prefix once, in the generator** (ADR 0008): `scene-scene-…` or `doc-doc-…` is a bug.
 - **Use `DebounceScheduler` for autosave-like behaviour**; for a different cadence add a configured instance, never ad-hoc debouncing.
+- **An existing Research note's text is written through `saveResearchNote`** (`researchTableWriteSites`): its path asked at the save, one note's saves queued; `flushPendingSave` waits for them.
 - **Only the owner writes a `.maugham/` path** (the table above). The OpLog area writing `.maugham/ops/` and the checkpoints file is the ownership exception.
 - **A new top-level `.maugham/` directory needs a reason**, and is a lowercase noun, plural for a collection of records.
 - **Read and write cloud-synced manuscript and project files through `NSFileCoordinator`** (`coordinatedMove`/`coordinatedWrite`): iCloud otherwise races you.

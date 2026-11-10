@@ -15543,12 +15543,15 @@ extension TripwireGrepTests {
     /// disk before it saves; a second writer would replace a table with no
     /// version kept, and the history would silently stop being whole.
     ///
-    /// - `.keep(priorBytes:` — `ResearchVersionStore.keep`, whose one caller
-    ///   is the door (`type:ResearchTableHost` × 1). A second caller is a
-    ///   second opinion on what a save keeps (the run rule lives in one place).
+    /// - `.keep(priorBytes:` — `ResearchVersionStore.keep`, whose callers
+    ///   are the two doors: `type:ResearchTableHost` × 1 (a table's) and
+    ///   `type:ResearchNoteDoor` × 1 (a note's). A third caller is a third
+    ///   opinion on what a save keeps (the run rule lives in `ResearchSaveRun`).
     /// - `.performFileSave(` — the window's coordinated whole-file write. Its
-    ///   callers: `type:ResearchTableHost` × 1 (the door); `type:DocumentStore`
-    ///   × 1 (a research NOTE's debounced save); `type:ProjectStore` × 2 (the
+    ///   callers: `type:ResearchTableHost` × 1 (the door); `type:ResearchNoteDoor`
+    ///   × 1 (a research NOTE's save, debounced or not); `type:DocumentStore`
+    ///   × 1 (`scheduleFileSave`'s debounce: a manuscript's clean render for
+    ///   `PartialRestorePicker`); `type:ProjectStore` × 2 (the
     ///   wiki-rename's rewrite of linking notes, a palette card's body);
     ///   `type:PromotionPerformer` × 1 (a promoted note's body). None writes a
     ///   CSV; a new one must say what it writes.
@@ -15562,9 +15565,10 @@ extension TripwireGrepTests {
     /// here has no CSV-specific spelling; `renderResearch` is the census's
     /// grip on it.
     static let researchTableWriteSites: [String: [String: Int]] = [
-        ".keep(priorBytes:": ["type:ResearchTableHost": 1],
+        ".keep(priorBytes:": ["type:ResearchTableHost": 1, "type:ResearchNoteDoor": 1],
         ".performFileSave(": [
             "type:ResearchTableHost": 1,
+            "type:ResearchNoteDoor": 1,
             "type:DocumentStore": 1,
             "type:ProjectStore": 2,
             "type:PromotionPerformer": 1,

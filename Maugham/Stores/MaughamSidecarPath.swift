@@ -125,6 +125,13 @@ internal enum MaughamSidecarPath: Equatable {
     /// of `ResearchVersionStore.folder` and never spelled here.
     case researchVersion(relativePath: String)
 
+    /// A Research note's record (`ResearchNoteRecord`,
+    /// `.maugham/research-notes/<item id>.json`, note versions plan 2): who
+    /// wrote the text on disk. Routing intent: ignore — it is read when a
+    /// save keeps a version, never reactively. The folder is asked of
+    /// `ResearchNoteRecord.folder` and never spelled here.
+    case researchNote(relativePath: String)
+
     /// A path under `.maugham/` that doesn't match any known subdir.
     /// Routing intent: ignore.
     case unknownSidecar(relativePath: String)
@@ -272,6 +279,10 @@ internal enum MaughamSidecarPath: Equatable {
 
         if relativePath.hasPrefix(ResearchVersionStore.folder + "/") {
             return .researchVersion(relativePath: relativePath)
+        }
+
+        if relativePath.hasPrefix(ResearchNoteRecord.folder + "/") {
+            return .researchNote(relativePath: relativePath)
         }
 
         if relativePath.hasPrefix(".maugham/inbox/") {

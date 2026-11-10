@@ -159,4 +159,14 @@ final class MaughamSidecarPathTests: XCTestCase {
             .researchVersion(relativePath: ".maugham/research-versions/res-1a2b3c4d/20270115-080000-mac-a.csv")
         )
     }
+
+    /// A Research note's record (note versions plan 2) has a case of its own,
+    /// so it is never mistaken for an unknown sidecar.
+    func testClassifies_researchNoteRecord() throws {
+        let url = try ResearchNoteRecord.fileURL(forItem: "res-1a2b3c4d", in: projectURL)
+        XCTAssertEqual(
+            MaughamSidecarPath.classify(url: url, projectURL: projectURL),
+            .researchNote(relativePath: ".maugham/research-notes/res-1a2b3c4d.json")
+        )
+    }
 }

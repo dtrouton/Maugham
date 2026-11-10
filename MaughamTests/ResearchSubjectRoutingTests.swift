@@ -284,11 +284,18 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 + "function is what keeps the two columns from disagreeing about "
                 + "whether an item is a card, a note or a preview")
         }
+        // The note-or-card rule moved to the store layer (note versions
+        // plan 2, Task 2) so the note door asks the same predicate.
         XCTAssertEqual(
-            occurrences(of: "ProjectStore.paletteFolderPath", in: source), 1,
-            "and the palette-path rule is spelled exactly once, inside "
-            + "`researchCentreRoute` — a second copy is the drift with extra "
-            + "steps")
+            occurrences(of: "ProjectStore.paletteFolderPath", in: source), 0,
+            "the palette-path rule is not spelled in the view: "
+            + "`researchCentreRoute` asks `ResearchTextRole.of`")
+        XCTAssertEqual(occurrences(of: "ResearchTextRole.of(", in: source), 1)
+        let predicate = try CanvasSourceCensus.source(at: "Maugham/Stores/ResearchNoteDoor.swift")
+        XCTAssertEqual(
+            occurrences(of: "ProjectStore.paletteFolderPath", in: predicate), 1,
+            "and it is spelled exactly once, inside `ResearchTextRole.of` — a "
+            + "second copy is the drift with extra steps")
     }
 
     // MARK: - The metrics zero themselves (contract 3)

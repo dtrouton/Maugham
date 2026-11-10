@@ -568,3 +568,11 @@ The deferred word count's rule joined the guide; these clauses left it to pay fo
 - `register` counting a piece as it opens is what leaves the first keystroke carrying only what it typed; the load-time pass skips a piece that left the structure since it began.
 - `recountFromOpLogs` runs off the presenter callback, with a yield between pieces.
 - `ProjectStore.derivedCache`: open docs read the live `Document`; it is `ProjectStore`'s because the weak `documentStore` is not wired during `load`.
+
+## Moved here by note versions plan 2, Task 2 (2026-11-10)
+
+The note door's Map row, its rule and the `.maugham/research-notes/` layout row joined the guide; these clauses left it to pay for them.
+
+- The guide's opening line described the two big stores: `ProjectStore` is the manifest (structure, research, statements, cast, trash and every binder verb); `DocumentStore` is the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door. The Map says the same, row by row.
+- `DocumentStore+Figures.swift`: this store is the figure's door (`openFigure`); the presenter's figure pass reloads and re-renders the figure and its readers; `pinSources(for:)` is what a figure's research pins read.
+- `bringBack` on a parked figure's copy: unchanged, it resumes; changed, it is a three-way.

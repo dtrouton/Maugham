@@ -233,6 +233,10 @@ public final class DocumentStore {
     /// Bumped when a Research table save keeps a version, and on every
     /// restore: the inspector's version list reloads on it.
     var researchVersionsRevision = 0
+    /// **The note door's state** (`ResearchNoteDoor`): per note, the bytes
+    /// known, the writer's run, the last kept hash, and the saves in flight.
+    /// Not observed: a save invalidates no view.
+    @ObservationIgnored let researchNoteDoor = ResearchNoteDoor()
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
     @ObservationIgnored private var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
@@ -361,7 +365,8 @@ public final class DocumentStore {
     }
 
     /// Debounced save scheduler used by callers that aren't Documents —
-    /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
+    /// a Research note's editor (`scheduleNoteSave`) and `PartialRestorePicker`
+    /// (`scheduleFileSave`), sharing one slot. Documents
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
@@ -370,9 +375,19 @@ public final class DocumentStore {
     /// refused on every save, and said once, not once per typing pause.
     @ObservationIgnored private(set) var refusedSavePathsLogged: Set<String> = []
 
-    private struct FileSavePayload: Sendable {
-        let path: String
-        let text: String
+    /// What the one debounce slot holds: a file's text by path (a
+    /// manuscript's clean render, `PartialRestorePicker`), or a Research
+    /// note's by item id, saved through the note door (`saveResearchNote`).
+    private enum FileSavePayload: Sendable {
+        case file(path: String, text: String)
+        case note(itemId: String, text: String)
+    }
+
+    /// A debounced save refused for a synced path that leaves the project
+    /// (tripwire 58): logged once per path, not once per typing pause.
+    func logRefusedSave(path: String, reason: String) {
+        guard refusedSavePathsLogged.insert(path).inserted else { return }
+        documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
     }
 
     private init(projectURL: URL, uiState: UIState) {
@@ -524,13 +539,19 @@ public final class DocumentStore {
         store.fileSaveScheduler = DebounceScheduler<FileSavePayload>(
             delay: .milliseconds(750)
         ) { [weak store] payload in
-            do {
-                try await store?.performFileSave(path: payload.path, text: payload.text)
-            } catch ProjectStoreError.unsafeProjectPath(let path, let reason) {
-                guard let store, store.refusedSavePathsLogged.insert(path).inserted else { return }
-                documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
-            } catch {
-                documentStoreLog.error("Research-note autosave failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            guard let store else { return }
+            switch payload {
+            case .note(let itemId, let text):
+                // The note door says what the writer must hear itself.
+                await store.saveResearchNote(itemId: itemId, text: text)
+            case .file(let path, let text):
+                do {
+                    try await store.performFileSave(path: path, text: text)
+                } catch ProjectStoreError.unsafeProjectPath(let path, let reason) {
+                    store.logRefusedSave(path: path, reason: reason)
+                } catch {
+                    documentStoreLog.error("Debounced file save failed for \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
 
@@ -908,14 +929,24 @@ public final class DocumentStore {
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.
-    /// Used by `ResearchNoteEditor` and `PartialRestorePicker` — anything
-    /// that isn't a manuscript `Document` (Documents autosave internally).
+    /// For a file that is neither a manuscript `Document` (Documents autosave
+    /// internally) nor a Research note (`scheduleNoteSave`): today
+    /// `PartialRestorePicker`'s clean render.
     public func scheduleFileSave(for path: String, text: String) {
         guard fileSaveScheduler != nil else { return }
-        fileSaveScheduler.schedule(FileSavePayload(path: path, text: text))
+        fileSaveScheduler.schedule(.file(path: path, text: text))
     }
 
-    /// Flush any pending `scheduleFileSave` immediately — and every open
+    /// **The editor's debounced save of a Research note**: on the same 750ms
+    /// slot, by item id, through the note door (`saveResearchNote`), so the
+    /// path is asked at the save and the text it replaces can be kept.
+    func scheduleNoteSave(itemId: String, text: String) {
+        guard fileSaveScheduler != nil else { return }
+        fileSaveScheduler.schedule(.note(itemId: itemId, text: text))
+    }
+
+    /// Flush any pending `scheduleFileSave`/`scheduleNoteSave` immediately, and
+    /// wait for every note save in flight — and every open
     /// Research table's pending save (`researchTables`). `commitOpenEdits`
     /// also commits a cell being typed in a Research grid: the writer's own
     /// verbs only (⌘S, the store's close at a window's close and ⌘Q); a
@@ -925,8 +956,11 @@ public final class DocumentStore {
     public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
         for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
         for closing in Array(researchTableClosings.values) { await closing.value }
-        guard let fileSaveScheduler else { return }
-        await fileSaveScheduler.flush()
+        if let fileSaveScheduler { await fileSaveScheduler.flush() }
+        // A note save in flight (the debounce's own run, or a direct
+        // `saveResearchNote`) lands before the flush returns: ⌘S, the typed
+        // mover and the close all wait for it.
+        await researchNoteDoor.settle()
     }
 
     /// **Research item `itemId`'s table, for a grid** — the one this store
@@ -2383,7 +2417,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot, .exports,
-             .researchTable, .researchVersion, .unknownSidecar, .outsideProject:
+             .researchTable, .researchVersion, .researchNote, .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
             // rather than "extend a string cascade".

@@ -212,17 +212,12 @@ extension ProjectWindow {
                                     in research: [ResearchItem]) -> ResearchCentreRoute {
         guard let id, let item = TreeWalk.find(id: id, in: research) else { return .missing }
         if item.type == .asset, item.kind == .table, let path = item.path { return .table(item: item, path: path) }
-        guard item.kind == .document, let path = item.path else { return .preview(item) }
-        // **A path prefix ending in the SEPARATOR**, not a name test and not a
-        // bare `hasPrefix`: a research group called "Palette research" gives its
-        // notes paths that start with the palette folder's characters and are
-        // not inside it, and routing one of those here shows "Card unavailable"
-        // over a note the writer can see in their tree
-        // (`test_aNoteBesideThePaletteFolderIsStillANote`).
-        if path.hasPrefix(ProjectStore.paletteFolderPath + "/") {
-            return .paletteCard(item.id)
+        // Note or card is asked of the one predicate the note door asks too.
+        switch ResearchTextRole.of(item) {
+        case .paletteCard: return .paletteCard(item.id)
+        case .note(let path): return .note(item: item, path: path)
+        case nil: return .preview(item)
         }
-        return .note(item: item, path: path)
     }
 }
 
