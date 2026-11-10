@@ -51,8 +51,14 @@ before it as a version, marked "Before the assistant’s change": the writer's
 Restore previous version right after your write undoes it. A version holding
 values you wrote is marked "Written by assistant".
 `research:` references inside a Research table compute only through pins, and
-`read_research_table` says so. A view-only share refuses `create_research_table`,
-`write_research_cells` and `add_note`; `read_research_table` still reads.
+`read_research_table` says so. To change a Research note that already exists,
+read it with `read_document`, then pass its whole new text to `update_note`
+(ids from `list_research`); the text it replaces, the writer's unsaved edit
+included, is kept as a version marked "Before the assistant’s change" that the
+writer restores from the note's inspector. It takes Research notes only: never
+the manuscript, a palette card or a table. A view-only share refuses
+`create_research_table`, `write_research_cells`, `add_note` and `update_note`;
+`read_research_table` still reads.
 `get_help` without a topic lists Maugham's user documentation.
 
 ## A page the writer photographed

@@ -55,6 +55,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0031](0031-the-persona-is-an-input-to-the-run.md) | The persona is an input to the run: two verbs over one substrate (amends [0029](0029-the-compilers-report-is-materialized.md)'s framing) | Accepted | 2026-09-05 |
 | [0032](0032-the-signed-op-log.md) | The signed op log: provenance for every op, the device before the person (builds on [0012](0012-per-device-jsonl-partitioning.md) and [0016](0016-op-log-growth-without-compaction.md), amending neither's decision) | Accepted (P1 built) | 2026-09-07 |
 | [0033](0033-report-elements-in-manuscripts.md) | Report elements in manuscripts: tables, footnotes, figures, citations, cross-references and section labels are IN (partly supersedes [0022](0022-commonmark-fountain-ledger.md)) | Accepted | 2026-10-19 |
+| [0034](0034-the-assistant-may-rewrite-a-research-note.md) | The assistant may rewrite a Research note: `update_note`, through the note door, versioned and marked (extends [0004](0004-mcp-foundation-scope.md)) | Accepted | 2026-11-10 |
 
 ## How to write a new ADR
 

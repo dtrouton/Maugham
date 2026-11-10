@@ -15629,12 +15629,14 @@ extension TripwireGrepTests {
     ///   (`rewriteMovedNoteAssetRefs`).
     /// - `type:PromotionPerformer` × 1 — `write(_:over:at:)`: a Rewrite, a
     ///   new note's body, a line's link, an accepted offer's links.
+    /// - `type:UpdateNoteTool` × 1 — the assistant's `update_note` (ADR 0034).
     /// A new caller is a new writer of note text: name it here. The census
     /// sees the `.saveResearchNote(` spelling only; a bare call from inside a
     /// `DocumentStore` extension would escape it.
     static let researchNoteDoorCallers: [String: Int] = [
         "type:ProjectStore": 3,
         "type:PromotionPerformer": 1,
+        "type:UpdateNoteTool": 1,
     ]
 
     func test_theNoteDoorsCallersAreExactlyTheNamedList() throws {
