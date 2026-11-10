@@ -6806,22 +6806,23 @@
       "evidence": {
         "property_test": null
       },
-      "_defect_candidate": true,
+      "_defect_candidate": false,
       "_found_by": {
         "phase": 39,
         "method": "sweep-2 agent flagged it OUT OF MODULE and explicitly said it had not traced the save path; I traced it",
         "note": "The agent's own module was the MCP read surface. It noticed the identical swallow at a plainly writer-facing surface, said so, and said what it had not checked. That honesty is what made the find actionable — a confident claim would have been discounted."
       },
-      "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect. HALF-FIXED 9f68b65f5b (2026-08-09, RULING-7): an unreadable research note no longer opens blank — ResearchNoteLoad.read surfaces the cause and no editor mounts over a failed read (pinned: MaughamTests/Claims/ResearchNoteReadCharacterization). The second half — nothing to fall back to after a silent overwrite — CLOSED 2026-11-10 by note versions (branch claude/typing-loop-and-note-versions, RULING-56's direction): the text a Research note had before a run of typing, and before every other write, is kept as a version the inspector restores (an outside change is kept at the next save; a file that cannot be decoded is not saved over, ResearchNoteDoorTests.test_anUnreadableFileIsNotSavedOver), pinned by claims M5-AN-070 and M5-AN-071.",
+      "_verdict_note": "Two rulings violated in sequence: RULING-7 (unreadable shown as empty) creates the condition, RULING-4 (authored words always recoverable) is broken by the consequence. Neither alone describes it — the compound is the defect. HALF-FIXED 9f68b65f5b (2026-08-09, RULING-7): an unreadable research note no longer opens blank — ResearchNoteLoad.read surfaces the cause and no editor mounts over a failed read (pinned: MaughamTests/Claims/ResearchNoteReadCharacterization). The second half — nothing to fall back to after a silent overwrite — CLOSED 2026-11-10 by note versions (branch claude/typing-loop-and-note-versions, RULING-56's direction): the text a Research note had before a run of typing, and before every other write, is kept as a version the inspector restores (an outside change is kept at the next save; a file that cannot be decoded is not saved over, ResearchNoteDoorTests.test_anUnreadableFileIsNotSavedOver), pinned by claims M5-AN-070 and M5-AN-071. Verdict was DEFECT until 2026-11-10; _defect_candidate cleared then. Hand edit: M1-C-055 has no module filing, so flip-claim.py has nothing to flip.",
       "verdict_filing": {
         "ruling": "RULING-7 + RULING-4",
         "clause_that_reaches_it": "R7: 'unreadable is never presented as empty'; R4: 'authored words are always recoverable' (against MAUGHAM'S OWN ACTIONS, per R23's scope clause)",
         "why_in_scope": "R7: the research note editor is plainly writer-facing. R4: the loss is caused by Maugham's own swallow-then-overwrite, not by the writer's deliberate act, so R23's carve-out does not apply.",
         "intent_expressed_when": "contemporaneous — the writer opens a note expecting its contents and types",
         "call_path": "research pane -> open a note not decodable as UTF-8 -> loadDocument sets \"\" -> one keystroke -> binding setter -> scheduleFileSave -> performFileSave atomic replace",
-        "violation_or_enhancement": "violation"
+        "violation_or_enhancement": "violation",
+        "_as_filed_note": "violation_or_enhancement records the claim WHEN FILED (2026-08-02); fixed 2026-11-10, see _verdict_note."
       },
-      "_severity_raised": "RULING-24 makes this worse, not better. Research sits in the recoverable-but-not-versioned tier, and the ⌘S half of that safety net does not exist — checkpoints are op-log pointers and research has no op log. An unreadable note opening blank, then being atomically replaced by one keystroke, has NO in-app recovery of any kind."
+      "_severity_raised": "WAS (until 2026-11-10): RULING-24 makes this worse, not better. Research sits in the recoverable-but-not-versioned tier, and the ⌘S half of that safety net does not exist — checkpoints are op-log pointers and research has no op log. An unreadable note opening blank, then being atomically replaced by one keystroke, had NO in-app recovery of any kind. FIXED 2026-11-10: both halves closed (see _verdict_note); a note's prior text is now kept as a version, so there is in-app recovery."
     },
     {
       "claim_id": "M1-C-056",
