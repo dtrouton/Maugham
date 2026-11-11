@@ -471,8 +471,9 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "Once.")
     }
 
-    /// P2's default: palette cards are not notes, and neither is a table.
-    func test_aNonNoteIsRefused() async throws {
+    /// A table is not the note door's, nor is an id that names nothing; a
+    /// palette card is (cards keep versions as notes do, 2026-11-11).
+    func test_aTableIsRefused_andACardIsTaken() async throws {
         let (store, projectStore) = try await openBook()
         let table = try await projectStore.addResearchTable(parentId: nil)
         let tableBytes = try Data(contentsOf: file(try XCTUnwrap(table.path)))
@@ -480,15 +481,16 @@ final class ResearchNoteDoorTests: XCTestCase {
         let cardBytes = try Data(contentsOf: file(try XCTUnwrap(card.path)))
 
         let onTable = await store.saveResearchNote(itemId: table.id, text: "not,a,note")
-        let onCard = await store.saveResearchNote(itemId: card.id, text: "Not a note.")
+        let onCard = await store.saveResearchNote(itemId: card.id, text: "# Harbour\n\nA card.\n")
         let onNothing = await store.saveResearchNote(itemId: "res-00000000", text: "Nothing.")
-        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .notSaved, .notSaved])
+        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .saved(keptAVersion: true), .notSaved])
         XCTAssertEqual(try Data(contentsOf: file(try XCTUnwrap(table.path))), tableBytes)
-        XCTAssertEqual(try Data(contentsOf: file(try XCTUnwrap(card.path))), cardBytes)
+        XCTAssertEqual(try text(of: card, projectStore), "# Harbour\n\nA card.\n")
         XCTAssertTrue(versions(of: table).isEmpty)
-        XCTAssertTrue(versions(of: card).isEmpty)
+        XCTAssertEqual(try versions(of: card).map(versionText), [String(decoding: cardBytes, as: UTF8.self)],
+                       "the card's template is kept as its version")
         XCTAssertNil(store.researchNoteItem(atPath: try XCTUnwrap(table.path)))
-        XCTAssertNil(store.researchNoteItem(atPath: try XCTUnwrap(card.path)))
+        XCTAssertEqual(store.researchNoteItem(atPath: try XCTUnwrap(card.path))?.id, card.id)
     }
 
     // MARK: - The debounced save and the lookup

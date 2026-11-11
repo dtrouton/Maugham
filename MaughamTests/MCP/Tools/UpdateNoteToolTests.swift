@@ -332,10 +332,10 @@ final class UpdateNoteToolTests: XCTestCase {
                        "The assistant's.")
     }
 
-    /// I1: the tool's refusal of a palette card does not rest on P2
-    /// (`ResearchNoteDoor.paletteCardsKeepVersions`): it asks the role
-    /// function for a note itself, so flipping P2 cannot open cards to the
-    /// assistant.
+    /// I1: the tool's refusal of a palette card does not rest on the door's
+    /// `takes`, which takes cards since they keep versions (2026-11-11): it
+    /// asks the role function for a note itself, so cards stay closed to the
+    /// assistant (ADR 0034).
     func test_aPaletteCardIsRefusedWhateverP2Says() async throws {
         let book = try await openBook()
         let card = try await book.store.addPaletteCard(title: "Fog", kind: .other)
@@ -343,6 +343,6 @@ final class UpdateNoteToolTests: XCTestCase {
         XCTAssertThrowsError(try UpdateNoteTool.noteItem(card.id, in: book.store))
         let source = try CanvasSourceCensus.source(at: "Maugham/MCP/Tools/UpdateNoteTool.swift")
         XCTAssertFalse(source.contains("ResearchNoteDoor.takes"),
-                       "the tool asks `ResearchTextRole.of` for `.note`, never the door's P2-dependent `takes`")
+                       "the tool asks `ResearchTextRole.of` for `.note`, never the door's `takes`, which takes cards")
     }
 }

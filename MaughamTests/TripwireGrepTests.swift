@@ -15549,13 +15549,11 @@ extension TripwireGrepTests {
     ///   opinion on what a save keeps (the run rule lives in `ResearchSaveRun`).
     /// - `.performFileSave(` — the window's coordinated whole-file write. Its
     ///   callers: `type:ResearchTableHost` × 1 (the door); `type:ResearchNoteDoor`
-    ///   × 1 (a research NOTE's save, debounced or not); `type:DocumentStore`
-    ///   × 1 (`scheduleFileSave`'s debounce: a manuscript's clean render for
-    ///   `PartialRestorePicker`); `type:ProjectStore` × 2 (the
-    ///   wiki-rename's rewrite of a linking palette card — a note goes through
-    ///   the note door — and a palette card's body); `type:PromotionPerformer`
-    ///   × 1 (a promotion's text into a palette card, P2). None writes a CSV;
-    ///   a new one must say what it writes.
+    ///   × 1 (a research note's or palette card's save, debounced or not —
+    ///   every card writer reaches it since cards keep versions, 2026-11-11);
+    ///   `type:DocumentStore` × 1 (`scheduleFileSave`'s debounce: a
+    ///   manuscript's clean render for `PartialRestorePicker`). None writes a
+    ///   CSV; a new one must say what it writes.
     /// - `TableCSV.renderResearch(` — the one renderer of a Research CSV's
     ///   text: `type:ResearchTableHost` × 1 (the door); `type:ProjectStore`
     ///   × 3 (a NEW file: Send to Research's working copy and New Table; and a
@@ -15571,8 +15569,6 @@ extension TripwireGrepTests {
             "type:ResearchTableHost": 1,
             "type:ResearchNoteDoor": 1,
             "type:DocumentStore": 1,
-            "type:ProjectStore": 2,
-            "type:PromotionPerformer": 1,
         ],
         "TableCSV.renderResearch(": ["type:ResearchTableHost": 1, "type:ProjectStore": 3],
     ]
@@ -15628,15 +15624,13 @@ extension TripwireGrepTests {
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
     /// - `ResearchTableHost.swift:write(_:by:restoring:)` — the table door, `tablePath(`.
-    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:in:)` — the
+    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
-    /// - `ProjectStore+Palette.swift:paletteCoordinatedWrite(_:to:)` — a palette
-    ///   card's file, `refuseUnlessInsideResearch(`.
-    /// - `ProjectStore+Structure.swift:propagateWikiLinkRename(excludeId:oldTitle:newTitle:)` — the
-    ///   rename's link sweep over a palette card, `ResearchTextRole.of(`.
-    /// - `PromotionPerformer.swift:write(_:toPath:of:)` — a promotion's text into
-    ///   a palette card, `isInsideAResearchRoot(`.
+    /// Since palette cards keep versions (2026-11-11) every card writer —
+    /// the palette funnel, the rename's link sweep, Replace, a promotion —
+    /// reaches the file through the note door, so these two are the whole
+    /// list; their no-`DocumentStore` fallbacks are raw writes (below).
     /// `researchFileSaveExempt` names the one caller that writes no Research
     /// file: `DocumentStore.open(url:)` (`scheduleFileSave`'s debounce, a
     /// manuscript's clean render for `PartialRestorePicker`). The question is
@@ -15652,10 +15646,7 @@ extension TripwireGrepTests {
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
         "ResearchTableHost.swift:write(_:by:restoring:)": "ResearchTextRole.tablePath(",
-        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:in:)": "noteLookup(",
-        "ProjectStore+Palette.swift:paletteCoordinatedWrite(_:to:)": "refuseUnlessInsideResearch(",
-        "ProjectStore+Structure.swift:propagateWikiLinkRename(excludeId:oldTitle:newTitle:)": "ResearchTextRole.of(",
-        "PromotionPerformer.swift:write(_:toPath:of:)": "ResearchTextRole.isInsideAResearchRoot(",
+        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
 
@@ -15840,24 +15831,38 @@ extension TripwireGrepTests {
     /// `DocumentStore.saveResearchNote` keeps the text a write replaces as a
     /// version and has an open editor reload; every writer of an existing
     /// note's text outside the editor calls it (the editor's own debounced
-    /// save is `scheduleNoteSave`):
-    /// - `type:ProjectStore` × 3 — the rename's link sweep
+    /// save is `scheduleNoteSave`). Palette cards are the door's too since
+    /// 2026-11-11, so each caller below writes a note's or a card's text:
+    /// - `type:ProjectStore` × 4 — the rename's link sweep
     ///   (`propagateWikiLinkRename`), Replace (`writeReplacedResearchText`,
     ///   both verbs), a moved or renamed note's asset refs
-    ///   (`rewriteMovedNoteAssetRefs`).
+    ///   (`rewriteMovedNoteAssetRefs`), and the palette funnel
+    ///   (`paletteCoordinatedWrite`: every card writer but the card editor).
     /// - `type:PromotionPerformer` × 1 — `write(_:over:at:)`: a Rewrite, a
     ///   new note's body, a line's link, an accepted offer's links.
     /// - `type:UpdateNoteTool` × 1 — the assistant's `update_note` (ADR 0034).
     /// A new caller is a new writer of note text: name it here. The census
     /// sees the `.saveResearchNote(` spelling only; a bare call from inside a
     /// `DocumentStore` extension would escape it.
+    ///
+    /// `researchTypedSaveCallers` is the door's other spelling, the writer's
+    /// own typed save of a card (`.saveTypedResearchText(`, one version per
+    /// editing run): `type:ProjectStore` × 1, the palette funnel's `typed`
+    /// arm, which only the card editor asks for.
     static let researchNoteDoorCallers: [String: Int] = [
-        "type:ProjectStore": 3,
+        "type:ProjectStore": 4,
         "type:PromotionPerformer": 1,
         "type:UpdateNoteTool": 1,
     ]
+    static let researchTypedSaveCallers: [String: Int] = ["type:ProjectStore": 1]
 
     func test_theNoteDoorsCallersAreExactlyTheNamedList() throws {
+        let (typed, typedUnresolved) = try countedListFound(
+            of: ".saveTypedResearchText(", keyedLike: Self.researchTypedSaveCallers, in: admissionRoots)
+        XCTAssertTrue(typedUnresolved.isEmpty, "researchTypedSaveCallers: \(typedUnresolved)")
+        XCTAssertEqual(typed, Self.researchTypedSaveCallers,
+            "The production callers of `saveTypedResearchText` moved: it is the writer's own "
+            + "typed save (one version per editing run). Anyone else's write is `saveResearchNote`.")
         let (found, unresolved) = try countedListFound(
             of: ".saveResearchNote(", keyedLike: Self.researchNoteDoorCallers, in: admissionRoots)
         XCTAssertTrue(unresolved.isEmpty, "researchNoteDoorCallers: \(unresolved)")
@@ -15878,8 +15883,8 @@ extension TripwireGrepTests {
     /// - `PromotionPerformer.swift` × 1 — `write(_:toPath:of:)`'s no-store fallback.
     /// - `ProjectStore+Structure.swift` × 3 — a new manuscript file's empty
     ///   create, a staged manuscript's bytes, the link sweep's no-store fallback.
-    /// - `ProjectStore+Search.swift` × 1 — Replace's write of a file the door
-    ///   does not take, or with no store.
+    /// - `ProjectStore+Search.swift` × 1 — Replace's write of a file no item
+    ///   names, or with no store.
     /// - `ProjectStore+Research.swift` × 3 — a new note's empty create, a
     ///   staged table's bytes, a table's sidecar.
     /// - `ProjectStore+ResearchMove.swift` × 1 — the asset-ref rewrite's

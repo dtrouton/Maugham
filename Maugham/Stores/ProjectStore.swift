@@ -109,6 +109,11 @@ public enum ProjectStoreError: Error, Equatable {
     /// (`ResearchTextRole.isInsideAResearchRoot`): a synced manifest naming
     /// the manuscript or a `.maugham/` file. Refused before any write.
     case outsideResearch(title: String)
+    /// The note door wrote nothing for this Research text (a palette card's
+    /// save whose earlier version could not be kept, a file that would not
+    /// read, a failed write). The door has already said why in a notice;
+    /// the text on disk is as it was.
+    case researchTextNotSaved(title: String)
     /// The project carries a profile a newer Maugham wrote (`ProjectProfile
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
@@ -168,6 +173,8 @@ extension ProjectStoreError: LocalizedError {
             return "“\(relativePath)” isn’t a place inside this project: \(reason)"
         case .outsideResearch(let title):
             return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
+        case .researchTextNotSaved(let title):
+            return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         }

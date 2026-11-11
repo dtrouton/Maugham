@@ -202,7 +202,10 @@ public enum PromoteInboxEntryTool: MCPTool {
     private static func promoteToPalette(
         _ entry: InboxEntry, cardId: String, store: ProjectStore, inbox: InboxStore
     ) async throws -> Data {
-        let card = try await inbox.promoteToPaletteCard(entry, projectStore: store, cardId: cardId)
+        // The assistant's promotion: the card's earlier text is kept as a
+        // version marked "Before the assistant’s change".
+        let card = try await inbox.promoteToPaletteCard(entry, projectStore: store, cardId: cardId,
+                                                        by: .assistant)
         let path = store.paletteCardItems().first(where: { $0.id == card.id })?.path ?? ""
         return try JSONEncoder().encode(Result(research_id: card.id, title: card.title, path: path))
     }

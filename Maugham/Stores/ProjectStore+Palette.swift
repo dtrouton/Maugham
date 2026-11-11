@@ -56,7 +56,8 @@ extension ProjectStore {
         let item = try await addResearchTextNote(parentId: group.id, title: title)
         if let rel = item.path {
             try await paletteCoordinatedWrite(
-                PaletteCardParser.template(title: title, kind: kind), to: rel)
+                PaletteCardParser.template(title: title, kind: kind), to: rel,
+                itemId: item.id, by: .writer, typed: false)
         }
         return item
     }
@@ -103,7 +104,16 @@ extension ProjectStore {
     /// `./<slug>_assets/` refs (tripwire 14). Title dedupe can alter the final
     /// slug, so the new path/slug is re-derived from the manifest after the
     /// rename, and `imagePaths` are remapped from the OLD/NEW paths (not titles).
-    public func updatePaletteCard(_ card: PaletteCard) async throws {
+    ///
+    /// **The text goes through the note door** (`paletteCoordinatedWrite`),
+    /// so what it replaces is kept as a version. `typed` is the card editor's
+    /// own save — the writer's typing, one version per editing run; anything
+    /// else (`by` the writer: a canvas promotion, the inbox pane; `by` the
+    /// assistant: `promote_inbox_entry`) always keeps what it replaces and
+    /// ends the run. Throws `researchTextNotSaved` when the door wrote
+    /// nothing (it has said why).
+    public func updatePaletteCard(_ card: PaletteCard, by writer: ResearchWriter = .writer,
+                                  typed: Bool = false) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let oldItem = findResearchItem(id: card.researchItemId, in: manifest.research),
               let oldPath = oldItem.path else {
@@ -138,7 +148,8 @@ extension ProjectStore {
 
         let cardDirectory = (writePath as NSString).deletingLastPathComponent
         let rendered = PaletteCardRenderer.render(remapped, cardDirectory: cardDirectory)
-        try await paletteCoordinatedWrite(rendered, to: writePath)
+        try await paletteCoordinatedWrite(rendered, to: writePath, itemId: card.researchItemId,
+                                          by: writer, typed: typed)
 
         manifest.modified = Date()   // drives `.task(id:)` reloads
         try await saveManifest()
@@ -146,39 +157,54 @@ extension ProjectStore {
 
     /// Save `image` into the card's `<slug>_assets/` folder, append the resolved
     /// project-relative path to the model, and persist. Returns the updated card.
+    /// `by`/`typed` as `updatePaletteCard`'s.
     @discardableResult
-    public func addImage(toPaletteCard cardId: String, image: NSImage) async throws -> PaletteCard {
+    public func addImage(toPaletteCard cardId: String, image: NSImage,
+                         by writer: ResearchWriter = .writer, typed: Bool = false) async throws -> PaletteCard {
         let (item, card) = try paletteCard(for: cardId)
         let ref = try ImagePasteHandler.saveAndReference(
             image: image, forNoteAt: item.path!, in: url)
-        return try await appendImage(fromRef: ref, to: card, cardDirectory: item.path!)
+        return try await appendImage(fromRef: ref, to: card, cardDirectory: item.path!,
+                                     by: writer, typed: typed)
     }
 
     /// Copy an existing image file into the card's `<slug>_assets/` folder
     /// (extension preserved), append it to the model, and persist.
+    /// `by`/`typed` as `updatePaletteCard`'s.
     @discardableResult
-    public func addImage(toPaletteCard cardId: String, fileURL: URL) async throws -> PaletteCard {
+    public func addImage(toPaletteCard cardId: String, fileURL: URL,
+                         by writer: ResearchWriter = .writer, typed: Bool = false) async throws -> PaletteCard {
         let (item, card) = try paletteCard(for: cardId)
         let ref = try ImagePasteHandler.saveAndReferenceFile(
             from: fileURL, forNoteAt: item.path!, in: url)
-        return try await appendImage(fromRef: ref, to: card, cardDirectory: item.path!)
+        return try await appendImage(fromRef: ref, to: card, cardDirectory: item.path!,
+                                     by: writer, typed: typed)
     }
 
     // MARK: - Helpers
 
-    /// Write `text` to the project-relative `path` through the same
-    /// NSFileCoordinator path research-note saves use
-    /// (`DocumentStore.performFileSave`), so palette card writes don't race
-    /// iCloud sync on a cloud-synced project (tripwire 17 / A1-High). Falls
-    /// back to a direct write when `documentStore` is nil (unit-test
-    /// contexts with no store wiring) — mirrors `saveManifest`'s
+    /// **Write card `itemId`'s text through the note door** (Denver,
+    /// 2026-11-11: cards keep versions as notes do): what it replaces is kept
+    /// as a version first, and the door's own coordinated save
+    /// (`DocumentStore.performFileSave`) keeps the write off iCloud's toes
+    /// (tripwire 17 / A1-High). `typed` is the card editor's own save
+    /// (`saveTypedResearchText`); anything else is `by` its writer. The door
+    /// writing nothing throws `researchTextNotSaved` (it has said why). Falls
+    /// back to a direct write, keeping nothing, only when `documentStore` is
+    /// nil (unit-test contexts with no store wiring) — mirrors `saveManifest`'s
     /// documentStore-present/absent split. This is the ONE allowed write
     /// spelling in this file; `TripwireGrepTests.test_noRawWriteInPaletteStore`
     /// enforces it.
-    private func paletteCoordinatedWrite(_ text: String, to path: String) async throws {
-        try refuseUnlessInsideResearch(path, title: (path as NSString).lastPathComponent)
+    private func paletteCoordinatedWrite(_ text: String, to path: String, itemId: String,
+                                         by writer: ResearchWriter, typed: Bool) async throws {
+        let title = findResearchItem(id: itemId, in: manifest.research)?.title
+            ?? (path as NSString).lastPathComponent
+        try refuseUnlessInsideResearch(path, title: title)
         if let documentStore {
-            try await documentStore.performFileSave(path: path, text: text)
+            let saved = typed
+                ? await documentStore.saveTypedResearchText(itemId: itemId, text: text, from: self)
+                : await documentStore.saveResearchNote(itemId: itemId, text: text, by: writer, from: self)
+            guard case .saved = saved else { throw ProjectStoreError.researchTextNotSaved(title: title) }
             return
         }
         try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (documentStore == nil)
@@ -215,7 +241,8 @@ extension ProjectStore {
     /// Resolve an `ImagePasteHandler` `![](./<assets>/<file>)` ref to a
     /// project-relative path, append it to `card`, and persist via `updatePaletteCard`.
     private func appendImage(
-        fromRef ref: String, to card: PaletteCard, cardDirectory notePath: String
+        fromRef ref: String, to card: PaletteCard, cardDirectory notePath: String,
+        by writer: ResearchWriter, typed: Bool
     ) async throws -> PaletteCard {
         let dir = (notePath as NSString).deletingLastPathComponent
         let projectRelative = Self.resolveImageRef(ref, relativeTo: dir)
@@ -223,7 +250,7 @@ extension ProjectStore {
             researchItemId: card.researchItemId, title: card.title, kind: card.kind,
             swatches: card.swatches, notes: card.notes,
             imagePaths: card.imagePaths + [projectRelative], body: card.body)
-        try await updatePaletteCard(updated)
+        try await updatePaletteCard(updated, by: writer, typed: typed)
         return updated
     }
 

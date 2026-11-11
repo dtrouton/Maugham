@@ -82,7 +82,9 @@ struct InspectorResearchPanel: View {
                 if let versionsKind = ResearchVersionsModel.kind(for: item, structure: store.manifest.structure), let documentStore {
                     Divider()
                     ResearchVersionsSection(store: documentStore, itemId: item.id, shareIsReadOnly: shareIsReadOnly,
-                                            kind: versionsKind, reviewing: reviewing)
+                                            kind: versionsKind,
+                                            noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure),
+                                            reviewing: reviewing)
                         .id(item.id)
                 }
                 if item.type != .group {

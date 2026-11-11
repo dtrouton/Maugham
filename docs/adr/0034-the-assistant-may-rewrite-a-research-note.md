@@ -31,6 +31,6 @@ Plan 2 of the note-versions milestone gave every Research note one write door (`
 ## What it deliberately does not do
 
 - **No manuscript.** MCP never writes manuscript text (ADR 0004); a suggestion stays an annotation.
-- **No palette cards.** They have no versions yet (pending ruling P2) and keep their own writer.
+- **No palette cards.** They keep versions since 2026-11-11 (P2), through the same door, but a card stays the writer's: `update_note` refuses one. The assistant's existing card writes (`promote_inbox_entry` into a card) keep a version marked as the assistant's.
 - **No tables.** `write_research_cells` and `create_research_table` are their door.
 - **No partial or patch edits.** The body is replaced whole; the assistant reads the note first with `read_document`.

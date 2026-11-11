@@ -61,8 +61,8 @@ public enum UpdateNoteTool: MCPTool {
 
     /// The Research note `id` names, or a refusal that says what the id is
     /// instead. Asked of `ResearchTextRole` directly, not of the door's
-    /// `takes`: a palette card is never the assistant's to write, whatever
-    /// P2 (`paletteCardsKeepVersions`) says.
+    /// `takes`: the door takes palette cards too (they keep versions since
+    /// 2026-11-11), and a card is never the assistant's to write (ADR 0034).
     @MainActor
     static func noteItem(_ id: String, in store: ProjectStore) throws -> ResearchItem {
         guard let item = store.findResearchItem(id: id, in: store.manifest.research) else {

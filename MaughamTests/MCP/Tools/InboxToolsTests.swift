@@ -101,6 +101,13 @@ final class InboxToolsTests: XCTestCase {
         XCTAssertTrue(result.path.hasPrefix("research/"))
         let card = store.loadPaletteCards().first(where: { $0.researchItemId == item.id })
         XCTAssertEqual(card?.notes.map(\.text), ["Damp plaster smell."])
+        // The assistant's write into a card keeps what it replaced, marked as
+        // replaced by the assistant (palette cards keep versions, 2026-11-11).
+        let kept = ResearchVersionStore(projectURL: url).versions(itemId: item.id)
+        XCTAssertEqual(kept.count, 1, "the card's text before the promotion is a version")
+        XCTAssertEqual(kept.first?.replacedBy, .assistant)
+        XCTAssertEqual(ResearchVersionsModel.rows(from: kept, refusal: nil, kind: .note).first?.replacedMark,
+                       ResearchVersionsModel.beforeAssistantMark)
         withExtendedLifetime(ds) {}
     }
 

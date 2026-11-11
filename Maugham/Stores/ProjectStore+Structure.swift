@@ -759,29 +759,23 @@ extension ProjectStore {
             }
             guard let rewritten = WikiLinkRewriter.rewriteAll(
                 body: body, pairs: pairs) else { continue }
-            // A note goes through the note door: what it held is kept as a
-            // version, and an editor open on it reloads rather than typing
-            // over the rewrite. Not saved is this loop's per-item failure —
-            // logged (the door says why), and the sweep goes on.
-            if let ds = documentStore, ResearchNoteDoor.takes(item, structure: manifest.structure) {
-                if case .notSaved = await ds.saveResearchNote(itemId: item.id, text: rewritten) {
+            // A note or a palette card goes through the note door: what it
+            // held is kept as a version, and an editor open on it reloads
+            // rather than typing over the rewrite. Not saved is this loop's
+            // per-item failure — logged (the door says why), and the sweep
+            // goes on.
+            if let ds = documentStore {
+                if case .notSaved = await ds.saveResearchNote(itemId: item.id, text: rewritten, from: self) {
                     projectStoreLog.error(
                         "Wiki-rename: research note \(path, privacy: .public) not saved, skipped")
                 }
                 continue
             }
-            // A palette card (P2) keeps the write it had, and keeps nothing;
-            // so does a note with no `DocumentStore` (a load-only context).
+            // No DocumentStore (a load-only context such as a unit test): no
+            // presenter to coordinate with, no debounced save to race and no
+            // door; the raw write keeps nothing. Mirrors `PromotionPerformer.write`.
             do {
-                if let ds = documentStore {
-                    try await ds.performFileSave(path: path, text: rewritten)
-                } else {
-                    // No DocumentStore (a load-only context such as a unit
-                    // test): no presenter to coordinate with and no debounced
-                    // save to race. Mirrors `PromotionPerformer.write`.
-                    try rewritten.write(
-                        to: noteURL, atomically: true, encoding: .utf8)
-                }
+                try rewritten.write(to: noteURL, atomically: true, encoding: .utf8)
             } catch {
                 projectStoreLog.error(
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")

@@ -312,10 +312,10 @@ extension ProjectStore {
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
-    /// the manifest names where it now is. A note goes through the note door
-    /// (what it held is kept as a version; an editor open on it reloads); a
-    /// palette card (P2) keeps the coordinated write, and no `DocumentStore`
-    /// the raw one. Anything else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
+    /// the manifest names where it now is. A note or a palette card goes
+    /// through the note door (what it held is kept as a version; an editor
+    /// open on it reloads); with no `DocumentStore` the raw write. Anything
+    /// else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
     /// (`mustLand`); a write that fails is logged and the move stands.
     func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
@@ -332,16 +332,14 @@ extension ProjectStore {
         await Self.rewriteAssetRefsBestEffort(
             oldStem: oldStem, newStem: newStem, noteURL: noteURL,
             write: { [self] text, url in
-                if let ds = documentStore, ResearchNoteDoor.takes(item, structure: manifest.structure) {
+                if let ds = documentStore {
                     // It must land: the move has happened, so refs left
                     // stale point at a folder that is gone (the door says
                     // when the earlier version could not be kept).
                     guard case .saved = await ds.saveResearchNote(
-                        itemId: itemId, text: text, mustLand: true) else {
+                        itemId: itemId, text: text, mustLand: true, from: self) else {
                         throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
                     }
-                } else if let ds = documentStore {
-                    try await ds.coordinatedWrite(text: text, to: url)
                 } else {
                     try text.write(to: url, atomically: true, encoding: .utf8)
                 }

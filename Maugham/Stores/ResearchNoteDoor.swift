@@ -14,7 +14,11 @@ private let researchNoteLog = Logger(
 /// when its path is inside the palette folder, and a note otherwise.
 /// Anything else (a table, a picture, a PDF, audio, a link, a group, a
 /// pathless item, and a text item whose path is anywhere else) is neither:
-/// nil, and nothing writes it as Research text. Pure: views call it.
+/// nil, and nothing writes it as Research text. A note and a card both keep
+/// versions through the note door (RULING-24 as amended 2026-11-11); the
+/// roles stay distinct for what edits them (`ResearchNoteEditor`,
+/// `PaletteCardEditor`) and for the assistant, which writes notes only
+/// (`update_note`, ADR 0034). Pure: views call it.
 enum ResearchTextRole: Equatable {
     case note(path: String)
     case paletteCard
@@ -104,7 +108,9 @@ final class ResearchNoteDoor {
         case editorTimer
         /// The editor's edit, flushed (`flushPendingSave`: a note switch, ⌘S,
         /// the typed mover, the store's close; or a door write about to
-        /// replace it): the last moment that text exists.
+        /// replace it): the last moment that text exists. Also a palette
+        /// card editor's own debounced save (`saveTyped`), whose draft is the
+        /// only other copy of what the writer typed.
         case editorFlush
         /// Anyone else's write (`saveResearchNote`): a restore, the assistant,
         /// a rename, Replace, a promotion. It always keeps what it replaces
@@ -257,23 +263,45 @@ final class ResearchNoteDoor {
 
     // MARK: Saves
 
-    /// **Anyone else's write** of `itemId`. The editor's pending edit of the
-    /// note is saved first (a flush), and is then the version this write
-    /// replaces; once written, an editor open on the note reloads.
-    func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-              mustLand: Bool, in store: DocumentStore) async -> ResearchNoteSave {
+    /// **A palette card editor's own save** (`PaletteCardEditor`, through
+    /// `ProjectStore.updatePaletteCard(typed: true)`): the writer's typing,
+    /// so it keeps a version once per editing run, as a note's typed save
+    /// does, and moves no reload signal. The card editor debounces its own
+    /// draft, so this arrives as a flush: when the version cannot be kept it
+    /// is saved anyway and said (the draft is the only other copy).
+    func saveTyped(_ itemId: String, text: String, owner: ProjectStore? = nil,
+                   in store: DocumentStore) async -> ResearchNoteSave {
         if let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
             _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
-                              source: .editorFlush, in: store)
+                              source: .editorFlush, owner: owner, in: store)
+        }
+        return await enqueue(itemId, text: text, by: .writer, restoring: false,
+                             source: .editorFlush, owner: owner, in: store).asSave
+    }
+
+    /// **Anyone else's write** of `itemId`. The editor's pending edit of the
+    /// note is saved first (a flush), and is then the version this write
+    /// replaces; once written, an editor open on the note reloads.
+    /// `owner` is the project store asking, when it is one (a palette card's
+    /// funnel, a rename sweep, Replace, a promotion): the item is looked up
+    /// in it, so a store whose `DocumentStore` was wired one way only (a
+    /// load-only test context) still finds what it is writing.
+    func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
+              mustLand: Bool, owner: ProjectStore? = nil, in store: DocumentStore) async -> ResearchNoteSave {
+        if let entry = pending.removeValue(forKey: itemId) {
+            entry.timer?.cancel()
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+                              source: .editorFlush, owner: owner, in: store)
         }
         return await enqueue(itemId, text: text, by: writer, restoring: restoring,
-                             source: .direct(mustLand: mustLand), in: store).asSave
+                             source: .direct(mustLand: mustLand), owner: owner, in: store).asSave
     }
 
     /// One save, queued behind any save of the same note already in flight.
     private func enqueue(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-                         source: SaveSource, in store: DocumentStore) async -> Outcome {
+                         source: SaveSource, owner: ProjectStore? = nil,
+                         in store: DocumentStore) async -> Outcome {
         let before = inFlight[itemId]?.task
         nextToken += 1
         let token = nextToken
@@ -285,7 +313,7 @@ final class ResearchNoteDoor {
             _ = await before?.value
             guard let self, let store else { return .notSaved }
             return await self.write(itemId, text: text, by: writer, restoring: restoring,
-                                    source: source, in: store)
+                                    source: source, owner: owner, in: store)
         }
         inFlight[itemId] = (token, task)
         return await task.value
@@ -325,10 +353,10 @@ final class ResearchNoteDoor {
     /// this store did not write say so; then the file; then the record of who
     /// wrote it.
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-                       source: SaveSource, in store: DocumentStore) async -> Outcome {
+                       source: SaveSource, owner: ProjectStore?, in store: DocumentStore) async -> Outcome {
         let projectURL = store.projectURL
         let item: ResearchItem, path: String
-        switch noteLookup(itemId, in: store) {
+        switch noteLookup(itemId, owner: owner, in: store) {
         case .note(let found, let foundPath): (item, path) = (found, foundPath)
         case let missed: return unreachable(itemId, missed, text: text, source: source, in: store)
         }
@@ -407,7 +435,7 @@ final class ResearchNoteDoor {
         // is) or left Research meanwhile (written nowhere, so a trashed note's
         // file is not made again).
         let pathNow: String
-        switch noteLookup(itemId, in: store) {
+        switch noteLookup(itemId, owner: owner, in: store) {
         case .note(_, let foundPath): pathNow = foundPath
         case let missed: return unreachable(itemId, missed, text: text, source: source, in: store)
         }
@@ -612,8 +640,8 @@ final class ResearchNoteDoor {
         case note(ResearchItem, String)
         /// No longer in Research (or pathless).
         case gone
-        /// There, but not the door's (`takes`: a palette card under P2's
-        /// default, a table, a text item outside a research root).
+        /// There, but not the door's (`takes`: a table, a picture, a text
+        /// item outside a research root).
         case notANote(ResearchItem)
         /// A note whose path the project refuses (`SafeRelativePath`).
         case refusedPath(ResearchItem, String)
@@ -622,30 +650,23 @@ final class ResearchNoteDoor {
     /// The note `itemId` names and its path, asked of the manifest now
     /// (`takes`, so `ResearchTextRole`: nothing outside a research root);
     /// anything else is `unreachable`'s to say.
-    private func noteLookup(_ itemId: String, in store: DocumentStore) -> NoteLookup {
-        guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
+    private func noteLookup(_ itemId: String, owner: ProjectStore?, in store: DocumentStore) -> NoteLookup {
+        let projectStore = owner ?? store.projectStore
+        guard let item = projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path else { return .gone }
-        guard Self.takes(item, structure: store.projectStore?.manifest.structure ?? []) else { return .notANote(item) }
+        guard Self.takes(item, structure: projectStore?.manifest.structure ?? []) else { return .notANote(item) }
         return .note(item, path)
     }
 
-    /// **P2 (pending Denver, asked 2026-11-10): do palette cards get
-    /// versions?** Default built: no. A writer whose target is a card keeps
-    /// the write it had (`ProjectStore.paletteCoordinatedWrite`, the rename's
-    /// link sweep, Replace, a promotion's link). Flipping this routes those
-    /// sweeps' card writes through the door too; the palette's own writer
-    /// (`paletteCoordinatedWrite`) would still need routing by hand.
-    nonisolated static let paletteCardsKeepVersions = false
-
     /// **Whether a write of `item`'s text goes through the door** — the one
-    /// question every writer of existing Research text asks (`ResearchTextRole`
-    /// says what the item is; P2 says whether a card is the door's).
+    /// question every writer of existing Research text asks. A note and a
+    /// palette card both do (Denver, 2026-11-11: cards keep versions as notes
+    /// do); `ResearchTextRole` says which of the two it is, and nil is
+    /// neither. Every card writer — the card editor, the palette funnel
+    /// (`ProjectStore.paletteCoordinatedWrite`), a promotion, the inbox, the
+    /// rename's link sweep, Replace, a move's asset refs — comes here.
     nonisolated static func takes(_ item: ResearchItem, structure: [StructureItem]) -> Bool {
-        switch ResearchTextRole.of(item, structure: structure) {
-        case .note: return true
-        case .paletteCard: return paletteCardsKeepVersions
-        case nil: return false
-        }
+        ResearchTextRole.of(item, structure: structure) != nil
     }
 
     private func resolved(_ path: String, in store: DocumentStore) -> URL? {
@@ -772,16 +793,28 @@ extension DocumentStore {
     /// **The one door every write of an existing Research note's text goes
     /// through** (`ResearchNoteDoor`) outside the editor: the bytes it
     /// replaces are always kept as a version first (a retry of the same bytes
-    /// once), and the writer's typing run ends. `writer` is whose text this is. Refuses a
-    /// palette card, a table, or an id that names no note.
+    /// once), and the writer's typing run ends. `writer` is whose text this is.
+    /// Takes a note or a palette card; refuses a table, or an id that names
+    /// neither.
     /// `mustLand`: saved even when that version cannot be kept, with a
     /// notice saying so (a write whose reason has already happened, as a
     /// moved note's asset refs).
+    /// `from`: the project store asking, when one is (`ResearchNoteDoor.save`'s `owner`).
     @discardableResult
     func saveResearchNote(itemId: String, text: String, by writer: ResearchWriter = .writer,
-                          restoring: Bool = false, mustLand: Bool = false) async -> ResearchNoteSave {
+                          restoring: Bool = false, mustLand: Bool = false,
+                          from projectStore: ProjectStore? = nil) async -> ResearchNoteSave {
         await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring,
-                                    mustLand: mustLand, in: self)
+                                    mustLand: mustLand, owner: projectStore, in: self)
+    }
+
+    /// **A palette card editor's own save of the card's text** — the writer's
+    /// typing (`ResearchNoteDoor.saveTyped`): one version per editing run,
+    /// no reload of the editor that wrote it.
+    @discardableResult
+    func saveTypedResearchText(itemId: String, text: String,
+                               from projectStore: ProjectStore? = nil) async -> ResearchNoteSave {
+        await researchNoteDoor.saveTyped(itemId, text: text, owner: projectStore, in: self)
     }
 
     /// **Moves each time the door writes note `itemId` for anyone but the
@@ -814,9 +847,9 @@ extension DocumentStore {
         researchNoteDoor.wasRead(itemId: itemId, bytes: bytes)
     }
 
-    /// **The Research note at `path`**, nil for a path whose text the door
-    /// does not take (a palette card under P2, a table, anything else) — the
-    /// one path → note lookup.
+    /// **The Research note or palette card at `path`**, nil for a path whose
+    /// text the door does not take (a table, anything else) — the one path →
+    /// door item lookup.
     func researchNoteItem(atPath path: String) -> ResearchItem? {
         guard let projectStore else { return nil }
         return TreeWalk.first(in: projectStore.manifest.research) { item in

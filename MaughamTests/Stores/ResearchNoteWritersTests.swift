@@ -6,8 +6,8 @@ import XCTest
 /// door** (note versions plan 2, Task 4): a wiki rename's link sweep, Search &
 /// Replace, and a note's asset refs rewritten after a rename or a move each
 /// keep the text they replace as a version, and none is undone by an edit the
-/// editor had queued. A palette card keeps the write it had and no version
-/// (P2's default). The promotion writers are pinned in
+/// editor had queued. A palette card keeps a version the same way (Denver,
+/// 2026-11-11). The promotion writers are pinned in
 /// `PromotionPerformerTests` beside their fixture.
 @MainActor
 final class ResearchNoteWritersTests: XCTestCase {
@@ -179,8 +179,8 @@ final class ResearchNoteWritersTests: XCTestCase {
                        "the queued edit is saved first and renamed with the rest")
     }
 
-    func test_aWikiRenameThatRewritesAPaletteCardKeepsNoVersion() async throws {
-        let (_, projectStore) = try await openBook()
+    func test_aWikiRenameThatRewritesAPaletteCardKeepsItsTextAsAVersion() async throws {
+        let (store, projectStore) = try await openBook()
         let card = try await projectStore.addPaletteCard(title: "Fog", kind: .other)
         let cardText = "# Fog\n\nThe light in [[Alpha]].\n"
         try Data(cardText.utf8).write(to: file(try XCTUnwrap(card.path)))
@@ -189,7 +189,9 @@ final class ResearchNoteWritersTests: XCTestCase {
 
         XCTAssertEqual(try text(of: card, projectStore), "# Fog\n\nThe light in [[Omega]].\n",
                        "the card is still rewritten")
-        XCTAssertTrue(versions(of: card).isEmpty, "P2: a palette card keeps no version")
+        XCTAssertEqual(try newestVersionText(of: card), cardText, "the card's text the rename replaced is a version")
+        XCTAssertGreaterThan(store.researchNoteReloadCount(itemId: card.id), 0,
+                             "a card editor open on it re-reads it")
     }
 
     // MARK: - Search & Replace (recon §6 row 5)
@@ -235,7 +237,7 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
     }
 
-    func test_replaceAllInAPaletteCardKeepsNoVersion() async throws {
+    func test_replaceAllInAPaletteCardKeepsItsTextAsAVersion() async throws {
         let (_, projectStore) = try await openBook()
         let card = try await projectStore.addPaletteCard(title: "Weather", kind: .other)
         try Data("# Weather\n\nCold fog.\n".utf8).write(to: file(try XCTUnwrap(card.path)))
@@ -243,7 +245,7 @@ final class ResearchNoteWritersTests: XCTestCase {
         try await projectStore.replaceAll(in: await search("fog", projectStore), with: "mist")
 
         XCTAssertEqual(try text(of: card, projectStore), "# Weather\n\nCold mist.\n")
-        XCTAssertTrue(versions(of: card).isEmpty, "P2: a palette card keeps no version")
+        XCTAssertEqual(try newestVersionText(of: card), "# Weather\n\nCold fog.\n")
     }
 
     /// `.notSaved` is not swallowed: Replace throws as any failed write of

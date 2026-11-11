@@ -1,7 +1,7 @@
 import SwiftUI
 import MaughamCore
 
-/// **A Research table's or note's kept versions as the inspector lists them** (report
+/// **A Research table's, note's or palette card's kept versions as the inspector lists them** (report
 /// plan 9d Task 6, spec §10.1): newest first, the assistant's marked, with
 /// *Restore previous version* (the newest) and a Restore on each row.
 /// Everything a row says is worked out once here (tripwire 4), from the
@@ -60,12 +60,20 @@ enum ResearchVersionsModel {
         rows.first(where: \.canRestore)
     }
 
-    /// What the Versions section lists for `item`: a table's or a note's
-    /// kept versions; nil for anything else (no section).
+    /// What the Versions section lists for `item`: a table's, or a note's or
+    /// palette card's (both text, kept by the note door), kept versions; nil
+    /// for anything else (no section).
     static func kind(for item: ResearchItem, structure: [StructureItem]) -> ResearchVersionPayload? {
         if item.kind == .table, item.type == .asset { return .table }
         if ResearchNoteDoor.takes(item, structure: structure) { return .note }
         return nil
+    }
+
+    /// What a refusal calls `item`: "table", "card" or "note".
+    static func noun(for item: ResearchItem, structure: [StructureItem]) -> String {
+        if item.kind == .table { return "table" }
+        if case .paletteCard = ResearchTextRole.of(item, structure: structure) { return "card" }
+        return "note"
     }
 
     static let restored = "Restored."
@@ -96,6 +104,8 @@ struct ResearchVersionsSection: View {
     let shareIsReadOnly: Bool
     /// Which kind of item this is (`ResearchVersionsModel.kind(for:)`).
     var kind: ResearchVersionPayload = .table
+    /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
+    var noun: String = "table"
     /// The persona reads Research without changing it (Review).
     var reviewing: Bool = false
 
@@ -116,7 +126,7 @@ struct ResearchVersionsSection: View {
                 .disabled(ResearchVersionsModel.previous(in: rows ?? []) == nil || isRestoring)
             }
             if let refusal {
-                Text(refusal.sentence(noun: kind == .note ? "note" : "table")).font(.caption).foregroundStyle(.secondary)
+                Text(refusal.sentence(noun: noun)).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let empty = ResearchVersionsModel.emptyLine(for: rows) {

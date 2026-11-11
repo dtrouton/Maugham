@@ -162,10 +162,10 @@ extension ProjectStore {
 
     /// How Replace may write the Research file at `path`.
     private enum ResearchReplaceTarget {
-        /// A note the door takes: written through it.
+        /// A note or a palette card the door takes: written through it.
         case note(ResearchItem)
-        /// A palette card (P2), a note with no `DocumentStore`, or a file
-        /// inside a research root with no manifest item: the raw atomic
+        /// A note or card with no `DocumentStore` (a load-only context), or a
+        /// file inside a research root with no manifest item: the raw atomic
         /// write, keeping nothing.
         case raw
     }
@@ -180,9 +180,8 @@ extension ProjectStore {
         guard let item = TreeWalk.first(in: manifest.research, where: { $0.path == path }) else {
             return ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure) ? .raw : nil
         }
-        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else { return nil }
-        if documentStore != nil, ResearchNoteDoor.takes(item, structure: manifest.structure) { return .note(item) }
-        return .raw
+        guard ResearchNoteDoor.takes(item, structure: manifest.structure) else { return nil }
+        return documentStore != nil ? .note(item) : .raw
     }
 
     /// A research file's text after a replace. **A note goes through the note
@@ -196,7 +195,7 @@ extension ProjectStore {
             try text.write(to: url, atomically: true, encoding: .utf8)
             return
         }
-        guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text) else {
+        guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text, from: self) else {
             throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
         }
     }

@@ -8,7 +8,7 @@ Three things keep your work safe, and they do different jobs:
 
 A checkpoint helps when you want last Tuesday's version of a chapter back. A backup helps when the project itself is in trouble.
 
-Research notes and tables keep earlier versions of their own, which you restore from the inspector's **Versions** section (see [Research](research.md#earlier-versions-of-a-research-note)). Pictures, PDFs and audio are covered by your backups, not by versions.
+Research notes, tables and palette cards keep earlier versions of their own, which you restore from the inspector's **Versions** section (see [Research](research.md#earlier-versions-of-a-research-note)). Pictures, PDFs and audio are covered by your backups, not by versions.
 
 ## Checkpoints
 

@@ -84,9 +84,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/research/AudioPreview.swift`, `Maugham/Views/research/ImagePreview.swift`, `Maugham/Views/research/LinkPreview.swift`, `Maugham/Views/research/PDFPreview.swift`, `Maugham/Views/research/TextPreview.swift` — per-kind previews.
 - `InspectorResearchPanel.swift`, `ResearchVersionsSection.swift` — a research item's fields, citation and versions.
 - `NewResearchNoteSheet.swift` — title prompt for a new note.
-- `Maugham/Views/Palette/PaletteWallView.swift` — `PaletteWallCentre`, the full-column grid of palette cards.
+- `Maugham/Views/Palette/PaletteWallView.swift` — `PaletteWallCentre`, the full-column grid of cards.
 - `Maugham/Views/Palette/PaletteCardTile.swift` — one card on the wall; no I/O in `body`.
-- `Maugham/Views/Palette/PaletteCardEditor.swift` — the visual palette-card editor, one debounced persist.
+- `Maugham/Views/Palette/PaletteCardEditor.swift` — the palette-card editor: one debounced typed save; re-reads on `researchNoteReloadCount`.
 - `Maugham/Views/Palette/PaletteCardReadView.swift` — `PaletteCardReadView` / `PaletteCardReadHost`, one card read-only.
 - `PalettePickerSheet.swift`, `PromoteTargetPickerSheet.swift` — the inbox's Promote to Palette Card… / Promote to Research for… pickers.
 - `ReferencesPane.swift` — the shelf (⌘⌥E): what this piece is pinned to.

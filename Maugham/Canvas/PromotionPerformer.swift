@@ -993,23 +993,23 @@ struct PromotionPerformer {
         try await write(text, over: item, at: path)
     }
 
-    /// **A note's text goes through the note door** (note versions plan 2):
-    /// what it replaces is kept as a version, and an editor open on it
-    /// reloads. A palette card the door does not take (P2) — and any write
-    /// with no `DocumentStore` — keeps `write(_:toPath:of:)`. The door writing
-    /// nothing throws, so the promotion says the note is unchanged. An item
-    /// that is neither a note nor a card inside a research root
-    /// (`ResearchTextRole` nil: a synced manifest's `.document` naming the
-    /// manuscript or a `.maugham/` file) is refused and never written.
+    /// **A note's or a palette card's text goes through the note door** (note
+    /// versions plan 2; cards since 2026-11-11): what it replaces is kept as a
+    /// version, and an editor open on it reloads. A write with no
+    /// `DocumentStore` keeps `write(_:toPath:of:)`. The door writing nothing
+    /// throws, so the promotion says the note is unchanged. An item that is
+    /// neither a note nor a card inside a research root (`ResearchTextRole`
+    /// nil: a synced manifest's `.document` naming the manuscript or a
+    /// `.maugham/` file) is refused and never written.
     private func write(_ text: String, over item: ResearchItem, at path: String) async throws {
-        guard ResearchTextRole.of(item, structure: store.manifest.structure) != nil else {
+        guard ResearchNoteDoor.takes(item, structure: store.manifest.structure) else {
             throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
         }
-        guard let ds = store.documentStore, ResearchNoteDoor.takes(item, structure: store.manifest.structure) else {
+        guard let ds = store.documentStore else {
             try await write(text, toPath: path, of: item)
             return
         }
-        guard case .saved = await ds.saveResearchNote(itemId: item.id, text: text) else {
+        guard case .saved = await ds.saveResearchNote(itemId: item.id, text: text, from: store) else {
             throw PromotionFailure.noteNotSaved(title: item.title)
         }
     }
@@ -1050,20 +1050,13 @@ struct PromotionPerformer {
         try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
     }
 
-    /// A palette card's text (P2), or any text with no `DocumentStore`: the
-    /// same `NSFileCoordinator` path research-note saves use, so a promotion
-    /// into a cloud-synced project does not race iCloud. The direct write is
-    /// the no-`DocumentStore` fallback (load-only contexts), mirroring
-    /// `ProjectStore+Palette.paletteCoordinatedWrite`. It keeps nothing.
+    /// Text with no `DocumentStore` (a load-only context such as a unit
+    /// test): the direct write, mirroring `ProjectStore+Palette
+    /// .paletteCoordinatedWrite`'s fallback. It keeps nothing.
     private func write(_ text: String, toPath path: String, of item: ResearchItem) async throws {
-        // Its caller asked the role already; asked again at the write itself,
-        // as every Research write site does (`TripwireGrepTests`' census).
+        // Its caller asked the role already; asked again at the write itself.
         guard ResearchTextRole.isInsideAResearchRoot(path, structure: store.manifest.structure) else {
             throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
-        }
-        if let ds = store.documentStore {
-            try await ds.performFileSave(path: path, text: text)
-            return
         }
         try text.write(to: try store.resolvedProjectPathToChange(path),
                        atomically: true, encoding: .utf8)
