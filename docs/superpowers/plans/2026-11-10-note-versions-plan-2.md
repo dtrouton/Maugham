@@ -25,7 +25,7 @@
 - No test types into a mounted view and then waits on a timer (tripwire 33). `TestTemp` is the one temp root.
 - Every task ends with `./scripts/test.sh` green and states its disable experiment.
 
-## Pending Denver (asked 2026-11-10; the plan's defaults until he answers)
+## Pending Denver (asked 2026-11-10; ANSWERED 2026-11-11 — see `docs/superpowers/notes/2026-11-10-ruling-24-amendment-draft.md`: P1 drop the Trash entry, a version guaranteed; P2 cards keep versions; P3 as built; P4 in the register)
 
 | # | Question | Default built |
 |---|---|---|

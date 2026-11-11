@@ -363,70 +363,76 @@
   "claim_id": "M6-PR-029",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "the craft intent is excluded from the updatable set precisely so a promotion can never replace a whole accumulated intent statement with one card — the tier's protection of what the writer has built up, enforced by the offer never being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended (the RESEARCH line became the RESEARCH TEXT line): COMPLIES unchanged. An intent statement is op-logged, not Research text, but the reasoning is the tier's — what the writer has built up is not replaced by one card — and the amended line owes research text more, not less."
  },
  {
   "claim_id": "M6-PR-030",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "the kind term is what stops a mark resolving for every updatable target; without it a research-note promotion would rename a palette card's backing file and write raw scrap text over its swatches, notes and image references — an unrecoverable loss of research — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A card's text now keeps versions through the note door, so the loss would no longer be total, but a research-note write over a card would still rename its file and replace its swatches, notes and image references with scrap text; refusing it remains what the tier owes."
  },
  {
   "claim_id": "M6-PR-032",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "reading the contribution record here would let one member of a six-card region note replace the whole note with its own text; the artifact is research, and there is no route back once its body is overwritten — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A Rewrite would now keep the note's text as a version, but replacing a six-card note with one member's text is still the act the tier keeps from happening silently."
  },
  {
   "claim_id": "M6-PR-048",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "a rewrite that is about the prose takes the prose only: the swatches, sensory notes and image paths the writer built up on that card are carried across, so the act costs exactly what it says and no research is lost beside it — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A card Rewrite now also keeps the card's whole file as a version first (M6-PR-037), and still carries the swatches, sensory notes and images across."
  },
  {
   "claim_id": "M6-PR-052",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "stamping the picture with the card's id would offer a Rewrite of that card on the next promotion, and taking it would replace a card holding other images and swatches with one photograph; the contribution record is what keeps that offer from ever being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. Such a Rewrite would now keep a version first, but the record still keeps the wrong Rewrite from being offered at all."
  },
  {
   "claim_id": "M6-PR-078",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "without the flush a queued 750ms save for the destination fires after the promotion and restores the pre-promotion prose — research overwritten by Maugham's own timing, with no version to recover from — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
   "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
-  "violation_or_enhancement": "neither"
+  "violation_or_enhancement": "neither",
+  "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. Since notes (2026-11-10) and cards (2026-11-11) keep versions, the late save would itself keep the promotion's text as a version, so the loss is no longer unrecoverable; the flush is still what keeps the writer's visible text from being Maugham's timing rather than their act."
  },
  {
   "claim_id": "M6-PR-037",
   "outcome": "COMPLIES",
   "ruling": "RULING-24",
-  "clause_that_reaches_it": "RESEARCH is recoverable but not versioned.",
-  "why_in_scope": "Unchanged in scope from the VIOLATES filing — the tier states what research is OWED. WHY_IT_VIOLATED: a Rewrite replaced the note's whole body through an atomic DocumentStore.performFileSave with no backup, and research notes have no op log, are not walked by CheckpointCapture (allDocIds comes from manifest.structure) and left no trash copy — so an afternoon the writer spent developing that note had no route back inside Maugham, while the same content DELETED would have been recoverable (RULING-15's trash). As of the fix PromotionPerformer.preservePriorVersion keeps the note's current contents under a new TrashSubject.priorVersion, visible in the Trash pane (unlike .internalArtifact, which RULING-43 hides because nothing would point at it again). Recoverable, not versioned — exactly the tier, and no more. It is the MINIMAL bridge inside existing machinery and is expected to be superseded by GAP-P1 / research protection when research versioning is scoped. AMENDED 2026-08-09b, whole-branch review: the first fix bought the recoverability and left three holes in it, all in this ruling's own scope. (a) The keep was a MOVE, so between it and the fallible body write the note existed only in the trash — a rewrite that failed told the writer nothing had happened while their note had left the research pane, which is worse than the defect for the window it lasts. trashPriorVersion now copies the entry's file straight back to the original path before returning: the move is kept because it is what carries the typed mover's flush discipline (tripwire 14), and the net effect is a copy, so the live file never stops existing. The .update arm also re-stamps manifest.modified/saveManifest, which the arm lost when M6-PR-038 took its updateResearchItem call away. (b) The restore was invisible: .priorVersion routed to .fileOnly, correct that nothing needed rewiring and wrong that nothing needed showing — .captureAsset's file goes back where the Inbox pane is already looking, a prior version landed in research/ where nothing looks, so the writer asked for their prose back, was told it came, and no surface would ever show it to them again. It now mints a research row, '<title> (previous version)', at the path the file actually landed at (RULING-41's row-and-disk agreement). (c) The PALETTE-CARD rewrite arm had no protection at all — the same total replacement of the writer's prose, on the artifact more likely to have been developed by hand, since a card is edited in the pane rather than generated. ProjectStore.trashPriorVersionText covers it, writing the card's prior BODY into the entry rather than moving the card file, because a card's prose shares its file with the swatches, sensory notes and image references that the rewrite deliberately keeps.",
+  "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
+  "why_in_scope": "The tier states what research is OWED, and since 2026-11-11 it owes research text restorable versions (RULING-24 as amended; RULING-56). A Rewrite replaces a note's or a palette card's whole text, so the version of what it replaces is the writer's one route back. As of 2026-11-11 (Denver's P1: 'drop the trash entry IF we guarantee a version is created') the Rewrite writes only through the note door, whose direct save keeps the replaced bytes — the note's file, or the card's whole file — as a version BEFORE it writes and refuses when it cannot: no version, no Rewrite, the file byte-identical, the writer told. With no DocumentStore the Rewrite refuses rather than write raw. The door's remaining no-keep paths lose nothing (the same text, a missing or empty file, bytes already kept as the newest version), and an unreadable file is never written. So the Trash entry the 2026-08-09 bridge kept (TrashSubject.priorVersion, RULING-48's 'bridge, not the standard') is retired; entries older builds wrote still restore. HISTORY: filed VIOLATES 2026-08-02 — a Rewrite replaced the note's body through an atomic write with no backup, no op log and no trash copy; fixed 2026-08-09 by the Trash bridge (fix below), its holes closed the same day (amendment below), and superseded by versioning on 2026-11-11 (amendment_2026_11_11).",
   "intent_expressed_when": "contemporaneous — the writer chose the Rewrite mode; but they were never told how much was in the note, and the preview shows only what will be written",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) or performPaletteCard(.update) → writeBody/updatePaletteCard → DocumentStore.performFileSave",
+  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody(rewriting: true), or performPaletteCard(.update) → updatePaletteCard → paletteCoordinatedWrite → DocumentStore.saveResearchNote → ResearchNoteDoor (keep, then DocumentStore.performFileSave)",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
@@ -441,6 +447,13 @@
    "authorised_by": "whole-branch review of claude/spec-phase-3 — findings 1, 2 and 3, all inside RULING-24's own scope: the first fix bought recoverability and left a window in which the note existed only in the trash, a restore no surface showed, and a second rewrite arm with no protection at all",
    "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_keepingThePriorVersionLeavesTheNoteWhereItIs (the live file still holds the pre-rewrite words after the keep, and the trash holds the same words — the continuous-existence property the copy-back owes); .test_aRewriteReplacesTheNoteAndRevertsTheWritersName, extended (restoring mints a 'Fog, act II (previous version)' row pointing at where the file landed); .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt (a palette rewrite leaves the prior prose in the trash, and restoring it lands a research note holding it)",
    "note": "the move is kept rather than replaced by a plain copy: the move is what carries the typed mover's flush discipline (tripwire 14), and the copy-back is what makes its net effect a copy"
+  },
+  "amendment_2026_11_11": {
+   "commit": "32ad53559981960f88ffff7e4ef52c0e7061ac72",
+   "date": "2026-11-11",
+   "authorised_by": "Denver, 2026-11-11, answering P1 of the note versions plan 2: 'drop the trash entry IF we guarantee a version is created'; under RULING-24 as amended the same day (research text is versioned)",
+   "pinned_by": "MaughamTests/Claims/PromotionCharacterization.test_aRewriteReplacesTheNoteAndRevertsTheWritersName (rewritten: the replaced text is the newest version, no Trash entry, Restore brings it back), .test_aRewriteWhoseVersionCannotBeKeptIsRefused, .test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt (the card's whole file is the version), .test_anOlderBuildsPriorVersionEntriesStillListAndRestore (replaces .test_keepingThePriorVersionLeavesTheNoteWhereItIs, whose subject, ProjectStore.trashPriorVersion, is removed); MaughamTests/Canvas/PromotionPerformerTests.test_aRewriteWithNoDocumentStoreIsRefused_forANoteAndACard, .test_aCardRewriteWhoseVersionCannotBeKeptIsRefused_andTheCardIsAsItWas",
+   "note": "the Trash bridge's writers (preservePriorVersion, trashPriorVersion, trashPriorVersionText) are removed; TrashSubject.priorVersion and its restore arm stay for entries older builds wrote"
   }
  },
  {
