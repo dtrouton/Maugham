@@ -24,8 +24,13 @@ public enum TrashSubject: String, Codable, Sendable {
     /// pane: it is not the writer's deletion (RULING-43).
     case internalArtifact
     /// The contents a file HAD, kept because Maugham was about to write over it
-    /// on the writer's behalf — today, the research note a canvas Rewrite
-    /// replaces (M6-PR-037, RULING-24, 2026-08-09).
+    /// on the writer's behalf — the research note (or a palette card's prose)
+    /// a canvas Rewrite replaced (M6-PR-037, RULING-24, 2026-08-09).
+    ///
+    /// **Written by no build since 2026-11-11** (Denver's P1): a Rewrite now
+    /// keeps what it replaces as a Research version and lands only when that
+    /// version was kept, so it leaves no Trash entry. Entries older builds
+    /// wrote still list and restore, so this case and its restore arm stay.
     ///
     /// **Visible in the Trash pane, and that is the whole difference from
     /// `internalArtifact`.** A style file's prior version is a paranoia copy
@@ -325,10 +330,8 @@ public struct TrashStore {
 
     /// Where a trashed entry's contents are sitting right now.
     ///
-    /// For the caller that has to READ an entry back without restoring it —
-    /// `ProjectStore.trashPriorVersion`, which moves a file in for the typed
-    /// mover's flush discipline and then copies it straight back so the live
-    /// file never stops existing. Restoring would undo the move it just made.
+    /// For a caller that has to READ an entry back without restoring it
+    /// (a test checking what an entry holds); restoring would move it.
     func entryFileURL(trashId: String) -> URL? {
         // A trash id is a folder name read back from the synced trash: one
         // that could climb out of `.trash/` names no entry (tripwire 58).
@@ -420,15 +423,10 @@ public struct TrashStore {
     /// moved off disk.
     ///
     /// For what Maugham keeps of an artifact that has no file of its own to
-    /// move: a palette card's prose lives inside its card file beside the
-    /// swatches, sensory notes and image references, and a rewrite replaces
-    /// only the prose — so moving the file would take the rest of the card with
-    /// it, and there is nothing else on disk that is just the body.
+    /// move (a removed figure's fresh render, `ProjectStore.removeFigure`).
     ///
     /// `originalRelativePath` is where a RESTORE should land it, not where it
-    /// came from — nothing was moved, so there is no "back". The caller names a
-    /// path under `research/` so the `.priorVersion` restore arm files it as a
-    /// research note the writer can open.
+    /// came from — nothing was moved, so there is no "back".
     func recordTextEntry(
         text: String,
         filename: String,
@@ -439,7 +437,7 @@ public struct TrashStore {
     ) async throws -> TrashEntry {
         let now = Date()
         let (entryId, entryFolder) = try mintEntryFolder(itemMetadata: itemMetadata, now: now)
-        try text.write(to: entryFolder.appendingPathComponent(filename), // local-path: the caller mints it from a slug (`trashPriorVersionText`)
+        try text.write(to: entryFolder.appendingPathComponent(filename), // local-path: the caller mints it (`ProjectStore.removeFigure`)
                        atomically: true, encoding: .utf8)
         try writeMeta(
             TrashMeta(

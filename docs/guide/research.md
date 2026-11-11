@@ -47,7 +47,7 @@ The inspector's **Versions** section for a note works as it does for a table: ea
 
 A palette card keeps versions the same way. Your own changes in the card's editor keep one version for each stretch of work; anything else that changes the card keeps what it replaced, every time: a promotion from the canvas or the inbox, a wiki-link rename, Search & Replace, and a Restore. A promotion Claude made from the inbox is marked **Before the assistant’s change**. Select the card in the tree's Palette section and its **Versions** are in the inspector; if the card is open, its editor shows a restored version. Claude never rewrites a palette card.
 
-A Rewrite from the canvas still also leaves the old text in the Trash as a "previous version". Pictures, PDFs, audio and other files are not versioned: your backups (see [Backups & History](backups-and-history.md)) cover them. Research history is kept to a lower standard than your manuscript's: the manuscript keeps every change, while Research text keeps one version per stretch of work and its last 50 versions on each Mac.
+A Rewrite from the canvas keeps the note's or card's text as a version before it writes; if that version can't be kept, the Rewrite isn't made, nothing changes, and Maugham tells you why. Older versions of Maugham left a Rewrite's old text in the Trash as a "previous version" instead; those entries still restore. Pictures, PDFs, audio and other files are not versioned: your backups (see [Backups & History](backups-and-history.md)) cover them. Research history is kept to a lower standard than your manuscript's: the manuscript keeps every change, while Research text keeps one version per stretch of work and its last 50 versions on each Mac.
 
 ### Citation details
 
