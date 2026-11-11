@@ -193,8 +193,10 @@ final class ResearchTableHost: FigureGridHost {
         guard let projectStore = store.projectStore else {
             throw Unreadable(message: "The project isn’t open.")
         }
+        // A table outside a research root (a synced manifest's `.table`
+        // naming the manuscript or a `.maugham/` file) is not opened.
         guard let item = projectStore.findResearchItem(id: itemId, in: projectStore.manifest.research),
-              item.type == .asset, item.kind == .table, let path = item.path else {
+              let path = ResearchTextRole.tablePath(of: item, structure: projectStore.manifest.structure) else {
             throw Unreadable(message: "This item isn’t a table in Research.")
         }
         let file = try projectStore.resolvedProjectPath(path)
@@ -555,6 +557,17 @@ final class ResearchTableHost: FigureGridHost {
               let path = item.path else {
             MaughamEvent.postNotice("A Research table’s edits couldn’t be saved: it is no longer in Research.",
                                     projectURL: projectURL)
+            return false
+        }
+        // **Only inside a research root** (`ResearchTextRole.tablePath`),
+        // asked of the manifest now: one synced since the table opened can
+        // name the manuscript or a `.maugham/` file. Nothing is kept or
+        // written; the edits stay unsaved, and said.
+        guard ResearchTextRole.tablePath(of: item, structure: store.projectStore?.manifest.structure ?? []) == path else {
+            researchTableLog.error("\(path, privacy: .public) is not inside Research; the table door wrote nothing")
+            MaughamEvent.postNotice(
+                "“\(item.title)” isn’t a table inside Research any more, so \(Self.whose(writer, restoring: restoring)) saved.",
+                projectURL: projectURL)
             return false
         }
         // A file that has gone (another Mac trashed it, and this manifest has

@@ -395,8 +395,9 @@ enum ResearchTableToolSupport {
         return ds
     }
 
-    /// The Research table `itemId` names; an unknown id, or an item that is
-    /// not a table, is refused (tools fail loudly on unknown ids).
+    /// The Research table `itemId` names; an unknown id, an item that is not
+    /// a table, or a table whose path is outside a research root is refused
+    /// (tools fail loudly on unknown ids).
     @MainActor
     static func tableItem(_ itemId: String, in store: ProjectStore) throws -> ResearchItem {
         guard let item = store.findResearchItem(id: itemId, in: store.manifest.research) else {
@@ -405,6 +406,13 @@ enum ResearchTableToolSupport {
         guard item.type == .asset, item.kind == .table, item.path != nil else {
             throw MCPError.invalidArgument(
                 "'\(item.title)' (\(itemId)) is not a Research table; only a CSV or TSV table in Research takes cells.")
+        }
+        // The table door's own question (`ResearchTextRole.tablePath`): a
+        // synced manifest's table naming the manuscript or a `.maugham/` file
+        // is refused here, before a host is opened, and nothing is written.
+        guard ResearchTextRole.tablePath(of: item, structure: store.manifest.structure) != nil else {
+            throw MCPError.invalidArgument(
+                "'\(item.title)' (\(itemId)) is not a Research table inside Research: its file is outside the project's Research folders, so it takes no cells.")
         }
         return item
     }

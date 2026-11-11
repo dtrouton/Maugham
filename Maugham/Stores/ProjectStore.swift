@@ -104,6 +104,11 @@ public enum ProjectStoreError: Error, Equatable {
     /// call, so nothing outside the project is read, written, moved or
     /// deleted. Thrown by `resolvedProjectPath(_:)`.
     case unsafeProjectPath(relativePath: String, reason: String)
+    /// A Research item Maugham writes as Research (a palette card) has a
+    /// path inside the project but outside every research root
+    /// (`ResearchTextRole.isInsideAResearchRoot`): a synced manifest naming
+    /// the manuscript or a `.maugham/` file. Refused before any write.
+    case outsideResearch(title: String)
     /// The project carries a profile a newer Maugham wrote (`ProjectProfile
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
@@ -161,6 +166,8 @@ extension ProjectStoreError: LocalizedError {
         case .statementPathUnsafe(let relativePath, let reason),
              .unsafeProjectPath(let relativePath, let reason):
             return "“\(relativePath)” isn’t a place inside this project: \(reason)"
+        case .outsideResearch(let title):
+            return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         }

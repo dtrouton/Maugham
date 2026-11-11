@@ -50,6 +50,21 @@ enum ResearchTextRole: Equatable {
         if components[0] == "research" { return true }
         return ProjectStore.researchScopePieceId(ofPath: path, structure: structure) != nil
     }
+
+    /// **The path of the Research table `item` is, nil when it is not one
+    /// Maugham may open or write as a table** — a table asset (`type ==
+    /// .asset`, `kind == .table`) whose path sits inside a research root
+    /// (`isInsideAResearchRoot`, the one spelling of the roots). The table
+    /// door asks it at every read and every write
+    /// (`ResearchTableHost.readFile`, `.write`), and so do the centre
+    /// column's router and `write_research_cells` / `read_research_table`:
+    /// a synced manifest's `.table` naming the manuscript or the op log is
+    /// never opened in the grid, never written, and keeps no version.
+    static func tablePath(of item: ResearchItem, structure: [StructureItem]) -> String? {
+        guard item.type == .asset, item.kind == .table, let path = item.path,
+              isInsideAResearchRoot(path, structure: structure) else { return nil }
+        return path
+    }
 }
 
 /// What one save through the note door did.
@@ -396,16 +411,30 @@ final class ResearchNoteDoor {
             researchNoteLog.error(
                 "\(pathNow, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
             // A timer's text stays pending (the next keystroke's timer, or
-            // the flush, tries again); anyone else's write is not made.
-            guard source == .editorTimer else {
-                MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
-                                        projectURL: projectURL)
+            // the flush, tries again); a flush's text — the last copy there
+            // is — is kept as a conflict backup; anyone else's write is not made.
+            let couldNot = "Couldn’t save “\(item.title)”: \(error.localizedDescription)"
+            switch source {
+            case .editorTimer:
+                sayOnceForTheTimer(itemId,
+                    "Couldn’t save “\(item.title)” yet: \(error.localizedDescription) Your edits stay in the editor and are saved when you leave the note.",
+                    projectURL: projectURL)
+                return .stoppedTextStaysPending
+            case .editorFlush:
+                if let backup = keptAsAConflictBackup(itemId, fileURL, text: text) {
+                    MaughamEvent.postNotice(
+                        "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
+                        projectURL: projectURL)
+                } else {
+                    MaughamEvent.postNotice(
+                        "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.",
+                        projectURL: projectURL)
+                }
+                return .notSaved
+            case .direct:
+                MaughamEvent.postNotice(couldNot, projectURL: projectURL)
                 return .notSaved
             }
-            sayOnceForTheTimer(itemId,
-                "Couldn’t save “\(item.title)” yet: \(error.localizedDescription) Your edits stay in the editor and are saved when you leave the note.",
-                projectURL: projectURL)
-            return .stoppedTextStaysPending
         }
         let writtenHash = ContentHash.of(newBytes)
         notes[itemId]?.knownHash = writtenHash
@@ -440,15 +469,11 @@ final class ResearchNoteDoor {
                 projectURL: projectURL)
             return .stoppedTextStaysPending
         case .editorFlush:
-            do {
-                let backup = try Document.writeConflictBackup(
-                    forFileAt: fileURL, docId: itemId, text: text, kind: "unsaved")
+            if let backup = keptAsAConflictBackup(itemId, fileURL, text: text) {
                 MaughamEvent.postNotice(
                     "\(unread), so your edits weren’t saved over it. They were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
                     projectURL: projectURL)
-            } catch {
-                researchNoteLog.error(
-                    "\(itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
+            } else {
                 MaughamEvent.postNotice(
                     "\(unread), so your edits weren’t saved over it, and they couldn’t be kept anywhere else.",
                     projectURL: projectURL)
@@ -459,6 +484,20 @@ final class ResearchNoteDoor {
                 "\(unread), so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
             return .notSaved
+        }
+    }
+
+    /// **A flush's text that did not land, kept** — the editor's text is the
+    /// last copy there is — as a conflict backup under `.maugham/conflicts/`
+    /// (`Document.writeConflictBackup`, the helper the table door keeps an
+    /// outside version with). Its URL; nil, logged, when it could not be kept.
+    private func keptAsAConflictBackup(_ itemId: String, _ fileURL: URL, text: String) -> URL? {
+        do {
+            return try Document.writeConflictBackup(forFileAt: fileURL, docId: itemId, text: text, kind: "unsaved")
+        } catch {
+            researchNoteLog.error(
+                "\(itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 

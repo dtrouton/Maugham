@@ -211,7 +211,11 @@ extension ProjectWindow {
     static func researchCentreRoute(id: String?,
                                     in manifest: ProjectManifest) -> ResearchCentreRoute {
         guard let id, let item = TreeWalk.find(id: id, in: manifest.research) else { return .missing }
-        if item.type == .asset, item.kind == .table, let path = item.path { return .table(item: item, path: path) }
+        // A table outside a research root is not opened in the grid: it falls
+        // to the preview, as a note outside one does.
+        if let path = ResearchTextRole.tablePath(of: item, structure: manifest.structure) {
+            return .table(item: item, path: path)
+        }
         // Note or card is asked of the one predicate the note door asks too.
         switch ResearchTextRole.of(item, structure: manifest.structure) {
         case .paletteCard: return .paletteCard(item.id)

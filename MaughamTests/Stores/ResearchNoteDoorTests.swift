@@ -563,6 +563,35 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "Typed.", "the flush saved what the timer could not")
     }
 
+    /// A FLUSH whose write fails (a note switch, close, ⌘S: the last moment
+    /// the editor's text exists) keeps that text as a conflict backup, and
+    /// the notice names it — the text is not gone after the notice.
+    func test_aFlushWhoseWriteFailsKeepsTheEditInAConflictBackup_andSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder, 0o555)
+
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "The only copy of this.")
+        try await store.flushPendingSave()
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        XCTAssertEqual(try text(of: item, projectStore), "Before.", "premise: the write failed")
+        let conflicts = file(".maugham/conflicts")
+        let backups = (try? FileManager.default.contentsOfDirectory(atPath: conflicts.path)) ?? []
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertTrue(backup.contains(item.id), backup)
+        XCTAssertEqual(try String(contentsOf: conflicts.appendingPathComponent(backup), encoding: .utf8),
+                       "The only copy of this.")
+        XCTAssertTrue(heard.notices.contains { $0.contains("Couldn’t save “Notes”") && $0.contains(backup) },
+                      "\(heard.notices)")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
     /// RULING-7 stays: a flush never saves over a file that will not read.
     /// The editor's text is the last copy there is, so it is kept as a
     /// conflict backup, and the notice says where.

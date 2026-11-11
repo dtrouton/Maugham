@@ -350,6 +350,71 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertEqual(first.createdItemID, note.id)
     }
 
+    /// **A Rewrite aimed at a text item outside a research root is refused
+    /// before the Trash keeps anything** (wave 2 A): a synced manifest can
+    /// move a promoted note's path onto the manuscript or a `.maugham/` file.
+    /// The rewrite throws, the Trash has no new entry, and the file is as it was.
+    func test_aRewriteOfATextItemOutsideAResearchRootIsRefusedBeforeTheTrashKeepsAnything() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        for path in ["manuscript/stray.md", ".maugham/stray.md"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a note.\n".utf8).write(to: url)
+            store.mutateResearchItem(id: note.id) { $0.path = path }
+            let trashedBefore = try await store.trashStore.list().count
+
+            model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+            let existing = try XCTUnwrap(Promotion.existingArtifact(
+                for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+            do {
+                _ = try await performer.perform(
+                    plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            let trashedAfter = try await store.trashStore.list().count
+            XCTAssertEqual(trashedAfter, trashedBefore, "\(path): no Trash entry")
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a note.\n", path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), path)
+        }
+    }
+
+    /// **A canvas promotion into a palette card outside a research root writes
+    /// nothing** (wave 2 D): the card's Rewrite throws before the Trash keeps
+    /// its prose, and the file is as it was.
+    func test_aCardRewriteOutsideAResearchRootIsRefusedBeforeTheTrashKeepsAnything() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let cardID = try XCTUnwrap(first.createdItemID)
+        for path in ["manuscript/stray.md", ".maugham/stray.md"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a card.\n".utf8).write(to: url)
+            store.mutateResearchItem(id: cardID) { $0.path = path }
+            let trashedBefore = try await store.trashStore.list().count
+
+            model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+            let existing = try XCTUnwrap(Promotion.existingArtifact(
+                for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+            do {
+                _ = try await performer.perform(
+                    plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location))
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            let trashedAfter = try await store.trashStore.list().count
+            XCTAssertEqual(trashedAfter, trashedBefore, "\(path): no Trash entry")
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a card.\n", path)
+        }
+    }
+
     /// `.notSaved` is not swallowed: the Rewrite throws and the note is as it was.
     func test_aRewriteWhoseVersionCannotBeKeptSaysTheNoteIsUnchanged() async throws {
         let (root, store) = try await makeProject()

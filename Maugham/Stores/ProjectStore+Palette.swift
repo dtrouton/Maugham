@@ -53,6 +53,10 @@ extension ProjectStore {
     @discardableResult
     public func addPaletteCard(title: String, kind: PaletteCard.Kind) async throws -> ResearchItem {
         let group = try await ensurePaletteGroup()
+        // A card is made inside a research root or not at all: a synced
+        // manifest's palette group can name a folder outside one. Asked of a
+        // file in the group's folder (the question is about files).
+        try refuseUnlessInsideResearch((group.path ?? "") + "/card.md", title: title)
         let item = try await addResearchTextNote(parentId: group.id, title: title)
         if let rel = item.path {
             try await paletteCoordinatedWrite(
@@ -109,6 +113,8 @@ extension ProjectStore {
               let oldPath = oldItem.path else {
             throw ProjectStoreError.structureMissing
         }
+        // Before the rename too: the typed mover would move the file it names.
+        try refuseUnlessInsideResearch(oldPath, title: oldItem.title)
 
         var writePath = oldPath
         var remapped = card
@@ -174,6 +180,7 @@ extension ProjectStore {
     /// spelling in this file; `TripwireGrepTests.test_noRawWriteInPaletteStore`
     /// enforces it.
     private func paletteCoordinatedWrite(_ text: String, to path: String) async throws {
+        try refuseUnlessInsideResearch(path, title: (path as NSString).lastPathComponent)
         if let documentStore {
             try await documentStore.performFileSave(path: path, text: text)
             return
@@ -182,13 +189,29 @@ extension ProjectStore {
             to: try resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
     }
 
-    /// Locate a palette card item and its parsed model, or throw `structureMissing`.
+    /// Locate a palette card item and its parsed model, or throw
+    /// `structureMissing`; `outsideResearch` for a card whose path is outside
+    /// every research root (nothing is copied beside it).
     private func paletteCard(for cardId: String) throws -> (ResearchItem, PaletteCard) {
-        guard let item = findResearchItem(id: cardId, in: manifest.research), item.path != nil,
+        guard let item = findResearchItem(id: cardId, in: manifest.research), let path = item.path,
               let card = loadPaletteCards().first(where: { $0.researchItemId == cardId }) else {
             throw ProjectStoreError.structureMissing
         }
+        try refuseUnlessInsideResearch(path, title: item.title)
         return (item, card)
+    }
+
+    /// **A palette card's file is written only inside a research root** —
+    /// the one question (`ResearchTextRole.isInsideAResearchRoot`) the note
+    /// door and the table door ask too. The palette group is found by role,
+    /// so a synced manifest (untrusted input, tripwire 58's reason) can file a
+    /// card, or the group itself, at the manuscript or under `.maugham/`;
+    /// `SafeRelativePath` confines a path to the project, not to research.
+    /// Every palette writer asks this before it writes, renames or copies.
+    private func refuseUnlessInsideResearch(_ path: String, title: String) throws {
+        guard ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure) else {
+            throw ProjectStoreError.outsideResearch(title: title)
+        }
     }
 
     /// Resolve an `ImagePasteHandler` `![](./<assets>/<file>)` ref to a

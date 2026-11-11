@@ -472,7 +472,19 @@ struct PromotionPerformer {
     /// not updatable at all.
     private func refuseIfNotAResearchNote(_ itemID: String) throws {
         switch artifacts.kind(of: itemID) {
-        case .researchNote, nil: return   // nil is `artifactMissing`'s case, thrown by `validate`
+        case nil: return   // `artifactMissing`'s case, thrown by `validate`
+        case .researchNote:
+            // **The kind is the index's; whether Maugham may write it as a
+            // note is the role's** (`ResearchTextRole`, the door's own
+            // question). Asked here, before the Trash keeps a copy: a synced
+            // manifest's `.document` naming the manuscript or a `.maugham/`
+            // file is refused before anything is written, the Trash included.
+            // A row with no file yet is `writeBody`'s `itemHasNoFile`.
+            guard let item = TreeWalk.find(id: itemID, in: store.manifest.research),
+                  item.path != nil else { return }
+            guard case .note = ResearchTextRole.of(item, structure: store.manifest.structure) else {
+                throw PromotionFailure.artifactIsADifferentKind(itemID: itemID, found: "outside Research")
+            }
         case .paletteCard:
             throw PromotionFailure.artifactIsADifferentKind(itemID: itemID,
                                                             found: "a palette card")
@@ -600,6 +612,14 @@ struct PromotionPerformer {
                 try await store.linkResearch(researchId: itemID, toDocumentId: documentID)
             }
         case .update(let existing, _):
+            // Refused before the Trash keeps its prose, as the note arm's
+            // `refuseIfNotAResearchNote` is: a card a synced manifest files
+            // outside a research root is never written (`updatePaletteCard`
+            // refuses it too, but only after the Trash entry below).
+            if let path = TreeWalk.find(id: existing, in: store.manifest.research)?.path,
+               !ResearchTextRole.isInsideAResearchRoot(path, structure: store.manifest.structure) {
+                throw PromotionFailure.artifactIsADifferentKind(itemID: existing, found: "outside Research")
+            }
             itemID = existing
         }
         // Read the card back and replace ONLY the title, kind and body. A card
@@ -1036,6 +1056,11 @@ struct PromotionPerformer {
     /// the no-`DocumentStore` fallback (load-only contexts), mirroring
     /// `ProjectStore+Palette.paletteCoordinatedWrite`. It keeps nothing.
     private func write(_ text: String, toPath path: String) async throws {
+        // Its caller asked the role already; asked again at the write itself,
+        // as every Research write site does (`TripwireGrepTests`' census).
+        guard ResearchTextRole.isInsideAResearchRoot(path, structure: store.manifest.structure) else {
+            throw PromotionFailure.artifactIsADifferentKind(itemID: path, found: "outside Research")
+        }
         if let ds = store.documentStore {
             try await ds.performFileSave(path: path, text: text)
             return

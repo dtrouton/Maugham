@@ -15616,6 +15616,152 @@ extension TripwireGrepTests {
         }
     }
 
+    // MARK: - Every Research write asks the research-root guard (note versions plan 2, wave 2 D)
+
+    /// **The production functions that call `.performFileSave(` — the
+    /// coordinated whole-file write every Research note, table and palette
+    /// card save takes — each named here with the research-root question its
+    /// body asks** (`ResearchTextRole.isInsideAResearchRoot`, the one spelling
+    /// of the roots, directly or through the role / table-path / door
+    /// lookup). A synced manifest can name the manuscript or a `.maugham/`
+    /// file as a Research item; `SafeRelativePath` confines a path to the
+    /// project, not to research, so a write site that does not ask writes
+    /// over the manuscript or the op log.
+    /// - `ResearchTableHost.swift:write` — the table door, `tablePath(`.
+    /// - `ResearchNoteDoor.swift:write` — the note door, `noteItem(` (which
+    ///   asks `ResearchNoteDoor.takes` → `ResearchTextRole.of`).
+    /// - `ProjectStore+Palette.swift:paletteCoordinatedWrite` — a palette
+    ///   card's file, `refuseUnlessInsideResearch(`.
+    /// - `ProjectStore+Structure.swift:propagateWikiLinkRename` — the
+    ///   rename's link sweep over a palette card, `ResearchTextRole.of(`.
+    /// - `PromotionPerformer.swift:write` — a promotion's text into a palette
+    ///   card, `isInsideAResearchRoot(`.
+    /// `researchFileSaveExempt` names the one caller that writes no Research
+    /// file: `DocumentStore.swift:open` (`scheduleFileSave`'s debounce, a
+    /// manuscript's clean render for `PartialRestorePicker`). Raw
+    /// `write(to:)` fallbacks have no common spelling and are not seen here;
+    /// each sits beside its function's `performFileSave` or behind the same
+    /// question (Replace's `researchReplaceTarget`).
+    static let researchFileSaveFunctions: [String: String] = [
+        "ResearchTableHost.swift:write": "ResearchTextRole.tablePath(",
+        "ResearchNoteDoor.swift:write": "noteItem(",
+        "ProjectStore+Palette.swift:paletteCoordinatedWrite": "refuseUnlessInsideResearch(",
+        "ProjectStore+Structure.swift:propagateWikiLinkRename": "ResearchTextRole.of(",
+        "PromotionPerformer.swift:write": "ResearchTextRole.isInsideAResearchRoot(",
+    ]
+    static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open"]
+
+    /// Each `.performFileSave(` call outside a comment, keyed
+    /// `<file>:<enclosing func>`, with that function's brace-matched body.
+    static func performFileSaveSites(in files: [(name: String, text: String)]) -> [String: String] {
+        var sites: [String: String] = [:]
+        let funcPattern = try! NSRegularExpression(pattern: #"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)"#)
+        for (name, text) in files {
+            let ns = text as NSString
+            var search = NSRange(location: 0, length: ns.length)
+            while true {
+                let hit = ns.range(of: ".performFileSave(", options: [], range: search)
+                guard hit.location != NSNotFound else { break }
+                search = NSRange(location: hit.location + hit.length, length: ns.length - hit.location - hit.length)
+                let lineStart = ns.lineRange(for: NSRange(location: hit.location, length: 0)).location
+                let line = ns.substring(with: NSRange(location: lineStart, length: hit.location - lineStart))
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
+                let funcs = funcPattern.matches(in: text, range: NSRange(location: 0, length: hit.location))
+                for match in funcs.reversed() {
+                    guard let body = braceMatchedBody(ns, after: match.range.location + match.range.length),
+                          body.location <= hit.location, hit.location < body.location + body.length else { continue }
+                    sites["\(name):\(ns.substring(with: match.range(at: 1)))"] = ns.substring(with: body)
+                    break
+                }
+            }
+        }
+        return sites
+    }
+
+    private static func braceMatchedBody(_ ns: NSString, after start: Int) -> NSRange? {
+        let open = ns.range(of: "{", options: [], range: NSRange(location: start, length: ns.length - start))
+        guard open.location != NSNotFound else { return nil }
+        var depth = 0
+        for i in open.location..<ns.length {
+            let c = ns.character(at: i)
+            if c == 0x7B { depth += 1 }
+            if c == 0x7D { depth -= 1; if depth == 0 { return NSRange(location: open.location, length: i - open.location + 1) } }
+        }
+        return nil
+    }
+
+    /// What is wrong with `sites` against the named lists: a caller on no
+    /// list, a listed one that is gone, or a listed one whose body does not
+    /// ask its question. Empty when the census holds.
+    static func researchFileSaveProblems(_ sites: [String: String], named: [String: String],
+                                         exempt: Set<String>) -> [String] {
+        var problems: [String] = []
+        for key in sites.keys.sorted() where named[key] == nil && !exempt.contains(key) {
+            problems.append("\(key) calls performFileSave and is on neither list")
+        }
+        for (key, question) in named.sorted(by: { $0.key < $1.key }) {
+            guard let body = sites[key] else { problems.append("\(key) is listed but calls no performFileSave"); continue }
+            if !body.contains(question) { problems.append("\(key) does not ask \(question)") }
+        }
+        for key in exempt.sorted() where sites[key] == nil {
+            problems.append("\(key) is exempt but calls no performFileSave")
+        }
+        return problems
+    }
+
+    func test_everyResearchFileSaveAsksTheResearchRootGuard() throws {
+        var files: [(name: String, text: String)] = []
+        for case let url as URL in FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)!
+        where url.pathExtension == "swift" {
+            files.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
+        }
+        let problems = Self.researchFileSaveProblems(
+            Self.performFileSaveSites(in: files), named: Self.researchFileSaveFunctions,
+            exempt: Self.researchFileSaveExempt)
+        XCTAssertEqual(problems, [],
+            "Every write of a Research file asks whether its path is inside a research root "
+            + "(`ResearchTextRole.isInsideAResearchRoot`, directly or through the role, "
+            + "`tablePath` or the door's lookup) before it writes. A new caller of "
+            + "performFileSave: ask the guard and name it in `researchFileSaveFunctions`, or — "
+            + "for a file that is not Research — in `researchFileSaveExempt`, in the same commit.")
+    }
+
+    /// The census fires: an unlisted caller, and a listed one that stopped
+    /// asking, are each named; the control — a listed caller that asks,
+    /// with a comment naming the call — is not.
+    func test_theResearchFileSaveCensusFiresOnAPlantedOffender() {
+        let planted: [(name: String, text: String)] = [
+            ("Stray.swift", """
+                func saveSomething(path: String) async throws {
+                    try await ds.performFileSave(path: path, text: "x")
+                }
+                """),
+            ("Guarded.swift", """
+                // ds.performFileSave( in a comment is not a call.
+                private func keep(_ text: String, to path: String) async throws {
+                    guard ResearchTextRole.isInsideAResearchRoot(path, structure: s) else { return }
+                    if let ds { try await ds.performFileSave(path: path, text: text) }
+                }
+                """),
+            ("Forgot.swift", """
+                func write(_ text: String, to path: String) async throws {
+                    let unrelated = { func inner() {} }
+                    try await ds.performFileSave(path: path, text: text)
+                }
+                """),
+        ]
+        let sites = Self.performFileSaveSites(in: planted)
+        XCTAssertEqual(Set(sites.keys), ["Stray.swift:saveSomething", "Guarded.swift:keep", "Forgot.swift:write"])
+        let problems = Self.researchFileSaveProblems(
+            sites,
+            named: ["Guarded.swift:keep": "isInsideAResearchRoot(", "Forgot.swift:write": "isInsideAResearchRoot("],
+            exempt: [])
+        XCTAssertEqual(problems, [
+            "Stray.swift:saveSomething calls performFileSave and is on neither list",
+            "Forgot.swift:write does not ask isInsideAResearchRoot(",
+        ])
+    }
+
     // MARK: - A Research note's text is written over through the note door (note versions plan 2, Task 4)
 
     /// **The production callers of the note door, by type and count.**
