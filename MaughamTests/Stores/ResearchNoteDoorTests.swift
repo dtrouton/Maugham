@@ -623,6 +623,59 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
     }
 
+    /// A timer's save of a note that has stopped being one (a synced manifest
+    /// pointed it at the manuscript) writes nothing there, keeps the edit
+    /// pending and says, truthfully, that Maugham holds it.
+    func test_aTimerSaveOfANoteThatStoppedBeingOneHoldsTheEdit_andWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let manuscript = try Data(contentsOf: file("manuscript/a.md"))
+        projectStore.mutateResearchItem(id: item.id) { $0.path = "manuscript/a.md" }
+
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id))
+        XCTAssertEqual(try Data(contentsOf: file("manuscript/a.md")), manuscript)
+        XCTAssertTrue(heard.notices.contains {
+            $0.contains("no longer a Research note") && $0.contains("Maugham is holding your edits")
+        }, "\(heard.notices)")
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+    }
+
+    /// A flush to a note whose path the project refuses (a folder link
+    /// inside `research/` that leaves the project) keeps the text as a
+    /// conflict backup and names it; nothing is written through the link.
+    func test_aFlushToARefusedPathKeepsTheEditInAConflictBackup() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        let elsewhere = TestTemp.root.appendingPathComponent("elsewhere-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: elsewhere) }
+        try FileManager.default.createSymbolicLink(at: file("research/linked"), withDestinationURL: elsewhere)
+        projectStore.mutateResearchItem(id: item.id) { $0.path = "research/linked/x.md" }
+
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "The only copy of this.")
+        try await store.flushPendingSave()
+
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [], "nothing written there")
+        let conflicts = file(".maugham/conflicts")
+        let backups = (try? FileManager.default.contentsOfDirectory(atPath: conflicts.path)) ?? []
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(try String(contentsOf: conflicts.appendingPathComponent(backup), encoding: .utf8),
+                       "The only copy of this.")
+        XCTAssertTrue(heard.notices.contains { $0.contains("isn’t a place inside this project") && $0.contains(backup) },
+                      "\(heard.notices)")
+    }
+
     /// A flush whose write fails AND whose conflict backup cannot be written
     /// says plainly that the edits were not saved.
     func test_aFlushWhoseWriteAndBackupBothFailSaysTheEditsWereNotSaved() async throws {

@@ -636,6 +636,18 @@ extension ProjectStore {
         // must not move that file (it is the manuscript or Maugham's own), so
         // both are trashed as the ROW only: the entry is the record, the file
         // stays exactly where it is, and a restore puts the row back.
+        // A path that leaves the project is refused as that (tripwire 58)
+        // before anything else; row-only is for in-project paths outside
+        // Research. A GROUP row naming a folder outside Research is refused
+        // while it holds rows: taking its row alone would leave their files
+        // untracked.
+        if item.kind != .link, let path = item.path, !path.isEmpty {
+            _ = try resolvedProjectPathToChange(path)
+            if item.type == .group, namesAFileOutsideResearch(item), !(item.children ?? []).isEmpty {
+                throw ProjectStoreError.fileSystemError(
+                    "“\(item.title)” isn’t inside Research, so only its row can be deleted, and it still holds items. Move or delete what is in it first.")
+            }
+        }
         if item.kind == .link || namesAFileOutsideResearch(item) {
             let metadata = try JSONEncoder().encode(item)
             entry = try await trashStore.recordManifestOnlyTrash(
@@ -823,6 +835,16 @@ extension ProjectStore {
             // (tripwire 14, enforce-by-construction). `affectedPaths` is the
             // item's own old path; the flush is path-agnostic so child notes
             // under a renamed group folder are covered too.
+            // Both refusals before the typed mover runs: it closes and
+            // unregisters every open Document at the path first, so a rename
+            // refused inside it would leave the writer's open chapter closed
+            // under the editor. A path that leaves the project is refused as
+            // that (tripwire 58); a row naming a file outside every research
+            // root renames nothing.
+            if let oldPath = oldItem.path, oldItem.kind != .link {
+                _ = try resolvedProjectPathToChange(oldPath)
+                if namesAFileOutsideResearch(oldItem) { throw ProjectStoreError.outsideResearch(title: oldItem.title) }
+            }
             let affected = oldItem.path.map { [$0] } ?? []
             let renameBody: () async throws -> Void = { [self] in
                 if let result = try await renameResearchPath(

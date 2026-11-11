@@ -133,6 +133,12 @@ extension ProjectStore {
                 throw ProjectStoreError.structureMissing
             }
             // A row naming a file outside every research root moves nothing.
+            // A path that leaves the project is refused as that (tripwire
+            // 58) first; then a row naming a file outside every research
+            // root moves nothing.
+            if item.kind != .link, let path = item.path, !path.isEmpty {
+                _ = try resolvedProjectPathToChange(path)
+            }
             if namesAFileOutsideResearch(item) { throw ProjectStoreError.outsideResearch(title: item.title) }
             if item.type == .group, case .group(let gid) = target {
                 if gid == id || Self.researchContains(id: gid, in: item.children ?? []) {

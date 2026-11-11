@@ -20,11 +20,25 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
     override func setUp() async throws {
         parent = TestTemp.root.appendingPathComponent("moveroutside-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let identities = LocalIdentities.softwareForTesting()
+        Document.localIdentitiesForTesting = identities
+        Document.deviceStateForTesting = OpLogDeviceState(
+            fileURL: parent.appendingPathComponent("op-log-state.json"))
+        Document.registryCacheForTesting = RegistryCache(
+            fileURL: parent.appendingPathComponent("registry-cache.json"),
+            identity: identities.author.fingerprint)
+        Document.admissionMemoryForTesting = AdmissionMemory(
+            fileURL: parent.appendingPathComponent("admission-memory.json"),
+            identity: identities.author.fingerprint)
     }
 
     override func tearDown() async throws {
         for store in stores { await store.close() }
         stores = []
+        Document.localIdentitiesForTesting = nil
+        Document.deviceStateForTesting = nil
+        Document.registryCacheForTesting = nil
+        Document.admissionMemoryForTesting = nil
         try? FileManager.default.removeItem(at: parent)
     }
 
@@ -145,24 +159,97 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
     }
 
     /// A Trash record whose file would come back outside every research root
-    /// (here: its group was pointed at the manuscript since) is not restored:
-    /// the entry stays, and nothing lands in the manuscript folder.
-    func test_aTrashedFileIsNotRestoredOutsideAResearchRoot() async throws {
+    /// (here: its group was pointed at the manuscript since) still comes back
+    /// — at the top of the shared Research, never in the manuscript folder:
+    /// a restore is not refused for want of a home.
+    func test_aTrashedFileWhoseHomeIsOutsideAResearchRootComesBackIntoResearch() async throws {
         let (url, store) = try await novel()
         let group = try await store.addResearchItem(parentId: nil, title: "Folder", kind: nil)
         let note = try await store.addResearchTextNote(parentId: group.id, title: "A note")
+        try Data("Kept words.\n".utf8).write(to: url.appendingPathComponent(try XCTUnwrap(note.path)))
         try await store.deleteResearchItems(ids: [note.id])
         let entry = try XCTUnwrap(store.trashEntries.first { $0.displayTitle == "A note" })
         XCTAssertTrue(entry.carriesFile)
         store.mutateResearchItem(id: group.id) { $0.path = "manuscript" }
         let before = try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("manuscript").path)
 
-        do { _ = try await store.restoreTrashEntry(id: entry.id); XCTFail("expected a refusal") }
-        catch ProjectStoreError.outsideResearch {}
+        _ = try await store.restoreTrashEntry(id: entry.id)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("manuscript").path),
-                       before)
-        let still = try await store.trashStore.list()
-        XCTAssertTrue(still.contains { $0.id == entry.id }, "the entry stays in the Trash")
+                       before, "nothing lands in the manuscript folder")
+        let back = try XCTUnwrap(store.manifest.research.first { $0.id == note.id }, "a top-level row")
+        XCTAssertEqual(back.path, "research/a-note.md")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent("research/a-note.md"), encoding: .utf8),
+                       "Kept words.\n")
+    }
+
+    // MARK: - Refused before the mover closes anything
+
+    /// A synced row pointing at the chapter the writer has OPEN: the rename,
+    /// the move and the (row-only) trash all leave the chapter's Document
+    /// open, registered and with its text.
+    func test_aRefusedRenameOrMoveAndARowOnlyTrashLeaveAnOpenChapterOpen() async throws {
+        let (url, store) = try await novel()
+        let ds = try XCTUnwrap(stores.last)
+        let path = try XCTUnwrap(store.manifest.structure.first { $0.type == .document }?.path)
+        let doc = try await Document.load(url: url.appendingPathComponent(path), actor: .author,
+                                          session: "open", presenter: ds.presenter)
+        ds.register(document: doc, for: path)
+        let text = doc.displayText
+        let bytes = try Data(contentsOf: url.appendingPathComponent(path))
+        let row = ResearchItem(id: "res-stray009", title: "Stray", type: .asset, kind: .document, path: path)
+        store.manifest.research.append(row)
+
+        do { try await store.updateResearchItem(id: row.id, title: "Renamed"); XCTFail("rename") }
+        catch ProjectStoreError.outsideResearch {}
+        XCTAssertTrue(ds.document(for: path) === doc, "still registered after the rename")
+        XCTAssertFalse(doc.isClosed, "still open after the rename")
+        do { try await store.moveResearchItems(ids: [row.id], to: .sharedRoot); XCTFail("move") }
+        catch ProjectStoreError.outsideResearch {}
+        XCTAssertTrue(ds.document(for: path) === doc, "still registered after the move")
+        try await store.deleteResearchItems(ids: [row.id])
+        XCTAssertTrue(ds.document(for: path) === doc, "still registered after the row-only trash")
+        XCTAssertFalse(doc.isClosed)
+        XCTAssertEqual(doc.displayText, text)
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(path)), bytes)
+        await doc.close()
+    }
+
+    // MARK: - A path that leaves the project is refused as that
+
+    func test_aRowWhosePathLeavesTheProjectIsRefusedAsUnsafe_forRenameMoveAndTrash() async throws {
+        let (url, store) = try await novel()
+        let outside = url.deletingLastPathComponent().appendingPathComponent("escape.md")
+        try Data("Outside.\n".utf8).write(to: outside)
+        let row = ResearchItem(id: "res-escape01", title: "Escape", type: .asset, kind: .document, path: "../escape.md")
+        store.manifest.research.append(row)
+        func assertUnsafe(_ what: String, _ verb: () async throws -> Void) async {
+            do { try await verb(); XCTFail("\(what): expected a refusal") }
+            catch ProjectStoreError.unsafeProjectPath {}
+            catch { XCTFail("\(what): refused as \(error), not as a path that leaves the project") }
+        }
+        await assertUnsafe("rename") { try await store.updateResearchItem(id: row.id, title: "Renamed") }
+        await assertUnsafe("move") { try await store.moveResearchItems(ids: [row.id], to: .sharedRoot) }
+        await assertUnsafe("trash") { try await store.deleteResearchItems(ids: [row.id]) }
+        XCTAssertEqual(try String(contentsOf: outside, encoding: .utf8), "Outside.\n")
+        XCTAssertNotNil(store.findResearchItem(id: row.id, in: store.manifest.research), "the row stays")
+    }
+
+    // MARK: - A group outside Research that still holds rows
+
+    func test_aGroupOutsideAResearchRootThatHoldsRowsIsNotTrashed() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Inside")
+        let notePath = try XCTUnwrap(note.path)
+        var group = ResearchItem(id: "res-grpout01", title: "Out", type: .group, kind: nil, path: "manuscript")
+        group.children = [note]
+        store.manifest.research.removeAll { $0.id == note.id }
+        store.manifest.research.append(group)
+
+        do { try await store.deleteResearchItems(ids: [group.id]); XCTFail("expected a refusal") }
+        catch ProjectStoreError.fileSystemError(let message) { XCTAssertTrue(message.contains("Move or delete what is in it first"), message) }
+        XCTAssertNotNil(store.findResearchItem(id: note.id, in: store.manifest.research), "the child row stays")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(notePath).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent("manuscript").path))
     }
 
     // MARK: - The control: a loose piece's own Research
@@ -192,5 +279,75 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
         let moved = try XCTUnwrap(store.findResearchItem(id: note.id, in: store.manifest.research)?.path)
         XCTAssertTrue(moved.hasPrefix("research/"), moved)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(moved).path))
+    }
+
+    // MARK: - A piece's note comes back to the piece as it is now
+
+    private func collectionWithAPieceNote(pieces titles: [String] = ["Story A"])
+        async throws -> (URL, ProjectStore, [StructureItem], ResearchItem) {
+        let url = try await ProjectFactory.createCollectionProject(named: "Anthology", in: parent)
+        let store = try await open(url)
+        var pieces: [StructureItem] = []
+        for title in titles { pieces.append(try await store.addLoosePiece(title: title, format: .markdown)) }
+        let note = try await store.createResearchNote(scope: .document(pieces[0].id), title: "Harbour")
+        try Data("Harbour words.\n".utf8).write(to: url.appendingPathComponent(try XCTUnwrap(note.path)))
+        return (url, store, pieces, note)
+    }
+
+    private func restoreHarbour(_ store: ProjectStore) async throws -> String {
+        let entry = try XCTUnwrap(store.trashEntries.first { $0.displayTitle == "Harbour" })
+        _ = try await store.restoreTrashEntry(id: entry.id)
+        return try XCTUnwrap(store.findResearchItem(
+            id: try XCTUnwrap(store.manifest.research.first { $0.title == "Harbour" }?.id),
+            in: store.manifest.research)?.path)
+    }
+
+    /// The note sat in a group inside the piece's research; the group was
+    /// deleted since. It comes back at the piece's research root, and the
+    /// deleted group's folder is not made again.
+    func test_aPieceNoteWhoseGroupWasDeletedComesBackAtThePiecesResearchRoot() async throws {
+        let (url, store, _, note) = try await collectionWithAPieceNote()
+        let pieceRoot = ((try XCTUnwrap(note.path)) as NSString).deletingLastPathComponent
+        let group = try await store.addResearchItem(parentId: nil, title: "Shelf", kind: nil)
+        try await store.moveResearchItems(ids: [group.id], to: .piece(try XCTUnwrap(store.researchScopePieceId(ofPath: note.path))))
+        try await store.moveResearchItems(ids: [note.id], to: .group(group.id))
+        let inGroup = try XCTUnwrap(store.findResearchItem(id: note.id, in: store.manifest.research)?.path)
+        XCTAssertEqual(inGroup, "\(pieceRoot)/shelf/harbour.md", "premise")
+        try await store.deleteResearchItems(ids: [note.id])
+        try await store.deleteResearchItems(ids: [group.id])
+
+        let back = try await restoreHarbour(store)
+        XCTAssertEqual(back, "\(pieceRoot)/harbour.md")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent("\(pieceRoot)/shelf").path),
+                       "the deleted group's folder is not made again")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(back), encoding: .utf8), "Harbour words.\n")
+    }
+
+    /// The piece is gone since: the note comes back into the shared Research,
+    /// bytes intact — never refused, never left for the sweep.
+    func test_aPieceNoteWhosePieceIsGoneComesBackIntoTheSharedResearch() async throws {
+        let (url, store, pieces, note) = try await collectionWithAPieceNote()
+        try await store.deleteResearchItems(ids: [note.id])
+        store.manifest.structure.removeAll { $0.id == pieces[0].id }
+
+        let back = try await restoreHarbour(store)
+        XCTAssertEqual(back, "research/harbour.md")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(back), encoding: .utf8), "Harbour words.\n")
+    }
+
+    /// A reorder renumbers the piece's folder; the note comes back into the
+    /// piece's CURRENT research folder.
+    func test_aPieceNoteComesBackIntoItsPiecesRenumberedFolder() async throws {
+        let (url, store, pieces, note) = try await collectionWithAPieceNote(pieces: ["Story A", "Story B"])
+        let before = ((try XCTUnwrap(note.path)) as NSString).deletingLastPathComponent
+        try await store.deleteResearchItems(ids: [note.id])
+        try await store.movePiece(pieceId: pieces[0].id, toIndex: 1)
+        let piece = try XCTUnwrap(store.manifest.structure.first { $0.id == pieces[0].id })
+        let now = String(try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece)).dropLast())
+        XCTAssertNotEqual(now, before, "premise: the reorder renumbered the folder")
+
+        let back = try await restoreHarbour(store)
+        XCTAssertEqual(back, "\(now)/harbour.md")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(back), encoding: .utf8), "Harbour words.\n")
     }
 }

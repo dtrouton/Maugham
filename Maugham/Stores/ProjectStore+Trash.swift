@@ -366,7 +366,7 @@ extension ProjectStore {
         _ decoded: ResearchItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
         var item = decoded
-        let targetParentId = survivingParentId(
+        var targetParentId = survivingParentId(
             pending?.originalParentId,
             exists: { findResearchItem(id: $0, in: manifest.research) != nil })
         let parentPath = targetParentId
@@ -376,25 +376,29 @@ extension ProjectStore {
         // every research root) has no file; `restore` hands the record back
         // and touches nothing on disk.
         let carriesFile = pending?.carriesFile ?? true
-        let destination: String?
+        var destination: String?
         if !carriesFile {
             destination = nil
-        } else if parentPath == nil, let own = item.path,
-                  researchScopePieceId(ofPath: own) != nil {
-            // A loose piece's own research row sits at the tree's top level,
-            // but its file belongs in that piece's research folder, which
-            // still exists while the piece does: back where it was, not
-            // `pieces/<file>` (outside every research root).
-            destination = own
+        } else if parentPath == nil, let own = item.path, own.hasPrefix("pieces/") {
+            // A loose piece's research row whose parent row is gone (or that
+            // sat at the top): the piece's CURRENT research folder (it follows
+            // a reorder's renumbering), never a group folder the writer
+            // deleted; a piece that is gone sends it to the shared Research.
+            let filename = (own as NSString).lastPathComponent
+            destination = currentPieceResearchFolder(forTrashedPath: own).map { "\($0)/\(filename)" }
+                ?? "research/\(filename)"
         } else {
             destination = Self.restoreDestination(for: item.path, underParentPath: parentPath)
         }
-        // A file is put back only inside a research root: a Trash record (or
-        // a parent row) naming the manuscript or `.maugham/` restores nothing,
-        // and the entry stays in the Trash.
-        if let destination, item.kind != .link,
-           !ResearchTextRole.isInsideAResearchRoot(destination, structure: manifest.structure) {
-            throw ProjectStoreError.outsideResearch(title: item.title)
+        // **A file comes back inside a research root, and always comes back**:
+        // a Trash record (or a surviving parent row) that would land it at the
+        // manuscript or under `.maugham/` lands it at the top of the shared
+        // Research instead — a restore is never refused for want of a home,
+        // since the Trash's sweep would otherwise destroy the only copy.
+        if let landing = destination, item.kind != .link,
+           !ResearchTextRole.isInsideAResearchRoot(landing, structure: manifest.structure) {
+            destination = "research/\((landing as NSString).lastPathComponent)"
+            targetParentId = nil
         }
         let entry = try await trashStore.restore(trashId: entryId, to: destination)
 
@@ -473,6 +477,33 @@ extension ProjectStore {
     ) -> String? {
         guard let recorded, exists(recorded) else { return nil }
         return recorded
+    }
+
+    /// **The research folder a trashed loose-piece path belongs in now**: the
+    /// piece whose research folder the path is under, else the loose piece
+    /// whose folder has the same slug after its `NN-` number (a reorder
+    /// renumbers `pieces/03-story/` to `pieces/04-story/`); nil when no loose
+    /// piece answers (deleted, or renamed since).
+    func currentPieceResearchFolder(forTrashedPath path: String) -> String? {
+        if let id = researchScopePieceId(ofPath: path),
+           let piece = manifest.structure.first(where: { $0.id == id }),
+           let prefix = Self.pieceResearchPrefix(for: piece) {
+            return String(prefix.dropLast())
+        }
+        let components = path.split(separator: "/")
+        guard components.count >= 2, components[0] == "pieces" else { return nil }
+        func slug(_ folder: Substring) -> Substring? {
+            guard let dash = folder.firstIndex(of: "-"),
+                  folder[..<dash].allSatisfy(\.isNumber) else { return nil }
+            return folder[folder.index(after: dash)...]
+        }
+        guard let wanted = slug(components[1]) else { return nil }
+        for piece in manifest.structure where piece.pieceKind == .loose {
+            guard let prefix = Self.pieceResearchPrefix(for: piece) else { continue }
+            let folder = prefix.split(separator: "/")
+            if folder.count >= 2, slug(folder[1]) == wanted { return String(prefix.dropLast()) }
+        }
+        return nil
     }
 
     /// Where the file should land, given where the ROW is going (RULING-41).

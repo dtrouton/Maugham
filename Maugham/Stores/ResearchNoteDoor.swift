@@ -525,7 +525,7 @@ final class ResearchNoteDoor {
         switch source {
         case .editorTimer:
             sayOnceForTheTimer(itemId,
-                "Couldn’t save \(title) yet: \(reason). Your edits stay in the editor, and when you leave the note they are kept as a conflict backup.",
+                "Couldn’t save \(title): \(reason). Maugham is holding your edits and keeps them as a conflict backup at the next save — leaving the note, ⌘S, or closing the project.",
                 projectURL: projectURL)
             return .stoppedTextStaysPending
         case .editorFlush:

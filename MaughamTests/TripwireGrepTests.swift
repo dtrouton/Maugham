@@ -15646,7 +15646,10 @@ extension TripwireGrepTests {
     /// Replace's `.raw` arm behind `researchReplaceTarget`), a
     /// `coordinatedWrite(text:` and an unqualified `performFileSave(` inside a
     /// `DocumentStore` extension have no `.performFileSave(` spelling and are
-    /// not seen here.
+    /// not seen here. Nor are: a `/* … */` block comment (only `//` comments
+    /// are stripped, so a question named inside one still counts), the
+    /// question spelled inside a string literal, and two files of one name
+    /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
         "ResearchTableHost.swift:write(_:by:restoring:)": "ResearchTextRole.tablePath(",
         "ResearchNoteDoor.swift:write(_:text:by:restoring:source:in:)": "noteLookup(",
