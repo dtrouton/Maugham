@@ -52,6 +52,33 @@ final class TreeTrashDisclosureTests: XCTestCase {
                        "one trashed entry, expanded, must show exactly one row")
     }
 
+    /// **The expanded rows are actually on screen under a greedy tree** — the
+    /// production arrangement: the tree's `List` above takes every point the
+    /// column has, and the disclosure's rows must still get room (smoke find,
+    /// 2026-11-10: the chevron turned and nothing appeared).
+    func test_theExpandedRowsGetRoomBelowAGreedyTree() async throws {
+        let store = try await novelWithOneTrashedChapter().store
+        let box = TrashDisclosureBox(isExpanded: true)
+        let window = TestWindow.mount(
+            AnyView(TrashUnderATreeProbeView(store: store, box: box)),
+            size: CGSize(width: 320, height: 700),
+            as: SilentTestWindow.self)
+        windows.append(window)
+        pump(0.3)
+
+        let root = try XCTUnwrap(window.contentView)
+        var tables: [NSTableView] = []
+        collect(NSTableView.self, in: root, into: &tables)
+        let trash = try XCTUnwrap(tables.first { $0.numberOfRows == 1 },
+                                  "the disclosure's row list never mounted")
+        let scroll = try XCTUnwrap(trash.enclosingScrollView)
+        let frame = scroll.convert(scroll.bounds, to: nil)
+        XCTAssertGreaterThanOrEqual(frame.height, 30,
+                                    "the trash rows have no height: \(frame)")
+        XCTAssertTrue(root.convert(root.bounds, to: nil).insetBy(dx: -1, dy: -1).contains(frame),
+                      "the trash rows are laid out off the column: \(frame)")
+    }
+
     /// **The contract's own wording**: "assert row-count deltas only" — not
     /// scroll position, which a `List` inside a `DisclosureGroup` gives no
     /// stable handle on anyway. Restoring the only entry must drop the count
@@ -531,6 +558,24 @@ private struct TrashDisclosureProbeView: View {
     var body: some View {
         TrashDisclosure(store: store, isExpanded: Binding(
             get: { box.isExpanded }, set: { box.isExpanded = $0 }))
+    }
+}
+
+/// The disclosure where production puts it: at the foot of a column whose
+/// tree is a `List` that takes all the room it is offered.
+@MainActor
+private struct TrashUnderATreeProbeView: View {
+    let store: ProjectStore
+    let box: TrashDisclosureBox
+
+    var body: some View {
+        VStack(spacing: 0) {
+            List(0..<40, id: \.self) { Text("Row \($0)") }
+                .listStyle(.sidebar)
+            Divider()
+            TrashDisclosure(store: store, isExpanded: Binding(
+                get: { box.isExpanded }, set: { box.isExpanded = $0 }))
+        }
     }
 }
 
