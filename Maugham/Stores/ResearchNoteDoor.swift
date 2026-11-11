@@ -694,13 +694,14 @@ final class ResearchNoteDoor {
         return await Task.detached { () -> Error? in
             let record = (try? ResearchNoteRecord.read(forItem: itemId, in: projectURL)) ?? nil
             let author = record?.contentHash == ContentHash.of(prior) ? record?.writtenBy : nil
+            let made: ResearchVersion
             do {
-                try versions.keep(priorBytes: prior, priorSidecar: nil, writtenBy: author, replacedBy: writer,
-                                  payload: .note, itemId: itemId, device: device, at: date)
+                made = try versions.keep(priorBytes: prior, priorSidecar: nil, writtenBy: author, replacedBy: writer,
+                                         payload: .note, itemId: itemId, device: device, at: date)
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device)
+            versions.prune(itemId: itemId, device: device, sparing: made.name)
             return nil
         }.value
     }

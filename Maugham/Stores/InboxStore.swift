@@ -984,6 +984,9 @@ final class InboxStore {
         _ note: PaletteCard.SensoryNote, toCard cardId: String, projectStore: ProjectStore,
         by writer: ResearchWriter
     ) async throws -> PaletteCard {
+        // Read and written back whole: an edit pending or in flight in the
+        // door for this card (the card editor's) lands first, so it is read.
+        await projectStore.documentStore?.settleResearchNoteEdits(itemId: cardId)
         guard let card = projectStore.loadPaletteCards()
             .first(where: { $0.researchItemId == cardId }) else {
             throw ProjectStoreError.structureMissing

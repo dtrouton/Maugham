@@ -590,6 +590,9 @@ struct PromotionPerformer {
         // carried across would themselves be stale.
         try? await store.documentStore?.flushPendingSave()
         let itemID: String
+        /// A Rewrite's one door, held strongly from the check to the write:
+        /// `ProjectStore.documentStore` is weak and may go between them.
+        var door: DocumentStore?
         switch plan.mode {
         case .new:
             // **A palette card is NEVER routed** (spec §6.2). The wall is
@@ -617,9 +620,10 @@ struct PromotionPerformer {
             // card's current text as a version first: with no window store
             // there is no door, and the palette funnel's raw fallback would
             // write over the card keeping nothing.
-            guard store.documentStore != nil else {
+            guard let held = store.documentStore else {
                 throw PromotionFailure.noteNotSaved(title: TreeWalk.find(id: existing, in: store.manifest.research)?.title ?? plan.title)
             }
+            door = held
             itemID = existing
         }
         // Read the card back and replace ONLY the title, kind and body. A card
@@ -634,18 +638,26 @@ struct PromotionPerformer {
         // FILE rather than the prose alone: restoring it brings back the card
         // exactly as it was, swatches and all, where the Trash entry this
         // replaced kept only the body.
+        //
+        // **A Rewrite never renames** (RULING-49): it writes the card's CURRENT
+        // title, never the plan's, which is a snapshot from when the sheet
+        // opened — a card renamed since would be renamed back, and that
+        // rename would run (moving the file and rewriting its asset refs)
+        // before the version is kept, so a refused Rewrite would leave the
+        // card renamed. With no rename, nothing changes before the keep, and
+        // a refused Rewrite leaves file, title, path and refs exactly as they
+        // were. The write goes `through` the door held above, so it can never
+        // fall to the funnel's raw fallback. A new card takes the plan's name.
         do {
             try await store.updatePaletteCard(PaletteCard(
-                // **The card's own name when the plan carries none.** `canCommit`
-                // stopped requiring a title on a rewrite (the field is withheld, so
-                // requiring one is a dead button) — and a rewrite has never been
-                // about the name: M6-PR-038 is the note arm's version of exactly
-                // this. An empty `plan.title` here would rename the card to nothing.
                 researchItemId: itemID,
-                title: plan.title.isEmpty ? current.title : plan.title,
+                // The ROW's title (the heading in the file can lag a rename).
+                title: door == nil && !plan.title.isEmpty
+                    ? plan.title
+                    : (TreeWalk.find(id: itemID, in: store.manifest.research)?.title ?? current.title),
                 kind: plan.paletteKind,
                 swatches: current.swatches, notes: current.notes,
-                imagePaths: current.imagePaths, body: plan.body))
+                imagePaths: current.imagePaths, body: plan.body), through: door)
         } catch ProjectStoreError.researchTextNotSaved {
             throw PromotionFailure.noteNotSaved(title: current.title)
         }

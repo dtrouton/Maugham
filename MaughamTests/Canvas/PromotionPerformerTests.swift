@@ -425,6 +425,49 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertTrue(heard.notices.contains { $0.contains("previous version couldn’t be kept") }, "\(heard.notices)")
     }
 
+    /// **A card Rewrite never renames** (RULING-49), so nothing changes before
+    /// its version is kept. The sheet's plan is a snapshot: a card renamed
+    /// since it opened keeps its new name and path. With its keep failing,
+    /// the refused Rewrite leaves file, title and path exactly as they were;
+    /// with the keep working, it lands under the card's current name.
+    func test_aCardRewriteWithAStaleTitleNeverRenames_andARefusedOneChangesNothing() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let cardID = try XCTUnwrap(first.createdItemID)
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+        let stale = plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location)
+        try await store.updateResearchItem(id: cardID, title: "Renamed since")
+        let renamed = try XCTUnwrap(TreeWalk.find(id: cardID, in: store.manifest.research))
+        let path = try XCTUnwrap(renamed.path)
+        let bytes = try Data(contentsOf: root.appendingPathComponent(path))
+        let itemFolder = try ResearchVersionStore(projectURL: root).folderURL(forItem: cardID)
+        try FileManager.default.createDirectory(at: itemFolder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: itemFolder.path)
+
+        do {
+            _ = try await performer.perform(stale)
+            XCTFail("the keep fails, so the Rewrite must refuse")
+        } catch PromotionFailure.noteNotSaved {}
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.title, "Renamed since")
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.path, path)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(path)), bytes, "byte-identical")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: itemFolder.path)
+        _ = try await performer.perform(stale)
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.title, "Renamed since",
+                       "the Rewrite does not rename the card back to the sheet's snapshot")
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.path, path)
+        let card = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == cardID })
+        XCTAssertEqual(card.title, "Renamed since")
+        XCTAssertTrue(card.body.contains("Rewritten on the canvas."))
+        XCTAssertEqual(try newestVersionText(of: renamed, in: root), String(decoding: bytes, as: UTF8.self))
+    }
+
     /// With no window store there is no door, so no version could be kept: a
     /// Rewrite of a note or a card is refused rather than written raw.
     func test_aRewriteWithNoDocumentStoreIsRefused_forANoteAndACard() async throws {

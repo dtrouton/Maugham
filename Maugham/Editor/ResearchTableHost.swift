@@ -717,13 +717,14 @@ final class ResearchTableHost: FigureGridHost {
         let kept: Error? = await Task.detached { () -> Error? in
             let described = (try? ResearchTableSidecar.read(forItem: itemId, in: projectURL)) ?? held
             let author = described?.contentHash == ContentHash.of(prior) ? described?.writtenBy : nil
+            let made: ResearchVersion
             do {
-                try versions.keep(priorBytes: prior, priorSidecar: described, writtenBy: author, replacedBy: writer,
-                                  itemId: itemId, device: device, at: date)
+                made = try versions.keep(priorBytes: prior, priorSidecar: described, writtenBy: author, replacedBy: writer,
+                                         itemId: itemId, device: device, at: date)
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device)
+            versions.prune(itemId: itemId, device: device, sparing: made.name)
             return nil
         }.value
         guard let kept else { return true }

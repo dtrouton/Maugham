@@ -400,11 +400,20 @@ public struct ResearchVersionStore: Sendable {
     /// (`sweepLeftovers`), and the item's folder if that left it empty.
     /// Another device's files are never touched (tripwire 17). A failed
     /// removal is left for the next prune.
-    public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention) {
+    ///
+    /// `sparing` is the version the caller's keep just wrote: it is never
+    /// removed, and counts as one of the `keep`. Ranking is by stamp, so
+    /// after the clock moved back a keep's own version can rank oldest; a
+    /// keep that reported success must not have its version pruned at once.
+    public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention,
+                      sparing: String? = nil) {
         let own = contents(itemId: itemId).payloads.keys
             .compactMap { name in Self.parse(name).flatMap { $0.isFrom(device) ? (name, $0) : nil } }
             .sorted { ($0.1.stamp, $0.1.suffix) > ($1.1.stamp, $1.1.suffix) }
-        for (name, _) in own.dropFirst(max(keep, 0)) { remove(name, itemId: itemId) }
+        let spared = sparing.flatMap { name in own.contains(where: { $0.0 == name }) ? name : nil }
+        let others = own.filter { $0.0 != spared }
+        let keepOthers = max(keep - (spared == nil ? 0 : 1), 0)
+        for (name, _) in others.dropFirst(keepOthers) { remove(name, itemId: itemId) }
         sweepLeftovers(itemId: itemId, device: device)
         removeFolderIfEmpty(itemId: itemId)
     }

@@ -405,6 +405,29 @@ final class ResearchVersionStoreTests: XCTestCase {
         XCTAssertEqual(try names(root).count, 6, "no payload or meta left behind by the removals")
     }
 
+    /// A keep made after the clock moved back ranks oldest by stamp; pruning
+    /// with it spared removes an older-ranked one instead, never the version
+    /// the keep just wrote (and reported as kept).
+    func test_pruneNeverRemovesTheVersionItsKeepJustWrote() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        for i in 0..<3 { _ = try keepNote(store, "later \(i)", device: mac, at: t0.addingTimeInterval(Double(100 + i))) }
+        let justKept = try keepNote(store, "the clock moved back", device: mac, at: t0)
+
+        store.prune(itemId: item, device: mac, keep: 3, sparing: justKept.name)
+
+        let mine = store.versions(itemId: item).filter { $0.isKept(by: mac) }
+        XCTAssertEqual(mine.count, 3, "still the retention")
+        XCTAssertTrue(mine.contains(justKept), "the version this keep wrote survives its own prune")
+        XCTAssertEqual(try mine.map { String(decoding: try store.read($0).0, as: UTF8.self) }.sorted(),
+                       ["later 1", "later 2", "the clock moved back"], "the oldest-ranked other went instead")
+
+        // Control: unspared, the stamp ranking alone removes it.
+        let again = try keepNote(store, "back again", device: mac, at: t0.addingTimeInterval(-10))
+        store.prune(itemId: item, device: mac, keep: 3)
+        XCTAssertFalse(store.versions(itemId: item).contains(again))
+    }
+
     func test_aPayloadWithoutItsMetaIsNotListed_forEitherKind() throws {
         let root = TestTemp.root
         let store = ResearchVersionStore(projectURL: root)

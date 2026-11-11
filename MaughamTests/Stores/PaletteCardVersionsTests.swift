@@ -94,6 +94,25 @@ final class PaletteCardVersionsTests: XCTestCase {
         return card
     }
 
+    /// The card editor's own save of `card`, as the editor makes it: the
+    /// card's text through the door's pending edit (`scheduleNoteSave`),
+    /// flushed now.
+    private func typed(_ card: PaletteCard, _ store: DocumentStore, _ projectStore: ProjectStore) async throws {
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: card.researchItemId,
+                               text: try XCTUnwrap(PaletteCardEditor.cardText(card, in: projectStore)))
+        try await store.flushPendingSave()
+    }
+
+    /// The card editor's edit, waiting in the door (its debounce never fires
+    /// on its own inside the test).
+    private func queueTyping(_ card: PaletteCard, _ store: DocumentStore, _ projectStore: ProjectStore) throws {
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: card.researchItemId,
+                               text: try XCTUnwrap(PaletteCardEditor.cardText(card, in: projectStore)))
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: card.researchItemId))
+    }
+
     private func withBody(_ card: PaletteCard, _ body: String) -> PaletteCard {
         PaletteCard(researchItemId: card.researchItemId, title: card.title, kind: card.kind,
                     swatches: card.swatches, notes: card.notes, imagePaths: card.imagePaths, body: body)
@@ -147,9 +166,7 @@ final class PaletteCardVersionsTests: XCTestCase {
 
         for body in ["The harbour at dawn. Gulls.", "The harbour at dawn. Gulls, rope.",
                      "The harbour at dawn. Gulls, rope, tar."] {
-            let saved = await PaletteCardEditor.persistDraft(
-                withBody(first, body), baselineTitle: first.title, in: projectStore)
-            XCTAssertEqual(saved, first.title)
+            try await typed(withBody(first, body), store, projectStore)
             clock.advance(seconds: 5)
         }
 
@@ -160,8 +177,7 @@ final class PaletteCardVersionsTests: XCTestCase {
 
         clock.advance(seconds: ResearchSaveRun.gap + 1)
         let lastRun = try onDisk(id, projectStore)
-        _ = await PaletteCardEditor.persistDraft(
-            withBody(first, "A new sitting."), baselineTitle: first.title, in: projectStore)
+        try await typed(withBody(first, "A new sitting."), store, projectStore)
         XCTAssertEqual(versions(id).count, keptBefore + 2, "a pause past the run's gap starts a new run")
         XCTAssertEqual(try versionTexts(id).last, lastRun)
     }
@@ -300,5 +316,63 @@ final class PaletteCardVersionsTests: XCTestCase {
         try await projectStore.deleteResearchItems(ids: [id])
         try await projectStore.permanentlyDeleteTrashEntry(id: try XCTUnwrap(projectStore.trashEntries.first?.id))
         XCTAssertTrue(versions(id).isEmpty, "Permanently Delete sweeps this device's versions of the card")
+    }
+
+    // MARK: - The card editor's draft waits in the door, so every writer settles it (round 2)
+
+    /// A card edit waiting in the door and a read-modify-write writer on the
+    /// same card (an inbox promotion appending a sensory note): the writer
+    /// settles the card first, so the file ends with the typed text AND the
+    /// writer's addition.
+    func test_aPendingCardEditAndAnInboxPromotionBothLand() async throws {
+        let (store, projectStore) = try await openBook()
+        let first = try await card("Before.", in: projectStore)
+        try queueTyping(withBody(first, "Typed in the card."), store, projectStore)
+        let file = projectURL.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await JSONLAppendStore<InboxEntry>(fileURL: file).append(InboxEntry(
+            id: "e-1", createdAt: Date(timeIntervalSince1970: 100), deviceId: "phone",
+            kind: .text, inlineText: "Tar and rope."))
+        let inbox = InboxStore(projectURL: projectURL, deviceId: "mac")
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "e-1" })
+
+        _ = try await inbox.promoteToPaletteCard(entry, projectStore: projectStore, cardId: first.researchItemId)
+
+        let now = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == first.researchItemId })
+        XCTAssertEqual(now.body, "Typed in the card.", "the typed text was saved first, then read")
+        XCTAssertEqual(now.notes.map(\.text), ["Tar and rope."], "and the promotion's addition is there too")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: first.researchItemId))
+    }
+
+    /// The editor's rename settles the card first and writes what is on disk
+    /// then under the new title: an edit waiting in the door is not lost.
+    func test_aRenameFromTheCardEditorKeepsAnEditWaitingInTheDoor() async throws {
+        let (store, projectStore) = try await openBook()
+        let first = try await card("Before.", in: projectStore)
+        try queueTyping(withBody(first, "Typed before the rename."), store, projectStore)
+
+        try await projectStore.renamePaletteCard(first.researchItemId, to: "Quay")
+
+        let now = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == first.researchItemId })
+        XCTAssertEqual(now.title, "Quay")
+        XCTAssertEqual(now.body, "Typed before the rename.")
+        XCTAssertEqual(projectStore.findResearchItem(id: first.researchItemId, in: projectStore.manifest.research)?.path,
+                       "research/palette/quay.md")
+    }
+
+    /// `through:` — a write that names its door uses it even when the
+    /// store's weak `documentStore` has gone: never the raw fallback, and
+    /// what it replaced is kept.
+    func test_aCardWriteThroughAHeldDoorNeverFallsToTheRawWrite() async throws {
+        let (store, projectStore) = try await openBook()
+        let first = try await card("Held.", in: projectStore)
+        let before = try onDisk(first.researchItemId, projectStore)
+        projectStore.documentStore = nil
+
+        try await projectStore.updatePaletteCard(withBody(first, "Through the held door."), through: store)
+
+        XCTAssertEqual(try versionTexts(first.researchItemId).last, before, "the replaced text is a version")
+        XCTAssertTrue(try onDisk(first.researchItemId, projectStore).contains("Through the held door."))
     }
 }

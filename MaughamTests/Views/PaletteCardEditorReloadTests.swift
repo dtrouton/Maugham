@@ -98,4 +98,62 @@ final class PaletteCardEditorReloadTests: XCTestCase {
         await pumpUntil(deadline: 5) { self.bodyView(in: window)?.string == "The first draft." }
         XCTAssertEqual(bodyView(in: window)?.string, "The first draft.")
     }
+
+    /// A write behind the card that is queued while the editor's own save is
+    /// in flight (here, at its keep) lands after it, and the open editor then
+    /// shows it; the typed text it replaced is a version.
+    func test_aWriteBehindQueuedDuringTheEditorsOwnSaveIsShownAfterIt() async throws {
+        let item = try await store.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == item.id })
+        try await store.updatePaletteCard(withBody(made, "Before."))
+        let window = try await mount(item.id, showing: "Before.")
+        documentStore.researchNoteDoor.saveDelay = .seconds(3600)
+        documentStore.scheduleNoteSave(
+            itemId: item.id, text: try XCTUnwrap(PaletteCardEditor.cardText(withBody(made, "Typed."), in: store)))
+        final class Behind { var task: Task<Void, Error>? }
+        let behind = Behind()
+        let projectStore: ProjectStore = store
+        let later = withBody(made, "Written behind.")
+        documentStore.researchNoteDoor.keepWillRunForTesting = {
+            guard behind.task == nil else { return }
+            behind.task = Task { @MainActor in try await projectStore.updatePaletteCard(later) }
+        }
+
+        try await documentStore.flushPendingSave()
+        try await XCTUnwrap(behind.task).value
+
+        await pumpUntil(deadline: 5) { self.bodyView(in: window)?.string == "Written behind." }
+        XCTAssertEqual(bodyView(in: window)?.string, "Written behind.",
+                       "the reload that arrived behind the editor's own save is applied")
+        let versions = ResearchVersionStore(projectURL: store.url)
+        XCTAssertTrue(versions.versions(itemId: item.id).contains {
+            String(decoding: (try? versions.read($0).0) ?? Data(), as: UTF8.self).contains("Typed.")
+        }, "the typed text the write replaced is kept")
+    }
+
+    /// Typing in the card's Notes field puts the edit in the door's pending
+    /// slot for the card — where every writer's settle, the flush and the
+    /// store's close find it — not in a view-local debounce.
+    func test_typingInTheCardWaitsInTheDoor_andAFlushSavesIt() async throws {
+        let item = try await store.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == item.id })
+        try await store.updatePaletteCard(withBody(made, "Before."))
+        let window = try await mount(item.id, showing: "Before.")
+        documentStore.researchNoteDoor.saveDelay = .seconds(3600)
+        let field = try XCTUnwrap(bodyView(in: window))
+
+        field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
+        for character in " Typed." {
+            let range = field.selectedRange()
+            guard field.shouldChangeText(in: range, replacementString: String(character)) else { continue }
+            field.textStorage?.replaceCharacters(in: range, with: String(character))
+            field.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+            field.didChangeText()
+        }
+
+        XCTAssertTrue(documentStore.researchNoteHasPendingSave(itemId: item.id),
+                      "the card's edit waits in the door, as a note's does")
+        try await documentStore.flushPendingSave()
+        XCTAssertEqual(store.loadPaletteCards().first { $0.researchItemId == item.id }?.body, "Before. Typed.")
+    }
 }
