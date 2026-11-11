@@ -623,6 +623,21 @@ extension ProjectStore {
         return !ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure)
     }
 
+    /// **Why `item` may not be trashed, thrown** — asked for every item of a
+    /// batch before any is trashed (all or nothing), and again by the core. A
+    /// path that leaves the project is refused as that (tripwire 58);
+    /// row-only is for in-project paths outside Research. A GROUP row naming a
+    /// folder outside Research is refused while it holds rows: taking its row
+    /// alone would leave their files untracked.
+    private func refuseTrashing(_ item: ResearchItem) throws {
+        guard item.kind != .link, let path = item.path, !path.isEmpty else { return }
+        _ = try resolvedProjectPathToChange(path)
+        if item.type == .group, namesAFileOutsideResearch(item), !(item.children ?? []).isEmpty {
+            throw ProjectStoreError.fileSystemError(
+                "“\(item.title)” isn’t inside Research, so only its row can be deleted, and it still holds items. Move or delete what is in it first.")
+        }
+    }
+
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -636,18 +651,7 @@ extension ProjectStore {
         // must not move that file (it is the manuscript or Maugham's own), so
         // both are trashed as the ROW only: the entry is the record, the file
         // stays exactly where it is, and a restore puts the row back.
-        // A path that leaves the project is refused as that (tripwire 58)
-        // before anything else; row-only is for in-project paths outside
-        // Research. A GROUP row naming a folder outside Research is refused
-        // while it holds rows: taking its row alone would leave their files
-        // untracked.
-        if item.kind != .link, let path = item.path, !path.isEmpty {
-            _ = try resolvedProjectPathToChange(path)
-            if item.type == .group, namesAFileOutsideResearch(item), !(item.children ?? []).isEmpty {
-                throw ProjectStoreError.fileSystemError(
-                    "“\(item.title)” isn’t inside Research, so only its row can be deleted, and it still holds items. Move or delete what is in it first.")
-            }
-        }
+        try refuseTrashing(item)
         if item.kind == .link || namesAFileOutsideResearch(item) {
             let metadata = try JSONEncoder().encode(item)
             entry = try await trashStore.recordManifestOnlyTrash(
@@ -712,6 +716,7 @@ extension ProjectStore {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
             }
+            try refuseTrashing(item)
             titles.append(item.title)
         }
         var entries: [TrashEntry] = []

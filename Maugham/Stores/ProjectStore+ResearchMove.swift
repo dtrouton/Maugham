@@ -132,7 +132,6 @@ extension ProjectStore {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
             }
-            // A row naming a file outside every research root moves nothing.
             // A path that leaves the project is refused as that (tripwire
             // 58) first; then a row naming a file outside every research
             // root moves nothing.

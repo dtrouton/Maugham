@@ -182,6 +182,83 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
                        "Kept words.\n")
     }
 
+    /// A Trash record rewritten by hand (a synced `.trash/`): the item's
+    /// path set to `path` (nil: removed), the record's own path to `original`.
+    private func rewriteRecord(_ entryId: String, in url: URL, itemPath path: String?, original: String) throws {
+        let metaURL = url.appendingPathComponent(".trash/\(entryId)/meta.json")
+        let meta = try JSONDecoder().decode(TrashStore.TrashMeta.self, from: Data(contentsOf: metaURL))
+        var item = try JSONDecoder().decode(ResearchItem.self, from: meta.itemMetadata)
+        item.path = path
+        let rewritten = TrashStore.TrashMeta(
+            originalRelativePath: original, displayTitle: meta.displayTitle,
+            itemMetadata: try JSONEncoder().encode(item), originalParentId: meta.originalParentId,
+            originalIndex: meta.originalIndex, subject: meta.subject, carriesFile: meta.carriesFile,
+            trashedBy: meta.trashedBy)
+        try JSONEncoder().encode(rewritten).write(to: metaURL)
+    }
+
+    /// The fallback home drops a leading dot, so a file named `.hidden.md`
+    /// comes back as `research/hidden.md`, inside a research root.
+    func test_aFallbackRestoreOfADotNamedFileLandsInsideResearch() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "A note")
+        try Data("Kept words.\n".utf8).write(to: url.appendingPathComponent(try XCTUnwrap(note.path)))
+        try await store.deleteResearchItems(ids: [note.id])
+        let entry = try XCTUnwrap(store.trashEntries.first { $0.displayTitle == "A note" })
+        try rewriteRecord(entry.id, in: url, itemPath: "manuscript/.hidden.md", original: "manuscript/.hidden.md")
+
+        _ = try await store.restoreTrashEntry(id: entry.id)
+        let back = try XCTUnwrap(store.findResearchItem(id: note.id, in: store.manifest.research)?.path)
+        XCTAssertEqual(back, "research/hidden.md")
+        XCTAssertTrue(ResearchTextRole.isInsideAResearchRoot(back, structure: store.manifest.structure))
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(back), encoding: .utf8), "Kept words.\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent("manuscript/.hidden.md").path))
+    }
+
+    /// A record whose item names no path, whose own path is the manuscript:
+    /// the file comes back into Research, never at the record's own path, and
+    /// the row takes the path it landed at.
+    func test_aRestoreOfARecordWithNoItemPathLandsInsideResearch() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "A note")
+        try Data("Kept words.\n".utf8).write(to: url.appendingPathComponent(try XCTUnwrap(note.path)))
+        try await store.deleteResearchItems(ids: [note.id])
+        let entry = try XCTUnwrap(store.trashEntries.first { $0.displayTitle == "A note" })
+        try rewriteRecord(entry.id, in: url, itemPath: nil, original: "manuscript/x.md")
+        let before = try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("manuscript").path)
+
+        _ = try await store.restoreTrashEntry(id: entry.id)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("manuscript").path),
+                       before, "nothing lands in the manuscript folder")
+        let back = try XCTUnwrap(store.findResearchItem(id: note.id, in: store.manifest.research)?.path)
+        XCTAssertEqual(back, "research/x.md")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent(back), encoding: .utf8), "Kept words.\n")
+    }
+
+    // MARK: - A batch delete is all or nothing
+
+    /// A note inside Research and a group outside it that still holds rows:
+    /// the group's refusal comes before anything is trashed, so the note's
+    /// file and row stay and the Trash gains nothing.
+    func test_aBatchDeleteWithARefusedItemTrashesNothing() async throws {
+        let (url, store) = try await novel()
+        let a = try await store.addResearchTextNote(parentId: nil, title: "Note A")
+        let aPath = try XCTUnwrap(a.path)
+        let child = try await store.addResearchTextNote(parentId: nil, title: "Inside")
+        var group = ResearchItem(id: "res-grpout02", title: "Out", type: .group, kind: nil, path: "manuscript")
+        group.children = [child]
+        store.manifest.research.removeAll { $0.id == child.id }
+        store.manifest.research.append(group)
+        let trashedBefore = try await store.trashStore.list().count
+
+        do { try await store.deleteResearchItems(ids: [a.id, group.id]); XCTFail("expected a refusal") }
+        catch ProjectStoreError.fileSystemError {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(aPath).path), "A's file stays")
+        XCTAssertNotNil(store.findResearchItem(id: a.id, in: store.manifest.research), "A's row stays")
+        let trashedAfter = try await store.trashStore.list().count
+        XCTAssertEqual(trashedAfter, trashedBefore, "the Trash gains nothing")
+    }
+
     // MARK: - Refused before the mover closes anything
 
     /// A synced row pointing at the chapter the writer has OPEN: the rename,

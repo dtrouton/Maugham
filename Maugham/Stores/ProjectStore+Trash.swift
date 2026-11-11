@@ -395,14 +395,26 @@ extension ProjectStore {
         // manuscript or under `.maugham/` lands it at the top of the shared
         // Research instead — a restore is never refused for want of a home,
         // since the Trash's sweep would otherwise destroy the only copy.
-        if let landing = destination, item.kind != .link,
-           !ResearchTextRole.isInsideAResearchRoot(landing, structure: manifest.structure) {
-            destination = "research/\((landing as NSString).lastPathComponent)"
+        // A file-carrying entry never passes a nil destination either
+        // (`TrashStore.restore` would fall back to the record's own path,
+        // unchecked); the fallback name drops leading dots so it is itself
+        // inside a research root, asserted below.
+        if carriesFile, item.kind != .link,
+           !(destination.map { ResearchTextRole.isInsideAResearchRoot($0, structure: manifest.structure) } ?? false) {
+            let name = ((destination ?? item.path ?? pending?.originalRelativePath ?? "") as NSString)
+                .lastPathComponent.drop(while: { $0 == "." })
+            destination = "research/\(name.isEmpty ? "restored" : String(name))"
             targetParentId = nil
+        }
+        if carriesFile, item.kind != .link, let landing = destination,
+           !ResearchTextRole.isInsideAResearchRoot(landing, structure: manifest.structure) {
+            throw ProjectStoreError.outsideResearch(title: item.title)
         }
         let entry = try await trashStore.restore(trashId: entryId, to: destination)
 
         var report = TrashRestoreReport()
+        // A record that named no path: the row takes the one its file landed at.
+        if item.path == nil, carriesFile, let landed = entry.restoredRelativePath { item.path = landed }
         if let landed = entry.restoredRelativePath, let was = item.path, landed != was {
             item = Self.rewritingResearchPaths(item, from: was, to: landed)
             let deletedAs = item.title
