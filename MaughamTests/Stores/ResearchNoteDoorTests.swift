@@ -592,6 +592,63 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
     }
 
+    /// **An edit whose note left Research is not dropped** (wave 2, round 2):
+    /// the timer's save keeps it pending, and the flush keeps it as a conflict
+    /// backup and names it. The note's file is not written.
+    func test_anEditWhoseNoteLeftResearchIsKeptAsAConflictBackupAtTheFlush() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        projectStore.manifest.research.removeAll { $0.id == item.id }
+
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: "The only copy of this.")
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the timer kept the edit")
+
+        try await store.flushPendingSave()
+        XCTAssertEqual(try String(contentsOf: file(try XCTUnwrap(item.path)), encoding: .utf8), "Before.")
+        let conflicts = file(".maugham/conflicts")
+        let backups = (try? FileManager.default.contentsOfDirectory(atPath: conflicts.path)) ?? []
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(try String(contentsOf: conflicts.appendingPathComponent(backup), encoding: .utf8),
+                       "The only copy of this.")
+        XCTAssertTrue(heard.notices.contains { $0.contains("no longer in Research") && $0.contains(backup) },
+                      "\(heard.notices)")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// A flush whose write fails AND whose conflict backup cannot be written
+    /// says plainly that the edits were not saved.
+    func test_aFlushWhoseWriteAndBackupBothFailSaysTheEditsWereNotSaved() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let conflicts = file(".maugham/conflicts")
+        try FileManager.default.createDirectory(at: conflicts, withIntermediateDirectories: true)
+        try lock(conflicts, 0o555)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder, 0o555)
+
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        try await store.flushPendingSave()
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: conflicts.path)
+        XCTAssertEqual(try text(of: item, projectStore), "Before.", "premise: the write failed")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: conflicts.path), [], "premise: no backup")
+        XCTAssertTrue(heard.notices.contains {
+            $0.contains("Couldn’t save “Notes”") && $0.contains("weren’t saved, and they couldn’t be kept anywhere else")
+        }, "\(heard.notices)")
+    }
+
     /// RULING-7 stays: a flush never saves over a file that will not read.
     /// The editor's text is the last copy there is, so it is kept as a
     /// conflict backup, and the notice says where.

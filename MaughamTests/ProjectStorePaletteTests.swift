@@ -248,22 +248,6 @@ final class ProjectStorePaletteTests: XCTestCase {
         await ds.close()
     }
 
-    /// A palette GROUP a synced manifest files outside a research root makes
-    /// no card there: refused before the item or its file is made.
-    func test_aCardIsNotMadeInAPaletteGroupOutsideAResearchRoot() async throws {
-        let (url, store, ds) = try await makeNovel()
-        let group = try await store.ensurePaletteGroup()
-        store.mutateResearchItem(id: group.id) { $0.path = "manuscript" }
-        let before = try FileManager.default.contentsOfDirectory(
-            atPath: url.appendingPathComponent("manuscript").path).sorted()
-        do { _ = try await store.addPaletteCard(title: "Stray", kind: .other); XCTFail("expected a refusal") }
-        catch ProjectStoreError.outsideResearch {}
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(
-            atPath: url.appendingPathComponent("manuscript").path).sorted(), before)
-        XCTAssertTrue(store.paletteCardItems().isEmpty, "no card was filed")
-        await ds.close()
-    }
-
     // MARK: - Role-first identity (rename survival + lazy healing)
 
     func test_paletteGroup_survivesRename_andStampsLegacy() async throws {

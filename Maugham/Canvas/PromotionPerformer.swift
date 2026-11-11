@@ -996,7 +996,7 @@ struct PromotionPerformer {
     /// **A note's text goes through the note door** (note versions plan 2):
     /// what it replaces is kept as a version, and an editor open on it
     /// reloads. A palette card the door does not take (P2) — and any write
-    /// with no `DocumentStore` — keeps `write(_:toPath:)`. The door writing
+    /// with no `DocumentStore` — keeps `write(_:toPath:of:)`. The door writing
     /// nothing throws, so the promotion says the note is unchanged. An item
     /// that is neither a note nor a card inside a research root
     /// (`ResearchTextRole` nil: a synced manifest's `.document` naming the
@@ -1006,7 +1006,7 @@ struct PromotionPerformer {
             throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
         }
         guard let ds = store.documentStore, ResearchNoteDoor.takes(item, structure: store.manifest.structure) else {
-            try await write(text, toPath: path)
+            try await write(text, toPath: path, of: item)
             return
         }
         guard case .saved = await ds.saveResearchNote(itemId: item.id, text: text) else {
@@ -1055,11 +1055,11 @@ struct PromotionPerformer {
     /// into a cloud-synced project does not race iCloud. The direct write is
     /// the no-`DocumentStore` fallback (load-only contexts), mirroring
     /// `ProjectStore+Palette.paletteCoordinatedWrite`. It keeps nothing.
-    private func write(_ text: String, toPath path: String) async throws {
+    private func write(_ text: String, toPath path: String, of item: ResearchItem) async throws {
         // Its caller asked the role already; asked again at the write itself,
         // as every Research write site does (`TripwireGrepTests`' census).
         guard ResearchTextRole.isInsideAResearchRoot(path, structure: store.manifest.structure) else {
-            throw PromotionFailure.artifactIsADifferentKind(itemID: path, found: "outside Research")
+            throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
         }
         if let ds = store.documentStore {
             try await ds.performFileSave(path: path, text: text)

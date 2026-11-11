@@ -119,6 +119,11 @@ extension ProjectStore {
     ) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
+        // A destination folder outside every research root (a synced
+        // manifest's group pointing at the manuscript) takes nothing.
+        guard ResearchTextRole.isInsideAResearchRoot(dest.folder + "/item", structure: manifest.structure) else {
+            throw ProjectStoreError.outsideResearch(title: dest.folder)
+        }
         let effectiveIds = collapseResearchSelection(ids)
 
         // ---- Phase 1: validate everything, mutate nothing ----
@@ -127,6 +132,8 @@ extension ProjectStore {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
             }
+            // A row naming a file outside every research root moves nothing.
+            if namesAFileOutsideResearch(item) { throw ProjectStoreError.outsideResearch(title: item.title) }
             if item.type == .group, case .group(let gid) = target {
                 if gid == id || Self.researchContains(id: gid, in: item.children ?? []) {
                     throw ProjectStoreError.cycle

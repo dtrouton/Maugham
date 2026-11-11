@@ -327,9 +327,14 @@ final class ResearchNoteDoor {
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
                        source: SaveSource, in store: DocumentStore) async -> Outcome {
         let projectURL = store.projectURL
-        guard let found = noteItem(itemId, in: store) else { return .notSaved }
-        let (item, path) = found
-        guard let fileURL = resolved(path, in: store) else { return .notSaved }
+        let item: ResearchItem, path: String
+        switch noteLookup(itemId, in: store) {
+        case .note(let found, let foundPath): (item, path) = (found, foundPath)
+        case let missed: return unreachable(itemId, missed, text: text, source: source, in: store)
+        }
+        guard let fileURL = resolved(path, in: store) else {
+            return unreachable(itemId, .refusedPath(item, path), text: text, source: source, in: store)
+        }
 
         let prior: PriorBytes = await Task.detached { PriorBytes.read(fileURL) }.value
         let onDisk: Data?
@@ -401,12 +406,16 @@ final class ResearchNoteDoor {
         // The keep was awaited: the note may have moved (written where it now
         // is) or left Research meanwhile (written nowhere, so a trashed note's
         // file is not made again).
-        guard let pathNow = noteItem(itemId, in: store)?.1 else { return .notSaved }
+        let pathNow: String
+        switch noteLookup(itemId, in: store) {
+        case .note(_, let foundPath): pathNow = foundPath
+        case let missed: return unreachable(itemId, missed, text: text, source: source, in: store)
+        }
         do {
             try await store.performFileSave(path: pathNow, text: text)
         } catch ProjectStoreError.unsafeProjectPath(let refused, let reason) {
             store.logRefusedSave(path: refused, reason: reason)
-            return .notSaved
+            return unreachable(itemId, .refusedPath(item, pathNow), text: text, source: source, in: store)
         } catch {
             researchNoteLog.error(
                 "\(pathNow, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
@@ -421,16 +430,7 @@ final class ResearchNoteDoor {
                     projectURL: projectURL)
                 return .stoppedTextStaysPending
             case .editorFlush:
-                if let backup = keptAsAConflictBackup(itemId, fileURL, text: text) {
-                    MaughamEvent.postNotice(
-                        "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
-                        projectURL: projectURL)
-                } else {
-                    MaughamEvent.postNotice(
-                        "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.",
-                        projectURL: projectURL)
-                }
-                return .notSaved
+                return keepTheFlushedText(itemId, fileURL, text: text, couldNot: couldNot, projectURL: projectURL)
             case .direct:
                 MaughamEvent.postNotice(couldNot, projectURL: projectURL)
                 return .notSaved
@@ -483,6 +483,67 @@ final class ResearchNoteDoor {
             MaughamEvent.postNotice(
                 "\(unread), so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
+            return .notSaved
+        }
+    }
+
+    /// A flushed text that did not land, kept as a conflict backup and said:
+    /// `couldNot` (a sentence) and where the text is, or that it is nowhere.
+    private func keepTheFlushedText(_ itemId: String, _ fileURL: URL, text: String, couldNot: String,
+                                    projectURL: URL) -> Outcome {
+        if let backup = keptAsAConflictBackup(itemId, fileURL, text: text) {
+            MaughamEvent.postNotice(
+                "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
+                projectURL: projectURL)
+        } else {
+            MaughamEvent.postNotice(
+                "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.",
+                projectURL: projectURL)
+        }
+        return .notSaved
+    }
+
+    /// **A save that cannot reach the note's file**: the item left Research,
+    /// is no longer a note, or its path is refused. The editor's text is not
+    /// dropped — a timer's stays pending (said once) and a flush's is kept as
+    /// a conflict backup and named; anyone else's write is refused as before
+    /// (a gone note said, a non-note logged, a refused path logged).
+    private func unreachable(_ itemId: String, _ why: NoteLookup, text: String, source: SaveSource,
+                             in store: DocumentStore) -> Outcome {
+        let projectURL = store.projectURL
+        let reason: String, title: String, anchor: URL?
+        switch why {
+        case .note: return .notSaved
+        case .gone:
+            (reason, title, anchor) = ("it is no longer in Research", "a Research note", nil)
+        case .notANote(let item):
+            (reason, title, anchor) = ("it is no longer a Research note", "“\(item.title)”",
+                                       item.path.flatMap { try? store.resolvedProjectPath($0) })
+        case .refusedPath(let item, _):
+            (reason, title, anchor) = ("its path isn’t a place inside this project", "“\(item.title)”", nil)
+        }
+        switch source {
+        case .editorTimer:
+            sayOnceForTheTimer(itemId,
+                "Couldn’t save \(title) yet: \(reason). Your edits stay in the editor, and when you leave the note they are kept as a conflict backup.",
+                projectURL: projectURL)
+            return .stoppedTextStaysPending
+        case .editorFlush:
+            // With no file to name the backup after, it is named as a note
+            // in Research would be; the project root is found from it.
+            let named = anchor ?? projectURL.appendingPathComponent("research/note.md") // local-path: only names the backup under .maugham/conflicts/
+            return keepTheFlushedText(itemId, named, text: text, couldNot: "Couldn’t save \(title): \(reason).",
+                                      projectURL: projectURL)
+        case .direct:
+            switch why {
+            case .gone:
+                MaughamEvent.postNotice("A Research note’s edits couldn’t be saved: it is no longer in Research.",
+                                        projectURL: projectURL)
+            case .notANote:
+                researchNoteLog.error("\(itemId, privacy: .public) is not a Research note; the note door wrote nothing")
+            case .note, .refusedPath:
+                break
+            }
             return .notSaved
         }
     }
@@ -545,21 +606,27 @@ final class ResearchNoteDoor {
         }
     }
 
-    /// The note `itemId` names and its path, asked of the manifest now; nil —
-    /// write nothing — when it is gone (said) or the door does not take it
-    /// (logged: a palette card under P2's default, and a table has its own door).
-    private func noteItem(_ itemId: String, in store: DocumentStore) -> (ResearchItem, String)? {
+    /// What the manifest says `itemId` is now, for a save.
+    private enum NoteLookup {
+        /// A note the door takes, and its path.
+        case note(ResearchItem, String)
+        /// No longer in Research (or pathless).
+        case gone
+        /// There, but not the door's (`takes`: a palette card under P2's
+        /// default, a table, a text item outside a research root).
+        case notANote(ResearchItem)
+        /// A note whose path the project refuses (`SafeRelativePath`).
+        case refusedPath(ResearchItem, String)
+    }
+
+    /// The note `itemId` names and its path, asked of the manifest now
+    /// (`takes`, so `ResearchTextRole`: nothing outside a research root);
+    /// anything else is `unreachable`'s to say.
+    private func noteLookup(_ itemId: String, in store: DocumentStore) -> NoteLookup {
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
-              let path = item.path else {
-            MaughamEvent.postNotice("A Research note’s edits couldn’t be saved: it is no longer in Research.",
-                                    projectURL: store.projectURL)
-            return nil
-        }
-        guard Self.takes(item, structure: store.projectStore?.manifest.structure ?? []) else {
-            researchNoteLog.error("\(itemId, privacy: .public) is not a Research note; the note door wrote nothing")
-            return nil
-        }
-        return (item, path)
+              let path = item.path else { return .gone }
+        guard Self.takes(item, structure: store.projectStore?.manifest.structure ?? []) else { return .notANote(item) }
+        return .note(item, path)
     }
 
     /// **P2 (pending Denver, asked 2026-11-10): do palette cards get

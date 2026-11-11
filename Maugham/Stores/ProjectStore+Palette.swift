@@ -53,10 +53,6 @@ extension ProjectStore {
     @discardableResult
     public func addPaletteCard(title: String, kind: PaletteCard.Kind) async throws -> ResearchItem {
         let group = try await ensurePaletteGroup()
-        // A card is made inside a research root or not at all: a synced
-        // manifest's palette group can name a folder outside one. Asked of a
-        // file in the group's folder (the question is about files).
-        try refuseUnlessInsideResearch((group.path ?? "") + "/card.md", title: title)
         let item = try await addResearchTextNote(parentId: group.id, title: title)
         if let rel = item.path {
             try await paletteCoordinatedWrite(
@@ -207,7 +203,9 @@ extension ProjectStore {
     /// so a synced manifest (untrusted input, tripwire 58's reason) can file a
     /// card, or the group itself, at the manuscript or under `.maugham/`;
     /// `SafeRelativePath` confines a path to the project, not to research.
-    /// Every palette writer asks this before it writes, renames or copies.
+    /// Every palette writer asks this before it writes, renames or copies (a
+    /// new card's path is minted under `research/`, so `addPaletteCard` is
+    /// guarded by the funnel alone).
     private func refuseUnlessInsideResearch(_ path: String, title: String) throws {
         guard ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure) else {
             throw ProjectStoreError.outsideResearch(title: title)

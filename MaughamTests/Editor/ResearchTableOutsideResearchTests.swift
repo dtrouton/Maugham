@@ -144,7 +144,9 @@ final class ResearchTableOutsideResearchTests: XCTestCase {
             do {
                 try await store.restoreResearchTable(itemId: item.id, to: kept, shareIsReadOnly: false)
                 XCTFail("\(path): the restore must be refused")
-            } catch {}
+            } catch let refused as ResearchTableHost.Unreadable {
+                XCTAssertEqual(refused.message, "This item isn’t a table in Research.", path)
+            }
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path) is untouched")
             XCTAssertEqual(versions(of: item.id).count, 1, "\(path): no version kept")
         }

@@ -372,13 +372,31 @@ extension ProjectStore {
         let parentPath = targetParentId
             .flatMap { findResearchItem(id: $0, in: manifest.research)?.path }
 
-        // A manifest-only row (a link, RULING-45) has no file; `restore` hands
-        // the record back and touches nothing on disk.
-        let entry = try await trashStore.restore(
-            trashId: entryId,
-            to: (pending?.carriesFile ?? true)
-                ? Self.restoreDestination(for: item.path, underParentPath: parentPath)
-                : nil)
+        // A manifest-only row (a link, RULING-45; a row naming a file outside
+        // every research root) has no file; `restore` hands the record back
+        // and touches nothing on disk.
+        let carriesFile = pending?.carriesFile ?? true
+        let destination: String?
+        if !carriesFile {
+            destination = nil
+        } else if parentPath == nil, let own = item.path,
+                  researchScopePieceId(ofPath: own) != nil {
+            // A loose piece's own research row sits at the tree's top level,
+            // but its file belongs in that piece's research folder, which
+            // still exists while the piece does: back where it was, not
+            // `pieces/<file>` (outside every research root).
+            destination = own
+        } else {
+            destination = Self.restoreDestination(for: item.path, underParentPath: parentPath)
+        }
+        // A file is put back only inside a research root: a Trash record (or
+        // a parent row) naming the manuscript or `.maugham/` restores nothing,
+        // and the entry stays in the Trash.
+        if let destination, item.kind != .link,
+           !ResearchTextRole.isInsideAResearchRoot(destination, structure: manifest.structure) {
+            throw ProjectStoreError.outsideResearch(title: item.title)
+        }
+        let entry = try await trashStore.restore(trashId: entryId, to: destination)
 
         var report = TrashRestoreReport()
         if let landed = entry.restoredRelativePath, let was = item.path, landed != was {

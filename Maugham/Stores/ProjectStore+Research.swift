@@ -611,6 +611,18 @@ extension ProjectStore {
     /// entry IS the metadata record and restore puts the row back. What a link
     /// has no need of is the typed mover — there is no file to move, so
     /// tripwire 14's close-before-FS-surgery discipline has nothing to protect.
+    /// **Whether `item` names a file outside every research root** — a row
+    /// that owns a file (anything but a link) whose path a synced manifest
+    /// (untrusted input, tripwire 58's reason) points at the manuscript or a
+    /// `.maugham/` file. `ResearchTextRole.isInsideAResearchRoot` is the one
+    /// spelling of the roots. The typed mover never renames, moves or trashes
+    /// such a file: rename and move refuse (`outsideResearch`), and a delete
+    /// takes the row only (`trashResearchItemCore`).
+    func namesAFileOutsideResearch(_ item: ResearchItem) -> Bool {
+        guard item.kind != .link, let path = item.path, !path.isEmpty else { return false }
+        return !ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure)
+    }
+
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -620,7 +632,11 @@ extension ProjectStore {
         let index = currentResearchIndex(of: id, parentId: parentId)
 
         var entry: TrashEntry?
-        if item.kind == .link {
+        // A link has no file; a row naming a file outside every research root
+        // must not move that file (it is the manuscript or Maugham's own), so
+        // both are trashed as the ROW only: the entry is the record, the file
+        // stays exactly where it is, and a restore puts the row back.
+        if item.kind == .link || namesAFileOutsideResearch(item) {
             let metadata = try JSONEncoder().encode(item)
             entry = try await trashStore.recordManifestOnlyTrash(
                 originalRelativePath: item.path ?? "",
@@ -869,7 +885,11 @@ extension ProjectStore {
     ) async throws -> (newPath: String, childPathRewrites: [(String, String)],
                        assetRefs: (oldStem: String, newStem: String)?)? {
         guard let oldRelPath = item.path else { return nil }
+        // A path that leaves the project is refused as that (tripwire 58)
+        // first; then a row naming a file outside every research root
+        // renames nothing.
         let oldURL = try resolvedProjectPathToChange(oldRelPath)
+        if namesAFileOutsideResearch(item) { throw ProjectStoreError.outsideResearch(title: item.title) }
         let oldSlug = Slugifier.slug(from:oldTitle)
         let newSlug = Slugifier.slug(from:newTitle)
         guard oldSlug != newSlug else { return nil }
