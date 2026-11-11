@@ -577,32 +577,49 @@ struct PaletteCardEditor: View {
     }
 
     /// A title the writer typed: renamed on its own debounce.
+    /// The card, the typed title and its baseline are captured NOW: a switch
+    /// to another card inside the debounce must not drop this card's rename.
     private func scheduleRename() {
+        guard let typed = draft?.title else { return }
+        let renaming = cardId
+        let baseline = baselineTitle
         saveTask?.cancel()
         saveGeneration += 1
         let generation = saveGeneration
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return }
-            await rename(generation: generation)
+            await rename(renaming, typed: typed, baseline: baseline, generation: generation)
         }
     }
 
-    private func rename(generation: Int) async {
-        guard let typed = draft?.title else { return }
-        let onDisk = store.paletteCardItems().first { $0.id == cardId }?.title
-        let title = Self.reconciledTitle(draftTitle: typed, baselineTitle: baselineTitle, onDiskTitle: onDisk)
+    private func rename(_ renaming: String, typed: String, baseline: String?, generation: Int) async {
+        let onDisk = store.paletteCardItems().first { $0.id == renaming }?.title
+        let title = Self.reconciledTitle(draftTitle: typed, baselineTitle: baseline, onDiskTitle: onDisk)
         saveInFlight = true
         let renamed: Bool
-        do { try await store.renamePaletteCard(cardId, to: title); renamed = true } catch { renamed = false }
+        do { try await store.renamePaletteCard(renaming, to: title); renamed = true } catch { renamed = false }
         saveInFlight = false
-        if renamed, generation == saveGeneration {
-            baselineTitle = title
-            if let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == cardId }) {
+        // The editor may be on another card now: only this card's draft moves.
+        if renamed, renaming == cardId, let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == renaming }) {
+            if generation == saveGeneration {
+                baselineTitle = title
                 mutate { $0.with(title: title, imagePaths: fresh.imagePaths) }
+            } else {
+                // Typed on during the rename: the title stays the writer's,
+                // but the assets folder moved, so the image paths follow
+                // whatever the generation — and an edit the door holds was
+                // rendered from the old folder, so it is scheduled again.
+                if baselineTitle == baseline { baselineTitle = title }
+                mutate { $0.with(imagePaths: fresh.imagePaths) }
+                if let documentStore = store.documentStore,
+                   documentStore.researchNoteHasPendingSave(itemId: renaming),
+                   let draft, let text = Self.cardText(draft, in: store) {
+                    documentStore.scheduleNoteSave(itemId: renaming, text: text)
+                }
             }
         }
-        if reloadMissed { reloadMissed = false; reloadWrittenBehind() }
+        if reloadMissed, renaming == cardId { reloadMissed = false; reloadWrittenBehind() }
     }
 
     /// No window store (a load-only context): the whole draft, debounced.

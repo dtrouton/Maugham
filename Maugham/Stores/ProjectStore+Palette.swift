@@ -179,8 +179,15 @@ extension ProjectStore {
               let card = loadPaletteCards().first(where: { $0.researchItemId == cardId }) else {
             throw ProjectStoreError.structureMissing
         }
+        // An edit the editor queued during the rename was rendered from the
+        // old folder and may have landed after the mover rewrote the refs
+        // (the settle above saved it): the image paths follow the move.
+        let oldSlug = Self.paletteSlug(ofPath: oldPath), newSlug = Self.paletteSlug(ofPath: path)
+        let images = oldSlug == newSlug ? card.imagePaths : card.imagePaths.map {
+            $0.replacingOccurrences(of: "\(oldSlug)_assets/", with: "\(newSlug)_assets/")
+        }
         let titled = PaletteCard(researchItemId: cardId, title: renamed.title, kind: card.kind,
-                                 swatches: card.swatches, notes: card.notes, imagePaths: card.imagePaths,
+                                 swatches: card.swatches, notes: card.notes, imagePaths: images,
                                  body: card.body)
         try await paletteCoordinatedWrite(
             PaletteCardRenderer.render(titled, cardDirectory: (path as NSString).deletingLastPathComponent),

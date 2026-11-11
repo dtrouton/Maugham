@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Maugham
 @testable import MaughamCore
 
@@ -345,20 +346,49 @@ final class PaletteCardVersionsTests: XCTestCase {
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: first.researchItemId))
     }
 
-    /// The editor's rename settles the card first and writes what is on disk
-    /// then under the new title: an edit waiting in the door is not lost.
-    func test_aRenameFromTheCardEditorKeepsAnEditWaitingInTheDoor() async throws {
+    /// **An edit the card editor queues while its rename is running** — built,
+    /// as the editor builds it, from the draft's pre-rename image paths —
+    /// lands without sending the card's pictures back to the old folder: the
+    /// heading is the new title, the body the typed text, and every image
+    /// ref is under the new `<slug>_assets/`.
+    func test_anEditQueuedDuringTheRenameKeepsTheCardsImagesUnderTheNewFolder() async throws {
         let (store, projectStore) = try await openBook()
         let first = try await card("Before.", in: projectStore)
-        try queueTyping(withBody(first, "Typed before the rename."), store, projectStore)
+        let png = projectURL.appendingPathComponent("dropped.png")
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 4, height: 4).fill(); image.unlockFocus()
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: png)
+        let withImage = try await projectStore.addImage(toPaletteCard: first.researchItemId, fileURL: png)
+        XCTAssertTrue(try XCTUnwrap(withImage.imagePaths.first).hasPrefix("research/palette/harbour_assets/"),
+                      "premise: the image is in the card's own folder")
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        // The writer types while the rename runs: the editor's draft still
+        // holds the old folder's paths.
+        let stale = withBody(withImage, "Typed during the rename.")
+        final class Flag { var queued = false }
+        let flag = Flag()
+        store.researchNoteDoor.keepWillRunForTesting = { [store, projectStore] in
+            guard !flag.queued, let text = PaletteCardEditor.cardText(stale, in: projectStore) else { return }
+            flag.queued = true
+            store.scheduleNoteSave(itemId: stale.researchItemId, text: text)
+        }
 
         try await projectStore.renamePaletteCard(first.researchItemId, to: "Quay")
+        try await store.flushPendingSave()
 
+        XCTAssertTrue(flag.queued, "premise: the edit was queued during the rename")
+        let path = try XCTUnwrap(projectStore.findResearchItem(id: first.researchItemId,
+                                                                in: projectStore.manifest.research)?.path)
+        XCTAssertEqual(path, "research/palette/quay.md")
+        XCTAssertTrue(try onDisk(first.researchItemId, projectStore).hasPrefix("# Quay"), "the heading is the new title")
         let now = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == first.researchItemId })
-        XCTAssertEqual(now.title, "Quay")
-        XCTAssertEqual(now.body, "Typed before the rename.")
-        XCTAssertEqual(projectStore.findResearchItem(id: first.researchItemId, in: projectStore.manifest.research)?.path,
-                       "research/palette/quay.md")
+        XCTAssertEqual(now.body, "Typed during the rename.")
+        XCTAssertFalse(now.imagePaths.isEmpty)
+        for ref in now.imagePaths {
+            XCTAssertTrue(ref.hasPrefix("research/palette/quay_assets/"), "\(ref) is under the new folder")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: projectURL.appendingPathComponent(ref).path), ref)
+        }
     }
 
     /// `through:` — a write that names its door uses it even when the

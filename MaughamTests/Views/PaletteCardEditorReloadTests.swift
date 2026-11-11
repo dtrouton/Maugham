@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import Observation
 import MaughamCore
 @testable import Maugham
 
@@ -99,17 +100,30 @@ final class PaletteCardEditorReloadTests: XCTestCase {
         XCTAssertEqual(bodyView(in: window)?.string, "The first draft.")
     }
 
-    /// A write behind the card that is queued while the editor's own save is
-    /// in flight (here, at its keep) lands after it, and the open editor then
-    /// shows it; the typed text it replaced is a version.
+    /// Type `text` at the end of `field` through AppKit's own
+    /// `shouldChangeText` → `didChangeText`, which reaches the binding.
+    private func type(_ text: String, into field: NSTextView) {
+        field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
+        for character in text {
+            let range = field.selectedRange()
+            guard field.shouldChangeText(in: range, replacementString: String(character)) else { continue }
+            field.textStorage?.replaceCharacters(in: range, with: String(character))
+            field.setSelectedRange(NSRange(location: range.location + 1, length: 0))
+            field.didChangeText()
+        }
+    }
+
+    /// A write behind the card that is queued while the editor's own save —
+    /// of text typed in its field — is in flight (here, at its keep) lands
+    /// after it, and the open editor then shows it; the typed text it
+    /// replaced is a version.
     func test_aWriteBehindQueuedDuringTheEditorsOwnSaveIsShownAfterIt() async throws {
         let item = try await store.addPaletteCard(title: "Harbour", kind: .location)
         let made = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == item.id })
         try await store.updatePaletteCard(withBody(made, "Before."))
         let window = try await mount(item.id, showing: "Before.")
         documentStore.researchNoteDoor.saveDelay = .seconds(3600)
-        documentStore.scheduleNoteSave(
-            itemId: item.id, text: try XCTUnwrap(PaletteCardEditor.cardText(withBody(made, "Typed."), in: store)))
+        type(" Typed.", into: try XCTUnwrap(bodyView(in: window)))
         final class Behind { var task: Task<Void, Error>? }
         let behind = Behind()
         let projectStore: ProjectStore = store
@@ -120,14 +134,14 @@ final class PaletteCardEditorReloadTests: XCTestCase {
         }
 
         try await documentStore.flushPendingSave()
-        try await XCTUnwrap(behind.task).value
+        try await XCTUnwrap(behind.task, "the editor's typing reached the door's flush").value
 
         await pumpUntil(deadline: 5) { self.bodyView(in: window)?.string == "Written behind." }
         XCTAssertEqual(bodyView(in: window)?.string, "Written behind.",
                        "the reload that arrived behind the editor's own save is applied")
         let versions = ResearchVersionStore(projectURL: store.url)
         XCTAssertTrue(versions.versions(itemId: item.id).contains {
-            String(decoding: (try? versions.read($0).0) ?? Data(), as: UTF8.self).contains("Typed.")
+            String(decoding: (try? versions.read($0).0) ?? Data(), as: UTF8.self).contains("Before. Typed.")
         }, "the typed text the write replaced is kept")
     }
 
@@ -140,20 +154,65 @@ final class PaletteCardEditorReloadTests: XCTestCase {
         try await store.updatePaletteCard(withBody(made, "Before."))
         let window = try await mount(item.id, showing: "Before.")
         documentStore.researchNoteDoor.saveDelay = .seconds(3600)
-        let field = try XCTUnwrap(bodyView(in: window))
-
-        field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
-        for character in " Typed." {
-            let range = field.selectedRange()
-            guard field.shouldChangeText(in: range, replacementString: String(character)) else { continue }
-            field.textStorage?.replaceCharacters(in: range, with: String(character))
-            field.setSelectedRange(NSRange(location: range.location + 1, length: 0))
-            field.didChangeText()
-        }
+        type(" Typed.", into: try XCTUnwrap(bodyView(in: window)))
 
         XCTAssertTrue(documentStore.researchNoteHasPendingSave(itemId: item.id),
                       "the card's edit waits in the door, as a note's does")
         try await documentStore.flushPendingSave()
         XCTAssertEqual(store.loadPaletteCards().first { $0.researchItemId == item.id }?.body, "Before. Typed.")
     }
+
+    /// **A rename typed in the title, then a switch to another card inside
+    /// its debounce**: the first card is still renamed (the card and title
+    /// are captured when the rename is scheduled), and the second is not.
+    func test_aTypedRenameSurvivesASwitchToAnotherCard() async throws {
+        let first = try await store.addPaletteCard(title: "Harbour", kind: .location)
+        let second = try await store.addPaletteCard(title: "Lighthouse", kind: .location)
+        let probe = CardEditorProbe(cardId: first.id)
+        let window = TestWindow.mount(CardEditorProbeView(store: store, probe: probe),
+                                      size: CGSize(width: 600, height: 700))
+        windows.append(window)
+        await pumpUntil(deadline: 5) { self.titleField(in: window)?.stringValue == "Harbour" }
+        let field = try XCTUnwrap(titleField(in: window), "premise: the title field shows the card")
+
+        field.stringValue = "Quay"
+        field.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+        probe.cardId = second.id
+
+        await pumpUntil(deadline: 5) {
+            self.store.findResearchItem(id: first.id, in: self.store.manifest.research)?.title == "Quay"
+        }
+        XCTAssertEqual(store.findResearchItem(id: first.id, in: store.manifest.research)?.title, "Quay",
+                       "the first card's typed rename is not dropped by the switch")
+        XCTAssertEqual(store.findResearchItem(id: second.id, in: store.manifest.research)?.title, "Lighthouse")
+    }
+
+    private func titleField(in window: NSWindow) -> NSTextField? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextField] = []
+        collectFields(in: root, into: &found)
+        return found.first { $0.isEditable }
+    }
+
+    private func collectFields(in view: NSView, into out: inout [NSTextField]) {
+        if let hit = view as? NSTextField { out.append(hit) }
+        for sub in view.subviews { collectFields(in: sub, into: &out) }
+    }
+}
+
+/// Which card the hosted editor shows, settable so a test can switch cards
+/// on one live editor as the wall does (`PaletteCardEditor` is not keyed on
+/// its card id).
+@Observable
+@MainActor
+final class CardEditorProbe {
+    var cardId: String
+    init(cardId: String) { self.cardId = cardId }
+}
+
+@MainActor
+private struct CardEditorProbeView: View {
+    let store: ProjectStore
+    let probe: CardEditorProbe
+    var body: some View { PaletteCardEditor(store: store, cardId: probe.cardId) }
 }
