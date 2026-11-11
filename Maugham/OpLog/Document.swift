@@ -48,9 +48,21 @@ public final class Document {
     public private(set) var rendersToDisk = true
 
     /// Stop rendering the `.md` for good. See `rendersToDisk`.
+    ///
+    /// **Exact: after this returns, nothing writes at `url`.** The autosave
+    /// renders and writes off the main actor, so the observable flag alone
+    /// would let a write already past its last main-actor check land at the
+    /// old path. `renderPermit` is the flag's off-main twin, checked under its
+    /// lock immediately before the bytes are written; revoking it waits out
+    /// at most the one atomic write holding that lock. Both are flipped here
+    /// and nowhere else, so they cannot disagree.
     public func stopRendering() {
+        renderPermit.revoke()
         rendersToDisk = false
     }
+
+    /// The off-main twin of `rendersToDisk`. See `stopRendering()`.
+    @ObservationIgnored private let renderPermit = RenderPermit()
 
     /// Recovery spec §4: the read-only partial open. Set only by
     /// `Document.load(recovery: .readOnlyPartial)`; a doc carrying this state
@@ -846,13 +858,62 @@ public final class Document {
     /// opId order by every append path, so its last element is the newest.
     internal var currentFoldBasis: String? { _opLogMirror.last?.opId }
 
+    /// Test seam: called off the main actor with the bytes and `url`, after
+    /// the run's last main-actor check and before the coordinated,
+    /// permit-checked write. Tests gate (block), fail (throw) or observe a
+    /// write through it. Nil in production.
+    @ObservationIgnored internal var autosaveWriteHook: (@Sendable (Data, URL) throws -> Void)?
+
+    /// How many autosaves have been queued. Test-observable: lets a test know
+    /// a second call is waiting behind a held write.
+    @ObservationIgnored internal private(set) var autosaveRunsQueued = 0
+
+    /// The last autosave queued. Each run awaits the one before it, so runs
+    /// are strictly serial (typing loop plan 1, Task 2). `close()` drains it.
+    @ObservationIgnored private var autosaveRunTail: Task<Result<Void, any Error>, Never>?
+
+    /// Render the op-log truth to the clean `.md` and write it.
+    ///
+    /// Returns only when THIS call's write has landed or failed (callers rely
+    /// on it: the 750 ms scheduler, `close()`, the structural verbs that
+    /// render before a move or a restore). The render and the coordinated
+    /// write run off the main actor; the guards, the pending-mirror flush and
+    /// the snapshot of `paragraphs`/`sequence` run on it.
+    ///
+    /// **Writes never go backwards.** Every call queues one run behind the
+    /// previous one, and a run takes its snapshot only when its turn comes —
+    /// so runs write in snapshot order, and no snapshot older than one already
+    /// written is ever written. The queue is entered synchronously, before the
+    /// first suspension, which is what lets `close()` drain everything a
+    /// caller has started.
     internal func performAutosave() async throws {
         // Data-safety guard: a husked doc's `materialize()` is empty, so an
         // autosave firing after close() would write an EMPTY .md over the real
-        // manuscript. close() flushes autosave BEFORE husking, so this only
-        // rejects a stray post-close scheduler tail. A read-only recovery doc
-        // has no scheduler at all, so this arm is belt for a hand-driven call.
+        // manuscript. close() drains every queued run BEFORE husking, so this
+        // only rejects a stray post-close scheduler tail. A read-only recovery
+        // doc has no scheduler at all, so this arm is belt for a hand-driven
+        // call.
         if rejectMutationIfNotWritable("performAutosave") { return }
+        autosaveRunsQueued += 1
+        let previous = autosaveRunTail
+        let run = Task { @MainActor () -> Result<Void, any Error> in
+            _ = await previous?.value
+            do {
+                try await self.runAutosave()
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        autosaveRunTail = run
+        try await run.value.get()
+    }
+
+    /// One autosave, run in its turn (see `performAutosave`).
+    private func runAutosave() async throws {
+        // Re-asked in the run's turn: `close()` drains the queue before it
+        // sets `isClosed`, so this is belt; a recovery doc never gets here.
+        guard !isClosed, !isReadOnlyRecovery else { return }
         // Mirror pending buffer to disk for crash recovery. Carry the live
         // paragraph order so recovery is op-log-domain — not reconstructed from
         // the .md (ADR 0019). Stamp the basis (newest folded opId) so load can
@@ -881,26 +942,115 @@ public final class Document {
 
         // A piece another device moved or trashed has no file at `url` any
         // more, and writing one would be a phantom (see `rendersToDisk`).
-        guard rendersToDisk else { return }
+        // Asked in the run's turn, so a run queued before `stopRendering()`
+        // writes nothing.
+        guard !isClosed, rendersToDisk else { return }
 
+        // The snapshot: value copies, so a `setFullText` during the render or
+        // the write changes nothing here (it schedules a run of its own).
+        let paragraphs = self.paragraphs
+        let sequence = self.sequence
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.
-        let bytes = MarkdownDisplayFilter.stripAnchors(materialize())
+        let bytes = try await Self.offMain {
+            MarkdownDisplayFilter.stripAnchors(
+                Materializer.materialize(paragraphs: paragraphs, sequence: sequence))
+        }
+        // The render suspended: ask again before anything reaches the disk.
+        guard !isClosed, rendersToDisk else { return }
+
+        // **The echo knows the bytes in flight.** Recorded on the main actor
+        // before the write starts, so a presenter callback for this write that
+        // beats the landing hop below is still ours — and the landed bytes
+        // stay ours too, for a callback about the PREVIOUS write.
+        lastDiskEcho = lastDiskEcho.writing(bytes)
+        let url = self.url
+        let hook = self.autosaveWriteHook
+        let permit = self.renderPermit
+        nonisolated(unsafe) let presenter = self.presenter
+        let wrote: Bool
+        do {
+            wrote = try await Self.offMain {
+                try Self.coordinatedWrite(
+                    Data(bytes.utf8), to: url, presenter: presenter,
+                    permit: permit, hook: hook)
+            }
+        } catch {
+            // Nothing landed (the write is atomic): the landed echo still
+            // describes what is on disk.
+            lastDiskEcho = lastDiskEcho.writeFailed()
+            throw error
+        }
+        // `stopRendering()` came while the bytes were on their way: nothing
+        // was written, and the landed echo still describes the disk.
+        guard wrote else {
+            lastDiskEcho = lastDiskEcho.writeFailed()
+            return
+        }
+        lastDiskEcho = .afterWrite(bytes: bytes)
+    }
+
+    /// Wait until every queued autosave run has finished, including any a
+    /// finishing run's caller queued meanwhile. `close()` calls it before it
+    /// husks, with no suspension between the last check and `isClosed`.
+    private func drainAutosaveRuns() async {
+        while let tail = autosaveRunTail {
+            _ = await tail.value
+            if autosaveRunTail == tail {
+                autosaveRunTail = nil
+                return
+            }
+        }
+    }
+
+    /// Run `work` on a global queue, off the main thread and off the
+    /// cooperative pool (the coordinated write blocks its thread).
+    nonisolated private static func offMain<T: Sendable>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result { try work() })
+            }
+        }
+    }
+
+    /// The coordinated atomic write of the `.md`. Synchronous; called off
+    /// the main actor. Returns false when the render permit was revoked and
+    /// nothing was written.
+    ///
+    /// The test hook runs first, outside the coordination: two coordinated
+    /// writers of one file in one process queue behind each other, so a hook
+    /// held inside the block would order the writes by itself and hide
+    /// whether the run queue does (`AutosaveOffMainTests`' disable
+    /// experiment). The permit is asked inside the accessor block, under its
+    /// lock, immediately before the bytes go down; the lock is held across
+    /// the atomic write and nothing else — never a coordination wait, never
+    /// an `await`.
+    nonisolated private static func coordinatedWrite(
+        _ data: Data, to url: URL, presenter: NSFilePresenter?,
+        permit: RenderPermit,
+        hook: (@Sendable (Data, URL) throws -> Void)?
+    ) throws -> Bool {
+        try hook?(data, url)
         let coord = NSFileCoordinator(filePresenter: presenter)
         var coordErr: NSError?
         var writeErr: Error?
+        var wrote = false
         coord.coordinate(
             writingItemAt: url, options: .forReplacing, error: &coordErr
         ) { wu in
             do {
-                try bytes.data(using: .utf8)?.write(to: wu, options: .atomic)
-                self.lastDiskEcho = .afterWrite(bytes: bytes)
+                wrote = try permit.writeIfGranted {
+                    try data.write(to: wu, options: .atomic)
+                }
             } catch {
                 writeErr = error
             }
         }
         if let coordErr { throw coordErr }
         if let writeErr { throw writeErr }
+        return wrote
     }
 
     /// **Whether `url` names a place inside `root`** — `Document.load`'s guard
@@ -1729,8 +1879,12 @@ public final class Document {
             documentLog.error(
                 "close() burst flush failed for doc \(self.docId, privacy: .public); \(rePersisted ? "pending buffer re-flushed to disk for crash recovery" : "pending buffer NOT re-flushed: this device may not write this piece, and the file holds an earlier session's keystrokes", privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
-        // Flush any pending autosave so the .md reflects the final state.
+        // Flush any pending autosave so the .md reflects the final state, then
+        // wait for every run already queued (a scheduler-fired one has no
+        // pending payload left for `flush()` to find): the render and write
+        // run off the main actor, and none may be in flight when this husks.
         await autosaveScheduler.flush()
+        await drainAutosaveRuns()
 
         // Issue 2a: a CLEAN close leaves NO pending file. The burst flush above
         // already persisted every un-bursted change as real ops and cleared the
@@ -1807,6 +1961,12 @@ public final class Document {
         // (set FIRST) gates every mutation path so nothing resurrects the husk;
         // `performAutosave` also bails on it, so no stray scheduler tail can
         // write the now-empty `materialize()` over the on-disk manuscript.
+        //
+        // Drained once more, for a run a scheduler tail queued during the seal
+        // above: no suspension separates the drain's last check from
+        // `isClosed`, so nothing is in flight, and nothing queued later passes
+        // `performAutosave`'s guard.
+        await drainAutosaveRuns()
         isClosed = true
         huskInMemoryState()
     }
@@ -1919,5 +2079,35 @@ public final class Document {
         if rejectMutationIfReadOnlyRecovery(site) {
             throw DocumentNotWritableError(site: "\(site)")
         }
+    }
+}
+
+/// **`Document.rendersToDisk`'s off-main twin** (typing loop plan 1's
+/// whole-branch fix wave). The autosave's write runs on a global queue; this
+/// is what it asks, under the lock, immediately before the bytes go down, so
+/// `stopRendering()` is exact: once `revoke()` returns, no write at the old
+/// path is in progress or still to come. Revoking waits for the lock, so it
+/// waits out at most the one atomic write holding it. `@unchecked Sendable`:
+/// `granted` is only touched under `lock`.
+final class RenderPermit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var granted = true
+
+    /// Withdraw the permit for good, waiting out a write in progress.
+    func revoke() {
+        lock.lock()
+        granted = false
+        lock.unlock()
+    }
+
+    /// Runs `write` under the lock if the permit still stands; false if it
+    /// was revoked (and `write` did not run). Synchronous: the lock is never
+    /// held across a suspension.
+    func writeIfGranted(_ write: () throws -> Void) rethrows -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard granted else { return false }
+        try write()
+        return true
     }
 }

@@ -233,6 +233,10 @@ public final class DocumentStore {
     /// Bumped when a Research table save keeps a version, and on every
     /// restore: the inspector's version list reloads on it.
     var researchVersionsRevision = 0
+    /// **The note door's state** (`ResearchNoteDoor`): per note, the bytes
+    /// known, the writer's run, the last kept hash, and the saves in flight.
+    /// Not observed: a save invalidates no view.
+    @ObservationIgnored let researchNoteDoor = ResearchNoteDoor()
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
     @ObservationIgnored private var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
@@ -264,24 +268,105 @@ public final class DocumentStore {
 
     /// Net word delta of the currently-active session — the live count of
     /// words added (or removed, if negative) since the session started.
-    /// Returns 0 when no session is active. Updated implicitly each time
-    /// `recordSessionActivity(...)` is called (which writes the observable
-    /// `lastKnownProjectWordCount`), so SwiftUI views reading this property
-    /// re-render correctly while the user types.
+    /// Returns 0 when no session is active. Moves when a burst settles
+    /// (`settleWordCount()` writes the observable `lastKnownProjectWordCount`,
+    /// only when its value changes), so SwiftUI views reading this property
+    /// re-render as the words land — not on every keystroke.
     public var liveSessionWordsNet: Int {
         guard let session = sessionTracker.activeSession else { return 0 }
         return lastKnownProjectWordCount - session.startWordCount
     }
 
     private var idleTimerToken: DispatchWorkItem?
-    /// Snapshot of the most recent project-wide word count seen on a
-    /// `recordSessionActivity` call. Used by `flushSessionOnQuit` so the
-    /// session's net delta is computed against the live total even when
-    /// the caller can't pass one in.
+    /// The live project-wide word count the session measures against: set
+    /// by `recordSessionActivity`, moved by each settled burst and by
+    /// `excludeForeignWords`. Used by `flushSessionOnQuit` and the idle timer
+    /// (each settles first) so the session's net delta is computed against
+    /// the live total. Written through `setLastKnownProjectWordCount`.
     private var lastKnownProjectWordCount: Int = 0
 
-    /// Debounced save scheduler used by callers that aren't Documents —
-    /// today that's `ResearchNoteEditor` and `PartialRestorePicker`. Documents
+    /// The latest text of a typing burst, not yet counted (typing loop plan 1).
+    /// Holding the `String` is free; counting it is the whole-document walk a
+    /// keystroke no longer pays. `settleWordCount()` consumes it.
+    private struct PendingWordCount {
+        let documentId: String
+        let text: String
+        let mode: any WritingMode
+        weak var store: ProjectStore?
+    }
+    @ObservationIgnored private var pendingWordCount: PendingWordCount?
+
+    /// Whole-document word counts the typing path has run — one per settled
+    /// burst, never one per keystroke. The typing-loop probe reads it.
+    @ObservationIgnored internal private(set) var wordCountRunCount = 0
+
+    /// How long a burst rests before its words are counted. A test sets
+    /// `.zero` and awaits `wordCountSettleScheduler.flush()`.
+    @ObservationIgnored var wordCountSettleDelay: Duration = .milliseconds(350) {
+        didSet {
+            _wordCountSettleScheduler?.cancel()
+            _wordCountSettleScheduler = nil
+        }
+    }
+
+    /// The burst's trailing edge. Built on first use, with the delay then in
+    /// force; changing the delay discards it (and its pending run — the burst
+    /// itself stays pending until the next keystroke or reader settles it).
+    @ObservationIgnored private var _wordCountSettleScheduler: DebounceScheduler<Int>?
+    var wordCountSettleScheduler: DebounceScheduler<Int> {
+        if let existing = _wordCountSettleScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: wordCountSettleDelay) { [weak self] _ in
+            self?.settleWordCount()
+        }
+        _wordCountSettleScheduler = scheduler
+        return scheduler
+    }
+    @ObservationIgnored private var wordCountBurstGeneration = 0
+
+    /// **Count the pending burst now** — called before every read of the
+    /// project total as final: the trailing edge, the idle timer, quit and
+    /// close, a piece opening, another device's words arriving or leaving,
+    /// and every non-view reader of `ProjectStore`'s counts. Nothing pending,
+    /// nothing done.
+    ///
+    /// The live total moves by the burst's OWN difference (what it counts
+    /// minus what the cache held for that piece), not to `projectWordCount`:
+    /// a reader that settles after it has already moved the cache for
+    /// another device's words (`excludeForeignWords`'s callers) would
+    /// otherwise see those words in the total twice — once here, once in
+    /// its own shift.
+    func settleWordCount() {
+        guard let burst = pendingWordCount else { return }
+        pendingWordCount = nil
+        _wordCountSettleScheduler?.cancel()
+        guard let store = burst.store else { return }
+        let count = countBurst(burst.text, mode: burst.mode)
+        let prior = store.cachedWordCount(for: burst.documentId) ?? 0
+        store.recordWordCount(forDocumentId: burst.documentId, wordCount: count)
+        setLastKnownProjectWordCount(lastKnownProjectWordCount + count - prior)
+    }
+
+    /// **The typing path's one whole-document count**, and the only place
+    /// `wordCountRunCount` moves, so the probe's count cannot drift from the
+    /// work. `TripwireGrepTests.countedLists[".wordCount("]` pins the type's
+    /// count sites: a bare `mode.wordCount(newText)` put back in
+    /// `recordEditorTextWrite` is an extra one.
+    private func countBurst(_ text: String, mode: any WritingMode) -> Int {
+        wordCountRunCount += 1
+        return mode.wordCount(text)
+    }
+
+    /// `lastKnownProjectWordCount` is observed (`liveSessionWordsNet` reads
+    /// it, and `ProjectWindow`'s body reads that): it is written only when
+    /// its value changes, so a keystroke inside a word invalidates nothing.
+    private func setLastKnownProjectWordCount(_ value: Int) {
+        guard value != lastKnownProjectWordCount else { return }
+        lastKnownProjectWordCount = value
+    }
+
+    /// Debounced save scheduler for `PartialRestorePicker`'s clean render
+    /// (`scheduleFileSave`). A Research note's editor has its own slot per
+    /// note in the note door (`scheduleNoteSave`); Documents
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
@@ -290,9 +375,18 @@ public final class DocumentStore {
     /// refused on every save, and said once, not once per typing pause.
     @ObservationIgnored private(set) var refusedSavePathsLogged: Set<String> = []
 
+    /// What the debounce slot holds: a file's text by path (a manuscript's
+    /// clean render, `PartialRestorePicker`).
     private struct FileSavePayload: Sendable {
         let path: String
         let text: String
+    }
+
+    /// A debounced save refused for a synced path that leaves the project
+    /// (tripwire 58): logged once per path, not once per typing pause.
+    func logRefusedSave(path: String, reason: String) {
+        guard refusedSavePathsLogged.insert(path).inserted else { return }
+        documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
     }
 
     private init(projectURL: URL, uiState: UIState) {
@@ -444,13 +538,13 @@ public final class DocumentStore {
         store.fileSaveScheduler = DebounceScheduler<FileSavePayload>(
             delay: .milliseconds(750)
         ) { [weak store] payload in
+            guard let store else { return }
             do {
-                try await store?.performFileSave(path: payload.path, text: payload.text)
+                try await store.performFileSave(path: payload.path, text: payload.text)
             } catch ProjectStoreError.unsafeProjectPath(let path, let reason) {
-                guard let store, store.refusedSavePathsLogged.insert(path).inserted else { return }
-                documentStoreLog.error("Research-note autosave refused for \(path, privacy: .public): \(reason, privacy: .public)")
+                store.logRefusedSave(path: path, reason: reason)
             } catch {
-                documentStoreLog.error("Research-note autosave failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                documentStoreLog.error("Debounced file save failed for \(payload.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -719,6 +813,9 @@ public final class DocumentStore {
     }
 
     public func close() async {
+        // A pending burst is counted, and the trailing edge disarmed, before
+        // anything reads the total for the last time.
+        settleWordCount()
         // Flush an in-progress session first so it lands in sessions.json
         // before the presenter is removed and writes become uncoordinated.
         await flushSessionOnQuit()
@@ -825,14 +922,24 @@ public final class DocumentStore {
     // MARK: - Non-Document file save path (research notes, partial-restore)
 
     /// Schedule a coordinated write of `text` to `path` on a 750ms debounce.
-    /// Used by `ResearchNoteEditor` and `PartialRestorePicker` — anything
-    /// that isn't a manuscript `Document` (Documents autosave internally).
+    /// For a file that is neither a manuscript `Document` (Documents autosave
+    /// internally) nor a Research note (`scheduleNoteSave`): today
+    /// `PartialRestorePicker`'s clean render.
     public func scheduleFileSave(for path: String, text: String) {
         guard fileSaveScheduler != nil else { return }
         fileSaveScheduler.schedule(FileSavePayload(path: path, text: text))
     }
 
-    /// Flush any pending `scheduleFileSave` immediately — and every open
+    /// **The editor's debounced save of a Research note**: 750ms after the
+    /// last keystroke, by item id, through the note door (`saveResearchNote`),
+    /// so the path is asked at the save and the text it replaces can be kept.
+    /// One pending text per note: scheduling note B never drops note A's.
+    func scheduleNoteSave(itemId: String, text: String) {
+        researchNoteDoor.schedule(itemId, text: text, in: self)
+    }
+
+    /// Flush any pending `scheduleFileSave`/`scheduleNoteSave` immediately, and
+    /// wait for every note save in flight — and every open
     /// Research table's pending save (`researchTables`). `commitOpenEdits`
     /// also commits a cell being typed in a Research grid: the writer's own
     /// verbs only (⌘S, the store's close at a window's close and ⌘Q); a
@@ -842,8 +949,13 @@ public final class DocumentStore {
     public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
         for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
         for closing in Array(researchTableClosings.values) { await closing.value }
-        guard let fileSaveScheduler else { return }
-        await fileSaveScheduler.flush()
+        if let fileSaveScheduler { await fileSaveScheduler.flush() }
+        // Every note's pending edit, saved now (a flush saves even when the
+        // version it replaces cannot be kept: `ResearchNoteDoor.whenTheKeepFails`),
+        // and every note save in flight (the debounce's own run, or a direct
+        // `saveResearchNote`) landed before the flush returns: ⌘S, the typed
+        // mover and the close all wait for them.
+        await researchNoteDoor.settle(in: self)
     }
 
     /// **Research item `itemId`'s table, for a grid** — the one this store
@@ -1042,11 +1154,11 @@ public final class DocumentStore {
                 let tmpURL = writeURL.appendingPathExtension("tmp")
                 try bytes.write(to: tmpURL, options: [.atomic])
                 _ = try FileManager.default.replaceItemAt(writeURL, withItemAt: tmpURL)
-                // Stamp the echo synchronously inside the coordinated block —
-                // mirrors `Document.performAutosave` setting `lastDiskEcho`
-                // inside its write block, so a presenter callback racing this
-                // write can't see a half-updated state. The bytes are exactly
-                // what we wrote.
+                // Stamp the echo synchronously inside the coordinated block,
+                // so a presenter callback racing this write can't see a
+                // half-updated state. The bytes are exactly what we wrote.
+                // (`Document`'s autosave writes off the main actor and so
+                // records its bytes as in flight first: `EchoState.writing`.)
                 self.lastWrittenManifest = .afterWrite(bytes: bytes)
             } catch {
                 writeError = error
@@ -1273,9 +1385,10 @@ public final class DocumentStore {
     }
 
     /// Records all the side-effects that must fire when the editor writes
-    /// new text into a Document. Computes the word count for `newText`,
-    /// updates the project's per-document word-count cache, and pings the
-    /// SessionTracker so live session metrics tick.
+    /// new text into a Document. Keeps `newText` as the pending burst (its
+    /// count lands in the project's per-document cache when the burst
+    /// settles — `settleWordCount()`), and pings the SessionTracker so the
+    /// session starts and its idle timer re-arms on every keystroke.
     ///
     /// **Load-bearing.** This is the single bridge between the editor and
     /// the project-level word/session bookkeeping. Skipping this call (or
@@ -1297,15 +1410,29 @@ public final class DocumentStore {
         mode: any WritingMode,
         store: ProjectStore
     ) {
-        // wordCount(_:) NOT metrics(_:): metrics runs a whole-document
-        // Fountain parse for pageCount, which this per-keystroke path
-        // discards (2026-06-10 live profile — one of three redundant
-        // per-keystroke parses behind the 5-10s typing stalls at 70pp).
-        let count = mode.wordCount(newText)
-        store.recordWordCount(forDocumentId: documentId, wordCount: count)
+        // **Nothing is counted here** (typing loop plan 1): the whole-document
+        // count was 10.9 ms of a 38.4 ms keystroke at 250 KB. The burst's text
+        // is kept and counted once, at the trailing edge or by the first
+        // reader that needs the total as final (`settleWordCount()`). When it
+        // IS counted, it is `wordCount(_:)`, never `metrics(_:)`: metrics runs
+        // a whole-document Fountain parse for pageCount that this path
+        // discards (2026-06-10 live profile).
+        //
+        // Another piece's burst is that piece's: settled before this one is
+        // taken, so a piece switch inside the delay loses no words.
+        if let pending = pendingWordCount, pending.documentId != documentId {
+            settleWordCount()
+        }
+        pendingWordCount = PendingWordCount(
+            documentId: documentId, text: newText, mode: mode, store: store)
+        // The session takes the total as cached: a session starting on this
+        // keystroke starts from the words before the burst, so the burst's
+        // words are the session's.
         recordSessionActivity(
             documentId: documentId,
             projectWordCount: store.projectWordCount)
+        wordCountBurstGeneration &+= 1
+        wordCountSettleScheduler.schedule(wordCountBurstGeneration)
     }
 
     /// Called by EditorHost on every text change. Records activity with the
@@ -1316,7 +1443,7 @@ public final class DocumentStore {
         documentId: String,
         projectWordCount: Int
     ) {
-        lastKnownProjectWordCount = projectWordCount
+        setLastKnownProjectWordCount(projectWordCount)
         sessionTracker.recordTextChange(
             at: Date(), projectWordCount: projectWordCount)
 
@@ -1324,6 +1451,9 @@ public final class DocumentStore {
         let token = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // The burst's words are the session's: counted before the
+                // total is read as final.
+                self.settleWordCount()
                 // `lastKnownProjectWordCount` rather than a value captured
                 // here: it is this keystroke's total unless another device's
                 // piece arrived or left since, in which case
@@ -1346,7 +1476,12 @@ public final class DocumentStore {
     /// moved the project total by `delta`; the live total and the session's
     /// baseline move together, so `liveSessionWordsNet` and the event the
     /// session ends with count only what was typed here.
+    ///
+    /// A burst still pending is settled first, by its own difference
+    /// (`settleWordCount`), so the typed words land as the writer's whatever
+    /// the caller has already done to the cache.
     func excludeForeignWords(_ delta: Int) {
+        settleWordCount()
         guard delta != 0, sessionTracker.activeSession != nil else { return }
         lastKnownProjectWordCount += delta
         sessionTracker.shiftBaseline(by: delta)
@@ -1377,6 +1512,9 @@ public final class DocumentStore {
     func reReadAfterExternalChange(_ document: Document) async throws {
         let path = openDocuments.first { $0.value === document }?.key
         let before = document.displayText
+        // The cache must hold what was typed before the re-read, or the
+        // burst's words would read as arrived ones.
+        settleWordCount()
         let cachedAtEntry = projectStore?.cachedWordCount(for: document.docId)
         // Ruling H: a re-read can re-stamp Option A's arm; the drawn posture
         // follows it in the same turn.
@@ -1385,6 +1523,10 @@ public final class DocumentStore {
         }
         let after = document.displayText
         guard after != before, let path, let store = projectStore else { return }
+        // Keystrokes that landed while the re-read was suspended are a
+        // pending burst, not yet in the cache: counted now, so the cache's
+        // movement below is what they typed.
+        settleWordCount()
         let mode = WritingModeFactory.mode(for: path)
         let was = mode.wordCount(before)
         let now = mode.wordCount(after)
@@ -1400,6 +1542,8 @@ public final class DocumentStore {
     public func flushSessionOnQuit() async {
         idleTimerToken?.cancel()
         idleTimerToken = nil
+        // ⌘Q inside the settle delay: the burst's words are in the event.
+        settleWordCount()
         if let event = sessionTracker.endSessionImmediately(
             at: Date(),
             currentProjectWordCount: lastKnownProjectWordCount) {
@@ -1707,6 +1851,10 @@ public final class DocumentStore {
         // count as the writer's. Counting it here, and moving the session's
         // baseline by whatever that changed, leaves the first keystroke with
         // only what it typed.
+        //
+        // A burst pending for another piece is settled first, so its words
+        // are in the cache before this piece's `prior` is read.
+        settleWordCount()
         if let store = projectStore {
             let count = WritingModeFactory.mode(for: path).wordCount(document.displayText)
             let prior = store.cachedWordCount(for: document.docId) ?? 0
@@ -2264,7 +2412,7 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         case .sessionLog, .uiState, .conflictBackup, .scratch, .pending, .trash,
              .publishTemplate, .publishStyles, .publishConfig, .publishAsset,
              .publishBuild, .publicationsLog, .publicationSnapshot, .exports,
-             .researchTable, .researchVersion, .unknownSidecar, .outsideProject:
+             .researchTable, .researchVersion, .researchNote, .unknownSidecar, .outsideProject:
             // No presenter routing today. Each case has a named owner in
             // `Maugham/Stores/AREA.md`; wiring one up is "add a case branch"
             // rather than "extend a string cascade".

@@ -347,6 +347,8 @@ final class PresenterRoutingTests: XCTestCase {
             .trash(relativePath: ".maugham/trash/abc.json"))
         XCTAssertEqual(cls(".maugham/exports/book/20261021-120000-maca-1a2b3c4d/sent.json"),
             .exports(relativePath: ".maugham/exports/book/20261021-120000-maca-1a2b3c4d/sent.json"))
+        XCTAssertEqual(cls(".maugham/research-notes/res-1a2b3c4d.json"),
+            .researchNote(relativePath: ".maugham/research-notes/res-1a2b3c4d.json"))
 
         // Anything under the project but outside .maugham/ and not the
         // manifest is `.otherProjectFile` — the manuscript dispatch then

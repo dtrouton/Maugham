@@ -611,6 +611,33 @@ extension ProjectStore {
     /// entry IS the metadata record and restore puts the row back. What a link
     /// has no need of is the typed mover — there is no file to move, so
     /// tripwire 14's close-before-FS-surgery discipline has nothing to protect.
+    /// **Whether `item` names a file outside every research root** — a row
+    /// that owns a file (anything but a link) whose path a synced manifest
+    /// (untrusted input, tripwire 58's reason) points at the manuscript or a
+    /// `.maugham/` file. `ResearchTextRole.isInsideAResearchRoot` is the one
+    /// spelling of the roots. The typed mover never renames, moves or trashes
+    /// such a file: rename and move refuse (`outsideResearch`), and a delete
+    /// takes the row only (`trashResearchItemCore`).
+    func namesAFileOutsideResearch(_ item: ResearchItem) -> Bool {
+        guard item.kind != .link, let path = item.path, !path.isEmpty else { return false }
+        return !ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure)
+    }
+
+    /// **Why `item` may not be trashed, thrown** — asked for every item of a
+    /// batch before any is trashed (all or nothing), and again by the core. A
+    /// path that leaves the project is refused as that (tripwire 58);
+    /// row-only is for in-project paths outside Research. A GROUP row naming a
+    /// folder outside Research is refused while it holds rows: taking its row
+    /// alone would leave their files untracked.
+    private func refuseTrashing(_ item: ResearchItem) throws {
+        guard item.kind != .link, let path = item.path, !path.isEmpty else { return }
+        _ = try resolvedProjectPathToChange(path)
+        if item.type == .group, namesAFileOutsideResearch(item), !(item.children ?? []).isEmpty {
+            throw ProjectStoreError.fileSystemError(
+                "“\(item.title)” isn’t inside Research, so only its row can be deleted, and it still holds items. Move or delete what is in it first.")
+        }
+    }
+
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -620,7 +647,12 @@ extension ProjectStore {
         let index = currentResearchIndex(of: id, parentId: parentId)
 
         var entry: TrashEntry?
-        if item.kind == .link {
+        // A link has no file; a row naming a file outside every research root
+        // must not move that file (it is the manuscript or Maugham's own), so
+        // both are trashed as the ROW only: the entry is the record, the file
+        // stays exactly where it is, and a restore puts the row back.
+        try refuseTrashing(item)
+        if item.kind == .link || namesAFileOutsideResearch(item) {
             let metadata = try JSONEncoder().encode(item)
             entry = try await trashStore.recordManifestOnlyTrash(
                 originalRelativePath: item.path ?? "",
@@ -684,6 +716,7 @@ extension ProjectStore {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
             }
+            try refuseTrashing(item)
             titles.append(item.title)
         }
         var entries: [TrashEntry] = []
@@ -787,6 +820,7 @@ extension ProjectStore {
         // Attempt to rename file/folder on disk when title changes.
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
+        var assetRefs: (oldStem: String, newStem: String)?
         if let newTitle = title, newTitle != oldItem.title {
             // The second door: a rename that re-slugs a group onto the
             // reserved `research/palette` path is the same defect as
@@ -806,6 +840,16 @@ extension ProjectStore {
             // (tripwire 14, enforce-by-construction). `affectedPaths` is the
             // item's own old path; the flush is path-agnostic so child notes
             // under a renamed group folder are covered too.
+            // Both refusals before the typed mover runs: it closes and
+            // unregisters every open Document at the path first, so a rename
+            // refused inside it would leave the writer's open chapter closed
+            // under the editor. A path that leaves the project is refused as
+            // that (tripwire 58); a row naming a file outside every research
+            // root renames nothing.
+            if let oldPath = oldItem.path, oldItem.kind != .link {
+                _ = try resolvedProjectPathToChange(oldPath)
+                if namesAFileOutsideResearch(oldItem) { throw ProjectStoreError.outsideResearch(title: oldItem.title) }
+            }
             let affected = oldItem.path.map { [$0] } ?? []
             let renameBody: () async throws -> Void = { [self] in
                 if let result = try await renameResearchPath(
@@ -813,6 +857,7 @@ extension ProjectStore {
                     via: documentStore) {
                     newPathForRenamed = result.newPath
                     childPathRewrites = result.childPathRewrites
+                    assetRefs = result.assetRefs
                 }
             }
             if let ds = documentStore {
@@ -841,11 +886,20 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+
+        // The renamed note's `./<old>_assets/` refs, once the manifest names
+        // where it now is: the note door asks the item's path at the write.
+        if let assetRefs {
+            await rewriteMovedNoteAssetRefs(
+                itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem)
+        }
     }
 
     /// Rename the backing file or folder when a research item's title changes.
-    /// Returns (newRelativePath, childPathRewrites) or nil if no rename is
-    /// needed. Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
+    /// Returns (newRelativePath, childPathRewrites, assetRefs) or nil if no
+    /// rename is needed; `assetRefs` is the stem pair a note that travelled
+    /// with its `<slug>_assets/` folder has its refs rewritten by, after the
+    /// manifest is saved (`rewriteMovedNoteAssetRefs`). Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
     /// (not raw `FileManager`) and is invoked only from inside the typed mover's
     /// `relocateUserContent(perform:)` closure, so the close+flush discipline
     /// has already run (tripwire 14). The `via` DocumentStore supplies the
@@ -855,9 +909,14 @@ extension ProjectStore {
         oldTitle: String,
         newTitle: String,
         via ds: DocumentStore?
-    ) async throws -> (newPath: String, childPathRewrites: [(String, String)])? {
+    ) async throws -> (newPath: String, childPathRewrites: [(String, String)],
+                       assetRefs: (oldStem: String, newStem: String)?)? {
         guard let oldRelPath = item.path else { return nil }
+        // A path that leaves the project is refused as that (tripwire 58)
+        // first; then a row naming a file outside every research root
+        // renames nothing.
         let oldURL = try resolvedProjectPathToChange(oldRelPath)
+        if namesAFileOutsideResearch(item) { throw ProjectStoreError.outsideResearch(title: item.title) }
         let oldSlug = Slugifier.slug(from:oldTitle)
         let newSlug = Slugifier.slug(from:newTitle)
         guard oldSlug != newSlug else { return nil }
@@ -897,7 +956,7 @@ extension ProjectStore {
                 }
             }
             walk(item.children ?? [])
-            return (newRelative, rewrites)
+            return (newRelative, rewrites, nil)
         } else {
             // Asset: rename file, preserve extension.
             let ext = oldURL.pathExtension
@@ -927,27 +986,18 @@ extension ProjectStore {
             try await move(oldURL, newURL)
 
             // Propagate to the sibling <slug>_assets/ folder when there is one.
+            // The note's internal refs are rewritten by the caller once the
+            // manifest names the new path (`rewriteMovedNoteAssetRefs`):
+            // cosmetic, and it MUST NOT abort the rename — the moves here have
+            // already committed (the 2026-07-19 sweep W1's class).
+            var assetRefs: (oldStem: String, newStem: String)?
             if travelsWithAssets {
                 let newAssetsURL = parentDir.appendingPathComponent("\(dedupedSlug)_assets")
                 try await move(oldAssetsURL, newAssetsURL)
-
-                // Update internal refs in the renamed note. Cosmetic post-move
-                // fix — MUST NOT abort the rename: the FS moves above have
-                // already committed, so a throw here would leave manifest↔disk
-                // diverged (same class as the 2026-07-19 sweep W1). The shared
-                // helper is non-throwing by design.
-                await Self.rewriteAssetRefsBestEffort(
-                    oldStem: oldSlug, newStem: dedupedSlug, noteURL: newURL,
-                    write: { text, dest in
-                        if let ds {
-                            try await ds.coordinatedWrite(text: text, to: dest)
-                        } else {
-                            try text.write(to: dest, atomically: true, encoding: .utf8)
-                        }
-                    })
+                assetRefs = (oldSlug, dedupedSlug)
             }
 
-            return (relativeResearchPath(newURL), [])
+            return (relativeResearchPath(newURL), [], assetRefs)
         }
     }
 

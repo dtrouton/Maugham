@@ -156,4 +156,31 @@ final class InboxPalettePromoteRoundTripTests: XCTestCase {
                        "inbox original removed")
         withExtendedLifetime(ds) {}
     }
+
+    /// **`promote_inbox_entry` into a card outside a research root writes
+    /// nothing** (wave 2 D): a synced manifest can file a palette card at the
+    /// manuscript. The promotion throws, the file is as it was, and the
+    /// entry stays in the inbox for the writer.
+    func test_aPromotionIntoACardOutsideAResearchRootIsRefused_andNothingIsWritten() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        let card = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        let stray = url.appendingPathComponent("manuscript/stray.md")
+        try Data("Not a card.\n".utf8).write(to: stray)
+        store.mutateResearchItem(id: card.id) { $0.path = "manuscript/stray.md" }
+        try await seedPhoneRow(url, InboxEntry(
+            id: "rt-stray", createdAt: Date(timeIntervalSince1970: 100),
+            writtenAt: Date(timeIntervalSince1970: 100.001),
+            deviceId: "phone", kind: .text, inlineText: "turpentine and cold ash",
+            paletteSubject: "The Flat", sense: "smell"))
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "rt-stray" })
+
+        do {
+            _ = try await inbox.promoteToPaletteCard(entry, projectStore: store, cardId: card.id)
+            XCTFail("expected a refusal")
+        } catch ProjectStoreError.outsideResearch {}
+        XCTAssertEqual(try String(contentsOf: stray, encoding: .utf8), "Not a card.\n")
+        XCTAssertTrue(inbox.entries.contains { $0.id == "rt-stray" }, "the entry stays for the writer")
+        withExtendedLifetime(ds) {}
+    }
 }

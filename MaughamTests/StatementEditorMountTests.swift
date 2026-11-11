@@ -281,8 +281,13 @@ final class StatementEditorMountTests: XCTestCase {
 
         // Nothing is selected any more: the pane falls back to the project's
         // intent, which does not exist.
+        // The ops reaching the log is not the end of the scope change:
+        // `Document.close()` goes on to await its off-main autosave writes,
+        // and until it returns the pane shows its placeholder with no text
+        // view. Wait for the editor to be back as well.
         await fixture.selectDocument(nil, until: {
             !fixture.ops(forDocId: statement.id).isEmpty
+                && fixture.firstTextView(in: window) != nil
         })
 
         XCTAssertEqual(fixture.derivedText(forDocId: statement.id), "the aim of this chapter",

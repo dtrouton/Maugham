@@ -75,18 +75,18 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Research and the palette
 - `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`, read-only in Review), an image large (`FigureImageSubject`, via `SafeRelativePath`), else name and number.
-- `FigureInspector.swift` — a figure subject's inspector (every persona; under the grid in Plan): name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
+- `FigureInspector.swift` — a figure subject's inspector: name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
 - `FigurePinsCompare.swift` — Compare: old and new per pinned cell; Refresh as one step on the open grid's stack.
 - `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
-- `ResearchNoteEditor.swift` — the research-note editor (`lockEditing` for read-only).
+- `ResearchNoteEditor.swift` — the research-note editor: saves through the note door; re-reads on `researchNoteReloadCount`; Review or a view-only share locks it.
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.
 - `ResearchPreview.swift` — routes an item to its preview by kind.
 - `Maugham/Views/research/AudioPreview.swift`, `Maugham/Views/research/ImagePreview.swift`, `Maugham/Views/research/LinkPreview.swift`, `Maugham/Views/research/PDFPreview.swift`, `Maugham/Views/research/TextPreview.swift` — per-kind previews.
-- `InspectorResearchPanel.swift`, `ResearchVersionsSection.swift` — a research item's fields and citation; a table's versions.
+- `InspectorResearchPanel.swift`, `ResearchVersionsSection.swift` — a research item's fields, citation and versions.
 - `NewResearchNoteSheet.swift` — title prompt for a new note.
-- `Maugham/Views/Palette/PaletteWallView.swift` — `PaletteWallCentre`, the full-column grid of palette cards.
-- `Maugham/Views/Palette/PaletteCardTile.swift` — one card on the wall; no I/O in `body`.
-- `Maugham/Views/Palette/PaletteCardEditor.swift` — the visual palette-card editor, one debounced persist.
+- `Maugham/Views/Palette/PaletteWallView.swift` — `PaletteWallCentre`, the full-column grid of cards.
+- `Maugham/Views/Palette/PaletteCardTile.swift` — one wall card; no I/O in `body`.
+- `Maugham/Views/Palette/PaletteCardEditor.swift` — the palette-card editor: types through `scheduleNoteSave`, renames through `renamePaletteCard`, re-reads on `researchNoteReloadCount`.
 - `Maugham/Views/Palette/PaletteCardReadView.swift` — `PaletteCardReadView` / `PaletteCardReadHost`, one card read-only.
 - `PalettePickerSheet.swift`, `PromoteTargetPickerSheet.swift` — the inbox's Promote to Palette Card… / Promote to Research for… pickers.
 - `ReferencesPane.swift` — the shelf (⌘⌥E): what this piece is pinned to.
@@ -526,4 +526,4 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
-- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `PersonaPaneRegistryTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests` (both rewind entry points reach one modal), and the Views censuses in `TripwireGrepTests`.
+- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `PersonaPaneRegistryTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.

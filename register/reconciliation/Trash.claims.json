@@ -1038,5 +1038,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M3-TR-066",
+  "scope": "ProjectStore.trashResearchItemCore / restoreResearchItem (+ renameResearchPath, moveResearchItems)",
+  "kind": "POSTCONDITION",
+  "statement": "a Research row (anything but a link) whose path is inside the project but outside every research root — research/ or a loose piece's own research/ folder, no component starting with '.'; e.g. the manuscript or a .maugham/ file a synced manifest names — is trashed as the ROW only (a manifest-only entry, carriesFile false): the file stays byte-identical where it was and an open document on it stays open, the entry restores the row unchanged and Permanently Delete removes only the entry; such a GROUP that still holds rows is refused ('Move or delete what is in it first'), and a batch delete asks both refusals of every item before trashing any (all or nothing); renaming or moving such a row (in the app or over MCP move_research_item), or moving anything into a group whose folder is outside a research root, is refused with outsideResearch before any open document is closed and the manifest is unchanged; a row whose path leaves the project is refused as unsafeProjectPath by rename, move and trash alike; a trashed file always comes back inside a research root — a loose piece's row whose parent row is gone lands in that piece's CURRENT research folder (after a reorder's renumbering) or, with no such piece, in the shared research/, and a destination outside every root, or none, lands at the top of research/ (its name stripped of leading dots) instead of being refused",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Stores/ResearchMoverOutsideResearchTests.swift: test_trashingARowOutsideAResearchRootTakesTheRowOnly_andRestoresAndDeletesAsARow, test_renamingOrMovingARowOutsideAResearchRootIsRefused_andTheFileStays, test_movingIntoAGroupOutsideAResearchRootIsRefused, test_moveResearchItemOverMCPIsRefused_andTheFileStays, test_aTrashedFileWhoseHomeIsOutsideAResearchRootComesBackIntoResearch, test_aRefusedRenameOrMoveAndARowOnlyTrashLeaveAnOpenChapterOpen, test_aRowWhosePathLeavesTheProjectIsRefusedAsUnsafe_forRenameMoveAndTrash, test_aGroupOutsideAResearchRootThatHoldsRowsIsNotTrashed, test_aPieceScopedNoteRenamesTrashesRestoresIntoItsPieceAndMoves, test_aPieceNoteWhoseGroupWasDeletedComesBackAtThePiecesResearchRoot, test_aPieceNoteWhosePieceIsGoneComesBackIntoTheSharedResearch, test_aPieceNoteComesBackIntoItsPiecesRenumberedFolder, test_aBatchDeleteWithARefusedItemTrashesNothing, test_aFallbackRestoreOfADotNamedFileLandsInsideResearch, test_aRestoreOfARecordWithNoItemPathLandsInsideResearch"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — note versions plan 2, fix wave 2 round 2 (2026-11-10): rename and move refuse; trash takes the row only, so a corrupt row can always be removed",
+  "reachability": "LIVE — the binder's Rename, drag-move and Delete on a Research row; Trash pane Restore / Delete; MCP move_research_item",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

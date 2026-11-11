@@ -79,9 +79,11 @@ struct InspectorResearchPanel: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if item.kind == .table, item.type == .asset, let documentStore {
+                if let versionsKind = ResearchVersionsModel.kind(for: item, structure: store.manifest.structure), let documentStore {
                     Divider()
                     ResearchVersionsSection(store: documentStore, itemId: item.id, shareIsReadOnly: shareIsReadOnly,
+                                            kind: versionsKind,
+                                            noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure),
                                             reviewing: reviewing)
                         .id(item.id)
                 }

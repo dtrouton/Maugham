@@ -27,6 +27,7 @@ final class CompilerAllowlistTests: XCTestCase {
     func test_noWriteToolIsAllowed() {
         let writeTools = Set([
             "add_note",
+            "update_note",
             "add_comment",
             "add_suggested_change",
             "add_query",

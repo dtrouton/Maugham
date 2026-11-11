@@ -39,7 +39,7 @@ final class MCPProtocolHandlersTests: XCTestCase {
         XCTAssertEqual(Set(names), Set([
             "list_projects", "get_metadata", "get_outline",
             "read_document", "search_text", "list_scenes",
-            "find_references", "get_session_stats", "add_note",
+            "find_references", "get_session_stats", "add_note", "update_note",
             "list_research", "list_documents_by_tag", "list_figures", "read_figure",
             "write_research_cells", "create_research_table", "read_research_table",
             "link_research", "unlink_research", "list_all_links",

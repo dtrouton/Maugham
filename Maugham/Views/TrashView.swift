@@ -155,13 +155,21 @@ struct TrashDisclosure: View {
     /// Passed straight through to the rows — see `TrashView.onRestoreOutcome`.
     /// This view cannot host that alert either: it unmounts with the rows.
     var onRestoreOutcome: (String) -> Void = { _ in }
+    /// The rows' ceiling, and one two-line row's height with its spacing.
+    static let maxRowsHeight: CGFloat = 220
+    static let rowHeight: CGFloat = 48
     @State private var showingEmptyTrashConfirm = false
     @State private var pendingError: String?
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             TrashView(store: store, onRestoreOutcome: onRestoreOutcome)
-                .frame(maxHeight: 220)
+                // A floor as well as a ceiling: a `List` has no height of its
+                // own, so under the tree's greedy `List` it was given none and
+                // the expanded rows had nowhere to show.
+                .frame(minHeight: min(Self.maxRowsHeight,
+                                      CGFloat(store.trashEntries.count) * Self.rowHeight),
+                       maxHeight: Self.maxRowsHeight)
         } label: {
             HStack {
                 Label("Trash", systemImage: "trash")

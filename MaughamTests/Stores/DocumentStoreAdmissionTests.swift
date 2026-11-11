@@ -598,6 +598,8 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             open.setFullText(typed)
             store.recordEditorTextWrite(
                 documentId: docId, newText: typed, mode: mode, store: project)
+            // The burst's words land when it settles (typing loop plan 1).
+            store.settleWordCount()
         }
         type("Seven")
         XCTAssertEqual(store.liveSessionWordsNet, 1,
@@ -634,6 +636,8 @@ final class DocumentStoreAdmissionTests: XCTestCase {
             open.setFullText(typed)
             store.recordEditorTextWrite(
                 documentId: docId, newText: typed, mode: mode, store: project)
+            // The burst's words land when it settles (typing loop plan 1).
+            store.settleWordCount()
         }
         // The writer types one word into their own paragraph while the
         // admission's re-read is under way. (Into an existing paragraph: their

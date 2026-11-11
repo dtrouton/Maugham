@@ -10,10 +10,13 @@ private let _researchNoteEditorLog = Logger(
     category: "ResearchNoteEditor")
 
 /// An editor surface for a research note (.document kind). Research notes
-/// are not `Document` actors (no op-log, no paragraph IDs); they autosave via
-/// `DocumentStore.scheduleFileSave` on the same 750ms cadence. Selecting a
-/// different research item simply unmounts this view and remounts with the
-/// new path, flushing the pending save.
+/// are not `Document` actors (no op-log, no paragraph IDs); they autosave
+/// through the note door (`DocumentStore.scheduleNoteSave`) on the same 750ms
+/// cadence. Selecting a different research item reloads with the new path,
+/// flushing the pending save. A write behind the editor (a restore, the
+/// assistant, a rename) moves the note's reload count, and the editor re-reads
+/// the file into `documentText` — which reaches the text view through the one
+/// binding, never through a second path.
 struct ResearchNoteEditor: View {
     @Bindable var store: ProjectStore
     @Bindable var documentStore: DocumentStore
@@ -30,7 +33,13 @@ struct ResearchNoteEditor: View {
     /// but typing does not, which is the "reference view" shape this posture
     /// wants rather than an unmounted editor.
     let lockEditing: Bool
+    /// A view-only iCloud share: typing is refused exactly as Review's lock
+    /// refuses it (selection, scroll and copy survive).
+    var shareIsReadOnly: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
+
+    /// Review's posture or a view-only share: the editor takes no typing.
+    private var locked: Bool { lockEditing || shareIsReadOnly }
 
     @State private var documentText: String = ""
     @State private var loadedPath: String?
@@ -63,6 +72,11 @@ struct ResearchNoteEditor: View {
             }
         }
         .task(id: path) { await loadDocument() }
+        // A write behind the editor: re-read, schedule nothing. Observes this
+        // note's count only (`researchNoteReloadCount`).
+        .onChange(of: documentStore.researchNoteReloadCount(itemId: itemId)) { _, _ in
+            reloadWrittenBehind()
+        }
         // Mirror appearance into editorControl (ADR 0017). isReviewMode stays
         // false — research notes have no ⌘⌥⇧R toggle — but lockEditing now
         // carries Review's posture, mirrored below like every other field here.
@@ -71,7 +85,7 @@ struct ResearchNoteEditor: View {
         .onChange(of: userPreferences.typewriterScroll) { _, v in editorControl.typewriterScroll = v }
         .onChange(of: userPreferences.sentenceFocus) { _, v in editorControl.sentenceFocus = v }
         .onChange(of: userPreferences.paragraphFocus) { _, v in editorControl.paragraphFocus = v }
-        .onChange(of: lockEditing) { _, v in editorControl.lockEditing = v }
+        .onChange(of: locked) { _, v in editorControl.lockEditing = v }
         .onAppear {
             // Seed all fields from current sources; onChange only fires on
             // transitions, not on first render.
@@ -80,7 +94,7 @@ struct ResearchNoteEditor: View {
             editorControl.typewriterScroll = userPreferences.typewriterScroll
             editorControl.sentenceFocus = userPreferences.sentenceFocus
             editorControl.paragraphFocus = userPreferences.paragraphFocus
-            editorControl.lockEditing = lockEditing
+            editorControl.lockEditing = locked
             // `referenceIndexVersion` and `figureCardVersion` stay 0: a note
             // has no reference index and no figure cards (report plan 7a Task 4).
         }
@@ -105,7 +119,7 @@ struct ResearchNoteEditor: View {
                         get: { documentText },
                         set: { newValue in
                             documentText = newValue
-                            documentStore.scheduleFileSave(for: path, text: newValue)
+                            documentStore.scheduleNoteSave(itemId: itemId, text: newValue)
                         }
                     ),
                     configuration: EditorSurfaceConfiguration(
@@ -140,7 +154,7 @@ struct ResearchNoteEditor: View {
                             // so Paste's image affordance itself goes away in
                             // Review rather than accepting a paste that then
                             // silently drops the ref.
-                            imagePasteHandler: lockEditing ? nil : makeImagePasteHandler()))
+                            imagePasteHandler: locked ? nil : makeImagePasteHandler()))
                 )
                 .id(path)
             } else {
@@ -180,16 +194,37 @@ struct ResearchNoteEditor: View {
         do { load = ResearchNoteLoad.read(try store.resolvedProjectPath(path)) } catch {
             load = .unreadable(error.localizedDescription)
         }
+        adopt(load)
+        researchCursor = nil
+        loadedPath = path
+    }
+
+    /// **The door wrote this note for someone else.** The file is read into
+    /// `documentText` and nothing is scheduled: the binding's getter carries
+    /// it to the text view (`EditorSurface.reconcileTextBuffer`). An edit the
+    /// writer made after that write is still pending: it stands, and its save
+    /// keeps what was written behind it (`ResearchNoteDoor.keepsRegardlessOfTheRun`).
+    private func reloadWrittenBehind() {
+        // A load under way reads the newest bytes itself.
+        guard loadedPath == path else { return }
+        guard !documentStore.researchNoteHasPendingSave(itemId: itemId) else { return }
+        let load: ResearchNoteLoad
+        do { load = ResearchNoteLoad.read(try store.resolvedProjectPath(path)) } catch {
+            load = .unreadable(error.localizedDescription)
+        }
+        adopt(load)
+    }
+
+    private func adopt(_ load: ResearchNoteLoad) {
         switch load {
         case .text(let text):
+            documentStore.researchNoteWasRead(itemId: itemId, bytes: Data(text.utf8))
             documentText = text
             loadFailure = nil
         case .unreadable(let reason):
             documentText = ""
             loadFailure = reason
         }
-        researchCursor = nil
-        loadedPath = path
     }
 }
 

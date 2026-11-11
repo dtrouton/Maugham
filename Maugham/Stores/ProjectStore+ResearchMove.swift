@@ -119,6 +119,11 @@ extension ProjectStore {
     ) async throws {
         beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
+        // A destination folder outside every research root (a synced
+        // manifest's group pointing at the manuscript) takes nothing.
+        guard ResearchTextRole.isInsideAResearchRoot(dest.folder + "/item", structure: manifest.structure) else {
+            throw ProjectStoreError.outsideResearch(title: dest.folder)
+        }
         let effectiveIds = collapseResearchSelection(ids)
 
         // ---- Phase 1: validate everything, mutate nothing ----
@@ -127,6 +132,13 @@ extension ProjectStore {
             guard let item = findResearchItem(id: id, in: manifest.research) else {
                 throw ProjectStoreError.structureMissing
             }
+            // A path that leaves the project is refused as that (tripwire
+            // 58) first; then a row naming a file outside every research
+            // root moves nothing.
+            if item.kind != .link, let path = item.path, !path.isEmpty {
+                _ = try resolvedProjectPathToChange(path)
+            }
+            if namesAFileOutsideResearch(item) { throw ProjectStoreError.outsideResearch(title: item.title) }
             if item.type == .group, case .group(let gid) = target {
                 if gid == id || Self.researchContains(id: gid, in: item.children ?? []) {
                     throw ProjectStoreError.cycle
@@ -159,7 +171,7 @@ extension ProjectStore {
         struct Pending {
             let oldPath: String?
             let newPath: String?
-            let refRewrite: (oldStem: String, newStem: String, noteRelPath: String)?
+            let refRewrite: (oldStem: String, newStem: String)?
         }
         var steps: [RenamePlan.Step] = []
         var pendings: [Pending] = []
@@ -232,7 +244,7 @@ extension ProjectStore {
             let newPath = "\(dest.folder)/\(dedupedLeaf)"
             steps.append(.init(oldRelativePath: oldPath, newRelativePath: newPath))
 
-            var refRewrite: (String, String, String)? = nil
+            var refRewrite: (String, String)? = nil
             if travelsWithAssets {
                 let newStem = (dedupedLeaf as NSString).deletingPathExtension
                 let newAssetsLeaf = "\(newStem)_assets"
@@ -241,7 +253,7 @@ extension ProjectStore {
                     oldRelativePath: oldAssetsRel,
                     newRelativePath: "\(dest.folder)/\(newAssetsLeaf)"))
                 if oldStem != newStem {
-                    refRewrite = (oldStem, newStem, newPath)
+                    refRewrite = (oldStem, newStem)
                 }
             }
             pendings.append(Pending(
@@ -255,16 +267,6 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError("DocumentStore not available")
             }
             try await documentStore.relocate(plan: plan)
-            // Dedup changed a note's stem → its assets folder was renamed to
-            // match; rewrite the note's ./<stem>_assets/ image refs.
-            for pending in pendings {
-                guard let (oldStem, newStem, noteRelPath) = pending.refRewrite,
-                      let noteURL = try? resolvedProjectPathToChange(noteRelPath) else { continue }
-                await Self.rewriteAssetRefsBestEffort(
-                    oldStem: oldStem, newStem: newStem,
-                    noteURL: noteURL,
-                    write: { try await documentStore.coordinatedWrite(text: $0, to: $1) })
-            }
         }
 
         // ---- Phase 4: rewrite the manifest, one save ----
@@ -299,6 +301,49 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
+
+        // Dedup changed a note's stem → its assets folder was renamed to
+        // match; rewrite the note's ./<stem>_assets/ image refs, now that the
+        // manifest names where the note is (the note door asks it).
+        for (item, pending) in zip(items, pendings) {
+            guard let (oldStem, newStem) = pending.refRewrite else { continue }
+            await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
+        }
+    }
+
+    /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
+    /// the manifest names where it now is. A note or a palette card goes
+    /// through the note door (what it held is kept as a version; an editor
+    /// open on it reloads); with no `DocumentStore` the raw write. Anything
+    /// else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
+    /// (`mustLand`); a write that fails is logged and the move stands.
+    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
+        guard let item = findResearchItem(id: itemId, in: manifest.research),
+              let path = item.path else { return }
+        // Only a note or a palette card inside a research root is rewritten:
+        // a synced manifest's `.document` naming any other file is left alone.
+        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+            projectStoreLog.error(
+                "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
+            return
+        }
+        guard let noteURL = try? resolvedProjectPathToChange(path) else { return }
+        await documentStore?.settleResearchNoteEdits(itemId: itemId)
+        await Self.rewriteAssetRefsBestEffort(
+            oldStem: oldStem, newStem: newStem, noteURL: noteURL,
+            write: { [self] text, url in
+                if let ds = documentStore {
+                    // It must land: the move has happened, so refs left
+                    // stale point at a folder that is gone (the door says
+                    // when the earlier version could not be kept).
+                    guard case .saved = await ds.saveResearchNote(
+                        itemId: itemId, text: text, mustLand: true, from: self) else {
+                        throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
+                    }
+                } else {
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                }
+            })
     }
 
     /// Dedup a note leaf JOINTLY with its sibling `<stem>_assets` folder: the

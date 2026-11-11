@@ -735,9 +735,14 @@ final class InboxStore {
     /// transcribe and retry); an unknown `cardId` propagates the palette seam's
     /// throw. An asset removal that fails post-copy is non-fatal (a harmless
     /// duplicate is left rather than the note/image lost).
+    ///
+    /// `by` is whose promotion it is: the inbox pane's is the writer's,
+    /// `promote_inbox_entry`'s the assistant's. The card's earlier text is
+    /// kept as a version either way, marked as replaced by that writer.
     @discardableResult
     func promoteToPaletteCard(
-        _ entry: InboxEntry, projectStore: ProjectStore, cardId: String
+        _ entry: InboxEntry, projectStore: ProjectStore, cardId: String,
+        by writer: ResearchWriter = .writer
     ) async throws -> PaletteCard {
         let sense = entry.sense.flatMap { PaletteCard.Sense(rawValue: $0) }
         let result: PaletteCard
@@ -758,12 +763,12 @@ final class InboxStore {
             // DROPS it (`"- "` trims to `"-"`, failing the `- ` item guard) (S5).
             guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
             result = try await appendSensoryNote(
-                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore)
+                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore, by: writer)
         case .audio:
             let text = Self.flattenToNote(entry.transcript ?? "")
             guard !text.isEmpty else { throw InboxError.nothingToPromote(entry.id) }
             result = try await appendSensoryNote(
-                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore)
+                .init(sense: sense, text: text), toCard: cardId, projectStore: projectStore, by: writer)
         case .image:
             guard let asset = assetURL(for: entry),
                   FileManager.default.fileExists(atPath: asset.path) else {
@@ -785,7 +790,7 @@ final class InboxStore {
                 // addImage copies into the card's `<slug>_assets/` folder; the
                 // inbox original is removed only after the status flip commits
                 // (see above).
-                result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset)
+                result = try await projectStore.addImage(toPaletteCard: cardId, fileURL: asset, by: writer)
             }
             originalToRemove = asset
         }
@@ -976,8 +981,12 @@ final class InboxStore {
     /// failure the seam's `updatePaletteCard` raises), so a bad target can't
     /// silently drop a promoted note.
     private func appendSensoryNote(
-        _ note: PaletteCard.SensoryNote, toCard cardId: String, projectStore: ProjectStore
+        _ note: PaletteCard.SensoryNote, toCard cardId: String, projectStore: ProjectStore,
+        by writer: ResearchWriter
     ) async throws -> PaletteCard {
+        // Read and written back whole: an edit pending or in flight in the
+        // door for this card (the card editor's) lands first, so it is read.
+        await projectStore.documentStore?.settleResearchNoteEdits(itemId: cardId)
         guard let card = projectStore.loadPaletteCards()
             .first(where: { $0.researchItemId == cardId }) else {
             throw ProjectStoreError.structureMissing
@@ -994,7 +1003,7 @@ final class InboxStore {
             researchItemId: card.researchItemId, title: card.title, kind: card.kind,
             swatches: card.swatches, notes: card.notes + [note],
             imagePaths: card.imagePaths, body: card.body)
-        try await projectStore.updatePaletteCard(updated)
+        try await projectStore.updatePaletteCard(updated, by: writer)
         return updated
     }
 

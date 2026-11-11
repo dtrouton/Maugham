@@ -209,20 +209,19 @@ extension ProjectWindow {
     /// the note-vs-preview decision inside the view, which is the split this
     /// function exists to close.
     static func researchCentreRoute(id: String?,
-                                    in research: [ResearchItem]) -> ResearchCentreRoute {
-        guard let id, let item = TreeWalk.find(id: id, in: research) else { return .missing }
-        if item.type == .asset, item.kind == .table, let path = item.path { return .table(item: item, path: path) }
-        guard item.kind == .document, let path = item.path else { return .preview(item) }
-        // **A path prefix ending in the SEPARATOR**, not a name test and not a
-        // bare `hasPrefix`: a research group called "Palette research" gives its
-        // notes paths that start with the palette folder's characters and are
-        // not inside it, and routing one of those here shows "Card unavailable"
-        // over a note the writer can see in their tree
-        // (`test_aNoteBesideThePaletteFolderIsStillANote`).
-        if path.hasPrefix(ProjectStore.paletteFolderPath + "/") {
-            return .paletteCard(item.id)
+                                    in manifest: ProjectManifest) -> ResearchCentreRoute {
+        guard let id, let item = TreeWalk.find(id: id, in: manifest.research) else { return .missing }
+        // A table outside a research root is not opened in the grid: it falls
+        // to the preview, as a note outside one does.
+        if let path = ResearchTextRole.tablePath(of: item, structure: manifest.structure) {
+            return .table(item: item, path: path)
         }
-        return .note(item: item, path: path)
+        // Note or card is asked of the one predicate the note door asks too.
+        switch ResearchTextRole.of(item, structure: manifest.structure) {
+        case .paletteCard: return .paletteCard(item.id)
+        case .note(let path): return .note(item: item, path: path)
+        case nil: return .preview(item)
+        }
     }
 }
 
@@ -257,7 +256,7 @@ struct ResearchSubjectCentre: View {
     var window: NSWindow? = nil
 
     var body: some View {
-        switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest.research) {
+        switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest) {
         case .paletteCard(let cardID):
             if readOnly {
                 PaletteCardReadHost(store: store, cardId: cardID)
@@ -271,7 +270,8 @@ struct ResearchSubjectCentre: View {
                 path: path,
                 itemId: item.id,
                 previewVisible: previewVisible,
-                lockEditing: readOnly)
+                lockEditing: readOnly,
+                shareIsReadOnly: shareIsReadOnly)
         case .table(let item, _):
             ResearchTableGrid(
                 itemId: item.id, title: item.title, store: store, documentStore: documentStore,
@@ -377,7 +377,7 @@ struct ResearchSubjectInspector: View {
     @ViewBuilder
     private func preview(of item: ResearchItem) -> some View {
         switch ProjectWindow.researchCentreRoute(id: item.id,
-                                                 in: store.manifest.research) {
+                                                 in: store.manifest) {
         case .paletteCard(let cardID):
             PaletteCardEditor(store: store, cardId: cardID)
         case .table(let item, _):

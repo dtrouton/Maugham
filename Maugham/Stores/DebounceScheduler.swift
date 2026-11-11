@@ -10,6 +10,12 @@ public final class DebounceScheduler<Payload: Sendable> {
     private let action: (Payload) async -> Void
     private var pendingTask: Task<Void, Never>?
     private var pendingPayload: Payload?
+    /// Bumped by every `schedule`, so a run that finishes clears the pending
+    /// state only when no newer schedule replaced it while it ran. (A payload
+    /// compare cannot tell: every `Void` payload is equal, and a finishing
+    /// autosave run used to clear the schedule a keystroke made during it,
+    /// leaving `flush()` — and so `close()` — nothing to write.)
+    private var generation = 0
 
     public init(delay: Duration, action: @escaping (Payload) async -> Void) {
         self.delay = delay
@@ -19,6 +25,8 @@ public final class DebounceScheduler<Payload: Sendable> {
     public func schedule(_ payload: Payload) {
         pendingTask?.cancel()
         pendingPayload = payload
+        generation += 1
+        let mine = generation
         let captured = payload
         pendingTask = Task { [weak self] in
             guard let self else { return }
@@ -26,9 +34,8 @@ public final class DebounceScheduler<Payload: Sendable> {
             if Task.isCancelled { return }
             await action(captured)
             // Clear pending state if this run completed; another schedule may
-            // have replaced pendingPayload while we slept, so only clear if
-            // the captured payload still matches.
-            if Self.areEqual(self.pendingPayload, captured) {
+            // have replaced it while we slept or ran, so only clear if none did.
+            if self.generation == mine {
                 self.pendingPayload = nil
                 self.pendingTask = nil
             }
@@ -47,13 +54,5 @@ public final class DebounceScheduler<Payload: Sendable> {
         pendingTask?.cancel()
         pendingPayload = nil
         pendingTask = nil
-    }
-
-    /// Pointer/value equality fallback: we don't require Payload: Equatable,
-    /// so we use a structural compare that's lossy but only used for the
-    /// "was my payload still pending?" check inside the Task.
-    private static func areEqual(_ a: Payload?, _ b: Payload) -> Bool {
-        guard let a else { return false }
-        return String(describing: a) == String(describing: b)
     }
 }

@@ -75,4 +75,46 @@ final class ResearchVersionsModelTests: XCTestCase {
         XCTAssertEqual(ResearchVersionsModel.sentence(for: .whole), "Restored.")
         XCTAssertTrue(ResearchVersionsModel.sentence(for: .cellsOnly).contains("couldn’t be restored"))
     }
+
+    /// A version of another kind is listed with Restore off, and "Restore
+    /// previous version" skips to the newest that can be restored.
+    func test_aVersionOfAnotherKindIsListedButNotOffered() {
+        let list = [ResearchVersion(itemId: "n", name: "b", savedAt: Date(timeIntervalSince1970: 2),
+                                    writtenBy: nil, payload: .table),
+                    ResearchVersion(itemId: "n", name: "a", savedAt: Date(timeIntervalSince1970: 1),
+                                    writtenBy: nil, payload: .note)]
+        let rows = ResearchVersionsModel.rows(from: list, refusal: nil, kind: .note)
+        XCTAssertEqual(rows.map(\.id), ["b", "a"])
+        XCTAssertEqual(rows.map(\.canRestore), [false, true])
+        XCTAssertEqual(ResearchVersionsModel.previous(in: rows)?.id, "a")
+    }
+
+    func test_theSectionShowsForANote() {
+        func item(_ kind: ResearchItem.AssetKind, _ path: String?) -> ResearchItem {
+            ResearchItem(id: "i", title: "T", type: .asset, kind: kind, path: path)
+        }
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.document, "research/n.md"), structure: []), .note)
+        XCTAssertEqual(ResearchVersionsModel.kind(for: item(.table, "research/t.csv"), structure: []), .table)
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.image, "research/p.png"), structure: []))
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, nil), structure: []))
+        XCTAssertNil(ResearchVersionsModel.kind(for: item(.document, "manuscript/a.md"), structure: []),
+                     "a text file outside a research root is not a note: no Versions section")
+    }
+
+    /// A refusal names what it refuses: a note's section says "note", a
+    /// table's sentence is unchanged.
+    func test_refusalsNameTheNoteOrTheTable() {
+        XCTAssertEqual(FigureGridGate.Reason.viewOnlyShare.sentence,
+                       "This share is view-only, so the table can’t be changed.")
+        XCTAssertEqual(FigureGridGate.Reason.viewOnlyShare.sentence(noun: "note"),
+                       "This share is view-only, so the note can’t be changed.")
+        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence(noun: "note"),
+                       "You’re reviewing — the note can be read, not changed.")
+        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence,
+                       "You’re reviewing — the table can be read, not changed.")
+        XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare, noun: "note").errorDescription,
+                       "This share is view-only, so the note can’t be changed.")
+        XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare).errorDescription,
+                       "This share is view-only, so the table can’t be changed.")
+    }
 }

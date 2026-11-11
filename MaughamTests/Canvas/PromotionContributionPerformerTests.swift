@@ -55,6 +55,7 @@ final class PromotionContributionPerformerTests: XCTestCase {
         let store = try await ProjectStore.load(from: tmp)
         let ds = try await DocumentStore.open(url: tmp)
         store.documentStore = ds
+        ds.projectStore = store   // both ways, as ProjectSession.open: the note door finds notes through it
         documentStores.append(ds)
         return (tmp, store)
     }

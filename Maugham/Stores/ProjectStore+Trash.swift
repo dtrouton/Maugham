@@ -366,21 +366,55 @@ extension ProjectStore {
         _ decoded: ResearchItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
         var item = decoded
-        let targetParentId = survivingParentId(
+        var targetParentId = survivingParentId(
             pending?.originalParentId,
             exists: { findResearchItem(id: $0, in: manifest.research) != nil })
         let parentPath = targetParentId
             .flatMap { findResearchItem(id: $0, in: manifest.research)?.path }
 
-        // A manifest-only row (a link, RULING-45) has no file; `restore` hands
-        // the record back and touches nothing on disk.
-        let entry = try await trashStore.restore(
-            trashId: entryId,
-            to: (pending?.carriesFile ?? true)
-                ? Self.restoreDestination(for: item.path, underParentPath: parentPath)
-                : nil)
+        // A manifest-only row (a link, RULING-45; a row naming a file outside
+        // every research root) has no file; `restore` hands the record back
+        // and touches nothing on disk.
+        let carriesFile = pending?.carriesFile ?? true
+        var destination: String?
+        if !carriesFile {
+            destination = nil
+        } else if parentPath == nil, let own = item.path, own.hasPrefix("pieces/") {
+            // A loose piece's research row whose parent row is gone (or that
+            // sat at the top): the piece's CURRENT research folder (it follows
+            // a reorder's renumbering), never a group folder the writer
+            // deleted; a piece that is gone sends it to the shared Research.
+            let filename = (own as NSString).lastPathComponent
+            destination = currentPieceResearchFolder(forTrashedPath: own).map { "\($0)/\(filename)" }
+                ?? "research/\(filename)"
+        } else {
+            destination = Self.restoreDestination(for: item.path, underParentPath: parentPath)
+        }
+        // **A file comes back inside a research root, and always comes back**:
+        // a Trash record (or a surviving parent row) that would land it at the
+        // manuscript or under `.maugham/` lands it at the top of the shared
+        // Research instead — a restore is never refused for want of a home,
+        // since the Trash's sweep would otherwise destroy the only copy.
+        // A file-carrying entry never passes a nil destination either
+        // (`TrashStore.restore` would fall back to the record's own path,
+        // unchecked); the fallback name drops leading dots so it is itself
+        // inside a research root, asserted below.
+        if carriesFile, item.kind != .link,
+           !(destination.map { ResearchTextRole.isInsideAResearchRoot($0, structure: manifest.structure) } ?? false) {
+            let name = ((destination ?? item.path ?? pending?.originalRelativePath ?? "") as NSString)
+                .lastPathComponent.drop(while: { $0 == "." })
+            destination = "research/\(name.isEmpty ? "restored" : String(name))"
+            targetParentId = nil
+        }
+        if carriesFile, item.kind != .link, let landing = destination,
+           !ResearchTextRole.isInsideAResearchRoot(landing, structure: manifest.structure) {
+            throw ProjectStoreError.outsideResearch(title: item.title)
+        }
+        let entry = try await trashStore.restore(trashId: entryId, to: destination)
 
         var report = TrashRestoreReport()
+        // A record that named no path: the row takes the one its file landed at.
+        if item.path == nil, carriesFile, let landed = entry.restoredRelativePath { item.path = landed }
         if let landed = entry.restoredRelativePath, let was = item.path, landed != was {
             item = Self.rewritingResearchPaths(item, from: was, to: landed)
             let deletedAs = item.title
@@ -455,6 +489,33 @@ extension ProjectStore {
     ) -> String? {
         guard let recorded, exists(recorded) else { return nil }
         return recorded
+    }
+
+    /// **The research folder a trashed loose-piece path belongs in now**: the
+    /// piece whose research folder the path is under, else the loose piece
+    /// whose folder has the same slug after its `NN-` number (a reorder
+    /// renumbers `pieces/03-story/` to `pieces/04-story/`); nil when no loose
+    /// piece answers (deleted, or renamed since).
+    func currentPieceResearchFolder(forTrashedPath path: String) -> String? {
+        if let id = researchScopePieceId(ofPath: path),
+           let piece = manifest.structure.first(where: { $0.id == id }),
+           let prefix = Self.pieceResearchPrefix(for: piece) {
+            return String(prefix.dropLast())
+        }
+        let components = path.split(separator: "/")
+        guard components.count >= 2, components[0] == "pieces" else { return nil }
+        func slug(_ folder: Substring) -> Substring? {
+            guard let dash = folder.firstIndex(of: "-"),
+                  folder[..<dash].allSatisfy(\.isNumber) else { return nil }
+            return folder[folder.index(after: dash)...]
+        }
+        guard let wanted = slug(components[1]) else { return nil }
+        for piece in manifest.structure where piece.pieceKind == .loose {
+            guard let prefix = Self.pieceResearchPrefix(for: piece) else { continue }
+            let folder = prefix.split(separator: "/")
+            if folder.count >= 2, slug(folder[1]) == wanted { return String(prefix.dropLast()) }
+        }
+        return nil
     }
 
     /// Where the file should land, given where the ROW is going (RULING-41).
@@ -683,114 +744,6 @@ extension ProjectStore {
             originalIndex: 0,
             displayTitle: displayTitle,
             subject: .captureAsset)
-        trashEntries = (try? await trashStore.list()) ?? trashEntries
-        return entry
-    }
-
-    /// Keep what is at `relativePath` NOW, because Maugham is about to write
-    /// over it on the writer's behalf (M6-PR-037, RULING-24, 2026-08-09).
-    ///
-    /// **The minimal bridge, and deliberately not the versioning milestone.**
-    /// RULING-24 places research in the middle tier — recoverable, though not
-    /// versioned — and a canvas Rewrite replaced a research note's whole body
-    /// with no route back at all: research notes have no op log, checkpoints
-    /// walk `manifest.structure` and never `manifest.research`, and nothing was
-    /// left in the trash. The same note *deleted* would have been recoverable
-    /// for the retention window. This gives a rewrite the standard a delete
-    /// already has, using the machinery that already exists, and it is expected
-    /// to be superseded by GAP-P1 / research protection when research versioning
-    /// is actually scoped.
-    ///
-    /// The manifest is untouched: the row stays, pointing at the path this
-    /// entry's file still occupies, and the caller writes the new body over it.
-    /// Nothing arms ⌘⌥Z — the writer's last delete gesture is not what put this
-    /// here.
-    ///
-    /// ## A move, then a copy straight back (whole-branch review, 2026-08-09)
-    /// The net effect is a COPY, and it is reached by moving because the MOVE is
-    /// what carries the typed mover's flush discipline (tripwire 14) — a queued
-    /// 750 ms save landing mid-operation would re-create the note's pre-rewrite
-    /// text at the path the rewrite is about to write. A plain copy has no such
-    /// discipline to borrow.
-    ///
-    /// What the copy-back buys is that **the live file exists continuously**.
-    /// The caller's next act — writing the new body — is fallible, and while
-    /// this method ended at the move, a failed write left the manifest row
-    /// pointing at nothing: the note was in the trash, the research pane showed
-    /// a row over a missing file, and a rewrite the writer had been told failed
-    /// had taken their note with it. Now a failed write leaves the note exactly
-    /// as it was, and the trash holds the same words either way.
-    @discardableResult
-    func trashPriorVersion(at relativePath: String, displayTitle: String,
-                           id: String) async throws -> TrashEntry {
-        let metadata = try JSONSerialization.data(withJSONObject: ["id": id])
-        // Through the typed mover where there is one: a research note has a
-        // 750 ms debounced save behind it, and a queued `scheduleFileSave`
-        // landing after this move would re-create the note's PRE-rewrite text at
-        // the path the rewrite is about to write — tripwire 14 exactly, on the
-        // one path that reaches this. With no DocumentStore (load-only context)
-        // the discipline is a provable no-op.
-        let entry: TrashEntry
-        if let ds = documentStore {
-            entry = try await ds.trash(
-                relativePath: relativePath,
-                using: trashStore,
-                itemMetadata: metadata,
-                originalParentId: nil,
-                originalIndex: 0,
-                displayTitle: displayTitle,
-                subject: .priorVersion)
-        } else {
-            entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no debounce to race)
-                fileRelativePath: relativePath,
-                itemMetadata: metadata,
-                originalParentId: nil,
-                originalIndex: 0,
-                displayTitle: displayTitle,
-                subject: .priorVersion)
-        }
-        // The copy back, before anything else can fail. A throw here is a disk
-        // failure rather than a stranded note — the words are in the entry, the
-        // entry is in the pane, and the caller has not written anything yet.
-        if let kept = trashStore.entryFileURL(trashId: entry.id) {
-            try FileManager.default.copyItem(
-                at: kept,
-                to: try SafeRelativePath.resolveForChange(relativePath, under: url))
-        }
-        trashEntries = (try? await trashStore.list()) ?? trashEntries
-        return entry
-    }
-
-    /// Keep the TEXT an artifact holds now, for the artifacts whose body is not
-    /// a file of its own (whole-branch review, 2026-08-09).
-    ///
-    /// `trashPriorVersion`'s sibling, and the same promise on the other rewrite
-    /// arm: a canvas Rewrite of a PALETTE CARD replaces its prose with no route
-    /// back, and RULING-24's middle tier is owed to a card's afternoon exactly
-    /// as it is owed to a note's. The card's prose lives inside its card file
-    /// with the swatches, sensory notes and image references, all of which the
-    /// rewrite deliberately keeps — so what is preserved here is the body alone,
-    /// written into the entry rather than moved into it.
-    ///
-    /// No flush dance and no typed mover: nothing on disk is touched, so there
-    /// is no debounced save to race. The caller flushes before it reads the body
-    /// (`performPaletteCard` does, for its own reasons), which is what makes the
-    /// text handed here the text that is really in the card.
-    @discardableResult
-    func trashPriorVersionText(text: String, displayTitle: String,
-                               id: String) async throws -> TrashEntry {
-        let metadata = try JSONSerialization.data(withJSONObject: ["id": id])
-        // Under `research/` because that is where a RESTORE has to be able to
-        // put it: the `.priorVersion` arm files what comes back as a research
-        // note, and a note has to live in the research tree to be openable.
-        let slug = Slugifier.slug(from: displayTitle)
-        let entry = try await trashStore.recordTextEntry(
-            text: text,
-            filename: "\(slug)-prior.md",
-            originalRelativePath: "research/\(slug)-prior.md",
-            itemMetadata: metadata,
-            displayTitle: displayTitle,
-            subject: .priorVersion)
         trashEntries = (try? await trashStore.list()) ?? trashEntries
         return entry
     }

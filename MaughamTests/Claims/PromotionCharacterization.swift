@@ -60,6 +60,7 @@ final class PromotionCharacterization: XCTestCase {
         let store = try await ProjectStore.load(from: tmp)
         let ds = try await DocumentStore.open(url: tmp)
         store.documentStore = ds
+        ds.projectStore = store   // both ways, as ProjectSession.open: the note door finds notes through it
         documentStores.append(ds)
         return (tmp, store)
     }
@@ -509,15 +510,24 @@ final class PromotionCharacterization: XCTestCase {
                        "Promoted to the note “The falls at night”.", "M6-PR-036")
     }
 
+    /// The newest Research version kept for `id`, as text.
+    private func newestVersionText(_ id: String, root: URL) throws -> String {
+        let versions = ResearchVersionStore(projectURL: root)
+        let newest = try XCTUnwrap(versions.versions(itemId: id).max(by: { $0.savedAt < $1.savedAt }),
+                                   "no version was kept")
+        return String(decoding: try versions.read(newest).0, as: UTF8.self)
+    }
+
     /// M6-PR-037, M6-PR-038, M6-PR-039 — what a Rewrite costs, and what it no
     /// longer costs.
     ///
     /// **All three fixed 2026-08-09** — M6-PR-038/039 under RULING-22 (the
     /// sheet's two labels named the artifact and its quietest field renamed it),
-    /// M6-PR-037 under RULING-24 (research is recoverable but not versioned, and
-    /// a rewrite left no route back at all). The body is still replaced — that is
-    /// what Rewrite says it does — but the previous text is in the trash for the
-    /// retention window, the standard a deleted note already had.
+    /// M6-PR-037 under RULING-24. **M6-PR-037 amended 2026-11-11** (Denver's
+    /// P1, under RULING-24 as amended the same day): the body is still replaced
+    /// — that is what Rewrite says it does — and the text it replaced is a
+    /// Research VERSION, kept before the write or the write does not happen.
+    /// The Trash entry the 2026-08-09 bridge left is gone.
     func test_aRewriteReplacesTheNoteAndRevertsTheWritersName() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -543,6 +553,7 @@ final class PromotionCharacterization: XCTestCase {
                        "M6-PR-039: fixed under RULING-22, 2026-08-09 — the Name the plan "
                        + "carries is the artifact's own, the same value the destination "
                        + "names, so the sheet shows one name for one artifact")
+        let trashedBefore = try await store.trashStore.list().count
 
         _ = try await performer.perform(pl)
         XCTAssertEqual(try bodyOf(id, store: store, root: root),
@@ -555,85 +566,106 @@ final class PromotionCharacterization: XCTestCase {
                        "research/fog-act-ii.md",
                        "M6-PR-038: and the file on disk is not renamed either")
 
-        // M6-PR-037: fixed under RULING-24, 2026-08-09 — the afternoon of prose
-        // is reachable for the trash's retention window, the same standard a
-        // DELETED note gets. The minimal bridge; not versioning (GAP-P1).
-        let entries = try await store.trashStore.list()
-        let preserved = try XCTUnwrap(entries.first { $0.subject == .priorVersion },
-                                      "M6-PR-037: the prior version is in the trash, and "
-                                      + "in the pane — `list()` is the writer's view")
-        XCTAssertEqual(preserved.displayTitle, "Fog, act II")
-        try await store.restoreTrashEntry(id: preserved.id)
-        let returned = try XCTUnwrap(
-            (try FileManager.default.contentsOfDirectory(
-                atPath: root.appendingPathComponent("research").path))
-                .first { $0.hasPrefix("fog-act-ii") && $0 != "fog-act-ii.md" },
-            "M6-PR-037: it comes back beside the live note rather than over it")
-        XCTAssertEqual(
-            try String(contentsOf: root.appendingPathComponent("research/\(returned)"),
-                       encoding: .utf8),
-            "The falls at night\n\nAn afternoon of my own prose.\n",
-            "M6-PR-037: with the writer's own words in it")
-        XCTAssertEqual(try bodyOf(id, store: store, root: root),
-                       "The falls at night\n\nRewritten on the canvas.",
-                       "M6-PR-037: and the rewritten note is untouched by the restore")
+        // M6-PR-037, amended 2026-11-11: the afternoon of prose is a version,
+        // exactly, and nothing new is in the Trash.
+        XCTAssertEqual(try newestVersionText(id, root: root),
+                       "The falls at night\n\nAn afternoon of my own prose.\n",
+                       "M6-PR-037: the text the Rewrite replaced is kept as a version")
+        let trashedAfter = try await store.trashStore.list().count
+        XCTAssertEqual(trashedAfter, trashedBefore, "M6-PR-037: and the Rewrite leaves no Trash entry")
 
-        // And the restore is VISIBLE (whole-branch review, 2026-08-09). The
-        // entry used to restore as a file alone: correct about there being
-        // nothing to rewire, and it left the writer's afternoon in `research/`
-        // where no surface in Maugham looks. They had asked for it back and been
-        // told it came.
-        let restoredRow = try XCTUnwrap(
-            store.manifest.research.first { $0.title == "Fog, act II (previous version)" },
-            "the prior version comes back with a row of its own — the live note's "
-            + "row still points at the rewritten text, so this is a second artifact")
-        XCTAssertEqual(restoredRow.path, "research/\(returned)",
-                       "and the row points at where the file actually landed")
+        // Restoring it, from the note's inspector, brings the words back, and
+        // the rewritten text is itself kept, so restoring again undoes it.
+        let ds = try XCTUnwrap(store.documentStore)
+        let versions = ResearchVersionStore(projectURL: root)
+        let kept = try XCTUnwrap(versions.versions(itemId: id).max(by: { $0.savedAt < $1.savedAt }))
+        try await ds.restoreResearchNote(itemId: id, to: kept, shareIsReadOnly: false)
+        XCTAssertEqual(try bodyOf(id, store: store, root: root),
+                       "The falls at night\n\nAn afternoon of my own prose.\n")
+        XCTAssertEqual(try newestVersionText(id, root: root),
+                       "The falls at night\n\nRewritten on the canvas.")
     }
 
-    /// M6-PR-037's other half (whole-branch review, 2026-08-09) — keeping the
-    /// prior version must not be a window in which the note exists ONLY in the
-    /// trash.
-    ///
-    /// The keep is a move, for the typed mover's flush discipline (tripwire 14),
-    /// and the caller's next act — writing the new body — is fallible. Between
-    /// the two, the manifest row pointed at a path with no file at it: a failed
-    /// rewrite told the writer nothing had happened while their note had left
-    /// the research pane. Pinned as the property rather than by breaking the
-    /// write, because the property is what the fix owes: after the keep, the
-    /// live file is still there with the pre-rewrite words in it, and the trash
-    /// holds the same words.
-    func test_keepingThePriorVersionLeavesTheNoteWhereItIs() async throws {
+    /// M6-PR-037's guarantee (2026-11-11): **a Rewrite lands only if the
+    /// version of the text it replaces was kept.** With the version store
+    /// unwritable the Rewrite is refused, the note is byte-identical, and the
+    /// Trash has nothing new.
+    func test_aRewriteWhoseVersionCannotBeKeptIsRefused() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            try plan(.scrap(a), .researchNote, store: store, model: model))
+        let id = try XCTUnwrap(first.createdItemID)
+        let path = try XCTUnwrap(TreeWalk.find(id: id, in: store.manifest.research)?.path)
+        let afternoon = Data("The falls at night\n\nAn afternoon of my own prose.\n".utf8)
+        try afternoon.write(to: root.appendingPathComponent(path))
+        let locked = root.appendingPathComponent(".maugham/research-versions")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        let trashedBefore = try await store.trashStore.list().count
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        let refused = await failure {
+            _ = try await performer.perform(try plan(.scrap(a), .researchNote, store: store,
+                                                     model: model, mode: existing))
+        }
+        XCTAssertEqual(refused, .noteNotSaved(title: "The falls at night"))
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(path)), afternoon,
+                       "the note is byte-identical")
+        let trashedAfter = try await store.trashStore.list().count
+        XCTAssertEqual(trashedAfter, trashedBefore, "and nothing went to the Trash")
+    }
+
+    /// The `.priorVersion` Trash kind's writer is gone (2026-11-11), but the
+    /// entries older builds wrote still list in the Trash pane and restore as
+    /// a visible research row holding the words — a note's (a file moved in
+    /// and copied back) and a card's (its prose written in as text).
+    func test_anOlderBuildsPriorVersionEntriesStillListAndRestore() async throws {
         let (root, store) = try await makeProject()
         let item = try await store.addResearchTextNote(parentId: nil, title: "Fog, act II")
         let path = try XCTUnwrap(item.path)
         let afternoon = "The falls at night\n\nAn afternoon of my own prose.\n"
-        try afternoon.write(to: root.appendingPathComponent(path),
-                            atomically: true, encoding: .utf8)
+        try afternoon.write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        let metadata = try JSONSerialization.data(withJSONObject: ["id": item.id])
+        // What an older build's Rewrite left: the note moved in, copied back.
+        let noteEntry = try await store.trashStore.moveToTrash( // internal-move: a test reproducing an older build's entry
+            fileRelativePath: path, itemMetadata: metadata, originalParentId: nil,
+            originalIndex: 0, displayTitle: item.title, subject: .priorVersion)
+        try FileManager.default.copyItem(
+            at: try XCTUnwrap(store.trashStore.entryFileURL(trashId: noteEntry.id)),
+            to: root.appendingPathComponent(path))
+        // And a card's: its prose recorded as text.
+        let cardEntry = try await store.trashStore.recordTextEntry(
+            text: "The harbour at dawn.", filename: "harbour-prior.md",
+            originalRelativePath: "research/harbour-prior.md", itemMetadata: metadata,
+            displayTitle: "Harbour", subject: .priorVersion)
 
-        _ = try await store.trashPriorVersion(at: path, displayTitle: item.title, id: item.id)
+        let listed = try await store.trashStore.list()
+        XCTAssertEqual(Set(listed.filter { $0.subject == .priorVersion }.map(\.id)),
+                       [noteEntry.id, cardEntry.id], "both are in the writer's view of the Trash")
 
-        XCTAssertEqual(
-            try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8),
-            afternoon,
-            "the live note never stops existing — a rewrite that fails after this "
-            + "point leaves the writer's note exactly as it was")
-        let entries = try await store.trashStore.list()
-        let kept = try XCTUnwrap(entries.first { $0.subject == .priorVersion })
-        let inTheTrash = try XCTUnwrap(store.trashStore.entryFileURL(trashId: kept.id))
-        XCTAssertEqual(try String(contentsOf: inTheTrash, encoding: .utf8), afternoon,
-                       "and the trash holds the same words, which is the whole point of "
-                       + "the move this copies back from")
+        try await store.restoreTrashEntry(id: noteEntry.id)
+        let noteRow = try XCTUnwrap(
+            store.manifest.research.first { $0.title == "Fog, act II (previous version)" },
+            "a restore the writer cannot see is not a restore")
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent(try XCTUnwrap(noteRow.path)),
+                                  encoding: .utf8), afternoon)
+        XCTAssertNotEqual(noteRow.path, path, "it lands beside the live note, not over it")
+
+        try await store.restoreTrashEntry(id: cardEntry.id)
+        let cardRow = try XCTUnwrap(store.manifest.research.first { $0.title == "Harbour (previous version)" })
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent(try XCTUnwrap(cardRow.path)),
+                                  encoding: .utf8), "The harbour at dawn.")
     }
 
-    /// M6-PR-048's other half (whole-branch review, 2026-08-09) — a rewritten
-    /// PALETTE CARD's prose is recoverable too.
-    ///
-    /// M6-PR-037 gave a research note the standard RULING-24 owes it and stopped
-    /// there. The same Rewrite aimed at a palette card replaced the writer's
-    /// prose with no route back at all — and a card's prose is the more likely
-    /// of the two to be theirs by hand, since a card is developed in the pane
-    /// rather than generated.
+    /// M6-PR-048's other half — a rewritten PALETTE CARD's prose is
+    /// recoverable too. Since 2026-11-11 (P1, P2) it is the card's whole file
+    /// kept as a version before the write, or no write: restoring it brings
+    /// the card back exactly, swatches and all. No Trash entry.
     func test_aPaletteRewriteKeepsThePriorProseWhereTheWriterCanReachIt() async throws {
         let (root, store) = try await makeProject()
         let model = makeModel(at: root)
@@ -642,6 +674,8 @@ final class PromotionCharacterization: XCTestCase {
             try plan(.scrap(a), .paletteCard, store: store, model: model))
         let id = try XCTUnwrap(res.createdItemID)
         let before = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == id })
+        let beforeFile = try bodyOf(id, store: store, root: root)
+        let trashedBefore = try await store.trashStore.list().count
 
         model.setScrapText("The falls at night\n\nRewritten.", for: a)
         _ = try await performer.perform(
@@ -652,23 +686,10 @@ final class PromotionCharacterization: XCTestCase {
             "The falls at night\n\nRewritten.",
             "the body is still replaced — that is what Rewrite says it does")
 
-        let entries = try await store.trashStore.list()
-        let kept = try XCTUnwrap(entries.first { $0.subject == .priorVersion },
-                                 "the prose the rewrite replaced is in the trash, "
-                                 + "and in the pane")
-        XCTAssertEqual(kept.displayTitle, before.title)
-
-        // And it comes back as something the writer can open: a research note
-        // with their prose in it.
-        try await store.restoreTrashEntry(id: kept.id)
-        let row = try XCTUnwrap(
-            store.manifest.research.first { $0.title == "\(before.title) (previous version)" },
-            "a restore the writer cannot see is not a restore")
-        XCTAssertEqual(
-            try String(contentsOf: root.appendingPathComponent(try XCTUnwrap(row.path)),
-                       encoding: .utf8),
-            before.body,
-            "with the prose the rewrite took")
+        XCTAssertEqual(try newestVersionText(id, root: root), beforeFile,
+                       "the card's file the rewrite replaced is a version, exactly")
+        let trashedAfter = try await store.trashStore.list().count
+        XCTAssertEqual(trashedAfter, trashedBefore, "and no Trash entry is made")
     }
 
     /// M6-PR-040 — a second `.new` promotion of a card that already produced one.

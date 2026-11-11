@@ -28,6 +28,8 @@ final class PromotionPerformerTests: XCTestCase {
     override func setUp() async throws { temp = TempDirectory() }
 
     override func tearDown() async throws {
+        for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
+        noticeObservers = []
         for ds in documentStores { await ds.close() }
         documentStores = []
         temp = nil
@@ -55,6 +57,9 @@ final class PromotionPerformerTests: XCTestCase {
         let store = try await ProjectStore.load(from: tmp)
         let ds = try await DocumentStore.open(url: tmp)
         store.documentStore = ds
+        // Both ways, as `ProjectSession.open` wires them: the note door
+        // finds a note through the store's `projectStore`.
+        ds.projectStore = store
         documentStores.append(ds)
         return (tmp, store)
     }
@@ -305,6 +310,373 @@ final class PromotionPerformerTests: XCTestCase {
         XCTAssertFalse(text.contains("Sodium light on the spray."),
                        "an update REWRITES the body — that is what the preview says "
                        + "it will do")
+    }
+
+    // MARK: - The note door (note versions plan 2, Task 4)
+
+    /// The newest version the note door kept for `item`.
+    private func newestVersionText(of item: ResearchItem, in root: URL) throws -> String {
+        let versions = ResearchVersionStore(projectURL: root)
+        let newest = try XCTUnwrap(versions.versions(itemId: item.id).max(by: { $0.savedAt < $1.savedAt }),
+                                   "no version was kept")
+        return String(decoding: try versions.read(newest).0, as: UTF8.self)
+    }
+
+    private final class Heard: @unchecked Sendable { var notices: [String] = [] }   // touched on the main actor only
+    private var noticeObservers: [NSObjectProtocol] = []
+
+    /// The notices posted from here on.
+    private func listen() -> Heard {
+        let heard = Heard()
+        noticeObservers.append(NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                MainActor.assumeIsolated { heard.notices.append(message) }
+            }
+        })
+        return heard
+    }
+
+    /// The writer's own words in the note, written behind the store's back
+    /// (the research pane of another session, or by hand).
+    private func writersOwnWords(_ text: String, into item: ResearchItem, in root: URL) throws {
+        try Data(text.utf8).write(to: root.appendingPathComponent(item.path ?? ""))
+    }
+
+    /// P1 (Denver, 2026-11-11): a Rewrite keeps what it replaced as a version,
+    /// exactly, and leaves no Trash entry.
+    func test_aRewriteKeepsTheNotesTextAsAVersion_andLeavesNoTrashEntry() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("An afternoon of my own prose.\n", into: note, in: root)
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+
+        XCTAssertEqual(try body(of: note, in: root), "The falls at night\n\nRewritten on the canvas.")
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "An afternoon of my own prose.\n")
+        let trashed = try await store.trashStore.list()
+        XCTAssertTrue(trashed.isEmpty, "P1: a Rewrite leaves no Trash entry")
+        XCTAssertEqual(first.createdItemID, note.id)
+    }
+
+    /// The card arm, the same: the card's file as it was is a version,
+    /// exactly, and nothing goes to the Trash.
+    func test_aCardRewriteKeepsTheCardsFileAsAVersion_andLeavesNoTrashEntry() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let card = try XCTUnwrap(TreeWalk.find(id: try XCTUnwrap(first.createdItemID), in: store.manifest.research))
+        let before = try body(of: card, in: root)
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location))
+
+        XCTAssertTrue(try body(of: card, in: root).contains("Rewritten on the canvas."))
+        XCTAssertEqual(try newestVersionText(of: card, in: root), before)
+        let trashed = try await store.trashStore.list()
+        XCTAssertTrue(trashed.isEmpty, "P1: a card Rewrite leaves no Trash entry")
+    }
+
+    /// A card Rewrite whose version cannot be kept is refused: the card is
+    /// byte-identical, nothing goes to the Trash, and the writer is told.
+    func test_aCardRewriteWhoseVersionCannotBeKeptIsRefused_andTheCardIsAsItWas() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let cardID = try XCTUnwrap(first.createdItemID)
+        let card = try XCTUnwrap(TreeWalk.find(id: cardID, in: store.manifest.research))
+        let url = root.appendingPathComponent(try XCTUnwrap(card.path))
+        let bytes = try Data(contentsOf: url)
+        let itemFolder = try ResearchVersionStore(projectURL: root).folderURL(forItem: cardID)
+        try FileManager.default.createDirectory(at: itemFolder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: itemFolder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: itemFolder.path) }
+        let heard = listen()
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+        do {
+            _ = try await performer.perform(
+                plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location))
+            XCTFail("a card Rewrite the door refused must say so")
+        } catch PromotionFailure.noteNotSaved(let title) {
+            XCTAssertEqual(title, "The falls at night")
+        }
+        XCTAssertEqual(try Data(contentsOf: url), bytes, "the card is byte-identical")
+        let trashed = try await store.trashStore.list()
+        XCTAssertTrue(trashed.isEmpty, "and nothing went to the Trash")
+        XCTAssertTrue(heard.notices.contains { $0.contains("previous version couldn’t be kept") }, "\(heard.notices)")
+    }
+
+    /// **A card Rewrite never renames** (RULING-49), so nothing changes before
+    /// its version is kept. The sheet's plan is a snapshot: a card renamed
+    /// since it opened keeps its new name and path. With its keep failing,
+    /// the refused Rewrite leaves file, title and path exactly as they were;
+    /// with the keep working, it lands under the card's current name.
+    func test_aCardRewriteWithAStaleTitleNeverRenames_andARefusedOneChangesNothing() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let cardID = try XCTUnwrap(first.createdItemID)
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+        let stale = plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location)
+        try await store.updateResearchItem(id: cardID, title: "Renamed since")
+        let renamed = try XCTUnwrap(TreeWalk.find(id: cardID, in: store.manifest.research))
+        let path = try XCTUnwrap(renamed.path)
+        let bytes = try Data(contentsOf: root.appendingPathComponent(path))
+        let itemFolder = try ResearchVersionStore(projectURL: root).folderURL(forItem: cardID)
+        try FileManager.default.createDirectory(at: itemFolder, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: itemFolder.path)
+
+        do {
+            _ = try await performer.perform(stale)
+            XCTFail("the keep fails, so the Rewrite must refuse")
+        } catch PromotionFailure.noteNotSaved {}
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.title, "Renamed since")
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.path, path)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(path)), bytes, "byte-identical")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: itemFolder.path)
+        _ = try await performer.perform(stale)
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.title, "Renamed since",
+                       "the Rewrite does not rename the card back to the sheet's snapshot")
+        XCTAssertEqual(TreeWalk.find(id: cardID, in: store.manifest.research)?.path, path)
+        let card = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == cardID })
+        XCTAssertEqual(card.title, "Renamed since")
+        XCTAssertTrue(card.body.contains("Rewritten on the canvas."))
+        XCTAssertEqual(try newestVersionText(of: renamed, in: root), String(decoding: bytes, as: UTF8.self))
+    }
+
+    /// With no window store there is no door, so no version could be kept: a
+    /// Rewrite of a note or a card is refused rather than written raw.
+    func test_aRewriteWithNoDocumentStoreIsRefused_forANoteAndACard() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let madeNote = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let madeCard = try await performer.perform(plan(.scrap(b), .paletteCard, store: store, model: model))
+        let noteID = try XCTUnwrap(madeNote.createdItemID)
+        let cardID = try XCTUnwrap(madeCard.createdItemID)
+        let note = try XCTUnwrap(TreeWalk.find(id: noteID, in: store.manifest.research))
+        let card = try XCTUnwrap(TreeWalk.find(id: cardID, in: store.manifest.research))
+        let noteBytes = try Data(contentsOf: root.appendingPathComponent(try XCTUnwrap(note.path)))
+        let cardBytes = try Data(contentsOf: root.appendingPathComponent(try XCTUnwrap(card.path)))
+        let window = store.documentStore
+        store.documentStore = nil
+        defer { store.documentStore = window }
+
+        model.setScrapText("The falls at night\n\nRewritten.", for: a)
+        model.setScrapText("October's doctor, rewritten.", for: b)
+        let noteMode = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        let cardMode = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(b), target: .paletteCard, in: model.scene, artifacts: index(store)))
+        for (source, target, mode) in [(PromotionSource.scrap(a), PromotionTarget.researchNote, noteMode),
+                                       (PromotionSource.scrap(b), PromotionTarget.paletteCard, cardMode)] {
+            do {
+                _ = try await performer.perform(plan(source, target, store: store, model: model, mode: mode))
+                XCTFail("\(target): a Rewrite with no door must refuse")
+            } catch PromotionFailure.noteNotSaved {}
+        }
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(try XCTUnwrap(note.path))), noteBytes)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(try XCTUnwrap(card.path))), cardBytes)
+        let trashed = try await store.trashStore.list()
+        XCTAssertTrue(trashed.isEmpty)
+    }
+
+    /// **A Rewrite aimed at a text item outside a research root is refused
+    /// before the Trash keeps anything** (wave 2 A): a synced manifest can
+    /// move a promoted note's path onto the manuscript or a `.maugham/` file.
+    /// The rewrite throws, the Trash has no new entry, and the file is as it was.
+    func test_aRewriteOfATextItemOutsideAResearchRootIsRefusedBeforeTheTrashKeepsAnything() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        for path in ["manuscript/stray.md", ".maugham/stray.md"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a note.\n".utf8).write(to: url)
+            store.mutateResearchItem(id: note.id) { $0.path = path }
+            let trashedBefore = try await store.trashStore.list().count
+
+            model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+            let existing = try XCTUnwrap(Promotion.existingArtifact(
+                for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+            do {
+                _ = try await performer.perform(
+                    plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            let trashedAfter = try await store.trashStore.list().count
+            XCTAssertEqual(trashedAfter, trashedBefore, "\(path): no Trash entry")
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a note.\n", path)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), path)
+        }
+    }
+
+    /// **A canvas promotion into a palette card outside a research root writes
+    /// nothing** (wave 2 D): the card's Rewrite throws before the Trash keeps
+    /// its prose, and the file is as it was.
+    func test_aCardRewriteOutsideAResearchRootIsRefusedBeforeTheTrashKeepsAnything() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        let first = try await performer.perform(
+            plan(.scrap(a), .paletteCard, store: store, model: model, kind: .location))
+        let cardID = try XCTUnwrap(first.createdItemID)
+        for path in ["manuscript/stray.md", ".maugham/stray.md"] {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a card.\n".utf8).write(to: url)
+            store.mutateResearchItem(id: cardID) { $0.path = path }
+            let trashedBefore = try await store.trashStore.list().count
+
+            model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+            let existing = try XCTUnwrap(Promotion.existingArtifact(
+                for: .scrap(a), target: .paletteCard, in: model.scene, artifacts: index(store)))
+            do {
+                _ = try await performer.perform(
+                    plan(.scrap(a), .paletteCard, store: store, model: model, mode: existing, kind: .location))
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            let trashedAfter = try await store.trashStore.list().count
+            XCTAssertEqual(trashedAfter, trashedBefore, "\(path): no Trash entry")
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a card.\n", path)
+        }
+    }
+
+    /// `.notSaved` is not swallowed: the Rewrite throws, the note is
+    /// byte-identical, nothing goes to the Trash, and the writer is told.
+    func test_aRewriteWhoseVersionCannotBeKeptSaysTheNoteIsUnchanged() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("An afternoon of my own prose.\n", into: note, in: root)
+        let versionsDir = root.appendingPathComponent(".maugham/research-versions")
+        try FileManager.default.createDirectory(at: versionsDir, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: versionsDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: versionsDir.path) }
+        let heard = listen()
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        do {
+            _ = try await performer.perform(
+                plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+            XCTFail("a Rewrite the door refused must say so")
+        } catch PromotionFailure.noteNotSaved(let title) {
+            XCTAssertEqual(title, "The falls at night")
+        }
+        XCTAssertEqual(try body(of: note, in: root), "An afternoon of my own prose.\n")
+        let trashed = try await store.trashStore.list()
+        XCTAssertTrue(trashed.isEmpty, "no Trash entry either")
+        XCTAssertTrue(heard.notices.contains { $0.contains("previous version couldn’t be kept") }, "\(heard.notices)")
+    }
+
+    func test_aLinePromotionKeepsTheNotesTextAsAVersion() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("My own words.\n", into: note, in: root)
+
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[October's doctor]]"))
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "My own words.\n")
+    }
+
+    func test_anAcceptedOfferKeepsEachMembersNoteAsAVersion() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try writersOwnWords("My own words.\n", into: note, in: root)
+        var p = plan(.region(r1), .paletteCard, store: store, model: model)
+        p.linksAccepted = true
+
+        _ = try await PromotionPerformer(store: store, model: model).perform(p)
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[Act II fog]]"))
+        XCTAssertEqual(try newestVersionText(of: note, in: root), "My own words.\n")
+    }
+
+    /// The editor's own save of `text`, flushed: the store knows the bytes
+    /// and the writer's typing run is under way.
+    private func typed(_ text: String, into item: ResearchItem, _ store: ProjectStore) async throws {
+        let ds = try XCTUnwrap(store.documentStore)
+        ds.researchNoteDoor.saveDelay = .seconds(3600)
+        ds.scheduleNoteSave(itemId: item.id, text: text)
+        try await ds.flushPendingSave()
+    }
+
+    private func versionTexts(of item: ResearchItem, in root: URL) throws -> [String] {
+        let versions = ResearchVersionStore(projectURL: root)
+        return try versions.versions(itemId: item.id).map {
+            String(decoding: try versions.read($0).0, as: UTF8.self)
+        }
+    }
+
+    /// Fix round 1: a direct write keeps what it replaces even inside the
+    /// writer's typing run.
+    func test_aRewriteInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        let performer = PromotionPerformer(store: store, model: model)
+        _ = try await performer.perform(plan(.scrap(a), .researchNote, store: store, model: model))
+        let note = try item("The falls at night", in: store)
+        try await typed("Typed in the research pane.\n", into: note, store)
+
+        model.setScrapText("The falls at night\n\nRewritten on the canvas.", for: a)
+        let existing = try XCTUnwrap(Promotion.existingArtifact(
+            for: .scrap(a), target: .researchNote, in: model.scene, artifacts: index(store)))
+        _ = try await performer.perform(
+            plan(.scrap(a), .researchNote, store: store, model: model, mode: existing))
+
+        XCTAssertTrue(try versionTexts(of: note, in: root).contains("Typed in the research pane.\n"))
+    }
+
+    func test_aLinePromotionInsideTheWritersTypingRunStillKeepsWhatItReplaces() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        try await promoteBothScraps(store, model)
+        let note = try item("The falls at night", in: store)
+        try await typed("Typed in the research pane.\n", into: note, store)
+
+        _ = try await PromotionPerformer(store: store, model: model)
+            .perform(plan(.line(l1), .wikiLink, store: store, model: model))
+
+        XCTAssertTrue(try body(of: note, in: root).contains("[[October's doctor]]"))
+        XCTAssertTrue(try versionTexts(of: note, in: root).contains("Typed in the research pane.\n"))
     }
 
     func test_updatingAnArtifactThatHasSinceBeenDeletedRefusesRatherThanCreating() async throws {
@@ -1570,5 +1942,35 @@ final class PromotionPerformerTests: XCTestCase {
             XCTFail("expected a refusal")
         } catch PromotionFailure.linkAlreadyPresent {}
         _ = root
+    }
+
+    /// **A line's link is never written outside a research root** (note
+    /// versions plan 2, whole-branch C2): a synced manifest can list a
+    /// `.document` Research item whose path is the manuscript or a `.maugham/`
+    /// file, and `write(_:over:at:)`'s fallback used to raw-write anything
+    /// the note door did not take. It now refuses, and the file is as it was.
+    func test_aLinkIntoATextItemOutsideAResearchRootIsRefused_andNothingIsWritten() async throws {
+        let (root, store) = try await makeProject()
+        let model = makeModel(at: root)
+        for (n, path) in ["manuscript/stray.md", ".maugham/stray.md"].enumerated() {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a note.\n".utf8).write(to: url)
+            let stray = ResearchItem(id: "res-prom000\(n)", title: "Stray", type: .asset,
+                                     kind: .document, path: path)
+            store.manifest.research.append(stray)
+            let linkPlan = PromotionPlan(
+                source: .line(l1), producedKind: .wikiLink, title: "T", body: "[[X]]",
+                destinationDescription: "the note “Stray”", discards: [], offeredLinks: [],
+                wikiLinkWrite: WikiLinkWrite(intoNode: a, intoItemID: stray.id,
+                                             targetTitle: "X", linkText: "[[X]]"),
+                mode: .new, paletteKind: .other, contributors: [], linkAlreadyPresent: false, pictures: [])
+            do {
+                _ = try await PromotionPerformer(store: store, model: model).perform(linkPlan)
+                XCTFail("\(path): expected a refusal")
+            } catch PromotionFailure.artifactIsADifferentKind {}
+            XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "Not a note.\n", path)
+        }
     }
 }

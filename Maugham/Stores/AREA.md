@@ -1,6 +1,6 @@
 # Stores — area guide
 
-The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` (the manifest: structure, research, statements, cast, trash and every binder verb); `DocumentStore` (the folder's file presenter, the registry of open `Document`s, the typed user-content mover, admission and the posture door); the inbox and its transcription; the small stores; and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
+The persistence and coordination layer: the project session that owns an open project's stores; `ProjectStore` and `DocumentStore`; the inbox and its transcription; the small stores; and the `.maugham/` layout. The one rule from CLAUDE.md: **move or delete user content only through `DocumentStore`'s typed mover (tripwire 14).** The area carries tripwires 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53 and 58. The why behind every rule below, and its history, is in `docs/history/stores.md`.
 
 ## Map
 
@@ -13,7 +13,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DocumentStore.swift` — the project-folder coordinator: the `NSFilePresenter` callbacks (`presenterDidChangeSubitem`), the `Document` registry, manifest IO and adoption hand-off, sessions and UI state, the typed mover (`relocate(plan:)`, `relocateUserContent`, `trash`), `coordinatedMove`/`coordinatedWrite`, `admit`, `invalidateTrust`, `reReadAfterExternalChange`. Tripwires 14, 40, 49, 50.
 - `DocumentStore+Registry.swift` — `revoke(person:)`, `retire(device:)`, `claim(adopting:)`, `forgetPersonKey(person:)`, `settle`, `heldLines()`/`heldLinesByDevice()`, `highestOpIdApplied(fromPerson:)`, the silent-admission queue. Tripwires 41, 53.
 - `DocumentStore+ClosedHeldLines.swift` — held lines in documents nobody has open (`closedProvenance`, `sweepClosedProvenance`).
-- `DocumentStore+Figures.swift`, `DocumentStore+CellTranslations.swift` — figures in a window: `openFigure` (this store is the figure's door), the presenter's figure pass (reload, re-render the figure and its readers), `renderFigures` over `assembledFigures()`, `pinSources(for:)` (what a figure's research pins read), the figure cache's trust drop, a table's cell translations; `withFigureHost` lends a host for one act, closed when the last loan ends unless kept.
+- `DocumentStore+Figures.swift`, `DocumentStore+CellTranslations.swift` — figures in a window: `openFigure`, the presenter's figure pass, `renderFigures` over `assembledFigures()`, `pinSources(for:)`, the figure cache's trust drop, a table's cell translations; `withFigureHost` lends a host for one act, closed when the last loan ends unless kept.
 - `DocumentStore+FigureAnnotations.swift` — `addFigureAnnotation`: a figure note's creation.
 - `DocumentStore+Posture.swift` — the Mac's posture door: `PostureBook`, `posture(forDocId:as:)`, `settledPosture(forDocId:as:)`, `posture(forPath:)`, `translationPosture(forDocId:as:)`/`settledTranslationPosture(forDocId:as:)`, `overrideYield(docId:)`. Tripwires 46, 51.
 - `ProjectFolderPresenter.swift` — the `NSFilePresenter` forwarding callbacks to `DocumentStore`.
@@ -36,9 +36,9 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
 - `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` refuses a parked figure, asks every door first, then relabels the text; `removeFigure` always trashes the record (with its file, a fresh render, or alone), and restoring it re-registers the figure. Tripwire 52.
 - `ProjectStore+FigureTranslations.swift` — a rename's fresh translation records: read and door-checked first, relabelled after the text, all or nothing.
-- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack` (unchanged: resumed; changed: three-way); `sendToResearch` parks one; `retargetFigureLine` repoints a legacy line at its new figure (*Move into Figures*); `pinSourceRead` reads a pin's source. A figure from shared Research is whole-book; a piece's Research makes that piece's.
+- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack`; `sendToResearch` parks one; `retargetFigureLine` repoints a legacy line at its new figure (*Move into Figures*); `pinSourceRead` reads a pin's source. A figure from shared Research is whole-book; a piece's Research makes that piece's.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
-- `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:)`, `healPaletteRolesEagerly`, role healing.
+- `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:itemId:by:typed:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
 - `ProjectStore+Statements.swift` — statements: lookup, `createStatement`, `withStatementDocument`, `mutateStatementText`, `appendToStatement`, `statementText(of:)`, the open registry and gate. Tripwires 20, 52.
 - `ProjectStore+StatementAssets.swift` — a statement's asset well (`addImage(toStatement:scope:…)`).
@@ -66,6 +66,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`) and `ResearchTextRole`, the note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -98,7 +99,8 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
-| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table save's prior bytes and sidecar, write-once, per device |
+| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table, note or card save's prior bytes (a table's with its sidecar), write-once, per device |
+| `.maugham/research-notes/` | `ResearchNoteRecord` (Core) | who wrote each note's or card's text |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
@@ -137,6 +139,7 @@ Two things deliberately live elsewhere:
 - **Test-only `wait*` helpers do not go in production code**: mark them `#if DEBUG` or move them to a test helper. `waitForStructuralVerbs` is production (`readManifest` uses it).
 - **Apply an id prefix once, in the generator** (ADR 0008): `scene-scene-…` or `doc-doc-…` is a bug.
 - **Use `DebounceScheduler` for autosave-like behaviour**; for a different cadence add a configured instance, never ad-hoc debouncing.
+- **An existing Research note's or card's text is written through `saveResearchNote`** (`researchNoteDoorCallers`): path asked per save, one note's saves queued; `flushPendingSave` waits. A writer reading first calls `settleResearchNoteEdits`; asset refs follow manifest saves. the card editor's own save is `saveTypedResearchText`; writers and the typed mover touch nothing outside a research root (`ResearchTextRole`).
 - **Only the owner writes a `.maugham/` path** (the table above). The OpLog area writing `.maugham/ops/` and the checkpoints file is the ownership exception.
 - **A new top-level `.maugham/` directory needs a reason**, and is a lowercase noun, plural for a collection of records.
 - **Read and write cloud-synced manuscript and project files through `NSFileCoordinator`** (`coordinatedMove`/`coordinatedWrite`): iCloud otherwise races you.
@@ -161,7 +164,7 @@ Two things deliberately live elsewhere:
 - **A new mover of user content routes through one of the three entry points.** Raw moves need an `// internal-move:` marker and are allowed only for: `promotePieceToProject`'s staging moves; their inverse in `rollbackPromotionStaging`; the no-`DocumentStore` fallback branches (unit tests, and `ProjectStore.load`). A raw `removeItem` says `// raw-delete: <why>`. Scaffolding, link/manifest and scratch writes and `executeCopy` are out of scope.
 - **The staging rollback stays raw**: the close and flush already ran, and `relocateUserContent` throws and would re-enter a `DocumentStore` the promotion has closed. A compensation must not throw over the error it compensates.
 - **A failed promotion moves its staged files BACK from a record, never a re-derivation**: each staging helper returns its `PromotionStagedMove`, and `rollbackPromotionStaging` walks them in reverse. A failed move-back logs loudly and leaves the staging tree standing; one stranded path does not abort the rest; a tree already gone means the promotion completed. Its test seam, `afterStaging:`, cannot throw.
-- **Palette card writes go through `paletteCoordinatedWrite(_:to:)`**, never a raw `.write(to:)`. The funnel's no-`DocumentStore` fallback is the one raw write, marked `// palette-coordinated-write: <reason>` (`TripwireGrepTests.test_noRawWriteInPaletteStore`).
+- **Palette card writes go through `paletteCoordinatedWrite(_:to:itemId:by:typed:)`**, never a raw `.write(to:)`; its no-`DocumentStore` fallback is the one raw write, marked `// palette-coordinated-write: <reason>` (`TripwireGrepTests.test_noRawWriteInPaletteStore`).
 
 ### Manifest adoption and structural verbs
 - **A manifest another device wrote is adopted, never merged.** `handleManifestChanged` passes the `ManifestEcho` guard, decodes through `decodeGuardingSchema` (a later build's manifest is archived, never adopted), and calls `ProjectStore.adoptExternalManifest`. Last writer wins.
@@ -178,11 +181,12 @@ Two things deliberately live elsewhere:
 - **The editor never binds a closed `Document`**: `EditorHost.needsReload` answers true for an `isClosed` one, so a piece returning at the same path reopens.
 
 ### Word counts and the session
-- **Another person's words never enter this writer's session.** Every re-read of an OPEN piece's op log goes through `DocumentStore.reReadAfterExternalChange`, which moves the baseline by the difference; `excludeForeignWords` moves the baseline and live total together (`SessionTracker.shiftBaseline`).
-- **`register(document:for:)` counts a piece as it opens**, so the first keystroke carries only what it typed; the load-time pass skips a piece that left the structure since it began.
-- **A piece that left drops out of `projectWordCount` at once; one that arrived is counted by `ProjectStore.recountFromOpLogs` off the presenter callback** (one trust table per pass off the main actor, a yield between pieces, open pieces skipped, a removed one never revived).
+- **A keystroke counts no words** (`DeferredWordCountTests`): `recordEditorTextWrite` keeps the burst and starts the session from the cached total; `settleWordCount()` counts it at the trailing edge or before any final read. A new final reader settles first (`TripwireGrepTests.countedLists`).
+- **Another person's words never enter this writer's session**: an open piece re-reads through `DocumentStore.reReadAfterExternalChange`; `excludeForeignWords` moves baseline and live total together.
+- **`register(document:for:)` counts a piece as it opens**; the load-time pass skips a piece that left the structure.
+- **A piece that left drops out of `projectWordCount` at once; one that arrived is counted by `ProjectStore.recountFromOpLogs`** (one trust table per pass off the main actor, open pieces skipped, a removed one never revived).
 - **`invalidateTrust` drops the `DerivedManuscriptCache`** (it keys on op-log mtimes, and a trust change moves no file) and recounts every closed piece.
-- **`ProjectStore.derivedCache` fronts `DerivedManuscript` for CLOSED docs only**, keyed on each op-log file's `(url, mtime, size)`; open docs read the live `Document`. It is `ProjectStore`'s (the weak `documentStore` is not wired during `load`) and `@ObservationIgnored`.
+- **`ProjectStore.derivedCache` fronts `DerivedManuscript` for CLOSED docs only**, keyed on op-log `(url, mtime, size)`; `@ObservationIgnored`.
 - **Project-open word counts are async** (`beginWordCountPopulation`, held as `wordCountPopulationTask`): `projectWordCount` is briefly partial after open. Perf guards assert derive counts, never wall-clock.
 
 ### Project sessions
@@ -259,9 +263,9 @@ Two things deliberately live elsewhere:
 - **A rename moves the document's title AND the composed title of every statement scoped to it** (`ArtifactIndex.statementTitle`); the old title is composed from a closure answering the OLD name.
 - **The renamed document is excluded from the document-title pair only**; the composed pairs still apply to it. A document with no scoped statements is skipped.
 - **Manuscripts and statements receive ops**; statements go through `withStatementDocument`, never a second dance.
-- **A research note gets a coordinated whole-file write behind one `flushPendingSave()`** (a raw write with no `DocumentStore`): without the flush a queued 750 ms note save lands after it with the stale body.
+- **A research note or card is rewritten through the note door** after one `flushPendingSave()` (raw with no `DocumentStore`).
 - **An empty derive is not "nothing to do"**: the manuscript loop falls through to `Document.load`; the statements loop does too when the statement's file has non-zero size (a `stat`, never a read).
-- **Not covered**: an open `ResearchNoteEditor` can write its body back over the rewrite; the renamed document's own composed-title rewrite can be lost to its own path-keyed reload.
+- **Not covered**: the renamed document's own composed-title rewrite can be lost to its own path-keyed reload.
 
 ### Craft intent, palette and role identity
 - **Palette cards and research notes are plain-edited** (no op log, no `¶id`), and absence is valid. Cards are research assets under `research/palette/`, parsed by Core's `PaletteCard`; the typed mover covers them.

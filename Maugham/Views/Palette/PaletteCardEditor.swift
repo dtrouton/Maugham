@@ -19,6 +19,23 @@ import MaughamCore
 /// `baselineTitle` captured at seed (`reconciledTitle`), so the store's current
 /// title wins otherwise; and a narrow title-only `.onChange` on the store item's
 /// title re-syncs the field when the user has no in-editor title edit pending.
+///
+/// **The draft is saved through the note door's pending edit, exactly as a
+/// note's typing is** (`DocumentStore.scheduleNoteSave`): the card's text,
+/// rendered with the card's current title, waits in the door's per-item
+/// `pending` and saves on its debounce, so a writer that settles the card
+/// (`settleResearchNoteEdits`), the door's own flush, ⌘S, the typed mover
+/// and the store's close all save it first. A changed TITLE is a rename and
+/// goes on its own debounce through `ProjectStore.renamePaletteCard`, which
+/// settles the card and writes what is on disk then under the new title.
+///
+/// **Text written behind the editor** (a version restored from the card's
+/// inspector, a canvas Rewrite, an inbox promotion, a rename's link sweep,
+/// Replace) moves the card's reload signal (`researchNoteReloadCount`): with
+/// no edit pending in the door the editor re-seeds from the file, as the note
+/// editor does; a reload that lands during the editor's own rename is
+/// applied when the rename ends. With no window store (a load-only context)
+/// the draft is persisted whole on a debounce (`persistDraft`).
 struct PaletteCardEditor: View {
     let store: ProjectStore
     let cardId: String
@@ -31,6 +48,11 @@ struct PaletteCardEditor: View {
     @State private var thumbnails: [String: NSImage] = [:]
     @State private var saveTask: Task<Void, Never>?
     @State private var saveGeneration = 0
+    /// The editor's own rename (or, with no window store, its whole-draft
+    /// persist) is under way: a reload arriving now is applied when it ends.
+    @State private var saveInFlight = false
+    /// A reload arrived while `saveInFlight`.
+    @State private var reloadMissed = false
     @State private var newSwatchColor: Color = .gray
     @State private var newNoteText = ""
     @State private var isDropTargeted = false
@@ -86,6 +108,11 @@ struct PaletteCardEditor: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: cardId) { seed() }
         .task(id: draft?.imagePaths) { loadThumbnails() }
+        // A write behind the editor: re-seed, schedule nothing. Observes this
+        // card's count only.
+        .onChange(of: Self.reloadCount(cardId, in: store)) { _, _ in
+            reloadWrittenBehind()
+        }
         .onChange(of: store.paletteCardItems().first(where: { $0.id == cardId })?.title) {
             _, newTitle in
             // An external rename (research tree) changed the card's title beneath
@@ -94,7 +121,11 @@ struct PaletteCardEditor: View {
             // synced baseline) — this narrow title-only sync can't clobber body
             // typing (we touch only the title) or a rename the user is typing.
             guard let newTitle, draft != nil, draft?.title == baselineTitle else { return }
-            mutate { $0.with(title: newTitle) }
+            // The rename moved the assets folder and rewrote the refs on disk
+            // (the door flushed any pending edit first): the draft's image
+            // paths follow, or the next save writes the old folder back.
+            let fresh = store.loadPaletteCards().first { $0.researchItemId == cardId }
+            mutate { $0.with(title: newTitle, imagePaths: fresh?.imagePaths) }
             baselineTitle = newTitle
         }
     }
@@ -384,7 +415,7 @@ struct PaletteCardEditor: View {
                     guard let url = await loadFileURL(provider: provider) else { continue }
                     do {
                         mergeImagePaths(
-                            from: try await store.addImage(toPaletteCard: cardId, fileURL: url))
+                            from: try await store.addImage(toPaletteCard: cardId, fileURL: url, typed: true))
                         dropMessage = nil
                     } catch {
                         dropMessage = ImagePasteHandler.failureMessage(for: error)
@@ -415,7 +446,7 @@ struct PaletteCardEditor: View {
     /// always the generic sentence, which is the honest one.
     private func add(_ image: NSImage) async {
         do {
-            mergeImagePaths(from: try await store.addImage(toPaletteCard: cardId, image: image))
+            mergeImagePaths(from: try await store.addImage(toPaletteCard: cardId, image: image, typed: true))
             dropMessage = nil
         } catch {
             dropMessage = ImagePasteHandler.failureMessage(for: error)
@@ -469,9 +500,55 @@ struct PaletteCardEditor: View {
         let card = store.loadPaletteCards().first { $0.researchItemId == cardId }
         draft = card
         baselineTitle = card?.title
+        Self.markRead(cardId, in: store)
         // See `dropMessage`: this view is reused across cards, so a refusal that
         // is not cleared here follows the writer to the next one.
         dropMessage = nil
+    }
+
+    /// **The door wrote this card for someone else.** As the note editor:
+    /// an edit still pending in the door stands (its save keeps what was
+    /// written behind it); otherwise the card is read again. During the
+    /// editor's own rename the reload waits for it to end. A title the
+    /// writer is still typing is kept over the re-seed.
+    private func reloadWrittenBehind() {
+        if let documentStore = store.documentStore,
+           documentStore.researchNoteHasPendingSave(itemId: cardId) { return }
+        guard !saveInFlight else { reloadMissed = true; return }
+        let typingTitle = draft.flatMap { $0.title != baselineTitle ? $0.title : nil }
+        seed()
+        if let typingTitle { mutate { $0.with(title: typingTitle) } }
+    }
+
+    /// The card's text for the door: the draft rendered under the card's
+    /// CURRENT title and in its current folder (a rename is its own act);
+    /// nil when the card is gone.
+    @MainActor
+    static func cardText(_ draft: PaletteCard, in store: ProjectStore) -> String? {
+        guard let item = store.findResearchItem(id: draft.researchItemId, in: store.manifest.research),
+              let path = item.path else { return nil }
+        let card = PaletteCard(
+            researchItemId: draft.researchItemId, title: item.title, kind: draft.kind,
+            swatches: draft.swatches, notes: draft.notes, imagePaths: draft.imagePaths, body: draft.body)
+        return PaletteCardRenderer.render(card, cardDirectory: (path as NSString).deletingLastPathComponent)
+    }
+
+    /// Card `cardId`'s reload count in the note door, 0 with no window store.
+    @MainActor
+    static func reloadCount(_ cardId: String, in store: ProjectStore) -> Int {
+        store.documentStore?.researchNoteReloadCount(itemId: cardId) ?? 0
+    }
+
+    /// The bytes the editor seeded from, told to the door: the writer's next
+    /// typed save is over bytes it has read (the editing run's rule).
+    @MainActor
+    static func markRead(_ cardId: String, in store: ProjectStore) {
+        guard let documentStore = store.documentStore,
+              let path = store.findResearchItem(id: cardId, in: store.manifest.research)?.path,
+              let url = try? store.resolvedProjectPath(path),
+              let bytes = try? Data(contentsOf: url) // adr-0018-ok: a palette card's bytes, told to the note door; not manuscript
+        else { return }
+        documentStore.researchNoteWasRead(itemId: cardId, bytes: bytes)
     }
 
     private func loadThumbnails() {
@@ -487,10 +564,69 @@ struct PaletteCardEditor: View {
     }
 
     private func scheduleSave() {
+        guard let snapshot = draft else { return }
+        if let documentStore = store.documentStore {
+            // The writer's typing, through the door's pending edit.
+            if let text = Self.cardText(snapshot, in: store) {
+                documentStore.scheduleNoteSave(itemId: cardId, text: text)
+            }
+            if snapshot.title != baselineTitle { scheduleRename() }
+            return
+        }
+        scheduleWholeDraft(snapshot)
+    }
+
+    /// A title the writer typed: renamed on its own debounce.
+    /// The card, the typed title and its baseline are captured NOW: a switch
+    /// to another card inside the debounce must not drop this card's rename.
+    private func scheduleRename() {
+        guard let typed = draft?.title else { return }
+        let renaming = cardId
+        let baseline = baselineTitle
         saveTask?.cancel()
         saveGeneration += 1
         let generation = saveGeneration
-        guard let snapshot = draft else { return }
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if Task.isCancelled { return }
+            await rename(renaming, typed: typed, baseline: baseline, generation: generation)
+        }
+    }
+
+    private func rename(_ renaming: String, typed: String, baseline: String?, generation: Int) async {
+        let onDisk = store.paletteCardItems().first { $0.id == renaming }?.title
+        let title = Self.reconciledTitle(draftTitle: typed, baselineTitle: baseline, onDiskTitle: onDisk)
+        saveInFlight = true
+        let renamed: Bool
+        do { try await store.renamePaletteCard(renaming, to: title); renamed = true } catch { renamed = false }
+        saveInFlight = false
+        // The editor may be on another card now: only this card's draft moves.
+        if renamed, renaming == cardId, let fresh = store.loadPaletteCards().first(where: { $0.researchItemId == renaming }) {
+            if generation == saveGeneration {
+                baselineTitle = title
+                mutate { $0.with(title: title, imagePaths: fresh.imagePaths) }
+            } else {
+                // Typed on during the rename: the title stays the writer's,
+                // but the assets folder moved, so the image paths follow
+                // whatever the generation — and an edit the door holds was
+                // rendered from the old folder, so it is scheduled again.
+                if baselineTitle == baseline { baselineTitle = title }
+                mutate { $0.with(imagePaths: fresh.imagePaths) }
+                if let documentStore = store.documentStore,
+                   documentStore.researchNoteHasPendingSave(itemId: renaming),
+                   let draft, let text = Self.cardText(draft, in: store) {
+                    documentStore.scheduleNoteSave(itemId: renaming, text: text)
+                }
+            }
+        }
+        if reloadMissed, renaming == cardId { reloadMissed = false; reloadWrittenBehind() }
+    }
+
+    /// No window store (a load-only context): the whole draft, debounced.
+    private func scheduleWholeDraft(_ snapshot: PaletteCard) {
+        saveTask?.cancel()
+        saveGeneration += 1
+        let generation = saveGeneration
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return }
@@ -499,8 +635,11 @@ struct PaletteCardEditor: View {
     }
 
     private func persist(_ card: PaletteCard, generation: Int) async {
-        guard let newBaseline = await Self.persistDraft(
-            card, baselineTitle: baselineTitle, in: store) else { return }
+        saveInFlight = true
+        let saved = await Self.persistDraft(card, baselineTitle: baselineTitle, in: store)
+        saveInFlight = false
+        defer { if reloadMissed { reloadMissed = false; reloadWrittenBehind() } }
+        guard let newBaseline = saved else { return }
         // Only the LATEST save reconciles local @State. Two persists can overlap:
         // a superseded one, already past its cancellation checkpoint, can resume
         // after `store.updatePaletteCard`'s await and land AFTER a newer save. Gate
@@ -553,6 +692,7 @@ struct PaletteCardEditor: View {
     /// Reconcile `draft`'s title against the store's current title and persist.
     /// Returns the title now in sync with the store (the caller's new baseline),
     /// or nil if the write failed. The testable core of the debounced save.
+    /// The writer's typing: `typed: true`, one version per editing run.
     @MainActor
     static func persistDraft(
         _ draft: PaletteCard, baselineTitle: String?, in store: ProjectStore
@@ -561,7 +701,7 @@ struct PaletteCardEditor: View {
             .first { $0.id == draft.researchItemId }?.title
         let title = reconciledTitle(
             draftTitle: draft.title, baselineTitle: baselineTitle, onDiskTitle: onDiskTitle)
-        do { try await store.updatePaletteCard(draft.with(title: title)) }
+        do { try await store.updatePaletteCard(draft.with(title: title), typed: true) }
         catch { return nil }
         return title
     }

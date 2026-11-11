@@ -216,6 +216,38 @@ final class ProjectStorePaletteTests: XCTestCase {
         await ds.close()
     }
 
+    // MARK: - Only inside a research root (wave 2 D)
+
+    /// **A palette card is written only inside a research root.** The group
+    /// is found by role, so a synced manifest can file a card at the
+    /// manuscript or under `.maugham/`. Every palette writer refuses it —
+    /// the card's text, an image copied beside it — and the file is as it was.
+    func test_aCardOutsideAResearchRootIsNeverWritten() async throws {
+        let (url, store, ds) = try await makeNovel()
+        let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        let png = temp.url.appendingPathComponent("swatch.png")
+        try makePNGData(width: 4, height: 4).write(to: png)
+        for path in ["manuscript/stray.md", ".maugham/ops/stray.md"] {
+            let fileURL = url.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("Not a card.\n".utf8).write(to: fileURL)
+            store.mutateResearchItem(id: item.id) { $0.path = path }
+            let card = PaletteCard(researchItemId: item.id, title: "The Flat", kind: .location,
+                                   swatches: ["#112233"], notes: [], imagePaths: [], body: "Over it.")
+
+            do { try await store.updatePaletteCard(card); XCTFail("\(path): expected a refusal") }
+            catch ProjectStoreError.outsideResearch {}
+            do { _ = try await store.addImage(toPaletteCard: item.id, fileURL: png); XCTFail("\(path): expected a refusal") }
+            catch ProjectStoreError.outsideResearch {}
+
+            XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "Not a card.\n", path)
+            let assets = fileURL.deletingLastPathComponent().appendingPathComponent("stray_assets")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: assets.path), "\(path): nothing copied beside it")
+        }
+        await ds.close()
+    }
+
     // MARK: - Role-first identity (rename survival + lazy healing)
 
     func test_paletteGroup_survivesRename_andStampsLegacy() async throws {

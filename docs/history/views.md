@@ -229,3 +229,8 @@ The rationale clauses of "The subject and the tree", "Tree furniture" and "Resea
 Clauses cut from `Maugham/Views/AREA.md` to make room: `CentreColumn` also carries `CanvasReadOnlyNotice` in a top `.safeAreaInset` over a refused layout file; the people-and-devices queue sends nothing up once an admission has overtaken it (`awaitingSettlement`) or while a sheet is closing (`isClosing`); event scopes are `.keyWindow` for menu commands, `.project(id:)` for data events, `.allWindows` for fan-out, never an `isKeyWindow` guard in a receiver; a test pins a press's decision as a pure value and asserts only that the control is drawn; the study column dismisses on ✕/Escape, document, subject, or a pane change without a persona change.
 
 Also cut from the Views guide in the same pass: the Report section's re-initialise note; the part-restore sheet names refusals; the ZStack layer-count tests (`PublishPreviewCentreTests`); the translation-round exception to `subjectShowsAltitude`; `ProjectAltitudeCentreTests` counts the host's lifetimes; `CanvasClaudeArrivalModifier.show` does not record the departing segment (a look is not a choice) while `ManuscriptNavigation.go` does; `DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`.
+
+
+## Trimmed from the guide during note versions plan 2 Task 3 (2026-11-10)
+
+Clauses cut from `Maugham/Views/AREA.md` to make room for `ResearchNoteEditor`'s door, reload and share-lock line: `FigureInspector` is a figure subject's inspector in every persona, drawn under the grid in Plan; `RewindEntryPointsTests` pins that both rewind entry points reach one modal.

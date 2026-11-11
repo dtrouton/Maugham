@@ -256,6 +256,59 @@ final class ResearchTableToolsTests: XCTestCase {
         XCTAssertEqual(try bytes(of: item), original, "nothing was written")
         XCTAssertTrue(versions(of: item).isEmpty, "nothing was kept")
     }
+    /// **A table outside a research root takes no cells** (wave 2 D): a
+    /// synced manifest can list a `.table` Research item whose path is the
+    /// manuscript or Maugham's own files. `write_research_cells` refuses it
+    /// before a host is opened: the file is as it was and no version is kept.
+    func test_aTableOutsideAResearchRootIsRefused_andNothingIsWritten() async throws {
+        let book = try await openBook()
+        for (n, path) in ["manuscript/a.md", ".maugham/ops/stray.csv"].enumerated() {
+            let url = file(path)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data("Item,Amount\nRent,10\n".utf8).write(to: url)
+            }
+            let item = ResearchItem(id: "res-stray00\(n)", title: "Stray \(n)", type: .asset,
+                                    kind: .table, path: path)
+            book.store.manifest.research.append(item)
+            let before = try Data(contentsOf: url)
+            let message = await refusal { try await self.write(book, item, #""cells":[{"a1":"A1","value":"1"}]"#) }
+            XCTAssertTrue(message.contains("not a Research table inside Research"), message)
+            XCTAssertEqual(try Data(contentsOf: url), before, "\(path) is untouched")
+            XCTAssertTrue(versions(of: item).isEmpty, "\(path): no version kept")
+            XCTAssertNil(book.ds.researchTables[item.id], "\(path): no host was opened")
+        }
+    }
+
+    /// The control: a piece's own Research (`pieces/<NN>-<slug>/research/…`)
+    /// is a research root, and its table takes cells.
+    func test_aPieceScopedTableTakesCells() async throws {
+        let url = try await ProjectFactory.createCollectionProject(named: "Anthology", in: projectURL)
+        let store = try await ProjectStore.load(from: url)
+        let piece = try await store.addLoosePiece(title: "Story A", format: .markdown)
+        let ds = try await DocumentStore.open(url: url)
+        stores.append(ds)
+        store.documentStore = ds
+        ds.projectStore = store
+        let registry = ProjectRegistry()
+        registry.register(url: url, store: store)
+        let book = Book(ds: ds, store: store, registry: registry, id: ProjectIdentifier.id(for: url))
+        let csv = TestTemp.root.appendingPathComponent("piece-\(UUID().uuidString).csv")
+        try Data("Item,Amount\nRent,10\n".utf8).write(to: csv)
+        let item = try await store.createResearchAsset(scope: .document(piece.id), fromURL: csv)
+        let path = try XCTUnwrap(item.path)
+        XCTAssertTrue(path.hasPrefix("pieces/") && path.contains("/research/") && item.kind == .table,
+                      "premise: \(path)")
+
+        try await write(book, item, #""cells":[{"a1":"B2","value":"12"}]"#)
+        XCTAssertEqual(TableCSV.rows(String(decoding: try Data(contentsOf: url.appendingPathComponent(path)),
+                                            as: UTF8.self)).rows,
+                       [["Item", "Amount"], ["Rent", "12"]])
+        XCTAssertEqual(ResearchVersionStore(projectURL: url).versions(itemId: item.id).count, 1,
+                       "the write kept the version before it")
+    }
+
     // MARK: - create_research_table / read_research_table
 
     private func create(_ book: Book, _ rest: String) async throws -> CreateResearchTableTool.Result {

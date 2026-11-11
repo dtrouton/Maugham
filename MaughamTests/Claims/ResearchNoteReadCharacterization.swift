@@ -10,9 +10,10 @@ import XCTest
 /// behind them. **Fixed under RULING-7, 2026-08-09** ("unreadable is never
 /// presented as empty"): the read reports the failure as what it is, and the
 /// editor is not mounted over it. The SECOND half — that a whole-file
-/// replacement of a research note keeps nothing recoverable — is the
-/// research-protection milestone's tier-2 question and is deliberately still
-/// open (`register/MILESTONE-research-protection.md`).
+/// replacement of a research note keeps nothing recoverable — was CLOSED
+/// 2026-11-10 by note versions: the text a note had before a run of typing, and
+/// before every other write, is kept as a version
+/// (claims M5-AN-070 and M5-AN-071; `register/history/MILESTONE-research-protection.md`).
 @MainActor
 final class ResearchNoteReadCharacterization: XCTestCase {
 

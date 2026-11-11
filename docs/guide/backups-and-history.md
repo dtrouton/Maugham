@@ -8,6 +8,8 @@ Three things keep your work safe, and they do different jobs:
 
 A checkpoint helps when you want last Tuesday's version of a chapter back. A backup helps when the project itself is in trouble.
 
+Research notes, tables and palette cards keep earlier versions of their own, which you restore from the inspector's **Versions** section (see [Research](research.md#earlier-versions-of-a-research-note)). Pictures, PDFs and audio are covered by your backups, not by versions.
+
 ## Checkpoints
 
 **⌘S makes a checkpoint and runs your backups.** Maugham names the checkpoint for you from the time, the word count of the whole project, and the document you were in — for example *14:32 — 52,310 words (Chapter 3)*. When you weren't in a document, the part in brackets is left off. Checkpoints always cover the whole project, whichever document you were in.

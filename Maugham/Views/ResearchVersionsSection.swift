@@ -1,7 +1,7 @@
 import SwiftUI
 import MaughamCore
 
-/// **A Research table's kept versions as the inspector lists them** (report
+/// **A Research table's, note's or palette card's kept versions as the inspector lists them** (report
 /// plan 9d Task 6, spec §10.1): newest first, the assistant's marked, with
 /// *Restore previous version* (the newest) and a Restore on each row.
 /// Everything a row says is worked out once here (tripwire 4), from the
@@ -36,13 +36,15 @@ enum ResearchVersionsModel {
 
     /// One row per version, in the order given (newest first); none restores
     /// while there is a `refusal`.
+    /// A version of another kind than `kind` (the item's) is listed, not restorable.
     static func rows(from versions: [ResearchVersion], refusal: FigureGridGate.Reason?,
+                     kind: ResearchVersionPayload = .table,
                      format: (Date) -> String = defaultFormat) -> [Row] {
         versions.map { v in
             Row(id: v.name, version: v, when: format(v.savedAt),
                 mark: v.writtenBy == .assistant ? assistantMark : nil,
                 replacedMark: v.replacedBy == .assistant ? beforeAssistantMark : nil,
-                canRestore: refusal == nil)
+                canRestore: refusal == nil && v.payload == kind)
         }
     }
 
@@ -58,6 +60,24 @@ enum ResearchVersionsModel {
         rows.first(where: \.canRestore)
     }
 
+    /// What the Versions section lists for `item`: a table's, or a note's or
+    /// palette card's (both text, kept by the note door), kept versions; nil
+    /// for anything else (no section).
+    static func kind(for item: ResearchItem, structure: [StructureItem]) -> ResearchVersionPayload? {
+        if item.kind == .table, item.type == .asset { return .table }
+        if ResearchNoteDoor.takes(item, structure: structure) { return .note }
+        return nil
+    }
+
+    /// What a refusal calls `item`: "table", "card" or "note".
+    static func noun(for item: ResearchItem, structure: [StructureItem]) -> String {
+        if item.kind == .table { return "table" }
+        if case .paletteCard = ResearchTextRole.of(item, structure: structure) { return "card" }
+        return "note"
+    }
+
+    static let restored = "Restored."
+
     static func defaultFormat(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .shortened)
     }
@@ -65,7 +85,7 @@ enum ResearchVersionsModel {
     /// What a restore says when it landed.
     static func sentence(for outcome: ResearchTableHost.Restored) -> String {
         switch outcome {
-        case .whole: return "Restored."
+        case .whole: return restored
         case .cellsOnly: return "Restored the cells; that version’s formats and widths couldn’t be restored."
         }
     }
@@ -82,6 +102,10 @@ struct ResearchVersionsSection: View {
     let store: DocumentStore
     let itemId: String
     let shareIsReadOnly: Bool
+    /// Which kind of item this is (`ResearchVersionsModel.kind(for:)`).
+    var kind: ResearchVersionPayload = .table
+    /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
+    var noun: String = "table"
     /// The persona reads Research without changing it (Review).
     var reviewing: Bool = false
 
@@ -102,7 +126,7 @@ struct ResearchVersionsSection: View {
                 .disabled(ResearchVersionsModel.previous(in: rows ?? []) == nil || isRestoring)
             }
             if let refusal {
-                Text(refusal.sentence).font(.caption).foregroundStyle(.secondary)
+                Text(refusal.sentence(noun: noun)).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let empty = ResearchVersionsModel.emptyLine(for: rows) {
@@ -132,7 +156,7 @@ struct ResearchVersionsSection: View {
         .task(id: Reload(revision: store.researchVersionsRevision, refusal: refusal)) {
             let versions = await ResearchVersionsModel.load(projectURL: store.projectURL, itemId: itemId)
             guard !Task.isCancelled else { return }
-            rows = ResearchVersionsModel.rows(from: versions, refusal: refusal)
+            rows = ResearchVersionsModel.rows(from: versions, refusal: refusal, kind: kind)
         }
     }
 
@@ -148,9 +172,16 @@ struct ResearchVersionsSection: View {
         Task { @MainActor in
             defer { isRestoring = false }
             do {
-                let outcome = try await store.restoreResearchTable(
-                    itemId: itemId, to: row.version, shareIsReadOnly: shareIsReadOnly)
-                message = ResearchVersionsModel.sentence(for: outcome)
+                switch kind {
+                case .table:
+                    let outcome = try await store.restoreResearchTable(
+                        itemId: itemId, to: row.version, shareIsReadOnly: shareIsReadOnly)
+                    message = ResearchVersionsModel.sentence(for: outcome)
+                case .note:
+                    try await store.restoreResearchNote(
+                        itemId: itemId, to: row.version, shareIsReadOnly: shareIsReadOnly)
+                    message = ResearchVersionsModel.restored
+                }
             } catch {
                 message = "Couldn’t restore that version: \(error.localizedDescription)"
             }

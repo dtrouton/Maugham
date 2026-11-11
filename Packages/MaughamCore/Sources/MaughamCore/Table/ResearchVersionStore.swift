@@ -8,11 +8,21 @@ public enum ResearchWriter: String, Codable, Equatable, Sendable {
     case assistant
 }
 
-/// **One kept version of a Research table**, found on disk by
+/// **What a kept version holds**: a Research table's CSV bytes or a Research
+/// note's text. The raw value is the payload file's extension, so a version
+/// found on disk names its own kind; every table version written before notes
+/// kept versions is `.csv`.
+public enum ResearchVersionPayload: String, Sendable, CaseIterable {
+    case table = "csv"
+    case note = "note"
+}
+
+/// **One kept version of a Research table or note**, found on disk by
 /// `ResearchVersionStore.versions(itemId:)`: the bytes a save replaced.
 ///
 /// - `name` is the version's file stem, `<stamp>-<deviceSlug>[-n]`; its
-///   `.csv` holds the prior bytes exactly and its `.json` the meta.
+///   payload file (`.csv` for a table, `.note` for a note) holds the prior
+///   bytes exactly and its `.json` the meta.
 /// - `savedAt` is when those bytes were superseded: the meta's, or the
 ///   stamp's (to the second) when the meta's date doesn't read.
 /// - `writtenBy` is whose bytes they were, nil when no one said (a sidecar
@@ -25,14 +35,16 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
     public let savedAt: Date
     public let writtenBy: ResearchWriter?
     public let replacedBy: ResearchWriter?
+    public let payload: ResearchVersionPayload
 
     public init(itemId: String, name: String, savedAt: Date, writtenBy: ResearchWriter?,
-                replacedBy: ResearchWriter? = nil) {
+                replacedBy: ResearchWriter? = nil, payload: ResearchVersionPayload = .table) {
         self.itemId = itemId
         self.name = name
         self.savedAt = savedAt
         self.writtenBy = writtenBy
         self.replacedBy = replacedBy
+        self.payload = payload
     }
 
     /// True when `device` kept this version: its name is the stamp, then
@@ -42,11 +54,12 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
     }
 }
 
-/// **Every save of a Research table keeps the previous version** (spec
-/// §10.1, report plan 9d Task 1): the bytes on disk before the save, exactly
-/// (BOM and encoding kept), and the sidecar that described them, at
-/// `.maugham/research-versions/<itemId>/<stamp>-<deviceSlug>[-n].csv` plus
-/// `.json`.
+/// **Every save of a Research table or note keeps the previous version**
+/// (spec §10.1, report plan 9d Task 1; note versions plan 2): the bytes on
+/// disk before the save, exactly (BOM and encoding kept), and for a table
+/// the sidecar that described them, at
+/// `.maugham/research-versions/<itemId>/<stamp>-<deviceSlug>[-n].csv` (a
+/// note's: `.note`) plus `.json`.
 ///
 /// - **Write-once, per device** (tripwire 17): the writing device's slug is in
 ///   every name (tripwire 24 — a `DeviceSlug`, never a hand-built string), so
@@ -64,8 +77,8 @@ public struct ResearchVersion: Equatable, Hashable, Sendable {
 /// - **Versions follow the item id**: the caller keeps them while the item is
 ///   in the Trash (it counts as live for `sweepOrphans`).
 ///
-/// Shared by both apps (tripwire 19); the Mac's `ResearchTableHost` is the one
-/// writer.
+/// Shared by both apps (tripwire 19); the Mac's `ResearchTableHost` (a table)
+/// and `ResearchNoteDoor` (a note) are its writers.
 public struct ResearchVersionStore: Sendable {
 
     public let projectURL: URL
@@ -234,40 +247,42 @@ public struct ResearchVersionStore: Sendable {
 
     /// What `itemId`'s folder holds, skipping dot-named entries by NAME
     /// (`DotfileScan`, whatever the hidden flag — so a staging file and an
-    /// iCloud placeholder `.<name>.csv.icloud` are both skipped): the stems
-    /// with a `.csv`, and the stems with a `.json` and its modification date.
-    /// Empty for an id that cannot name a file or a folder that isn't there.
-    private func contents(itemId: String) -> (csv: Set<String>, json: [String: Date]) {
+    /// iCloud placeholder `.<name>.csv.icloud` are both skipped): each stem
+    /// with a payload file (`.csv` or `.note`) and the payload kinds found for
+    /// it, and the stems with a `.json` and its modification date. Empty for an
+    /// id that cannot name a file or a folder that isn't there.
+    private func contents(itemId: String)
+        -> (payloads: [String: Set<ResearchVersionPayload>], json: [String: Date]) {
         guard let folderURL = try? itemFolderURL(itemId),
               let entries = try? FileManager.default.contentsOfDirectory(
                 at: folderURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [])
-        else { return ([], [:]) }
-        var csv: Set<String> = [], json: [String: Date] = [:]
+        else { return ([:], [:]) }
+        var payloads: [String: Set<ResearchVersionPayload>] = [:], json: [String: Date] = [:]
         for entry in entries where !DotfileScan.isDotfile(entry) {
             let stem = entry.deletingPathExtension().lastPathComponent
-            switch entry.pathExtension {
-            case "csv": csv.insert(stem)
-            case "json":
+            if let payload = ResearchVersionPayload(rawValue: entry.pathExtension) {
+                payloads[stem, default: []].insert(payload)
+            } else if entry.pathExtension == "json" {
                 json[stem] = (try? entry.resourceValues(forKeys: [.contentModificationDateKey])
                     .contentModificationDate) ?? .distantPast
-            default: break
             }
         }
-        return (csv, json)
+        return (payloads, json)
     }
 
     // MARK: - Keeping
 
-    /// **Keeps `priorBytes`** — what was on disk before a save — with
-    /// `priorSidecar`, the sidecar that described them, `writtenBy`, whose
-    /// bytes they were, and `replacedBy`, whose save replaces them, as one new version of `itemId` named for `device` and
-    /// `at`. Written once: the `.json` then the `.csv`, each staged and moved
+    /// **Keeps `priorBytes`** — what was on disk before a save (a table's CSV
+    /// or, with `payload: .note`, a note's text) — with `priorSidecar`, the
+    /// sidecar that described them, `writtenBy`, whose bytes they were, and
+    /// `replacedBy`, whose save replaces them, as one new version of `itemId`
+    /// named for `device` and `at`. Written once: the `.json` then the payload, each staged and moved
     /// into place, under the first free `-n`. Throws for an id that cannot
     /// name a file (`SafeRelativePath.PathError.notADocId`) before anything is
     /// written.
     @discardableResult
     public func keep(priorBytes: Data, priorSidecar: ResearchTableSidecar?, writtenBy: ResearchWriter?,
-                     replacedBy: ResearchWriter? = nil,
+                     replacedBy: ResearchWriter? = nil, payload: ResearchVersionPayload = .table,
                      itemId: String, device: DeviceSlug, at date: Date) throws -> ResearchVersion {
         let fm = FileManager.default
         let folderURL = try itemFolderURL(itemId)
@@ -277,40 +292,40 @@ public struct ResearchVersionStore: Sendable {
         let meta = Meta(savedAt: date, writtenBy: writtenBy, replacedBy: replacedBy,
                         contentHash: ContentHash.of(priorBytes), sidecar: priorSidecar)
         let metaStaging = folderURL.appendingPathComponent(".staging-\(UUID().uuidString).json") // local-path: a staging name minted here
-        let csvStaging = folderURL.appendingPathComponent(".staging-\(UUID().uuidString).csv") // local-path: a staging name minted here
+        let payloadStaging = folderURL.appendingPathComponent(".staging-\(UUID().uuidString).\(payload.rawValue)") // local-path: a staging name minted here
         defer {
             try? fm.removeItem(at: metaStaging)  // raw-delete: derived staging file
-            try? fm.removeItem(at: csvStaging)   // raw-delete: derived staging file
+            try? fm.removeItem(at: payloadStaging)   // raw-delete: derived staging file
         }
         let metaBytes = try Self.encoder().encode(meta)
         // The date as it reads back from disk, so this answer equals the listing's.
         let savedAt = (try? Self.decoder().decode(Meta.self, from: metaBytes))?.savedAt ?? date
         try metaBytes.write(to: metaStaging)
-        try priorBytes.write(to: csvStaging)
+        try priorBytes.write(to: payloadStaging)
 
         let base = Self.baseName(at: date, device: device)
         for n in 1...Self.suffixLimit {
             let name = n == 1 ? base : "\(base)-\(n)"
             let metaURL = try fileURL(name + ".json", itemId: itemId)
-            let csvURL = try fileURL(name + ".csv", itemId: itemId)
-            if fm.fileExists(atPath: metaURL.path) || fm.fileExists(atPath: csvURL.path) { continue }
+            let payloadURL = try fileURL(name + "." + payload.rawValue, itemId: itemId)
+            if fm.fileExists(atPath: metaURL.path) || Self.payloadExists(name, itemId: itemId, under: self) { continue }
             do {
                 try fm.moveItem(at: metaStaging, to: metaURL)
             } catch where fm.fileExists(atPath: metaURL.path) {
                 continue  // taken between the look and the move
             }
             do {
-                try fm.moveItem(at: csvStaging, to: csvURL)
+                try fm.moveItem(at: payloadStaging, to: payloadURL)
             } catch {
                 try? fm.removeItem(at: metaURL)  // raw-delete: derived, the meta this call just placed
-                if fm.fileExists(atPath: csvURL.path) {
+                if fm.fileExists(atPath: payloadURL.path) {
                     try metaBytes.write(to: metaStaging)
                     continue
                 }
                 throw error
             }
             return ResearchVersion(itemId: itemId, name: name, savedAt: savedAt, writtenBy: writtenBy,
-                                   replacedBy: replacedBy)
+                                   replacedBy: replacedBy, payload: payload)
         }
         throw KeepError.noFreeName(base)
     }
@@ -319,22 +334,24 @@ public struct ResearchVersionStore: Sendable {
 
     /// **Every kept version of `itemId`**, every device's, newest first (by
     /// `savedAt`, then stamp, then the `-n` as a number). Derived from the
-    /// folder's listing. A version lists only once BOTH its `.csv` and a
-    /// readable `.json` are here: another device's pair can arrive one file
-    /// at a time, and a `.csv` alone would restore without its formats; a
+    /// folder's listing. A version lists only once exactly one payload (`.csv`
+    /// or `.note`, which is its kind) and a readable `.json` are here:
+    /// another device's pair can arrive one file at a time, and a payload
+    /// alone would restore without its formats; a
     /// meta that reads but whose fields don't is dated by its stamp.
     ///
     /// Another device's version iCloud has not downloaded yet (its files are
     /// `.<name>.icloud` placeholders) is not listed until it arrives; the
     /// listing asks for no download. Empty for an id that cannot name a file.
     public func versions(itemId: String) -> [ResearchVersion] {
-        let (csv, json) = contents(itemId: itemId)
-        return csv.intersection(json.keys).compactMap { name -> (ResearchVersion, ParsedName)? in
-            guard let parsed = Self.parse(name), let stamped = Self.stampDate(parsed.stamp),
+        let (payloads, json) = contents(itemId: itemId)
+        return payloads.keys.filter { json[$0] != nil }.compactMap { name -> (ResearchVersion, ParsedName)? in
+            guard let kinds = payloads[name], kinds.count == 1, let payload = kinds.first,
+                  let parsed = Self.parse(name), let stamped = Self.stampDate(parsed.stamp),
                   let meta = try? readMeta(name, itemId: itemId) else { return nil }
             return (ResearchVersion(itemId: itemId, name: name,
                                     savedAt: meta.savedAt ?? stamped, writtenBy: meta.writtenBy,
-                                    replacedBy: meta.replacedBy), parsed)
+                                    replacedBy: meta.replacedBy, payload: payload), parsed)
         }
         .sorted { a, b in
             (a.0.savedAt, a.1.stamp, a.1.suffix, a.0.name) > (b.0.savedAt, b.1.stamp, b.1.suffix, b.0.name)
@@ -343,7 +360,7 @@ public struct ResearchVersionStore: Sendable {
     }
 
     /// **A version's bytes and the sidecar that described them** (nil when
-    /// the table had none). Both files are read through a coordinated read,
+    /// the table had none, always for a note). Both files are read through a coordinated read,
     /// so a file iCloud evicted since the listing is downloaded first. Throws
     /// `ReadError.metaUnreadable` when the `.json` is missing or not JSON —
     /// a restore never silently drops the formats — and whatever the read
@@ -353,7 +370,8 @@ public struct ResearchVersionStore: Sendable {
         do { meta = try readMeta(version.name, itemId: version.itemId) } catch {
             throw ReadError.metaUnreadable(version.name)
         }
-        let bytes = try Self.coordinatedRead(fileURL(version.name + ".csv", itemId: version.itemId))
+        let bytes = try Self.coordinatedRead(
+            fileURL(version.name + "." + version.payload.rawValue, itemId: version.itemId))
         return (bytes, meta.sidecar)
     }
 
@@ -382,11 +400,20 @@ public struct ResearchVersionStore: Sendable {
     /// (`sweepLeftovers`), and the item's folder if that left it empty.
     /// Another device's files are never touched (tripwire 17). A failed
     /// removal is left for the next prune.
-    public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention) {
-        let own = contents(itemId: itemId).csv
+    ///
+    /// `sparing` is the version the caller's keep just wrote: it is never
+    /// removed, and counts as one of the `keep`. Ranking is by stamp, so
+    /// after the clock moved back a keep's own version can rank oldest; a
+    /// keep that reported success must not have its version pruned at once.
+    public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention,
+                      sparing: String? = nil) {
+        let own = contents(itemId: itemId).payloads.keys
             .compactMap { name in Self.parse(name).flatMap { $0.isFrom(device) ? (name, $0) : nil } }
             .sorted { ($0.1.stamp, $0.1.suffix) > ($1.1.stamp, $1.1.suffix) }
-        for (name, _) in own.dropFirst(max(keep, 0)) { remove(name, itemId: itemId) }
+        let spared = sparing.flatMap { name in own.contains(where: { $0.0 == name }) ? name : nil }
+        let others = own.filter { $0.0 != spared }
+        let keepOthers = max(keep - (spared == nil ? 0 : 1), 0)
+        for (name, _) in others.dropFirst(keepOthers) { remove(name, itemId: itemId) }
         sweepLeftovers(itemId: itemId, device: device)
         removeFolderIfEmpty(itemId: itemId)
     }
@@ -396,7 +423,7 @@ public struct ResearchVersionStore: Sendable {
     /// folder whose newest `device` file is older than `minimumAge` (the
     /// Trash's expiry, passed by the caller): a younger one may belong to an
     /// item whose trash entry is still on its way from another device. A
-    /// `.json` whose `.csv` never landed included, and the item's folder once
+    /// `.json` whose payload never landed included, and the item's folder once
     /// nothing is left in it. Another device's files are never touched
     /// (tripwire 17).
     public func sweepOrphans(liveItemIds: Set<String>, device: DeviceSlug,
@@ -423,8 +450,8 @@ public struct ResearchVersionStore: Sendable {
     }
 
     private func removeAll(of itemId: String, device: DeviceSlug) {
-        let (csv, json) = contents(itemId: itemId)
-        for name in csv.union(json.keys) where Self.parse(name)?.isFrom(device) == true {
+        let (payloads, json) = contents(itemId: itemId)
+        for name in Set(payloads.keys).union(json.keys) where Self.parse(name)?.isFrom(device) == true {
             remove(name, itemId: itemId)
         }
         sweepLeftovers(itemId: itemId, device: device)
@@ -448,7 +475,7 @@ public struct ResearchVersionStore: Sendable {
 
     /// **What a crash mid-`keep` left in `itemId`'s folder**, once older than
     /// `staleStagingAge` (never another save's in progress): any `.staging-*`
-    /// file, and `device`'s own `.json` whose `.csv` never landed. Another
+    /// file, and `device`'s own `.json` whose payload never landed. Another
     /// device's lone `.json` is its pair still arriving, and stays.
     func sweepLeftovers(itemId: String, device: DeviceSlug, now: Date = Date()) {
         let fm = FileManager.default
@@ -463,8 +490,8 @@ public struct ResearchVersionStore: Sendable {
                   now.timeIntervalSince(stamp) > Self.staleStagingAge else { continue }
             try? fm.removeItem(at: entry)  // raw-delete: derived, a crashed save's staging file
         }
-        let (csv, json) = contents(itemId: itemId)
-        for (name, modified) in json where !csv.contains(name)
+        let (payloads, json) = contents(itemId: itemId)
+        for (name, modified) in json where payloads[name] == nil
             && now.timeIntervalSince(modified) > Self.staleStagingAge
             && Self.parse(name)?.isFrom(device) == true {
             if let url = try? fileURL(name + ".json", itemId: itemId) {
@@ -479,10 +506,21 @@ public struct ResearchVersionStore: Sendable {
         if let folderURL = try? itemFolderURL(itemId) { _ = rmdir(folderURL.path) }
     }
 
+    /// True when `name` already has a payload file of either kind: a name is
+    /// taken by its stem, whatever the payload.
+    private static func payloadExists(_ name: String, itemId: String, under store: ResearchVersionStore) -> Bool {
+        ResearchVersionPayload.allCases.contains { payload in
+            (try? store.fileURL(name + "." + payload.rawValue, itemId: itemId))
+                .map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        }
+    }
+
     private func remove(_ name: String, itemId: String) {
         let fm = FileManager.default
-        if let url = try? fileURL(name + ".csv", itemId: itemId) {
-            try? fm.removeItem(at: url)  // raw-delete: derived, a kept Research version
+        for payload in ResearchVersionPayload.allCases {
+            if let url = try? fileURL(name + "." + payload.rawValue, itemId: itemId) {
+                try? fm.removeItem(at: url)  // raw-delete: derived, a kept Research version
+            }
         }
         if let url = try? fileURL(name + ".json", itemId: itemId) {
             try? fm.removeItem(at: url)  // raw-delete: derived, a kept Research version's meta

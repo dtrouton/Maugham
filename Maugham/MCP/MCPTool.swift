@@ -43,6 +43,7 @@ public enum MCPToolCatalog {
         FindReferencesTool.self,
         GetSessionStatsTool.self,
         AddNoteTool.self,
+        UpdateNoteTool.self,
         ListResearchTool.self,
         ListDocumentsByTagTool.self,
         ListFiguresTool.self,

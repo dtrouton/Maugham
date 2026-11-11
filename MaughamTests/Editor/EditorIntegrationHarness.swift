@@ -285,8 +285,12 @@ final class RealDocumentHarness {
     let document: Document
     let docId: String
     let projectURL: URL
+    /// Owns the on-disk project: it is removed when this harness goes, not
+    /// when `withRealDocument` returns (a test that autosaves needs the folder).
+    private let tempDir: TempDirectory
 
     fileprivate init(
+        tempDir: TempDirectory,
         harness: EditorIntegrationHarness,
         projectStore: ProjectStore,
         documentStore: DocumentStore,
@@ -294,6 +298,7 @@ final class RealDocumentHarness {
         docId: String,
         projectURL: URL
     ) {
+        self.tempDir = tempDir
         self.harness = harness
         self.projectStore = projectStore
         self.documentStore = documentStore
@@ -316,13 +321,15 @@ extension EditorIntegrationHarness {
     @MainActor
     static func withRealDocument(
         mode: any WritingMode = ProseMode(),
-        initialText: String = ""
+        initialText: String = "",
+        screenplay: Bool = false
     ) async throws -> RealDocumentHarness {
         // Build a real project on disk via ProjectFactory.
         let tempDir = TempDirectory()
-        let projectURL = try await ProjectFactory.createNovelProject(
-            named: "EIH-RD-\(UUID().uuidString.prefix(8))",
-            in: tempDir.url)
+        let rdName = "EIH-RD-\(UUID().uuidString.prefix(8))"
+        let projectURL = screenplay
+            ? try await ProjectFactory.createScreenplayProject(named: rdName, in: tempDir.url)
+            : try await ProjectFactory.createNovelProject(named: rdName, in: tempDir.url)
 
         let projectStore = try await ProjectStore.load(from: projectURL)
         let documentStore = try await DocumentStore.open(url: projectURL)
@@ -377,6 +384,7 @@ extension EditorIntegrationHarness {
             boundText: binding)
 
         return RealDocumentHarness(
+            tempDir: tempDir,
             harness: harness,
             projectStore: projectStore,
             documentStore: documentStore,

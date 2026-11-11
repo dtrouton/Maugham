@@ -130,9 +130,17 @@ struct PaletteCardReadHost: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: cardId) {
+        // Keyed on the card's reload signal too: a version restored or a
+        // promotion written behind it is shown, as the editor shows it.
+        .task(id: ReloadKey(cardId: cardId,
+                            count: PaletteCardEditor.reloadCount(cardId, in: store))) {
             card = store.loadPaletteCards().first { $0.researchItemId == cardId }
         }
+    }
+
+    private struct ReloadKey: Equatable {
+        let cardId: String
+        let count: Int
     }
 
     private func images(of card: PaletteCard) -> [NSImage] {

@@ -174,7 +174,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
         let route = ProjectWindow.researchCentreRoute(
-            id: card.id, in: store.manifest.research)
+            id: card.id, in: store.manifest)
 
         XCTAssertEqual(route, .paletteCard(card.id))
     }
@@ -185,7 +185,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let path = try XCTUnwrap(note.path)
 
         XCTAssertEqual(
-            ProjectWindow.researchCentreRoute(id: note.id, in: store.manifest.research),
+            ProjectWindow.researchCentreRoute(id: note.id, in: store.manifest),
             .note(item: note, path: path))
     }
 
@@ -197,7 +197,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let pdf = try await importPDF(named: "Tide tables", into: store)
 
         XCTAssertEqual(
-            ProjectWindow.researchCentreRoute(id: pdf.id, in: store.manifest.research),
+            ProjectWindow.researchCentreRoute(id: pdf.id, in: store.manifest),
             .preview(pdf))
     }
 
@@ -213,7 +213,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         XCTAssertEqual(table.kind, .table, "fixture precondition")
 
         XCTAssertEqual(
-            ProjectWindow.researchCentreRoute(id: table.id, in: store.manifest.research),
+            ProjectWindow.researchCentreRoute(id: table.id, in: store.manifest),
             .table(item: table, path: try XCTUnwrap(table.path)))
     }
 
@@ -225,10 +225,10 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
         XCTAssertEqual(
             ProjectWindow.researchCentreRoute(id: "no-such-item",
-                                              in: store.manifest.research),
+                                              in: store.manifest),
             .missing)
         XCTAssertEqual(
-            ProjectWindow.researchCentreRoute(id: nil, in: store.manifest.research),
+            ProjectWindow.researchCentreRoute(id: nil, in: store.manifest),
             .missing,
             "and the `.research` segment's own arm passes nil when nothing is "
             + "selected in the old pane")
@@ -254,8 +254,24 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                        "…and is not inside it")
 
         XCTAssertEqual(
-            ProjectWindow.researchCentreRoute(id: note.id, in: store.manifest.research),
+            ProjectWindow.researchCentreRoute(id: note.id, in: store.manifest),
             .note(item: note, path: path))
+    }
+
+    /// **A text item outside a research root is not an editable note**
+    /// (note versions plan 2, whole-branch C2): a synced manifest listing the
+    /// manuscript or a `.maugham/` file as a Research `.document` routes to
+    /// the read-only preview, never to `ResearchNoteEditor` (whose saves go
+    /// through a door that would refuse them).
+    func test_aTextItemOutsideAResearchRootRoutesToThePreview() async throws {
+        let store = try await novel(notes: [], cards: [])
+        for (n, path) in ["manuscript/stray.md", ".maugham/ops/stray.jsonl", "research-old/x.md"].enumerated() {
+            let stray = ResearchItem(id: "res-route00\(n)", title: "Stray", type: .asset,
+                                     kind: .document, path: path)
+            store.manifest.research.append(stray)
+            XCTAssertEqual(ProjectWindow.researchCentreRoute(id: stray.id, in: store.manifest),
+                           .preview(stray), path)
+        }
     }
 
     /// **Both columns derive from the SAME route value** (final-review finding
@@ -284,11 +300,18 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                 + "function is what keeps the two columns from disagreeing about "
                 + "whether an item is a card, a note or a preview")
         }
+        // The note-or-card rule moved to the store layer (note versions
+        // plan 2, Task 2) so the note door asks the same predicate.
         XCTAssertEqual(
-            occurrences(of: "ProjectStore.paletteFolderPath", in: source), 1,
-            "and the palette-path rule is spelled exactly once, inside "
-            + "`researchCentreRoute` — a second copy is the drift with extra "
-            + "steps")
+            occurrences(of: "ProjectStore.paletteFolderPath", in: source), 0,
+            "the palette-path rule is not spelled in the view: "
+            + "`researchCentreRoute` asks `ResearchTextRole.of`")
+        XCTAssertEqual(occurrences(of: "ResearchTextRole.of(", in: source), 1)
+        let predicate = try CanvasSourceCensus.source(at: "Maugham/Stores/ResearchNoteDoor.swift")
+        XCTAssertEqual(
+            occurrences(of: "ProjectStore.paletteFolderPath", in: predicate), 1,
+            "and it is spelled exactly once, inside `ResearchTextRole.of` — a "
+            + "second copy is the drift with extra steps")
     }
 
     // MARK: - The metrics zero themselves (contract 3)

@@ -39,6 +39,7 @@ Read:
 Write:
 
 - Create research notes ("Claude, write me a character sheet for Sarah based on what you see in Chapter 1")
+- Rewrite one of your research notes ("tighten my notes on the harbour"). Claude replaces the note's whole text, and the text it replaced — including anything you typed and had not yet saved — is kept as a version marked **Before the assistant’s change**, so **Versions** in the note's inspector puts it back. If the note is open, the editor shows Claude's text. Claude can rewrite research notes only: never your manuscript, a palette card or a table, and not under a view-only share
 - Link research notes to chapters
 - Unlink as needed
 - Promote a capture-inbox entry into research — unscoped, or scoped to a chapter/piece

@@ -341,4 +341,129 @@ final class ResearchVersionStoreTests: XCTestCase {
                        "another device's versions are its own to remove")
         XCTAssertEqual(store.versions(itemId: untouched).count, 1, "an item not destroyed keeps its versions")
     }
+
+    // MARK: - Note payloads (note versions plan 2, Task 1)
+
+    private func keepNote(_ store: ResearchVersionStore, _ text: String, device: DeviceSlug,
+                          at date: Date, itemId: String? = nil) throws -> ResearchVersion {
+        try store.keep(priorBytes: Data(text.utf8), priorSidecar: nil, writtenBy: .writer,
+                       replacedBy: .assistant, payload: .note,
+                       itemId: itemId ?? item, device: device, at: date)
+    }
+
+    func test_aNoteVersionRoundTripsItsBytesAndListsAsANote() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let text = "# Notes\r\ncaf\u{E9} \u{2014} kept as written\n"
+        let kept = try keepNote(store, text, device: mac, at: t0)
+
+        XCTAssertEqual(kept.payload, .note)
+        XCTAssertEqual(try names(root), ["20270115-080000-mac-a.json", "20270115-080000-mac-a.note"])
+        XCTAssertEqual(store.versions(itemId: item), [kept])
+        XCTAssertEqual(store.versions(itemId: item).first?.payload, .note)
+        XCTAssertEqual(store.versions(itemId: item).first?.replacedBy, .assistant)
+        let (bytes, sidecar) = try store.read(kept)
+        XCTAssertEqual(String(decoding: bytes, as: UTF8.self), text)
+        XCTAssertNil(sidecar)
+    }
+
+    func test_aTableVersionWrittenBeforeThisChangeStillListsAsATable() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let dir = folder(root)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("a,b\n1,2\n".utf8).write(to: dir.appendingPathComponent("20270115-080000-mac-a.csv"))
+        try Data(#"{"saved_at":"2027-01-15T08:00:00.000Z","written_by":"writer","content_hash":"x"}"#.utf8)
+            .write(to: dir.appendingPathComponent("20270115-080000-mac-a.json"))
+
+        let listed = store.versions(itemId: item)
+        XCTAssertEqual(listed.map(\.payload), [.table])
+        XCTAssertEqual(listed.first?.writtenBy, .writer)
+        XCTAssertEqual(String(decoding: try store.read(listed[0]).0, as: UTF8.self), "a,b\n1,2\n")
+        XCTAssertEqual(try names(root), ["20270115-080000-mac-a.csv", "20270115-080000-mac-a.json"],
+                       "listing and reading change nothing on disk")
+    }
+
+    func test_pruneCountsBothPayloadsTogether_andTouchesOnlyItsOwnDevice() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        _ = try store.keep(priorBytes: Data("t1".utf8), priorSidecar: nil, writtenBy: nil,
+                           itemId: item, device: mac, at: t0)
+        _ = try keepNote(store, "n2", device: mac, at: t0.addingTimeInterval(10))
+        _ = try store.keep(priorBytes: Data("t3".utf8), priorSidecar: nil, writtenBy: nil,
+                           itemId: item, device: mac, at: t0.addingTimeInterval(20))
+        _ = try keepNote(store, "n4", device: mac, at: t0.addingTimeInterval(30))
+        let theirs = try keepNote(store, "theirs", device: other, at: t0)
+
+        store.prune(itemId: item, device: mac, keep: 2)
+
+        let mine = store.versions(itemId: item).filter { $0.isKept(by: mac) }
+        XCTAssertEqual(mine.map(\.payload), [.note, .table], "the newest two, whatever their payload")
+        XCTAssertEqual(try store.read(mine[0]).0, Data("n4".utf8))
+        XCTAssertEqual(try store.read(mine[1]).0, Data("t3".utf8))
+        XCTAssertTrue(store.versions(itemId: item).contains(theirs), "the other device's version stays")
+        XCTAssertEqual(try names(root).count, 6, "no payload or meta left behind by the removals")
+    }
+
+    /// A keep made after the clock moved back ranks oldest by stamp; pruning
+    /// with it spared removes an older-ranked one instead, never the version
+    /// the keep just wrote (and reported as kept).
+    func test_pruneNeverRemovesTheVersionItsKeepJustWrote() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        for i in 0..<3 { _ = try keepNote(store, "later \(i)", device: mac, at: t0.addingTimeInterval(Double(100 + i))) }
+        let justKept = try keepNote(store, "the clock moved back", device: mac, at: t0)
+
+        store.prune(itemId: item, device: mac, keep: 3, sparing: justKept.name)
+
+        let mine = store.versions(itemId: item).filter { $0.isKept(by: mac) }
+        XCTAssertEqual(mine.count, 3, "still the retention")
+        XCTAssertTrue(mine.contains(justKept), "the version this keep wrote survives its own prune")
+        XCTAssertEqual(try mine.map { String(decoding: try store.read($0).0, as: UTF8.self) }.sorted(),
+                       ["later 1", "later 2", "the clock moved back"], "the oldest-ranked other went instead")
+
+        // Control: unspared, the stamp ranking alone removes it.
+        let again = try keepNote(store, "back again", device: mac, at: t0.addingTimeInterval(-10))
+        store.prune(itemId: item, device: mac, keep: 3)
+        XCTAssertFalse(store.versions(itemId: item).contains(again))
+    }
+
+    func test_aPayloadWithoutItsMetaIsNotListed_forEitherKind() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let dir = folder(root)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: dir.appendingPathComponent("20270115-080000-mac-b.csv"))
+        try Data("b".utf8).write(to: dir.appendingPathComponent("20270115-080001-mac-b.note"))
+        XCTAssertEqual(store.versions(itemId: item), [])
+
+        let kept = try keepNote(store, "real", device: mac, at: t0)
+        XCTAssertEqual(store.versions(itemId: item), [kept])
+    }
+
+    func test_sweepOrphansAndRemoveVersionsTakeNotePayloadsToo() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let gone = "res-gone0000", destroyed = "res-dest0000"
+        let first = try keepNote(store, "x", device: mac, at: t0, itemId: gone)
+        _ = try keepNote(store, "y", device: mac, at: t0, itemId: destroyed)
+
+        store.sweepOrphans(liveItemIds: [destroyed], device: mac, minimumAge: trashExpiry, now: monthsLater)
+        XCTAssertEqual(store.versions(itemId: gone), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, gone).path), "no .note left, folder gone")
+        XCTAssertEqual(first.payload, .note)
+
+        store.removeVersions(ofItems: [destroyed], device: mac)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder(root, destroyed).path))
+    }
+
+    func test_aLoneNoteMetaOfThisDeviceIsSweptOnceStale() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let kept = try keepNote(store, "x", device: mac, at: t0)
+        try FileManager.default.removeItem(
+            at: folder(root).appendingPathComponent("\(kept.name).note"))
+        store.sweepLeftovers(itemId: item, device: mac, now: monthsLater)
+        XCTAssertEqual(try names(root), [])
+    }
 }

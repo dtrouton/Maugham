@@ -422,6 +422,10 @@ extension ProjectStore {
             try stagePromotedResearchVersions(
                 staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
 
+            // 4c-3. Their note records (who wrote a note's text), as the sidecars.
+            try stagePromotedResearchNoteRecords(
+                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
             // 4d. The carried figures, re-created as this Mac's author in the
             // staged root, and their pictures copied. Written into the staging
             // tree only, so the rollback's removal of it takes them back.
@@ -715,6 +719,28 @@ extension ProjectStore {
             // on the same terms as the sidecar beside it. (TripwireGrepTests exclusion)
             try FileManager.default.moveItem(at: from, to: to) // internal-move: staging
             moves.append(PromotionStagedMove(original: from, staged: to))
+        }
+    }
+
+    /// Step 4c-3: move each carried note's record (`ResearchNoteRecord`,
+    /// `.maugham/research-notes/<id>.json`) into the staging tree under the
+    /// same name, as the table sidecars beside it: the record names its item
+    /// by id, so a note the assistant wrote is still labelled so in the new
+    /// book. An item with no record moves nothing; each move is recorded as
+    /// it lands so a failure part way undoes it.
+    private func stagePromotedResearchNoteRecords(
+        staging: URL, itemIds: Set<String>, recordingInto moves: inout [PromotionStagedMove]
+    ) throws {
+        for itemId in itemIds.sorted() {
+            let source = try ResearchNoteRecord.fileURL(forItem: itemId, in: url)
+            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            let destination = try ResearchNoteRecord.fileURL(forItem: itemId, in: staging)
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // internal-move: into the promote-to-project `staging/` temp tree,
+            // on the same terms as the sidecars beside it. (TripwireGrepTests exclusion)
+            try FileManager.default.moveItem(at: source, to: destination) // internal-move: staging
+            moves.append(PromotionStagedMove(original: source, staged: destination))
         }
     }
 

@@ -104,6 +104,16 @@ public enum ProjectStoreError: Error, Equatable {
     /// call, so nothing outside the project is read, written, moved or
     /// deleted. Thrown by `resolvedProjectPath(_:)`.
     case unsafeProjectPath(relativePath: String, reason: String)
+    /// A Research item Maugham writes as Research (a palette card) has a
+    /// path inside the project but outside every research root
+    /// (`ResearchTextRole.isInsideAResearchRoot`): a synced manifest naming
+    /// the manuscript or a `.maugham/` file. Refused before any write.
+    case outsideResearch(title: String)
+    /// The note door wrote nothing for this Research text (a palette card's
+    /// save whose earlier version could not be kept, a file that would not
+    /// read, a failed write). The door has already said why in a notice;
+    /// the text on disk is as it was.
+    case researchTextNotSaved(title: String)
     /// The project carries a profile a newer Maugham wrote (`ProjectProfile
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
@@ -161,6 +171,10 @@ extension ProjectStoreError: LocalizedError {
         case .statementPathUnsafe(let relativePath, let reason),
              .unsafeProjectPath(let relativePath, let reason):
             return "“\(relativePath)” isn’t a place inside this project: \(reason)"
+        case .outsideResearch(let title):
+            return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
+        case .researchTextNotSaved(let title):
+            return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         }
@@ -724,6 +738,9 @@ public final class ProjectStore {
                     // count — stays forgotten (F7 second fix round, m3).
                     guard TreeWalk.contains(id: item.id, in: self.manifest.structure),
                           let count = self.derivedWordCount(of: item) else { return true }
+                    // A pending burst is counted before `prior` is read, or
+                    // its words would be shifted out as arrived ones.
+                    self.documentStore?.settleWordCount()
                     let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     // Counting what is already on disk is not the writer
@@ -799,6 +816,7 @@ public final class ProjectStore {
                           self.documentStore?.document(forDocId: item.id) == nil,
                           let count = self.derivedWordCount(of: item, trust: trust)
                     else { return true }
+                    self.documentStore?.settleWordCount()
                     let prior = self.cachedWordCount(for: item.id) ?? 0
                     self.recordWordCount(forDocumentId: item.id, wordCount: count)
                     self.documentStore?.excludeForeignWords(count - prior)

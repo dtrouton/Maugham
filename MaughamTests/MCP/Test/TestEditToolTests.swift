@@ -21,6 +21,8 @@ final class TestEditToolTests: XCTestCase {
         // increased cachedWordCount proves the second half of the editor binding
         // fired. "The cat sat." is 3 prose words.
         let store = try XCTUnwrap(fx.registry.lookup(id: fx.projectId)?.store)
+        // The count lands when the burst settles (typing loop plan 1).
+        store.documentStore?.settleWordCount()
         let words = store.cachedWordCount(for: fx.docId)
         XCTAssertEqual(words, 3, "recordEditorTextWrite bookkeeping did not run (word count not recorded)")
     }

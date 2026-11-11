@@ -623,7 +623,10 @@ extension ProjectStore {
             // Commit through the same path normal typing uses (appends an op).
             resolved.setFullText(rewritten)
 
-            // Refresh per-doc word-count cache since the body changed.
+            // Refresh per-doc word-count cache since the body changed. A
+            // burst pending for this piece holds the text before the rewrite;
+            // settled first, so it cannot land on top of this count later.
+            documentStore?.settleWordCount()
             let count = WritingModeFactory.mode(for: path)
                 .wordCount(rewritten)
             recordWordCount(forDocumentId: doc.id, wordCount: count)
@@ -713,14 +716,24 @@ extension ProjectStore {
         // describe and the file contradicts.
         //
         // A note is NOT op-logged (no `¶id` anchors, no second representation),
-        // so the rewrite is an ordinary coordinated whole-file write rather
-        // than an op. The flush first is what keeps it: a `ResearchNoteEditor`
-        // save queued on the 750 ms debounce would otherwise land after this
-        // write and put the stale body back.
+        // so the rewrite is a whole-file write (the note door's) rather than
+        // an op. The flush first means the bodies read below hold every
+        // queued edit.
         try? await documentStore?.flushPendingSave()
         for item in TreeWalk.collect(in: manifest.research,
                                      where: { $0.kind == .document }) {
             guard let path = item.path else { continue }
+            // Only a note or a palette card inside a research root is
+            // Research text: a synced manifest's `.document` naming the
+            // manuscript or a `.maugham/` file is never read or written here.
+            guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+                projectStoreLog.error(
+                    "Wiki-rename: \(path, privacy: .public) is not inside a research root, skipped")
+                continue
+            }
+            // An edit typed during this loop's earlier awaits is saved before
+            // the read below, which reaches the door with no await between.
+            await documentStore?.settleResearchNoteEdits(itemId: item.id)
             let noteURL: URL
             do { noteURL = try resolvedProjectPathToChange(path) } catch {
                 projectStoreLog.error(
@@ -746,16 +759,23 @@ extension ProjectStore {
             }
             guard let rewritten = WikiLinkRewriter.rewriteAll(
                 body: body, pairs: pairs) else { continue }
-            do {
-                if let ds = documentStore {
-                    try await ds.performFileSave(path: path, text: rewritten)
-                } else {
-                    // No DocumentStore (a load-only context such as a unit
-                    // test): no presenter to coordinate with and no debounced
-                    // save to race. Mirrors `PromotionPerformer.write`.
-                    try rewritten.write(
-                        to: noteURL, atomically: true, encoding: .utf8)
+            // A note or a palette card goes through the note door: what it
+            // held is kept as a version, and an editor open on it reloads
+            // rather than typing over the rewrite. Not saved is this loop's
+            // per-item failure — logged (the door says why), and the sweep
+            // goes on.
+            if let ds = documentStore {
+                if case .notSaved = await ds.saveResearchNote(itemId: item.id, text: rewritten, from: self) {
+                    projectStoreLog.error(
+                        "Wiki-rename: research note \(path, privacy: .public) not saved, skipped")
                 }
+                continue
+            }
+            // No DocumentStore (a load-only context such as a unit test): no
+            // presenter to coordinate with, no debounced save to race and no
+            // door; the raw write keeps nothing. Mirrors `PromotionPerformer.write`.
+            do {
+                try rewritten.write(to: noteURL, atomically: true, encoding: .utf8)
             } catch {
                 projectStoreLog.error(
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")

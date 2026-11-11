@@ -300,3 +300,13 @@ End-to-end-through-the-bridge coverage lives in `MaughamTests/MCP/MCPBinaryInteg
 - **⌘⌥F still does not reach a statement** and that is a stop rather than an omission — see the roadmap's 1A entry for why (`search_text` is unaffected: it filters to `.manuscript`).
 - `get_help`, which serves the bundled `docs/guide/` topic files — the SAME single docs source shown in-app via **Help → Maugham Help** (`HelpWindow`) and rendered on GitHub. `HelpTopicIndex` is the shared loader; edit docs in `docs/guide/`, don't add a second copy.
 - Tools fail loudly on unknown ids.
+
+## Moved from AREA.md (2026-11-10, to pay for `update_note`)
+
+- **The test host and the dev socket.** The app starts an `MCPServer` from the Welcome scene's `.task` on every launch, and `start()`, `stop()` and `willTerminate` each unlink the path, so a gate run used to delete the socket the open dev app was listening on: every later `claude -p` reported `mcp_servers: [{maugham-dev, failed}]` and the writer saw a compiler check that "couldn't be read as notes". `TestHost.mcpSocketPath` is the fix the rule in AREA.md keeps.
+- **Why 900 KB.** The payload is re-escaped as the string value of a `text` block and wrapped in two envelopes, so content around 11–15% literal `"`/`\` at 900 KB can pass 1 MB (compile logs, code or JSON samples). Prose is under 1%.
+
+## Why `update_note` exists (ADR 0034, 2026-11-10)
+
+- Before it, the assistant could only create a note (`add_note`); changing one meant editing the file on disk, unattributed, unversioned, and overwritten by an open editor's next save. The tool goes through the note door as the assistant.
+- The plan 2 whole-branch review proved it could also write any file a Research item's path named (the manuscript render, an op log), because the door confined a path to the project, not to Research. `ResearchTextRole.of` now requires a research root, and the tool asks it for a note directly rather than through the door's P2-dependent `takes`.

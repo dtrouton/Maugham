@@ -300,6 +300,7 @@ final class WikiLinkRenameOpLogTests: XCTestCase {
         let store = try await ProjectStore.load(from: root)
         let ds = try await DocumentStore.open(url: root)
         store.documentStore = ds
+        ds.projectStore = store   // both ways, as ProjectSession.open: the note door finds notes through it
 
         let note = try await store.addResearchTextNote(
             parentId: nil, title: "Fog notes")
