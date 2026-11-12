@@ -310,9 +310,10 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(Deriver.derive(ops: ops + [accept]).paragraphs["k7m3"], applied)
     }
 
-    /// Reopen & Revert reads the newest accept that CARRIES a change (Core's
-    /// `newestAppliedAccept`, the detail view's lookup): after a status-only
-    /// accept it still restores the pre-accept text.
+    /// Reopen & Revert reads the newest accept that CARRIES a change
+    /// (`AnnotationWriter.acceptToRevert`, the detail view's own lookup, and
+    /// `makeRevert`, the write it performs): after a status-only accept it
+    /// still restores the pre-accept text.
     func test_reopenAndRevert_afterAStatusOnlyAccept_restoresTheOriginal() throws {
         let ops = racedOps(original: "Alpha original.", bare: "Alpha SUGGESTED.",
                            applied: "Alpha SUGGESTED.")
@@ -326,14 +327,65 @@ final class AnnotationWriterTests: XCTestCase {
         let accepted = try XCTUnwrap(AnnotationDeriver.derive(
             ops: all, paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
 
-        let acceptOp = try XCTUnwrap(SuggestionSplice.newestAppliedAccept(
+        let acceptOp = try XCTUnwrap(AnnotationWriter.acceptToRevert(
             annotationId: accepted.id, in: all))
         XCTAssertEqual(acceptOp.opId, "01ARACE1MACACCEPT", "the accept that moved the text")
-        let revert = try writer.makeAcceptRevert(
-            for: accepted, acceptOp: acceptOp, currentParagraph: "Alpha SUGGESTED.")
+        let revert = try writer.makeRevert(
+            for: accepted, in: all, currentParagraph: "Alpha SUGGESTED.")
 
         XCTAssertEqual(revert.changes.first?.next, "Alpha original.")
         XCTAssertEqual(Deriver.derive(ops: all + [revert]).paragraphs["k7m3"], "Alpha original.")
+    }
+
+    /// The writer edited elsewhere in the paragraph after the race: the
+    /// replacement still stands where the span resolves, so it is not spliced
+    /// a second time (Core's span-level reading).
+    func test_makeAccept_aSpanWithAnEditElsewhere_isNotSplicedTwice() throws {
+        let original = "The night was dark and cold."
+        let span = SpanAnchorResolver.capture(in: original, range: 14..<18)
+        let ops = racedOps(original: original, bare: "very dark",
+                           applied: "The night was very dark and cold.", span: span)
+        let edited = "The night was very dark and bitter cold."
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(ops: ops, paragraphs: ["k7m3": edited]).first)
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: edited,
+            verifyingAgainst: .init(ops: ops, amendments: .honourEverything))
+
+        XCTAssertEqual(accept.changes, [])
+    }
+
+    /// Reopen & Revert of a suggestion no accept ever spliced (the writer
+    /// typed it): a status-only `claudeAcceptRevert` — the note reopens and
+    /// the writer's words stay, as on the Mac.
+    func test_reopenAndRevert_ofAHandTypedAccept_reopensAndLeavesTheText() throws {
+        let creation = Op(
+            opId: "01ATYPED0CREATION", docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "Alpha original.",
+                                         next: "Alpha SUGGESTED.")],
+            provenance: Op.Provenance(sessionId: "s", annotationBody: "b"))
+        let open = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: [creation], paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+        let writer = makeWriter()
+        let accept = try writer.makeAccept(
+            for: open, currentParagraph: "Alpha SUGGESTED.",
+            verifyingAgainst: .init(ops: [creation], amendments: .honourEverything))
+        XCTAssertEqual(accept.changes, [], "premise: status-only")
+        let ops = [creation, accept]
+        let accepted = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: ops, paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+        XCTAssertEqual(accepted.status, .accepted, "premise")
+        XCTAssertNil(AnnotationWriter.acceptToRevert(annotationId: accepted.id, in: ops))
+
+        let revert = try writer.makeRevert(
+            for: accepted, in: ops, currentParagraph: "Alpha SUGGESTED.")
+
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertEqual(revert.changes, [])
+        XCTAssertEqual(revert.provenance?.sourceAnnotationId, accepted.id)
+        XCTAssertEqual(AnnotationDeriver.derive(
+            ops: ops + [revert], paragraphs: ["k7m3": "Alpha SUGGESTED."]).first?.status, .open)
     }
 
     /// The hand-typed arm: the writer's paragraph already reads as the

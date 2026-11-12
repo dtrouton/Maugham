@@ -132,14 +132,21 @@ public enum SuggestionSplice {
     /// 1. If the note's splice is still in place (`isAppliedInPlace`), the
     ///    accept is status-only, even where the span's quote no longer
     ///    resolves (the splice itself replaced it).
-    /// 2. Otherwise the span is re-resolved as ever (`attempt`); a computed
+    /// 2. If the replacement already stands where the span resolves
+    ///    (`spanAlreadyApplied`) — whatever else changed in the paragraph —
+    ///    the accept is status-only: a suggestion is never applied twice.
+    /// 3. Otherwise the span is re-resolved as ever (`attempt`); a computed
     ///    paragraph equal to the live one (the writer typed the suggestion
     ///    themselves) is status-only too, since there is nothing to write.
     public static func planAccept(
-        annotationId: String, suggestion bare: String, span: SpanAnchor?,
-        paragraph current: String, ops: [Op]
+        annotationId: String, paragraphId: String, suggestion bare: String,
+        span: SpanAnchor?, paragraph current: String, ops: [Op]
     ) -> AcceptPlan {
-        if isAppliedInPlace(annotationId: annotationId, paragraph: current, ops: ops) {
+        if isAppliedInPlace(annotationId: annotationId, paragraphId: paragraphId,
+                            paragraph: current, ops: ops) {
+            return .statusOnly
+        }
+        if let span, spanAlreadyApplied(suggestion: bare, span: span, paragraph: current) {
             return .statusOnly
         }
         switch attempt(suggestion: bare, span: span, to: current) {
@@ -148,36 +155,106 @@ public enum SuggestionSplice {
         }
     }
 
-    /// True iff the newest lifecycle op for this note that carries text is a
-    /// `claudeAccept` whose `next` is the live paragraph — the splice is in
-    /// the manuscript though the status may say otherwise. The inverse of the
-    /// RULING-33 repair's own detection (`Document
-    /// .repairRejectedButSplicedAnnotations`): newest by opId, every op read
-    /// (text folds every op, judged or not, as `Deriver` does).
+    /// True iff the note's splice is in the live paragraph `paragraphId`
+    /// though its status may say otherwise. Either reading suffices:
+    /// - the newest text-carrying LIFECYCLE op for the note is a
+    ///   `claudeAccept` whose `next` is the live paragraph — the RULING-33
+    ///   repair's own detection turned round (newest by opId, every op read,
+    ///   as `Deriver` folds text);
+    /// - the newest accept that carries text (`newestAppliedAccept`) has the
+    ///   live paragraph as its `next` — a restore op, which is not a
+    ///   lifecycle op, put the splice back after a Revert (RULING-57's
+    ///   travel), so the newest lifecycle line is that Revert.
+    /// Exact text, as the repair and `Document.acceptedTextDrifted` compare.
     public static func isAppliedInPlace(
-        annotationId: String, paragraph: String, ops: [Op]
+        annotationId: String, paragraphId: String, paragraph: String, ops: [Op]
     ) -> Bool {
-        guard let newest = ops
-                .filter({ $0.provenance?.sourceAnnotationId == annotationId
-                          && !$0.changes.isEmpty
-                          && AnnotationDeriver.isLifecycleKind($0.kind) })
-                .max(by: { $0.opId < $1.opId }),
-              newest.kind == .claudeAccept,
-              let change = newest.changes.first else { return false }
-        return change.next == paragraph
+        func holds(_ op: Op?) -> Bool {
+            guard let change = op?.changes.first, change.paragraphId == paragraphId else {
+                return false
+            }
+            return change.next == paragraph
+        }
+        let newestLifecycle = ops
+            .filter({ $0.provenance?.sourceAnnotationId == annotationId
+                      && !$0.changes.isEmpty
+                      && AnnotationDeriver.isLifecycleKind($0.kind) })
+            .max(by: { $0.opId < $1.opId })
+        if newestLifecycle?.kind == .claudeAccept, holds(newestLifecycle) { return true }
+        return holds(newestAppliedAccept(annotationId: annotationId, in: ops))
+    }
+
+    /// **The span-level reading: the replacement already stands where the
+    /// anchor resolves.** True iff the quote occurrence the anchor resolves
+    /// to in `paragraph` sits inside an occurrence of the replacement,
+    /// aligned so the quote is where it is inside the replacement ("dark" at
+    /// offset 5 of "very dark" ⇒ "very dark" must start five characters
+    /// before the resolved "dark"). Applying the suggestion there would put
+    /// the replacement inside itself ("very very dark"). Only a replacement
+    /// that contains its own quote can be found this way; one that does not
+    /// is caught by `isAppliedInPlace`, or its anchor is lost.
+    ///
+    /// It never fires for a replacement standing ELSEWHERE in the paragraph:
+    /// "It was dark, very dark." anchored on the first "dark" resolves to the
+    /// first "dark", and "was dark," is not "very dark", so it splices.
+    public static func spanAlreadyApplied(
+        suggestion bare: String, span: SpanAnchor, paragraph: String
+    ) -> Bool {
+        guard !span.quote.isEmpty,
+              let resolved = SpanAnchorResolver.resolve(anchor: span, in: paragraph) else {
+            return false
+        }
+        let p = Array(paragraph), b = Array(bare), q = Array(span.quote)
+        guard b.count >= q.count else { return false }
+        for k in 0...(b.count - q.count) where Array(b[k..<(k + q.count)]) == q {
+            let start = resolved.lowerBound - k
+            guard start >= 0, start + b.count <= p.count else { continue }
+            if Array(p[start..<(start + b.count)]) == b { return true }
+        }
+        return false
+    }
+
+    /// The newest `claudeAccept` for this note, status-only or not (newest by
+    /// opId, so every caller agrees after an out-of-order merge). Its reply is
+    /// the one the note shows; whether it carried text decides what its ⌘Z
+    /// may do.
+    public static func newestAccept(annotationId: String, in ops: [Op]) -> Op? {
+        ops.filter {
+            $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == annotationId
+        }.max(by: { $0.opId < $1.opId })
     }
 
     /// The accept a Revert takes back: the newest `claudeAccept` for this
     /// note that CARRIES a change. A status-only accept (this guard's, or a
     /// rewind's re-accept under RULING-26/57) moved no text, so it has no
     /// pre-accept text to restore; reading it made Revert a silent no-op.
-    /// Used by the Mac's `revertAcceptedAnnotation` and
-    /// `acceptedTextDrifted`, and by the phone's Reopen & Revert.
     public static func newestAppliedAccept(annotationId: String, in ops: [Op]) -> Op? {
         ops.filter {
             $0.kind == .claudeAccept
                 && $0.provenance?.sourceAnnotationId == annotationId
                 && !$0.changes.isEmpty
         }.max(by: { $0.opId < $1.opId })
+    }
+
+    /// What Revert writes on an accepted suggestion, one answer for the Mac
+    /// (`Document.revertAcceptedAnnotation`) and the phone (`AnnotationWriter
+    /// .makeAcceptRevert`).
+    public enum RevertPlan: Equatable, Sendable {
+        /// Restore this accept's pre-accept text (its `changes.first.prior`).
+        case restore(accept: Op)
+        /// No accept for the note ever carried text (the writer typed the
+        /// suggestion themselves, so every accept was status-only): there is
+        /// nothing to restore, and Revert writes a status-only
+        /// `claudeAcceptRevert` — the note reopens, the writer's text stays
+        /// (RULING-29: a resolution is the writer's to reverse from the
+        /// surface that shows it).
+        case reopenOnly
+    }
+
+    public static func revertPlan(annotationId: String, in ops: [Op]) -> RevertPlan {
+        if let accept = newestAppliedAccept(annotationId: annotationId, in: ops) {
+            return .restore(accept: accept)
+        }
+        return .reopenOnly
     }
 }

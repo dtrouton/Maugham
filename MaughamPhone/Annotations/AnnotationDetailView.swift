@@ -563,22 +563,20 @@ struct AnnotationDetailView: View {
 
     private func performRevert() async {
         await runWrite(.reopenAndRevert) { writer in
-            guard let acceptOp = latestAcceptOp else {
-                errorMessage = "Couldn't find the accepted change to revert."
-                throw CancelledWrite()
-            }
             // Gone-paragraph guard: the paragraph this accept applied to no
             // longer exists (deleted on the Mac, say). The drift-confirm
             // silently skips on nil, and a revert here would write a phantom
             // `claudeAcceptRevert` against a nonexistent paragraph — decline
-            // with the existing alert instead.
-            guard currentParagraphText != nil else {
+            // with the existing alert instead. Only where there is text to
+            // restore: with no text-carrying accept (the writer typed the
+            // suggestion) Revert just reopens the note (`makeRevert`).
+            guard latestAcceptOp == nil || currentParagraphText != nil else {
                 errorMessage = "The paragraph this change applied to no longer exists in the manuscript, so it can't be reverted."
                 throw CancelledWrite()
             }
             do {
-                try await writer.revertAccept(
-                    current, acceptOp: acceptOp, currentParagraph: currentParagraphText)
+                try await writer.revert(
+                    current, in: loadedOps, currentParagraph: currentParagraphText)
             } catch AnnotationWriter.WriteError.malformedAcceptRevert {
                 errorMessage = "This accepted change is malformed and can’t be reverted."
                 throw CancelledWrite()
@@ -592,7 +590,7 @@ struct AnnotationDetailView: View {
     /// accept (R-B's guard, or a rewind's re-accept) moved no text and has
     /// nothing to revert to.
     private var latestAcceptOp: Op? {
-        SuggestionSplice.newestAppliedAccept(annotationId: current.id, in: loadedOps)
+        AnnotationWriter.acceptToRevert(annotationId: current.id, in: loadedOps)
     }
 
     /// Live paragraph text for `current`, from the reloaded paragraph map.

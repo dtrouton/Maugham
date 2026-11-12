@@ -191,6 +191,8 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was very dark and cold.",
                        "the suggestion is in the text once")
         XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [])
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
         try await r.doc.revertAcceptedAnnotation(id: r.id)
         XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was dark and cold.",
                        "Revert reaches the original")
@@ -211,6 +213,8 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         XCTAssertEqual(status(r.doc, r.id), .accepted)
         XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [])
         XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was pitch black and cold.")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
         try await r.doc.revertAcceptedAnnotation(id: r.id)
         XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was very dark and cold.")
         await r.doc.close()
@@ -238,12 +242,132 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         await r.doc.close()
     }
 
+    // MARK: - Never spliced twice (fix round 1)
+
+    private static let darkSpan = SpanAnchor(quote: "dark", prefix: "was ", suffix: " and", posHint: 14)
+
+    private func occurrences(_ needle: String, in text: String?) -> Int {
+        (text ?? "").components(separatedBy: needle).count - 1
+    }
+
+    /// Accept → checkpoint → Revert → restore to the checkpoint. The restore
+    /// op (not a lifecycle op) puts the splice back and RULING-57 re-accepts;
+    /// the newest text-carrying LIFECYCLE line for the note is now the
+    /// Revert. Then a peer archive, a Reopen, and Accept.
+    private func raceThroughARestore(
+        _ prefix: String, original: String, suggestion: String, span: SpanAnchor
+    ) async throws -> Raced {
+        let (dir, docURL) = try makeTestProject(prefix: prefix, initialMd: "\(original)\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let id = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                             body: "b", suggestedText: suggestion, span: span)
+        try await doc.acceptAnnotation(id: id)
+        try await doc.flushBurstNow()
+        let log = try await doc.opLog()
+        let checkpoint = try XCTUnwrap(log.last?.opId)
+        try await doc.revertAcceptedAnnotation(id: id)
+        _ = try await doc.restoreToOp(opId: checkpoint)
+        XCTAssertEqual(status(doc, id), .accepted, "premise: RULING-57 re-accepted it")
+        try await OpLogStore(projectURL: dir).append(peerOp(.claudeArchive, for: id, doc: doc))
+        try await doc.handleExternalLogChange()
+        XCTAssertEqual(status(doc, id), .archived, "premise")
+        try await doc.reopenAnnotation(id: id)
+        XCTAssertEqual(status(doc, id), .open, "premise")
+        return Raced(dir: dir, doc: doc, pid: pid, id: id)
+    }
+
+    func test_aSpanPutBackByARestore_isNotAppliedTwice() async throws {
+        let r = try await raceThroughARestore(
+            "AOAT-restore-twice", original: "The night was dark and cold.",
+            suggestion: "very dark", span: Self.darkSpan)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was very dark and cold.", "premise")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was very dark and cold.")
+        XCTAssertEqual(occurrences("very dark", in: r.doc.paragraph(id: r.pid)), 1)
+        XCTAssertEqual(occurrences("very very", in: r.doc.paragraph(id: r.pid)), 0,
+                       "\"very very dark\" holds \"very dark\" once too")
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// The restore route for a span whose quote the splice replaced: without
+    /// reading the newest accept's text it could only refuse as anchor-lost
+    /// and strand the note open over its own text.
+    func test_aReplacedSpanPutBackByARestore_isAcceptedStatusOnly() async throws {
+        let r = try await raceThroughARestore(
+            "AOAT-restore-replaced", original: "The night was very dark and cold.",
+            suggestion: "pitch black",
+            span: SpanAnchor(quote: "very dark", prefix: "was ", suffix: " and", posHint: 14))
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was pitch black and cold.", "premise")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [])
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was pitch black and cold.")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// The writer edits elsewhere in the paragraph after the race: the
+    /// paragraph is no longer the accept's text, but the replacement still
+    /// stands where the anchor resolves, so it is not spliced again.
+    func test_aSpanWithAnEditElsewhereInTheParagraph_isNotAppliedTwice() async throws {
+        let r = try await raceThenReopen(
+            "AOAT-span-edit", peer: .claudeArchive,
+            original: "The night was dark and cold.", suggestion: "very dark", span: Self.darkSpan)
+        r.doc.setParagraph(id: r.pid, text: "The night was very dark and bitter cold.")
+        try await r.doc.flushBurstNow()
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "The night was very dark and bitter cold.")
+        XCTAssertEqual(occurrences("very dark", in: r.doc.paragraph(id: r.pid)), 1)
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [])
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// The negative: the replacement standing ELSEWHERE in the paragraph is
+    /// not the suggestion applied. Anchored on the first "dark", it splices.
+    func test_theReplacementElsewhereInTheParagraph_stillSplicesOnce() async throws {
+        let (dir, docURL) = try makeTestProject(prefix: "AOAT-elsewhere",
+                                                initialMd: "It was dark, very dark.\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "b", suggestedText: "very dark",
+            span: SpanAnchor(quote: "dark", prefix: "It was ", suffix: ", very", posHint: 7))
+
+        try await doc.acceptAnnotation(id: id)
+
+        XCTAssertEqual(doc.paragraph(id: pid), "It was very dark, very dark.")
+        let change = try XCTUnwrap(accepts(doc, id).last?.changes.first)
+        XCTAssertEqual(change.prior, "It was dark, very dark.")
+        XCTAssertEqual(change.next, "It was very dark, very dark.")
+        XCTAssertEqual(status(doc, id), .accepted)
+        let none = try await linesRecordingTheirOwnText(Raced(dir: dir, doc: doc, pid: pid, id: id))
+        XCTAssertEqual(none, [])
+        await doc.close()
+    }
+
     // MARK: - Hand-typed
 
     /// The writer typed the suggestion themselves: the computed paragraph is
-    /// the live one, so the accept writes no change; there is no pre-accept
-    /// text to return to, and Revert is a loud no-op over the writer's words.
-    func test_aParagraphTheWriterTypedAsTheSuggestion_isAcceptedStatusOnly() async throws {
+    /// the live one, so the accept writes no change. There is no pre-accept
+    /// text to return to, so Revert writes a status-only reopen (a
+    /// `claudeAcceptRevert` with no change): the note is open again and the
+    /// writer's words stay (RULING-29 — the writer reverses a resolution from
+    /// the surface that shows it). ⌘Z of that Revert accepts again.
+    func test_aParagraphTheWriterTypedAsTheSuggestion_isAcceptedStatusOnly_andRevertReopensIt() async throws {
         let (dir, docURL) = try makeTestProject(prefix: "AOAT-typed", initialMd: "\(Self.original)\n")
         let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
         let pid = try XCTUnwrap(doc.sequence.first)
@@ -256,8 +380,19 @@ final class AcceptOverAppliedTextTests: XCTestCase {
 
         XCTAssertEqual(accepts(doc, id).map(\.changes), [[]])
         XCTAssertEqual(status(doc, id), .accepted)
-        try await doc.revertAcceptedAnnotation(id: id)
+        let um = UndoManager()
+        try await doc.revertAcceptedAnnotation(id: id, undoManager: um)
+        XCTAssertEqual(status(doc, id), .open, "Revert reopens the note")
         XCTAssertEqual(doc.paragraph(id: pid), Self.suggested, "the writer's own words stay")
+        let revert = try XCTUnwrap(doc.opLogSnapshot.last)
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertEqual(revert.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(revert.changes, [], "status only: nothing to restore")
+        XCTAssertEqual(um.undoActionName, "Revert Suggestion")
+        um.undo(); await doc.awaitPendingUndoWork()
+        XCTAssertEqual(status(doc, id), .accepted, "⌘Z of the Revert accepts again")
+        XCTAssertEqual(accepts(doc, id).last?.changes, [])
+        XCTAssertEqual(doc.paragraph(id: pid), Self.suggested)
         let none = try await linesRecordingTheirOwnText(Raced(dir: dir, doc: doc, pid: pid, id: id))
         XCTAssertEqual(none, [])
         await doc.close()

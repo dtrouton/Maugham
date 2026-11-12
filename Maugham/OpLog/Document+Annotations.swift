@@ -554,10 +554,11 @@ extension Document {
             // yielding to a piece's starter (Ruling U) has a stamp that says
             // yes, and only the window's posture knows the yield — or that
             // Edit Anyway lifted it. So the host hands it in as a closure
-            // (`InlineToggleUndo.perform`'s shape) and every re-entry below
-            // forwards it, so a ⌘Z or ⇧⌘Z asks afresh. Suggestion arm only:
-            // a textless accept moves no words, and `.writeText` is not its
-            // question. `nil` where no window stands behind the call — the
+            // (`InlineToggleUndo.perform`'s shape) and every re-accepting
+            // redo below forwards it, so a ⇧⌘Z asks afresh. It is asked only
+            // where this accept would SPLICE (the `.splice` and `.anchorLost`
+            // arms below): a status-only accept, like a textless one, moves
+            // no words, and `.writeText` is not its question. `nil` where no window stands behind the call — the
             // stamp is then the whole answer.
             guard let orig = creation.changes.first else { changes = []; break }
             let pid = orig.paragraphId
@@ -572,7 +573,7 @@ extension Document {
             // textless accept — it does not ask the yield-aware `.writeText`
             // question; a splice still does.
             switch SuggestionSplice.planAccept(
-                annotationId: id, suggestion: orig.next,
+                annotationId: id, paragraphId: pid, suggestion: orig.next,
                 span: SuggestionSplice.spanAnchor(from: creation.provenance),
                 paragraph: current, ops: _opLogMirror) {
             case .statusOnly:
@@ -790,9 +791,6 @@ extension Document {
             documentLog.error("revertAcceptedAnnotation: \(id, privacy: .public) is not a suggestion creation op — ignoring")
             return
         }
-        // Restores the paragraph's text, so the host's yield-aware answer is
-        // asked here too (#79) — the pane's Revert press, and accept's ⌘Z.
-        try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAcceptRevert)
         // Query with an explicit status filter: `annotations()` defaults to
         // `statuses: [.open]` (AnnotationFilter), which would EXCLUDE the very
         // `.accepted` annotation we're reverting and make this a silent no-op.
@@ -805,13 +803,23 @@ extension Document {
         // The newest accept that CARRIES a change holds the definitive
         // prior (pre-accept) / next (post-accept) pair. A status-only accept
         // (R-B's guard, or a travel's RULING-26/57 re-accept) moved no text;
-        // reading it made this Revert a silent no-op.
-        guard let acceptOp = SuggestionSplice.newestAppliedAccept(
-                  annotationId: id, in: _opLogMirror),
-              let acceptChange = acceptOp.changes.first else {
-            documentLog.error("revertAcceptedAnnotation: no claudeAccept op with changes for \(id, privacy: .public) — ignoring")
+        // reading it made this Revert a silent no-op. Where NO accept ever
+        // carried text (the writer typed the suggestion), Revert reopens the
+        // note and leaves their words (`SuggestionSplice.revertPlan`, shared
+        // with the phone's Reopen & Revert).
+        let acceptOp: Op
+        switch SuggestionSplice.revertPlan(annotationId: id, in: _opLogMirror) {
+        case .reopenOnly:
+            try await revertStatusOnly(id: id, undoManager: undoManager, mayWrite: mayWrite)
             return
+        case .restore(let accept):
+            acceptOp = accept
         }
+        // Restores the paragraph's text, so the host's yield-aware answer is
+        // asked here too (#79) — the pane's Revert press, and accept's ⌘Z.
+        // The status-only arm above moves no words and does not ask it.
+        try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAcceptRevert)
+        guard let acceptChange = acceptOp.changes.first else { return }
         let pid = acceptChange.paragraphId
         guard sequence.contains(pid) else {
             documentLog.error("revertAcceptedAnnotation: paragraph \(pid, privacy: .public) no longer exists — ignoring")
@@ -862,9 +870,8 @@ extension Document {
             // to accept's registration.
             // The newest accept's reply, status-only or not: that is the
             // answer the note shows, and the one the re-accept puts back.
-            let originalUserResponse = _opLogMirror.last(where: {
-                $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == id
-            })?.provenance?.userResponse
+            let originalUserResponse = SuggestionSplice.newestAccept(
+                annotationId: id, in: _opLogMirror)?.provenance?.userResponse
             um.registerUndo(withTarget: self) { [weak um] doc in
                 guard let um else { return }
                 doc._lastUndoWorkTask = Task.detached { [weak doc] in
@@ -885,6 +892,53 @@ extension Document {
         invalidateAnnotationsCache()
         invalidateTasksCache()
         announceAnnotationsChanged()
+    }
+
+    /// Revert's arm for a suggestion no accept ever spliced (the writer typed
+    /// it; every accept was status-only): a `claudeAcceptRevert` with no
+    /// change, so the note reopens and the writer's words stay (RULING-29;
+    /// `SuggestionSplice.RevertPlan.reopenOnly`). The status and the text
+    /// never disagree here — the text is the suggestion either way. No buffer
+    /// replace, so none of the splice's ⌘Z choreography: a plain
+    /// `OpUndoRegistrar` pair whose ⌘Z accepts again (status-only, by the
+    /// same plan) and whose ⇧⌘Z reverts again.
+    private func revertStatusOnly(
+        id: String, undoManager: UndoManager?,
+        mayWrite: (@MainActor () -> Bool)?
+    ) async throws {
+        let reply = SuggestionSplice.newestAccept(
+            annotationId: id, in: _opLogMirror)?.provenance?.userResponse
+        let op = Op(
+            opId: ULID.generate(),
+            docId: docId, at: Date(),
+            device: device, session: session,
+            kind: .claudeAcceptRevert,
+            changes: [],
+            sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: session,
+                sourceAnnotationId: id))
+        try await appendAnnotationOpInternal(op)
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Revert Suggestion", target: self,
+            workTaskSink: { [weak self] in self?._lastUndoWorkTask = $0 },
+            undo: { doc in
+                guard doc.undoTargetStillShows(.open, id: id) else {
+                    documentLog.error("revertAcceptedAnnotation undo: \(id, privacy: .public) drifted — ignoring")
+                    doc.declineUndo(.reopen)
+                    return
+                }
+                await doc.refusingLoudly {
+                    try await doc.acceptAnnotation(
+                        id: id, userResponse: reply, mayWrite: mayWrite)
+                }
+            },
+            redo: { [weak undoManager] doc in
+                await doc.refusingLoudly {
+                    try await doc.revertAcceptedAnnotation(
+                        id: id, undoManager: undoManager, mayWrite: mayWrite)
+                }
+            })
     }
 
     public func rejectAnnotation(
@@ -1267,9 +1321,7 @@ extension Document {
         // spliced nothing, so the bare reopen IS that accept's whole inverse
         // (ruling 4b: its ⌘Z reopens and leaves the text). Any other accepted
         // suggestion is refused here, as before.
-        let newestAccept = _opLogMirror.last(where: {
-            $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == id
-        })
+        let newestAccept = SuggestionSplice.newestAccept(annotationId: id, in: _opLogMirror)
         guard kind != .suggestedChange || newestAccept?.changes.isEmpty == true else {
             documentLog.error("reopenAcceptedTextlessAnnotation: \(id, privacy: .public) is a suggestion — a bare reopen would leave the splice in the manuscript; revertAcceptedAnnotation is its inverse")
             return

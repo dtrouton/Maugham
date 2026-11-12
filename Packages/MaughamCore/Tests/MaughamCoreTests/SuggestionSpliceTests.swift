@@ -76,7 +76,7 @@ final class SuggestionSpliceTests: XCTestCase {
 
     func test_planAccept_splicesWhenNothingIsApplied() {
         XCTAssertEqual(
-            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.", span: nil,
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.", span: nil,
                                         paragraph: "A.", ops: []),
             .splice(next: "B."))
     }
@@ -96,7 +96,7 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(SuggestionSplice.attempt(suggestion: "pitch black", span: s, to: applied),
                        .anchorLost, "premise: the quote is gone")
         XCTAssertEqual(
-            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "pitch black",
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "pitch black",
                                         span: s, paragraph: applied, ops: ops),
             .statusOnly)
     }
@@ -106,26 +106,26 @@ final class SuggestionSpliceTests: XCTestCase {
     func test_planAccept_splicesOrRefusesOnceTheSpliceIsNoLongerInPlace() {
         let reverted = [line("01A", .claudeAccept, prior: "A.", next: "B."),
                         line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")]
-        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.",
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.",
                                                    span: nil, paragraph: "A.", ops: reverted),
                        .splice(next: "B."))
         let repaired = [line("01A", .claudeAccept, prior: "A.", next: "B."),
                         line("01B", .claudeReject, prior: "B.", next: "A.")]
-        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.",
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.",
                                                    span: nil, paragraph: "A.", ops: repaired),
                        .splice(next: "B."))
         let para = "The night was very dark and cold."
         let s = span("very dark", in: para)
         let accepted = [line("01A", .claudeAccept, prior: para,
                              next: "The night was pitch black and cold.")]
-        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "pitch black",
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "pitch black",
                                                    span: s, paragraph: "Rain fell.", ops: accepted),
                        .anchorLost, "the writer rewrote it: RULING-5's refusal stands")
     }
 
     func test_planAccept_isStatusOnlyWhenTheParagraphAlreadyReadsAsTheSuggestion() {
         XCTAssertEqual(
-            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.", span: nil,
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.", span: nil,
                                         paragraph: "B.", ops: []),
             .statusOnly)
     }
@@ -143,5 +143,90 @@ final class SuggestionSpliceTests: XCTestCase {
         ]
         XCTAssertEqual(SuggestionSplice.newestAppliedAccept(annotationId: "01NOTE", in: ops)?.opId, "01A")
         XCTAssertNil(SuggestionSplice.newestAppliedAccept(annotationId: "01NOTE", in: [line("01C", .claudeAccept)]))
+    }
+
+    // MARK: - Fix round 1: never spliced twice; Revert of a hand-typed accept
+
+    /// A restore op (not a lifecycle op) put the splice back after a Revert:
+    /// the newest lifecycle line is the Revert, but the newest accept that
+    /// carried text has the live paragraph as its `next`.
+    func test_planAccept_readsTheNewestAppliedAcceptToo() {
+        let para = "The night was very dark and cold."
+        let s = span("very dark", in: para)
+        let applied = "The night was pitch black and cold."
+        let ops = [
+            line("01A", .claudeAccept, prior: para, next: applied),
+            line("01B", .claudeAcceptRevert, prior: applied, next: para),
+            line("01C", .claudeAccept),
+            line("01D", .claudeArchive),
+            line("01E", .annotationReopen),
+        ]
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                        suggestion: "pitch black", span: s,
+                                        paragraph: applied, ops: ops),
+            .statusOnly)
+    }
+
+    /// The accept's change names ANOTHER paragraph: not this note's splice.
+    func test_isAppliedInPlace_checksTheParagraphId() {
+        let ops = [line("01A", .claudeAccept, prior: "A.", next: "B.")]
+        XCTAssertTrue(SuggestionSplice.isAppliedInPlace(
+            annotationId: "01NOTE", paragraphId: "k7m3", paragraph: "B.", ops: ops))
+        XCTAssertFalse(SuggestionSplice.isAppliedInPlace(
+            annotationId: "01NOTE", paragraphId: "q2w8", paragraph: "B.", ops: ops))
+    }
+
+    /// The span-level reading: the writer edited elsewhere in the paragraph,
+    /// so it is no longer the accept's text, but "very dark" still stands
+    /// where "dark" resolves — never "very very dark".
+    func test_planAccept_isStatusOnlyWhereTheReplacementAlreadyStandsAtTheSpan() {
+        let original = "The night was dark and cold."
+        let s = span("dark", in: original)
+        let edited = "The night was very dark and bitter cold."
+        let ops = [line("01A", .claudeAccept, prior: original,
+                        next: "The night was very dark and cold.")]
+        XCTAssertEqual(SuggestionSplice.attempt(suggestion: "very dark", span: s, to: edited),
+                       .applied("The night was very very dark and bitter cold."),
+                       "premise: a plain splice would apply it twice")
+        XCTAssertTrue(SuggestionSplice.spanAlreadyApplied(suggestion: "very dark", span: s,
+                                                          paragraph: edited))
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                        suggestion: "very dark", span: s,
+                                        paragraph: edited, ops: ops),
+            .statusOnly)
+    }
+
+    /// The negative: the replacement standing ELSEWHERE in the paragraph is
+    /// not the suggestion applied.
+    func test_spanAlreadyApplied_doesNotFireForTheReplacementElsewhere() {
+        let para = "It was dark, very dark."
+        let first = SpanAnchorResolver.capture(in: para, range: 7..<11)
+        XCTAssertEqual(first.quote, "dark", "premise")
+        XCTAssertFalse(SuggestionSplice.spanAlreadyApplied(suggestion: "very dark", span: first,
+                                                           paragraph: para))
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                        suggestion: "very dark", span: first,
+                                        paragraph: para, ops: []),
+            .splice(next: "It was very dark, very dark."))
+        // A replacement that does not contain its quote is never found here.
+        XCTAssertFalse(SuggestionSplice.spanAlreadyApplied(
+            suggestion: "pitch black", span: span("very dark", in: "was very dark and"),
+            paragraph: "was very dark and"))
+    }
+
+    func test_revertPlan_restoresTheNewestAppliedAccept_orReopensOnly() {
+        let ops = [line("01A", .claudeAccept, prior: "A.", next: "B."), line("01C", .claudeAccept)]
+        XCTAssertEqual(SuggestionSplice.revertPlan(annotationId: "01NOTE", in: ops),
+                       .restore(accept: ops[0]))
+        XCTAssertEqual(SuggestionSplice.revertPlan(annotationId: "01NOTE", in: [line("01C", .claudeAccept)]),
+                       .reopenOnly)
+    }
+
+    func test_newestAccept_isByOpIdWhateverTheOrderOfTheLog() {
+        let ops = [line("01C", .claudeAccept), line("01A", .claudeAccept, prior: "A.", next: "B.")]
+        XCTAssertEqual(SuggestionSplice.newestAccept(annotationId: "01NOTE", in: ops)?.opId, "01C")
     }
 }
