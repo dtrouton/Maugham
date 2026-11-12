@@ -765,10 +765,14 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         await doc.close()
     }
 
-    /// **The restore's two status-only branches** (N3): a cell already back
-    /// to its old value reopens the note by a status-only revert; a cell in
-    /// a row added after the checkpoint (gone then) archives it. Both named.
-    func test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone() async throws {
+    /// **A cell the restore does not write keeps its note; a cell gone then
+    /// archives it** (N3, re-pinned by ruling R-A in hardening 11-11 Task 2):
+    /// checkpoint, accept X→Y, type X back by hand, restore — the cell
+    /// already stands as it did then, so the restore writes nothing to it and
+    /// the note stays accepted (it used to reopen by a status-only revert); a
+    /// cell in a row added after the checkpoint (gone then) is archived. The
+    /// manuscript's twin is `PartialRestoreStrandedAcceptTests`.
+    func test_aRestoreLeavesAnUnwrittenCellsNoteAccepted_andArchivesWhereItIsGone() async throws {
         let (record, doc, b2) = try await makeTable()
         let standing = try await suggest(number(42), at: b2, on: doc)
         let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
@@ -783,15 +787,16 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
 
         let written = try ops(of: record.id).dropFirst(before)
-        let reopen = try XCTUnwrap(written.first { $0.provenance?.sourceAnnotationId == standing })
-        XCTAssertEqual(reopen.kind, .claudeAcceptRevert)
-        XCTAssertNil(reopen.figure, "status only: the cell already stood as it did then")
-        XCTAssertEqual(note(standing, in: doc)?.status, .open)
+        XCTAssertFalse(written.contains { $0.provenance?.sourceAnnotationId == standing },
+                       "R-A: no note line where the restore writes no cell")
+        XCTAssertFalse(written.contains { $0.figure?.cell == b2 }, "premise: the restore wrote nothing to B2")
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(note(standing, in: doc)?.status, .accepted)
         let archive = try XCTUnwrap(written.first { $0.provenance?.sourceAnnotationId == gone })
         XCTAssertEqual(archive.kind, .claudeArchive)
         XCTAssertEqual(archive.provenance?.sourceCheckpoint, "cp-1")
         XCTAssertEqual(note(gone, in: doc)?.status, .archived, "its cell is gone then")
-        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [standing], archived: [gone]))
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(archived: [gone]))
         await doc.close()
     }
 

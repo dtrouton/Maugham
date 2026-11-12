@@ -20,10 +20,13 @@ final class FigureCheckpointRestore {
 
     init(host: FigureDocument) { self.host = host }
 
-    /// **The notes the last `run` answered** (RULING-28's AFTER half): the
-    /// accepted suggestions it reopened (cell and note put back together)
-    /// and those it archived (their cell is gone then), by id — what the
-    /// restore sheet names beside its outcome.
+    /// **The notes the last `run` answered** (RULING-28's AFTER half,
+    /// RULING-57): the accepted suggestions it reopened (cell and note put
+    /// back together), those it put back to accepted (their accepted value
+    /// written back, cell and note together) and those it archived (their
+    /// cell is gone then), by id — what the restore sheet names beside its
+    /// outcome. Filled as each op lands, so after a part-way stop it names
+    /// only what landed.
     private(set) var lastNotes = FigureRestoreNotes()
 
     /// Test seam: runs in `run` between one landed op and the next — where
@@ -58,8 +61,10 @@ final class FigureCheckpointRestore {
     ///   rest is restored and the outcome names the picture
     ///   (`.skippedPicture`, with what did restore). A checkpoint with no
     ///   picture takes none away.
-    /// - **A restore never strands an accepted note** (RULING-28): the notes
-    ///   it answers are `FigureRestoreNotePlan`'s.
+    /// - **A restore changes a suggestion only where it rewrites that
+    ///   suggestion's cell** (RULING-28, RULING-57, ruling R-A): the notes it
+    ///   answers are `FigureRestoreNotePlan`'s three classes — stranded
+    ///   (reverted), returning (accepted again), gone (archived).
     /// - **It stops part way rather than write against a fold that moved**:
     ///   another device's lines read in meanwhile (a `reload`) stop it before
     ///   the next op, and an op that will not write stops it too; either way
@@ -79,8 +84,9 @@ final class FigureCheckpointRestore {
         let wanted = first.image.flatMap { $0.contentHash == host.state.image?.contentHash ? nil : $0 }
         let picture = await keptPicture(wanted, hashes: pictureHashes)
         // The note lines a restore may write answer a note, so each asks the
-        // verb it IS (final review M2): a revert that reopens one asks
-        // `.acceptOrReject` (as `appendCompensation` does), an archive
+        // verb it IS (final review M2): a revert that reopens one, or an
+        // accept that returns one, asks `.acceptOrReject` (as
+        // `appendCompensation` does), an archive
         // `.dispose`. Asked before the door's last await, so nothing lands
         // between the answer and the writes.
         let mayAnswerNotes = await host.mayHere(.acceptOrReject)
@@ -106,8 +112,7 @@ final class FigureCheckpointRestore {
             table: host.state.table, target: target, above: pointer, mayDispose: mayDisposeNotes)
         let restoreChanges = plan.changes
         let noteLines = plan.statusLines
-        if !mayAnswerNotes,
-           !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }) {
+        if !mayAnswerNotes, plan.answersANote {
             documentLog.error(
                 "restoreToCheckpoint refused on \(self.host.figureId, privacy: .public): it would answer a note this device may not answer")
             throw FigureEditRefused(site: "restoreToCheckpoint")
@@ -129,11 +134,13 @@ final class FigureCheckpointRestore {
                 } ?? reason
                 try await host.commit(change.kind, change.payload, provenance: provenance, render: false)
                 appended += 1
-                if let id = change.sourceAnnotationId { lastNotes.reopened.append(id) }
+                if let id = change.sourceAnnotationId {
+                    if change.kind == .claudeAccept { lastNotes.reaccepted.append(id) } else { lastNotes.reopened.append(id) }
+                }
             }
-            // A stranded accept whose cell the restore did not write: the
-            // note is reopened (its cell already stands as it did then) or
-            // archived (its cell is gone then), status only.
+            // A stranded accept no cell change carries: reverted (its cell
+            // was written for another note) or archived (its cell is gone
+            // then), status only.
             for line in noteLines where stop == nil {
                 guard host.reloadGeneration == generation else { stop = .changedElsewhere; break }
                 try await host.commit(line.kind, nil, provenance: FigureAnnotationOps.lifecycleProvenance(
@@ -166,7 +173,7 @@ final class FigureCheckpointRestore {
             stop = .notRecorded(error.localizedDescription)
         }
         if appended > 0 { await host.documentStore?.figureHostAppended(host.figureId) }
-        if !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }), appended > 0 {
+        if plan.answersANote, appended > 0 {
             MaughamEvent.postAnnotationsChanged(docId: host.figureId, projectURL: host.projectURL)
         }
         if let stop { return .partlyRestored(opCount: appended, why: stop) }
