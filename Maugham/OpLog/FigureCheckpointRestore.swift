@@ -78,7 +78,17 @@ final class FigureCheckpointRestore {
         pictureHashes: FigurePictureHashes
     ) async throws -> FigureRestoreOutcome {
         let prepared: Prepared
-        switch try await prepare(through: pointer, pictureHashes: pictureHashes) {
+        let preparation: Preparation
+        do {
+            preparation = try await prepare(through: pointer, pictureHashes: pictureHashes)
+        } catch is NotesRefused {
+            // Logged here, not in `prepare`: the sheet's count runs the same
+            // preparation and attempts nothing.
+            documentLog.error(
+                "restoreToCheckpoint refused on \(self.host.figureId, privacy: .public): it would answer a note this device may not answer")
+            throw FigureEditRefused(site: "restoreToCheckpoint")
+        }
+        switch preparation {
         case .skipped(let outcome): return outcome
         case .ready(let ready): prepared = ready
         }
@@ -183,6 +193,11 @@ final class FigureCheckpointRestore {
         let picture: (url: URL, hash: String)?
     }
 
+    /// `prepare`'s refusal of a plan that answers a note this hand may not
+    /// answer, unlogged: `run` logs it and throws `FigureEditRefused`; the
+    /// preview answers nil.
+    private struct NotesRefused: Error {}
+
     private enum Preparation {
         /// The restore leaves this figure as it is, appending nothing.
         case skipped(FigureRestoreOutcome)
@@ -194,7 +209,8 @@ final class FigureCheckpointRestore {
     /// sources' park reads, the door and the skips again once the reads are
     /// awaited, the diff, `everyChangeApplies`, both note answers (`mayHere`)
     /// and the note plan; a plan that answers a note this hand may not
-    /// answer is refused here. Writes nothing. With `pictureHashes` the
+    /// answer is refused here (`NotesRefused`). Writes nothing, and logs
+    /// nothing of its own. With `pictureHashes` the
     /// checkpoint's picture is looked for among the kept bytes, between the
     /// two door asks; without (the preview) it is not looked for.
     private func prepare(
@@ -233,11 +249,7 @@ final class FigureCheckpointRestore {
         let plan = FigureRestoreNotePlan.plan(
             changes: tableChanges, ops: host._ops, amendments: host.annotationAmendments,
             table: host.state.table, target: target, above: pointer, mayDispose: mayDisposeNotes)
-        if !mayAnswerNotes, plan.answersANote {
-            documentLog.error(
-                "restoreToCheckpoint refused on \(self.host.figureId, privacy: .public): it would answer a note this device may not answer")
-            throw FigureEditRefused(site: "restoreToCheckpoint")
-        }
+        if !mayAnswerNotes, plan.answersANote { throw NotesRefused() }
         return .ready(Prepared(
             plan: plan,
             pictureChange: changes.first { $0.kind == .figureImageSet }?.payload.image,

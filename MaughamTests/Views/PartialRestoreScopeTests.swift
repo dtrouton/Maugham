@@ -712,4 +712,71 @@ final class PartialRestoreFigureTests: XCTestCase {
             (r("cash"), .outcome(.restored(opCount: 2), notes: FigureRestoreNotes(reopened: ["n1"], reaccepted: ["n2"]))),
         ]), "Reopened 1 accepted suggestion and restored 1 suggestion to accepted on cash.")
     }
+
+    /// **A figure the window already holds is counted from that host, which
+    /// stays open** (fix round 1): the borrow door releases only what it
+    /// alone opened, so the sheet's count leaves the window's host open and
+    /// registered, and the count is that host's.
+    func test_anOpenFigureIsCountedThroughItsOwnHostAndStaysOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let record = try await strandedFigure("open", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", record.id])
+        try await acceptItsSuggestion(record.id, store)
+        let host = try await store.openFigure(figureId: record.id)
+
+        let notes = await picker(cp, store, projectStore).revertNotes(for: .wholeProject)
+
+        XCTAssertEqual(notes.entries.first { $0.title == "open" }, .init(title: "open", reopened: 1))
+        XCTAssertTrue(store.openFigure(forId: record.id) === host, "the window's own host, still registered")
+        XCTAssertFalse(host.isClosed, "and still open")
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **A figure that went to Research since the checkpoint is in no count**:
+    /// its revert is skipped (`.skippedWentToResearch`), so the sheet
+    /// promises nothing for its stranded accept.
+    func test_aFigureThatWentToResearchSinceIsInNoCount() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let went = try await strandedFigure("went", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", went.id])
+        try await acceptItsSuggestion(went.id, store)
+        let copy = try await projectStore.sendToResearch(figureId: went.id, scope: .shared)
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+        let stream = try streamBytes(of: went.id)
+
+        let notes = await picker(cp, store, projectStore).revertNotes(for: .wholeProject)
+
+        XCTAssertNil(notes.entries.first { $0.title == "went" }, "no entry")
+        XCTAssertNil(notes.confirmSentence)
+        XCTAssertEqual(try streamBytes(of: went.id), stream, "counting writes nothing")
+    }
+
+    /// **BEFORE and AFTER say each class in one wording** (RULING-28; fix
+    /// round 1): for the same notes, the confirm sentence and the figure
+    /// report carry the same counted phrase for each class
+    /// (`RevertNotes.counted`), so a wording change in one half alone fails.
+    func test_beforeAndAfterCountEachClassInTheSameWords() throws {
+        let record = FigureRecord(id: "fig-t", name: "t", kind: .table, piece: nil, path: "figures/t.csv")
+        let notes = FigureRestoreNotes(reopened: ["n1", "n2"], reaccepted: ["n3"], archived: ["n4", "n5", "n6"])
+        let before = try XCTUnwrap(PartialRestorePicker.RevertNotes(entries: [.init(
+            title: "t", reopened: notes.reopened.count, reaccepted: notes.reaccepted.count,
+            archived: notes.archived.count)]).confirmSentence)
+        let after = try XCTUnwrap(PartialRestorePicker.figureSentence(
+            for: [(record, .outcome(.restored(opCount: 6), notes: notes))]))
+        typealias N = PartialRestorePicker.RevertNotes
+        let reopened = N.counted(2, .reopened), reaccepted = N.counted(1, .reaccepted)
+        let archived = N.counted(3, .archived)
+        XCTAssertEqual([reopened, reaccepted, archived],
+                       ["2 accepted suggestions", "1 suggestion", "3 accepted suggestions"])
+        XCTAssertTrue(before.contains("\(reopened) will be reopened"), before)
+        XCTAssertTrue(after.contains("Reopened \(reopened)"), after)
+        XCTAssertTrue(before.contains("\(reaccepted) will be restored to accepted"), before)
+        XCTAssertTrue(after.contains("restored \(reaccepted) to accepted"), after)
+        XCTAssertTrue(before.contains("\(archived) will be archived"), before)
+        XCTAssertTrue(after.contains("archived \(archived) whose cells are gone"), after)
+        XCTAssertEqual(after, "Reopened 2 accepted suggestions, restored 1 suggestion to accepted "
+            + "and archived 3 accepted suggestions whose cells are gone on t.")
+    }
 }
