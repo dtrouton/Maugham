@@ -200,10 +200,14 @@ struct AnnotationWriter: Sendable {
             // accepted status-only, never spliced a second time. `loaded` is
             // the fresh judged read the detail view verifies against; without
             // it only the hand-typed arm (computed == current) can apply.
+            // Without a judged read there is no history to consult:
+            // `.nothingLoaded` (no ops) leaves only the hand-typed arm.
+            let history = loaded ?? .nothingLoaded
             switch SuggestionSplice.planAccept(
                 annotationId: annotation.id, paragraphId: pid, suggestion: bare,
                 span: annotation.span,
-                paragraph: current, ops: loaded?.ops ?? []) {
+                paragraph: current, ops: history.ops,
+                amendments: history.amendments) {
             case .statusOnly:
                 changes = []
             case .splice(let next):

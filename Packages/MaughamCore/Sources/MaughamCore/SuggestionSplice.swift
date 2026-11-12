@@ -132,8 +132,8 @@ public enum SuggestionSplice {
     /// 1. If the note's splice is still in place (`isAppliedInPlace`), the
     ///    accept is status-only, even where the span's quote no longer
     ///    resolves (the splice itself replaced it).
-    /// 2. If the note's own history says its splice is live (`spliceLive`:
-    ///    an accept newer than any text-carrying revert or repair) and the
+    /// 2. If the note's own history says its splice is live (`spliceLive`,
+    ///    a fold over its honoured lifecycle lines) and the
     ///    replacement already stands where the span resolves
     ///    (`spanAlreadyApplied`), the accept is status-only: the splice is
     ///    not applied a second time after an edit elsewhere in the paragraph.
@@ -142,7 +142,8 @@ public enum SuggestionSplice {
     ///    themselves) is status-only too, since there is nothing to write.
     public static func planAccept(
         annotationId: String, paragraphId: String, suggestion bare: String,
-        span: SpanAnchor?, paragraph current: String, ops: [Op]
+        span: SpanAnchor?, paragraph current: String, ops: [Op],
+        amendments: AnnotationAmendments
     ) -> AcceptPlan {
         if isAppliedInPlace(annotationId: annotationId, paragraphId: paragraphId,
                             paragraph: current, ops: ops) {
@@ -152,7 +153,7 @@ public enum SuggestionSplice {
         // without it a brand-new suggestion whose surroundings already read
         // as the replacement ("It was dark, very dark." on the SECOND "dark")
         // would be marked accepted and silently not written.
-        if let span, spliceLive(annotationId: annotationId, ops: ops),
+        if let span, spliceLive(annotationId: annotationId, ops: ops, amendments: amendments),
            spanAlreadyApplied(suggestion: bare, span: span, paragraph: current) {
             return .statusOnly
         }
@@ -183,23 +184,60 @@ public enum SuggestionSplice {
         return holds(newestAppliedAccept(annotationId: annotationId, in: ops))
     }
 
-    /// **The history gate on the span reading** (fix round 2): true iff, as
-    /// far as the log knows, this note's splice was applied and has not been
-    /// taken out since — some accept of the note (text-carrying, or
-    /// status-only: a travel's RULING-26/57 re-accept, an earlier guarded
-    /// accept) is newer, by opId, than its newest text-carrying revert or
-    /// RULING-33 repair line, or there is no such line. A note never
-    /// accepted never takes the span reading, so its first Accept splices as
+    /// **The history gate on the span reading** (fix rounds 2 and 3): is
+    /// this note's splice in the text, as far as its own log knows? A fold
+    /// over the note's HONOURED lifecycle lines (`AnnotationDeriver
+    /// .isHonouredLifecycleOp` under `amendments`) in opId order, starting
+    /// not live:
+    /// - any `claudeAccept` (text-carrying, or status-only: a travel's
+    ///   RULING-26/57 re-accept, an earlier guarded accept) → live;
+    /// - a text-carrying `claudeAcceptRevert` or `claudeReject` (the writer's
+    ///   Revert, the RULING-33 repair) → not live;
+    /// - a status-only `claudeAcceptRevert`, `claudeArchive` or
+    ///   `annotationReopen` that Maugham's own travel wrote
+    ///   (`isTravelStatusLine`) → not live: the travel moved the text with a
+    ///   restore op, which is not a lifecycle line;
+    /// - every other line leaves the answer as it was — the writer's own
+    ///   status-only Revert of a hand-typed accept (their text still
+    ///   stands), a peer's archive, stet or reject, the pane's Reopen (the
+    ///   race the guard exists for).
+    /// A note never accepted is never live, so its first Accept splices as
     /// written.
-    public static func spliceLive(annotationId: String, ops: [Op]) -> Bool {
-        guard let accept = newestAccept(annotationId: annotationId, in: ops) else { return false }
-        let takenOut = ops.filter {
+    public static func spliceLive(
+        annotationId: String, ops: [Op], amendments: AnnotationAmendments
+    ) -> Bool {
+        var live = false
+        for op in ops.filter({
             $0.provenance?.sourceAnnotationId == annotationId
-                && !$0.changes.isEmpty
-                && ($0.kind == .claudeAcceptRevert || $0.kind == .claudeReject)
-        }.max(by: { $0.opId < $1.opId })
-        guard let takenOut else { return true }
-        return accept.opId > takenOut.opId
+                && AnnotationDeriver.isHonouredLifecycleOp($0, amendments: amendments)
+        }).sorted(by: { $0.opId < $1.opId }) {
+            switch op.kind {
+            case .claudeAccept:
+                live = true
+            case .claudeAcceptRevert where !op.changes.isEmpty,
+                 .claudeReject where !op.changes.isEmpty:
+                live = false
+            case .claudeAcceptRevert, .claudeArchive, .annotationReopen:
+                if isTravelStatusLine(op) { live = false }
+            default:
+                break
+            }
+        }
+        return live
+    }
+
+    /// **A status-only line Maugham's own travel wrote**, told by what it
+    /// carries, the stamps `RewindImpact.momentEnd`'s `trails` reads: a full
+    /// rewind's or its undo's lines are `synthesisSource` `.rewind` /
+    /// `.undoRewind` (`Document+Rewind` steps 8, 8b, 9;
+    /// `Document+RewindUndo`); a checkpoint revert's are stamped with the
+    /// checkpoint (`Restore.travelStatusLines`' `sourceCheckpoint`). No line
+    /// the writer's own hand writes carries either.
+    public static func isTravelStatusLine(_ op: Op) -> Bool {
+        guard op.changes.isEmpty else { return false }
+        let source = op.provenance?.synthesisSource
+        return source == .rewind || source == .undoRewind
+            || op.provenance?.sourceCheckpoint != nil
     }
 
     /// **The span-level reading: the replacement already stands where the

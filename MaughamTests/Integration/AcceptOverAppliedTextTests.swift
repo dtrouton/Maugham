@@ -446,6 +446,143 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - Maugham's own travel takes the splice out (fix round 3)
+
+    /// The fresh second-"dark" note, accepted (text spliced), with the log's
+    /// tip before the accept as a checkpoint.
+    private func acceptedSecondDark(_ prefix: String) async throws -> (Raced, before: String) {
+        let r = try await freshSecondDark(prefix)
+        try await r.doc.flushBurstNow()
+        let log = try await r.doc.opLog()
+        let before = try XCTUnwrap(log.last?.opId)
+        try await r.doc.acceptAnnotation(id: r.id)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "It was dark, very very dark.", "premise")
+        return (r, before)
+    }
+
+    private func assertSplicesAsWritten(_ r: Raced, _ msg: String) async throws {
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "It was dark, very dark.", "premise: \(msg) took it out")
+        XCTAssertEqual(status(r.doc, r.id), .open, "premise: \(msg) reopened it")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), "It was dark, very very dark.",
+                       "after \(msg) the Accept splices as written")
+        let change = try XCTUnwrap(accepts(r.doc, r.id).last?.changes.first)
+        XCTAssertEqual(change.prior, "It was dark, very dark.")
+        XCTAssertEqual(change.next, "It was dark, very very dark.")
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+    }
+
+    /// A rewind to before the accept: a restore op takes the text out and
+    /// step 8 writes a STATUS-ONLY `.rewind` revert. The gate must read that
+    /// line as taking the splice out.
+    func test_afterARewindToBeforeTheAccept_theAcceptSplicesAsWritten() async throws {
+        let (r, before) = try await acceptedSecondDark("AOAT-rewind")
+        _ = try await r.doc.restoreToOp(opId: before)
+        let revert = try XCTUnwrap(r.doc.opLogSnapshot.last {
+            $0.kind == .claudeAcceptRevert && $0.provenance?.sourceAnnotationId == r.id })
+        XCTAssertEqual(revert.changes, [], "premise: status only")
+        XCTAssertEqual(revert.provenance?.synthesisSource, .rewind, "premise: travel-stamped")
+
+        try await assertSplicesAsWritten(r, "the rewind")
+        await r.doc.close()
+    }
+
+    /// The paragraph-removed route: a rewind to before the paragraph existed
+    /// archives the note (step 8), and the return journey to after the
+    /// paragraph but before the accept reopens it (step 9), both status-only
+    /// and `.rewind`-stamped.
+    func test_afterARewindRemovedTheParagraphAndTheReturnReopenedIt_theAcceptSplicesAsWritten() async throws {
+        let (dir, docURL) = try makeTestProject(prefix: "AOAT-return", initialMd: "Intro.\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        try await doc.flushBurstNow()
+        let log0 = try await doc.opLog()
+        let beforeParagraph = try XCTUnwrap(log0.last?.opId)
+        let pid = doc.insertParagraph(after: doc.sequence.first, text: "It was dark, very dark.")
+        try await doc.flushBurstNow()
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "b", suggestedText: "very dark",
+            span: Self.secondDark)
+        try await doc.flushBurstNow()
+        let log1 = try await doc.opLog()
+        let beforeAccept = try XCTUnwrap(log1.last?.opId)
+        try await doc.acceptAnnotation(id: id)
+        XCTAssertEqual(doc.paragraph(id: pid), "It was dark, very very dark.", "premise")
+
+        _ = try await doc.restoreToOp(opId: beforeParagraph)
+        XCTAssertEqual(status(doc, id), .archived, "premise: step 8 archived it")
+        _ = try await doc.restoreToOp(opId: beforeAccept)
+        let reopen = try XCTUnwrap(doc.opLogSnapshot.last { $0.provenance?.sourceAnnotationId == id })
+        XCTAssertEqual(reopen.kind, .annotationReopen, "premise: step 9 reopened it")
+        XCTAssertEqual(reopen.provenance?.synthesisSource, .rewind)
+
+        try await assertSplicesAsWritten(Raced(dir: dir, doc: doc, pid: pid, id: id), "the return journey")
+        await doc.close()
+    }
+
+    /// The checkpoint-revert route: the partial restore's restore op takes the
+    /// text out and `Restore.travelStatusLines` writes a status-only revert
+    /// stamped with the checkpoint (built here as the picker builds them, and
+    /// arriving through the log and a merge; written under a second device
+    /// id so this test's second `OpLogStore` does not fork the document's own
+    /// chain).
+    func test_afterACheckpointRevertTookTheAcceptBack_theAcceptSplicesAsWritten() async throws {
+        let (r, before) = try await acceptedSecondDark("AOAT-ckpt")
+        // The accept's pending burst lands first, as it would long before a
+        // writer opens the picker.
+        try await r.doc.flushBurstNow()
+        let store = OpLogStore(projectURL: r.dir)
+        let allOps = try await store.load(docId: r.doc.docId)
+        let pastOps = Array(allOps.prefix(while: { $0.opId <= before }))
+        let restoreOp = try XCTUnwrap(Restore.buildRestoreOp(
+            current: Deriver.derive(ops: allOps), target: Deriver.derive(ops: pastOps),
+            scope: .document, docId: r.doc.docId, device: "picker-mac", session: "picker",
+            sourceCheckpoint: "ckpt-then"))
+        let travel = RewindImpact.travelStatusChanges(
+            in: allOps, target: before, amendments: r.doc.annotationAmendments)
+        let notes = RewindImpact.strandedAccepts(travel, revertedBy: restoreOp)
+        XCTAssertEqual(notes.map(\.annotationId), [r.id], "premise: the revert strands the accept")
+        let lines = Restore.travelStatusLines(
+            notes, docId: r.doc.docId, device: "picker-mac", session: "picker",
+            sourceCheckpoint: "ckpt-then")
+        try await store.append(restoreOp)
+        for line in lines { try await store.append(line) }
+        try await r.doc.handleExternalLogChange()
+        XCTAssertEqual(lines.first?.changes, [], "premise: status only")
+        XCTAssertEqual(lines.first?.provenance?.sourceCheckpoint, "ckpt-then", "premise: stamped")
+
+        try await assertSplicesAsWritten(r, "the checkpoint revert")
+        await r.doc.close()
+    }
+
+    /// The writer's own hand-typed Revert (status-only, not travel-stamped)
+    /// leaves the splice live: the text they typed still stands, so the next
+    /// Accept is status-only again.
+    func test_afterTheWritersReopenOnlyRevert_theAcceptStaysStatusOnly() async throws {
+        let (dir, docURL) = try makeTestProject(prefix: "AOAT-typed-again", initialMd: "\(Self.original)\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let id = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                             body: "b", suggestedText: Self.suggested)
+        doc.setParagraph(id: pid, text: Self.suggested)
+        try await doc.flushBurstNow()
+        try await doc.acceptAnnotation(id: id)
+        try await doc.revertAcceptedAnnotation(id: id)
+        XCTAssertEqual(status(doc, id), .open, "premise")
+
+        try await doc.acceptAnnotation(id: id)
+
+        XCTAssertEqual(accepts(doc, id).map(\.changes), [[], []])
+        XCTAssertEqual(status(doc, id), .accepted)
+        XCTAssertEqual(doc.paragraph(id: pid), Self.suggested)
+        let none = try await linesRecordingTheirOwnText(Raced(dir: dir, doc: doc, pid: pid, id: id))
+        XCTAssertEqual(none, [])
+        await doc.close()
+    }
+
     // MARK: - Hand-typed
 
     /// The writer typed the suggestion themselves: the computed paragraph is

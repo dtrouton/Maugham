@@ -575,7 +575,7 @@ extension Document {
             switch SuggestionSplice.planAccept(
                 annotationId: id, paragraphId: pid, suggestion: orig.next,
                 span: SuggestionSplice.spanAnchor(from: creation.provenance),
-                paragraph: current, ops: _opLogMirror) {
+                paragraph: current, ops: _opLogMirror, amendments: annotationAmendments) {
             case .statusOnly:
                 changes = []
             case .splice(let next):

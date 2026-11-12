@@ -77,7 +77,8 @@ final class SuggestionSpliceTests: XCTestCase {
     func test_planAccept_splicesWhenNothingIsApplied() {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.", span: nil,
-                                        paragraph: "A.", ops: []),
+                                        paragraph: "A.", ops: [],
+                                        amendments: .honourEverything),
             .splice(next: "B."))
     }
 
@@ -97,7 +98,8 @@ final class SuggestionSpliceTests: XCTestCase {
                        .anchorLost, "premise: the quote is gone")
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "pitch black",
-                                        span: s, paragraph: applied, ops: ops),
+                                        span: s, paragraph: applied, ops: ops,
+                                        amendments: .honourEverything),
             .statusOnly)
     }
 
@@ -107,26 +109,30 @@ final class SuggestionSpliceTests: XCTestCase {
         let reverted = [line("01A", .claudeAccept, prior: "A.", next: "B."),
                         line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")]
         XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.",
-                                                   span: nil, paragraph: "A.", ops: reverted),
+                                                   span: nil, paragraph: "A.", ops: reverted,
+                                        amendments: .honourEverything),
                        .splice(next: "B."))
         let repaired = [line("01A", .claudeAccept, prior: "A.", next: "B."),
                         line("01B", .claudeReject, prior: "B.", next: "A.")]
         XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.",
-                                                   span: nil, paragraph: "A.", ops: repaired),
+                                                   span: nil, paragraph: "A.", ops: repaired,
+                                        amendments: .honourEverything),
                        .splice(next: "B."))
         let para = "The night was very dark and cold."
         let s = span("very dark", in: para)
         let accepted = [line("01A", .claudeAccept, prior: para,
                              next: "The night was pitch black and cold.")]
         XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "pitch black",
-                                                   span: s, paragraph: "Rain fell.", ops: accepted),
+                                                   span: s, paragraph: "Rain fell.", ops: accepted,
+                                        amendments: .honourEverything),
                        .anchorLost, "the writer rewrote it: RULING-5's refusal stands")
     }
 
     func test_planAccept_isStatusOnlyWhenTheParagraphAlreadyReadsAsTheSuggestion() {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3", suggestion: "B.", span: nil,
-                                        paragraph: "B.", ops: []),
+                                        paragraph: "B.", ops: [],
+                                        amendments: .honourEverything),
             .statusOnly)
     }
 
@@ -164,7 +170,8 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
                                         suggestion: "pitch black", span: s,
-                                        paragraph: applied, ops: ops),
+                                        paragraph: applied, ops: ops,
+                                        amendments: .honourEverything),
             .statusOnly)
     }
 
@@ -194,7 +201,8 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
                                         suggestion: "very dark", span: s,
-                                        paragraph: edited, ops: ops),
+                                        paragraph: edited, ops: ops,
+                                        amendments: .honourEverything),
             .statusOnly)
     }
 
@@ -209,7 +217,8 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
                                         suggestion: "very dark", span: first,
-                                        paragraph: para, ops: []),
+                                        paragraph: para, ops: [],
+                                        amendments: .honourEverything),
             .splice(next: "It was very dark, very dark."))
         // A replacement that does not contain its quote is never found here.
         XCTAssertFalse(SuggestionSplice.spanAlreadyApplied(
@@ -245,28 +254,76 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
                                         suggestion: "very dark", span: second,
-                                        paragraph: para, ops: []),
+                                        paragraph: para, ops: [],
+                                        amendments: .honourEverything),
             .splice(next: "It was dark, very very dark."))
     }
 
+    private func live(_ ops: [Op], _ amendments: AnnotationAmendments = .honourEverything) -> Bool {
+        SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: ops, amendments: amendments)
+    }
+
+    private func stamped(_ opId: String, _ kind: OpKind, source: SynthesisSource? = nil,
+                         checkpoint: String? = nil) -> Op {
+        Op(opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 0),
+           device: "mac", session: "s", kind: kind, changes: [],
+           provenance: Op.Provenance(sessionId: "s", sourceCheckpoint: checkpoint,
+                                     synthesisSource: source, sourceAnnotationId: "01NOTE"))
+    }
+
     func test_spliceLive_followsTheNotesOwnHistory() {
-        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: []), "never accepted")
+        XCTAssertFalse(live([]), "never accepted")
         let accept = line("01A", .claudeAccept, prior: "A.", next: "B.")
-        XCTAssertTrue(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept]))
+        XCTAssertTrue(live([accept]))
         let revert = line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")
-        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept, revert]),
-                       "taken out by Revert")
+        XCTAssertFalse(live([accept, revert]), "taken out by Revert")
         let repair = line("01B", .claudeReject, prior: "B.", next: "A.")
-        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept, repair]),
-                       "taken out by the RULING-33 repair")
-        XCTAssertTrue(SuggestionSplice.spliceLive(
-            annotationId: "01NOTE", ops: [accept, revert, line("01C", .claudeAccept)]),
+        XCTAssertFalse(live([accept, repair]), "taken out by the RULING-33 repair")
+        XCTAssertTrue(live([accept, revert, line("01C", .claudeAccept)]),
                       "a travel's status-only re-accept after the Revert")
-        XCTAssertTrue(SuggestionSplice.spliceLive(
-            annotationId: "01NOTE", ops: [accept, line("01B", .claudeAcceptRevert)]),
-                      "a status-only revert takes no text out")
-        XCTAssertFalse(SuggestionSplice.spliceLive(
-            annotationId: "01NOTE", ops: [line("01B", .claudeArchive)]), "no accept at all")
+        XCTAssertTrue(live([accept, line("01B", .claudeAcceptRevert)]),
+                      "the writer's own status-only Revert (hand-typed) takes no text out")
+        XCTAssertFalse(live([line("01B", .claudeArchive)]), "no accept at all")
+        XCTAssertTrue(live([accept, line("01B", .claudeArchive), line("01C", .annotationReopen)]),
+                      "a peer's archive and the pane's Reopen: the race")
+        XCTAssertTrue(live([accept, line("01B", .annotationStet), line("01C", .claudeReject)]),
+                      "a peer's stet or status-only reject")
+    }
+
+    /// Fix round 3: Maugham's own travel takes the text out with a restore op
+    /// and writes STATUS-ONLY lines, told by their stamps.
+    func test_spliceLive_aTravelsStatusOnlyLinesCloseIt() {
+        let accept = line("01A", .claudeAccept, prior: "A.", next: "B.")
+        XCTAssertFalse(live([accept, stamped("01B", .claudeAcceptRevert, source: .rewind)]),
+                       "a rewind's step-8 revert")
+        XCTAssertFalse(live([accept, stamped("01B", .claudeArchive, source: .rewind),
+                             stamped("01C", .annotationReopen, source: .rewind)]),
+                       "step 8's archive, then the return journey's reopen")
+        XCTAssertFalse(live([accept, stamped("01B", .claudeAcceptRevert, source: .undoRewind)]),
+                       "an undo-rewind's line")
+        XCTAssertFalse(live([accept, stamped("01B", .claudeAcceptRevert, checkpoint: "ckpt")]),
+                       "a checkpoint revert's line")
+        XCTAssertTrue(live([accept, stamped("01B", .claudeAcceptRevert, source: .rewind),
+                            stamped("01C", .claudeAccept, source: .rewind)]),
+                      "a later travel that returns it (RULING-26) opens it again")
+        XCTAssertTrue(SuggestionSplice.isTravelStatusLine(stamped("01B", .annotationReopen, source: .rewind)))
+        XCTAssertFalse(SuggestionSplice.isTravelStatusLine(line("01B", .annotationReopen)),
+                       "the writer's own Reopen carries no stamp")
+        XCTAssertFalse(SuggestionSplice.isTravelStatusLine(
+            line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")), "text-carrying")
+    }
+
+    /// The gate reads honoured lifecycle lines only: a reopen the deriver
+    /// does not honour never happened as far as the fold goes.
+    func test_spliceLive_readsHonouredLinesOnly() {
+        let accept = line("01A", .claudeAccept, prior: "A.", next: "B.")
+        let travelReopen = stamped("01C", .annotationReopen, source: .rewind)
+        let ops = [accept, travelReopen]
+        XCTAssertFalse(live(ops), "honoured, the travel reopen closes it")
+        let refuseReopens = AnnotationAmendments(honours: { _, _ in true }, disposing: { _ in false })
+        XCTAssertFalse(AnnotationDeriver.isHonouredLifecycleOp(travelReopen, amendments: refuseReopens),
+                       "premise: the deriver sets that reopen aside")
+        XCTAssertTrue(live(ops, refuseReopens), "unhonoured, it is not read")
     }
 
     /// Accepted then Reverted: the splice is out, so the span reading is off
@@ -279,7 +336,8 @@ final class SuggestionSpliceTests: XCTestCase {
         XCTAssertEqual(
             SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
                                         suggestion: "very dark", span: second,
-                                        paragraph: para, ops: ops),
+                                        paragraph: para, ops: ops,
+                                        amendments: .honourEverything),
             .splice(next: "It was dark, very very dark."))
     }
 }
