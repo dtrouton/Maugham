@@ -17,13 +17,16 @@ final class TripwireGrepTests: XCTestCase {
         extraOffender: ((String) -> Bool)? = nil
     ) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             if allowed.contains(url.lastPathComponent) { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
+            // A file naming no pattern has no offending line (only an
+            // `extraOffender` can flag a line without one), so skip splitting it.
+            if extraOffender == nil, !patterns.contains(where: { text.contains($0) }) { continue }
             for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineStr = String(line)
                 if let exclude = excludeLine, exclude(lineStr) { continue }
@@ -57,13 +60,14 @@ final class TripwireGrepTests: XCTestCase {
         let fm = FileManager.default
         var offenders: [String] = []
         var seen: Set<String> = []
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return Self.missingScope(files, seen: seen)
         }
         for case let url as URL in walker where url.pathExtension == "swift" {
             guard files.contains(url.lastPathComponent) else { continue }
             seen.insert(url.lastPathComponent)
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
+            if !patterns.contains(where: { text.contains($0) }) { continue }
             for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineStr = String(line)
                 if let exclude = excludeLine, exclude(lineStr) { continue }
@@ -136,7 +140,7 @@ final class TripwireGrepTests: XCTestCase {
     /// key claims its lines — the allowance follows the declaration, not the
     /// name, and covers only what is INSIDE the declaration.
     static func declare(_ type: String, in file: URL) throws {
-        let text = try String(contentsOf: file, encoding: .utf8)
+        let text = try SourceTreeCache.text(file)
         try ("extension \(type) {\n" + text + "\n}\n")
             .write(to: file, atomically: true, encoding: .utf8)
     }
@@ -1314,11 +1318,11 @@ final class TripwireGrepTests: XCTestCase {
     /// names `kindToken`, as `file:line`.
     private func rulingCallSites(in dir: URL, naming kindToken: String) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil)
+        guard let walker = SourceTreeCache.enumerator(at: dir)
         else { return [] }
         var sites: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             let scalars = Array(text)
             for anchor in ["RulingPerformer.rule(", "RulingPerformer.edit(",
                            "RulingPerformer.revoke(", "RulingPerformer.restore("] {
@@ -1699,7 +1703,7 @@ final class TripwireGrepTests: XCTestCase {
         in dir: URL, exempting: Set<String> = processSignalsSurfaces
     ) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var sites: [String] = []
@@ -1709,7 +1713,7 @@ final class TripwireGrepTests: XCTestCase {
             // added beside `PracticeSection` is part of the same surface.
             if url.pathComponents.contains("statistics") { continue }
             if exempting.contains(url.lastPathComponent) { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             for (index, line) in text
                 .split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineText = String(line)
@@ -1882,10 +1886,9 @@ final class TripwireGrepTests: XCTestCase {
         ]
         var offenders: [String] = []
         for dir in dirs {
-            guard let walker = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: dir) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 let ns = text as NSString
                 for pattern in patterns {
                     let regex = try NSRegularExpression(pattern: pattern)
@@ -2435,13 +2438,13 @@ final class TripwireGrepTests: XCTestCase {
     /// waits. Pure over the text, so the self-check can plant offenders.
     static func pressThenWaitTests(under dir: URL) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var hits: [String] = []
         for case let url as URL in walker
         where url.pathExtension == "swift" && !url.path.contains("/TestSupport/") {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             var name: String?
             var pressed = false
             var waited = false
@@ -2864,7 +2867,7 @@ final class TripwireGrepTests: XCTestCase {
     /// and are skipped (the self-checks' planted files live in literals).
     static func clickTests(under dir: URL) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         struct Scanned {
@@ -2875,7 +2878,7 @@ final class TripwireGrepTests: XCTestCase {
         var files: [Scanned] = []
         for case let url as URL in walker
         where url.pathExtension == "swift" && !url.path.contains("/TestSupport/") {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             files.append(Scanned(name: url.lastPathComponent,
                                  functions: Self.functionBodies(in: text),
                                  classes: Self.declaredClasses(in: text)))
@@ -3191,7 +3194,7 @@ final class TripwireGrepTests: XCTestCase {
     /// that block (or deleting the block while leaving the call).
     func test_testMCPCatalog_registeredOnlyUnderDevFlag() throws {
         let appURL = repoRoot.appendingPathComponent("Maugham/MaughamApp.swift")
-        let app = try String(contentsOf: appURL, encoding: .utf8)
+        let app = try SourceTreeCache.text(appURL)
 
         guard let range = app.range(of: "TestMCPToolCatalog.register") else {
             XCTFail("TestMCPToolCatalog.register call not found in MaughamApp.swift — "
@@ -3248,11 +3251,10 @@ final class TripwireGrepTests: XCTestCase {
     ) throws -> [String] {
         var offenders: [String] = []
         for dir in dirs {
-            guard let walker = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: dir) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 if allowed.contains(url.lastPathComponent) { continue }
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for pattern in patterns {
                     let regex = try NSRegularExpression(pattern: pattern)
                     let ns = text as NSString
@@ -3483,7 +3485,7 @@ final class TripwireGrepTests: XCTestCase {
     /// later edit could hand the reader the source it must not see.
     func test_coldCallNeverBridges() throws {
         let file = sourceDir.appendingPathComponent("Compiler/ColdCall.swift")
-        let text = try String(contentsOf: file, encoding: .utf8)
+        let text = try SourceTreeCache.text(file)
         for forbidden in ["writeMCPConfig", ".bridged(", "--mcp-config", "CompilerAllowlist"] {
             XCTAssertFalse(text.contains(forbidden),
                            "ColdCall.swift must not contain `\(forbidden)` — a cold call is "
@@ -3576,7 +3578,7 @@ final class TripwireGrepTests: XCTestCase {
                       + "writes. Offenders:\n" + offenders.joined(separator: "\n"))
 
         let file = sourceDir.appendingPathComponent("Compiler/SpotCheck.swift")
-        let text = try String(contentsOf: file, encoding: .utf8)
+        let text = try SourceTreeCache.text(file)
         XCTAssertTrue(text.contains("coldCall.call("),
                       "the scan reads the file rather than always answering true")
     }
@@ -4023,7 +4025,7 @@ final class TripwireGrepTests: XCTestCase {
 
     static func contentUnavailableViewSites(in dir: URL) throws -> [ContentUnavailableViewSite] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         // Resolved on BOTH sides, or the prefix match is defeated by a symlink
@@ -4034,7 +4036,7 @@ final class TripwireGrepTests: XCTestCase {
         let base = dir.deletingLastPathComponent().resolvingSymlinksInPath().path
         var sites: [ContentUnavailableViewSite] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
                 .map(String.init)
             for (i, line) in lines.enumerated() where opensContentUnavailableView(line) {
@@ -4592,11 +4594,10 @@ final class TripwireGrepTests: XCTestCase {
         ].map { try NSRegularExpression(pattern: $0) }
         var offenders: [String] = []
         for dir in dirs {
-            guard let walker = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: dir) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 if allowed.contains(url.lastPathComponent) { continue }
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                     let lineStr = String(line)
                     if isAllowedParagraphIdLine(lineStr) { continue }
@@ -4754,11 +4755,10 @@ final class TripwireGrepTests: XCTestCase {
     static func scanNilChainAssertions(in dir: URL,
                                        allowed: Set<String> = []) throws -> [String] {
         var offenders: [String] = []
-        guard let walker = FileManager.default.enumerator(
-            at: dir, includingPropertiesForKeys: nil) else { return [] }
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [] }
         for case let url as URL in walker where url.pathExtension == "swift" {
             if allowed.contains(url.lastPathComponent) { continue }
-            let lines = try String(contentsOf: url, encoding: .utf8)
+            let lines = try SourceTreeCache.text(url)
                 .components(separatedBy: "\n")
             for (i, line) in lines.enumerated() {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -4952,7 +4952,7 @@ final class TripwireGrepTests: XCTestCase {
     /// (plus a plainly-written failure message) is the only guard.
     func test_coercionCallSitesCensus() throws {
         let fileURL = sourceDir.appendingPathComponent("Views/DetailPaneToggle.swift")
-        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        let content = try SourceTreeCache.text(fileURL)
 
         // Check 1: `.onAppear` MUST call `snapSegmentIntoPicker()`
         guard let onAppearRange = content.range(of: ".onAppear") else {
@@ -5022,7 +5022,7 @@ final class TripwireGrepTests: XCTestCase {
         """.write(to: planted, atomically: true, encoding: .utf8)
 
         // Run the census check
-        let content = try String(contentsOf: planted, encoding: .utf8)
+        let content = try SourceTreeCache.text(planted)
         let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
 
@@ -5195,7 +5195,7 @@ final class TripwireGrepTests: XCTestCase {
     /// so an unrelated `.mutate(` elsewhere in the app cannot land here.
     private func canvasBracketCensus(in dir: URL) throws -> [String: [String]] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return [:]
         }
         // The surface is skipped by its path under `dir` (`Canvas/<file>`), not by
@@ -5209,7 +5209,7 @@ final class TripwireGrepTests: XCTestCase {
             let relative = full.hasPrefix(root) ? String(full.dropFirst(root.count)) : full
             guard !surfacePaths.contains(relative),
                   !Self.canvasBracketDefiners.contains(name) else { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             guard text.contains("CanvasModel") else { continue }
             var found: Set<String> = []
             for line in Self.codeLines(of: text) {
@@ -5786,7 +5786,7 @@ final class TripwireGrepTests: XCTestCase {
         var homes: [String: String] = [:]   // type → the surface file declaring it
         for name in surfaceFiles {
             let url = canvasDir.appendingPathComponent(name)
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            guard let text = try? SourceTreeCache.text(url) else {
                 throw CanvasSourceCensus.SurfaceFileMissing(path: "Maugham/Canvas/\(name)")
             }
             guard name != theCanvasViewFile else { continue }
@@ -5809,7 +5809,7 @@ final class TripwireGrepTests: XCTestCase {
         // frozen view value past it.
         if !homes.isEmpty {
             let viewCode = CanvasSourceCensus.commentsStripped(
-                try String(contentsOf: canvasDir.appendingPathComponent(theCanvasViewFile), encoding: .utf8))
+                try SourceTreeCache.text(canvasDir.appendingPathComponent(theCanvasViewFile)))
             let whole = NSRange(viewCode.startIndex..., in: viewCode)
             for type in homes.keys.sorted() {
                 let t = NSRegularExpression.escapedPattern(for: type)
@@ -5838,7 +5838,7 @@ final class TripwireGrepTests: XCTestCase {
             pattern: #"\bTask\s*\{|\bTask\.detached\b|\bDispatchQueue\b|@escaping\b"#)
         var walked = 0
         let app = base.appendingPathComponent("Maugham", isDirectory: true)
-        let walker = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)
+        let walker = SourceTreeCache.enumerator(at: app)
         while let url = walker?.nextObject() as? URL {
             guard url.pathExtension == "swift" else { continue }
             walked += 1
@@ -5849,7 +5849,7 @@ final class TripwireGrepTests: XCTestCase {
                 url.path.hasSuffix("/Maugham/Canvas/\(name)")
             }
             guard !isCanvasFile(theCanvasViewFile), !homes.isEmpty else { continue }
-            let code = CanvasSourceCensus.commentsStripped(try String(contentsOf: url, encoding: .utf8))
+            let code = CanvasSourceCensus.commentsStripped(try SourceTreeCache.text(url))
             // Another surface file may HOLD a sibling helper the view handed it,
             // as a stored `let x: T` on a line of its own (`private`,
             // `fileprivate` or `internal` allowed: the access level changes who
@@ -6017,7 +6017,7 @@ final class TripwireGrepTests: XCTestCase {
     /// the way `CanvasModel.itemIndex` did.
     func test_theCanvasLoadClosuresReadNoChangingViewValue() throws {
         let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
-        let census = try Self.canvasLoadClosureCensus(of: try String(contentsOf: url, encoding: .utf8),
+        let census = try Self.canvasLoadClosureCensus(of: try SourceTreeCache.text(url),
                                                       extensions: try canvasViewExtensionSources())
 
         // Loud on a parse that has drifted: these are the four #57 named, and
@@ -6058,12 +6058,12 @@ final class TripwireGrepTests: XCTestCase {
     /// must follow, and a split of the 2,000-line file is the likeliest way one
     /// appears. (`CanvasView.swift`'s own extensions are read from its text.)
     private func canvasViewExtensionSources() throws -> [String] {
-        guard let walker = FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)
+        guard let walker = SourceTreeCache.enumerator(at: sourceDir)
         else { return [] }
         var sources: [String] = []
         for case let url as URL in walker
         where url.pathExtension == "swift" && url.lastPathComponent != Self.theCanvasViewFile {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             if Self.codeLines(of: text).contains(where: { $0.contains("extension CanvasView") }) {
                 sources.append(text)
             }
@@ -6170,7 +6170,7 @@ final class TripwireGrepTests: XCTestCase {
         // named. Measured against c64ae740^ too (then through `rebuildLayouts`,
         // a view method), which reported exactly these two paths.
         let url = sourceDir.appendingPathComponent("Canvas/\(Self.theCanvasViewFile)")
-        let real = try String(contentsOf: url, encoding: .utf8)
+        let real = try SourceTreeCache.text(url)
         let fix = "itemIndex: model.itemIndex,"
         XCTAssertTrue(real.contains(fix),
             "Self-check: `CanvasView.layoutPass` no longer spells `\(fix)`; re-point "
@@ -6498,13 +6498,13 @@ final class TripwireGrepTests: XCTestCase {
     /// Which production files call the shared saver, comments excluded.
     private func imageSaverCallSites(in dir: URL) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var callers: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             guard url.lastPathComponent != "ImagePasteHandler.swift" else { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             if Self.codeLines(of: text).contains(where: { $0.contains(Self.imageSaverCall) }) {
                 callers.insert(url.lastPathComponent)
             }
@@ -6621,12 +6621,12 @@ final class TripwireGrepTests: XCTestCase {
 
     private func filesNaming(_ token: String, under dir: URL) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var hits: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             if Self.codeLines(of: text).contains(where: { $0.contains(token) }) {
                 hits.insert(url.lastPathComponent)
             }
@@ -6757,12 +6757,12 @@ final class TripwireGrepTests: XCTestCase {
     /// Which files under `dir` name **both** drop tokens in code.
     private func filesMountingBothDropKinds(under dir: URL) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var hits: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             if firstCodeLine(of: Self.stringDropToken, in: text) != nil,
                firstCodeLine(of: Self.providerDropToken, in: text) != nil {
                 hits.insert(url.lastPathComponent)
@@ -6826,11 +6826,11 @@ final class TripwireGrepTests: XCTestCase {
 
         for file in Self.bothDropKinds.sorted() {
             let url = try XCTUnwrap(
-                FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)?
+                SourceTreeCache.enumerator(at: sourceDir)?
                     .compactMap { $0 as? URL }
                     .first { $0.lastPathComponent == file },
                 "\(file) is named in the census but is not in the tree")
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             // Both tokens must still be there — an ordering check over a token
             // that is absent is satisfied by nothing at all.
             XCTAssertNotNil(firstCodeLine(of: Self.stringDropToken, in: text),
@@ -7023,12 +7023,12 @@ final class TripwireGrepTests: XCTestCase {
     /// `dir`, comments excluded: each `.onDrop(of:` and each `.dropDestination(for:`.
     private func dropModifiers(under dir: URL) throws -> (onDrop: [String], destination: [String]) {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return ([], [])
         }
         var onDrop: [String] = [], destination: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let source = try String(contentsOf: url, encoding: .utf8)
+            let source = try SourceTreeCache.text(url)
             for line in SourceScan.numberedCodeLines(of: source) {
                 let at = "\(url.lastPathComponent):\(line.number)"
                 if line.text.contains(".onDrop(of:") { onDrop.append(at) }
@@ -7066,8 +7066,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(try canvasFilesNaming(Self.providerRouteToken), ["CanvasView.swift"],
             "the one `.onDrop` asks for `ProviderDropRoute.acceptedTypes`")
 
-        let route = try String(contentsOf: sourceDir.appendingPathComponent("Views/ProviderDropRoute.swift"),
-                               encoding: .utf8)
+        let route = try SourceTreeCache.text(sourceDir.appendingPathComponent("Views/ProviderDropRoute.swift"))
         let accepted = try XCTUnwrap(SourceScan.codeLines(of: route)
             .first { $0.contains("static let acceptedTypes") })
         for type in [".fileURL", ".image", ".utf8PlainText"] {
@@ -7133,7 +7132,7 @@ final class TripwireGrepTests: XCTestCase {
             + "row belongs here with its reason.")
 
         let sectionsURL = sourceDir.appendingPathComponent("Views/BinderTreeSections.swift")
-        let sections = try String(contentsOf: sectionsURL, encoding: .utf8)
+        let sections = try SourceTreeCache.text(sectionsURL)
         let codeLines = SourceScan.codeLines(of: sections)
         XCTAssertEqual(codeLines.filter { $0.contains(".onDrop(of: ProviderDropRoute.acceptedTypes") }.count,
                        1, "BinderTreeSections mounts the provider route once: the Research header")
@@ -7201,12 +7200,12 @@ final class TripwireGrepTests: XCTestCase {
     /// that reads through that type.
     private func truncatedFiles(under dir: URL) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var hits: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            if SourceScan.endsInsideABlock(try String(contentsOf: url, encoding: .utf8)) {
+            if SourceScan.endsInsideABlock(try SourceTreeCache.text(url)) {
                 hits.insert(url.lastPathComponent)
             }
         }
@@ -7331,13 +7330,13 @@ final class TripwireGrepTests: XCTestCase {
         _ token: String, inFileNamed filename: String, under dir: URL
     ) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var found: Set<String> = []
         for case let url as URL in walker where url.lastPathComponent == filename {
             var member = "(top level)"
-            for line in try String(contentsOf: url, encoding: .utf8)
+            for line in try SourceTreeCache.text(url)
                 .components(separatedBy: .newlines) {
                 if let declared = Self.memberName(declaredOn: line) { member = declared }
                 guard !Self.isCommentLine(line), line.contains(token) else { continue }
@@ -7474,13 +7473,13 @@ final class TripwireGrepTests: XCTestCase {
         _ token: String, notMatching antiToken: String, under dir: URL
     ) throws -> Set<String> {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var found: Set<String> = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             var member = "(top level)"
-            for line in try String(contentsOf: url, encoding: .utf8)
+            for line in try SourceTreeCache.text(url)
                 .components(separatedBy: .newlines) {
                 if let declared = Self.memberName(declaredOn: line) { member = declared }
                 guard !Self.isCommentLine(line),
@@ -7692,7 +7691,7 @@ final class TripwireGrepTests: XCTestCase {
     /// number — and a census that points at the wrong line is worse than one
     /// that points at none.
     private static func unannotatedDropDestinations(in url: URL) throws -> [String] {
-        let lines = codeLines(of: try String(contentsOf: url, encoding: .utf8))
+        let lines = codeLines(of: try SourceTreeCache.text(url))
         var offenders: [String] = []
         for (index, line) in lines.enumerated() where line.contains(".dropDestination(") {
             let signature = line + (index + 1 < lines.count ? lines[index + 1] : "")
@@ -7738,7 +7737,7 @@ final class TripwireGrepTests: XCTestCase {
     /// is exactly the shape that shipped. Hence this.
     func test_theResearchRowNeverAcceptsADropOnItsOwnAuthority() throws {
         let url = sourceDir.appendingPathComponent("Views/ResearchRow.swift")
-        let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+        let code = Self.codeLines(of: try SourceTreeCache.text(url))
 
         XCTAssertTrue(
             code.contains { $0.contains("return onDrop(") },
@@ -7769,7 +7768,7 @@ final class TripwireGrepTests: XCTestCase {
     func test_neitherManuscriptRowAcceptsADropOnItsOwnAuthority() throws {
         for file in ["Views/BinderRow.swift", "Views/PieceRow.swift"] {
             let url = sourceDir.appendingPathComponent(file)
-            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            let code = Self.codeLines(of: try SourceTreeCache.text(url))
             XCTAssertTrue(
                 code.contains { $0.contains("return onDrop(") },
                 "\(file) must return its `onDrop` closure's answer.")
@@ -7890,14 +7889,14 @@ final class TripwireGrepTests: XCTestCase {
 
     private func treeDropRoutingCensus(in dir: URL) throws -> [String: [String]] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return [:]
         }
         var census: [String: [String]] = [:]
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
             guard name != Self.treeDropRouterDefiner else { continue }
-            let code = Self.codeLines(of: try String(contentsOf: url, encoding: .utf8))
+            let code = Self.codeLines(of: try SourceTreeCache.text(url))
             var found: Set<String> = []
             for line in code {
                 for router in Self.treeDropRouters where line.contains(router) {
@@ -8097,14 +8096,14 @@ final class TripwireGrepTests: XCTestCase {
     /// explanatory comments cannot stand in for a call.
     private func binderTreeSectionsCensus(in dir: URL) throws -> [String: [String]] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return [:]
         }
         var census: [String: [String]] = [:]
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
             guard name != Self.binderTreeSectionsDefiner else { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             var found: Set<String> = []
             for line in Self.codeLines(of: text) {
                 if line.contains(Self.binderTreeSectionsPresentations) {
@@ -8157,12 +8156,12 @@ final class TripwireGrepTests: XCTestCase {
 
     func test_noProductionSpellingOfTheDeadStripSurvives() throws {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: sourceDir) else {
             XCTFail("could not enumerate \(sourceDir)"); return
         }
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             let lines = SourceScan.codeLines(of: text)
             for name in Self.deadStripSpellings {
                 for line in lines where line.contains(name) {
@@ -8208,9 +8207,9 @@ final class TripwireGrepTests: XCTestCase {
 
         var offenders: Set<String> = []
         let walker = try XCTUnwrap(
-            fm.enumerator(at: tmp, includingPropertiesForKeys: nil))
+            SourceTreeCache.enumerator(at: tmp))
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             let lines = SourceScan.codeLines(of: text)
             for name in Self.deadStripSpellings
             where lines.contains(where: { $0.contains(name) }) {
@@ -8300,13 +8299,13 @@ final class TripwireGrepTests: XCTestCase {
     private func personaDecisionSites(in dir: URL) throws
         -> (bySite: [String: [String]], unresolved: [String], offendersByFile: [String: [String]]) {
         let walker = try XCTUnwrap(
-            FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil))
+            SourceTreeCache.enumerator(at: dir))
         var offendersByFile: [String: [String]] = [:]
         var hits: [(hit: SourceTree.Hit, value: [String])] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
             if name == "UIState.swift" { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             for line in SourceScan.numberedCodeLines(of: text) {
                 let trimmed = line.text.trimmingCharacters(in: .whitespaces)
                 guard Self.isPersonaStateWrite(trimmed) else { continue }
@@ -8404,11 +8403,11 @@ final class TripwireGrepTests: XCTestCase {
 
         var offendersByFile: [String: [String]] = [:]
         let walker = try XCTUnwrap(
-            fm.enumerator(at: tmp, includingPropertiesForKeys: nil))
+            SourceTreeCache.enumerator(at: tmp))
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
             if name == "UIState.swift" { continue }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             for line in SourceScan.codeLines(of: text) {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard Self.isPersonaStateWrite(trimmed) else { continue }
@@ -8801,14 +8800,14 @@ final class TripwireGrepTests: XCTestCase {
     ) throws -> [String] {
         let fm = FileManager.default
         var urls = extraFiles
-        if let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) {
+        if let walker = SourceTreeCache.enumerator(at: dir) {
             for case let url as URL in walker where url.pathExtension == "swift" {
                 urls.append(url)
             }
         }
         var offenders: [String] = []
         for url in urls {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             // A file whose scan ends inside an unclosed `/*` hides its tail
             // from this BAN — the quiet failure direction (see
             // `test_noScannedFileIsTruncatedByAnUnclosedBlockComment`).
@@ -9300,8 +9299,7 @@ final class TripwireGrepTests: XCTestCase {
     /// showing `Publication(...)` usage can't register as a phantom site),
     /// and reports which real sites omit `imprint:`.
     private func publicationConstructionOffenders(in dir: URL) throws -> (sites: Int, offenders: [String]) {
-        let files = FileManager.default.enumerator(
-            at: dir, includingPropertiesForKeys: nil)?
+        let files = SourceTreeCache.enumerator(at: dir)?
             .compactMap { $0 as? URL }
             .filter { $0.pathExtension == "swift" } ?? []
 
@@ -9309,7 +9307,7 @@ final class TripwireGrepTests: XCTestCase {
         var sites = 0
         let constructor = "Publication("
         for file in files {
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            guard let text = try? SourceTreeCache.text(file) else { continue }
             var search = text.startIndex..<text.endIndex
             while let found = text.range(of: constructor, range: search) {
                 search = found.upperBound..<text.endIndex
@@ -9808,10 +9806,9 @@ final class TripwireGrepTests: XCTestCase {
     private func savedByKeyOffenders(in roots: [URL]) throws -> [String] {
         var offenders: [String] = []
         for root in roots {
-            guard let walker = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for (i, line) in text.split(
                     separator: "\n", omittingEmptySubsequences: false).enumerated()
                 where Self.isForeignSavedByKeyUse(String(line), file: url.lastPathComponent) {
@@ -10108,6 +10105,10 @@ final class TripwireGrepTests: XCTestCase {
     /// one ever appears, teach the stripper about quotes rather than loosening
     /// the census.
     static func deviceArgumentsAtDocumentLoad(in text: String) -> [Int] {
+        SourceTreeCache.derived("deviceArgumentsAtDocumentLoad", of: text, deviceArgumentsAtDocumentLoadUncached)
+    }
+
+    private static func deviceArgumentsAtDocumentLoadUncached(in text: String) -> [Int] {
         let stripped = text
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
@@ -10171,10 +10172,10 @@ final class TripwireGrepTests: XCTestCase {
         var offenders: [String] = []
         let fm = FileManager.default
         for root in roots {
-            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil)
+            guard let walker = SourceTreeCache.enumerator(at: root)
             else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for line in Self.deviceArgumentsAtDocumentLoad(in: text) {
                     offenders.append("\(url.lastPathComponent):\(line)")
                 }
@@ -10282,10 +10283,10 @@ final class TripwireGrepTests: XCTestCase {
     /// without `--setting-sources`.
     private func spawnSitesMissingSettingSources(in dir: URL) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [] }
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             let spawns = text.contains("\"--output-format\"")
             let ignores = text.contains("\"--setting-sources\"")
             if spawns && !ignores { offenders.append(url.lastPathComponent) }
@@ -10406,7 +10407,7 @@ final class TripwireGrepTests: XCTestCase {
         var seen: Set<String> = []
         for root in roots {
             if let onlyFiles {
-                if let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) {
+                if let walker = SourceTreeCache.enumerator(at: root) {
                     for case let url as URL in walker
                     where url.pathExtension == "swift" && onlyFiles.contains(url.lastPathComponent) {
                         seen.insert(url.lastPathComponent)
@@ -10440,13 +10441,13 @@ final class TripwireGrepTests: XCTestCase {
         perFile: (String, Int, String) -> Bool
     ) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else {
             return []
         }
         var offenders: [String] = []
         for case let url as URL in walker where url.pathExtension == "swift" {
             let name = url.lastPathComponent
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineStr = String(line)
                 if let exclude = excludeLine, exclude(lineStr) { continue }
@@ -11006,7 +11007,7 @@ final class TripwireGrepTests: XCTestCase {
         let fm = FileManager.default
         let figureDeriver = repoRoot.appendingPathComponent(
             "Packages/MaughamCore/Sources/MaughamCore/Table/FigureDeriver.swift")
-        let text = try String(contentsOf: figureDeriver, encoding: .utf8)
+        let text = try SourceTreeCache.text(figureDeriver)
         let asks = text.split(separator: "\n").map(String.init)
             .filter { !Self.admissionExcludeLine($0) && $0.contains(Self.manuscriptClassifierPattern) }
         XCTAssertEqual(asks, [], "FigureDeriver.swift asks Deriver.appliesToManuscript")
@@ -11925,8 +11926,7 @@ final class TripwireGrepTests: XCTestCase {
     /// does when they disagree, which is the reason a stale-LOW value was never
     /// able to publish a lie — and the reason a stale-HIGH one could.
     func test_everyMacOSFloorInProjectYmlIsTheSameNumber() throws {
-        let yml = try String(contentsOf: repoRoot.appendingPathComponent("project.yml"),
-                             encoding: .utf8)
+        let yml = try SourceTreeCache.text(repoRoot.appendingPathComponent("project.yml"))
         let floors = Self.declaredMacOSFloors(in: yml)
 
         XCTAssertEqual(floors.count, 4,
@@ -12803,6 +12803,15 @@ final class TripwireGrepTests: XCTestCase {
     /// holding strings), multi-line `"""…"""`, and raw `#"…"#` of any number
     /// of `#`s. SHARED by the figure scanners and their controls.
     static func blankingCommentsAndStrings(_ text: String) -> String {
+        SourceTreeCache.derived("blankingCommentsAndStrings", of: text, blankingCommentsAndStringsUncached)
+    }
+
+    /// `Array(blankingCommentsAndStrings(text))`, built once per text.
+    static func blankedCharacters(_ text: String) -> [Character] {
+        SourceTreeCache.derived("blankedCharacters", of: text) { Array(blankingCommentsAndStrings($0)) }
+    }
+
+    private static func blankingCommentsAndStringsUncached(_ text: String) -> String {
         let c = Array(text)
         var out = c
         var i = 0
@@ -12900,7 +12909,7 @@ final class TripwireGrepTests: XCTestCase {
     /// a sync call sharing a statement with an `await` is counted — the safe
     /// direction.
     static func awaitedCallLines(of spelling: String, in text: String) -> [Int] {
-        awaitedCallLines(of: spelling, inBlanked: Array(blankingCommentsAndStrings(text)))
+        awaitedCallLines(of: spelling, inBlanked: blankedCharacters(text))
     }
 
     /// `awaitedCallLines` over text already blanked, so a file is lexed once.
@@ -12984,7 +12993,7 @@ final class TripwireGrepTests: XCTestCase {
     /// op's) and not be the tail of a longer label. `Op.figure` is a `let`,
     /// so an op's payload is set only at its construction.
     static func figureOpMintLines(in text: String) -> [Int] {
-        figureOpMintLines(inBlanked: Array(blankingCommentsAndStrings(text)))
+        figureOpMintLines(inBlanked: blankedCharacters(text))
     }
 
     /// `figureOpMintLines` over text already blanked, so a file is lexed once.
@@ -13042,23 +13051,38 @@ final class TripwireGrepTests: XCTestCase {
     static func manuscriptWriterHits(
         file: String, text: String
     ) -> [(hit: SourceTree.Hit, value: [String: Int])] {
-        var out: [(hit: SourceTree.Hit, value: [String: Int])] = []
-        let plain = manuscriptWriterPatterns.filter {
-            !figureMutatorSpellings.contains($0) && $0 != figureOpMintSpelling
+        // Three census tests count the same whole tree; a file's hits are a
+        // pure function of its name and text, so each is worked out once.
+        SourceTreeCache.derived("manuscriptWriterHits:\(file)", of: text) {
+            manuscriptWriterHitsUncached(file: file, text: $0)
         }
-        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let lineStr = String(line)
-            if manuscriptWriterExcludeLine(lineStr) { continue }
-            var spellings: [String: Int] = [:]
-            for spelling in plain where lineStr.contains(spelling) { spellings[spelling, default: 0] += 1 }
-            if !spellings.isEmpty { out.append((SourceTree.Hit(file: file, line: i + 1), spellings)) }
+    }
+
+    private static func manuscriptWriterHitsUncached(
+        file: String, text: String
+    ) -> [(hit: SourceTree.Hit, value: [String: Int])] {
+        var out: [(hit: SourceTree.Hit, value: [String: Int])] = []
+        // Only a spelling the file names anywhere can be on one of its lines,
+        // so the per-line scan asks for those alone (and a file naming none
+        // skips the line split).
+        let plain = manuscriptWriterPatterns.filter {
+            !figureMutatorSpellings.contains($0) && $0 != figureOpMintSpelling && text.contains($0)
+        }
+        if !plain.isEmpty {
+            for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let lineStr = String(line)
+                if manuscriptWriterExcludeLine(lineStr) { continue }
+                var spellings: [String: Int] = [:]
+                for spelling in plain where lineStr.contains(spelling) { spellings[spelling, default: 0] += 1 }
+                if !spellings.isEmpty { out.append((SourceTree.Hit(file: file, line: i + 1), spellings)) }
+            }
         }
         // The figure scanners lex the file once, and only a file that could
         // hold a figure writer at all.
         let mutators = figureMutatorSpellings.sorted().filter { text.contains($0) }
         let mayMint = text.contains("figure:")
         guard !mutators.isEmpty || mayMint else { return out }
-        let blanked = Array(blankingCommentsAndStrings(text))
+        let blanked = blankedCharacters(text)
         for spelling in mutators {
             for line in awaitedCallLines(of: spelling, inBlanked: blanked) {
                 out.append((SourceTree.Hit(file: file, line: line), [spelling: 1]))
@@ -13363,10 +13387,10 @@ final class TripwireGrepTests: XCTestCase {
     ) throws -> [(hit: SourceTree.Hit, value: [String: Int])] {
         var counts: [(hit: SourceTree.Hit, value: [String: Int])] = []
         for root in roots {
-            guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+            guard let walker = SourceTreeCache.enumerator(at: root)
             else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 counts += Self.manuscriptWriterHits(file: url.lastPathComponent, text: text)
             }
         }
@@ -13948,7 +13972,7 @@ final class TripwireGrepTests: XCTestCase {
 
         // The door is INSIDE the one append, before anything is written.
         let file = sourceDir.appendingPathComponent("Stores/ProjectStore+Tasks.swift")
-        let text = try String(contentsOf: file, encoding: .utf8)
+        let text = try SourceTreeCache.text(file)
         let body = try XCTUnwrap(
             text.components(separatedBy: "func appendProjectTaskOp(").dropFirst().first)
         let door = try XCTUnwrap(body.range(of: "projectTaskRefusal()"),
@@ -14152,10 +14176,9 @@ extension TripwireGrepTests {
         var files: [(name: String, text: String)] = []
         for root in roots {
             let dir = here.appendingPathComponent(root, isDirectory: true)
-            guard let walker = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: dir) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                guard let text = try? SourceTreeCache.text(url) else { continue }
                 files.append((url.lastPathComponent, text))
             }
         }
@@ -14230,8 +14253,7 @@ extension TripwireGrepTests {
 
     func test_theEditorsCheckboxClickAsksTheMembraneFirst() throws {
         let editorDir = sourceDir.appendingPathComponent("Editor")
-        let surface = try String(contentsOf: editorDir.appendingPathComponent("EditorSurface.swift"),
-                                 encoding: .utf8)
+        let surface = try SourceTreeCache.text(editorDir.appendingPathComponent("EditorSurface.swift"))
         let body = try XCTUnwrap(Self.mouseDownBody(in: surface), "mouseDown not found")
         XCTAssertTrue(body.contains("checkboxToggleHandler"), "the click still reaches the handler")
         XCTAssertNil(Self.checkboxGateProblem(inMouseDownBody: body))
@@ -14243,9 +14265,9 @@ extension TripwireGrepTests {
         let fm = FileManager.default
         var offenders: [String] = []
         for dir in [editorDir, sourceDir.appendingPathComponent("Views")] {
-            for case let url as URL in fm.enumerator(at: dir, includingPropertiesForKeys: nil)!
+            for case let url as URL in SourceTreeCache.enumerator(at: dir)!
             where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
                     let t = line.trimmingCharacters(in: .whitespaces)
                     guard t.contains("checkboxToggleHandler"), !t.hasPrefix("//"), !t.hasPrefix("///") else { continue }
@@ -14327,12 +14349,11 @@ extension TripwireGrepTests {
         var offenders: [String] = []
         var used = Set<Int>()
         for dir in dirs {
-            guard let walker = FileManager.default.enumerator(
-                at: dir, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: dir) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 let name = url.lastPathComponent
                 if name == "TestTemp.swift" { continue }
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false)
                     .enumerated() {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -14420,7 +14441,7 @@ extension TripwireGrepTests {
             let copies = try [
                 "MaughamTests/TestSupport/", "MaughamPhoneTests/",
                 "Packages/MaughamCore/Tests/MaughamCoreTests/",
-            ].map { try String(contentsOf: repoRoot.appendingPathComponent($0 + name), encoding: .utf8) }
+            ].map { try SourceTreeCache.text(repoRoot.appendingPathComponent($0 + name)) }
             XCTAssertEqual(Set(copies).count, 1, "the three \(name) copies have drifted")
         }
     }
@@ -14806,11 +14827,11 @@ extension TripwireGrepTests {
 
         let fm = FileManager.default
         for file in Self.claudeLaunchers {
-            guard let url = fm.enumerator(at: sourceDir, includingPropertiesForKeys: nil)?
+            guard let url = SourceTreeCache.enumerator(at: sourceDir)?
                 .compactMap({ $0 as? URL }).first(where: { $0.lastPathComponent == file }) else {
                 XCTFail("\(file) is listed as a claude launcher but was not found"); continue
             }
-            let text = try String(contentsOf: url, encoding: .utf8)
+            let text = try SourceTreeCache.text(url)
             XCTAssertTrue(text.contains("\"--tools\", \"\""),
                           "\(file) launches claude without `--tools \"\"`")
         }
@@ -14880,13 +14901,12 @@ extension TripwireGrepTests {
     private func manifestEncoderOffenders(in roots: [URL]) throws -> [String] {
         var offenders: [String] = []
         for root in roots {
-            guard let walker = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
                 let name = url.lastPathComponent
                 let allowance = Self.manifestEncoderAllowed[name]
                 if let allowance, allowance.lines == nil { continue }
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 let namesManifest = text.contains("ProjectManifest")
                 for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -15170,9 +15190,9 @@ extension TripwireGrepTests {
         var offenders = unresolved
         let fm = FileManager.default
         for root in roots {
-            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for hit in Self.syncedPathJoins(in: text)
                 where !allowance.allows(file: url.lastPathComponent, line: hit.line) {
                     offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
@@ -15346,9 +15366,9 @@ extension TripwireGrepTests {
         var offenders: [String] = []
         let fm = FileManager.default
         for root in roots {
-            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
             for case let url as URL in walker where url.pathExtension == "swift" {
-                let text = try String(contentsOf: url, encoding: .utf8)
+                let text = try SourceTreeCache.text(url)
                 for hit in Self.readFormAtAChange(in: text) {
                     offenders.append("\(url.lastPathComponent):\(hit.line): \(hit.text)")
                 }
@@ -15392,7 +15412,7 @@ extension TripwireGrepTests {
             let source = try store.resolvedProjectPath(src)
             let dest = try store.resolvedProjectPathToChange(dst)
             try fm.copyItem(at: source, to: dest)
-            let body = try String(contentsOf: note, encoding: .utf8)
+            let body = try SourceTreeCache.text(note)
             try body.write(to: try store.resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
         }
         """#.write(to: tmp.appendingPathComponent("Rogue.swift"), atomically: true, encoding: .utf8)
@@ -15429,14 +15449,14 @@ extension TripwireGrepTests {
 
     static func editorDecorationOffenders(in editorDir: URL) throws -> [String] {
         let fm = FileManager.default
-        guard let walker = fm.enumerator(at: editorDir, includingPropertiesForKeys: nil) else { return [] }
+        guard let walker = SourceTreeCache.enumerator(at: editorDir) else { return [] }
         let files = (walker.allObjects as? [URL] ?? [])
             .filter { $0.pathExtension == "swift" }
             .sorted { $0.path < $1.path }
         var out: [String] = []
         for file in files {
             let name = file.lastPathComponent
-            let text = try String(contentsOf: file, encoding: .utf8)
+            let text = try SourceTreeCache.text(file)
             let raw = text.components(separatedBy: "\n")
             let blanked = blankingCommentsAndStrings(text).components(separatedBy: "\n")
             var currentFunc = ""
@@ -15516,7 +15536,7 @@ extension TripwireGrepTests {
         try "private static func hasWords(_ t: String) -> Bool { t.unicodeScalars.contains { $0.value != 0xFFFC } }\n"
             .write(to: dir.appendingPathComponent("FigureIngest.swift"), atomically: true, encoding: .utf8)
         let ingest = dir.appendingPathComponent("FigureIngest.swift")
-        try ((try String(contentsOf: ingest, encoding: .utf8))
+        try ((try SourceTreeCache.text(ingest))
             + "private static func other() -> UInt32 { 0xFFFC }\n")
             .write(to: ingest, atomically: true, encoding: .utf8)
         try #"""
@@ -15754,9 +15774,9 @@ extension TripwireGrepTests {
 
     func test_everyResearchFileSaveAsksTheResearchRootGuard() throws {
         var files: [(name: String, text: String)] = []
-        for case let url as URL in FileManager.default.enumerator(at: sourceDir, includingPropertiesForKeys: nil)!
+        for case let url as URL in SourceTreeCache.enumerator(at: sourceDir)!
         where url.pathExtension == "swift" {
-            files.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
+            files.append((url.lastPathComponent, try SourceTreeCache.text(url)))
         }
         let problems = Self.researchFileSaveProblems(
             Self.performFileSaveSites(in: files), named: Self.researchFileSaveFunctions,
