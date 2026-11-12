@@ -70,6 +70,11 @@ enum SourceScan {
 
     private static func scan(_ text: String)
         -> (lines: [(number: Int, text: String)], endedInsideBlock: Bool) {
+        SourceTreeCache.derived("SourceScan.scan", of: text, scanUncached)
+    }
+
+    private static func scanUncached(_ text: String)
+        -> (lines: [(number: Int, text: String)], endedInsideBlock: Bool) {
         var out: [(number: Int, text: String)] = []
         var inBlock = false
         for (index, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
