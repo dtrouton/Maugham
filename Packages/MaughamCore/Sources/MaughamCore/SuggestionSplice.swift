@@ -193,14 +193,22 @@ public enum SuggestionSplice {
     ///   RULING-26/57 re-accept, an earlier guarded accept) → live;
     /// - a text-carrying `claudeAcceptRevert` or `claudeReject` (the writer's
     ///   Revert, the RULING-33 repair) → not live;
-    /// - a status-only `claudeAcceptRevert`, `claudeArchive` or
-    ///   `annotationReopen` that Maugham's own travel wrote
-    ///   (`isTravelStatusLine`) → not live: the travel moved the text with a
-    ///   restore op, which is not a lifecycle line;
+    /// - a status-only `claudeAcceptRevert` or `annotationReopen` that
+    ///   Maugham's own travel wrote (`isTravelStatusLine`) → not live: the
+    ///   travel moved the text with a restore op, which is not a lifecycle
+    ///   line;
     /// - every other line leaves the answer as it was — the writer's own
     ///   status-only Revert of a hand-typed accept (their text still
     ///   stands), a peer's archive, stet or reject, the pane's Reopen (the
-    ///   race the guard exists for).
+    ///   race the guard exists for), and ANY archive, a travel's included
+    ///   (fix round 4). A travel's archive means the paragraph is gone, and
+    ///   nothing can be accepted while it is; what the gate says once the
+    ///   paragraph is back is decided by the line that brings the note back:
+    ///   a travel's `claudeAccept` (live), a travel's status-only revert or
+    ///   reopen (not live: the return journey to before the accept), or the
+    ///   unstamped reopen a rewind's ⌘Z writes for a note that was open
+    ///   before the rewind (unchanged, which is right: that ⌘Z restores the
+    ///   pre-rewind text).
     /// A note never accepted is never live, so its first Accept splices as
     /// written.
     public static func spliceLive(
@@ -217,7 +225,7 @@ public enum SuggestionSplice {
             case .claudeAcceptRevert where !op.changes.isEmpty,
                  .claudeReject where !op.changes.isEmpty:
                 live = false
-            case .claudeAcceptRevert, .claudeArchive, .annotationReopen:
+            case .claudeAcceptRevert, .annotationReopen:
                 if isTravelStatusLine(op) { live = false }
             default:
                 break
@@ -232,7 +240,8 @@ public enum SuggestionSplice {
     /// `.undoRewind` (`Document+Rewind` steps 8, 8b, 9;
     /// `Document+RewindUndo`); a checkpoint revert's are stamped with the
     /// checkpoint (`Restore.travelStatusLines`' `sourceCheckpoint`). No line
-    /// the writer's own hand writes carries either.
+    /// the writer's own hand writes carries either. (`spliceLive` asks this
+    /// of reverts and reopens only: a travel's archive is neutral there.)
     public static func isTravelStatusLine(_ op: Op) -> Bool {
         guard op.changes.isEmpty else { return false }
         let source = op.provenance?.synthesisSource

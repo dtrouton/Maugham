@@ -194,6 +194,9 @@ extension Document {
         //      anyway). The sweep itself can't cover this: it only archives
         //      OPEN annotations, and this one derives `.accepted`.
         var reopenedIds: [String] = []
+        // The accepted notes this step archives (paragraph removed): the
+        // undo returns these accepted, where a sweep-archived note reopens.
+        var strandedArchivedIds: [String] = []
         var strandedAcceptResolved = false
         //    A deleted (withdrawn) note still gets its op, but is not
         //    reported: the writer cannot see it, and the preview does not
@@ -224,6 +227,7 @@ extension Document {
                 reopenedIds.append(src)
             } else {
                 archivedIds.append(resolutionOp.opId)
+                strandedArchivedIds.append(src)
             }
         }
         // 8b. Step 8's mirror (RULING-57; RULING-26 for travel's own
@@ -362,6 +366,7 @@ extension Document {
             travelReopenedAnnotationIds: travelReopenedIds,
             travelReacceptedAnnotationIds: travelReacceptedIds,
             returnedAcceptAnnotationIds: returnedIds,
+            strandedArchivedAnnotationIds: strandedArchivedIds,
             targetResolution: resolution)
     }
 

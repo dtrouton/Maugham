@@ -313,6 +313,32 @@ final class SuggestionSpliceTests: XCTestCase {
             line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")), "text-carrying")
     }
 
+    /// Fix round 4: a travel-written ARCHIVE is neutral. It means the
+    /// paragraph is gone; what the gate says when the paragraph comes back is
+    /// decided by the line that brings the note back.
+    func test_spliceLive_aTravelsArchiveIsNeutral() {
+        let accept = line("01A", .claudeAccept, prior: "A.", next: "B.")
+        for (name, archive) in [
+            ("rewind", stamped("01B", .claudeArchive, source: .rewind)),
+            ("undo-rewind", stamped("01B", .claudeArchive, source: .undoRewind)),
+            ("checkpoint", stamped("01B", .claudeArchive, checkpoint: "ckpt")),
+        ] {
+            XCTAssertTrue(live([accept, archive]), "\(name): the archive alone leaves it live")
+            XCTAssertFalse(live([accept, archive, stamped("01C", .annotationReopen, source: .rewind)]),
+                           "\(name): the return journey's travel reopen closes it")
+            XCTAssertFalse(live([accept, archive, stamped("01C", .claudeAcceptRevert, source: .rewind)]),
+                           "\(name): a travel's status-only revert closes it")
+            XCTAssertTrue(live([accept, archive, line("01C", .annotationReopen)]),
+                          "\(name): an unstamped reopen (the rewind's ⌘Z, the pane) leaves it live")
+            XCTAssertTrue(live([accept, archive, stamped("01C", .claudeAccept, source: .undoRewind)]),
+                          "\(name): the rewind's ⌘Z returning it accepted")
+            XCTAssertFalse(live([archive]), "\(name): never accepted, never live")
+            XCTAssertFalse(live([accept, line("01A5", .claudeAcceptRevert, prior: "B.", next: "A."), archive,
+                                 line("01C", .annotationReopen)]),
+                           "\(name): a note not live before the archive is not live after it")
+        }
+    }
+
     /// The gate reads honoured lifecycle lines only: a reopen the deriver
     /// does not honour never happened as far as the fold goes.
     func test_spliceLive_readsHonouredLinesOnly() {

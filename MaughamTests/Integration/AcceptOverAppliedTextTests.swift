@@ -583,6 +583,179 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - ⌘Z of a rewind that removed the paragraph (fix round 4)
+
+    private static let darkOriginal = "The night was dark and cold."
+    private static let darkApplied = "The night was very dark and cold."
+    private static let darkEdited = "The night was very dark and bitter cold."
+
+    /// "Intro." plus an inserted paragraph carrying the "dark" → "very dark"
+    /// span suggestion (a replacement that contains its quote), ACCEPTED with
+    /// a reply. `beforeParagraph` is the log's tip before the paragraph
+    /// existed, so a rewind to it removes the paragraph.
+    private func acceptedOnAnInsertedParagraph(
+        _ prefix: String
+    ) async throws -> (Raced, beforeParagraph: String) {
+        let (dir, docURL) = try makeTestProject(prefix: prefix, initialMd: "Intro.\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        try await doc.flushBurstNow()
+        let log0 = try await doc.opLog()
+        let beforeParagraph = try XCTUnwrap(log0.last?.opId)
+        let pid = doc.insertParagraph(after: doc.sequence.first, text: Self.darkOriginal)
+        try await doc.flushBurstNow()
+        let id = try await doc.addAnnotation(
+            kind: .suggestedChange, paragraphId: pid, body: "b", suggestedText: "very dark",
+            span: Self.darkSpan)
+        try await doc.acceptAnnotation(id: id, userResponse: "yes, darker")
+        try await doc.flushBurstNow()
+        XCTAssertEqual(doc.paragraph(id: pid), Self.darkApplied, "premise: spliced once")
+        return (Raced(dir: dir, doc: doc, pid: pid, id: id), beforeParagraph)
+    }
+
+    private func lastLine(_ r: Raced) throws -> Op {
+        try XCTUnwrap(r.doc.opLogSnapshot.last { $0.provenance?.sourceAnnotationId == r.id })
+    }
+
+    /// The undoable rewind that removes the paragraph: step 8 archives the
+    /// stranded accept, status-only and `.rewind`-stamped.
+    private func rewindAwayTheParagraph(_ r: Raced, to target: String, _ um: UndoManager) async throws {
+        _ = try await r.doc.restoreToOpUndoable(opId: target, undoManager: um)
+        XCTAssertNil(r.doc.paragraph(id: r.pid), "premise: the rewind removed the paragraph")
+        XCTAssertEqual(status(r.doc, r.id), .archived, "premise: the rewind archived the note")
+        let archive = try lastLine(r)
+        XCTAssertEqual(archive.kind, .claudeArchive, "premise")
+        XCTAssertEqual(archive.changes, [], "premise: status only")
+        XCTAssertEqual(archive.provenance?.synthesisSource, .rewind, "premise: travel-stamped")
+    }
+
+    /// ⌘Z of that rewind: the text is back with its one splice and the note
+    /// is ACCEPTED again, by a status-only `.undoRewind` accept carrying the
+    /// writer's original reply (ruling (a)).
+    private func assertUndoReturnedItAccepted(_ r: Raced, _ msg: String) throws {
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.darkApplied, "\(msg): the text holds one splice")
+        XCTAssertEqual(status(r.doc, r.id), .accepted, "\(msg): accepted, not open over its applied text")
+        let line = try lastLine(r)
+        XCTAssertEqual(line.kind, .claudeAccept, "\(msg)")
+        XCTAssertEqual(line.changes, [], "\(msg): status only")
+        XCTAssertEqual(line.provenance?.synthesisSource, .undoRewind, "\(msg)")
+        XCTAssertEqual(line.provenance?.userResponse, "yes, darker", "\(msg): the original reply")
+    }
+
+    func test_undoingARewindThatRemovedTheParagraph_returnsTheNoteAccepted_andRevertReachesTheOriginal() async throws {
+        let (r, beforeParagraph) = try await acceptedOnAnInsertedParagraph("AOAT-undo-rewind")
+        let um = UndoManager()
+        try await rewindAwayTheParagraph(r, to: beforeParagraph, um)
+
+        um.undo(); await r.doc.awaitPendingUndoWork()
+
+        try assertUndoReturnedItAccepted(r, "⌘Z")
+        XCTAssertEqual(accepts(r.doc, r.id).count, 2)
+        try await r.doc.revertAcceptedAnnotation(id: r.id)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.darkOriginal,
+                       "Revert reads the newest changes-carrying accept and reaches the original")
+        XCTAssertEqual(status(r.doc, r.id), .open)
+        let revert = try lastLine(r)
+        XCTAssertEqual(revert.kind, .claudeAcceptRevert)
+        XCTAssertEqual(revert.changes.first?.next, Self.darkOriginal)
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// Same start, then any route that leaves the note open over its splice
+    /// (a peer's newer archive and the pane's Reopen), an edit elsewhere in
+    /// the paragraph, and Accept: status-only, never "very very dark".
+    func test_afterUndoingTheRewind_aNoteReopenedOverItsSplice_isNotAppliedTwice() async throws {
+        let (r, beforeParagraph) = try await acceptedOnAnInsertedParagraph("AOAT-undo-rewind-reopen")
+        let um = UndoManager()
+        try await rewindAwayTheParagraph(r, to: beforeParagraph, um)
+        um.undo(); await r.doc.awaitPendingUndoWork()
+        try assertUndoReturnedItAccepted(r, "premise, ⌘Z")
+        try await OpLogStore(projectURL: r.dir).append(peerOp(.claudeArchive, for: r.id, doc: r.doc))
+        try await r.doc.handleExternalLogChange()
+        try await r.doc.reopenAnnotation(id: r.id)
+        XCTAssertEqual(status(r.doc, r.id), .open, "premise: open over its splice")
+        r.doc.setParagraph(id: r.pid, text: Self.darkEdited)
+        try await r.doc.flushBurstNow()
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.darkEdited)
+        XCTAssertEqual(occurrences("very dark", in: r.doc.paragraph(id: r.pid)), 1)
+        XCTAssertEqual(occurrences("very very", in: r.doc.paragraph(id: r.pid)), 0)
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        XCTAssertEqual(try lastLine(r).kind, .claudeAccept)
+        XCTAssertEqual(try lastLine(r).changes, [], "status only")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// The ⌘Z variant of the race state: the note is OPEN over its splice
+    /// (peer archive, pane Reopen) when the rewind removes the paragraph, so
+    /// the step-7 SWEEP archives it and ⌘Z reopens it, unstamped. The travel
+    /// archive is neutral in the fold (ruling (b)), so the gate still says
+    /// the splice is live.
+    func test_theRaceStateThroughAnUndoneRewind_isNotAppliedTwice() async throws {
+        let (r, beforeParagraph) = try await acceptedOnAnInsertedParagraph("AOAT-undo-rewind-race")
+        try await OpLogStore(projectURL: r.dir).append(peerOp(.claudeArchive, for: r.id, doc: r.doc))
+        try await r.doc.handleExternalLogChange()
+        try await r.doc.reopenAnnotation(id: r.id)
+        XCTAssertEqual(status(r.doc, r.id), .open, "premise: open over its splice")
+        let um = UndoManager()
+        try await rewindAwayTheParagraph(r, to: beforeParagraph, um)
+
+        um.undo(); await r.doc.awaitPendingUndoWork()
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.darkApplied, "⌘Z brought the text back")
+        XCTAssertEqual(status(r.doc, r.id), .open, "⌘Z reopened what the sweep archived: it was open")
+        let reopen = try lastLine(r)
+        XCTAssertEqual(reopen.kind, .annotationReopen)
+        XCTAssertNil(reopen.provenance?.synthesisSource, "premise: the undo's reopen is unstamped")
+        r.doc.setParagraph(id: r.pid, text: Self.darkEdited)
+        try await r.doc.flushBurstNow()
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.darkEdited)
+        XCTAssertEqual(occurrences("very dark", in: r.doc.paragraph(id: r.pid)), 1)
+        XCTAssertEqual(occurrences("very very", in: r.doc.paragraph(id: r.pid)), 0)
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        XCTAssertEqual(try lastLine(r).kind, .claudeAccept)
+        XCTAssertEqual(try lastLine(r).changes, [], "status only")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// Symmetry: ⇧⌘Z re-runs the rewind, which finds the note accepted and
+    /// archives it again (step 8); a second ⌘Z returns it accepted again.
+    func test_redoOfTheUndoneRewind_archivesAgain_andASecondUndoReturnsItAccepted() async throws {
+        let (r, beforeParagraph) = try await acceptedOnAnInsertedParagraph("AOAT-undo-rewind-redo")
+        let um = UndoManager()
+        try await rewindAwayTheParagraph(r, to: beforeParagraph, um)
+        um.undo(); await r.doc.awaitPendingUndoWork()
+        try assertUndoReturnedItAccepted(r, "premise, ⌘Z")
+
+        um.redo(); await r.doc.awaitPendingUndoWork()
+
+        XCTAssertNil(r.doc.paragraph(id: r.pid), "⇧⌘Z removed the paragraph again")
+        XCTAssertEqual(status(r.doc, r.id), .archived, "⇧⌘Z archived the note again")
+        let archive = try lastLine(r)
+        XCTAssertEqual(archive.kind, .claudeArchive)
+        XCTAssertEqual(archive.changes, [])
+        XCTAssertEqual(archive.provenance?.synthesisSource, .rewind)
+
+        um.undo(); await r.doc.awaitPendingUndoWork()
+
+        try assertUndoReturnedItAccepted(r, "the second ⌘Z")
+        XCTAssertEqual(accepts(r.doc, r.id).count, 3, "one text accept, one status-only per ⌘Z")
+        XCTAssertEqual(accepts(r.doc, r.id).filter { !$0.changes.isEmpty }.count, 1)
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
     // MARK: - Hand-typed
 
     /// The writer typed the suggestion themselves: the computed paragraph is

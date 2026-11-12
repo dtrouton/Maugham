@@ -74,6 +74,13 @@ public struct RewindRestoreResult: Equatable, Sendable {
     /// `travelReacceptedAnnotationIds`, and the undo reopens them. A deleted
     /// note gets its op but is not listed.
     public let returnedAcceptAnnotationIds: [String]
+    /// Creation ids of ACCEPTED suggestions step 8 archived because the
+    /// rewind removed their paragraph (the stranded-accept archive; each
+    /// one's archive op is also in `archivedAnnotationOpIds`). The rewind's
+    /// ⌘Z returns these to `.accepted`, not to open: its compensating
+    /// restore puts the paragraph back with the suggestion in it. A deleted
+    /// note gets its op but is not listed.
+    public let strandedArchivedAnnotationIds: [String]
     /// See `TargetResolution`.
     public let targetResolution: TargetResolution
 
@@ -88,6 +95,7 @@ public struct RewindRestoreResult: Equatable, Sendable {
         travelReopenedAnnotationIds: [String] = [],
         travelReacceptedAnnotationIds: [String] = [],
         returnedAcceptAnnotationIds: [String] = [],
+        strandedArchivedAnnotationIds: [String] = [],
         targetResolution: TargetResolution = .exact
     ) {
         self.restoreOp = restoreOp
@@ -100,6 +108,7 @@ public struct RewindRestoreResult: Equatable, Sendable {
         self.travelReopenedAnnotationIds = travelReopenedAnnotationIds
         self.travelReacceptedAnnotationIds = travelReacceptedAnnotationIds
         self.returnedAcceptAnnotationIds = returnedAcceptAnnotationIds
+        self.strandedArchivedAnnotationIds = strandedArchivedAnnotationIds
         self.targetResolution = targetResolution
     }
 }

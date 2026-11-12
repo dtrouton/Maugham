@@ -7,8 +7,11 @@ extension Document {
     /// WHOLE rewind: text back to the pre-restore tip, each D3-reopened accept
     /// re-accepted (status-only, preserving each original `userResponse`),
     /// each step-8b re-accept reopened, each step-9 re-accept re-archived,
-    /// and each sweep-archived annotation reopened. Redo re-runs `restoreToOp` from
-    /// scratch so it can never disagree with a fresh rewind.
+    /// each sweep-archived annotation reopened, and each ACCEPTED suggestion
+    /// step 8 archived with its paragraph returned to accepted (status-only,
+    /// its original `userResponse`). Redo re-runs `restoreToOp` from
+    /// scratch so it can never disagree with a fresh rewind: it finds that
+    /// suggestion accepted and archives it again.
     ///
     /// Choreography follows the manuscript-text-apply pattern (accept /
     /// InlineToggleUndo): a restore replaces the editor buffer, which makes any
@@ -133,6 +136,9 @@ extension Document {
         let sweepArchivedAnnotationIds: [String] = result.archivedAnnotationOpIds.compactMap { aid in
             _opLogMirror.first(where: { $0.opId == aid })?.provenance?.sourceAnnotationId
         }
+        // Of those, the ones that were ACCEPTED when step 8 archived them
+        // (the stranded-accept archive): the undo returns these accepted.
+        let strandedArchived = Set(result.strandedArchivedAnnotationIds)
 
         OpUndoRegistrar.register(
             undoManager, actionName: "Restore from History", target: self,
@@ -244,8 +250,27 @@ extension Document {
                         documentLog.error("restoreToOpUndoable undo: re-archive failed for \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
-                // Reopen each sweep-archived annotation (its paragraph is back).
+                // Return each archived annotation to the status the rewind
+                // took it from (its paragraph is back). A note that was
+                // ACCEPTED (step 8's stranded-accept archive) is accepted
+                // again, status-only — the restore above put its text back —
+                // with its original reply, exactly as `reopened` above: left
+                // open it would sit over its own applied text, and a later
+                // Accept could splice it a second time. A note that was OPEN
+                // (the step-7 sweep) is reopened.
                 for src in sweepArchivedAnnotationIds {
+                    if strandedArchived.contains(src) {
+                        do {
+                            try await doc.appendLifecycleOp(
+                                kind: .claudeAccept,
+                                sourceAnnotationId: src,
+                                userResponse: acceptResponses[src] ?? nil,
+                                synthesisSource: .undoRewind)
+                        } catch {
+                            documentLog.error("restoreToOpUndoable undo: status-only re-accept failed for archived \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        }
+                        continue
+                    }
                     do { try await doc.reopenAnnotation(id: src) }
                     catch {
                         documentLog.error("restoreToOpUndoable undo: reopen failed for sweep-archived \(src, privacy: .public): \(error.localizedDescription, privacy: .public)")
