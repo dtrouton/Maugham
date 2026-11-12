@@ -463,4 +463,115 @@ final class FigureVisitTests: XCTestCase {
         XCTAssertEqual(host.state.table[b2], number(42))
         await store.closeFigure(figureId: host.figureId)
     }
+
+    // MARK: - Fix round 1: a visit checks the cell before a status-only line
+
+    /// A guarded accept on B2 (the writer typed 42 over an old→42
+    /// suggestion) recorded in a visit; answers the note, B2 and the visit.
+    private func guardedAcceptVisit(
+        _ host: FigureDocument
+    ) async throws -> (id: String, b2: CellKey, visit: FigureVisit) {
+        let b2 = key(host, 1, 1)
+        try await host.setCell(text("old"), at: b2)
+        let id = try await suggest(number(42), at: b2, on: host)
+        try await host.setCell(number(42), at: b2)
+        XCTAssertTrue(host.beginVisit(undoManager: grid))
+        try await host.acceptSuggestion(id: id, confirmChanged: false, undoManager: grid)
+        XCTAssertNil(try ops(of: host.figureId).last?.figure, "premise: the accept wrote no cell")
+        return (id, b2, try XCTUnwrap(host.endVisit()))
+    }
+
+    /// **The visit's ⇧⌘Z of a guarded accept declines once the cell changed**
+    /// (Important 1): the direct ⇧⌘Z does, so the visit's does too — never
+    /// a suggestion accepted over a cell that does not hold its value.
+    func test_aVisitsRedoOfAGuardedAccept_declinesOnceTheCellChanged() async throws {
+        let (store, host) = try await openTable()
+        let (id, b2, visit) = try await guardedAcceptVisit(host)
+        let undone = await host.undoVisit(visit)
+        XCTAssertTrue(undone, "premise: undone")
+        try await host.setCell(number(7), at: b2)
+        let count = try ops(of: host.figureId).count
+
+        var redone = true
+        let said = await notices { redone = await host.redoVisit(visit) }
+
+        XCTAssertFalse(redone)
+        XCTAssertEqual(said, [FigureVisit.changedSentence(redo: true)])
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        XCTAssertEqual(status(id, in: host), .open)
+        XCTAssertEqual(host.state.table[b2], number(7))
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **…and once its row is gone** (RULING-5: an orphaned suggestion is
+    /// never accepted).
+    func test_aVisitsRedoOfAGuardedAccept_declinesOnceItsRowIsGone() async throws {
+        let (store, host) = try await openTable()
+        let (id, b2, visit) = try await guardedAcceptVisit(host)
+        let undone = await host.undoVisit(visit)
+        XCTAssertTrue(undone, "premise: undone")
+        try await host.deleteRow(b2.row)
+        let count = try ops(of: host.figureId).count
+
+        let redone = await host.redoVisit(visit)
+
+        XCTAssertFalse(redone)
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        XCTAssertEqual(status(id, in: host), .open)
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **The visit's ⌘Z of a guarded accept checks the cell too**, as the
+    /// direct ⌘Z does: changed since, it declines whole.
+    func test_aVisitsUndoOfAGuardedAccept_declinesOnceTheCellChanged() async throws {
+        let (store, host) = try await openTable()
+        let (id, b2, visit) = try await guardedAcceptVisit(host)
+        try await host.setCell(number(7), at: b2)
+        let count = try ops(of: host.figureId).count
+
+        var undone = true
+        let said = await notices { undone = await host.undoVisit(visit) }
+
+        XCTAssertFalse(undone)
+        XCTAssertEqual(said, [FigureVisit.changedSentence(redo: false)])
+        XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
+        XCTAssertEqual(status(id, in: host), .accepted)
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **A mixed visit** — an ordinary cell edit, then a guarded accept: its
+    /// ⌘Z puts the cell back and reopens the note, its ⇧⌘Z writes the cell
+    /// and accepts again, and each renders the figure once — the redo's run
+    /// too, whose last line is the status-only accept.
+    func test_aMixedVisit_undoesAndRedoesTheCellAndTheNote_renderingOnceEach() async throws {
+        let (store, host) = try await openTable()
+        let a1 = key(host, 0, 0), b2 = key(host, 1, 1)
+        try await host.setCell(text("old"), at: b2)
+        let id = try await suggest(number(42), at: b2, on: host)
+        try await host.setCell(number(42), at: b2)
+        XCTAssertTrue(host.beginVisit(undoManager: grid))
+        try await host.setCell(text("a"), at: a1, undoManager: grid)
+        try await host.acceptSuggestion(id: id, confirmChanged: false, undoManager: grid)
+        let visit = try XCTUnwrap(host.endVisit())
+        XCTAssertEqual(visit.ops.map(\.kind), [.figureCellSet, .claudeAccept])
+        XCTAssertEqual(visit.redo.last?.isStatusOnly, true, "premise: the redo's last line is status only")
+
+        renders = []
+        let undone = await host.undoVisit(visit)
+        XCTAssertTrue(undone)
+        XCTAssertNil(host.state.table[a1])
+        XCTAssertEqual(host.state.table[b2], number(42))
+        XCTAssertEqual(status(id, in: host), .open)
+        XCTAssertEqual(renders, [host.figureId], "one render")
+
+        renders = []
+        let redone = await host.redoVisit(visit)
+        XCTAssertTrue(redone)
+        XCTAssertEqual(host.state.table[a1], text("a"))
+        XCTAssertEqual(host.state.table[b2], number(42))
+        XCTAssertEqual(status(id, in: host), .accepted)
+        XCTAssertNil(try ops(of: host.figureId).last?.figure, "the redo's accept writes no cell")
+        XCTAssertEqual(renders, [host.figureId], "one render, though the last line is status only")
+        await store.closeFigure(figureId: host.figureId)
+    }
 }

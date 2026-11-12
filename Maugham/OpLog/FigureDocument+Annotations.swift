@@ -16,8 +16,9 @@ public enum FigureNoteError: LocalizedError, Equatable {
     case withdrawn
     /// Accept takes a suggested change anchored to one cell.
     case notACellSuggestion
-    /// The suggestion is already accepted: its cell is written, and the way
-    /// back is its accept's ⌘Z, never a second answer over it.
+    /// The suggestion is already accepted: its cell is written (or already
+    /// held the suggestion), and the way back is its accept's ⌘Z, never a
+    /// second answer over it.
     case notOpen
     /// The suggestion's cell is gone — its row or column deleted (RULING-5):
     /// Maugham never guesses where an AI-proposed change belongs.

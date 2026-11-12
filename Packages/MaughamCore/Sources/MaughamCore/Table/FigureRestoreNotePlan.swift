@@ -36,7 +36,9 @@ public enum FigureNoteLifecycle {
 /// held there. Values are compared by content, never format.
 ///
 /// - **Stranded**: accepted now, not accepted at the pointer, its newest
-///   cell-carrying accept past the pointer, and the restore writes its cell
+///   cell-carrying accept past the pointer — or, with none past it (a
+///   suggestion accepted without writing its cell, ruling R-B), judged by
+///   its anchor cell and suggested content — and the restore writes its cell
 ///   to a value other than its own accepted content — that cell's change
 ///   becomes the note's `claudeAcceptRevert` (cell and note in one op). Two
 ///   such notes on one cell set: the change carries the one whose
@@ -108,6 +110,10 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
         let shown = AnnotationAggregation.allAnnotations(
             ops: ops, paragraphs: [:], amendments: amendments, figureTable: table)
         let accepted = Set(shown.filter { $0.status == .accepted }.map(\.id))
+        // Each one-cell suggestion's anchor and suggested content.
+        let suggestions = Dictionary(shown.compactMap { note in
+            FigureReturnDiff.NoteCell(suggestion: note).map { (note.id, $0) }
+        }, uniquingKeysWith: { first, _ in first })
         let open = Set(shown.filter { $0.status == .open }.map(\.id))
         // Per note: the latest HONOURED lifecycle line, now and at the pointer
         // (final review M3: a reopen the fold does not honour never happened
@@ -146,9 +152,17 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
             // re-accept (a stet's or archive's ⌘Z) included, standing in for
             // the cell-writing accept it put back — judged against the newest
             // accept for that note that CARRIES a cell (N1).
-            if accepted.contains(id), now.kind == .claudeAccept, !acceptedAtPointer,
-               let written = cellAccept[id], written.opId > pointer, let cell = written.figure?.cell {
-                stranded.append((id, cell, written.figure?.next?.content, written.opId))
+            if accepted.contains(id), now.kind == .claudeAccept, !acceptedAtPointer {
+                if let written = cellAccept[id], written.opId > pointer, let cell = written.figure?.cell {
+                    stranded.append((id, cell, written.figure?.next?.content, written.opId))
+                } else if let note = suggestions[id] {
+                    // Accepted without a cell-carrying accept past the
+                    // pointer — a suggestion accepted over a cell that
+                    // already held it (ruling R-B): judged by its anchor cell
+                    // and its suggested content (coordinator's ruling on
+                    // hardening 11-11 Task 4).
+                    stranded.append((id, note.cell, note.content, now.opId))
+                }
             }
             // Returning: the line that took the accepted cell out — the
             // writer's Revert, or a restore's own status-only revert — is

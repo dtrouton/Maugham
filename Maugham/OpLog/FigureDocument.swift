@@ -1922,7 +1922,8 @@ public final class FigureDocument {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.undo,
                                  stillAsWritten: {
-                                     FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil
+                                     FigureReturnDiff.applied(
+                                         visit.undo, onto: $0.state, noteCells: $0.noteCells(for: visit.undo)) != nil
                                          && $0.notesStillAnswer(visit.undo)
                                  },
                                  drifted: .visitChanged(redo: false))
@@ -1936,7 +1937,8 @@ public final class FigureDocument {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.redo,
                                  stillAsWritten: {
-                                     FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil
+                                     FigureReturnDiff.applied(
+                                         visit.redo, onto: $0.state, noteCells: $0.noteCells(for: visit.redo)) != nil
                                          && $0.notesStillAnswer(visit.redo)
                                  },
                                  drifted: .visitChanged(redo: true))
@@ -2088,6 +2090,22 @@ public final class FigureDocument {
         change.sourceAnnotationId.map {
             FigureAnnotationOps.lifecycleProvenance(annotationId: $0, stamp: noteStamp)
         }
+    }
+
+    /// **Where each note a status-only line in `changes` answers stands**:
+    /// its anchor cell and suggested content, for `FigureReturnDiff.applied`
+    /// to ask in order — so a visit's undo or redo of an accept that wrote no
+    /// cell checks the cell as the direct ⌘Z and ⇧⌘Z do. A note that is not
+    /// a one-cell suggestion (or is withdrawn) is left out, and its line is
+    /// refused.
+    func noteCells(for changes: [FigureReturnDiff.Change]) -> [String: FigureReturnDiff.NoteCell] {
+        let named = Set(changes.filter(\.isStatusOnly).compactMap(\.sourceAnnotationId))
+        guard !named.isEmpty else { return [:] }
+        var out: [String: FigureReturnDiff.NoteCell] = [:]
+        for note in annotations() where named.contains(note.id) {
+            out[note.id] = FigureReturnDiff.NoteCell(suggestion: note)
+        }
+        return out
     }
 
     /// **Would each note `changes` answers move as they say?** Walked in

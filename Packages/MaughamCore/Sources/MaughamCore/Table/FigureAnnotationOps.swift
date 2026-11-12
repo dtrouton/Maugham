@@ -163,7 +163,9 @@ public enum FigureAnnotationOps {
     /// **The op that reopens a figure note**, by its status: a rejected,
     /// archived or stetted note by `reopen`; an accepted one that wrote no
     /// cell (`reopensAnAccept`) by a status-only revert. Throws a
-    /// `ReopenRefusal` for an open note and for an accepted figure suggestion.
+    /// `ReopenRefusal` for an open note and for an accepted figure suggestion
+    /// — even one accepted without writing its cell (a cell that already held
+    /// it, ruling R-B), which is reopened by its accept's ⌘Z only.
     public static func reopen(for annotation: Annotation, docId: String, stamp: Stamp) throws -> Op {
         switch annotation.status {
         case .rejected, .archived, .stetted:

@@ -282,9 +282,36 @@ final class FigureInverseTests: XCTestCase {
         XCTAssertEqual(FigureInverse.compensating(undo), [edit, accept], "and back again")
 
         let before = start()
+        let holds10 = ["note-1": FigureReturnDiff.NoteCell(cell: key(r1, c1), content: num(10).content)]
+        let applied = FigureReturnDiff.applied([edit, accept], onto: before, noteCells: holds10)
+        XCTAssertEqual(applied?.table[key(r1, c1)], num(10), "the cell edit folds; the note line passes")
+        XCTAssertEqual(applied?.diagnostics, [])
         let after = FigureReturnDiff.applied([edit, accept], onto: before)
-        XCTAssertEqual(after?.table[key(r1, c1)], num(10), "the cell edit folds; the note line passes")
-        XCTAssertEqual(after?.diagnostics, [])
-        XCTAssertNotNil(FigureReturnDiff.applied([accept], onto: before), "a note line alone folds as nothing")
+        XCTAssertNil(after, "a status-only line whose note's cell is not given is refused")
+    }
+
+    /// **`applied` checks a status-only line against its note's cell**
+    /// (Task 4 fix round 1, Important 1): the anchor must be live and hold
+    /// the suggested content at that point in the run — the visit's redo of
+    /// a guarded accept declines over a changed cell or a deleted row, as
+    /// the direct ⇧⌘Z does. Asked in order, so an earlier change in the run
+    /// counts.
+    func test_aStatusOnlyLineIsAppliedOnlyWhereItsNotesCellHoldsTheSuggestion() {
+        let accept = FigureReturnDiff.Change.statusOnly(.claudeAccept, annotationId: "note-1")
+        let revert = FigureReturnDiff.Change.statusOnly(.claudeAcceptRevert, annotationId: "note-1")
+        let holds10 = ["note-1": FigureReturnDiff.NoteCell(cell: key(r1, c1), content: num(10).content)]
+        let before = start()  // r1c1 holds 1
+        let edit = FigureReturnDiff.Change(
+            kind: .figureCellSet, payload: FigureOpPayload(cell: key(r1, c1), next: num(10), prior: num(1)))
+
+        XCTAssertNil(FigureReturnDiff.applied([accept], onto: before, noteCells: holds10),
+                     "the cell does not hold the suggestion")
+        XCTAssertNil(FigureReturnDiff.applied([revert], onto: before, noteCells: holds10))
+        XCTAssertNotNil(FigureReturnDiff.applied([edit, accept], onto: before, noteCells: holds10),
+                        "an earlier change in the run makes it hold the suggestion")
+        let gone = apply([(.figureStructure, FigureOpPayload(structure: .deleteRow(r1)))], to: apply(
+            [(.figureCellSet, FigureOpPayload(cell: key(r1, c1), next: num(10), prior: num(1)))], to: before))
+        XCTAssertNil(FigureReturnDiff.applied([accept], onto: gone, noteCells: holds10), "its row is gone")
+        XCTAssertNil(FigureReturnDiff.applied([accept], onto: before), "no cell named: refused")
     }
 }

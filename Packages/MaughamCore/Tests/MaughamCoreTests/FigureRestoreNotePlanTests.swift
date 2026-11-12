@@ -448,4 +448,98 @@ final class FigureRestoreNotePlanTests: XCTestCase {
         XCTAssertEqual(plan.statusLines, [])
         XCTAssertEqual(plan.notes, FigureRestoreNotes())
     }
+
+    // MARK: - A suggestion accepted without writing its cell (hardening 11-11 Task 4, fix round 1)
+
+    /// The writer types the suggested value by hand, then accepts: the
+    /// accept writes no cell (ruling R-B), as `acceptSuggestion` builds it.
+    private func acceptByHand(_ id: String, _ cell: Cell, at key: CellKey, in h: inout History) {
+        h.set(key, cell)
+        h.append(FigureAnnotationOps.statusOnlyAccept(annotationId: id, stamp: h.stamp))
+    }
+
+    /// **A guarded accept is stranded when the restore writes its cell away
+    /// from the suggestion** (coordinator's ruling on Task 4, R-A): with no
+    /// cell-carrying accept, the note is judged by its anchor cell and its
+    /// suggested content — the restore writes "old" over 42, so that cell
+    /// change becomes the note's `claudeAcceptRevert`.
+    func test_aGuardedAcceptIsStranded_whenTheRestoreWritesItsCellAwayFromTheSuggestion() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        let pointer = h.pointer
+        acceptByHand(id, number(42), at: key, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertNil(h.ops.last?.figure, "premise: the accept wrote no cell")
+        XCTAssertEqual(changes.map(\.kind), [.figureCellSet], "premise: the restore writes the cell back")
+        XCTAssertEqual(plan.changes, [FigureReturnDiff.Change(
+            kind: .claudeAcceptRevert, payload: changes[0].payload, sourceAnnotationId: id)])
+        XCTAssertEqual(plan.changes.first?.payload.next, text("old"))
+        XCTAssertEqual(plan.statusLines, [])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reopened: [id]))
+    }
+
+    /// **A guarded accept keeps its status where the restore leaves its cell,
+    /// or writes it to the suggested content** (R-A; the own-value rule): the
+    /// cell held 42 at the pointer — untouched by the restore, or written back
+    /// to 42 over a later 7.
+    func test_aGuardedAcceptKeepsItsStatus_whereTheRestoreLeavesOrWritesItsOwnValue() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        h.set(key, number(42))
+        let pointer = h.pointer
+        h.append(FigureAnnotationOps.statusOnlyAccept(annotationId: id, stamp: h.stamp))
+
+        let (untouched, leaves) = plan(h, to: pointer)
+        XCTAssertEqual(untouched, [], "premise: the restore writes nothing")
+        XCTAssertEqual(leaves.changes, [])
+        XCTAssertEqual(leaves.statusLines, [])
+        XCTAssertEqual(leaves.notes, FigureRestoreNotes())
+
+        h.set(key, number(7))
+        let (written, ownValue) = plan(h, to: pointer)
+        XCTAssertEqual(written.map(\.kind), [.figureCellSet], "premise: the restore writes 42 back")
+        XCTAssertEqual(written.first?.payload.next?.content, number(42).content)
+        XCTAssertEqual(ownValue.changes, written, "the cell change stays a plain cell set")
+        XCTAssertEqual(ownValue.statusLines, [])
+        XCTAssertEqual(ownValue.notes, FigureRestoreNotes())
+    }
+
+    /// **A guarded accept whose cell is gone then is archived** — or reopened
+    /// status only where this hand may not dispose — like any other.
+    func test_aGuardedAcceptWhoseRowIsGoneIsArchived_orRevertedWhereItMayNotDispose() throws {
+        var (h, _) = table()
+        let pointer = h.pointer
+        h.emit(.figureStructure, FigureOpPayload(structure: .insertRow(r2, after: r1)))
+        let added = CellKey(row: r2, column: c1)
+        let id = try suggest(number(7), at: added, in: &h)
+        acceptByHand(id, number(7), at: added, in: &h)
+
+        let (changes, disposing) = plan(h, to: pointer)
+        XCTAssertEqual(disposing.changes, changes)
+        XCTAssertEqual(disposing.statusLines, [.init(kind: .claudeArchive, annotationId: id)])
+        XCTAssertEqual(disposing.notes, FigureRestoreNotes(archived: [id]))
+
+        let (_, notDisposing) = plan(h, to: pointer, mayDispose: false)
+        XCTAssertEqual(notDisposing.statusLines, [.init(kind: .claudeAcceptRevert, annotationId: id)])
+        XCTAssertEqual(notDisposing.notes, FigureRestoreNotes(reopened: [id]))
+    }
+
+    /// **A guarded accept on a revived row is reverted status only**: the
+    /// revive puts "old" back inside its slice, away from the suggestion.
+    func test_aGuardedAcceptOnARevivedRowIsRevertedStatusOnly() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        let pointer = h.pointer
+        acceptByHand(id, number(42), at: key, in: &h)
+        deleteRow(r1, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.first?.payload.structure, .reviveRow(r1), "premise: a revive")
+        XCTAssertEqual(plan.changes, changes)
+        XCTAssertEqual(plan.statusLines, [.init(kind: .claudeAcceptRevert, annotationId: id)])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reopened: [id]))
+    }
 }

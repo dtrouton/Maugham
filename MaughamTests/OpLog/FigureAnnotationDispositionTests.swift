@@ -152,6 +152,19 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         return seen
     }
 
+    /// The notices posted while `body` ran.
+    private func notices(during body: () async throws -> Void) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { seen.append(m) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
     private func expect(
         _ expected: FigureNoteError, file: StaticString = #filePath, line: UInt = #line,
         _ press: () async throws -> Void
@@ -879,11 +892,14 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         let id = try await suggest(number(42), at: b2, on: doc)
         try await doc.acceptSuggestion(id: id)
         XCTAssertNotNil(try ops(of: record.id).last?.figure, "premise: the first accept wrote the cell")
+        let phone = "phone-k3m9q2zt"
+        XCTAssertNotEqual(phone, identities.author.deviceId, "premise: another device")
         try await append(
             FigureAnnotationOps.reject(
                 annotationId: id, reason: nil,
-                stamp: .init(figureId: record.id, device: identities.author.deviceId, session: "phone")),
+                stamp: .init(figureId: record.id, device: phone, session: "phone")),
             reloading: doc)
+        XCTAssertEqual(try ops(of: record.id).last?.device, phone, "premise: the reject is the other device's")
         XCTAssertEqual(note(id, in: doc)?.status, .rejected, "premise: the newer reject wins")
         XCTAssertEqual(doc.state.table[b2], number(42), "premise: over the value it suggested")
         try await doc.reopenAnnotation(id: id)
@@ -946,23 +962,26 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         XCTAssertTrue(um.canRedo, "premise: the redo is still on the stack")
         let before = try streamBytes(of: record.id)
 
-        um.redo()
-        await doc.awaitPendingUndoWork()
+        let said = await notices {
+            um.redo()
+            await doc.awaitPendingUndoWork()
+        }
 
+        XCTAssertEqual(said, [FigureDocument.FigureUndoDecline.drifted.sentence], "declined as drifted")
         XCTAssertEqual(try streamBytes(of: record.id), before, "nothing appended")
         XCTAssertEqual(note(id, in: doc)?.status, .open)
         XCTAssertEqual(doc.state.table[b2], number(7))
         await doc.close()
     }
 
-    /// **A note accepted status only, with no cell-carrying accept, is never
-    /// stranded by a restore** (pinned against hardening 11-11 Task 2's
-    /// `FigureRestoreNotePlan`, which judges an accept against the newest
-    /// accept for that note that CARRIES a cell): suggest old→42,
-    /// checkpoint, type 42 by hand, Accept (status only), restore — the
-    /// restore writes B2 back to "old" and writes no line for the note,
-    /// which stays accepted.
-    func test_aStatusOnlyAcceptOfASuggestion_isNeverStrandedByARestore() async throws {
+    /// **A suggestion accepted without writing its cell is stranded when the
+    /// restore writes its cell away from the suggestion** (coordinator's
+    /// ruling on Task 4, after R-A; Core's `FigureRestoreNotePlan` judges it
+    /// by its anchor cell and its suggested content): suggest old→42,
+    /// checkpoint, type 42 by hand, Accept (status only), restore — B2 goes
+    /// back to "old" by ONE checkpoint-stamped `claudeAcceptRevert` carrying
+    /// the cell and the note's id, and the note is open.
+    func test_aStatusOnlyAcceptOfASuggestion_isStrandedWhereTheRestoreWritesItsCellAway() async throws {
         let (record, doc, b2) = try await makeTable()
         let id = try await suggest(number(42), at: b2, on: doc)
         let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
@@ -971,11 +990,50 @@ final class FigureAnnotationDispositionTests: XCTestCase {
         XCTAssertNil(try ops(of: record.id).last?.figure, "premise: the accept carries no cell")
         let before = try ops(of: record.id).count
 
+        let outcome = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 1))
+        let written = try ops(of: record.id).dropFirst(before)
+        XCTAssertEqual(written.map(\.kind), [.claudeAcceptRevert], "one op: cell and note together")
+        XCTAssertEqual(written.first?.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(written.first?.provenance?.sourceCheckpoint, "cp-1")
+        XCTAssertEqual(written.first?.figure?.cell, b2)
+        XCTAssertEqual(written.first?.figure?.next, text("old"))
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(note(id, in: doc)?.status, .open)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [id]))
+        await doc.close()
+    }
+
+    /// **…and keeps its status where the restore leaves its cell or writes
+    /// its own value back** (R-A; the own-value rule): the checkpoint is
+    /// taken with 42 already typed. Restored at once, B2 is not written and
+    /// no line is written for the note; after a later 7, the restore writes
+    /// 42 back as a plain cell set and the note stays accepted.
+    func test_aStatusOnlyAcceptOfASuggestion_keepsItsStatusWhereTheRestoreLeavesItsValue() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        try await doc.setCell(number(42), at: b2)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        XCTAssertNil(try ops(of: record.id).last?.figure, "premise: the accept carries no cell")
+        var before = try ops(of: record.id).count
+
         _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
 
-        let written = try ops(of: record.id).dropFirst(before)
-        XCTAssertEqual(doc.state.table[b2], text("old"), "premise: the restore wrote the cell back")
+        var written = try ops(of: record.id).dropFirst(before)
         XCTAssertFalse(written.contains { $0.provenance?.sourceAnnotationId == id }, "no line for the note")
+        XCTAssertFalse(written.contains { $0.figure?.cell == b2 }, "premise: B2 not written")
+        XCTAssertEqual(note(id, in: doc)?.status, .accepted)
+
+        try await doc.setCell(number(7), at: b2)
+        before = try ops(of: record.id).count
+        _ = try await doc.restoreToCheckpoint("cp-1", through: pointer)
+
+        written = try ops(of: record.id).dropFirst(before)
+        XCTAssertEqual(written.map(\.kind), [.figureCellSet], "the restore writes its own value back, plainly")
+        XCTAssertNil(written.first?.provenance?.sourceAnnotationId)
+        XCTAssertEqual(doc.state.table[b2], number(42))
         XCTAssertEqual(note(id, in: doc)?.status, .accepted)
         XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes())
         await doc.close()
