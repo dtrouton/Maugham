@@ -54,6 +54,23 @@ public enum FigureReturnDiff {
             self.payload = payload
             self.sourceAnnotationId = sourceAnnotationId
         }
+
+        /// **A note's status-only line in a grid visit** (hardening 11-11
+        /// Task 4, ruling R-B): a suggestion accepted over a cell that already
+        /// held it writes no cell — a `claudeAccept` with no `Op.figure` — and
+        /// its ⌘Z is a status-only `claudeAcceptRevert`. Here it carries an
+        /// empty payload: it folds as nothing (`applied` passes over it), its
+        /// inverse is the other status-only line (`FigureInverse.compensating`),
+        /// and the host appends it with no payload.
+        public static func statusOnly(_ kind: OpKind, annotationId: String) -> Change {
+            Change(kind: kind, payload: FigureOpPayload(), sourceAnnotationId: annotationId)
+        }
+
+        /// Is this a note's status-only line (`statusOnly`)?
+        public var isStatusOnly: Bool {
+            (kind == .claudeAccept || kind == .claudeAcceptRevert)
+                && sourceAnnotationId != nil && payload == FigureOpPayload()
+        }
     }
 
     /// What the return appends, and what it says.
@@ -138,7 +155,9 @@ public enum FigureReturnDiff {
     /// - a pin set's `priorPin`, and a pin clear's pin, are held by the cell.
     public static func applied(_ changes: [Change], onto state: FigureState) -> FigureState? {
         var sim = Simulation(state: state)
-        for change in changes {
+        // A note's status-only line folds as nothing; whether its note may
+        // move is the host's question (`notesStillAnswer`).
+        for change in changes where !change.isStatusOnly {
             let diagnosed = sim.state.diagnostics.count, held = sim.state.held.count
             guard FigureOpPayload.validate(kind: change.kind, payload: change.payload),
                   describesWhatItReplaces(change, in: sim.state) else { return nil }

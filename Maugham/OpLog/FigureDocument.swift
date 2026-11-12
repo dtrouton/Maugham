@@ -1773,11 +1773,16 @@ public final class FigureDocument {
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
         // An accept carries its note's id beside the payload, so its inverse
-        // reopens the note as it puts the cell back (report plan 9c-1).
-        let visit = ([forward] + alongside).compactMap { op in
-            op.figure.map {
-                FigureReturnDiff.Change(kind: op.kind, payload: $0, sourceAnnotationId: op.provenance?.sourceAnnotationId)
+        // reopens the note as it puts the cell back (report plan 9c-1); an
+        // accept that wrote no cell (ruling R-B) is its note's status-only
+        // line, whose inverse reopens the note alone.
+        let visit = ([forward] + alongside).compactMap { op -> FigureReturnDiff.Change? in
+            let note = op.provenance?.sourceAnnotationId
+            guard let payload = op.figure else {
+                guard op.kind == .claudeAccept, let note else { return nil }
+                return .statusOnly(op.kind, annotationId: note)
             }
+            return FigureReturnDiff.Change(kind: op.kind, payload: payload, sourceAnnotationId: note)
         }
         // A write handed the open visit's manager joins the visit — before
         // the guard, so one with no inverse is in it and says so at its end.
@@ -1830,13 +1835,16 @@ public final class FigureDocument {
         holdOpenCellNotes()
         defer { releaseOpenCellNotes() }
         do {
-            // A visit renders once, after its last inverse. An accept or its
-            // revert is stamped with the note it answers, and the notes are
-            // announced once after the run.
+            // A visit renders once, after its last inverse — none when every
+            // op is a note's status-only line, which writes no cell and is
+            // appended with no payload. An accept or its revert is stamped
+            // with the note it answers, and the notes are announced once
+            // after the run.
+            let renders = ops.contains { !$0.isStatusOnly }
             for (i, change) in ops.enumerated() {
                 try await commit(
-                    change.kind, change.payload, provenance: noteProvenance(change),
-                    render: i == ops.count - 1)
+                    change.kind, change.isStatusOnly ? nil : change.payload, provenance: noteProvenance(change),
+                    render: renders && i == ops.count - 1)
                 if isVisitManager(manager) { visitRecord?.append(change) }
             }
             if ops.contains(where: { $0.sourceAnnotationId != nil }) {

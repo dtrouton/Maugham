@@ -261,4 +261,30 @@ final class FigureInverseTests: XCTestCase {
         XCTAssertTrue(FigureInverse.compensating(visit: visit).isEmpty,
                       "a visit holding an op with no inverse offers no undo, never half of one")
     }
+
+    /// **A note's status-only line in a visit** (hardening 11-11 Task 4,
+    /// ruling R-B): a suggestion accepted over a cell that already held it
+    /// writes no cell, yet its visit is undoable — the inverse is the
+    /// status-only revert naming the same note (and back again), and
+    /// `applied` folds it as nothing, beside a cell edit that it does fold.
+    func test_aStatusOnlyAcceptInAVisit_invertsToAStatusOnlyRevert_andFoldsAsNothing() {
+        let accept = FigureReturnDiff.Change.statusOnly(.claudeAccept, annotationId: "note-1")
+        XCTAssertTrue(accept.isStatusOnly)
+        let edit = FigureReturnDiff.Change(
+            kind: .figureCellSet, payload: FigureOpPayload(cell: key(r1, c1), next: num(10), prior: num(1)))
+        XCTAssertFalse(edit.isStatusOnly)
+        XCTAssertFalse(FigureReturnDiff.Change(kind: .claudeAccept, payload: FigureOpPayload()).isStatusOnly,
+                       "a status-only line names its note")
+
+        let undo = FigureInverse.compensating([edit, accept])
+        XCTAssertEqual(undo.map(\.kind), [.claudeAcceptRevert, .figureCellSet], "last op first")
+        XCTAssertEqual(undo.first, .statusOnly(.claudeAcceptRevert, annotationId: "note-1"))
+        XCTAssertEqual(FigureInverse.compensating(undo), [edit, accept], "and back again")
+
+        let before = start()
+        let after = FigureReturnDiff.applied([edit, accept], onto: before)
+        XCTAssertEqual(after?.table[key(r1, c1)], num(10), "the cell edit folds; the note line passes")
+        XCTAssertEqual(after?.diagnostics, [])
+        XCTAssertNotNil(FigureReturnDiff.applied([accept], onto: before), "a note line alone folds as nothing")
+    }
 }

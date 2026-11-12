@@ -375,4 +375,92 @@ final class FigureVisitTests: XCTestCase {
         XCTAssertEqual(try ops(of: host.figureId).count, count, "nothing was appended")
         await store.closeFigure(figureId: host.figureId)
     }
+
+    // MARK: - An accept that writes no cell (hardening 11-11 Task 4)
+
+    /// The assistant suggests `cell` for `key` on the host's stream, and the
+    /// host reads it.
+    private func suggest(_ cell: Cell, at key: CellKey, on host: FigureDocument) async throws -> String {
+        let op = try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Should be 42", suggestedCell: cell, prior: host.state.table[key],
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: host.figureId, device: Document.loadIdentities[.assistant].deviceId))
+        try await Document.makeLoadOpStore(projectURL: projectURL, presenter: nil).append(op)
+        try await host.reload()
+        return op.opId
+    }
+
+    private func status(_ id: String, in host: FigureDocument) -> AnnotationStatus? {
+        host.annotations().first { $0.id == id }?.status
+    }
+
+    /// **A guarded accept joins the visit** (#136 W2, ruling R-B): over a
+    /// cell that already holds the suggestion the accept writes no cell, yet
+    /// it is in the visit, so the fold's one ⌘Z reopens the note — one
+    /// status-only `claudeAcceptRevert`, no cell moved — and its redo
+    /// accepts again, status only.
+    func test_aGuardedAcceptInAVisit_isReopenedByTheVisitsUndo_andNoCellMoves() async throws {
+        let (store, host) = try await openTable()
+        let b2 = key(host, 1, 1)
+        try await host.setCell(text("old"), at: b2)
+        let id = try await suggest(number(42), at: b2, on: host)
+        try await host.setCell(number(42), at: b2)
+
+        XCTAssertTrue(host.beginVisit(undoManager: grid))
+        try await host.acceptSuggestion(id: id, confirmChanged: false, undoManager: grid)
+        XCTAssertNil(try ops(of: host.figureId).last?.figure, "premise: the accept wrote no cell")
+        let visit = try XCTUnwrap(host.endVisit(), "the guarded accept is in the visit")
+        XCTAssertEqual(visit.ops.map(\.kind), [.claudeAccept])
+        XCTAssertEqual(visit.ops.map(\.sourceAnnotationId), [id])
+        XCTAssertTrue(visit.isUndoable)
+        let count = try ops(of: host.figureId).count
+
+        let undone = await host.undoVisit(visit)
+
+        XCTAssertTrue(undone)
+        let undo = try ops(of: host.figureId).dropFirst(count)
+        XCTAssertEqual(undo.map(\.kind), [.claudeAcceptRevert])
+        XCTAssertNil(undo.first?.figure, "status only: no cell moved")
+        XCTAssertEqual(undo.first?.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(status(id, in: host), .open, "the note is open again")
+        XCTAssertEqual(host.state.table[b2], number(42))
+
+        let redone = await host.redoVisit(visit)
+
+        XCTAssertTrue(redone)
+        let redo = try ops(of: host.figureId).dropFirst(count + 1)
+        XCTAssertEqual(redo.map(\.kind), [.claudeAccept])
+        XCTAssertNil(redo.first?.figure, "the redo writes no cell either")
+        XCTAssertEqual(status(id, in: host), .accepted)
+        XCTAssertEqual(host.state.table[b2], number(42))
+        await store.closeFigure(figureId: host.figureId)
+    }
+
+    /// **The grid's own ⌘Z of a guarded accept joins the visit too**: the
+    /// accept and its status-only revert are both recorded, and the visit's
+    /// undo leaves the note where the visit began — open.
+    func test_theGridsUndoOfAGuardedAccept_isRecordedInTheVisit() async throws {
+        let (store, host) = try await openTable()
+        let b2 = key(host, 1, 1)
+        try await host.setCell(text("old"), at: b2)
+        let id = try await suggest(number(42), at: b2, on: host)
+        try await host.setCell(number(42), at: b2)
+
+        XCTAssertTrue(host.beginVisit(undoManager: grid))
+        try await host.acceptSuggestion(id: id, confirmChanged: false, undoManager: grid)
+        grid.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(status(id, in: host), .open, "premise: the grid's ⌘Z reopened it")
+        let visit = try XCTUnwrap(host.endVisit())
+        XCTAssertEqual(visit.ops.map(\.kind), [.claudeAccept, .claudeAcceptRevert])
+        XCTAssertEqual(visit.ops.map(\.sourceAnnotationId), [id, id])
+
+        let undone = await host.undoVisit(visit)
+
+        XCTAssertTrue(undone)
+        XCTAssertEqual(status(id, in: host), .open, "back where the visit began")
+        XCTAssertEqual(host.state.table[b2], number(42))
+        await store.closeFigure(figureId: host.figureId)
+    }
 }
