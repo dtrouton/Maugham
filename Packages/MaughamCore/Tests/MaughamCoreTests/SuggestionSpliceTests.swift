@@ -64,4 +64,84 @@ final class SuggestionSpliceTests: XCTestCase {
         let noQuote = Op.Provenance(sessionId: "s")
         XCTAssertNil(SuggestionSplice.spanAnchor(from: noQuote))
     }
+
+    // MARK: - planAccept / newestAppliedAccept (R-B, hardening 11-11 Task 5)
+
+    private func line(_ opId: String, _ kind: OpKind, prior: String? = nil, next: String? = nil) -> Op {
+        Op(opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 0),
+           device: "mac", session: "s", kind: kind,
+           changes: next.map { [Op.ParagraphChange(paragraphId: "k7m3", prior: prior, next: $0)] } ?? [],
+           provenance: Op.Provenance(sessionId: "s", sourceAnnotationId: "01NOTE"))
+    }
+
+    func test_planAccept_splicesWhenNothingIsApplied() {
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.", span: nil,
+                                        paragraph: "A.", ops: []),
+            .splice(next: "B."))
+    }
+
+    /// The race: accepted, archived on another device, reopened. The splice is
+    /// in the text, so a second accept is status-only — even for a span whose
+    /// quote the splice replaced (it would otherwise refuse as anchor lost).
+    func test_planAccept_isStatusOnlyWhileTheNotesSpliceIsInPlace() {
+        let para = "The night was very dark and cold."
+        let s = span("very dark", in: para)
+        let applied = "The night was pitch black and cold."
+        let ops = [
+            line("01A", .claudeAccept, prior: para, next: applied),
+            line("01B", .claudeArchive),
+            line("01C", .annotationReopen),
+        ]
+        XCTAssertEqual(SuggestionSplice.attempt(suggestion: "pitch black", span: s, to: applied),
+                       .anchorLost, "premise: the quote is gone")
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "pitch black",
+                                        span: s, paragraph: applied, ops: ops),
+            .statusOnly)
+    }
+
+    /// Not in place: the newest text-carrying line is a revert or a RULING-33
+    /// repair, or the writer has typed over the accept's text.
+    func test_planAccept_splicesOrRefusesOnceTheSpliceIsNoLongerInPlace() {
+        let reverted = [line("01A", .claudeAccept, prior: "A.", next: "B."),
+                        line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")]
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.",
+                                                   span: nil, paragraph: "A.", ops: reverted),
+                       .splice(next: "B."))
+        let repaired = [line("01A", .claudeAccept, prior: "A.", next: "B."),
+                        line("01B", .claudeReject, prior: "B.", next: "A.")]
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.",
+                                                   span: nil, paragraph: "A.", ops: repaired),
+                       .splice(next: "B."))
+        let para = "The night was very dark and cold."
+        let s = span("very dark", in: para)
+        let accepted = [line("01A", .claudeAccept, prior: para,
+                             next: "The night was pitch black and cold.")]
+        XCTAssertEqual(SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "pitch black",
+                                                   span: s, paragraph: "Rain fell.", ops: accepted),
+                       .anchorLost, "the writer rewrote it: RULING-5's refusal stands")
+    }
+
+    func test_planAccept_isStatusOnlyWhenTheParagraphAlreadyReadsAsTheSuggestion() {
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", suggestion: "B.", span: nil,
+                                        paragraph: "B.", ops: []),
+            .statusOnly)
+    }
+
+    /// A status-only accept moved no text: Revert reads the newest accept that did.
+    func test_newestAppliedAccept_skipsStatusOnlyAccepts_andOtherNotes() {
+        let ops = [
+            line("01A", .claudeAccept, prior: "A.", next: "B."),
+            line("01B", .claudeArchive),
+            line("01C", .claudeAccept),
+            Op(opId: "01D", docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 0),
+               device: "mac", session: "s", kind: .claudeAccept,
+               changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "x", next: "y")],
+               provenance: Op.Provenance(sessionId: "s", sourceAnnotationId: "01OTHER")),
+        ]
+        XCTAssertEqual(SuggestionSplice.newestAppliedAccept(annotationId: "01NOTE", in: ops)?.opId, "01A")
+        XCTAssertNil(SuggestionSplice.newestAppliedAccept(annotationId: "01NOTE", in: [line("01C", .claudeAccept)]))
+    }
 }

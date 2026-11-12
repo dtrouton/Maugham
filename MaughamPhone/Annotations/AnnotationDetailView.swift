@@ -586,13 +586,13 @@ struct AnnotationDetailView: View {
         }
     }
 
-    /// The latest `claudeAccept` op for `current`, from the ops `rederive()`
-    /// already loaded — same lookup shape as the Mac's
-    /// `revertAcceptedAnnotation` (`_opLogMirror.last(where:)`).
+    /// The newest `claudeAccept` for `current` that CARRIES a change, from
+    /// the ops `rederive()` already loaded — Core's one lookup, the Mac's
+    /// `revertAcceptedAnnotation` asks the same (tripwire 19). A status-only
+    /// accept (R-B's guard, or a rewind's re-accept) moved no text and has
+    /// nothing to revert to.
     private var latestAcceptOp: Op? {
-        loadedOps.last(where: {
-            $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == current.id
-        })
+        SuggestionSplice.newestAppliedAccept(annotationId: current.id, in: loadedOps)
     }
 
     /// Live paragraph text for `current`, from the reloaded paragraph map.

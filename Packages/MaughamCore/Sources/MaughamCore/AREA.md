@@ -117,7 +117,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `SpanText.swift` — typography- and whitespace-insensitive canonical form for span matching.
 - `ShingleMatcher.swift` — k-word shingle overlap used for orphan recovery.
 - `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it; a figure suggestion's cells and anchor line; the assistant-note colour.
-- `SuggestionSplice.swift` — applies a suggestion's replacement to a paragraph identically on both surfaces.
+- `SuggestionSplice.swift` — plans and applies a suggestion's Accept identically on both surfaces (R-B).
 
 ### Statements, passes and roles
 - `Statement.swift` — a writer statement (intent, visual language, edition brief, lessons, first reader) and `Statement.Kind`.

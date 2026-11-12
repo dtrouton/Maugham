@@ -244,6 +244,117 @@ final class AnnotationWriterTests: XCTestCase {
         }
     }
 
+    // MARK: - R-B: Accept over applied text (hardening 11-11 Task 5)
+
+    /// The race, as the phone reads it: the Mac accepted (splice in the text),
+    /// another device's newer archive won, a Reopen left the note open over
+    /// its own splice. Lines in opId order, all older than any ULID the
+    /// writer mints now, so its accept and revert sort after them.
+    private func racedOps(
+        original: String, bare: String, applied: String, span: SpanAnchor? = nil
+    ) -> [Op] {
+        let id = "01ARACE0CREATION"
+        func line(_ opId: String, _ kind: OpKind, _ changes: [Op.ParagraphChange] = []) -> Op {
+            Op(opId: opId, docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+               device: "mac", session: "s", kind: kind, changes: changes,
+               provenance: Op.Provenance(sessionId: "s", sourceAnnotationId: id))
+        }
+        let creation = Op(
+            opId: id, docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: original, next: bare)],
+            provenance: Op.Provenance(
+                sessionId: "s", annotationBody: "b",
+                spanQuote: span?.quote, spanPrefix: span?.prefix,
+                spanSuffix: span?.suffix, spanPosHint: span?.posHint))
+        return [
+            creation,
+            line("01ARACE1MACACCEPT", .claudeAccept,
+                 [Op.ParagraphChange(paragraphId: "k7m3", prior: original, next: applied)]),
+            line("01ARACE2PEERARCHIVE", .claudeArchive),
+            line("01ARACE3REOPEN", .annotationReopen),
+        ]
+    }
+
+    func test_makeAccept_overItsOwnSplice_isStatusOnly() throws {
+        let ops = racedOps(original: "Alpha original.", bare: "Alpha SUGGESTED.",
+                           applied: "Alpha SUGGESTED.")
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: ops, paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+        XCTAssertEqual(ann.status, .open, "premise: open over its own splice")
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: "Alpha SUGGESTED.",
+            verifyingAgainst: .init(ops: ops, amendments: .honourEverything))
+
+        XCTAssertEqual(accept.kind, .claudeAccept)
+        XCTAssertEqual(accept.changes, [], "no line records the applied text as its own before")
+        XCTAssertEqual(Deriver.derive(ops: ops + [accept]).paragraphs["k7m3"], "Alpha SUGGESTED.")
+        XCTAssertEqual(AnnotationDeriver.derive(
+            ops: ops + [accept], paragraphs: ["k7m3": "Alpha SUGGESTED."]).first?.status, .accepted)
+    }
+
+    func test_makeAccept_aSpanContainingItsQuote_isNotSplicedTwice() throws {
+        let original = "The night was dark and cold."
+        let span = SpanAnchorResolver.capture(in: original, range: 14..<18)
+        XCTAssertEqual(span.quote, "dark", "premise")
+        let applied = "The night was very dark and cold."
+        let ops = racedOps(original: original, bare: "very dark", applied: applied, span: span)
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(ops: ops, paragraphs: ["k7m3": applied]).first)
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: applied,
+            verifyingAgainst: .init(ops: ops, amendments: .honourEverything))
+
+        XCTAssertEqual(accept.changes, [])
+        XCTAssertEqual(Deriver.derive(ops: ops + [accept]).paragraphs["k7m3"], applied)
+    }
+
+    /// Reopen & Revert reads the newest accept that CARRIES a change (Core's
+    /// `newestAppliedAccept`, the detail view's lookup): after a status-only
+    /// accept it still restores the pre-accept text.
+    func test_reopenAndRevert_afterAStatusOnlyAccept_restoresTheOriginal() throws {
+        let ops = racedOps(original: "Alpha original.", bare: "Alpha SUGGESTED.",
+                           applied: "Alpha SUGGESTED.")
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: ops, paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+        let writer = makeWriter()
+        let statusOnly = try writer.makeAccept(
+            for: ann, currentParagraph: "Alpha SUGGESTED.",
+            verifyingAgainst: .init(ops: ops, amendments: .honourEverything))
+        let all = ops + [statusOnly]
+        let accepted = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: all, paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+
+        let acceptOp = try XCTUnwrap(SuggestionSplice.newestAppliedAccept(
+            annotationId: accepted.id, in: all))
+        XCTAssertEqual(acceptOp.opId, "01ARACE1MACACCEPT", "the accept that moved the text")
+        let revert = try writer.makeAcceptRevert(
+            for: accepted, acceptOp: acceptOp, currentParagraph: "Alpha SUGGESTED.")
+
+        XCTAssertEqual(revert.changes.first?.next, "Alpha original.")
+        XCTAssertEqual(Deriver.derive(ops: all + [revert]).paragraphs["k7m3"], "Alpha original.")
+    }
+
+    /// The hand-typed arm: the writer's paragraph already reads as the
+    /// suggestion, with no accept in the log — nothing to write.
+    func test_makeAccept_aParagraphAlreadyReadingAsTheSuggestion_isStatusOnly() throws {
+        let creation = Op(
+            opId: "01TYPEDCREATION", docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: "Alpha original.",
+                                         next: "Alpha SUGGESTED.")],
+            provenance: Op.Provenance(sessionId: "s", annotationBody: "b"))
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(
+            ops: [creation], paragraphs: ["k7m3": "Alpha SUGGESTED."]).first)
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: "Alpha SUGGESTED.",
+            verifyingAgainst: .init(ops: [creation], amendments: .honourEverything))
+
+        XCTAssertEqual(accept.changes, [])
+    }
+
     /// Span-anchored (sub-paragraph) suggestion: the phone accept must SPLICE the
     /// bare replacement into the current paragraph (shared `SuggestionSplice`),
     /// not replace the whole paragraph with the bare word. Mirrors the Mac.

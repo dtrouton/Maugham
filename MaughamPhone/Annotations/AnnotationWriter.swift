@@ -194,9 +194,18 @@ struct AnnotationWriter: Sendable {
                 throw WriteError.malformedSuggestion(annotationId: annotation.id)
             }
             let current = currentParagraph ?? annotation.priorText ?? ""
-            switch SuggestionSplice.attempt(
-                suggestion: bare, span: annotation.span, to: current) {
-            case .applied(let next):
+            // R-B (hardening 11-11 Task 5): the Mac's guard, from the same
+            // Core plan — a suggestion whose splice is already in the text
+            // (reopened over it after another device's archive or stet) is
+            // accepted status-only, never spliced a second time. `loaded` is
+            // the fresh judged read the detail view verifies against; without
+            // it only the hand-typed arm (computed == current) can apply.
+            switch SuggestionSplice.planAccept(
+                annotationId: annotation.id, suggestion: bare, span: annotation.span,
+                paragraph: current, ops: loaded?.ops ?? []) {
+            case .statusOnly:
+                changes = []
+            case .splice(let next):
                 changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
             case .anchorLost:
                 // RULING-5: a span whose quoted phrase is gone is refused, not

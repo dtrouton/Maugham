@@ -104,4 +104,80 @@ public enum SuggestionSplice {
             suffix: provenance.spanSuffix ?? "",
             posHint: provenance.spanPosHint ?? 0)
     }
+
+    // MARK: - Accept over applied text (R-B, hardening 11-11 Task 5)
+
+    /// What an Accept of a suggested change writes. Asked by the Mac
+    /// (`Document.acceptAnnotation`) and the phone (`AnnotationWriter
+    /// .makeAccept`) alike, so both surfaces guard the same way (tripwire 19).
+    public enum AcceptPlan: Equatable, Sendable {
+        /// Splice: the accept carries `prior` = the live paragraph and `next`.
+        case splice(next: String)
+        /// The suggestion is already in the text: the accept moves the note's
+        /// status and carries no change, so no line ever records a before-text
+        /// equal to its after-text and the suggestion is never spliced twice.
+        case statusOnly
+        /// The span's quote is gone and the splice is not in place: refused
+        /// (RULING-5).
+        case anchorLost
+    }
+
+    /// **Accept is guarded at the root** (ruling R-B). The race: this device
+    /// accepts, another device's newer archive or stet wins the status (no
+    /// RULING-33 repair runs for those), a Reopen leaves the note open over
+    /// its own splice, and a second Accept would record the applied text as
+    /// its own "before" — or splice a span suggestion a second time — and
+    /// leave Revert unable to reach the original. So:
+    ///
+    /// 1. If the note's splice is still in place (`isAppliedInPlace`), the
+    ///    accept is status-only, even where the span's quote no longer
+    ///    resolves (the splice itself replaced it).
+    /// 2. Otherwise the span is re-resolved as ever (`attempt`); a computed
+    ///    paragraph equal to the live one (the writer typed the suggestion
+    ///    themselves) is status-only too, since there is nothing to write.
+    public static func planAccept(
+        annotationId: String, suggestion bare: String, span: SpanAnchor?,
+        paragraph current: String, ops: [Op]
+    ) -> AcceptPlan {
+        if isAppliedInPlace(annotationId: annotationId, paragraph: current, ops: ops) {
+            return .statusOnly
+        }
+        switch attempt(suggestion: bare, span: span, to: current) {
+        case .anchorLost: return .anchorLost
+        case .applied(let next): return next == current ? .statusOnly : .splice(next: next)
+        }
+    }
+
+    /// True iff the newest lifecycle op for this note that carries text is a
+    /// `claudeAccept` whose `next` is the live paragraph — the splice is in
+    /// the manuscript though the status may say otherwise. The inverse of the
+    /// RULING-33 repair's own detection (`Document
+    /// .repairRejectedButSplicedAnnotations`): newest by opId, every op read
+    /// (text folds every op, judged or not, as `Deriver` does).
+    public static func isAppliedInPlace(
+        annotationId: String, paragraph: String, ops: [Op]
+    ) -> Bool {
+        guard let newest = ops
+                .filter({ $0.provenance?.sourceAnnotationId == annotationId
+                          && !$0.changes.isEmpty
+                          && AnnotationDeriver.isLifecycleKind($0.kind) })
+                .max(by: { $0.opId < $1.opId }),
+              newest.kind == .claudeAccept,
+              let change = newest.changes.first else { return false }
+        return change.next == paragraph
+    }
+
+    /// The accept a Revert takes back: the newest `claudeAccept` for this
+    /// note that CARRIES a change. A status-only accept (this guard's, or a
+    /// rewind's re-accept under RULING-26/57) moved no text, so it has no
+    /// pre-accept text to restore; reading it made Revert a silent no-op.
+    /// Used by the Mac's `revertAcceptedAnnotation` and
+    /// `acceptedTextDrifted`, and by the phone's Reopen & Revert.
+    public static func newestAppliedAccept(annotationId: String, in ops: [Op]) -> Op? {
+        ops.filter {
+            $0.kind == .claudeAccept
+                && $0.provenance?.sourceAnnotationId == annotationId
+                && !$0.changes.isEmpty
+        }.max(by: { $0.opId < $1.opId })
+    }
 }
