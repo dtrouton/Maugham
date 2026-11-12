@@ -229,4 +229,57 @@ final class SuggestionSpliceTests: XCTestCase {
         let ops = [line("01C", .claudeAccept), line("01A", .claudeAccept, prior: "A.", next: "B.")]
         XCTAssertEqual(SuggestionSplice.newestAccept(annotationId: "01NOTE", in: ops)?.opId, "01C")
     }
+
+    // MARK: - Fix round 2: the span reading is gated on the note's own history
+
+    /// A brand-new note whose surroundings already read as the replacement:
+    /// "dark" → "very dark" on the SECOND "dark" of "It was dark, very dark."
+    /// asks for "…dark, very very dark." and gets it.
+    func test_planAccept_aNeverAcceptedNote_splicesAsWritten_whateverItsSurroundings() {
+        let para = "It was dark, very dark."
+        let second = SpanAnchorResolver.capture(in: para, range: 18..<22)
+        XCTAssertEqual(second.quote, "dark", "premise")
+        XCTAssertTrue(SuggestionSplice.spanAlreadyApplied(suggestion: "very dark", span: second,
+                                                          paragraph: para),
+                      "premise: the span reading alone would fire")
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                        suggestion: "very dark", span: second,
+                                        paragraph: para, ops: []),
+            .splice(next: "It was dark, very very dark."))
+    }
+
+    func test_spliceLive_followsTheNotesOwnHistory() {
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: []), "never accepted")
+        let accept = line("01A", .claudeAccept, prior: "A.", next: "B.")
+        XCTAssertTrue(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept]))
+        let revert = line("01B", .claudeAcceptRevert, prior: "B.", next: "A.")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept, revert]),
+                       "taken out by Revert")
+        let repair = line("01B", .claudeReject, prior: "B.", next: "A.")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: [accept, repair]),
+                       "taken out by the RULING-33 repair")
+        XCTAssertTrue(SuggestionSplice.spliceLive(
+            annotationId: "01NOTE", ops: [accept, revert, line("01C", .claudeAccept)]),
+                      "a travel's status-only re-accept after the Revert")
+        XCTAssertTrue(SuggestionSplice.spliceLive(
+            annotationId: "01NOTE", ops: [accept, line("01B", .claudeAcceptRevert)]),
+                      "a status-only revert takes no text out")
+        XCTAssertFalse(SuggestionSplice.spliceLive(
+            annotationId: "01NOTE", ops: [line("01B", .claudeArchive)]), "no accept at all")
+    }
+
+    /// Accepted then Reverted: the splice is out, so the span reading is off
+    /// and Accept splices again.
+    func test_planAccept_afterARevert_splicesAgain() {
+        let para = "It was dark, very dark."
+        let second = SpanAnchorResolver.capture(in: para, range: 18..<22)
+        let ops = [line("01A", .claudeAccept, prior: para, next: "It was dark, very very dark."),
+                   line("01B", .claudeAcceptRevert, prior: "It was dark, very very dark.", next: para)]
+        XCTAssertEqual(
+            SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                        suggestion: "very dark", span: second,
+                                        paragraph: para, ops: ops),
+            .splice(next: "It was dark, very very dark."))
+    }
 }

@@ -132,9 +132,11 @@ public enum SuggestionSplice {
     /// 1. If the note's splice is still in place (`isAppliedInPlace`), the
     ///    accept is status-only, even where the span's quote no longer
     ///    resolves (the splice itself replaced it).
-    /// 2. If the replacement already stands where the span resolves
-    ///    (`spanAlreadyApplied`) — whatever else changed in the paragraph —
-    ///    the accept is status-only: a suggestion is never applied twice.
+    /// 2. If the note's own history says its splice is live (`spliceLive`:
+    ///    an accept newer than any text-carrying revert or repair) and the
+    ///    replacement already stands where the span resolves
+    ///    (`spanAlreadyApplied`), the accept is status-only: the splice is
+    ///    not applied a second time after an edit elsewhere in the paragraph.
     /// 3. Otherwise the span is re-resolved as ever (`attempt`); a computed
     ///    paragraph equal to the live one (the writer typed the suggestion
     ///    themselves) is status-only too, since there is nothing to write.
@@ -146,7 +148,12 @@ public enum SuggestionSplice {
                             paragraph: current, ops: ops) {
             return .statusOnly
         }
-        if let span, spanAlreadyApplied(suggestion: bare, span: span, paragraph: current) {
+        // The span reading is gated on the note's OWN history (fix round 2):
+        // without it a brand-new suggestion whose surroundings already read
+        // as the replacement ("It was dark, very dark." on the SECOND "dark")
+        // would be marked accepted and silently not written.
+        if let span, spliceLive(annotationId: annotationId, ops: ops),
+           spanAlreadyApplied(suggestion: bare, span: span, paragraph: current) {
             return .statusOnly
         }
         switch attempt(suggestion: bare, span: span, to: current) {
@@ -156,16 +163,14 @@ public enum SuggestionSplice {
     }
 
     /// True iff the note's splice is in the live paragraph `paragraphId`
-    /// though its status may say otherwise. Either reading suffices:
-    /// - the newest text-carrying LIFECYCLE op for the note is a
-    ///   `claudeAccept` whose `next` is the live paragraph — the RULING-33
-    ///   repair's own detection turned round (newest by opId, every op read,
-    ///   as `Deriver` folds text);
-    /// - the newest accept that carries text (`newestAppliedAccept`) has the
-    ///   live paragraph as its `next` — a restore op, which is not a
-    ///   lifecycle op, put the splice back after a Revert (RULING-57's
-    ///   travel), so the newest lifecycle line is that Revert.
-    /// Exact text, as the repair and `Document.acceptedTextDrifted` compare.
+    /// though its status may say otherwise: the newest accept that carries
+    /// text (`newestAppliedAccept`) is for that paragraph and has the live
+    /// paragraph as its `next`. This subsumes the RULING-33 repair's own
+    /// detection turned round (the newest text-carrying lifecycle op being
+    /// such an accept — it is then also the newest text-carrying accept), and
+    /// also covers a restore op, which is not a lifecycle op, putting the
+    /// splice back after a Revert (RULING-57's travel). Exact text, as the
+    /// repair and `Document.acceptedTextDrifted` compare.
     public static func isAppliedInPlace(
         annotationId: String, paragraphId: String, paragraph: String, ops: [Op]
     ) -> Bool {
@@ -175,13 +180,26 @@ public enum SuggestionSplice {
             }
             return change.next == paragraph
         }
-        let newestLifecycle = ops
-            .filter({ $0.provenance?.sourceAnnotationId == annotationId
-                      && !$0.changes.isEmpty
-                      && AnnotationDeriver.isLifecycleKind($0.kind) })
-            .max(by: { $0.opId < $1.opId })
-        if newestLifecycle?.kind == .claudeAccept, holds(newestLifecycle) { return true }
         return holds(newestAppliedAccept(annotationId: annotationId, in: ops))
+    }
+
+    /// **The history gate on the span reading** (fix round 2): true iff, as
+    /// far as the log knows, this note's splice was applied and has not been
+    /// taken out since — some accept of the note (text-carrying, or
+    /// status-only: a travel's RULING-26/57 re-accept, an earlier guarded
+    /// accept) is newer, by opId, than its newest text-carrying revert or
+    /// RULING-33 repair line, or there is no such line. A note never
+    /// accepted never takes the span reading, so its first Accept splices as
+    /// written.
+    public static func spliceLive(annotationId: String, ops: [Op]) -> Bool {
+        guard let accept = newestAccept(annotationId: annotationId, in: ops) else { return false }
+        let takenOut = ops.filter {
+            $0.provenance?.sourceAnnotationId == annotationId
+                && !$0.changes.isEmpty
+                && ($0.kind == .claudeAcceptRevert || $0.kind == .claudeReject)
+        }.max(by: { $0.opId < $1.opId })
+        guard let takenOut else { return true }
+        return accept.opId > takenOut.opId
     }
 
     /// **The span-level reading: the replacement already stands where the

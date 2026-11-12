@@ -355,6 +355,29 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(accept.changes, [])
     }
 
+    /// The history gate (fix round 2): a brand-new note whose surroundings
+    /// already read as the replacement splices as written on the phone too.
+    func test_makeAccept_aNeverAcceptedNote_whoseSurroundingsReadAsTheReplacement_splices() throws {
+        let para = "It was dark, very dark."
+        let second = SpanAnchorResolver.capture(in: para, range: 18..<22)
+        let creation = Op(
+            opId: "01AFRESH0CREATION", docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+            device: "mac", session: "s", kind: .claudeSuggestion,
+            changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: para, next: "very dark")],
+            provenance: Op.Provenance(
+                sessionId: "s", annotationBody: "b",
+                spanQuote: second.quote, spanPrefix: second.prefix,
+                spanSuffix: second.suffix, spanPosHint: second.posHint))
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(ops: [creation], paragraphs: ["k7m3": para]).first)
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: para,
+            verifyingAgainst: .init(ops: [creation], amendments: .honourEverything))
+
+        XCTAssertEqual(accept.changes.first?.prior, para)
+        XCTAssertEqual(accept.changes.first?.next, "It was dark, very very dark.")
+    }
+
     /// Reopen & Revert of a suggestion no accept ever spliced (the writer
     /// typed it): a status-only `claudeAcceptRevert` — the note reopens and
     /// the writer's words stay, as on the Mac.
