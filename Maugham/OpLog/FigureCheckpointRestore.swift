@@ -138,19 +138,20 @@ final class FigureCheckpointRestore {
                     if change.kind == .claudeAccept { lastNotes.reaccepted.append(id) } else { lastNotes.reopened.append(id) }
                 }
             }
-            // A stranded accept no cell change carries: reverted (its cell
-            // was written for another note) or archived (its cell is gone
-            // then), status only.
+            // A note no cell change carries, status only: a returning one on
+            // a revived cell accepted again, a stranded one reverted (its
+            // cell written for another note, or revived) or archived (its
+            // cell is gone then).
             for line in noteLines where stop == nil {
                 guard host.reloadGeneration == generation else { stop = .changedElsewhere; break }
                 try await host.commit(line.kind, nil, provenance: FigureAnnotationOps.lifecycleProvenance(
                     annotationId: line.annotationId, sourceCheckpoint: checkpointId, stamp: host.noteStamp),
                     render: false)
                 appended += 1
-                if line.kind == .claudeArchive {
-                    lastNotes.archived.append(line.annotationId)
-                } else {
-                    lastNotes.reopened.append(line.annotationId)
+                switch line.kind {
+                case .claudeArchive: lastNotes.archived.append(line.annotationId)
+                case .claudeAccept: lastNotes.reaccepted.append(line.annotationId)
+                default: lastNotes.reopened.append(line.annotationId)
                 }
             }
             if stop == nil, restoresPicture, let picture {

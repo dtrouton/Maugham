@@ -30,25 +30,35 @@ public enum FigureNoteLifecycle {
 /// `returningAccepts`); the two rules are kept in step by tests that name
 /// each other, not by shared code.
 ///
+/// A cell the restore **writes** is one a `figureCellSet` sets, or one a
+/// row or column revive puts back (the revive's cells ride in its `removed`
+/// slice, with no cell set of their own) — written to the value the pointer
+/// held there. Values are compared by content, never format.
+///
 /// - **Stranded**: accepted now, not accepted at the pointer, its newest
-///   cell-carrying accept past the pointer, and the restore writes its cell —
-///   that cell's change becomes the note's `claudeAcceptRevert` (cell and
-///   note in one op). Two such notes on one written cell: the change carries
-///   the one whose cell-carrying accept is newest; the other is reverted
-///   status only (its cell WAS written).
+///   cell-carrying accept past the pointer, and the restore writes its cell
+///   to a value other than its own accepted content — that cell's change
+///   becomes the note's `claudeAcceptRevert` (cell and note in one op). Two
+///   such notes on one cell set: the change carries the one whose
+///   cell-carrying accept is newest; the other is reverted status only (its
+///   cell WAS written). A revived cell has no cell set to carry the note:
+///   reverted status only.
 /// - **Returning**: open now, its latest honoured line a `claudeAcceptRevert`
 ///   past the pointer, accepted at the pointer, and the restore writes its
-///   cell back to the value it accepted — that cell's change becomes the
-///   note's `claudeAccept`. It takes the change before any stranded note on
-///   that cell, since the value written is its own.
+///   cell back to the content it accepted — that cell's change becomes the
+///   note's `claudeAccept`, or, on a revived cell, a status-only
+///   `claudeAccept`. It takes the change before any stranded note on that
+///   cell, since the value written is its own.
 /// - **Gone**: stranded but for the cell, whose row or column does not exist
 ///   at the pointer — archived status only, or, where this hand may not
 ///   dispose of a note (`mayDispose: false`), reverted status only: open over
 ///   a deleted cell is honest, and the author can archive it.
 ///
 /// Everything else is left alone — in particular a note accepted at the
-/// pointer and now ("however many Reverts and re-accepts came since"), and
-/// a stranded note on a cell the restore does not write: it keeps its status.
+/// pointer and now ("however many Reverts and re-accepts came since"), a
+/// stranded note on a cell the restore does not write (R-A), and a stranded
+/// note whose cell the restore writes to its OWN accepted content (Goal 1: a
+/// note is never reopened over its own value; it stays accepted, no line).
 ///
 /// Pure: `FigureDocument`'s checkpoint restore acts on it
 /// (`FigureCheckpointRestore`).
@@ -122,7 +132,7 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
                 if atPointer, newer(op, than: latestAtPointer[id]) { latestAtPointer[id] = op }
             }
         }
-        var stranded: [(id: String, cell: CellKey, acceptOpId: String)] = []
+        var stranded: [(id: String, cell: CellKey, value: CellContent?, acceptOpId: String)] = []
         var returning: [(id: String, cell: CellKey, value: CellContent?)] = []
         for id in latest.keys.sorted() {
             guard let now = latest[id] else { continue }
@@ -138,21 +148,49 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
             // accept for that note that CARRIES a cell (N1).
             if accepted.contains(id), now.kind == .claudeAccept, !acceptedAtPointer,
                let written = cellAccept[id], written.opId > pointer, let cell = written.figure?.cell {
-                stranded.append((id, cell, written.opId))
+                stranded.append((id, cell, written.figure?.next?.content, written.opId))
             }
             // Returning: the line that took the accepted cell out — the
             // writer's Revert, or a restore's own status-only revert — is
-            // past the pointer, and the pointer held the accept.
+            // past the pointer, and the pointer held the accept. (The
+            // manuscript's second "took the change out" arm, a `.rewind`
+            // `annotationReopen`, is left out on purpose: a figure has no
+            // rewind, so no such line is ever written on its stream.)
             if open.contains(id), now.kind == .claudeAcceptRevert, now.opId > pointer, acceptedAtPointer,
                let then = cellAcceptAtPointer[id], let cell = then.figure?.cell {
                 returning.append((id, cell, then.figure?.next?.content))
             }
         }
+        // The cells a revive puts back, at the value the pointer held: every
+        // live cell of a revived row or column, read from `target`.
+        var revived: [CellKey: CellContent?] = [:]
+        for change in changes where change.kind == .figureStructure {
+            switch change.payload.structure {
+            case let .reviveRow(row)?:
+                for column in target.table.columns {
+                    let key = CellKey(row: row, column: column)
+                    revived[key] = target.table[key]?.content
+                }
+            case let .reviveColumn(column)?:
+                for row in target.table.rows {
+                    let key = CellKey(row: row, column: column)
+                    revived[key] = target.table[key]?.content
+                }
+            default: break
+            }
+        }
+        // A stranded note whose cell the restore writes to its OWN accepted
+        // content keeps its status and gets no line (Goal 1): the content it
+        // accepted is what the cell holds afterwards.
+        let cellSets = Dictionary(changes.compactMap { change -> (CellKey, CellContent?)? in
+            guard change.kind == .figureCellSet, let cell = change.payload.cell else { return nil }
+            return (cell, change.payload.next?.content)
+        }, uniquingKeysWith: { _, last in last })
+        func writtenValue(_ cell: CellKey) -> CellContent?? { cellSets[cell] ?? revived[cell] }
+        stranded.removeAll { note in writtenValue(note.cell).map { $0 == note.value } ?? false }
         var notes = FigureRestoreNotes()
-        var writtenCells: Set<CellKey> = []
         let answered = changes.map { change -> FigureReturnDiff.Change in
             guard change.kind == .figureCellSet, let cell = change.payload.cell else { return change }
-            writtenCells.insert(cell)
             // The value written back is the one a returning note accepted.
             if let i = returning.firstIndex(where: { $0.cell == cell && $0.value == change.payload.next?.content }) {
                 let id = returning.remove(at: i).id
@@ -166,16 +204,24 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
             notes.reopened.append(id)
             return FigureReturnDiff.Change(kind: .claudeAcceptRevert, payload: change.payload, sourceAnnotationId: id)
         }
-        // A stranded note on a cell the restore wrote for another note is
-        // reverted status only; one whose cell is gone then is archived; one
-        // on a live cell the restore does not write keeps its status (R-A).
-        let lines = stranded.compactMap { note -> StatusLine? in
+        // Status only, after the changes: a returning note whose revived cell
+        // holds its accepted content again is accepted; a stranded note on a
+        // cell the restore wrote (for another note, or by a revive) is
+        // reverted; one whose cell is gone then is archived; one on a live
+        // cell the restore does not write keeps its status (R-A).
+        var lines: [StatusLine] = []
+        for note in returning {
+            guard let value = revived[note.cell], value == note.value else { continue }
+            notes.reaccepted.append(note.id)
+            lines.append(StatusLine(kind: .claudeAccept, annotationId: note.id))
+        }
+        for note in stranded {
             let live = target.table.rowIndex(of: note.cell.row) != nil
                 && target.table.columnIndex(of: note.cell.column) != nil
-            guard writtenCells.contains(note.cell) || !live else { return nil }
+            guard writtenValue(note.cell) != nil || !live else { continue }
             let kind: OpKind = live || !mayDispose ? .claudeAcceptRevert : .claudeArchive
             if kind == .claudeArchive { notes.archived.append(note.id) } else { notes.reopened.append(note.id) }
-            return StatusLine(kind: kind, annotationId: note.id)
+            lines.append(StatusLine(kind: kind, annotationId: note.id))
         }
         return FigureRestoreNotePlan(changes: answered, statusLines: lines, notes: notes)
     }

@@ -312,4 +312,114 @@ final class FigureReturningAcceptTests: XCTestCase {
         XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [newer, older]))
         await doc.close()
     }
+
+    // MARK: - Revived cells and a note's own value (fix round 1)
+
+    /// **A cell a revive puts back is written** (Important 1): accepted after
+    /// the checkpoint, its row then deleted — the restore revives the row
+    /// with "old" inside the revive, so the note is reverted status only,
+    /// never left accepted over "old".
+    func test_aStrandedNoteOnARevivedRowIsReopened() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        try await doc.deleteRow(b2.row)
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        let written = Array(try ops(of: record.id).dropFirst(before))
+        XCTAssertEqual(written.map(\.kind), [.figureStructure, .claudeAcceptRevert])
+        XCTAssertEqual(written.first?.figure?.structure, .reviveRow(b2.row), "premise: the row is revived")
+        let line = try XCTUnwrap(written.dropFirst().first, "a note line after the revive")
+        XCTAssertEqual(line.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(line.provenance?.sourceCheckpoint, Self.checkpoint)
+        XCTAssertNil(line.figure, "status only: the revive carried the cell")
+        XCTAssertEqual(doc.state.table[b2], text("old"))
+        XCTAssertEqual(status(id, in: doc), .open)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [id]))
+        await doc.close()
+    }
+
+    /// **A returning note on a revived row returns to accepted** (Important
+    /// 1): accept, checkpoint, ⌘Z, delete the row, restore — the revive puts
+    /// 42 back, and a status-only `claudeAccept`, checkpoint-stamped, accepts
+    /// the note again.
+    func test_aReturningNoteOnARevivedRowReturnsToAccepted() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        let um = UndoManager()
+        try await doc.acceptSuggestion(id: id, undoManager: um)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        await press(true, um, doc)
+        try await doc.deleteRow(b2.row)
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        let written = Array(try ops(of: record.id).dropFirst(before))
+        XCTAssertEqual(written.map(\.kind), [.figureStructure, .claudeAccept])
+        let line = try XCTUnwrap(written.dropFirst().first, "a note line after the revive")
+        XCTAssertEqual(line.provenance?.sourceAnnotationId, id)
+        XCTAssertEqual(line.provenance?.sourceCheckpoint, Self.checkpoint)
+        XCTAssertNil(line.figure, "status only: the revive carried the cell")
+        XCTAssertEqual(doc.state.table[b2], number(42))
+        XCTAssertEqual(status(id, in: doc), .accepted)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reaccepted: [id]))
+        let fresh = try await load(record.id)
+        XCTAssertEqual(status(id, in: fresh), .accepted)
+        await fresh.close()
+        await doc.close()
+    }
+
+    /// **A note is never reopened over its own value** (Important 2, the
+    /// spec's Goal 1): 42 typed by hand, checkpoint, the old→42 suggestion
+    /// accepted, a hand edit to "hand" — the restore writes 42 back as a
+    /// plain cell set and the note stays accepted.
+    func test_aNoteWhoseCellIsWrittenToItsOwnValueStaysAccepted() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let id = try await suggest(number(42), at: b2, on: doc)
+        try await doc.setCell(number(42), at: b2)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: id)
+        try await doc.setCell(text("hand"), at: b2)
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        let written = Array(try ops(of: record.id).dropFirst(before))
+        XCTAssertEqual(written.map(\.kind), [.figureCellSet], "a plain cell set")
+        XCTAssertNil(written.first?.provenance?.sourceAnnotationId)
+        XCTAssertEqual(doc.state.table[b2], number(42))
+        XCTAssertEqual(status(id, in: doc), .accepted)
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes())
+        await doc.close()
+    }
+
+    /// **Two notes, one written to its own value** (Important 2): 42 by hand
+    /// at the checkpoint, A (→42) then B (→7) accepted after it — the change
+    /// back to 42 carries B's revert; A keeps accepted, with no line, since
+    /// the cell holds its own value again.
+    func test_twoNotes_theOneWrittenToItsOwnValueStaysAccepted() async throws {
+        let (record, doc, b2) = try await makeTable()
+        let a = try await suggest(number(42), at: b2, on: doc)
+        let b = try await suggest(number(7), at: b2, on: doc)
+        try await doc.setCell(number(42), at: b2)
+        let pointer = try XCTUnwrap(try ops(of: record.id).last?.opId)
+        try await doc.acceptSuggestion(id: a)
+        try await doc.acceptSuggestion(id: b, confirmChanged: true)
+        let before = try ops(of: record.id).count
+
+        _ = try await doc.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        let written = Array(try ops(of: record.id).dropFirst(before))
+        XCTAssertEqual(written.map(\.kind), [.claudeAcceptRevert], "one op: B's revert")
+        XCTAssertEqual(written.first?.provenance?.sourceAnnotationId, b)
+        XCTAssertEqual(written.first?.figure?.next, number(42))
+        XCTAssertEqual(doc.state.table[b2], number(42))
+        XCTAssertEqual([status(a, in: doc), status(b, in: doc)], [.accepted, .open])
+        XCTAssertEqual(doc.lastRestoreNotes, FigureRestoreNotes(reopened: [b]))
+        await doc.close()
+    }
 }

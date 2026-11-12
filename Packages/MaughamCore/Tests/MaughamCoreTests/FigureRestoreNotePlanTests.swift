@@ -83,6 +83,11 @@ final class FigureRestoreNotePlanTests: XCTestCase {
                     figure: FigureOpPayload(cell: key, next: cell, prior: h.state.table[key])))
     }
 
+    /// Deletes row `r1`, keeping its cells in the slice a revive puts back.
+    private func deleteRow(_ row: RowID, in h: inout History) {
+        h.emit(.figureStructure, FigureOpPayload(structure: .deleteRow(row), removed: h.state.removedSlice(row: row)))
+    }
+
     /// The restore's table changes back to `pointer`, as `restoreToCheckpoint`
     /// works them out, and the plan over them.
     private func plan(
@@ -174,8 +179,9 @@ final class FigureRestoreNotePlanTests: XCTestCase {
         XCTAssertEqual(returning.changes.map(\.kind), [.claudeAccept], "premise: the change carries the note")
         XCTAssertTrue(returning.answersANote)
 
+        let afterTheRevert = h.pointer
         h.set(key, text("hand"))
-        let (changes, plain) = plan(h, to: h.ops[h.ops.count - 2].opId)
+        let (changes, plain) = plan(h, to: afterTheRevert)
         XCTAssertEqual(plain.changes, changes, "premise: a plain cell set, no note carried")
         XCTAssertFalse(plain.answersANote)
     }
@@ -335,6 +341,110 @@ final class FigureRestoreNotePlanTests: XCTestCase {
 
         XCTAssertEqual(changes.map(\.kind), [.figureCellSet], "premise: the restore writes the cell back")
         XCTAssertEqual(plan.changes, changes, "the cell change stays a plain cell set")
+        XCTAssertEqual(plan.statusLines, [])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes())
+    }
+
+    // MARK: - Revived cells and a note's own value (fix round 1)
+
+    /// **A revived row's cells are written** (Important 1): accepted after
+    /// the pointer, its row deleted since — the restore revives the row with
+    /// the old value inside the revive (no cell set to carry the note), so
+    /// the note is reverted status only, never left accepted over "old".
+    func test_aStrandedNoteOnARevivedRowIsRevertedStatusOnly() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        let pointer = h.pointer
+        accept(id, number(42), at: key, in: &h)
+        deleteRow(r1, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.kind), [.figureStructure], "premise: a revive, no cell set")
+        XCTAssertEqual(changes.first?.payload.structure, .reviveRow(r1))
+        XCTAssertEqual(plan.changes, changes)
+        XCTAssertEqual(plan.statusLines, [.init(kind: .claudeAcceptRevert, annotationId: id)])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reopened: [id]))
+    }
+
+    /// **A returning note on a revived row is accepted status only**
+    /// (Important 1): accepted at the pointer, reverted since, its row then
+    /// deleted — the revive puts 42 back, so the note returns to accepted by
+    /// a status-only `claudeAccept`.
+    func test_aReturningNoteOnARevivedRowIsAcceptedStatusOnly() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        accept(id, number(42), at: key, in: &h)
+        let pointer = h.pointer
+        revert(id, to: text("old"), at: key, in: &h)
+        deleteRow(r1, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.kind), [.figureStructure], "premise: a revive, no cell set")
+        XCTAssertEqual(plan.changes, changes)
+        XCTAssertEqual(plan.statusLines, [.init(kind: .claudeAccept, annotationId: id)])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reaccepted: [id]))
+        XCTAssertTrue(plan.answersANote)
+    }
+
+    /// **A note is never reopened over its own value** (Important 2, Goal 1):
+    /// 42 typed by hand, checkpoint, the old→42 suggestion accepted, a hand
+    /// edit — the restore writes 42, the note's own content, so the change
+    /// stays a plain cell set and the note keeps its status.
+    func test_aStrandedNoteWhoseCellIsWrittenToItsOwnValueKeepsItsStatus() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        h.set(key, number(42))
+        let pointer = h.pointer
+        accept(id, number(42), at: key, in: &h)
+        h.set(key, text("hand"))
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.payload.next), [number(42)], "premise: the restore writes 42")
+        XCTAssertEqual(plan.changes, changes, "a plain cell set")
+        XCTAssertEqual(plan.statusLines, [])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes())
+    }
+
+    /// **Two stranded notes, one written to its own value** (Important 2):
+    /// 42 by hand at the pointer, A (→42) then B (→7) accepted after it —
+    /// the change back to 42 carries B's revert; A, whose own content the
+    /// cell holds again, keeps accepted with no line.
+    func test_twoStrandedNotes_theOneWrittenToItsOwnValueKeepsItsStatus() throws {
+        var (h, key) = table()
+        let a = try suggest(number(42), at: key, in: &h)
+        let b = try suggest(number(7), at: key, in: &h)
+        h.set(key, number(42))
+        let pointer = h.pointer
+        accept(a, number(42), at: key, in: &h)
+        accept(b, number(7), at: key, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.payload.next), [number(42)], "premise: the restore writes 42")
+        XCTAssertEqual(plan.changes, [FigureReturnDiff.Change(
+            kind: .claudeAcceptRevert, payload: changes[0].payload, sourceAnnotationId: b)])
+        XCTAssertEqual(plan.statusLines, [], "A keeps accepted: the cell holds its own value")
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reopened: [b]))
+    }
+
+    /// **A revived cell holding the note's own value** (Important 1 × 2): 42
+    /// by hand at the pointer, the suggestion accepted after it, the row
+    /// deleted — the revive puts 42 back, so the note keeps accepted.
+    func test_aStrandedNoteOnARevivedCellHoldingItsOwnValueKeepsItsStatus() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        h.set(key, number(42))
+        let pointer = h.pointer
+        accept(id, number(42), at: key, in: &h)
+        deleteRow(r1, in: &h)
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.kind), [.figureStructure], "premise: a revive, no cell set")
+        XCTAssertEqual(plan.changes, changes)
         XCTAssertEqual(plan.statusLines, [])
         XCTAssertEqual(plan.notes, FigureRestoreNotes())
     }
