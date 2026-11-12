@@ -577,4 +577,136 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertTrue((files...files + 1).contains(hashes.hashCount),
                       "each file once, and the one written over again: \(hashes.hashCount)")
     }
+
+    // MARK: - The notes preview (hardening 11-11 Task 3, #136 W3, RULING-28)
+
+    private func number(_ n: Double) -> Cell { Cell(content: .value(.number(n))) }
+
+    /// The assistant suggests `cell` for `key` on the open `host`, as another
+    /// writer would, and the host reads it.
+    private func suggest(_ cell: Cell?, at key: CellKey, on host: FigureDocument) async throws -> String {
+        let op = try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Should be this", suggestedCell: cell, prior: host.state.table[key],
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: host.figureId, device: Document.loadIdentities[.assistant].deviceId))
+        try await Document.makeLoadOpStore(projectURL: projectURL, presenter: nil).append(op)
+        try await host.reload()
+        return op.opId
+    }
+
+    /// **A figure whose restore answers one note of each class**, open, and
+    /// the checkpoint's pointer: `returning` accepted at the checkpoint and
+    /// reverted by ⌘Z since (its value comes back), `stranded` accepted since
+    /// (its cell goes back), `gone` accepted since on a row added since.
+    private func oneOfEachNote() async throws -> (
+        record: FigureRecord, host: FigureDocument, pointer: String,
+        returning: String, stranded: String, gone: String
+    ) {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let rows = host.state.table.rows, columns = host.state.table.columns
+        let a1 = CellKey(row: rows[0], column: columns[0]), b2 = CellKey(row: rows[1], column: columns[1])
+        try await host.setCell(text("old"), at: a1)
+        try await host.setCell(text("old"), at: b2)
+        let returning = try await suggest(number(42), at: a1, on: host)
+        let um = UndoManager()
+        try await host.acceptSuggestion(id: returning, undoManager: um)
+        let stranded = try await suggest(number(7), at: b2, on: host)
+        let pointer = try mark(record.id)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        try await host.acceptSuggestion(id: stranded)
+        let row = try await host.insertRow(after: nil)
+        let gone = try await suggest(number(9), at: CellKey(row: row, column: columns[0]), on: host)
+        try await host.acceptSuggestion(id: gone)
+        return (record, host, pointer, returning, stranded, gone)
+    }
+
+    /// **The preview is what the restore then answers, and writes nothing**
+    /// (RULING-28's two halves from one preparation): one note of each class;
+    /// the preview names all three, appends no op, announces nothing and
+    /// leaves `lastRestoreNotes` as it was; the restore that follows answers
+    /// exactly the preview.
+    func test_theNotesPreviewIsWhatTheRestoreThenAnswers_andWritesNothing() async throws {
+        let (record, host, pointer, returning, stranded, gone) = try await oneOfEachNote()
+        let before = try streamBytes(of: record.id)
+        var announced: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamAnnotationsChanged, object: nil, queue: nil
+        ) { note in
+            if let id = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String { announced.append(id) }
+        }
+
+        let preview = await host.restoreNotesPreview(through: pointer)
+
+        NotificationCenter.default.removeObserver(token)
+        let notes = try XCTUnwrap(preview)
+        XCTAssertEqual(notes.reopened, [stranded])
+        XCTAssertEqual(notes.reaccepted, [returning])
+        XCTAssertEqual(notes.archived, [gone])
+        XCTAssertEqual(try streamBytes(of: record.id), before, "the preview appends nothing")
+        XCTAssertEqual(announced, [], "the preview announces nothing")
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(), "the preview leaves the last answer alone")
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 4), "two cells with their notes, the row, the archive")
+        XCTAssertEqual(host.lastRestoreNotes, notes, "BEFORE is what AFTER reports")
+        await host.documentStore?.closeFigure(figureId: record.id)
+    }
+
+    /// **The preview is nil where the restore would skip or refuse** — a
+    /// parked figure, one that went to Research since, one whose piece is
+    /// yielded (this Mac may neither edit it nor answer its notes) — and
+    /// appends nothing. Each has a stranded accept, so a preview that went
+    /// on would name it.
+    func test_theNotesPreviewIsNilWhereTheRestoreSkipsOrRefuses() async throws {
+        let (store, projectStore) = try await openBook()
+        func stranded(_ name: String, piece: String? = nil) async throws -> (FigureRecord, FigureDocument, String) {
+            let record = try await projectStore.createFigure(kind: .table, name: name, piece: piece)
+            let host = try await store.openFigure(figureId: record.id)
+            let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+            try await host.setCell(text("old"), at: key)
+            let id = try await suggest(number(7), at: key, on: host)
+            let pointer = try mark(record.id)
+            try await host.acceptSuggestion(id: id)
+            return (record, host, pointer)
+        }
+
+        let (parked, parkedHost, parkedPointer) = try await stranded("parked")
+        try await parkedHost.parkInResearch(
+            path: "research/parked.csv", hash: "h", itemId: "item-1", expecting: parkedHost.state, alongside: {})
+        let parkedBefore = try streamBytes(of: parked.id)
+        let parkedPreview = await parkedHost.restoreNotesPreview(through: parkedPointer)
+        XCTAssertNil(parkedPreview, "parked")
+        XCTAssertEqual(try streamBytes(of: parked.id), parkedBefore, "parked: nothing appended")
+        await store.closeFigure(figureId: parked.id)
+
+        let (went, _, wentPointer) = try await stranded("went")
+        await store.closeFigure(figureId: went.id)
+        let copy = try await projectStore.sendToResearch(figureId: went.id, scope: .shared)
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+        let back = try await store.openFigure(figureId: went.id)
+        let wentBefore = try streamBytes(of: went.id)
+        let wentPreview = await back.restoreNotesPreview(through: wentPointer)
+        XCTAssertNil(wentPreview, "went to Research since")
+        XCTAssertEqual(try streamBytes(of: went.id), wentBefore, "went: nothing appended")
+        await store.closeFigure(figureId: went.id)
+
+        let (yielded, yieldedHost, yieldedPointer) = try await stranded("yielded", piece: Self.pieceB)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.pieceB])))
+        await store.postureSettled()
+        let mayAnswer = await yieldedHost.mayHere(.acceptOrReject)
+        XCTAssertFalse(mayAnswer, "premise: this Mac may not answer the yielded figure's notes")
+        let yieldedBefore = try streamBytes(of: yielded.id)
+        let yieldedPreview = await yieldedHost.restoreNotesPreview(through: yieldedPointer)
+        XCTAssertNil(yieldedPreview, "yielded")
+        XCTAssertEqual(try streamBytes(of: yielded.id), yieldedBefore, "yielded: nothing appended")
+        await store.closeFigure(figureId: yielded.id)
+    }
 }

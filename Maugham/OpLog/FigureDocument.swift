@@ -1582,6 +1582,15 @@ public final class FigureDocument {
         try await checkpointRestore.run(checkpointId, through: pointer, pictureHashes: pictureHashes)
     }
 
+    /// What `restoreToCheckpoint(_:through:)` would do to this figure's notes,
+    /// writing nothing. Nil where the restore would skip the figure, refuse it,
+    /// or throw before its first op. RULING-28's BEFORE half: the revert
+    /// sheet counts it, from the preparation the restore itself runs
+    /// (`FigureCheckpointRestore.notesPreview`).
+    func restoreNotesPreview(through pointer: String) async -> FigureRestoreNotes? {
+        await checkpointRestore.notesPreview(through: pointer)
+    }
+
     /// **The notes the last `restoreToCheckpoint` answered** (RULING-28's
     /// AFTER half), by id — what the restore sheet names beside its outcome.
     var lastRestoreNotes: FigureRestoreNotes { checkpointRestore.lastNotes }

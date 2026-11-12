@@ -77,46 +77,18 @@ final class FigureCheckpointRestore {
         _ checkpointId: String, through pointer: String,
         pictureHashes: FigurePictureHashes
     ) async throws -> FigureRestoreOutcome {
-        do { try await host.requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
-        if FigureRestoreDiff.wentToResearch(since: pointer, in: host._ops) { return .skippedWentToResearch }
-        let first = FigureRestoreDiff.target(of: host._ops, through: pointer)
-        let parks = try await currentParks(reading: first)
-        let wanted = first.image.flatMap { $0.contentHash == host.state.image?.contentHash ? nil : $0 }
-        let picture = await keptPicture(wanted, hashes: pictureHashes)
-        // The note lines a restore may write answer a note, so each asks the
-        // verb it IS (final review M2): a revert that reopens one, or an
-        // accept that returns one, asks `.acceptOrReject` (as
-        // `appendCompensation` does), an archive
-        // `.dispose`. Asked before the door's last await, so nothing lands
-        // between the answer and the writes.
-        let mayAnswerNotes = await host.mayHere(.acceptOrReject)
-        let mayDisposeNotes = await host.mayHere(.dispose)
-        // The reads awaited: the door is asked again before anything is written.
-        do { try await host.requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
-        if FigureRestoreDiff.wentToResearch(since: pointer, in: host._ops) { return .skippedWentToResearch }
-        let target = FigureRestoreDiff.target(of: host._ops, through: pointer)
-
-        let changes = FigureRestoreDiff.changes(from: host.state, to: target, parks: parks)
-        let tableChanges = changes.filter { $0.kind != .figureImageSet }
-        guard FigureReturnDiff.everyChangeApplies(tableChanges, onto: host.state) else {
-            throw FigureEditInvalid(reason: "the checkpoint's changes don't fit the figure")
+        let prepared: Prepared
+        switch try await prepare(through: pointer, pictureHashes: pictureHashes) {
+        case .skipped(let outcome): return outcome
+        case .ready(let ready): prepared = ready
         }
-        let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
-        let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
-        let reason = Op.Provenance(sourceCheckpoint: checkpointId)
-        // Where this hand may not dispose of a note, a stranded accept whose
-        // cell is gone is reopened instead of archived (status only): open
-        // over a deleted cell is honest, and the author can archive it.
-        let plan = FigureRestoreNotePlan.plan(
-            changes: tableChanges, ops: host._ops, amendments: host.annotationAmendments,
-            table: host.state.table, target: target, above: pointer, mayDispose: mayDisposeNotes)
+        let plan = prepared.plan
         let restoreChanges = plan.changes
         let noteLines = plan.statusLines
-        if !mayAnswerNotes, plan.answersANote {
-            documentLog.error(
-                "restoreToCheckpoint refused on \(self.host.figureId, privacy: .public): it would answer a note this device may not answer")
-            throw FigureEditRefused(site: "restoreToCheckpoint")
-        }
+        let pictureChange = prepared.pictureChange
+        let picture = prepared.picture
+        let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
+        let reason = Op.Provenance(sourceCheckpoint: checkpointId)
         lastNotes = FigureRestoreNotes()
         // Every change was worked out against this fold: a reload replaces it.
         let generation = host.reloadGeneration
@@ -182,6 +154,94 @@ final class FigureCheckpointRestore {
             return .skippedPicture(hash: pictureChange.contentHash, opCount: appended)
         }
         return appended == 0 ? .unchanged : .restored(opCount: appended)
+    }
+
+    /// **What `run` would do to this figure's notes, writing nothing**
+    /// (RULING-28's BEFORE half, #136 W3): the same preparation `run` makes
+    /// — the door, the two skips, the park reads, the diff, every change
+    /// checked to apply, both note answers, `FigureRestoreNotePlan` — and
+    /// its plan's notes. Nil where `run` would skip the figure
+    /// (`.skippedParked`, `.skippedWentToResearch`), refuse it
+    /// (`FigureEditRefused`, the door's or a note's) or throw before its
+    /// first op. No op, no event, and `lastNotes` is left as it was. It is
+    /// what a WHOLE restore would answer; a restore stopped part way
+    /// answers less (`lastNotes`).
+    func notesPreview(through pointer: String) async -> FigureRestoreNotes? {
+        guard case .ready(let prepared)? = try? await prepare(through: pointer, pictureHashes: nil)
+        else { return nil }
+        return prepared.plan.notes
+    }
+
+    /// Everything `run` works out before its first op.
+    private struct Prepared {
+        /// The table changes with the notes they answer, and the status-only
+        /// note lines (`FigureRestoreNotePlan`).
+        let plan: FigureRestoreNotePlan
+        /// The checkpoint's picture, where the diff puts one back.
+        let pictureChange: FigureImageRef?
+        /// A file holding its bytes, when one was looked for and found.
+        let picture: (url: URL, hash: String)?
+    }
+
+    private enum Preparation {
+        /// The restore leaves this figure as it is, appending nothing.
+        case skipped(FigureRestoreOutcome)
+        case ready(Prepared)
+    }
+
+    /// **The one preparation `run` and `notesPreview` share**: the door
+    /// (`.editFigure`, through `requireWritable`) and the two skips, the pin
+    /// sources' park reads, the door and the skips again once the reads are
+    /// awaited, the diff, `everyChangeApplies`, both note answers (`mayHere`)
+    /// and the note plan; a plan that answers a note this hand may not
+    /// answer is refused here. Writes nothing. With `pictureHashes` the
+    /// checkpoint's picture is looked for among the kept bytes, between the
+    /// two door asks; without (the preview) it is not looked for.
+    private func prepare(
+        through pointer: String, pictureHashes: FigurePictureHashes?
+    ) async throws -> Preparation {
+        do { try await host.requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skipped(.skippedParked) }
+        if FigureRestoreDiff.wentToResearch(since: pointer, in: host._ops) { return .skipped(.skippedWentToResearch) }
+        let first = FigureRestoreDiff.target(of: host._ops, through: pointer)
+        let parks = try await currentParks(reading: first)
+        var picture: (url: URL, hash: String)?
+        if let pictureHashes {
+            let wanted = first.image.flatMap { $0.contentHash == host.state.image?.contentHash ? nil : $0 }
+            picture = await keptPicture(wanted, hashes: pictureHashes)
+        }
+        // The note lines a restore may write answer a note, so each asks the
+        // verb it IS (final review M2): a revert that reopens one, or an
+        // accept that returns one, asks `.acceptOrReject` (as
+        // `appendCompensation` does), an archive
+        // `.dispose`. Asked before the door's last await, so nothing lands
+        // between the answer and the writes.
+        let mayAnswerNotes = await host.mayHere(.acceptOrReject)
+        let mayDisposeNotes = await host.mayHere(.dispose)
+        // The reads awaited: the door is asked again before anything is written.
+        do { try await host.requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skipped(.skippedParked) }
+        if FigureRestoreDiff.wentToResearch(since: pointer, in: host._ops) { return .skipped(.skippedWentToResearch) }
+        let target = FigureRestoreDiff.target(of: host._ops, through: pointer)
+
+        let changes = FigureRestoreDiff.changes(from: host.state, to: target, parks: parks)
+        let tableChanges = changes.filter { $0.kind != .figureImageSet }
+        guard FigureReturnDiff.everyChangeApplies(tableChanges, onto: host.state) else {
+            throw FigureEditInvalid(reason: "the checkpoint's changes don't fit the figure")
+        }
+        // Where this hand may not dispose of a note, a stranded accept whose
+        // cell is gone is reopened instead of archived (status only): open
+        // over a deleted cell is honest, and the author can archive it.
+        let plan = FigureRestoreNotePlan.plan(
+            changes: tableChanges, ops: host._ops, amendments: host.annotationAmendments,
+            table: host.state.table, target: target, above: pointer, mayDispose: mayDisposeNotes)
+        if !mayAnswerNotes, plan.answersANote {
+            documentLog.error(
+                "restoreToCheckpoint refused on \(self.host.figureId, privacy: .public): it would answer a note this device may not answer")
+            throw FigureEditRefused(site: "restoreToCheckpoint")
+        }
+        return .ready(Prepared(
+            plan: plan,
+            pictureChange: changes.first { $0.kind == .figureImageSet }?.payload.image,
+            picture: picture))
     }
 
     /// The current park cycle of each figure this figure's pins name, now or
