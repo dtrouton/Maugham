@@ -373,10 +373,10 @@
   "claim_id": "M4-RW-024",
   "scope": "Document.restoreToOpUndoable",
   "kind": "POSTCONDITION",
-  "statement": "one ⌘Z of that action returns the whole rewind — text, reopened accepts and sweep-archived annotations together",
+  "statement": "one ⌘Z of that action returns the whole rewind — text, reopened accepts and sweep-archived annotations together; a stranded ACCEPTED suggestion the rewind archived because its paragraph was removed returns ACCEPTED on ⌘Z (a status-only `.undoRewind` `claudeAccept` carrying the original reply, M4-RW-043)",
   "source": {
    "type": "CHARACTERIZATION",
-   "ref": "RewindCharacterization.test_undoableRewind_leavesExactlyOneUndoAction"
+   "ref": "RewindCharacterization.test_undoableRewind_leavesExactlyOneUndoAction + MaughamTests/Integration/AcceptOverAppliedTextTests.test_undoingARewindThatRemovedTheParagraph_returnsTheNoteAccepted_andRevertReachesTheOriginal"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
@@ -626,5 +626,22 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M4-RW-043",
+  "scope": "Document.restoreToOpUndoable — the undo of step 8's archive of a stranded accept (M4-RW-018's ⌘Z)",
+  "kind": "POSTCONDITION",
+  "statement": "⌘Z of a rewind that archived an ACCEPTED suggestion because the rewind removed its paragraph (M4-RW-018) returns the note ACCEPTED, not open: step 8 records the id (`RewindRestoreResult.strandedArchivedAnnotationIds`) and the undo writes a status-only `claudeAccept` stamped `.undoRewind` carrying the original `userResponse`, while every other archived id (the step-7 sweep's) is reopened as before. The text holds one splice and the pane's Revert reaches the original. ⇧⌘Z archives it again (a status-only `.rewind` `claudeArchive`) and a second ⌘Z returns it accepted again. A travel's own archive is neutral in `SuggestionSplice.spliceLive`, so a note reopened over its splice by the undo is not spliced twice by a later Accept (M5-AN-076).",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/AcceptOverAppliedTextTests.swift: test_undoingARewindThatRemovedTheParagraph_returnsTheNoteAccepted_andRevertReachesTheOriginal, test_afterUndoingTheRewind_aNoteReopenedOverItsSplice_isNotAppliedTwice, test_theRaceStateThroughAnUndoneRewind_isNotAppliedTwice, test_redoOfTheUndoneRewind_archivesAgain_andASecondUndoReturnsItAccepted; Packages/MaughamCore/Tests/MaughamCoreTests/SuggestionSpliceTests.swift: test_spliceLive_aTravelsArchiveIsNeutral"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22; RULING-25's symmetric travel)",
+  "reachability": "LIVE — History → Rewind → Restore here… over a point before a suggestion's paragraph existed, with that suggestion accepted; then ⌘Z",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 Task 5 fix round 4, 18b28714): the undo's step-7-style reopen left an accepted note open, so one ⌘Z did not return what the rewind had taken."
  }
 ]

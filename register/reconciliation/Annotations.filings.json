@@ -244,7 +244,7 @@
  {
   "claim_id": "M5-AN-034",
   "outcome": "NO_RULING_REACHES",
-  "reason": "UNTRACED today — reopen has no non-undo caller (M5-AN-039). Becomes rulable the day RULING-29's pane action ships, at which point .accepted's exclusion needs to compose with the Revert affordance that already serves it."
+  "reason": "Traced 2026-11-12 (hardening 11-11 Task 5): LIVE across devices. This Mac accepts a suggested change, and another device's newer `claudeArchive` or `annotationStet` wins the status. No repair runs (RULING-33 is reject-only). The pane's Reopen (RULING-29) and the phone's then act from those statuses as this claim says, and open the note over its own splice. Before R-B's guard, a second Accept wrote `claudeAccept` with prior == next, or spliced a span twice, and ⌘Z and Revert could no longer reach the original. Since `f5f12108`/`56f6cd55`/`128174cd`/`24d6349a`/`18b28714` the second Accept is status-only or splices only where the splice is out (M5-AN-076). A peer REJECT was always safe, because RULING-33 restores the text at the merge. Pinned by MaughamTests/Integration/AcceptOverAppliedTextTests.swift. Outcome unchanged: the claim is about the reopen verb's statuses and no ruling reaches it."
  },
  {
   "claim_id": "M5-AN-035",
@@ -577,13 +577,98 @@
   }
  },
  {
+  "claim_id": "M5-AN-073",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-58",
+  "clause_that_reaches_it": "A revert changes a suggestion only where it rewrites that suggestion's cell. A suggestion on a cell the revert does not write keeps its status. The one figure-only arm: a suggestion whose row or column does not exist at the checkpoint is archived",
+  "why_in_scope": "The clause is about exactly this walk: a figure checkpoint revert and the notes on the cells it rewrites, leaves alone, or removes. The returning class is RULING-57's own figure half (its 'a checkpoint revert alike'). The sub-rules marked as the coordinator's call (newest accept carries the change; own-value stays accepted; a guarded accept is judged by its anchor) refine the clause's 'only where it rewrites that suggestion's cell' and are not yet ruled by Denver.",
+  "intent_expressed_when": "contemporaneous — the writer's Revert here… on a checkpoint",
+  "call_path": "HistoryPane → Revert here… → PartialRestorePicker.restoreFigures → FigureDocument.restoreToCheckpoint → FigureCheckpointRestore.prepare → FigureRestoreNotePlan.plan",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "7f19c653 e2d4b0a9 5686c2bc",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-58 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "FigureRestoreNotePlanTests (core), FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins",
+   "note": "Filed already fixed: found in the figures review (#136), never carried a VIOLATES filing. Before it a figure revert left a reverted accept open over its returned value and reopened a note on a cell it did not write."
+  }
+ },
+ {
+  "claim_id": "M5-AN-074",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-28",
+  "clause_that_reaches_it": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER.",
+  "why_in_scope": "Reverting a figure to a checkpoint is asked about the table; reopening, returning to accepted and archiving the notes on its cells is collateral, as the manuscript revert's is (M4-RW-039). The sheet's count and the result are built from one plan.",
+  "intent_expressed_when": "contemporaneous — the Revert sheet and its aftermath",
+  "call_path": "HistoryPane → Revert here… → PartialRestorePicker.revertNotes (confirm line) → restore → figureSentence (result)",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "65ce320d 674db796",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-28 — Denver 2026-08-08; issue #136 W3 scoped it",
+   "pinned_by": "PartialRestoreFigureTests (PartialRestoreScopeTests.swift) and FigureRestoreTests preview pins",
+   "note": "Filed already fixed: found in the figures review, never carried a VIOLATES filing."
+  }
+ },
+ {
+  "claim_id": "M5-AN-075",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-59",
+  "clause_that_reaches_it": "When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell.",
+  "why_in_scope": "The clause's figure half verbatim: a cell that already holds the suggested value, Accept pressed in the strip or the queue.",
+  "intent_expressed_when": "contemporaneous — the writer's Accept",
+  "call_path": "Grid strip Accept / queue row Accept → FigureDocument.acceptSuggestion (guarded arm); ⌘Z → registerFigureUndo → appendCompensation",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "2dde6d04 5686c2bc",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-59 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "FigureAnnotationDispositionTests and FigureVisitTests guarded-accept pins",
+   "note": "Filed already fixed: found in the figures review (#136 W2), never carried a VIOLATES filing."
+  }
+ },
+ {
+  "claim_id": "M5-AN-076",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-59",
+  "clause_that_reaches_it": "When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell. Figures now. The manuscript too if the same sequence reproduces there",
+  "why_in_scope": "The sequence reproduced in the manuscript (Task 5), so the clause's manuscript half applies: the paragraph already holds the suggested text (the splice is in place, or the paragraph already reads as the suggestion) and Accept writes no text.",
+  "intent_expressed_when": "contemporaneous — the writer's second Accept",
+  "call_path": "AnnotationsPane / margin card Accept → Document.acceptAnnotation → SuggestionSplice.planAccept; the phone's AnnotationWriter.makeAccept",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "f5f12108 56f6cd55 128174cd 24d6349a 18b28714",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-59 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "AcceptOverAppliedTextTests, SuggestionSpliceTests, AnnotationWriterTests (phone)",
+   "note": "Filed already fixed: found and fixed in this branch; M5-AN-034's filing carries the trace. Known limit L3 is in the claim."
+  }
+ },
+ {
+  "claim_id": "M5-AN-077",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The pane's Revert and the phone's Reopen & Revert say they take the accept back; pressed over a status-only accept they silently did nothing.",
+  "intent_expressed_when": "contemporaneous — the writer's Revert",
+  "call_path": "AnnotationsPane Revert → Document.revertAcceptedAnnotation → SuggestionSplice.revertPlan; phone Reopen & Revert → AnnotationWriter.makeRevert",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "f5f12108 56f6cd55",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'",
+   "pinned_by": "AcceptOverAppliedTextTests Revert pins; AnnotationWriterTests Reopen & Revert pins; SuggestionSpliceTests.test_revertPlan_*",
+   "note": "Filed already fixed, found in this branch."
+  }
+ },
+ {
   "_summary": {
-   "reached": 26,
-   "complies": 26,
+   "reached": 31,
+   "complies": 31,
    "violates": 0,
    "no_ruling": 36,
-   "total": 62,
-   "coverage": "42%",
+   "total": 67,
+   "coverage": "46%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -597,13 +682,17 @@
      "M5-AN-060",
      "M5-AN-061",
      "M5-AN-062",
-     "M5-AN-069"
+     "M5-AN-069",
+     "M5-AN-077"
     ],
     "RULING-24": [
      "M5-AN-021"
     ],
     "RULING-25": [
      "M5-AN-038"
+    ],
+    "RULING-28": [
+     "M5-AN-074"
     ],
     "RULING-29": [
      "M5-AN-039"
@@ -636,6 +725,13 @@
     ],
     "RULING-55": [
      "M5-AN-012"
+    ],
+    "RULING-58": [
+     "M5-AN-073"
+    ],
+    "RULING-59": [
+     "M5-AN-075",
+     "M5-AN-076"
     ]
    },
    "reached_by_a_root_only": [

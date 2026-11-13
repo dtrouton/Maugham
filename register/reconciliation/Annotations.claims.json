@@ -547,7 +547,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED today — reopen has no non-undo caller (M5-AN-039)",
+  "reachability": "LIVE across devices — traced 2026-11-12 (hardening 11-11 Task 5): another device's newer claudeArchive or annotationStet wins the status of an accepted suggestion, and the pane's Reopen (RULING-29) or the phone's then acts from that status",
   "evidence": {
    "property_test": null
   },
@@ -997,10 +997,10 @@
   "claim_id": "M5-AN-063",
   "scope": "AnnotationDeriver.derive(figureTable:) / FigureCellAnchor.resolve",
   "kind": "POSTCONDITION",
-  "statement": "A note on a table figure anchors by row and column id and the deriver resolves it against the figure's table: it follows inserts (figureAddress is the current A1), and it is stale and orphaned when any corner's row or column is deleted, live again when the delete is undone. With no table the anchor is projected but never resolved or judged stale. A figure suggestion's cell rides the creation op's figure payload as suggestedCell and is never folded as a cell write; only its accept is.",
+  "statement": "A note on a table figure anchors by row and column id and the deriver resolves it against the figure's table: it follows inserts (figureAddress is the current A1), and it is stale and orphaned when any corner's row or column is deleted, live again when the delete is undone. With no table the anchor is projected but never resolved or judged stale. A figure suggestion's cell rides the creation op's figure payload as suggestedCell and is never folded as a cell write; only its accept is. Creating a note on a figure that is OPEN is refused when its anchor no longer resolves in the open table (a row or column deleted under the host): nothing is appended and the tool says the cell is gone.",
   "source": {
    "type": "PRODUCTION",
-   "ref": "Packages/MaughamCore/Tests/MaughamCoreTests/FigureCellAnchorTests.swift: test_resolve_followsARowInsertedAbove, test_resolve_isOrphanedByTheRowsDelete_andBackOnItsRevive, test_aRange_isOrphanedWhenOneCornerColumnIsDeleted, test_withNoTable_theAnchorIsProjectedButNeverResolved, test_aSuggestionIsNeverFoldedAsACellWrite"
+   "ref": "Packages/MaughamCore/Tests/MaughamCoreTests/FigureCellAnchorTests.swift: test_resolve_followsARowInsertedAbove, test_resolve_isOrphanedByTheRowsDelete_andBackOnItsRevive, test_aRange_isOrphanedWhenOneCornerColumnIsDeleted, test_withNoTable_theAnchorIsProjectedButNeverResolved, test_aSuggestionIsNeverFoldedAsACellWrite; MaughamTests/Stores/FigureAnnotationWriteTests.swift: test_anAnchorDeletedUnderAnOpenHostIsRefusedAndNothingIsWritten"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
@@ -1013,17 +1013,18 @@
   "claim_id": "M5-AN-064",
   "scope": "FigureDocument.acceptSuggestion / ⌘Z / checkpoint restore",
   "kind": "POSTCONDITION",
-  "statement": "Accepting a figure suggestion is one author-signed claudeAccept that writes the cell and resolves the note; it is refused when closed, parked, unpermitted, withdrawn, orphaned, or changed since (unless confirmed). Its ⌘Z, in or out of a grid visit, restores the cell and reopens the note; a checkpoint restore to before the accept reopens the note (or archives it where the cell is gone) in the same op and the restore sheet names it. The grid's strip and the queue row both offer Accept on a figure suggestion (the queue travels to the cell; it is disabled for a figure in Research or a deleted cell).",
+  "statement": "Accepting a figure suggestion is one author-signed claudeAccept that writes the cell and resolves the note (over a cell that already holds the suggestion it writes no cell: M5-AN-075); it is refused when closed, parked, unpermitted, withdrawn, orphaned, or changed since (unless confirmed). Its ⌘Z, in or out of a grid visit, restores the cell and reopens the note; a checkpoint restore answers the note by the walk of M5-AN-073 (it reopens it where the restore writes its cell away, archives it where the cell is gone, leaves it where the restore does not write its cell) and the restore sheet counts and names it (M5-AN-074). The grid's strip and the queue row both offer Accept on a figure suggestion (the queue travels to the cell; it is disabled for a figure in Research or a deleted cell).",
   "source": {
    "type": "PRODUCTION",
-   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptWritesTheCellAndResolvesTheNoteInOneAuthorSignedOp, test_orphanedWithdrawnParkedAndSettledAreRefused, test_undoRestoresTheCellAndReopensTheNote_redoAcceptsAgain, test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreReopensWhereTheCellStands_andArchivesWhereItIsGone; MaughamTests/Editor/FigureGridStripTests.swift: test_acceptWritesTheCellAndResolves_andTheGridsUndoRestoresAndReopens, test_aChangedCellAsks_declineWritesNothing_confirmWrites; MaughamTests/Views/FigureAnnotationRowTests.swift: test_aSuggestionShowsItsCell_andItsAcceptOpensTheTableAtIt, test_aParkedFiguresSuggestionAcceptIsOff_sayingItIsInResearch"
+   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptWritesTheCellAndResolvesTheNoteInOneAuthorSignedOp, test_orphanedWithdrawnParkedAndSettledAreRefused, test_undoRestoresTheCellAndReopensTheNote_redoAcceptsAgain, test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreLeavesAnUnwrittenCellsNoteAccepted_andArchivesWhereItIsGone; MaughamTests/Editor/FigureGridStripTests.swift: test_acceptWritesTheCellAndResolves_andTheGridsUndoRestoresAndReopens, test_aChangedCellAsks_declineWritesNothing_confirmWrites; MaughamTests/Views/FigureAnnotationRowTests.swift: test_aSuggestionShowsItsCell_andItsAcceptOpensTheTableAtIt, test_aParkedFiguresSuggestionAcceptIsOff_sayingItIsInResearch"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
   "reachability": "Grid strip Accept on a marked cell; annotations queue row Accept (travels to the cell)",
   "evidence": {
    "property_test": null
-  }
+  },
+  "fix_history": "Statement corrected 2026-11-12 (hardening 11-11 Tasks 2-4): the restore clause said a restore to before the accept reopens the note 'in the same op' wherever the cell stands; since R-A (RULING-58) a note on a cell the restore does not write keeps its status, and the test that pinned the old reading was renamed with the case it now pins. The restore's classes and the guarded accept have claims of their own (M5-AN-073, M5-AN-075)."
  },
  {
   "claim_id": "M5-AN-065",
@@ -1152,5 +1153,124 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M5-AN-073",
+  "scope": "FigureCheckpointRestore.restoreToCheckpoint / FigureRestoreNotePlan.plan",
+  "kind": "POSTCONDITION",
+  "statement": "A checkpoint revert of a figure answers its notes by ONE walk (`FigureRestoreNotePlan`, Core; the figure twin of `RewindImpact.travelStatusChanges`) with three classes, and a note is changed only where the revert rewrites its cell. STRANDED (accepted now, not accepted at the checkpoint pointer, its cell rewritten): the cell change IS the note's `claudeAcceptRevert` (cell and note in one op) and the note reopens. RETURNING (open after a Revert, accepted at the pointer, the restore writes its accepted value back): the cell change becomes a `claudeAccept` carrying the note, checkpoint-stamped, and the note returns to ACCEPTED (RULING-57 for figures). GONE (its row or column does not exist at the checkpoint): `claudeArchive`, status only, or a status-only reopen where this hand may not dispose. A note on a cell the restore does not write keeps its status, and so does a note accepted at the pointer and now (R-A, RULING-58). A revived row or column counts as written, at the value the revive gives each live cell: a stranded note there gets a status-only revert, a returning one a status-only accept. A stranded note whose cell the restore writes to that note's OWN suggested content stays accepted, whether by a cell set or a revive (coordinator's call, hardening 2026-11-11, not yet ruled by Denver). Where two stranded notes share the written cell the change carries the note with the newest cell-carrying accept and the other gets a status-only revert (coordinator's call, hardening 2026-11-11, not yet ruled by Denver). A guarded-accepted note (status-only accept, no cell-carrying accept after the pointer; M5-AN-075) is judged by its anchor cell and suggested content: it IS stranded where the restore writes its cell away from the suggestion (coordinator's call, hardening 2026-11-11, not yet ruled by Denver; this overrules the design spec's section 3 sentence that such a note is never stranded). A restore that stops part way and is retried writes one accept for a returning note, not two.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "Packages/MaughamCore/Tests/MaughamCoreTests/FigureRestoreNotePlanTests.swift: test_aStrandedAcceptWhoseCellTheRestoreWritesBecomesItsRevert, test_aStrandedAcceptWhoseCellTheRestoreDoesNotWriteKeepsItsStatus, test_aRevertedAcceptReturnsWhenTheRestoreWritesItsValueBack, test_acceptedAtThePointerAndNow_isNotStranded, test_twoStrandedNotesOnOneCell_theNewestAcceptCarriesTheChange, test_aReturningNoteTakesTheChangeBeforeAStrandedOne, test_aStrandedAcceptWhoseRowIsGoneIsArchived_orRevertedWhereItMayNotDispose, test_aStrandedNoteOnARevivedRowIsRevertedStatusOnly, test_aReturningNoteOnARevivedRowIsAcceptedStatusOnly, test_aStrandedNoteWhoseCellIsWrittenToItsOwnValueKeepsItsStatus, test_twoStrandedNotes_theOneWrittenToItsOwnValueKeepsItsStatus, test_aGuardedAcceptIsStranded_whenTheRestoreWritesItsCellAwayFromTheSuggestion, test_aGuardedAcceptKeepsItsStatus_whereTheRestoreLeavesOrWritesItsOwnValue; MaughamTests/OpLog/FigureReturningAcceptTests.swift: test_aRevertedAcceptReturnsToAccepted_whenTheRestoreWritesItsValueBack, test_acceptedAtTheCheckpointAndNow_isNotStranded, test_aCellTheRestoreDoesNotWrite_keepsItsNote, test_aStrandedNoteOnARevivedRowIsReopened, test_aReturningNoteOnARevivedRowReturnsToAccepted, test_aNoteWhoseCellIsWrittenToItsOwnValueStaysAccepted, test_twoSuggestionsOnOneCell_theNewestAcceptCarriesTheChange, test_twoNotes_theOneWrittenToItsOwnValueStaysAccepted, test_aStopAfterTheReturningAccept_andARetry_writeOneAccept; MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_aRestoreToBeforeAnAcceptReopensTheNoteInTheSameOp, test_aRestoreLeavesAnUnwrittenCellsNoteAccepted_andArchivesWhereItIsGone, test_aStatusOnlyAcceptOfASuggestion_isStrandedWhereTheRestoreWritesItsCellAway, test_aStatusOnlyAcceptOfASuggestion_keepsItsStatusWhereTheRestoreLeavesItsValue"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-58 / RULING-57); the sub-rules marked as the coordinator's call are not yet ruled",
+  "reachability": "LIVE — History → a checkpoint row → Revert here… over a document's figures (a table with notes); the revert acts on every figure in scope",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 plan 1, issue #136 W1, W4): before it a figure revert never returned a reverted accept to accepted (RULING-57 covered the manuscript only) and reopened a note on a cell it did not write."
+ },
+ {
+  "claim_id": "M5-AN-074",
+  "scope": "PartialRestorePicker.revertNotes / figureSentence / FigureDocument.restoreNotesPreview",
+  "kind": "POSTCONDITION",
+  "statement": "The revert sheet counts a figure's notes BEFORE the revert and the result sentence reports them AFTER from the same plan: `FigureDocument.restoreNotesPreview` runs the restore's own preparation (`FigureCheckpointRestore.prepare`, one copy) and returns the plan's notes (reopened, returned to accepted, archived) while writing nothing (no op, no annotations-changed event, `lastRestoreNotes` untouched). Each figure is counted through `PartialRestorePicker.reach`, the one function the revert also uses to gate a figure (in scope, a pointer in the checkpoint, the settled posture allows editing), so a parked, refused, went-to-Research or out-of-scope figure is in no count, and counting leaves a figure that was open open, and leaves no host open that it borrowed. Both halves share one counting phrase per class ('N accepted suggestion(s)' reopened or archived, 'N suggestion(s)' restored to accepted). Confirm: 'N accepted suggestion(s) will be reopened on A.', 'N suggestion(s) will be restored to accepted on A.', 'N accepted suggestion(s) will be archived on A — its cell is gone then.'; result: 'Reopened … restored … and archived …'. A restore stopped part way reports what landed; the preview names the whole plan.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/FigureRestoreTests.swift: test_theNotesPreviewIsWhatTheRestoreThenAnswers_andWritesNothing, test_theNotesPreviewIsNilWhereTheRestoreSkipsOrRefuses; MaughamTests/Views/PartialRestoreScopeTests.swift: test_aMixedRevertsFigureNotes_beforeEqualTheReportAfter, test_aFigureTheRevertSkipsOrRefusesIsInNoCount, test_theFigureReportNamesTheReturnedSuggestions, test_beforeAndAfterCountEachClassInTheSameWords, test_anOpenFigureIsCountedThroughItsOwnHostAndStaysOpen, test_aFigureThatWentToResearchSinceIsInNoCount"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-28 both halves; RULING-58)",
+  "reachability": "LIVE — History → Revert here… sheet, scope Whole project or a document with figures",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 plan 1, issue #136 W3): before it the sheet counted manuscript notes only and a figure's reopen was reported by the result alone."
+ },
+ {
+  "claim_id": "M5-AN-075",
+  "scope": "FigureDocument.acceptSuggestion (guarded arm) / registerFigureUndo / undoVisit / redoVisit",
+  "kind": "GUARD",
+  "statement": "Where the cell's content already is the suggestion's content (format and alignment aside), Accept marks the note accepted and writes nothing to the cell: one status-only `claudeAccept` (`figure == nil`, `FigureAnnotationOps.statusOnlyAccept`). The check runs after every existing refusal and after the changed-since check, and `confirmChanged` makes no difference. No accept in the log ever records `prior == next` (RULING-59), including after the race that leaves a note open over its own value (a peer's reject, then a reopen). Its ⌘Z, in or out of a grid visit, is a status-only `claudeAcceptRevert` that reopens the note and moves no cell (`Change.statusOnly`); ⇧⌘Z accepts again, guarded again. The ⌘Z and ⇧⌘Z (and the visit's undo and redo) DECLINE, writing nothing, once the cell has changed or its row is gone. A restore may strand a guarded accept (M5-AN-073).",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/FigureAnnotationDispositionTests.swift: test_acceptingOverACellThatAlreadyHoldsTheSuggestion_writesNoCell, test_theRaceThatLeftANoteOpenOverItsOwnValue_cannotCorruptUndo, test_acceptOverTheSuggestedContentInAnotherFormat_writesNoCell_andKeepsTheFormat, test_theGuardedAcceptsRedo_declinesOnceTheCellChanged; MaughamTests/OpLog/FigureVisitTests.swift: test_aGuardedAcceptInAVisit_isReopenedByTheVisitsUndo_andNoCellMoves, test_theGridsUndoOfAGuardedAccept_isRecordedInTheVisit, test_aVisitsRedoOfAGuardedAccept_declinesOnceTheCellChanged, test_aVisitsUndoOfAGuardedAccept_declinesOnceTheCellChanged, test_aMixedVisit_undoesAndRedoesTheCellAndTheNote_renderingOnceEach"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-59)",
+  "reachability": "Grid strip Accept on a marked cell that already holds the suggested value (typed by hand, or left by a reopen over its own value); annotations queue row Accept",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 plan 1, issue #136 W2): before it the accept wrote a cell op with prior equal to next."
+ },
+ {
+  "claim_id": "M5-AN-076",
+  "scope": "Document.acceptAnnotation / AnnotationWriter.makeAccept / SuggestionSplice.planAccept",
+  "kind": "GUARD",
+  "statement": "Accept of a suggested change writes a status-only `claudeAccept` (no changes) in exactly these cases: (1) the note's newest text-carrying `claudeAccept` is for the note's paragraph and its `next` is the live paragraph, even when the span's quote no longer resolves; (2) the note's own history says its splice is live and the replacement stands, aligned, around the quote occurrence the span's anchor resolves to in the live paragraph. 'Live' is a fold over the note's honoured lifecycle lines in opId order: an accept opens it; a text-carrying revert or RULING-33 repair closes it; a status-only revert or reopen written by Maugham's own travel (stamped `.rewind` or `.undoRewind`, or with a checkpoint) closes it; every other line, every archive (a travel's own too) and every other status-only line leaves it unchanged (coordinator's call, hardening 2026-11-11, not yet ruled by Denver for the fold's travel arms and for a span whose splice is still in the text being accepted status-only where it used to refuse as anchor-lost); (3) the paragraph already equals the computed result (the whole-paragraph hand-typed case). Otherwise Accept splices as before, or refuses as anchor-lost (RULING-5); a span whose quote is gone while its splice is NOT in place still refuses. So a suggestion is never spliced twice and no accept records a before-text equal to its after-text (RULING-59): after another device's newer archive or stet and a Reopen, after a restore that put the splice back following a Revert, after an edit elsewhere in the paragraph. After the writer's Revert, and after Maugham's own travel took the splice out (a rewind to before the accept, a rewind that removed the paragraph followed by a return journey, a checkpoint revert), Accept splices again. After the writer's reopen-only Revert of a hand-typed accept it is status-only again. The status-only accept's ⌘Z is an `annotationReopen` that leaves the text, declined once another device moved the note, and ⇧⌘Z re-accepts, guarded again; Revert restores the original (coordinator's call, hardening 2026-11-11, not yet ruled by Denver). Mac and phone decide it in one Core function (tripwire 19). Known limits: (L1) the span reading follows the anchor resolver's choice of quote occurrence; (L2) a hand-typed SPAN suggestion on a never-accepted note is spliced as written; (L3) the race (accept → peer archive/stet → pane Reopen, note open over its splice) → a rewind that removes the paragraph → a RETURN JOURNEY (not ⌘Z) to a point after the accept, whose step 9 writes a `.rewind` reopen → an edit elsewhere in the paragraph → Accept, with a replacement that contains its quote: the gate is closed and the suggestion is spliced a second time. Four conditions including a cross-device race; the result is visible and ⌘Z takes it back (a documented limit, not pinned by a test).",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/AcceptOverAppliedTextTests.swift: test_aPeerArchive_theSecondAcceptIsStatusOnly_andRevertReachesTheOriginal, test_aPeerStet_theSecondAcceptIsStatusOnly_andRevertReachesTheOriginal, test_aPeerRejectIsRepairedFirst_soTheSecondAcceptIsOrdinary, test_theGuardedAcceptsUndoReopensAndLeavesTheText_andRedoReacceptsStatusOnly, test_theGuardedAcceptsUndo_declinesOnceAnotherDeviceMovedTheNote, test_aSpanContainingItsQuote_isNotAppliedTwice, test_aSpanWhoseQuoteTheSpliceReplaced_isAcceptedStatusOnly, test_aSpanWhoseQuoteTheWriterRewroteAway_stillRefuses, test_aSpanPutBackByARestore_isNotAppliedTwice, test_aSpanWithAnEditElsewhereInTheParagraph_isNotAppliedTwice, test_theReplacementElsewhereInTheParagraph_stillSplicesOnce, test_aNeverAcceptedNote_whoseSurroundingsReadAsTheReplacement_splicesAsWritten, test_aRevertedNote_splicesAgainOnTheNextAccept, test_afterARewindToBeforeTheAccept_theAcceptSplicesAsWritten, test_afterARewindRemovedTheParagraphAndTheReturnReopenedIt_theAcceptSplicesAsWritten, test_afterACheckpointRevertTookTheAcceptBack_theAcceptSplicesAsWritten, test_afterTheWritersReopenOnlyRevert_theAcceptStaysStatusOnly, test_aParagraphTheWriterTypedAsTheSuggestion_isAcceptedStatusOnly_andRevertReopensIt, test_afterUndoingTheRewind_aNoteReopenedOverItsSplice_isNotAppliedTwice, test_theRaceStateThroughAnUndoneRewind_isNotAppliedTwice; Packages/MaughamCore/Tests/MaughamCoreTests/SuggestionSpliceTests.swift: test_planAccept_isStatusOnlyWhileTheNotesSpliceIsInPlace, test_planAccept_isStatusOnlyWhenTheParagraphAlreadyReadsAsTheSuggestion, test_planAccept_isStatusOnlyWhereTheReplacementAlreadyStandsAtTheSpan, test_planAccept_afterARevert_splicesAgain, test_spanAlreadyApplied_doesNotFireForTheReplacementElsewhere, test_spliceLive_followsTheNotesOwnHistory, test_spliceLive_aTravelsStatusOnlyLinesCloseIt, test_spliceLive_aTravelsArchiveIsNeutral, test_spliceLive_readsHonouredLinesOnly; MaughamPhoneTests/AnnotationWriterTests.swift: test_makeAccept_overItsOwnSplice_isStatusOnly, test_makeAccept_aSpanContainingItsQuote_isNotSplicedTwice, test_makeAccept_aSpanWithAnEditElsewhere_isNotSplicedTwice, test_makeAccept_aParagraphAlreadyReadingAsTheSuggestion_isStatusOnly"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-59, whose manuscript half is this claim); the fold's travel arms and the ⌘Z reading are the coordinator's calls",
+  "reachability": "LIVE across devices — accept on the Mac, another device's newer archive or stet wins the status, then the pane's Reopen (RULING-29) or the phone's, then Accept again",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 Task 5, fixes f5f12108, 56f6cd55, 128174cd, 24d6349a, 18b28714): reproduced first for a peer archive or stet (a peer reject is safe because RULING-33 restores the text at the merge); before it the second Accept wrote a claudeAccept with prior == next, or spliced a span twice, and ⌘Z and Revert could no longer reach the original."
+ },
+ {
+  "claim_id": "M5-AN-077",
+  "scope": "Document.revertAcceptedAnnotation / acceptedTextDrifted / AnnotationWriter.makeRevert (Reopen & Revert) / SuggestionSplice.revertPlan",
+  "kind": "POSTCONDITION",
+  "statement": "Revert of an accepted suggestion follows `SuggestionSplice.revertPlan`: it restores the pre-accept text of the newest `claudeAccept` that CARRIES a change (`newestAppliedAccept`), so a status-only accept, whether R-B's guard or a travel's RULING-26/57 re-accept, never makes it a silent no-op. Where no accept for the note ever carried a change it writes a status-only `claudeAcceptRevert`: the note reopens and the text stays (coordinator's call, hardening 2026-11-11, not yet ruled by Denver), on the Mac and the phone; on the Mac its ⌘Z accepts again.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Integration/AcceptOverAppliedTextTests.swift: test_revertAfterATravelsStatusOnlyReaccept_reachesTheOriginal, test_aParagraphTheWriterTypedAsTheSuggestion_isAcceptedStatusOnly_andRevertReopensIt; Packages/MaughamCore/Tests/MaughamCoreTests/SuggestionSpliceTests.swift: test_revertPlan_restoresTheNewestAppliedAccept_orReopensOnly, test_newestAppliedAccept_skipsStatusOnlyAccepts_andOtherNotes; MaughamPhoneTests/AnnotationWriterTests.swift: test_reopenAndRevert_afterAStatusOnlyAccept_restoresTheOriginal, test_reopenAndRevert_ofAHandTypedAccept_reopensAndLeavesTheText"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — ruled (RULING-22 'controls DO WHAT THEY SAY', RULING-29); the no-changes-carrying-accept reading is the coordinator's call",
+  "reachability": "LIVE — Annotations pane Revert on an accepted suggestion (show-resolved on); the phone's Reopen & Revert",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 Task 5, fixes f5f12108 and 56f6cd55): found while checking Revert after a rewind's status-only re-accept, where the pane offered Revert and pressing it silently did nothing; between f5f12108 and 56f6cd55 a hand-typed status-only accept did the same. Neither reached a release."
+ },
+ {
+  "claim_id": "M5-AN-078",
+  "scope": "DocumentStore.addFigureAnnotation / FigureDocument.adoptNoteCreation / restoreToCheckpoint",
+  "kind": "POSTCONDITION",
+  "statement": "A note created on a figure while a checkpoint restore of that figure is running does NOT stop the restore: the open host adopts the already-signed note op in place (`FigureDocument.adoptNoteCreation`) and does not advance `reloadGeneration`, so the restore's generation check passes. The host holds the note and it is on disk. The restore ends `.restored`, not `.partlyRestored(.changedElsewhere)`; a RELOAD mid-restore still stops it and a retry finishes.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/FigureRestoreTests.swift: test_aNoteAddedBetweenRestoreOpsDoesNotStopIt, test_aReloadMidRestoreStopsIt_andARetryFinishes"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "RACE — MCP add_comment / add_query / add_suggested_change on an open figure while History's Revert here… is writing that figure",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 Task 6, issue #136 W6): the open-host path appended and reloaded, which bumped the generation and ended the restore part way."
+ },
+ {
+  "claim_id": "M5-AN-079",
+  "scope": "ProjectStore.figureNotesAndOps / get_annotation (figure arms)",
+  "kind": "POSTCONDITION",
+  "statement": "`get_annotation` on a figure note takes its status and its history from ONE read of the figure's streams (`ProjectStore.figureNotesAndOps`, one `FigureNotesRead.read`; the history is the merged raw ops as before), so the two halves of one response cannot come from two different moments.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/MCP/Tools/FigureAnnotationReadTests.swift: test_getAnnotationOnAFigureTakesStatusAndHistoryFromOneRead"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL",
+  "reachability": "LIVE — MCP get_annotation with a figure note's id",
+  "evidence": {
+   "property_test": null
+  },
+  "fix_history": "Filed already fixed (hardening 2026-11-11 Task 6, issue #136 W7): the tool read the streams twice."
  }
 ]

@@ -171,6 +171,12 @@ Consequences to pin:
 - The stranded walk already judges a status-only accept "against the newest accept for that note
   that carries a cell". A note accepted status-only with no cell-carrying accept at all (the
   hand-typed case) has nothing to revert and is never stranded. Pin it.
+  *Correction, 2026-11-12 (coordinator's call, hardening 2026-11-11, not yet ruled by Denver):* the sentence
+  above is overruled. A guarded-accepted figure note (accepted status-only, no cell-carrying accept) IS
+  stranded when a restore writes its anchor cell away from the suggestion: the walk judges it by its
+  anchor cell and suggested content (the change carries its revert; a revive gives a status-only revert;
+  a gone cell archives it). It still keeps its status where the restore leaves the cell alone or writes
+  the suggested content back. Built in Task 4 fix round 1 (`5686c2bc`), recorded as claim M5-AN-073.
 - Reject stays allowed on an open note over its own value. A rejected note beside a value the
   writer typed themselves is honest, and nothing is written to the cell.
 - `FigureAnnotationOps.reopen(for:)` is left as it is. The guard on Accept covers the race, and

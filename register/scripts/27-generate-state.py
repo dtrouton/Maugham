@@ -34,19 +34,24 @@ CORE_RECONCILED, CORE_TOTAL = 148, 169
 
 
 def app_row(module, label, report):
+    """Claims is the CLAIMS file's count (#139 D1: a claim can be pinned and not yet
+    filed, and the filings' total undercounted Annotations by nine). Coverage and
+    Complies / Violates are the filings' own summary, over the reconciled claims."""
+    claims = json.load(open(f"register/reconciliation/{module}.claims.json"))
     filings = json.load(open(f"register/reconciliation/{module}.filings.json"))
     s = next(f for f in filings if "_summary" in f)["_summary"]
-    return ((label, s["total"], s["coverage"],
+    return ((label, len(claims), s["coverage"],
              f"{s['complies']} / {s['violates']}", report),
-            s["total"], s["complies"], s["violates"])
+            len(claims), s["total"], s["complies"], s["violates"])
 
 
 rows = list(CORE_ROWS)
-app_total = app_complies = app_violates = 0
+app_total = app_filed = app_complies = app_violates = 0
 for module, label, report in APP_MODULES:
-    row, total, complies, violates = app_row(module, label, report)
+    row, total, filed, complies, violates = app_row(module, label, report)
     rows.append(row)
     app_total += total
+    app_filed += filed
     app_complies += complies
     app_violates += violates
 
@@ -62,7 +67,7 @@ lines += [
     f"The three MaughamCore rows are the {CORE_RECONCILED} reconciled claims out of the ledger's "
     f"{CORE_TOTAL}; the app-layer rows are {app_total} further claims in their own files. "
     f"**{CORE_TOTAL + app_total} claims in the experiment, "
-    f"{CORE_RECONCILED + app_total} reconciled.** "
+    f"{CORE_RECONCILED + app_filed} reconciled.** "
     f"The app layer stands at **{app_complies} complies / {app_violates} violates** "
     f"(MaughamCore's pure modules ran 31:1 — the inversion result).",
     "",
