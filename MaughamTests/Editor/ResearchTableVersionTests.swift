@@ -37,6 +37,7 @@ final class ResearchTableVersionTests: XCTestCase {
         lockedFolders = []
         ResearchTableHost.wroteForTesting = nil
         ResearchTableHost.outsideBackupForTesting = nil
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
         for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
         noticeObservers = []
         for store in stores { await store.close() }
@@ -777,7 +778,8 @@ final class ResearchTableVersionTests: XCTestCase {
     }
 
     /// **`priorUnreadable` on a flush**: nothing is written over the file;
-    /// the edits are kept aside, named, and the host is clean.
+    /// the edits are kept aside, named, and the host stays dirty (still
+    /// unsaved: a later flush or the close tries the file again).
     func test_aFlushOverAFileThatWillNotReadKeepsTheEditsAside() async throws {
         let (store, projectStore) = try await openBook()
         let original = "Year,Revenue\n2025,10\n"
@@ -870,7 +872,8 @@ final class ResearchTableVersionTests: XCTestCase {
 
     /// **`saveFailed` on a flush**: nothing more is written over the file
     /// (there may be no later retry — ⌘Q); the edits are kept aside, and
-    /// the host is clean. The timer's failure still waits (task 2.1's test).
+    /// the host stays dirty (still unsaved). The timer's failure still waits
+    /// (task 2.1's test).
     func test_aFlushWhoseSaveFailsKeepsTheEditsAside() async throws {
         let (store, projectStore) = try await openBook()
         let original = "Year,Revenue\n2025,10\n"
@@ -1147,6 +1150,150 @@ final class ResearchTableVersionTests: XCTestCase {
             XCTAssertTrue(unsavedBackups(of: item).isEmpty, "\(item.id)")
         }
         XCTAssertEqual(heard.notices, [])
+    }
+
+    // MARK: - Hardening 11-11 task 2.4: the bytes read are the bytes written over (#138 R3)
+
+    /// Lands each of `landings` in turn on the file at `path` as the save
+    /// enters its coordinated write (after the door read it), one per save
+    /// attempt; nothing once they run out.
+    private func landOutside(_ landings: [String], at path: URL) {
+        var left = landings
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+    }
+
+    /// The outside-version backups kept for `item`, oldest first.
+    private func outsideBackups(of item: ResearchItem) -> [URL] {
+        let folder = file(".maugham/conflicts")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.filter { $0.contains("-\(item.id)-outside-") }.sorted().map { folder.appendingPathComponent($0) }
+    }
+
+    private static let changedWhileSaving = "Couldn’t save “model”: it changed outside Maugham while it was being saved."
+
+    /// **Bytes written outside between the door's read and its write are
+    /// never written over unseen**: the save finds them inside its
+    /// coordinated write, reads again, keeps them (a conflict backup and a
+    /// version), then saves — and says so once, naming the backup. Timer
+    /// and flush alike.
+    func test_bytesWrittenOutsideAfterTheReadAreKeptBeforeTheTimersSave() async throws {
+        try await outsideBytesAfterTheReadAreKept(byTheTimer: true)
+    }
+
+    func test_bytesWrittenOutsideAfterTheReadAreKeptBeforeAFlushesSave() async throws {
+        try await outsideBytesAfterTheReadAreKept(byTheTimer: false)
+    }
+
+    private func outsideBytesAfterTheReadAreKept(byTheTimer: Bool) async throws {
+        do {
+            let (store, projectStore) = try await openBook()
+            let original = "Year,Revenue\n2025,10\n"
+            let item = try await researchTable(original, in: projectStore)
+            let heard = listen()
+            let host = try await open(item, store, clock: Clock())
+            let outside = "Year,Revenue\n2025,40\n"
+            landOutside([outside], at: file(try XCTUnwrap(item.path)))
+
+            if byTheTimer { try await writerSavesByTheTimer(11, host) } else { try await writerSaves(11, host) }
+
+            let label = byTheTimer ? "timer" : "flush"
+            XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "11"]], "\(label): the grid's version is saved")
+            XCTAssertFalse(host.isDirty, label)
+            let backups = outsideBackups(of: item)
+            XCTAssertEqual(backups.count, 1, "\(label): one backup of the outside bytes: \(backups)")
+            XCTAssertEqual(try backups.first.map { try Data(contentsOf: $0) }, Data(outside.utf8), label)
+            XCTAssertEqual(Set(try versions(of: item).map { try ResearchVersionStore(projectURL: projectURL).read($0).0 }),
+                           [Data(original.utf8), Data(outside.utf8)],
+                           "\(label): the run's start and the outside bytes, each kept once")
+            XCTAssertEqual(heard.notices, [
+                "“model” changed outside Maugham while you were editing it. That version is kept in "
+                    + ".maugham/conflicts/\(try XCTUnwrap(backups.first).lastPathComponent); yours was saved."
+            ], label)
+            DocumentStore.beforeCoordinatedWriteForTesting = nil
+            await store.releaseResearchTable(host)
+            XCTAssertEqual(heard.notices.count, 1, "\(label): said once: \(heard.notices)")
+        }
+    }
+
+    /// **Bytes landed again on the second read are not written over
+    /// either**: the timer's save writes nothing, stays dirty and says so
+    /// once; the file is as the outside wrote it. Its next save keeps those
+    /// bytes too and names both backups.
+    func test_aSecondChangeOnTheRetryWritesNothing_theTimerWaits() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let first = "Year,Revenue\n2025,40\n", second = "Year,Revenue\n2025,50\n"
+        landOutside([first, second], at: file(try XCTUnwrap(item.path)))
+
+        try await writerSavesByTheTimer(11, host)
+
+        XCTAssertEqual(try bytes(of: item), Data(second.utf8), "the file is as the outside last wrote it")
+        XCTAssertTrue(host.isDirty, "the edit waits to be saved")
+        XCTAssertEqual(heard.notices, [Self.changedWhileSaving])
+        XCTAssertEqual(outsideBackups(of: item).count, 1, "the first change is kept")
+        XCTAssertTrue(unsavedBackups(of: item).isEmpty, "the timer keeps nothing aside")
+
+        await host.flush()
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "11"]])
+        XCTAssertFalse(host.isDirty)
+        let backups = outsideBackups(of: item)
+        XCTAssertEqual(backups.count, 2, "\(backups)")
+        XCTAssertEqual(Set(try backups.map { try Data(contentsOf: $0) }), [Data(first.utf8), Data(second.utf8)],
+                       "each outside version kept once")
+        guard heard.notices.count == 2 else { return XCTFail("one more notice: \(heard.notices)") }
+        let told = heard.notices[1]
+        XCTAssertTrue(told.hasPrefix("“model” changed outside Maugham while you were editing it. Those versions are kept in "), told)
+        XCTAssertTrue(backups.allSatisfy { told.contains($0.lastPathComponent) }, "it names both: \(told)")
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
+        await store.releaseResearchTable(host)
+    }
+
+    /// **On a flush, a second change keeps the edits aside** (`saveFailed`'s
+    /// flush arm): nothing is written over the outside bytes, the table's
+    /// CSV is kept and named, the host stays dirty.
+    func test_aSecondChangeOnAFlushesRetryKeepsTheEditsAside() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let second = "Year,Revenue\n2025,50\n"
+        landOutside(["Year,Revenue\n2025,40\n", second], at: file(try XCTUnwrap(item.path)))
+
+        try await writerSaves(11, host)
+
+        XCTAssertEqual(try bytes(of: item), Data(second.utf8), "not saved over the outside version")
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
+        let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
+        XCTAssertEqual(heard.notices, [kept(Self.changedWhileSaving, as: backup)])
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
+    }
+
+    /// **A kept-aside backup that has gone is kept again** (task 2.2 review,
+    /// folded in): the same table flushed again after its backup was
+    /// deleted keeps a new one and says where — the old name proves nothing.
+    func test_aFlushWhoseEarlierBackupHasGoneKeepsItAgainAndSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        try FileManager.default.removeItem(at: file(try XCTUnwrap(item.path)))
+
+        try await writerSaves(11, host)
+        let first = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
+        try FileManager.default.removeItem(at: first)
+
+        await host.flush()
+
+        let again = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
+        let said = kept("Couldn’t save “model”: it isn’t there any more.", as: again)
+        XCTAssertEqual(heard.notices, [kept("Couldn’t save “model”: it isn’t there any more.", as: first), said])
+        await store.releaseResearchTable(host)
+        XCTAssertEqual(heard.notices.count, 2, "the close keeps no third: \(heard.notices)")
     }
 
     // MARK: - The rule

@@ -628,10 +628,11 @@ final class ResearchTableHost: FigureGridHost {
         }
     }
 
-    /// An outside version kept as a conflict backup by a save that has not
+    /// The outside versions kept as conflict backups by a save that has not
     /// landed yet: a retry over the same bytes keeps no second, and the
-    /// writer is told once the save lands.
-    @ObservationIgnored private var pendingOutsideBackup: (hash: String, file: URL)?
+    /// writer is told once the save lands. More than one when the file
+    /// changed again between a read and its write (#138 R3): each is named.
+    @ObservationIgnored private var pendingOutsideBackups: [(hash: String, file: URL)] = []
     /// The hash of the bytes this host last kept as a version: a keep of the
     /// same bytes again (a retry after a failed save) keeps nothing.
     @ObservationIgnored private var lastKeptHash: String?
@@ -651,9 +652,13 @@ final class ResearchTableHost: FigureGridHost {
     /// (`SaveSource`). **A `.flush` never drops the edits** (ruling R-C, the
     /// note door's rule): a version that cannot be kept is saved over anyway;
     /// any other arm writes nothing over the file and keeps the table's CSV
-    /// aside (`keepTheFlushedTable`), the host still dirty.
+    /// aside (`keepTheFlushedTable`), the host still dirty. **The file is
+    /// written only if it still holds the bytes read here** (#138 R3,
+    /// `FileExpectation`): bytes another program or Mac put there after the
+    /// read make the door run again from its read, once (`secondRead`), so
+    /// they take the outside-change branch; a second change is `saveFailed`.
     private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
-                       restoring: Bool = false, source: SaveSource) async -> WriteOutcome {
+                       restoring: Bool = false, source: SaveSource, secondRead: Bool = false) async -> WriteOutcome {
         func refused(_ why: WriteOutcome.Refusal) -> WriteOutcome {
             isDirty = true
             return .refused(why)
@@ -712,7 +717,7 @@ final class ResearchTableHost: FigureGridHost {
         }
         let onDiskHash = ContentHash.of(onDisk)
         let overOwnBytes = onDiskHash == diskHash
-        if !overOwnBytes, pendingOutsideBackup?.hash != onDiskHash {
+        if !overOwnBytes, !pendingOutsideBackups.contains(where: { $0.hash == onDiskHash }) {
             guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring,
                                                      source: source) else {
                 if flushing {
@@ -722,7 +727,7 @@ final class ResearchTableHost: FigureGridHost {
                 }
                 return refused(.outsideVersionNotKept)
             }
-            pendingOutsideBackup = (onDiskHash, backup)
+            pendingOutsideBackups.append((onDiskHash, backup))
         }
         let at = now()
         var kept = false, savedAnyway = false
@@ -746,7 +751,13 @@ final class ResearchTableHost: FigureGridHost {
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
         let text = csvText(table)
         do {
-            try await store.performFileSave(path: path, text: text)
+            try await store.performFileSave(path: path, text: text, expecting: .bytesHashing(onDiskHash))
+        } catch FileSaveError.changedSinceRead where !secondRead {
+            // Written outside after the read above: nothing was written over
+            // it. The door runs again from its read, so those bytes are kept
+            // (the outside-change branch) before the table is saved.
+            researchTableLog.error("\(path, privacy: .public) changed after it was read; reading it again")
+            return await write(table, by: writer, restoring: restoring, source: source, secondRead: true)
         } catch {
             researchTableLog.error(
                 "\(path, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
@@ -762,14 +773,16 @@ final class ResearchTableHost: FigureGridHost {
             MaughamEvent.postNotice("“\(item.title)”’s previous version couldn’t be kept; your edits were saved anyway.",
                                     projectURL: projectURL)
         }
-        if let backup = pendingOutsideBackup {
-            pendingOutsideBackup = nil
+        if !pendingOutsideBackups.isEmpty {
+            let files = pendingOutsideBackups.map { ".maugham/conflicts/\($0.file.lastPathComponent)" }
+            pendingOutsideBackups = []
             let (when, saved) = restoring ? ("", "the restored version was saved")
                 : writer == .writer ? (" while you were editing it", "yours was saved")
                 : ("", "the assistant’s change was saved")
+            let kept = files.count == 1 ? "That version is kept in \(files[0])"
+                : "Those versions are kept in " + files.dropLast().joined(separator: ", ") + " and " + files[files.count - 1]
             MaughamEvent.postNotice(
-                "“\(item.title)” changed outside Maugham\(when). That version is kept in "
-                    + ".maugham/conflicts/\(backup.file.lastPathComponent); \(saved).",
+                "“\(item.title)” changed outside Maugham\(when). \(kept); \(saved).",
                 projectURL: projectURL)
         }
         var next = ResearchTableSidecar(
@@ -920,7 +933,10 @@ final class ResearchTableHost: FigureGridHost {
         if let fresh = try? await store?.formulaNamesForUse() { names = fresh }
         let text = csvText(table)
         let hash = ContentHash.of(Data(text.utf8))
-        if let held = keptAside, held.hash == hash, let file = held.file { return .keptAside(file) }
+        // The same text already kept — unless that backup is gone (the writer
+        // deleted it, or it was pruned): then a new one is kept, and said.
+        if let held = keptAside, held.hash == hash, let file = held.file,
+           FileManager.default.fileExists(atPath: file.path) { return .keptAside(file) }
         do {
             let backup = try Document.writeConflictBackup(forFileAt: anchor, docId: itemId, text: text,
                                                           kind: "unsaved", at: now())
@@ -932,7 +948,9 @@ final class ResearchTableHost: FigureGridHost {
         } catch {
             researchTableLog.error(
                 "\(self.itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
-            if keptAside?.hash != hash {
+            // Said unless this very failure was said already (a backup that
+            // has gone and cannot be kept again is said too).
+            if !(keptAside?.hash == hash && keptAside?.file == nil) {
                 MaughamEvent.postNotice(
                     "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.", projectURL: projectURL)
             }

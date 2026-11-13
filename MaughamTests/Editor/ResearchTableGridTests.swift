@@ -820,8 +820,8 @@ final class ResearchTableGridTests: XCTestCase {
     /// Mac trashed the table and this manifest has not caught up): nothing is
     /// written there. A flush never drops the edits (hardening 11-11 task
     /// 2.2, ruling R-C): they are kept aside under `.maugham/conflicts`, the
-    /// notice names the file, and the host is clean — a later flush makes
-    /// nothing, keeps no second copy and says nothing more.
+    /// notice names the file, and the host stays dirty — a later flush tries
+    /// the file again, makes nothing, keeps no second copy and says nothing more.
     func test_aSaveWhoseFileHasGoneDoesNotRecreateIt() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)

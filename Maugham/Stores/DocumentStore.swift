@@ -1126,8 +1126,29 @@ public final class DocumentStore {
     /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
     /// immediate (non-debounced) coordinated writes — palette card saves
     /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
+    /// Expects nothing of the file (`FileExpectation.anything`): the
+    /// manuscript's clean render, whose truth is the op log.
     func performFileSave(path: String, text: String) async throws {
+        try await performFileSave(path: path, text: text, expecting: .anything)
+    }
+
+    /// Test seam: runs on the save path just before the coordinator is
+    /// entered — after a door read the file and awaited, before its write
+    /// (#138 R3). Nil in production.
+    static var beforeCoordinatedWriteForTesting: (() -> Void)?
+
+    /// **The coordinated whole-file write, checked against what the caller
+    /// read** (#138 R3). A door reads the file, keeps what it replaces, and
+    /// awaits other work before it writes; bytes another program or another
+    /// Mac put there meanwhile would be written over unseen. So, inside the
+    /// one coordinated write — which holds the write claim, so nothing
+    /// coordinated lands between the check and the write — the file is read
+    /// and compared with `expecting`; a mismatch writes nothing and throws
+    /// `FileSaveError.changedSinceRead` (the door reads again). The
+    /// comparison sits inside the block for `writeManifest`'s reason.
+    func performFileSave(path: String, text: String, expecting: FileExpectation) async throws {
         let url = try resolvedProjectPathToChange(path)
+        Self.beforeCoordinatedWriteForTesting?()
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var saveError: Error?
@@ -1135,6 +1156,7 @@ public final class DocumentStore {
             writingItemAt: url, options: .forReplacing, error: &coordError
         ) { writeURL in
             do {
+                guard expecting.isMet(byFileAt: writeURL) else { throw FileSaveError.changedSinceRead }
                 try text.data(using: .utf8)?
                     .write(to: writeURL, options: [.atomic])
             } catch {
@@ -2727,6 +2749,46 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         catch {
             documentStoreLog.error(
                 "conflict-backup write failed at \(backupURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+/// **What a save expects the file to hold as it writes** (#138 R3): the
+/// bytes its door read at the start of this save. Checked inside
+/// `DocumentStore.performFileSave`'s coordinated write.
+enum FileExpectation: Equatable {
+    /// No check: the manuscript's clean render (`scheduleFileSave`), whose
+    /// truth is the op log — an outside `.md` edit is discarded by design.
+    case anything
+    /// The file holds bytes whose `ContentHash.of` is this.
+    case bytesHashing(String)
+    /// There was no file at the read (a note door save that makes it).
+    case absent
+
+    /// Whether the file at `url` is what was expected — read plainly: the
+    /// caller is inside the coordinated write, which holds the claim.
+    func isMet(byFileAt url: URL) -> Bool {
+        switch self {
+        case .anything:
+            return true
+        case .absent:
+            return !FileManager.default.fileExists(atPath: url.path)
+        case .bytesHashing(let hash):
+            guard let data = try? Data(contentsOf: url) else { return false } // adr-0018-ok: a Research file's bytes compared before its save; not manuscript
+            return ContentHash.of(data) == hash
+        }
+    }
+}
+
+/// Why `performFileSave(path:text:expecting:)` wrote nothing.
+enum FileSaveError: Error, Equatable, LocalizedError {
+    /// The file no longer held what the save's door read: something outside
+    /// Maugham wrote it in between.
+    case changedSinceRead
+
+    var errorDescription: String? {
+        switch self {
+        case .changedSinceRead: return "it changed outside Maugham while it was being saved."
         }
     }
 }

@@ -15625,8 +15625,8 @@ extension TripwireGrepTests {
     /// name the manuscript or a `.maugham/` file as a Research item;
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
-    /// - `ResearchTableHost.swift:write(_:by:restoring:source:)` — the table door, `tablePath(`.
-    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)` — the
+    /// - `ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)` — the table door, `tablePath(`.
+    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
     /// Since palette cards keep versions (2026-11-11) every card writer —
@@ -15647,8 +15647,8 @@ extension TripwireGrepTests {
     /// question spelled inside a string literal, and two files of one name
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
-        "ResearchTableHost.swift:write(_:by:restoring:source:)": "ResearchTextRole.tablePath(",
-        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)": "noteLookup(",
+        "ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)": "ResearchTextRole.tablePath(",
+        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
 
