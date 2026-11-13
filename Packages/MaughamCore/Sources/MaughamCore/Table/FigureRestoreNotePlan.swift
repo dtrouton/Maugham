@@ -35,6 +35,10 @@ public enum FigureNoteLifecycle {
 /// slice, with no cell set of their own) — written to the value the pointer
 /// held there. Values are compared by content, never format.
 ///
+/// **Accepted at the pointer** means the note's latest honoured lifecycle
+/// line at the pointer is an accept, whether or not that accept wrote a cell
+/// (final review F2, refining the Task 4 ruling).
+///
 /// - **Stranded**: accepted now, not accepted at the pointer, its newest
 ///   cell-carrying accept past the pointer — or, with none past it (a
 ///   suggestion accepted without writing its cell, ruling R-B), judged by
@@ -50,7 +54,9 @@ public enum FigureNoteLifecycle {
 ///   cell back to the content it accepted — that cell's change becomes the
 ///   note's `claudeAccept`, or, on a revived cell, a status-only
 ///   `claudeAccept`. It takes the change before any stranded note on that
-///   cell, since the value written is its own.
+///   cell, since the value written is its own. With no cell-carrying accept
+///   at the pointer (a guarded accept, R-B) it is judged by its anchor cell
+///   and suggested content and returns status-only, the cell set left plain.
 /// - **Gone**: stranded but for the cell, whose row or column does not exist
 ///   at the pointer — archived status only, or, where this hand may not
 ///   dispose of a note (`mayDispose: false`), reverted status only: open over
@@ -139,15 +145,18 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
             }
         }
         var stranded: [(id: String, cell: CellKey, value: CellContent?, acceptOpId: String)] = []
-        var returning: [(id: String, cell: CellKey, value: CellContent?)] = []
+        // `statusOnly`: accepted at the pointer without writing its cell
+        // (R-B), so it returns by a status line and never takes a cell change.
+        var returning: [(id: String, cell: CellKey, value: CellContent?, statusOnly: Bool)] = []
         for id in latest.keys.sorted() {
             guard let now = latest[id] else { continue }
-            // Accepted with its cell at the pointer: the restore keeps the
-            // cell it accepted, so there is nothing to strand — however many
-            // Reverts and re-accepts came since (the manuscript's
+            // Accepted at the pointer: its latest honoured line there is an
+            // accept — one that wrote its cell, or a guarded one over a cell
+            // that already held the suggestion (R-B; final review F2). Such a
+            // note is never stranded, however many Reverts, re-accepts and
+            // cell edits came before or since (the manuscript's
             // `acceptedAtTarget`, `RewindImpact.travelStatusChanges`).
             let acceptedAtPointer = latestAtPointer[id]?.kind == .claudeAccept
-                && cellAcceptAtPointer[id] != nil
             // Stranded: the latest line is ANY accept — a status-only
             // re-accept (a stet's or archive's ⌘Z) included, standing in for
             // the cell-writing accept it put back — judged against the newest
@@ -170,9 +179,14 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
             // manuscript's second "took the change out" arm, a `.rewind`
             // `annotationReopen`, is left out on purpose: a figure has no
             // rewind, so no such line is ever written on its stream.)
-            if open.contains(id), now.kind == .claudeAcceptRevert, now.opId > pointer, acceptedAtPointer,
-               let then = cellAcceptAtPointer[id], let cell = then.figure?.cell {
-                returning.append((id, cell, then.figure?.next?.content))
+            if open.contains(id), now.kind == .claudeAcceptRevert, now.opId > pointer, acceptedAtPointer {
+                if let then = cellAcceptAtPointer[id], let cell = then.figure?.cell {
+                    returning.append((id, cell, then.figure?.next?.content, false))
+                } else if let note = suggestions[id] {
+                    // No cell-carrying accept at the pointer (a guarded
+                    // accept): its anchor cell and suggested content (F2).
+                    returning.append((id, note.cell, note.content, true))
+                }
             }
         }
         // The cells a revive puts back, at the value the pointer held: every
@@ -206,7 +220,9 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
         let answered = changes.map { change -> FigureReturnDiff.Change in
             guard change.kind == .figureCellSet, let cell = change.payload.cell else { return change }
             // The value written back is the one a returning note accepted.
-            if let i = returning.firstIndex(where: { $0.cell == cell && $0.value == change.payload.next?.content }) {
+            if let i = returning.firstIndex(where: {
+                !$0.statusOnly && $0.cell == cell && $0.value == change.payload.next?.content
+            }) {
                 let id = returning.remove(at: i).id
                 notes.reaccepted.append(id)
                 return FigureReturnDiff.Change(kind: .claudeAccept, payload: change.payload, sourceAnnotationId: id)
@@ -225,7 +241,10 @@ public struct FigureRestoreNotePlan: Equatable, Sendable {
         // cell the restore does not write keeps its status (R-A).
         var lines: [StatusLine] = []
         for note in returning {
-            guard let value = revived[note.cell], value == note.value else { continue }
+            // A guarded note's cell may be written by a cell set too: the
+            // set stays a plain cell set, since its accept never wrote one.
+            guard let value = note.statusOnly ? writtenValue(note.cell) : revived[note.cell],
+                  value == note.value else { continue }
             notes.reaccepted.append(note.id)
             lines.append(StatusLine(kind: .claudeAccept, annotationId: note.id))
         }

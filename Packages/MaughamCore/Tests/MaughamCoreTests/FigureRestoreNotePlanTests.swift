@@ -542,4 +542,62 @@ final class FigureRestoreNotePlanTests: XCTestCase {
         XCTAssertEqual(plan.statusLines, [.init(kind: .claudeAcceptRevert, annotationId: id)])
         XCTAssertEqual(plan.notes, FigureRestoreNotes(reopened: [id]))
     }
+
+    // MARK: - Final review F2: a guarded accept AT the checkpoint
+
+    /// **A guarded accept that was accepted at the checkpoint is not reopened
+    /// by a revert**: type 42, Accept (status only), edit to 7, checkpoint,
+    /// edit to 9. The restore writes 9 → 7; the note was accepted over 7 at
+    /// the checkpoint and is accepted now, so it is never stranded (spec §2),
+    /// exactly as with a cell-writing accept
+    /// (`test_acceptedAtThePointerAndNow_isNotStranded`).
+    func test_aGuardedAcceptAcceptedAtThePointerIsNotStranded_whateverItsCellHeldThen() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        acceptByHand(id, number(42), at: key, in: &h)
+        h.set(key, number(7))
+        let pointer = h.pointer
+        h.set(key, number(9))
+
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.kind), [.figureCellSet], "premise: the restore writes the cell")
+        XCTAssertEqual(changes.first?.payload.next?.content, number(7).content, "premise: 9 → 7")
+        XCTAssertEqual(plan.changes, changes, "the cell change stays a plain cell set")
+        XCTAssertEqual(plan.statusLines, [])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes())
+        XCTAssertFalse(plan.answersANote)
+    }
+
+    /// **The mirror: a guarded accept taken back since the checkpoint
+    /// returns accepted when the restore writes its value back**: type 42,
+    /// Accept (status only), checkpoint, ⌘Z (a status-only revert), edit to
+    /// 7. The restore writes 42 back; the note returns accepted by a
+    /// status-only line, not left open over its own value, and the cell set
+    /// stays plain (its accept never wrote a cell).
+    func test_aGuardedAcceptRevertedSinceThePointerReturnsStatusOnly_whenItsValueIsWrittenBack() throws {
+        var (h, key) = table()
+        let id = try suggest(number(42), at: key, in: &h)
+        acceptByHand(id, number(42), at: key, in: &h)
+        let pointer = h.pointer
+        h.append(FigureAnnotationOps.statusOnlyRevert(annotationId: id, stamp: h.stamp))
+
+        // Nothing written: a restore changes a note only where it rewrites
+        // its cell (R-A), so the note stays open.
+        let (none, untouched) = plan(h, to: pointer)
+        XCTAssertEqual(none, [], "premise")
+        XCTAssertEqual(untouched.statusLines, [])
+        XCTAssertEqual(untouched.notes, FigureRestoreNotes())
+
+        h.set(key, number(7))
+        let (changes, plan) = plan(h, to: pointer)
+
+        XCTAssertEqual(changes.map(\.kind), [.figureCellSet], "premise: the restore writes the cell")
+        XCTAssertEqual(changes.first?.payload.next?.content, number(42).content, "premise: 7 → 42")
+        XCTAssertEqual(plan.changes, changes, "the cell change stays a plain cell set")
+        XCTAssertEqual(plan.statusLines, [.init(kind: .claudeAccept, annotationId: id)])
+        XCTAssertEqual(plan.notes, FigureRestoreNotes(reaccepted: [id]))
+        XCTAssertTrue(plan.answersANote)
+    }
 }
+

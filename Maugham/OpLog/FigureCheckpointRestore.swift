@@ -25,8 +25,9 @@ final class FigureCheckpointRestore {
     /// back together), those it put back to accepted (their accepted value
     /// written back, cell and note together) and those it archived (their
     /// cell is gone then), by id — what the restore sheet names beside its
-    /// outcome. Filled as each op lands, so after a part-way stop it names
-    /// only what landed.
+    /// outcome. Emptied as `run` begins (a run that skips, refuses or throws
+    /// answered none) and filled as each op lands, so after a part-way stop
+    /// it names only what landed.
     private(set) var lastNotes = FigureRestoreNotes()
 
     /// Test seam: runs in `run` between one landed op and the next — where
@@ -77,6 +78,9 @@ final class FigureCheckpointRestore {
         _ checkpointId: String, through pointer: String,
         pictureHashes: FigurePictureHashes
     ) async throws -> FigureRestoreOutcome {
+        // First, before anything can skip, refuse or throw: the report is
+        // this run's, never an earlier restore's (final review F3).
+        lastNotes = FigureRestoreNotes()
         let prepared: Prepared
         let preparation: Preparation
         do {
@@ -99,7 +103,6 @@ final class FigureCheckpointRestore {
         let picture = prepared.picture
         let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
         let reason = Op.Provenance(sourceCheckpoint: checkpointId)
-        lastNotes = FigureRestoreNotes()
         // Every change was worked out against this fold: a reload replaces it.
         let generation = host.reloadGeneration
         var appended = 0
