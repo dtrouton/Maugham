@@ -266,6 +266,7 @@ final class ResearchTableHost: FigureGridHost {
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
+        keptAside = nil        // what is held now is the file's
         pendingSidecar = nil   // it described bytes that are gone
         run.end()   // what is on disk now is not this run's: the next save keeps it
         sidecar = read.sidecar
@@ -325,13 +326,14 @@ final class ResearchTableHost: FigureGridHost {
     /// **What one save did**: wrote the file; refused, and why — every
     /// refusal leaves the host dirty, and says so once (`noStore` silently);
     /// or, a `.flush` only, kept the edits aside where they could not be
-    /// written. The two flush arms leave the host clean, so a second flush on
-    /// the way out keeps no second copy.
+    /// written. The two flush arms leave the host dirty (the edits are still
+    /// not in the file) and remember what they kept, so a second flush on the
+    /// way out keeps no second copy and says nothing again.
     enum WriteOutcome: Equatable {
         case wrote
         case refused(Refusal)
         /// A flush that could not write: the table's CSV is kept as this
-        /// conflict backup (an `-unsaved-` `.csv` under `.maugham/conflicts`), and said.
+        /// conflict backup; the host stays dirty (an `-unsaved-` `.csv` under `.maugham/conflicts`), and said.
         case keptAside(URL)
         /// A flush that could not write, whose backup failed too: said in
         /// plain words.
@@ -437,8 +439,8 @@ final class ResearchTableHost: FigureGridHost {
     /// One save at a time, in the order asked; nothing when nothing changed
     /// (`.wrote`). The writer's: an assistant's save is `assistantEdit`'s own.
     /// Marked clean as the write begins, so an edit made during it marks the
-    /// host dirty again; a refusal marks it dirty (`write`): clean iff it
-    /// wrote, or a flush kept the edits aside (`keptAside`, `notKept`).
+    /// host dirty again; a refusal, or a flush that kept the edits aside,
+    /// marks it dirty (`write`): clean iff it wrote.
     @discardableResult
     private func save(source: SaveSource) async -> WriteOutcome {
         let previous = saving
@@ -618,6 +620,12 @@ final class ResearchTableHost: FigureGridHost {
     /// The hash of the bytes this host last kept as a version: a keep of the
     /// same bytes again (a retry after a failed save) keeps nothing.
     @ObservationIgnored private var lastKeptHash: String?
+    /// **What a flush last kept aside** (fix round 1): the hash of the CSV
+    /// text, and its backup — nil when the backup failed and that was said.
+    /// A flush of the same text keeps no second copy and says nothing again;
+    /// one whose backup failed retries it silently. Cleared when a write
+    /// lands or the file is read again.
+    @ObservationIgnored private var keptAside: (hash: String, file: URL?)?
 
     /// **The one door: the version kept, the file, then its sidecar, then
     /// the cards** — what one save writes, `writer` its author. A restore
@@ -628,7 +636,7 @@ final class ResearchTableHost: FigureGridHost {
     /// (`SaveSource`). **A `.flush` never drops the edits** (ruling R-C, the
     /// note door's rule): a version that cannot be kept is saved over anyway;
     /// any other arm writes nothing over the file and keeps the table's CSV
-    /// aside (`keepTheFlushedTable`), which leaves the host clean.
+    /// aside (`keepTheFlushedTable`), the host still dirty.
     private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
                        restoring: Bool = false, source: SaveSource) async -> WriteOutcome {
         func refused(_ why: WriteOutcome.Refusal) -> WriteOutcome {
@@ -640,7 +648,7 @@ final class ResearchTableHost: FigureGridHost {
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path else {
             if flushing {
-                return keepTheFlushedTable(table, couldNot: "Couldn’t save a Research table: it is no longer in Research.",
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save a Research table: it is no longer in Research.",
                                            anchor: backupAnchor(nil))
             }
             MaughamEvent.postNotice("A Research table’s edits couldn’t be saved: it is no longer in Research.",
@@ -655,7 +663,7 @@ final class ResearchTableHost: FigureGridHost {
         guard ResearchTextRole.tablePath(of: item, structure: store.projectStore?.manifest.structure ?? []) == path else {
             researchTableLog.error("\(path, privacy: .public) is not inside Research; the table door wrote nothing")
             if flushing {
-                return keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t a table inside Research any more.",
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t a table inside Research any more.",
                                            anchor: backupAnchor(path))
             }
             MaughamEvent.postNotice(
@@ -668,7 +676,7 @@ final class ResearchTableHost: FigureGridHost {
         // edits wait, and it is said; a flush's are kept aside and said.
         guard await fileIsThere(at: path) else {
             if flushing {
-                return keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t there any more.",
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t there any more.",
                                            anchor: backupAnchor(path))
             }
             MaughamEvent.postNotice(
@@ -678,7 +686,7 @@ final class ResearchTableHost: FigureGridHost {
         // A file that is there but will not read cannot be kept: nothing is written over it.
         guard let onDisk = await bytesOnDisk(at: path) else {
             if flushing {
-                return keepTheFlushedTable(
+                return await keepTheFlushedTable(
                     table, couldNot: "Couldn’t save “\(item.title)”: Maugham couldn’t read it to keep its previous version.",
                     anchor: backupAnchor(path))
             }
@@ -693,7 +701,7 @@ final class ResearchTableHost: FigureGridHost {
             guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring,
                                                      source: source) else {
                 if flushing {
-                    return keepTheFlushedTable(
+                    return await keepTheFlushedTable(
                         table, couldNot: "Couldn’t save “\(item.title)”: it changed outside Maugham, and that version couldn’t be kept.",
                         anchor: backupAnchor(path))
                 }
@@ -729,11 +737,12 @@ final class ResearchTableHost: FigureGridHost {
                 "\(path, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
             let couldNot = "Couldn’t save “\(item.title)”: \(error.localizedDescription)"
             // A flush may have no later retry (⌘Q): nothing more is written over the file.
-            if flushing { return keepTheFlushedTable(table, couldNot: couldNot, anchor: backupAnchor(path)) }
+            if flushing { return await keepTheFlushedTable(table, couldNot: couldNot, anchor: backupAnchor(path)) }
             MaughamEvent.postNotice(couldNot, projectURL: projectURL)
             return refused(.saveFailed)
         }
         diskHash = ContentHash.of(Data(text.utf8))
+        keptAside = nil   // the edits are on disk: a backup kept earlier simply remains
         if savedAnyway {
             MaughamEvent.postNotice("“\(item.title)”’s previous version couldn’t be kept; your edits were saved anyway.",
                                     projectURL: projectURL)
@@ -880,18 +889,27 @@ final class ResearchTableHost: FigureGridHost {
 
     /// **A flush that could not write keeps the edits aside** (ruling R-C,
     /// after `ResearchNoteDoor.keepTheFlushedText`): the table's CSV — the
-    /// text the save would have written, never its sidecar's formats — as a
-    /// conflict backup in `.maugham/conflicts`, said with `couldNot` (a
-    /// sentence) and the file's name, or that it is nowhere. Either way the
-    /// host is clean, so a second flush on the way out (`settle`, then
-    /// `close()`) keeps no second copy. It still holds the table, so a later
-    /// edit is dirty again and its flush keeps a new backup — intended: each
-    /// holds the table as it was at that flush.
-    private func keepTheFlushedTable(_ table: FigureTable, couldNot: String, anchor: URL) -> WriteOutcome {
+    /// text a save would write now (its formula names read fresh), never its
+    /// sidecar's formats — as a conflict backup in `.maugham/conflicts`, said
+    /// with `couldNot` (a sentence) and the file's name, or that it is
+    /// nowhere. **The host stays dirty** (fix round 1): the edits are still
+    /// not in the file, so a later flush or the close tries the file again,
+    /// an assistant write is refused until they land, and an outside change
+    /// does not reload over them. What was kept is remembered (`keptAside`):
+    /// a second flush of the same table on the way out keeps no second copy
+    /// and says nothing; one whose backup failed retries it silently, and
+    /// names the file if it lands. A later edit changes the text, so its
+    /// flush keeps a new backup — intended: each holds the table as it was.
+    private func keepTheFlushedTable(_ table: FigureTable, couldNot: String, anchor: URL) async -> WriteOutcome {
+        isDirty = true
+        if let fresh = try? await store?.formulaNamesForUse() { names = fresh }
         let text = csvText(table)
+        let hash = ContentHash.of(Data(text.utf8))
+        if let held = keptAside, held.hash == hash, let file = held.file { return .keptAside(file) }
         do {
             let backup = try Document.writeConflictBackup(forFileAt: anchor, docId: itemId, text: text,
                                                           kind: "unsaved", at: now())
+            keptAside = (hash, backup)
             MaughamEvent.postNotice(
                 "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
                 projectURL: projectURL)
@@ -899,8 +917,11 @@ final class ResearchTableHost: FigureGridHost {
         } catch {
             researchTableLog.error(
                 "\(self.itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
-            MaughamEvent.postNotice(
-                "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.", projectURL: projectURL)
+            if keptAside?.hash != hash {
+                MaughamEvent.postNotice(
+                    "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.", projectURL: projectURL)
+            }
+            keptAside = (hash, nil)
             return .notKept
         }
     }

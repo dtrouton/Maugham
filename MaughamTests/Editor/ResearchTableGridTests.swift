@@ -841,7 +841,7 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertEqual(TableCSV.rows(try String(contentsOf: backup, encoding: .utf8)).rows,
                        [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices, [keptAside("Couldn’t save “model”: it isn’t there any more.", backup)])
-        XCTAssertFalse(host.isDirty, "kept aside: clean")
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved: a later flush tries the file again")
         await host.flush()
         XCTAssertEqual(writes(), 0, "and a second flush makes nothing either")
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))

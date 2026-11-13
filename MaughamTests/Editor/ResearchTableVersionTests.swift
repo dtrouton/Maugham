@@ -792,7 +792,7 @@ final class ResearchTableVersionTests: XCTestCase {
 
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path)
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "not saved over")
-        XCTAssertFalse(host.isDirty, "kept aside: clean")
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
         let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices, [kept("Couldn’t save “model”: Maugham couldn’t read it to keep its previous version.",
                                            as: backup)])
@@ -813,7 +813,7 @@ final class ResearchTableVersionTests: XCTestCase {
         try await writerSaves(11, host)
 
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "nothing written")
-        XCTAssertFalse(host.isDirty)
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
         let backup = try theOneBackup(of: item, stem: "table", rows: [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices, [kept("Couldn’t save a Research table: it is no longer in Research.", as: backup)])
         await store.releaseResearchTable(host)
@@ -837,7 +837,7 @@ final class ResearchTableVersionTests: XCTestCase {
 
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path): nothing written there")
             XCTAssertTrue(versions(of: item).isEmpty, "\(path): no version kept")
-            XCTAssertFalse(host.isDirty, "\(path)")
+            XCTAssertTrue(host.isDirty, "\(path): kept aside, still unsaved")
             let backup = try theOneBackup(of: item, stem: stem, rows: [["Year", "Revenue"], ["2025", "20"]])
             XCTAssertEqual(heard.notices,
                            [kept("Couldn’t save “model”: it isn’t a table inside Research any more.", as: backup)],
@@ -861,7 +861,7 @@ final class ResearchTableVersionTests: XCTestCase {
 
         XCTAssertEqual(try bytes(of: item), Data(outside.utf8), "not saved over the outside version")
         XCTAssertTrue(versions(of: item).isEmpty, "no version kept")
-        XCTAssertFalse(host.isDirty)
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
         let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "12"]])
         XCTAssertEqual(heard.notices, [kept(
             "Couldn’t save “model”: it changed outside Maugham, and that version couldn’t be kept.", as: backup)])
@@ -882,7 +882,7 @@ final class ResearchTableVersionTests: XCTestCase {
         try await writerSaves(11, host)
 
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "the save failed")
-        XCTAssertFalse(host.isDirty)
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
         let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices.count, 1, "\(heard.notices)")
         XCTAssertTrue(heard.notices[0].hasPrefix("Couldn’t save “model”: "), heard.notices[0])
@@ -908,7 +908,7 @@ final class ResearchTableVersionTests: XCTestCase {
         try await writerSaves(11, host)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
-        XCTAssertFalse(host.isDirty)
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
         let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices, [kept("Couldn’t save “model”: it isn’t there any more.", as: backup)])
         await store.releaseResearchTable(host)
@@ -930,7 +930,7 @@ final class ResearchTableVersionTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
         XCTAssertTrue(unsavedBackups(of: item).isEmpty)
-        XCTAssertFalse(host.isDirty, "said, and not said again on the way out")
+        XCTAssertTrue(host.isDirty, "not kept, still unsaved")
         XCTAssertEqual(heard.notices, [
             "Couldn’t save “model”: it isn’t there any more. Your edits weren’t saved, and they couldn’t be kept anywhere else."
         ])
@@ -957,9 +957,10 @@ final class ResearchTableVersionTests: XCTestCase {
         XCTAssertEqual(heard.notices, [kept("Couldn’t save “model”: it isn’t there any more.", as: backup)])
     }
 
-    /// **After a backup the host is clean but still holds the edited table**
-    /// (the grid shows it): a later edit is dirty again, and its flush keeps
-    /// a new backup — each holding the table as it was at that flush.
+    /// **After a backup the host is still unsaved and holds the edited table**
+    /// (the grid shows it): a later edit changes what would be kept, so its
+    /// flush keeps a new backup — each holding the table as it was at that
+    /// flush (fix round 1, consequence e).
     func test_aLaterEditAfterABackupKeepsASecondBackupAtItsFlush() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
@@ -980,6 +981,139 @@ final class ResearchTableVersionTests: XCTestCase {
         XCTAssertEqual(heard.notices, backups.map { kept("Couldn’t save “model”: it isn’t there any more.", as: $0) })
         await store.releaseResearchTable(host)
         XCTAssertEqual(unsavedBackups(of: item).count, 2, "the close keeps no third")
+    }
+
+    // MARK: Fix round 1 — a table kept aside stays unsaved, and remembers what it kept
+
+    /// **(b) A transient refusal heals at the next flush**: a flush over a
+    /// briefly locked folder keeps the edits aside; once it opens, the next
+    /// flush — no new edit — writes them, keeps no second backup and says
+    /// nothing more (the earlier backup simply remains).
+    func test_aFlushKeptAsideByATransientFailureWritesTheEditsAtTheNextFlush() async throws {
+        let (store, projectStore) = try await openBook()
+        let original = "Year,Revenue\n2025,10\n"
+        let item = try await researchTable(original, in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder)
+        try await writerSaves(11, host)
+        XCTAssertEqual(try bytes(of: item), Data(original.utf8), "precondition: the save failed")
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "precondition: kept aside")
+
+        try unlock(folder)
+        await host.flush()
+
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "11"]], "the edits are on disk")
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "no second backup")
+        XCTAssertEqual(heard.notices.count, 1, "nothing more said: \(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **(b) The same through the close** (⌘Q's shape): the release's
+    /// `close()` writes the edits a flush kept aside.
+    func test_theCloseWritesTheEditsAFlushKeptAsideOnceTheFolderOpens() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        host.saveDelay = .seconds(600)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder)
+        try await host.setCell(number(11), at: key(host, 2, 2), undoManager: nil)
+        try await store.flushPendingSave(commitOpenEdits: true)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "precondition: kept aside")
+
+        try unlock(folder)
+        await store.releaseResearchTable(host)
+
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "11"]], "the close wrote them")
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "no second backup")
+        XCTAssertEqual(heard.notices.count, 1, "\(heard.notices)")
+    }
+
+    /// **(c) An assistant write after a kept-aside flush is refused**: the
+    /// writer's edits are still unsaved, so they are never carried to disk
+    /// stamped as the assistant's.
+    func test_anAssistantWriteAfterAKeptAsideFlushIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let original = "Year,Revenue\n2025,10\n"
+        let item = try await researchTable(original, in: projectStore)
+        let host = try await open(item, store, clock: Clock())
+        try lock(file(try XCTUnwrap(item.path)).deletingLastPathComponent())
+        try await writerSaves(11, host)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "precondition: kept aside")
+
+        do {
+            try await host.assistantEdit { table in
+                table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+            }
+            XCTFail("the write should not have been made")
+        } catch let notSaved as ResearchTableHost.NotSaved {
+            XCTAssertEqual(notSaved.message,
+                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+        }
+
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)), "the writer's edit, alone")
+        XCTAssertTrue(host.isDirty)
+        XCTAssertEqual(try bytes(of: item), Data(original.utf8), "nothing written")
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "the direct pre-flush keeps nothing aside")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **(d) An outside change does not reload over a kept-aside table**: it
+    /// is unsaved, so the grid keeps the writer's edits.
+    func test_anOutsideChangeDoesNotReloadOverAKeptAsideTable() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let path = file(try XCTUnwrap(item.path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: path.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path) }
+        try await writerSaves(11, host)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "precondition: kept aside")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path)
+        try Data("Year,Revenue\n2025,40\n".utf8).write(to: path)
+
+        await host.fileMayHaveChanged()
+
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)), "the held edit stays")
+        XCTAssertTrue(host.isDirty)
+        XCTAssertFalse(heard.notices.contains { $0.hasPrefix("Reloaded") }, "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **(f) A backup that fails is said once and retried silently**: the
+    /// next flush of the same table tries the backup again without a word;
+    /// when the conflicts folder opens, that flush keeps it and names it.
+    func test_aBackupThatFailsIsSaidOnce_andAFlushOnceItCanKeepsItAndSaysWhere() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        try FileManager.default.removeItem(at: file(try XCTUnwrap(item.path)))
+        let conflicts = file(".maugham/conflicts")
+        try FileManager.default.createDirectory(at: conflicts, withIntermediateDirectories: true)
+        try lock(conflicts)
+        let notKept = "Couldn’t save “model”: it isn’t there any more. Your edits weren’t saved, and they couldn’t be kept anywhere else."
+
+        try await writerSaves(11, host)
+        await host.flush()
+        XCTAssertEqual(heard.notices, [notKept], "said once")
+        XCTAssertTrue(unsavedBackups(of: item).isEmpty)
+        XCTAssertTrue(host.isDirty)
+
+        try unlock(conflicts)
+        await host.flush()
+
+        let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
+        XCTAssertEqual(heard.notices, [notKept, kept("Couldn’t save “model”: it isn’t there any more.", as: backup)])
+        await store.releaseResearchTable(host)
+        XCTAssertEqual(heard.notices.count, 2, "the close says nothing more: \(heard.notices)")
+        XCTAssertEqual(unsavedBackups(of: item).count, 1)
     }
 
     /// **Review Focus 2 — a flush on a clean host keeps nothing and says
