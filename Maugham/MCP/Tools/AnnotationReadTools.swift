@@ -268,11 +268,11 @@ public enum GetAnnotationTool: MCPTool {
         if let target = try await FigureNoteReading.figureTarget(
             figure: params.figure, documentId: params.document_id, entry: entry) {
             let context = target.context
-            let notes = await entry.store.figureNotes(context.record.id)
-            guard let ann = notes.first(where: { $0.id == params.annotation_id }) else {
+            // One read of the stream: status and history are the same moment.
+            let read = await entry.store.figureNotesAndOps(context.record.id)
+            guard let ann = read?.notes.first(where: { $0.id == params.annotation_id }), let ops = read?.ops else {
                 throw MCPError.invalidArgument("annotation_id not found: \(params.annotation_id)")
             }
-            let ops = await entry.store.figureOps(context.record.id)
             return try enc.encode(Result(ann, figure: context, history: history(of: ann.id, in: ops)))
         }
         guard let documentId = params.document_id else {
@@ -292,9 +292,8 @@ public enum GetAnnotationTool: MCPTool {
         // Not on the document's paragraphs: a note on a figure its text uses,
         // which this document's `list_annotations` returned (same source).
         for context in await FigureNoteReading.contexts(usedBy: documentId, entry: entry) {
-            let notes = await entry.store.figureNotes(context.record.id)
-            guard let ann = notes.first(where: { $0.id == params.annotation_id }) else { continue }
-            let ops = await entry.store.figureOps(context.record.id)
+            let read = await entry.store.figureNotesAndOps(context.record.id)
+            guard let ann = read?.notes.first(where: { $0.id == params.annotation_id }), let ops = read?.ops else { continue }
             return try enc.encode(Result(ann, figure: context, history: history(of: ann.id, in: ops)))
         }
         throw MCPError.invalidArgument("annotation_id not found: \(params.annotation_id)")

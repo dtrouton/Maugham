@@ -154,6 +154,32 @@ final class FigureAnnotationWriteTests: XCTestCase {
         await store.closeFigure(figureId: figure.id)
     }
 
+    /// **A note whose anchor was deleted while the host was open is refused**
+    /// (hardening 11-11 W5): the tool built the anchor against a snapshot, the
+    /// row was deleted through the open host before the append, and the open
+    /// branch re-resolves the anchor against `host.state` — it writes nothing,
+    /// where it used to append a note already orphaned.
+    func test_anAnchorDeletedUnderAnOpenHostIsRefusedAndNothingIsWritten() async throws {
+        let (store, projectStore, figure) = try await openBook()
+        let host = try await store.openFigure(figureId: figure.id)
+        let op = try assistantComment(on: figure, table: host.state.table, body: "doomed")
+        try await host.deleteRow(host.state.table.rows[0])
+        let before = try? Data(contentsOf: assistantStream(figure))
+
+        do {
+            try await store.addFigureAnnotation(op)
+            XCTFail("an orphaned anchor takes no note")
+        } catch let error as FigureAnnotationWriteError {
+            guard case .orphanedAnchor = error else { return XCTFail("wrong refusal: \(error)") }
+        }
+
+        XCTAssertEqual(try? Data(contentsOf: assistantStream(figure)), before, "nothing was appended")
+        XCTAssertFalse(host._ops.contains { $0.opId == op.opId }, "the host did not adopt it")
+        let notes = await projectStore.figureNotes(figure.id)
+        XCTAssertEqual(notes, [])
+        await store.closeFigure(figureId: figure.id)
+    }
+
     /// **The change is announced once, naming the figure** — windowless and
     /// through a host alike.
     func test_theChangeIsAnnouncedOnceWithTheFigureId() async throws {

@@ -128,6 +128,24 @@ final class FigureAnnotationReadTests: XCTestCase {
         XCTAssertFalse((one["history"] as? [Any] ?? []).isEmpty, "the creation op is in the history")
     }
 
+    /// **`get_annotation` on a figure reads the stream once** (hardening 11-11
+    /// W7): status and history come from one `FigureNotesRead.read`, so a note
+    /// answered between two reads cannot show one state beside another's
+    /// history. History stays the raw ops.
+    func test_getAnnotationOnAFigureTakesStatusAndHistoryFromOneRead() async throws {
+        let book = try await openBook()
+        let id = try await make(AddSuggestedChangeTool.self, book,
+                                #""figure":"tbl:cash!B2","body":"Typo","suggested_value":"1234.5""#)
+        let before = ProjectStore.figureStreamReadsForTesting
+
+        let one = try await get(book, #""figure":"tbl:cash","annotation_id":"\#(id)""#)
+
+        XCTAssertEqual(ProjectStore.figureStreamReadsForTesting - before, 1, "one read of the figure's stream")
+        XCTAssertEqual(one["status"] as? String, "open")
+        let kinds = (one["history"] as? [[String: Any]] ?? []).compactMap { $0["kind"] as? String }
+        XCTAssertEqual(kinds, ["claude_suggestion"], "the raw creation op")
+    }
+
     func test_aWholeFigureNoteReadsTheLabelAlone() async throws {
         let book = try await openBook()
         _ = try await make(AddCommentTool.self, book, #""figure":"tbl:cash","body":"Whole""#)

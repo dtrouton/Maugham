@@ -201,6 +201,16 @@ enum AnnotationTarget {
     }
 }
 
+/// The one refusal for a cell address that names no live cell: an address the
+/// table never held, or (`addFigureAnnotation`) one whose row or column was
+/// deleted after the anchor was built.
+private func orphanedFigureAnchor(cells: String, name: String, rows: Int, columns: Int) -> MCPError {
+    MCPError.invalidArgument(
+        "'\(cells)' is not a live cell or range in '\(name)' "
+        + "(\(rows) rows, \(columns) columns); "
+        + "use a form like \"C3\" or \"C3:E3\". A cell whose row or column was deleted has no address.")
+}
+
 /// Create a note on a figure as the assistant and return its annotation id.
 ///
 /// The figure is found as `read_figure` finds it (`ReadFigureTool.find`: a
@@ -261,10 +271,8 @@ func addFigureNote(
         switch FigureAnchorAddress.anchor(cells, in: table) {
         case .success(let a): anchor = a
         case .failure:
-            throw MCPError.invalidArgument(
-                "'\(cells)' is not a live cell or range in '\(record.name)' "
-                + "(\(table.rows.count) rows, \(table.columns.count) columns); "
-                + "use a form like \"C3\" or \"C3:E3\". A cell whose row or column was deleted has no address.")
+            throw orphanedFigureAnchor(
+                cells: cells, name: record.name, rows: table.rows.count, columns: table.columns.count)
         }
     }
 
@@ -302,6 +310,11 @@ func addFigureNote(
     }
     do {
         try await ds.addFigureAnnotation(op)
+    } catch FigureAnnotationWriteError.orphanedAnchor(let rows, let columns) {
+        // The figure changed under an open host between the snapshot and the
+        // append: the same refusal as an address that never resolved.
+        throw orphanedFigureAnchor(
+            cells: parsed.cells ?? "", name: record.name, rows: rows, columns: columns)
     } catch let error as FigureParkedRefused {
         throw MCPError.invalidArgument(
             "Figure '\(record.name)' is parked in Research (\(error.localizedDescription)).")

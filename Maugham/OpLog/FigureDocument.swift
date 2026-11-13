@@ -2010,6 +2010,42 @@ public final class FigureDocument {
         return op
     }
 
+    /// **Append another actor's note creation and adopt it into this host
+    /// without a reload** (hardening 11-11 W6) — what `DocumentStore.
+    /// addFigureAnnotation` does for an MCP note on a figure this window holds.
+    /// The op is already built and signed by the device it names (the
+    /// assistant's), so it is appended as it stands; the host folds nothing onto
+    /// the table (a creation never folds, `FigureOpPayload.folds`), carries it
+    /// in `_ops` and `streams` and rebuilds `openCellNotes`, and treats it as
+    /// unconfirmed until a read sees it, as `commit` does.
+    ///
+    /// **It does not bump `reloadGeneration`**: a restore in flight worked out
+    /// its plan against the fold, and a note changes no cell, so the plan is
+    /// still right; the restore's generation check stays exactly as strict for
+    /// a real reload. Refuses an op that would fold (MCP writes no cell).
+    func adoptNoteCreation(_ op: Op) async throws {
+        guard !isClosed else { throw DocumentNotWritableError(site: "adoptNoteCreation") }
+        guard !FigureOpPayload.folds(op) else {
+            throw FigureEditInvalid(reason: "a note's creation writes no cell")
+        }
+        let at = _ops.firstIndex { $0.opId > op.opId } ?? _ops.endIndex
+        _ops.insert(op, at: at)
+        streams[op.device, default: []].append(op.opId)
+        newestOpId = max(newestOpId ?? "", op.opId)
+        unconfirmedLocalOpIds.insert(op.opId)
+        rebuildOpenCellNotes()
+        do {
+            try await opStore.append(op)
+            if unconfirmedLocalOpIds.contains(op.opId) { appendedLocalOpIds.insert(op.opId) }
+        } catch {
+            unconfirmedLocalOpIds.remove(op.opId)
+            _ops.removeAll { $0.opId == op.opId }
+            streams[op.device]?.removeAll { $0 == op.opId }
+            rebuildOpenCellNotes()
+            throw error
+        }
+    }
+
     // MARK: - Open cell notes (report plan 9c-2)
 
     /// The rows and columns in order: what a note's top-left cell is

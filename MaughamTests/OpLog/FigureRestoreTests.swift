@@ -13,6 +13,9 @@ final class FigureRestoreTests: XCTestCase {
 
     private var projectURL: URL!
     private var heldFigurePass: DebounceScheduler<Int>?
+    /// The window's `projectStore` is weak: a test that needs the registry
+    /// after `openBook` returns (a note on a figure) is held by this.
+    private var heldProjectStore: ProjectStore?
     private static let pieceB = "doc-b"
     private static let checkpoint = "ckpt-restore"
 
@@ -35,6 +38,7 @@ final class FigureRestoreTests: XCTestCase {
     override func tearDown() async throws {
         heldFigurePass?.cancel()
         heldFigurePass = nil
+        heldProjectStore = nil
         FigureDocument.beforeCommitAppendForTesting = nil
         FigureDocument.betweenRestoreOpsForTesting = nil
         Document.localIdentitiesForTesting = nil
@@ -71,6 +75,7 @@ final class FigureRestoreTests: XCTestCase {
         let projectStore = try await ProjectStore.load(from: projectURL)
         projectStore.documentStore = store
         store.projectStore = projectStore
+        heldProjectStore = projectStore
         return (store, projectStore)
     }
 
@@ -512,6 +517,34 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertEqual(host.state.table.cells, then.table.cells)
         await store.closeFigure(figureId: record.id)
     }
+    /// **A note the assistant adds mid-restore does not stop it** (hardening
+    /// 11-11 W6): the note rides the figure's stream, not the table, so the
+    /// restore's plan is still right; the store adopts the op into the host
+    /// without a reload (no `reloadGeneration` bump), and the restore finishes.
+    func test_aNoteAddedBetweenRestoreOpsDoesNotStopIt() async throws {
+        let (store, record, host, then, pointer) = try await twoOpsToGo()
+        let generation = host.reloadGeneration
+        let note = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: then.table.rows[0], column: then.table.columns[0]),
+            body: "mid-restore", author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: record.id, device: Document.loadIdentities[.assistant].deviceId))
+        var landed = false
+        FigureDocument.betweenRestoreOpsForTesting = { _ in
+            FigureDocument.betweenRestoreOpsForTesting = nil
+            do { try await store.addFigureAnnotation(note); landed = true } catch { XCTFail("\(error)") }
+        }
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertTrue(landed, "premise: the note was added between two restore ops")
+        XCTAssertEqual(outcome, .restored(opCount: 2))
+        XCTAssertEqual(host.reloadGeneration, generation, "adopting the note is not a reload")
+        XCTAssertEqual(host.state.table.cells, then.table.cells)
+        XCTAssertTrue(host._ops.contains { $0.opId == note.opId }, "the host holds the note")
+        XCTAssertTrue(try ops(of: record.id).contains { $0.opId == note.opId }, "and it is on disk")
+        await store.closeFigure(figureId: record.id)
+    }
+
     // MARK: - Across a trip to Research (plan 6c final review I5, M6)
 
     /// **A figure that went to Research, or came back, since the checkpoint

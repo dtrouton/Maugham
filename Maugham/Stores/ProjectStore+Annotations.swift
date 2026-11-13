@@ -425,10 +425,32 @@ extension ProjectStore {
     /// walk's key, so asking it per write would re-derive every closed piece.
     /// Empty when the stream will not read.
     func figureNotes(_ figureId: String) async -> [Annotation] {
+        Self.figureStreamReadsForTesting += 1
         let url = url, facts = DocumentClass.Facts(manifest)
         let trust = await figureReadTrust()
         return await Task.detached(priority: .userInitiated) {
             Self.figureAnnotations(figureId, in: url, trust: trust, facts: facts) ?? []
+        }.value
+    }
+
+    /// Test seam: how many times a one-figure stream read (`figureNotes`,
+    /// `figureOps`, `figureNotesAndOps`) has been started — what pins "one read".
+    static var figureStreamReadsForTesting = 0
+
+    /// **One figure's notes and its raw ops from ONE read of its stream**
+    /// (hardening 11-11 W7, `get_annotation`): `FigureNotesRead.read`'s judged
+    /// notes and the merged ops it walked, so a note's status and its history
+    /// cannot be two reads a write apart. The ops are `figureOps`' own —
+    /// `loadSyncMerged`'s raw lines, not amendment-judged. Nil when the stream
+    /// will not read.
+    func figureNotesAndOps(_ figureId: String) async -> (notes: [Annotation], ops: [Op])? {
+        Self.figureStreamReadsForTesting += 1
+        let url = url, facts = DocumentClass.Facts(manifest)
+        let trust = await figureReadTrust()
+        return await Task.detached(priority: .userInitiated) {
+            guard let read = try? FigureNotesRead.read(figureId: figureId, in: url, trust: trust, facts: facts)
+            else { return nil }
+            return (read.notes, read.ops)
         }.value
     }
 
@@ -438,6 +460,7 @@ extension ProjectStore {
     /// themselves. Raw like the manuscript's `Document.opLog()` — history is
     /// not amendment-judged on either side. Empty when the stream will not read.
     func figureOps(_ figureId: String) async -> [Op] {
+        Self.figureStreamReadsForTesting += 1
         let url = url, facts = DocumentClass.Facts(manifest)
         let trust = await figureReadTrust()
         return await Task.detached(priority: .userInitiated) {
