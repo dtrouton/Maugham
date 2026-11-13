@@ -123,6 +123,12 @@ final class ResearchTableVersionTests: XCTestCase {
         await host.flush()
     }
 
+    /// The writer types `value` into B2 and the debounced save runs (no sleep).
+    private func writerSavesByTheTimer(_ value: Double, _ host: ResearchTableHost) async throws {
+        try await host.setCell(number(value), at: key(host, 2, 2), undoManager: nil)
+        await host.saveAsTheTimerForTesting()
+    }
+
     private final class Heard: @unchecked Sendable { var notices: [String] = [] }   // touched on the main actor only
     private var noticeObservers: [NSObjectProtocol] = []
 
@@ -358,11 +364,11 @@ final class ResearchTableVersionTests: XCTestCase {
         let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
         try lock(folder)
 
-        try await writerSaves(11, host)
+        try await writerSavesByTheTimer(11, host)
 
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "the save failed")
         XCTAssertTrue(host.isDirty, "the edit waits to be saved")
-        XCTAssertTrue(heard.notices.contains { $0.hasPrefix("Couldn’t save “model”") }, "\(heard.notices)")
+        XCTAssertEqual(heard.notices.filter { $0.hasPrefix("Couldn’t save “model”") }.count, 1, "\(heard.notices)")
         var kept = versions(of: item)
         XCTAssertEqual(kept.count, 1)
         XCTAssertEqual(try ResearchVersionStore(projectURL: projectURL).read(kept[0]).0, try bytes(of: item),
@@ -387,12 +393,13 @@ final class ResearchTableVersionTests: XCTestCase {
         try FileManager.default.createDirectory(at: file(".maugham"), withIntermediateDirectories: true)
         try Data("x".utf8).write(to: file(ResearchVersionStore.folder))
 
-        try await writerSaves(11, host)
+        try await writerSavesByTheTimer(11, host)
 
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "not saved over")
         XCTAssertTrue(host.isDirty)
-        XCTAssertTrue(heard.notices.contains("“model”’s previous version couldn’t be kept, so your edits weren’t saved over it."),
-                      "\(heard.notices)")
+        XCTAssertEqual(heard.notices.filter {
+            $0 == "“model”’s previous version couldn’t be kept, so your edits weren’t saved over it."
+        }.count, 1, "\(heard.notices)")
         await store.releaseResearchTable(host)
     }
 
@@ -460,9 +467,10 @@ final class ResearchTableVersionTests: XCTestCase {
         let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
         try lock(folder)
 
-        try await writerSaves(12, host)
+        try await writerSavesByTheTimer(12, host)
         clock.advance(minutes: 11)
-        await host.flush()
+        await host.saveAsTheTimerForTesting()
+        XCTAssertTrue(host.isDirty, "the edit still waits to be saved")
 
         func backups() throws -> [String] {
             try FileManager.default.contentsOfDirectory(atPath: file(".maugham/conflicts").path)
@@ -561,15 +569,15 @@ final class ResearchTableVersionTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: path.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path) }
 
-        try await writerSaves(11, host)
+        try await writerSavesByTheTimer(11, host)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path.path)
         XCTAssertEqual(try bytes(of: item), Data(original.utf8), "not saved over")
         XCTAssertTrue(host.isDirty)
         XCTAssertEqual(versions(of: item).count, 0)
-        XCTAssertTrue(heard.notices.contains(
-            "Maugham couldn’t read “model” to keep its previous version, so your edits weren’t saved over it."),
-            "\(heard.notices)")
+        XCTAssertEqual(heard.notices.filter {
+            $0 == "Maugham couldn’t read “model” to keep its previous version, so your edits weren’t saved over it."
+        }.count, 1, "\(heard.notices)")
         await store.releaseResearchTable(host)
     }
 
@@ -619,6 +627,101 @@ final class ResearchTableVersionTests: XCTestCase {
         XCTAssertTrue(heard.notices.contains(
             "“model”’s previous version couldn’t be kept, so the assistant’s change wasn’t saved over it."),
             "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+
+    // MARK: - Hardening 11-11 task 2.1: every refusal stays dirty, and says so once
+
+    /// **The timer's save, refused because the outside version could not be
+    /// kept**: nothing is written over the file, the edit waits, said once.
+    func test_aTimerSaveWhoseOutsideVersionCannotBeKeptWritesNothingAndStaysDirty() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let outside = "Year,Revenue\n2025,40\n"
+        try Data(outside.utf8).write(to: file(try XCTUnwrap(item.path)))
+        // A file where the conflicts folder goes: no backup can be made there.
+        try FileManager.default.createDirectory(at: file(".maugham"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: file(".maugham/conflicts"))
+
+        try await writerSavesByTheTimer(12, host)
+
+        XCTAssertEqual(try bytes(of: item), Data(outside.utf8), "not saved over the outside version")
+        XCTAssertTrue(versions(of: item).isEmpty, "no version kept")
+        XCTAssertTrue(host.isDirty, "the edit waits to be saved")
+        XCTAssertEqual(heard.notices.filter {
+            $0 == "“model” changed outside Maugham, and that version couldn’t be kept, so your edits weren’t saved over it."
+        }.count, 1, "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **The timer's save of a table no longer in Research** (another Mac's
+    /// manifest removed it): nothing is written, the edit waits, said once.
+    func test_aTimerSaveOfATableNoLongerInResearchStaysDirty() async throws {
+        let (store, projectStore) = try await openBook()
+        let original = "Year,Revenue\n2025,10\n"
+        let item = try await researchTable(original, in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        projectStore.removeResearchItem(id: item.id)
+
+        try await writerSavesByTheTimer(11, host)
+
+        XCTAssertEqual(try bytes(of: item), Data(original.utf8), "nothing written")
+        XCTAssertTrue(host.isDirty, "the edit waits to be saved")
+        XCTAssertEqual(heard.notices.filter {
+            $0 == "A Research table’s edits couldn’t be saved: it is no longer in Research."
+        }.count, 1, "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **The timer's save of a file that has gone** (another Mac trashed
+    /// it): the file is not made again, the edit waits, said once.
+    func test_aTimerSaveWhoseFileHasGoneMakesNothingAndStaysDirty() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let path = file(try XCTUnwrap(item.path))
+        try FileManager.default.removeItem(at: path)
+
+        try await writerSavesByTheTimer(11, host)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
+        XCTAssertTrue(host.isDirty, "the edit waits to be saved")
+        XCTAssertEqual(heard.notices.filter { $0 == "“model” isn’t there any more, so its edits weren’t saved." }.count,
+                       1, "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **An assistant write's pre-flush (`.direct`) that is refused leaves
+    /// the writer's edit waiting**, so the assistant's write is refused as
+    /// one whose pending edits could not be saved first — never made over
+    /// them, never dropped.
+    func test_anAssistantWriteWhosePendingEditsTableHasLeftResearchIsRefusedAndTheEditWaits() async throws {
+        let (store, projectStore) = try await openBook()
+        let original = "Year,Revenue\n2025,10\n"
+        let item = try await researchTable(original, in: projectStore)
+        let host = try await open(item, store, clock: Clock())
+        host.saveDelay = .seconds(600)
+        try await host.setCell(number(11), at: key(host, 2, 2), undoManager: nil)
+        projectStore.removeResearchItem(id: item.id)
+
+        do {
+            try await host.assistantEdit { table in
+                table.setCell(Cell(content: .value(.number(99))), at: CellKey(row: table.rows[1], column: table.columns[1]))
+            }
+            XCTFail("the write should not have been made")
+        } catch let notSaved as ResearchTableHost.NotSaved {
+            XCTAssertEqual(notSaved.message,
+                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+        }
+
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)), "the writer's edit, alone")
+        XCTAssertTrue(host.isDirty, "the writer's edit still waits to be saved")
+        XCTAssertEqual(try bytes(of: item), Data(original.utf8))
         await store.releaseResearchTable(host)
     }
 

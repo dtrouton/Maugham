@@ -171,16 +171,19 @@ final class ResearchTableOutsideResearchTests: XCTestCase {
             let table = host.state.table
             try await host.setCell(Cell(content: .value(.number(20))),
                                    at: CellKey(row: table.rows[1], column: table.columns[1]), undoManager: nil)
-            await host.flush()
+            await host.saveAsTheTimerForTesting()
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path): the edit wrote nothing")
             XCTAssertTrue(versions(of: item.id).isEmpty, "\(path): no version kept")
-            XCTAssertTrue(heard.notices.contains { $0.contains("isn’t a table inside Research") }, "\(heard.notices)")
+            XCTAssertTrue(host.isDirty, "\(path): the edit waits to be saved")
+            XCTAssertEqual(heard.notices.filter { $0.contains("isn’t a table inside Research") }.count, 1,
+                           "\(path): \(heard.notices)")
 
             let kept = try keepByHand("Year,Revenue\n2025,99\n", of: item.id)
             do {
                 try await host.restore(kept)
                 XCTFail("\(path): the restore must be refused")
             } catch is ResearchTableHost.NotSaved {}
+            XCTAssertTrue(host.isDirty, "\(path): the restore's refused pre-flush leaves the edit waiting")
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path): the restore wrote nothing")
             XCTAssertEqual(versions(of: item.id).count, 1, "\(path): only the version kept by hand")
             await store.releaseResearchTable(host)

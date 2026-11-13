@@ -835,9 +835,9 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
         XCTAssertEqual(writes(), 0)
         XCTAssertEqual(heard.notices, ["“model” isn’t there any more, so its edits weren’t saved."])
-        XCTAssertFalse(host.isDirty, "the pending save is dropped")
+        XCTAssertTrue(host.isDirty, "the edit still waits (hardening 11-11 task 2.1: a refusal never leaves the host clean)")
         await host.flush()
-        XCTAssertEqual(writes(), 0, "and not tried again")
+        XCTAssertEqual(writes(), 0, "and a second flush makes nothing either")
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
         await store.releaseResearchTable(host)
     }

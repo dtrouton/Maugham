@@ -15625,7 +15625,7 @@ extension TripwireGrepTests {
     /// name the manuscript or a `.maugham/` file as a Research item;
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
-    /// - `ResearchTableHost.swift:write(_:by:restoring:)` — the table door, `tablePath(`.
+    /// - `ResearchTableHost.swift:write(_:by:restoring:source:)` — the table door, `tablePath(`.
     /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
@@ -15647,7 +15647,7 @@ extension TripwireGrepTests {
     /// question spelled inside a string literal, and two files of one name
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
-        "ResearchTableHost.swift:write(_:by:restoring:)": "ResearchTextRole.tablePath(",
+        "ResearchTableHost.swift:write(_:by:restoring:source:)": "ResearchTextRole.tablePath(",
         "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
