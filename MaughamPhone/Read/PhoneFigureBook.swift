@@ -33,6 +33,8 @@ final class PhoneFigureBook {
 
     /// How many times a load resolved trust; a test counts it.
     private(set) var trustResolutions = 0
+    /// How many derives the cache ran; a test reads it to see a re-derive.
+    var cacheDeriveCountForTesting: Int { cache.deriveCount }
     /// The last load's cards, or nil before a load or for a book with no figures.
     private(set) var book: FigureCardBook?
     private var index = FigureLineResolution.Index([])
@@ -102,6 +104,9 @@ final class PhoneFigureBook {
 
         trustResolutions += 1
         guard let trust = try? await resolveTrust(projectURL) else { return nil }
+        // The cache's token does not cover trust; it drops its lines when this
+        // table differs from the last load's (Core's one rule, tripwire 19).
+        cache.noteTrust(trust)
 
         let facts = DocumentClass.Facts(manifest)
         var states: [String: FigureState] = [:]
