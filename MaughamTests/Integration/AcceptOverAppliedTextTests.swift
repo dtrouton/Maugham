@@ -756,6 +756,175 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         await r.doc.close()
     }
 
+    // MARK: - Where the text can answer, it does (final review F1)
+
+    private static let nightOriginal = "The night was dark and cold."
+    private static let nightApplied = "The night was very dark and cold."
+    private static let nightEdited = "The night was very dark and bitter cold."
+
+    /// The ordinary-shape note ("dark" → "very dark" where the anchor did not
+    /// already read as the replacement), not yet accepted.
+    private func freshNight(_ prefix: String) async throws -> Raced {
+        let (dir, docURL) = try makeTestProject(prefix: prefix, initialMd: "\(Self.nightOriginal)\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let id = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                             body: "b", suggestedText: "very dark", span: Self.darkSpan)
+        return Raced(dir: dir, doc: doc, pid: pid, id: id)
+    }
+
+    /// The Accept wrote nothing and moved the status: text, status, the op.
+    private func assertAcceptedStatusOnly(_ r: Raced, text: String, accepts count: Int,
+                                          _ msg: String) async throws {
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), text, msg)
+        XCTAssertEqual(occurrences("very dark", in: r.doc.paragraph(id: r.pid)), 1, msg)
+        XCTAssertEqual(occurrences("very very", in: r.doc.paragraph(id: r.pid)), 0, msg)
+        XCTAssertEqual(status(r.doc, r.id), .accepted, msg)
+        XCTAssertEqual(accepts(r.doc, r.id).count, count, msg)
+        XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [], "\(msg): the accept carries no change")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [], msg)
+    }
+
+    /// The reviewer's single-device route: Accept → pane Revert (a
+    /// text-carrying revert, which closes the history fold) → Archive → a
+    /// rewind to a moment after the accept (a restore op puts "very dark"
+    /// back and no lifecycle line is written for the unstamped archive) → an
+    /// edit elsewhere in the paragraph → pane Reopen → Accept. The history
+    /// says the splice was taken out; the text says it is there.
+    func test_theSevenStepRoute_isAcceptedStatusOnly_andNeverSplicedTwice() async throws {
+        let r = try await freshNight("AOAT-seven")
+        try await r.doc.acceptAnnotation(id: r.id)
+        try await r.doc.flushBurstNow()
+        let log = try await r.doc.opLog()
+        let afterAccept = try XCTUnwrap(log.last?.opId)
+        try await r.doc.revertAcceptedAnnotation(id: r.id)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.nightOriginal, "premise: Revert took it out")
+        try await r.doc.archiveAnnotation(id: r.id)
+        try await r.doc.flushBurstNow()
+        let linesBefore = r.doc.opLogSnapshot.filter { $0.provenance?.sourceAnnotationId == r.id }.count
+
+        _ = try await r.doc.restoreToOp(opId: afterAccept)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.nightApplied, "premise: the rewind put the splice back")
+        XCTAssertEqual(status(r.doc, r.id), .archived, "premise: the unstamped archive stands")
+        XCTAssertEqual(r.doc.opLogSnapshot.filter { $0.provenance?.sourceAnnotationId == r.id }.count,
+                       linesBefore, "premise: the rewind wrote no lifecycle line for the note")
+        r.doc.setParagraph(id: r.pid, text: Self.nightEdited)
+        try await r.doc.flushBurstNow()
+        try await r.doc.reopenAnnotation(id: r.id)
+        XCTAssertEqual(status(r.doc, r.id), .open, "premise")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: r.id, ops: r.doc.opLogSnapshot,
+                                                   amendments: r.doc.annotationAmendments),
+                       "premise: the note's history says its splice was taken out")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        try await assertAcceptedStatusOnly(r, text: Self.nightEdited, accepts: 2, "the seven-step route")
+        await r.doc.close()
+    }
+
+    /// Two devices: this Mac accepts; the phone reverts; before that revert
+    /// reaches the Mac, the Mac types elsewhere in the paragraph, and its
+    /// whole-paragraph burst (newer than the revert) brings the splice back
+    /// on the merge. The merged log is built directly: the phone's revert is
+    /// minted before the Mac's burst and arrives after it.
+    func test_theTwoDeviceBurst_isAcceptedStatusOnly_andNeverSplicedTwice() async throws {
+        let r = try await freshNight("AOAT-burst")
+        try await r.doc.acceptAnnotation(id: r.id)
+        try await r.doc.flushBurstNow()
+        let phoneRevert = Op(
+            opId: ULID.generate(), docId: r.doc.docId, at: Date(),
+            device: "peer-phone", session: "peer-session", kind: .claudeAcceptRevert,
+            changes: [Op.ParagraphChange(paragraphId: r.pid, prior: Self.nightApplied,
+                                         next: Self.nightOriginal)],
+            sequence: nil,
+            provenance: Op.Provenance(sessionId: "peer-session", sourceAnnotationId: r.id))
+        try await Task.sleep(nanoseconds: 5_000_000) // the Mac's burst is minted later
+        r.doc.setParagraph(id: r.pid, text: Self.nightEdited)
+        try await r.doc.flushBurstNow()
+        let burst = try XCTUnwrap(r.doc.opLogSnapshot.last { $0.changes.contains { $0.next == Self.nightEdited } })
+        XCTAssertLessThan(phoneRevert.opId, burst.opId, "premise: the revert is older than the burst")
+        try await OpLogStore(projectURL: r.dir).append(phoneRevert)
+        try await r.doc.handleExternalLogChange()
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.nightEdited,
+                       "premise: the Mac's newer burst brought the splice back")
+        XCTAssertEqual(status(r.doc, r.id), .open, "premise: the phone's revert reopened the note")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: r.id, ops: r.doc.opLogSnapshot,
+                                                   amendments: r.doc.annotationAmendments), "premise")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        try await assertAcceptedStatusOnly(r, text: Self.nightEdited, accepts: 2, "the two-device burst")
+        await r.doc.close()
+    }
+
+    /// The text was taken out, so the span reading is false on the original
+    /// text and the next Accept splices again — in the ordinary shape, as in
+    /// the coincidence shape (`test_aRevertedNote_splicesAgainOnTheNextAccept`).
+    func test_anOrdinaryNote_revertedThenAcceptedAgain_splicesAgain() async throws {
+        let r = try await freshNight("AOAT-ordinary-again")
+        try await r.doc.acceptAnnotation(id: r.id)
+        try await r.doc.revertAcceptedAnnotation(id: r.id)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.nightOriginal, "premise")
+
+        try await r.doc.acceptAnnotation(id: r.id)
+
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.nightApplied)
+        let change = try XCTUnwrap(accepts(r.doc, r.id).last?.changes.first)
+        XCTAssertEqual(change.prior, Self.nightOriginal)
+        XCTAssertEqual(change.next, Self.nightApplied)
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await r.doc.close()
+    }
+
+    /// L3, closed for an ordinary-shape suggestion: the race (accept → peer
+    /// archive → pane Reopen, open over its splice) → a rewind that removes
+    /// the paragraph → a return journey to after the accept, whose step 9
+    /// writes a `.rewind` reopen (the fold closes) → an edit elsewhere →
+    /// Accept.
+    func test_theL3Route_onAnOrdinaryNote_isAcceptedStatusOnly_andNeverSplicedTwice() async throws {
+        let (dir, docURL) = try makeTestProject(prefix: "AOAT-L3", initialMd: "Intro.\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        try await doc.flushBurstNow()
+        let log0 = try await doc.opLog()
+        let beforeParagraph = try XCTUnwrap(log0.last?.opId)
+        let pid = doc.insertParagraph(after: doc.sequence.first, text: Self.nightOriginal)
+        try await doc.flushBurstNow()
+        let id = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid, body: "b",
+                                             suggestedText: "very dark", span: Self.darkSpan)
+        try await doc.acceptAnnotation(id: id)
+        try await OpLogStore(projectURL: dir).append(peerOp(.claudeArchive, for: id, doc: doc))
+        try await doc.handleExternalLogChange()
+        try await doc.reopenAnnotation(id: id)
+        XCTAssertEqual(status(doc, id), .open, "premise: the race")
+        XCTAssertEqual(doc.paragraph(id: pid), Self.nightApplied, "premise: open over its own splice")
+        try await doc.flushBurstNow()
+        let log1 = try await doc.opLog()
+        let afterTheRace = try XCTUnwrap(log1.last?.opId)
+
+        _ = try await doc.restoreToOp(opId: beforeParagraph)
+        XCTAssertEqual(status(doc, id), .archived, "premise: step 8 archived it")
+        _ = try await doc.restoreToOp(opId: afterTheRace)
+        let reopen = try XCTUnwrap(doc.opLogSnapshot.last { $0.provenance?.sourceAnnotationId == id })
+        XCTAssertEqual(reopen.kind, .annotationReopen, "premise: step 9 reopened it")
+        XCTAssertEqual(reopen.provenance?.synthesisSource, .rewind, "premise: travel-stamped")
+        XCTAssertEqual(doc.paragraph(id: pid), Self.nightApplied, "premise: the journey returned the splice")
+        doc.setParagraph(id: pid, text: Self.nightEdited)
+        try await doc.flushBurstNow()
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: id, ops: doc.opLogSnapshot,
+                                                   amendments: doc.annotationAmendments),
+                       "premise: the travel reopen closed the history gate")
+
+        try await doc.acceptAnnotation(id: id)
+
+        try await assertAcceptedStatusOnly(Raced(dir: dir, doc: doc, pid: pid, id: id),
+                                           text: Self.nightEdited, accepts: 2, "the L3 route")
+        await doc.close()
+    }
+
     // MARK: - Hand-typed
 
     /// The writer typed the suggestion themselves: the computed paragraph is

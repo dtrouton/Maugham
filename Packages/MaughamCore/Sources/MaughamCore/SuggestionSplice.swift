@@ -132,11 +132,14 @@ public enum SuggestionSplice {
     /// 1. If the note's splice is still in place (`isAppliedInPlace`), the
     ///    accept is status-only, even where the span's quote no longer
     ///    resolves (the splice itself replaced it).
-    /// 2. If the note's own history says its splice is live (`spliceLive`,
-    ///    a fold over its honoured lifecycle lines) and the
-    ///    replacement already stands where the span resolves
-    ///    (`spanAlreadyApplied`), the accept is status-only: the splice is
-    ///    not applied a second time after an edit elsewhere in the paragraph.
+    /// 2. If the replacement already stands where the span resolves
+    ///    (`spanAlreadyApplied`), and either the text can answer for itself
+    ///    (`textCanAnswer`: before the suggestion was ever applied, the
+    ///    paragraph did not read as the replacement there) or the note's own
+    ///    history says its splice is live (`spliceLive`, a fold over its
+    ///    honoured lifecycle lines), the accept is status-only: the splice
+    ///    is not applied a second time after an edit elsewhere in the
+    ///    paragraph, whatever brought it back.
     /// 3. Otherwise the span is re-resolved as ever (`attempt`); a computed
     ///    paragraph equal to the live one (the writer typed the suggestion
     ///    themselves) is status-only too, since there is nothing to write.
@@ -149,12 +152,16 @@ public enum SuggestionSplice {
                             paragraph: current, ops: ops) {
             return .statusOnly
         }
-        // The span reading is gated on the note's OWN history (fix round 2):
-        // without it a brand-new suggestion whose surroundings already read
-        // as the replacement ("It was dark, very dark." on the SECOND "dark")
-        // would be marked accepted and silently not written.
-        if let span, spliceLive(annotationId: annotationId, ops: ops, amendments: amendments),
-           spanAlreadyApplied(suggestion: bare, span: span, paragraph: current) {
+        // The span reading is never trusted bare (fix round 2): a brand-new
+        // suggestion whose surroundings already read as the replacement
+        // ("It was dark, very dark." on the SECOND "dark") would be marked
+        // accepted and silently not written. Where the text can answer, it
+        // does, whatever the later history (final review F1); where it
+        // cannot, the note's own history decides.
+        if let span, spanAlreadyApplied(suggestion: bare, span: span, paragraph: current),
+           textCanAnswer(annotationId: annotationId, paragraphId: paragraphId,
+                         suggestion: bare, span: span, in: ops, amendments: amendments)
+            || spliceLive(annotationId: annotationId, ops: ops, amendments: amendments) {
             return .statusOnly
         }
         switch attempt(suggestion: bare, span: span, to: current) {
@@ -182,6 +189,43 @@ public enum SuggestionSplice {
             return change.next == paragraph
         }
         return holds(newestAppliedAccept(annotationId: annotationId, in: ops))
+    }
+
+    /// **Can the live text say whether this suggestion is applied?** (final
+    /// review F1.) Let A be the note's OLDEST honoured `claudeAccept` that
+    /// carried text, and `A.prior` the paragraph as it stood before the
+    /// suggestion was ever applied. True iff A exists, is for `paragraphId`,
+    /// and the replacement did NOT already stand at the anchor in `A.prior`.
+    ///
+    /// - **Ordinary shape** (true): "dark" → "very dark" on "The night was
+    ///   dark and cold." Before the first accept the anchor read "dark", not
+    ///   "very dark"; so wherever the live paragraph reads "very dark" at the
+    ///   anchor, the suggestion (or the writer's own hand) put it there.
+    ///   Writing again would double it and writing nothing is right, whatever
+    ///   happened since: a Revert, an archive, a rewind or checkpoint revert
+    ///   that put the text back with a restore op and no lifecycle line,
+    ///   another device's whole-paragraph edit merged over a Revert.
+    /// - **Coincidence shape** (false): the same suggestion on the SECOND
+    ///   "dark" of "It was dark, very dark." Its anchor read as the
+    ///   replacement before anything was applied, so the text cannot tell
+    ///   "applied" from "not applied" and `spliceLive` decides.
+    /// - **No text-carrying accept** (false): only status-only accepts, or
+    ///   none. There is no before-text to ask; `spliceLive` decides.
+    ///
+    /// Honoured lines only, as `spliceLive` reads them.
+    public static func textCanAnswer(
+        annotationId: String, paragraphId: String, suggestion bare: String,
+        span: SpanAnchor, in ops: [Op], amendments: AnnotationAmendments
+    ) -> Bool {
+        let oldest = ops.filter {
+            $0.kind == .claudeAccept
+                && $0.provenance?.sourceAnnotationId == annotationId
+                && !$0.changes.isEmpty
+                && AnnotationDeriver.isHonouredLifecycleOp($0, amendments: amendments)
+        }.min(by: { $0.opId < $1.opId })
+        guard let change = oldest?.changes.first, change.paragraphId == paragraphId,
+              let before = change.prior else { return false }
+        return !spanAlreadyApplied(suggestion: bare, span: span, paragraph: before)
     }
 
     /// **The history gate on the span reading** (fix rounds 2 and 3): is

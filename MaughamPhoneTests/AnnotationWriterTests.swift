@@ -355,6 +355,48 @@ final class AnnotationWriterTests: XCTestCase {
         XCTAssertEqual(accept.changes, [])
     }
 
+    /// Final review F1, the two-device burst as the phone reads the merged
+    /// log: the Mac accepted; the phone reverted (a text-carrying revert, so
+    /// the note's history says its splice was taken out); the Mac, not having
+    /// seen that, typed elsewhere in the paragraph, and its newer
+    /// whole-paragraph burst brought the splice back. The text can answer
+    /// (before the first accept the anchor read "dark"), so Accept is
+    /// status-only and the suggestion is never spliced twice.
+    func test_makeAccept_theTwoDeviceBurst_isStatusOnly_andNeverSplicedTwice() throws {
+        let original = "The night was dark and cold."
+        let applied = "The night was very dark and cold."
+        let edited = "The night was very dark and bitter cold."
+        let span = SpanAnchorResolver.capture(in: original, range: 14..<18)
+        let raced = racedOps(original: original, bare: "very dark", applied: applied, span: span)
+        let id = raced[0].opId
+        let ops = Array(raced.prefix(2)) + [
+            Op(opId: "01ARACE2PHONEREVERT", docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+               device: "phone", session: "s", kind: .claudeAcceptRevert,
+               changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: applied, next: original)],
+               provenance: Op.Provenance(sessionId: "s", sourceAnnotationId: id)),
+            Op(opId: "01ARACE3MACBURST", docId: docId, at: Date(timeIntervalSince1970: 1_699_000_000),
+               device: "mac", session: "s", kind: .typingBurst,
+               changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: applied, next: edited)],
+               provenance: Op.Provenance(sessionId: "s")),
+        ]
+        XCTAssertEqual(Deriver.derive(ops: ops).paragraphs["k7m3"], edited,
+                       "premise: the merge brought the splice back")
+        let ann = try XCTUnwrap(AnnotationDeriver.derive(ops: ops, paragraphs: ["k7m3": edited]).first)
+        XCTAssertEqual(ann.status, .open, "premise: the revert reopened it")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: id, ops: ops, amendments: .honourEverything),
+                       "premise: the note's history says the splice is out")
+
+        let accept = try makeWriter().makeAccept(
+            for: ann, currentParagraph: edited,
+            verifyingAgainst: .init(ops: ops, amendments: .honourEverything))
+
+        XCTAssertEqual(accept.kind, .claudeAccept)
+        XCTAssertEqual(accept.changes, [], "status only")
+        XCTAssertEqual(Deriver.derive(ops: ops + [accept]).paragraphs["k7m3"], edited)
+        XCTAssertEqual(AnnotationDeriver.derive(
+            ops: ops + [accept], paragraphs: ["k7m3": edited]).first?.status, .accepted)
+    }
+
     /// The history gate (fix round 2): a brand-new note whose surroundings
     /// already read as the replacement splices as written on the phone too.
     func test_makeAccept_aNeverAcceptedNote_whoseSurroundingsReadAsTheReplacement_splices() throws {

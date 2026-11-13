@@ -366,4 +366,142 @@ final class SuggestionSpliceTests: XCTestCase {
                                         amendments: .honourEverything),
             .splice(next: "It was dark, very very dark."))
     }
+
+    // MARK: - Final review F1: where the text can answer, it does
+
+    private let ordinary = "The night was dark and cold."
+    private let ordinaryApplied = "The night was very dark and cold."
+    /// The splice is in the paragraph, and the writer has edited elsewhere,
+    /// so it is not the accept's own text (`isAppliedInPlace` is false).
+    private let ordinaryEdited = "The night was very dark and bitter cold."
+
+    private func plan(_ paragraph: String, _ ops: [Op], span s: SpanAnchor,
+                      _ amendments: AnnotationAmendments = .honourEverything) -> SuggestionSplice.AcceptPlan {
+        SuggestionSplice.planAccept(annotationId: "01NOTE", paragraphId: "k7m3",
+                                    suggestion: "very dark", span: s, paragraph: paragraph,
+                                    ops: ops, amendments: amendments)
+    }
+
+    /// A line that is not a lifecycle line at all: a restore, or a writer's
+    /// whole-paragraph edit. The fold never reads one.
+    private func textOp(_ opId: String, _ kind: OpKind, prior: String, next: String) -> Op {
+        Op(opId: opId, docId: "doc-0f677d7e", at: Date(timeIntervalSince1970: 0),
+           device: "mac", session: "s", kind: kind,
+           changes: [Op.ParagraphChange(paragraphId: "k7m3", prior: prior, next: next)],
+           provenance: Op.Provenance(sessionId: "s"))
+    }
+
+    func test_textCanAnswer_ordinaryShape_coincidenceShape_andNoTextCarryingAccept() {
+        func can(_ ops: [Op], _ s: SpanAnchor, paragraphId: String = "k7m3",
+                 _ amendments: AnnotationAmendments = .honourEverything) -> Bool {
+            SuggestionSplice.textCanAnswer(annotationId: "01NOTE", paragraphId: paragraphId,
+                                           suggestion: "very dark", span: s, in: ops,
+                                           amendments: amendments)
+        }
+        let s = span("dark", in: ordinary)
+        let accept = line("01A", .claudeAccept, prior: ordinary, next: ordinaryApplied)
+        XCTAssertTrue(can([accept], s), "ordinary: the anchor read 'dark' before the first accept")
+        XCTAssertFalse(can([accept], s, paragraphId: "q2w8"), "the accept is for another paragraph")
+        XCTAssertFalse(can([], s), "never accepted")
+        XCTAssertFalse(can([line("01A", .claudeAccept)], s), "only a status-only accept: no before-text")
+
+        let coincidence = "It was dark, very dark."
+        let second = SpanAnchorResolver.capture(in: coincidence, range: 18..<22)
+        XCTAssertFalse(can([line("01A", .claudeAccept, prior: coincidence,
+                                 next: "It was dark, very very dark.")], second),
+                       "coincidence: the anchor already read as the replacement")
+
+        // The OLDEST text-carrying accept is the one asked: a later accept
+        // made over an already-applied paragraph does not change the answer.
+        let later = line("01C", .claudeAccept, prior: ordinaryApplied,
+                         next: "The night was very very dark and cold.")
+        XCTAssertTrue(can([later, accept], s), "oldest by opId, whatever the order of the log")
+        XCTAssertFalse(can([later], s), "premise: the later accept alone is the coincidence shape")
+    }
+
+    /// The reviewer's single-device route: Accept, pane Revert (closes the
+    /// fold), archive, a rewind to after the accept (a restore op puts "very
+    /// dark" back and writes no lifecycle line), an edit elsewhere in the
+    /// paragraph, pane Reopen, Accept.
+    func test_planAccept_ordinaryShape_theSevenStepRoute_isStatusOnly() {
+        let s = span("dark", in: ordinary)
+        let ops = [
+            line("01A", .claudeAccept, prior: ordinary, next: ordinaryApplied),
+            line("01B", .claudeAcceptRevert, prior: ordinaryApplied, next: ordinary),
+            line("01C", .claudeArchive),
+            textOp("01D", .checkpointRestore, prior: ordinary, next: ordinaryApplied),
+            textOp("01E", .typingBurst, prior: ordinaryApplied, next: ordinaryEdited),
+            line("01F", .annotationReopen),
+        ]
+        XCTAssertFalse(SuggestionSplice.isAppliedInPlace(annotationId: "01NOTE", paragraphId: "k7m3",
+                                                         paragraph: ordinaryEdited, ops: ops),
+                       "premise: the paragraph is no longer the accept's text")
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: ops,
+                                                   amendments: .honourEverything),
+                       "premise: the fold says the splice was taken out")
+        XCTAssertEqual(SuggestionSplice.attempt(suggestion: "very dark", span: s, to: ordinaryEdited),
+                       .applied("The night was very very dark and bitter cold."),
+                       "premise: a plain splice would apply it twice")
+        XCTAssertEqual(plan(ordinaryEdited, ops, span: s), .statusOnly)
+    }
+
+    /// Two devices: the Mac accepts; the phone reverts; before that reaches
+    /// the Mac it types elsewhere in the paragraph, and its whole-paragraph
+    /// `next` brings the splice back on merge.
+    func test_planAccept_ordinaryShape_theTwoDeviceBurst_isStatusOnly() {
+        let s = span("dark", in: ordinary)
+        let ops = [
+            line("01A", .claudeAccept, prior: ordinary, next: ordinaryApplied),
+            line("01B", .claudeAcceptRevert, prior: ordinaryApplied, next: ordinary),
+            textOp("01C", .typingBurst, prior: ordinaryApplied, next: ordinaryEdited),
+        ]
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: ops,
+                                                   amendments: .honourEverything), "premise")
+        XCTAssertEqual(plan(ordinaryEdited, ops, span: s), .statusOnly)
+    }
+
+    /// L3 for an ordinary-shape suggestion: the race, a rewind removing the
+    /// paragraph (a travel archive), the return journey (a travel reopen
+    /// closes the fold, a restore op returns the text), an edit elsewhere.
+    func test_planAccept_ordinaryShape_theL3Route_isStatusOnly() {
+        let s = span("dark", in: ordinary)
+        let ops = [
+            line("01A", .claudeAccept, prior: ordinary, next: ordinaryApplied),
+            line("01B", .claudeArchive),
+            line("01C", .annotationReopen),
+            stamped("01D", .claudeArchive, source: .rewind),
+            stamped("01E", .annotationReopen, source: .rewind),
+            textOp("01F", .checkpointRestore, prior: "", next: ordinaryApplied),
+            textOp("01G", .typingBurst, prior: ordinaryApplied, next: ordinaryEdited),
+        ]
+        XCTAssertFalse(SuggestionSplice.spliceLive(annotationId: "01NOTE", ops: ops,
+                                                   amendments: .honourEverything),
+                       "premise: the return journey's reopen closed the fold")
+        XCTAssertEqual(plan(ordinaryEdited, ops, span: s), .statusOnly)
+    }
+
+    /// The text was taken out: the span reading is false on the original
+    /// text, so Accept → Revert → Accept splices again.
+    func test_planAccept_ordinaryShape_afterARevert_splicesAgain() {
+        let s = span("dark", in: ordinary)
+        let ops = [
+            line("01A", .claudeAccept, prior: ordinary, next: ordinaryApplied),
+            line("01B", .claudeAcceptRevert, prior: ordinaryApplied, next: ordinary),
+        ]
+        XCTAssertEqual(plan(ordinary, ops, span: s), .splice(next: ordinaryApplied))
+        XCTAssertEqual(plan("The night was dark and bitter cold.", ops, span: s),
+                       .splice(next: ordinaryEdited), "and after an edit elsewhere")
+    }
+
+    /// L2 stays: with no accept in the log there is no before-text to ask,
+    /// and nothing in the note's history says a splice is live, so a
+    /// replacement the writer typed by hand is spliced as written.
+    func test_planAccept_aNeverAcceptedNote_overAHandTypedReplacement_splicesAsWritten() {
+        let s = span("dark", in: ordinary)
+        XCTAssertEqual(plan(ordinaryEdited, [], span: s),
+                       .splice(next: "The night was very very dark and bitter cold."))
+        XCTAssertEqual(plan(ordinaryEdited, [line("01B", .claudeArchive), line("01C", .annotationReopen)],
+                            span: s),
+                       .splice(next: "The night was very very dark and bitter cold."))
+    }
 }
