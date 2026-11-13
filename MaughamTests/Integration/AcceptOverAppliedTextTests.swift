@@ -925,6 +925,86 @@ final class AcceptOverAppliedTextTests: XCTestCase {
         await doc.close()
     }
 
+    // MARK: - Final review F5
+
+    /// Every writer-facing notice posted while the block runs, in order
+    /// (`AnnotationAcceptNoteUndoTests`' collector).
+    private func notices(during body: () async throws -> Void) async rethrows -> [String] {
+        var seen: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let m = note.userInfo?[MaughamEvent.noticeMessageKey] as? String { seen.append(m) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try await body()
+        return seen
+    }
+
+    /// "Revert anyway" over text that already reads as the text Revert would
+    /// restore (the writer typed the original back by hand): the revert is
+    /// status-only, so no line records a before-text equal to its after-text.
+    func test_revertAnyway_overTextAlreadyReadingAsTheOriginal_isStatusOnly() async throws {
+        let (dir, docURL) = try makeTestProject(prefix: "AOAT-revert-anyway",
+                                                initialMd: "\(Self.original)\n")
+        let doc = try await Document.load(url: docURL, device: "test", session: "s", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        let id = try await doc.addAnnotation(kind: .suggestedChange, paragraphId: pid,
+                                             body: "b", suggestedText: Self.suggested)
+        let r = Raced(dir: dir, doc: doc, pid: pid, id: id)
+        try await doc.acceptAnnotation(id: id)
+        doc.setParagraph(id: pid, text: Self.original)
+        try await doc.flushBurstNow()
+        XCTAssertTrue(doc.acceptedTextDrifted(annotationId: id), "premise: the pane asks before reverting")
+        XCTAssertEqual(status(doc, id), .accepted, "premise")
+
+        try await doc.revertAcceptedAnnotation(id: id)
+        try await doc.flushBurstNow()
+
+        XCTAssertEqual(status(doc, id), .open)
+        XCTAssertEqual(doc.paragraph(id: pid), Self.original)
+        let revert = try XCTUnwrap(doc.opLogSnapshot.last {
+            $0.kind == .claudeAcceptRevert && $0.provenance?.sourceAnnotationId == id })
+        XCTAssertEqual(revert.changes, [], "status only")
+        let none = try await linesRecordingTheirOwnText(r)
+        XCTAssertEqual(none, [])
+        await doc.close()
+    }
+
+    /// ⌘Z of a guarded accept, after another device's TEXT-CARRYING accept
+    /// became the note's newest: the note is still accepted, but a bare
+    /// reopen would leave that splice in the text. The undo declines, and
+    /// says so with the accept undo's own sentence, instead of doing nothing
+    /// in silence.
+    func test_theGuardedAcceptsUndo_saysSoWhenAnotherDevicesSplicingAcceptIsNewest() async throws {
+        let r = try await raceThenReopen("AOAT-undo-peer-accept", peer: .claudeArchive)
+        let um = UndoManager()
+        try await r.doc.acceptAnnotation(id: r.id, undoManager: um)
+        XCTAssertEqual(accepts(r.doc, r.id).last?.changes, [], "premise: guarded")
+        let peerAccept = Op(
+            opId: ULID.generate(), docId: r.doc.docId, at: Date(),
+            device: "peer-mac", session: "peer-session", kind: .claudeAccept,
+            changes: [Op.ParagraphChange(paragraphId: r.pid, prior: Self.original, next: Self.suggested)],
+            sequence: nil,
+            provenance: Op.Provenance(sessionId: "peer-session", sourceAnnotationId: r.id))
+        try await OpLogStore(projectURL: r.dir).append(peerAccept)
+        try await r.doc.handleExternalLogChange()
+        XCTAssertEqual(status(r.doc, r.id), .accepted, "premise: still accepted")
+        XCTAssertEqual(SuggestionSplice.newestAccept(annotationId: r.id, in: r.doc.opLogSnapshot)?.opId,
+                       peerAccept.opId, "premise: the peer's accept is the newest")
+        let before = r.doc.opLogSnapshot.count
+
+        let said = await notices {
+            um.undo(); await r.doc.awaitPendingUndoWork()
+        }
+
+        XCTAssertEqual(said, ["Couldn't undo accepting the note — it changed on another device."])
+        XCTAssertEqual(r.doc.opLogSnapshot.count, before, "nothing appended")
+        XCTAssertEqual(status(r.doc, r.id), .accepted)
+        XCTAssertEqual(r.doc.paragraph(id: r.pid), Self.suggested)
+        await r.doc.close()
+    }
+
     // MARK: - Hand-typed
 
     /// The writer typed the suggestion themselves: the computed paragraph is

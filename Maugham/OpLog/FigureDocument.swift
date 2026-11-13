@@ -2022,9 +2022,15 @@ public final class FigureDocument {
     /// **It does not bump `reloadGeneration`**: a restore in flight worked out
     /// its plan against the fold, and a note changes no cell, so the plan is
     /// still right; the restore's generation check stays exactly as strict for
-    /// a real reload. Refuses an op that would fold (MCP writes no cell).
+    /// a real reload. Refuses an op for another figure, one that is not a
+    /// note's creation, and one that would fold (MCP writes no cell).
     func adoptNoteCreation(_ op: Op) async throws {
         guard !isClosed else { throw DocumentNotWritableError(site: "adoptNoteCreation") }
+        // Checked here, not trusted from the one caller: the op is appended
+        // as it stands, so it must be a note's creation on THIS figure.
+        guard op.docId == figureId, DocumentStore.figureNoteCreationKinds.contains(op.kind) else {
+            throw FigureEditInvalid(reason: "only a note's creation on this figure is adopted")
+        }
         guard !FigureOpPayload.folds(op) else {
             throw FigureEditInvalid(reason: "a note's creation writes no cell")
         }

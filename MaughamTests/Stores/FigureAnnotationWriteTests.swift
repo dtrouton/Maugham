@@ -256,4 +256,41 @@ final class FigureAnnotationWriteTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: try assistantStream(figure).path))
     }
+
+    /// **The host adopts only a note's creation, and only its own figure's**
+    /// (final review F5): `adoptNoteCreation` is handed a built, signed op and
+    /// appends it as it stands, so it checks both itself rather than trust
+    /// its one caller — a disposition, or another figure's note, is refused
+    /// with nothing adopted and nothing written.
+    func test_theHostAdoptsOnlyANotesCreationOnItsOwnFigure() async throws {
+        let (store, projectStore, figure) = try await openBook()
+        let other = try await projectStore.createFigure(kind: .table, name: "other", piece: nil)
+        let host = try await store.openFigure(figureId: figure.id)
+        let before = host._ops.map(\.opId)
+
+        let elsewhere = try FigureAnnotationOps.creation(
+            kind: .craftNote, anchor: nil, body: "x", author: nil,
+            stamp: .init(figureId: other.id, device: assistantDevice))
+        let stet = FigureAnnotationOps.stet(
+            annotationId: "n1", stamp: .init(figureId: figure.id, device: assistantDevice))
+        for (name, op) in [("another figure's note", elsewhere), ("a disposition", stet)] {
+            do {
+                try await host.adoptNoteCreation(op)
+                XCTFail("\(name) is not adopted")
+            } catch is FigureEditInvalid {
+            }
+        }
+
+        XCTAssertEqual(host._ops.map(\.opId), before, "the host adopted neither")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try assistantStream(figure).path),
+                       "nothing was written to this figure's stream")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try assistantStream(other).path),
+                       "nor to the other's")
+
+        // The positive: this figure's own note creation is adopted.
+        let own = try assistantComment(on: figure, table: host.state.table, body: "mine")
+        try await host.adoptNoteCreation(own)
+        XCTAssertTrue(host._ops.contains { $0.opId == own.opId })
+        await store.closeFigure(figureId: figure.id)
+    }
 }

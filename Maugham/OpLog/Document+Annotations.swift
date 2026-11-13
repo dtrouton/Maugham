@@ -719,7 +719,15 @@ extension Document {
                     // the default `[.open]` filter (M5-AN-002).
                     let live = doc.annotations(filter: AnnotationFilter(statuses: nil))
                         .first { $0.id == id }
-                    guard live?.status == .accepted else {
+                    // A guarded accept's ⌘Z is a bare reopen, right only
+                    // while the note's newest accept is still status-only.
+                    // Another device's TEXT-CARRYING accept, newest now,
+                    // leaves the note accepted but makes a bare reopen wrong
+                    // (its splice would stay): declined, and said.
+                    let spliceArrived = kind == .suggestedChange
+                        && SuggestionSplice.newestAccept(annotationId: id, in: doc._opLogMirror)?
+                            .changes.isEmpty != true
+                    guard live?.status == .accepted, !spliceArrived else {
                         // `declineUndo`, not `notifyWriter` (#41 A1): a bulk
                         // accept coalesces into ONE ⌘Z, so this closure runs
                         // once per note and the burst says it once.
@@ -815,10 +823,6 @@ extension Document {
         case .restore(let accept):
             acceptOp = accept
         }
-        // Restores the paragraph's text, so the host's yield-aware answer is
-        // asked here too (#79) — the pane's Revert press, and accept's ⌘Z.
-        // The status-only arm above moves no words and does not ask it.
-        try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAcceptRevert)
         guard let acceptChange = acceptOp.changes.first else { return }
         let pid = acceptChange.paragraphId
         guard sequence.contains(pid) else {
@@ -827,6 +831,18 @@ extension Document {
         }
         let currentText = paragraphs[pid] ?? ""
         let restored = acceptChange.prior ?? ""
+        // The live text already reads as the text Revert would restore (the
+        // writer typed the original back, then chose "Revert anyway"): there
+        // is nothing to write, so the revert is status-only — no line ever
+        // records a before-text equal to its after-text (R-B).
+        if currentText == restored {
+            try await revertStatusOnly(id: id, undoManager: undoManager, mayWrite: mayWrite)
+            return
+        }
+        // Restores the paragraph's text, so the host's yield-aware answer is
+        // asked here too (#79) — the pane's Revert press, and accept's ⌘Z.
+        // The status-only arms above move no words and do not ask it.
+        try Self.requireYieldAwareWrite(mayWrite, kind: .claudeAcceptRevert)
         let change = Op.ParagraphChange(
             paragraphId: pid, prior: currentText, next: restored)
 
