@@ -581,12 +581,12 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-58",
   "clause_that_reaches_it": "A revert changes a suggestion only where it rewrites that suggestion's cell. A suggestion on a cell the revert does not write keeps its status. The one figure-only arm: a suggestion whose row or column does not exist at the checkpoint is archived",
-  "why_in_scope": "The clause is about exactly this walk: a figure checkpoint revert and the notes on the cells it rewrites, leaves alone, or removes. The returning class is RULING-57's own figure half (its 'a checkpoint revert alike'). The sub-rules marked as the coordinator's call (newest accept carries the change; own-value stays accepted; a guarded accept is judged by its anchor) refine the clause's 'only where it rewrites that suggestion's cell' and are not yet ruled by Denver.",
+  "why_in_scope": "The clause is about exactly this walk: a figure checkpoint revert and the notes on the cells it rewrites, leaves alone, or removes. The returning class is RULING-57's own figure half (its 'a checkpoint revert alike'). The sub-rules marked as the coordinator's call (newest accept carries the change; own-value stays accepted; a guarded accept is judged by its anchor; accepted at the pointer is the latest honoured line there being an accept) refine the clause's 'only where it rewrites that suggestion's cell' and are not yet ruled by Denver.",
   "intent_expressed_when": "contemporaneous — the writer's Revert here… on a checkpoint",
   "call_path": "HistoryPane → Revert here… → PartialRestorePicker.restoreFigures → FigureDocument.restoreToCheckpoint → FigureCheckpointRestore.prepare → FigureRestoreNotePlan.plan",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "7f19c653 e2d4b0a9 5686c2bc",
+   "commit": "7f19c653 e2d4b0a9 5686c2bc f6f31c7b",
    "date": "2026-11-12",
    "authorised_by": "RULING-58 — Denver 2026-11-11, structured question, recommended option accepted",
    "pinned_by": "FigureRestoreNotePlanTests (core), FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins",
@@ -637,11 +637,11 @@
   "call_path": "AnnotationsPane / margin card Accept → Document.acceptAnnotation → SuggestionSplice.planAccept; the phone's AnnotationWriter.makeAccept",
   "violation_or_enhancement": "violation",
   "fix": {
-   "commit": "f5f12108 56f6cd55 128174cd 24d6349a 18b28714",
+   "commit": "f5f12108 56f6cd55 128174cd 24d6349a 18b28714 d6ba45d1",
    "date": "2026-11-12",
    "authorised_by": "RULING-59 — Denver 2026-11-11, structured question, recommended option accepted",
    "pinned_by": "AcceptOverAppliedTextTests, SuggestionSpliceTests, AnnotationWriterTests (phone)",
-   "note": "Filed already fixed: found and fixed in this branch; M5-AN-034's filing carries the trace. Known limit L3 is in the claim."
+   "note": "Filed already fixed: found and fixed in this branch; M5-AN-034's filing carries the trace. Plan 1 final review (F1, d6ba45d1): the gate asks the text first for an ordinary-shape suggestion, which closes L3 for those; the limits that remain (L1, L2, and L3 and L4 for the coincidence shape only) are in the claim."
   }
  },
  {

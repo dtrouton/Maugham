@@ -177,6 +177,12 @@ Consequences to pin:
   anchor cell and suggested content (the change carries its revert; a revive gives a status-only revert;
   a gone cell archives it). It still keeps its status where the restore leaves the cell alone or writes
   the suggested content back. Built in Task 4 fix round 1 (`5686c2bc`), recorded as claim M5-AN-073.
+  *Refined, 2026-11-12 (plan 1 final review F2; coordinator's call, hardening 2026-11-11, not yet ruled by
+  Denver):* the stranded rule above applies only to a guarded note NOT accepted at the checkpoint.
+  "Accepted at the checkpoint" is the note's latest honoured lifecycle line there being an accept, with
+  or without a cell; such a note is never stranded, whatever its cell held then. The mirror: a guarded
+  accept taken back since the checkpoint returns accepted, status only, when the restore writes the
+  suggested content back to its anchor cell (`f6f31c7b`, claim M5-AN-073).
 - Reject stays allowed on an open note over its own value. A rejected note beside a value the
   writer typed themselves is honest, and nothing is written to the cell.
 - `FigureAnnotationOps.reopen(for:)` is left as it is. The guard on Accept covers the race, and
