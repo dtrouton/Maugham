@@ -238,7 +238,7 @@ public final class DocumentStore {
     /// Not observed: a save invalidates no view.
     @ObservationIgnored let researchNoteDoor = ResearchNoteDoor()
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
-    @ObservationIgnored private var researchTableUses: [String: Int] = [:]
+    @ObservationIgnored private(set) var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
     @ObservationIgnored private var researchTableClosings: [String: Task<Void, Never>] = [:]
 
@@ -962,31 +962,59 @@ public final class DocumentStore {
     /// holds open, or read now (after a host still closing on it has written
     /// its last save). Each call is one use; `releaseResearchTable` gives it
     /// back. Throws what the read throws (`ResearchTableHost.load`).
+    ///
+    /// Callers that arrive while the table is being read share one opening
+    /// (`researchTableOpenings`). The first back from it registers the host
+    /// it read — no one else has held it. Each later one takes the host now
+    /// registered, the identical instance, when it is live (#138 R2): never
+    /// the one it was handed, which a caller ahead of it may have let go
+    /// meanwhile. With none live, the table is opened again — once; a second
+    /// opening let go before this caller is back throws
+    /// `ResearchTableHost.ClosedWhileOpening`. A closing or closed host is
+    /// never registered or handed back, and a closed entry is replaced.
     func openResearchTable(itemId: String) async throws -> ResearchTableHost {
-        if let closing = researchTableClosings[itemId] { await closing.value }
-        if let host = researchTables[itemId], !host.isClosed {
-            researchTableUses[itemId, default: 0] += 1
-            return host
+        for _ in 0..<2 {
+            if let closing = researchTableClosings[itemId] { await closing.value }
+            if let live = liveResearchTable(itemId) {
+                researchTableUses[itemId, default: 0] += 1
+                return live
+            }
+            let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
+                try await ResearchTableHost.load(itemId: itemId, store: self)
+            }
+            researchTableOpenings[itemId] = opening
+            let host: ResearchTableHost
+            do {
+                host = try await opening.value
+            } catch {
+                if researchTableOpenings[itemId] == opening { researchTableOpenings[itemId] = nil }
+                throw error
+            }
+            if researchTableOpenings[itemId] == opening {
+                // First back: a new host no one has held, in place of any closed entry.
+                researchTableOpenings[itemId] = nil
+                researchTables[itemId] = host
+                researchTableUses[itemId] = 1
+                return host
+            }
+            if let live = liveResearchTable(itemId) {
+                researchTableUses[itemId, default: 0] += 1
+                return live
+            }
+            // The host this opening read was let go before this caller was back.
         }
-        let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
-            try await ResearchTableHost.load(itemId: itemId, store: self)
-        }
-        researchTableOpenings[itemId] = opening
-        let host: ResearchTableHost
-        do {
-            host = try await opening.value
-        } catch {
-            researchTableOpenings[itemId] = nil
-            throw error
-        }
-        researchTableOpenings[itemId] = nil
-        if researchTables[itemId] == nil { researchTables[itemId] = host }
-        researchTableUses[itemId, default: 0] += 1
+        throw ResearchTableHost.ClosedWhileOpening()
+    }
+
+    /// The host registered for `itemId`, unless it has closed.
+    private func liveResearchTable(_ itemId: String) -> ResearchTableHost? {
+        guard let host = researchTables[itemId], !host.isClosed else { return nil }
         return host
     }
 
     /// One use of a Research table given back; the last closes it — its last
-    /// save written before another grid may read the file again.
+    /// save written before another grid may read the file again. A host that
+    /// is not the registered one (closed, or replaced) is no use: a no-op.
     func releaseResearchTable(_ host: ResearchTableHost) async {
         let id = host.itemId
         guard researchTables[id] === host else { return }

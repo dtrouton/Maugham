@@ -89,6 +89,14 @@ final class ResearchTableHost: FigureGridHost {
         var errorDescription: String? { message }
     }
 
+    /// A table let go by another caller each time it was opened for this
+    /// one (`DocumentStore.openResearchTable` opens it twice, then says so).
+    struct ClosedWhileOpening: LocalizedError, Equatable {
+        var errorDescription: String? {
+            "This table was closed while it was being opened. Open it again."
+        }
+    }
+
     /// A table too large for the grid: it is shown as text instead.
     struct TooLarge: LocalizedError, Equatable {
         let cells: Int
@@ -185,11 +193,18 @@ final class ResearchTableHost: FigureGridHost {
     static func load(itemId: String, store: DocumentStore) async throws -> ResearchTableHost {
         let (read, _) = try await readFile(itemId: itemId, store: store)
         let context = try await store.tableImportContext()
-        return ResearchTableHost(
+        let host = ResearchTableHost(
             itemId: itemId, projectURL: store.projectURL, store: store,
             table: table(of: read, context: context), read: read,
             locale: context.locale, names: context.names)
+        await Self.duringLoadForTesting?()
+        return host
     }
+
+    /// Test seam: runs in a load after the host is built and before it is
+    /// handed back — where a test holds the store's shared opening while
+    /// other callers come and go (`DocumentStore.openResearchTable`).
+    static var duringLoadForTesting: (@MainActor () async -> Void)?
 
     /// The item's file read off the main actor, and its title.
     private static func readFile(itemId: String, store: DocumentStore) async throws -> (FileRead, String) {
