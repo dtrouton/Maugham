@@ -34,23 +34,14 @@ final class UpdateCheckerTests: XCTestCase {
         stageAndVerify: @escaping (URL, String) async throws -> URL = { u, _ in u },
         systemVersion: MinimumSystemVersion = MinimumSystemVersion(major: 27)
     ) -> UpdateChecker {
-        UpdateChecker(
-            currentVersionString: currentVersion,
-            fetchLatest: fetch,
-            downloadAsset: downloadAsset,
-            stageAndVerify: stageAndVerify,
-            systemVersion: systemVersion,
-            refusalDefaults: defaults)
+        UpdateTestKit.makeChecker(
+            defaults: defaults, currentVersion: currentVersion, fetch: fetch,
+            downloadAsset: downloadAsset, stageAndVerify: stageAndVerify,
+            systemVersion: systemVersion)
     }
 
     private func release(version: String, body: String = "notes") -> GitHubRelease {
-        let json = """
-        {"tag_name":"v\(version)","name":"x","body":"\(body)","draft":false,"prerelease":false,
-         "assets":[{"name":"Maugham-\(version).zip",
-                    "browser_download_url":"https://github.com/dtrouton/Maugham/releases/download/v\(version)/Maugham-\(version).zip",
-                    "size":100}]}
-        """
-        return try! GitHubRelease.decode(from: Data(json.utf8))
+        UpdateTestKit.release(version: version, body: body)
     }
 
     func test_idleToUpToDate_whenNoNewerVersion() async {
