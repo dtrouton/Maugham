@@ -476,29 +476,17 @@
  },
  {
   "claim_id": "M4-RW-043",
-  "outcome": "COMPLIES",
-  "ruling": "RULING-22",
-  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
-  "why_in_scope": "As M4-RW-024: one ⌘Z returns the whole rewind. WHY_IT_VIOLATED: it did not return an accepted suggestion the rewind archived on a removed paragraph; the note came back open over a splice already applied, offering an Accept that could splice twice. As of the fix the note returns with the status it had.",
-  "intent_expressed_when": "contemporaneous — the writer pressed ⌘Z once, for one rewind",
-  "call_path": "Rewind modal → Restore here… (target before the paragraph existed) → ⌘Z → Document+RewindUndo's undo closure",
-  "violation_or_enhancement": "violation",
-  "fix": {
-   "commit": "18b28714",
-   "date": "2026-11-12",
-   "authorised_by": "RULING-22; RULING-25's symmetric travel — hardening 11-11 Task 5 fix round 4",
-   "pinned_by": "MaughamTests/Integration/AcceptOverAppliedTextTests.swift (the four undo and redo tests); SuggestionSpliceTests.test_spliceLive_aTravelsArchiveIsNeutral",
-   "note": "Filed already fixed: found in the whole-branch review of Task 5, never carried a VIOLATES filing."
-  }
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling says what status an undone rewind returns a stranded-archived accepted note to; RULING-22's 'one ⌘Z returns the whole rewind' (M4-RW-024) covers the act, not this reading. The behaviour (ACCEPTED, with the original reply) is coordinator's call, hardening 2026-11-11, not yet ruled by Denver; file it under a ruling if Denver rules. Fixed in 18b28714, pinned by the four AcceptOverAppliedTextTests undo and redo tests."
  },
  {
   "_summary": {
-   "reached": 26,
-   "complies": 26,
+   "reached": 25,
+   "complies": 25,
    "violates": 0,
-   "no_ruling": 14,
+   "no_ruling": 15,
    "total": 40,
-   "coverage": "65%",
+   "coverage": "62%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -507,8 +495,7 @@
      "M4-RW-002",
      "M4-RW-023",
      "M4-RW-024",
-     "M4-RW-032",
-     "M4-RW-043"
+     "M4-RW-032"
     ],
     "RULING-24": [
      "M4-RW-010",
