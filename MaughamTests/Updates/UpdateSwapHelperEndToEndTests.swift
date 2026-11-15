@@ -4,9 +4,10 @@ import XCTest
 /// Runs the real swap helper (`UpdateInstaller.helperScript`) with `/bin/bash`,
 /// synchronously, against fake bundles under `TestTemp.root` (#67 F12, F13).
 /// `codesign` and `spctl` are stub scripts that log their arguments and exit
-/// 0 or 1, so no signed app and no network is needed; `ditto` and `python3`
-/// (the `renamex_np` swap) are the real ones. The pid is one that has already
-/// exited, so the quit-wait falls straight through.
+/// 0 or 1, so no signed app and no network is needed; `ditto` and the swap
+/// tool (`maugham-swap`, the one the test host's own bundle embeds, found by
+/// `UpdateInstaller.swapToolURL()`) are the real ones. The pid is one that
+/// has already exited, so the quit-wait falls straight through.
 ///
 /// What this cannot prove: that launchd adopts the helper when the app quits.
 /// That is still the real-update smoke (`Maugham/Updates/AREA.md`).
@@ -19,6 +20,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let codesignLog: URL
         let openLog: URL
         let tools: UpdateInstaller.HelperTools
+        var swapTool: URL
         var status: URL { updates.appendingPathComponent(UpdateInstaller.installStatusFileName) }
         var inflight: URL { URL(fileURLWithPath: installed.path + ".inflight") }
         /// Each `open` call's arguments, one per line; nil if `open` never ran.
@@ -31,10 +33,13 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
     private let version = "0.43.0"
     private let team = "ABCDE12345"
 
+    /// The real built swap tool. Its absence FAILS the setup, never skips:
+    /// every build embeds it, so a missing tool is a broken embed.
+    private var realSwapTool: URL!
+
     override func setUpWithError() throws {
-        guard UpdateInstaller.python3Available() else {
-            throw XCTSkip("python3 is not on PATH; the helper's swap needs it")
-        }
+        realSwapTool = try XCTUnwrap(UpdateInstaller.swapToolURL(),
+            "the test host must embed \(UpdateInstaller.swapToolRelativePath)")
     }
 
     private func write(_ text: String, to url: URL, executable: Bool = false) throws {
@@ -69,7 +74,8 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         return Fixture(root: root, staged: staged, installed: installed, updates: updates,
                        codesignLog: codesignLog, openLog: openLog,
                        tools: .init(codesign: codesign.path, spctl: spctl.path, ditto: "/usr/bin/ditto",
-                                    open: open.path))
+                                    open: open.path),
+                       swapTool: realSwapTool)
     }
 
     private func exitedPid() throws -> Int32 {
@@ -86,6 +92,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     @discardableResult
     private func runHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
+                           swapToolArgument: String? = nil,
                            allowance: TimeInterval = helperAllowance) throws -> Int32 {
         let script = f.root.appendingPathComponent("helper.sh")
         try write(UpdateInstaller.helperScript(tools: f.tools), to: script)
@@ -95,7 +102,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             scriptPath: script.path, pid: try exitedPid(),
             stagedBundle: f.staged.path, installedBundle: f.installed.path,
             expectedTeamID: team ?? self.team, relaunch: relaunch, version: version,
-            updatesDirectory: f.updates.path)
+            updatesDirectory: f.updates.path, swapTool: swapToolArgument ?? f.swapTool.path)
         // A `$(touch PWNED)` that ran would land here, inside the test root.
         p.currentDirectoryURL = f.root
         p.standardOutput = FileHandle.nullDevice
@@ -282,6 +289,90 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertFalse(all.contains { ($0 as NSString).lastPathComponent == "PWNED" }, "\(all)")
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("PWNED")))
+    }
+
+    // MARK: - The swap tool ($8)
+
+    /// Every file name anywhere under `TestTemp.root`.
+    private func allNamesUnderTheTestRoot() -> [String] {
+        FileManager.default.enumerator(atPath: TestTemp.root.path)?
+            .compactMap { $0 as? String }
+            .map { ($0 as NSString).lastPathComponent } ?? []
+    }
+
+    /// As in production: the tool runs from the INSTALLED bundle, so its path
+    /// carries whatever the install folder is called — quotes, spaces and
+    /// `$(…)` are data — and the swap moves the bundle the tool lives in.
+    func test_theInstalledBundlesOwnTool_swapsItself_throughAHostilePath() throws {
+        var f = try makeFixture(installedParent: "My \"Apps\" $(touch PWNED)", codesignExit: 0, spctlExit: 0)
+        let tool = f.installed.appendingPathComponent(UpdateInstaller.swapToolRelativePath)
+        try FileManager.default.createDirectory(at: tool.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: realSwapTool, to: tool)
+        f.swapTool = tool
+        XCTAssertTrue(tool.path.contains("My \"Apps\" $(touch PWNED)/Maugham.app/Contents/Helpers/"))
+
+        XCTAssertEqual(try runHelper(f, relaunch: true), 0)
+        XCTAssertEqual(marker(f.installed), "new", "the staged bundle is swapped in")
+        XCTAssertEqual(f.opened, [f.installed.path])
+        XCTAssertFalse(exists(f.inflight), "the old bundle, tool and all, is removed after the swap")
+        XCTAssertFalse(exists(f.status))
+        XCTAssertFalse(allNamesUnderTheTestRoot().contains("PWNED"))
+    }
+
+    /// A swap tool that fails moved nothing: `failed <v> swap`, the installed
+    /// app untouched and reopened, and `.inflight` — the verified new app — kept.
+    func test_aSwapToolThatFails_recordsFailedSwap_andKeepsInflight() throws {
+        var f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let failing = f.root.appendingPathComponent("tools/failing-swap")
+        try write("#!/bin/bash\necho 'maugham-swap: Operation not permitted' >&2\nexit 1\n",
+                  to: failing, executable: true)
+        f.swapTool = failing
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old", "the installed app is untouched")
+        XCTAssertEqual(marker(f.inflight), "new", "a failed swap keeps .inflight")
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "failed \(version) swap\n")
+        XCTAssertEqual(f.opened, [f.installed.path], "the old app comes back")
+    }
+
+    /// Atomic or Finder: a volume that cannot swap (the tool's exit 3) is its
+    /// own step, nothing in between is tried, the installed app is untouched,
+    /// and the copy — only a copy of the staged bundle — is removed.
+    func test_aVolumeThatCannotSwap_recordsItsOwnStep_andTriesNothingElse() throws {
+        var f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let unsupported = f.root.appendingPathComponent("tools/unsupported-swap")
+        try write("#!/bin/bash\nexit \(UpdateInstaller.swapUnsupportedExitCode)\n", to: unsupported, executable: true)
+        f.swapTool = unsupported
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.installed.path), ["Contents"])
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertFalse(exists(URL(fileURLWithPath: f.installed.path + ".bak")), "no backup-rename fallback")
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "failed \(version) swap-unsupported\n")
+        XCTAssertEqual(InstallStatus.parse("failed \(version) swap-unsupported"),
+                       .failed(version: version, step: "swap-unsupported"))
+        XCTAssertEqual(f.opened, [f.installed.path])
+    }
+
+    /// A swap tool argument that is not an absolute path to an executable
+    /// regular file stops the helper with exit 2 before anything is touched.
+    func test_aBadSwapToolArgument_stopsTheHelperBeforeAnythingIsTouched() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let notExecutable = f.root.appendingPathComponent("tools/plain-file")
+        try write("#!/bin/bash\nexit 0\n", to: notExecutable)  // 0644
+        let directory = f.root.appendingPathComponent("tools", isDirectory: true)
+        let missing = f.root.appendingPathComponent("tools/no-such-tool")
+        let relative = "tools/codesign"  // executable from the helper's cwd, but not absolute
+        let before = try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker"))
+        for argument in [notExecutable.path, directory.path, missing.path, relative, ""] {
+            XCTAssertEqual(try runHelper(f, relaunch: true, swapToolArgument: argument), 2, argument)
+            XCTAssertEqual(try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker")),
+                           before, argument)
+            XCTAssertFalse(exists(f.inflight), argument)
+            XCTAssertFalse(exists(f.status), argument)
+            XCTAssertFalse(exists(f.codesignLog), "codesign never ran: \(argument)")
+            XCTAssertNil(f.opened, "nothing reopened: \(argument)")
+        }
     }
 
     // MARK: - The harness itself

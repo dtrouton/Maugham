@@ -58,14 +58,14 @@ final class PendingUpdateRevealTests: XCTestCase {
         let launched = UpdateInstaller.launchSwapHelper(
             stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
             relaunch: false, installedBundlePath: unwritableInstalled,
-            expectedTeamID: "ABCDE12345", python3Available: { true })
+            expectedTeamID: "ABCDE12345", swapTool: UpdateInstaller.swapToolURL())
         XCTAssertFalse(launched)
     }
 
     /// #67 F12: the helper re-checks the update against the running app's
     /// team. With no team (an ad-hoc build, this test host) or a malformed one
     /// there is nothing to check against, so no helper is launched — even
-    /// where the install location is writable and python3 is present.
+    /// where the install location is writable and the swap tool is present.
     func test_launchSwapHelper_returnsFalse_withoutAWellFormedTeam() throws {
         let installed = TestTemp.root.appendingPathComponent("Maugham.app")
         try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
@@ -74,12 +74,27 @@ final class PendingUpdateRevealTests: XCTestCase {
             XCTAssertFalse(UpdateInstaller.launchSwapHelper(
                 stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
                 relaunch: false, installedBundlePath: installed.path,
-                expectedTeamID: team, python3Available: { true }), "\(team ?? "nil")")
+                expectedTeamID: team, swapTool: UpdateInstaller.swapToolURL()), "\(team ?? "nil")")
         }
         XCTAssertFalse(UpdateInstaller.launchSwapHelper(
             stagedBundle: staged, version: "0.43.0\nrefused 1.0.0", updatesDirectory: TestTemp.root,
             relaunch: false, installedBundlePath: installed.path,
-            expectedTeamID: "ABCDE12345", python3Available: { true }), "a malformed version")
+            expectedTeamID: "ABCDE12345", swapTool: UpdateInstaller.swapToolURL()), "a malformed version")
+    }
+
+    /// Without the running app's swap tool there is no atomic swap, so no
+    /// helper is launched: Finder, never a helper that would fail after the
+    /// app has quit.
+    func test_launchSwapHelper_returnsFalse_withoutASwapTool() throws {
+        let installed = TestTemp.root.appendingPathComponent("Maugham.app")
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        let staged = URL(fileURLWithPath: "/tmp/does-not-matter/Maugham.app")
+        for tool in [nil, TestTemp.root.appendingPathComponent("no-such-tool")] as [URL?] {
+            XCTAssertFalse(UpdateInstaller.launchSwapHelper(
+                stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
+                relaunch: false, installedBundlePath: installed.path,
+                expectedTeamID: "ABCDE12345", swapTool: tool), "\(tool?.path ?? "nil")")
+        }
     }
 
     /// End-to-end of the fallback shape (minus the real terminate window):

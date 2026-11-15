@@ -11911,10 +11911,10 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **Tripwire: the app's macOS floor is one number, however many times
-    /// `project.yml` says it.** Four declarations: `deploymentTarget.macOS`,
-    /// `settings.base`'s `MACOSX_DEPLOYMENT_TARGET`, `maugham-mcp`'s (it ships
-    /// inside the bundle and can never run anywhere the app cannot), and the
-    /// app's `LSMinimumSystemVersion`.
+    /// `project.yml` says it.** Five declarations: `deploymentTarget.macOS`,
+    /// `settings.base`'s `MACOSX_DEPLOYMENT_TARGET`, `maugham-mcp`'s and
+    /// `maugham-swap`'s (each ships inside the bundle and can never run
+    /// anywhere the app cannot), and the app's `LSMinimumSystemVersion`.
     ///
     /// The last one is why this is a test and not a comment. `release.yml`
     /// publishes the BUILT app's `LSMinimumSystemVersion` into every release
@@ -11929,10 +11929,11 @@ final class TripwireGrepTests: XCTestCase {
         let yml = try SourceTreeCache.text(repoRoot.appendingPathComponent("project.yml"))
         let floors = Self.declaredMacOSFloors(in: yml)
 
-        XCTAssertEqual(floors.count, 4,
-            "project.yml should declare the macOS floor exactly four times "
-            + "(deploymentTarget.macOS, two MACOSX_DEPLOYMENT_TARGETs, "
-            + "LSMinimumSystemVersion). A fifth is fine — add it here — but a "
+        XCTAssertEqual(floors.count, 5,
+            "project.yml should declare the macOS floor exactly five times "
+            + "(deploymentTarget.macOS, three MACOSX_DEPLOYMENT_TARGETs — base, "
+            + "maugham-mcp, maugham-swap — and LSMinimumSystemVersion). A sixth "
+            + "is fine — add it here — but a "
             + "count that DROPPED means a declaration was renamed or removed "
             + "and this census silently stopped guarding it. Found:\n"
             + floors.map { "\($0.line): \($0.key) = \($0.value)" }.joined(separator: "\n"))
@@ -14796,7 +14797,7 @@ extension TripwireGrepTests {
     static let processLaunchers: [String: Int] = [
         "ClaudeCLISession.swift": 2,     // the warm session + the login-shell `which claude` probe
         "DeclaredWorldDeriver.swift": 1, // the one-shot derivation call
-        "UpdateInstaller.swift": 3,      // bash/python3 probes and the relaunch
+        "UpdateInstaller.swift": 2,      // the codesign/spctl/ditto/zipinfo runner and the detached helper
         "EPUBZipPackager.swift": 1,      // /usr/bin/zip
         "TectonicInvoker.swift": 1,      // tectonic
     ]

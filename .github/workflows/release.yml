@@ -27,6 +27,9 @@ jobs:
       # step fails if the two ever disagree.
       MAC_BUNDLE_ID: com.maugham.Maugham
       PERSON_KEY_GROUP: FF3XH4ZJ45.com.maugham.person
+      # The nested executables both verify steps hold to the team, the
+      # hardened runtime and no get-task-allow (re-signed inside-out below).
+      MAC_NESTED_EXECUTABLES: Contents/MacOS/maugham-mcp Contents/Helpers/maugham-swap
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -348,6 +351,13 @@ jobs:
           if [[ -f "$MCP" ]]; then
             codesign $OPTS "$IDENTITY" "$MCP"
           fi
+          # The updater's swap tool (Maugham/Updates/AREA.md, "The atomic swap"):
+          # required, since without it every in-place update falls back to
+          # Finder. Re-signed like the MCP tool: hardened, timestamped, and with
+          # no entitlements, so Xcode's get-task-allow does not survive.
+          SWAP="$APP/Contents/Helpers/maugham-swap"
+          test -f "$SWAP" || { echo "::error::maugham-swap not found at $SWAP"; exit 1; }
+          codesign $OPTS "$IDENTITY" "$SWAP"
           # Re-sign the outer app LAST so its seal covers the freshly-signed
           # nested code. (Xcode already signed it once; this re-seals with the
           # entitlements + hardened runtime intact.)
@@ -371,6 +381,7 @@ jobs:
           set -euo pipefail
           codesign -d --entitlements - "$APP"
           EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            EXPECT_NESTED="$MAC_NESTED_EXECUTABLES" \
             scripts/verify-mac-signing.sh app "$APP"
 
       - name: Notarize + staple
@@ -436,6 +447,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           # Once more over exactly what gets packaged.
           EXPECT_TEAM="$TEAM_ID" EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            EXPECT_NESTED="$MAC_NESTED_EXECUTABLES" \
             scripts/verify-mac-signing.sh app "$APP"
 
       - name: Package .dmg and .zip

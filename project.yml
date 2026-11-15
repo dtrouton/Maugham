@@ -130,6 +130,14 @@ targets:
         copy:
           destination: executables
           codeSign: true
+      # The updater's atomic swap (Maugham/Updates/AREA.md, "The atomic
+      # swap"): embedded in every configuration, Debug included, so the test
+      # host and dev builds carry it at Contents/Helpers/maugham-swap.
+      - target: maugham-swap
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
+          codeSign: true
     postBuildScripts:
       - name: Stamp Debug build identity (git SHA)
         basedOnDependencyAnalysis: false
@@ -164,6 +172,23 @@ targets:
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
+      configs:
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
+  maugham-swap:
+    type: tool
+    platform: macOS
+    sources:
+      - path: maugham-swap
+    settings:
+      base:
+        PRODUCT_NAME: maugham-swap
+        # Ships inside the app bundle, like maugham-mcp — one floor.
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        SKIP_INSTALL: YES
       configs:
         Release:
           ENABLE_HARDENED_RUNTIME: YES
@@ -267,6 +292,7 @@ schemes:
       targets:
         Maugham: all
         maugham-mcp: all
+        maugham-swap: all
         MaughamTests: [test]
     run:
       config: Debug

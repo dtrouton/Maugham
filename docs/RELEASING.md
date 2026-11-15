@@ -102,7 +102,10 @@ application identifier the profile needs to match) minus the
 `com.apple.security.get-task-allow` Xcode's `build` action injects, which
 notarization would reject (`verify-mac-signing.sh resign-entitlements`); and *Verify the app carries
 its provisioning profile* runs `verify-mac-signing.sh app` after signing and
-again after stapling. `scripts/tests/verify-mac-signing.test.sh` pins every arm
+again after stapling, which also holds the nested executables named in
+`MAC_NESTED_EXECUTABLES` (`maugham-mcp` and the updater's `maugham-swap`) to the
+team, the hardened runtime and no `get-task-allow`; *Re-sign nested executables*
+re-signs both, inside-out, before the app, and fails if `maugham-swap` is missing. `scripts/tests/verify-mac-signing.test.sh` pins every arm
 (it needs the person-key probe's Developer ID profile installed, and skips
 without it; CI does not run it). **`cut-release.sh` gains no such check** — it
 builds unsigned (`CODE_SIGNING_ALLOWED=NO`) on your Mac, where no profile is
@@ -113,14 +116,18 @@ setup and renewal: `docs/release-notes/SETUP-mac-signing.md` §4.
 notarized `.zip`, verifies it in-app (codesign + our Team ID via
 `UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
 detached helper — "Restart & Update" relaunches; dismissing applies the staged
-update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The helper checks
+update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The swap itself is
+one `renamex_np(RENAME_SWAP)` call made by `maugham-swap`, a tiny tool target embedded
+at `Maugham.app/Contents/Helpers/` in every configuration (no python3, no Command Line
+Tools needed). The helper checks
 the update again at install time, after the app has quit: it re-runs `codesign`
 (against our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
 fails is not installed (the reason is left in `Updates/install-status`, which the next
 launch reads, removes and states once in the update banner; a refused version's
 download is deleted so the next check fetches it afresh). A build with
 no Team ID of its own (ad-hoc, unsigned) never swaps in place. If
-`/Applications` (the running app's location) is unwritable, it falls back to
+`/Applications` (the running app's location) is unwritable, its volume cannot swap
+atomically, or the running app's swap tool is missing, it falls back to
 revealing the `.dmg` in Finder instead — that fallback path is **not** in-app
 verified; the `.dmg` is Gatekeeper-verified on launch, the same as any downloaded
 app, not by `UpdateInstaller`. The verify/stage Process work runs off the main

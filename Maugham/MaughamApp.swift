@@ -105,8 +105,8 @@ struct MaughamApp: App {
                 .environment(onboarding)
                 .task {
                     // A prior quit staged an update but couldn't launch the
-                    // swap helper (install location went unwritable, python3
-                    // vanished, etc.) — the app was already tearing down, so
+                    // swap helper (install location went unwritable, the swap
+                    // tool went missing, etc.) — the app was already tearing down, so
                     // the Finder-reveal fallback was deferred to this launch.
                     if let pendingReveal = PendingUpdateReveal.consumePending() {
                         NSWorkspace.shared.activateFileViewerSelecting([pendingReveal])

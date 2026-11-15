@@ -28,8 +28,9 @@ public enum InstallMode: Equatable {
 
 /// Persisted across a quit when the quit-time in-place install couldn't be
 /// launched (`launchSwapHelper` returned false — the install location went
-/// unwritable, python3 vanished, the running app has no team to re-check the
-/// update against, or the script couldn't be written, between staging and quit). The app is already tearing down at that point, so
+/// unwritable or its volume cannot swap atomically, the swap tool is missing
+/// or not executable, the running app has no team to re-check the update
+/// against, or the script couldn't be written, between staging and quit). The app is already tearing down at that point, so
 /// unlike `installNow`'s live Finder-fallback (`MaughamApp.swift`'s
 /// `performInstall`), the reveal is deferred to next launch rather than
 /// attempted mid-teardown.
@@ -98,13 +99,31 @@ public enum UpdateInstaller {
     /// (`failed <version> <step>`). A refused install-time check is the other
     /// line, `refused <version>`. Next launch reads the file (#67 Task 5).
     enum HelperFailureStep: String, CaseIterable {
-        /// `python3` was not on PATH (the swap needs it).
-        case python3
         /// Copying the staged bundle to `<installed>.inflight` failed.
         case ditto
-        /// The atomic swap (the python step, or writing its source) failed.
+        /// The swap tool exited non-zero (other than `swapUnsupportedExitCode`),
+        /// so nothing was swapped.
         case swap
+        /// The install volume cannot swap two entries atomically (the swap
+        /// tool's `swapUnsupportedExitCode`). Nothing was swapped, and the next
+        /// install on that volume takes the Finder fallback
+        /// (`NoSwapVolumeMemory`).
+        case swapUnsupported = "swap-unsupported"
     }
+
+    /// Steps an OLDER installed build's helper may have written, which this
+    /// build no longer names. Read as a plain failure (`InstallStatus.parse`),
+    /// never as garbage: the python3 swap was retired for the compiled tool.
+    static let legacyFailureSteps: Set<String> = ["python3"]
+
+    /// Where the compiled swap tool (`maugham-swap/` at the repo root) sits
+    /// inside the app bundle, in every configuration (`project.yml`).
+    static let swapToolRelativePath = "Contents/Helpers/maugham-swap"
+
+    /// The swap tool's exit status when the volume does not support swap
+    /// renaming (`ENOTSUP`/`EINVAL`). The helper records it as
+    /// `HelperFailureStep.swapUnsupported`.
+    static let swapUnsupportedExitCode: Int32 = 3
 
     /// The status file's name inside the Updates folder.
     static let installStatusFileName = "install-status"
@@ -112,8 +131,8 @@ public enum UpdateInstaller {
     /// Shell script run **detached** after the app quits. Fixed text: every
     /// path, the pid, the team and the version arrive as ARGUMENTS
     /// (`helperArguments`), so a bundle path containing `"`, `$(…)` or a
-    /// backtick is data, never code (#67 F13). Only `tools`' constant paths are
-    /// interpolated.
+    /// backtick is data, never code (#67 F13). Only `tools`' constant paths and
+    /// constant status words are interpolated.
     ///
     /// It polls until our PID is gone, copies the staged bundle to the
     /// `.inflight` sibling, **re-checks that copy** — `codesign --verify --deep
@@ -127,21 +146,19 @@ public enum UpdateInstaller {
     /// other failure after the guard writes `failed <version> <step>`. Success
     /// writes nothing.
     ///
-    /// The old bundle stays at the `.inflight` path after the swap and is cleaned
-    /// up last. A crash between the ditto and the rename leaves `.inflight` behind
-    /// (the installed app is intact); a crash after the rename leaves `.inflight`
-    /// as stale garbage (the new app is already in place). In neither case is the
-    /// install location empty.
-    ///
-    /// `RENAME_SWAP` is a Darwin-specific flag to `renamex_np(2)` that atomically
-    /// exchanges two filesystem entries. Both paths must be on the **same volume**
-    /// (guaranteed: `.inflight` is a same-directory sibling of the installed
-    /// bundle). We call it via Python's ctypes to avoid a compiled helper binary.
-    ///
-    /// Falls back to a backup-rename approach (`installed → .bak`, `inflight →
-    /// installed`) if `renamex_np` is unavailable (should never happen on macOS
-    /// 10.12+), which still guarantees at most one intact copy at the install
-    /// location while `.bak` holds the old version.
+    /// The swap is ONE call made by the compiled swap tool
+    /// (`swapToolRelativePath`) of the running, currently installed app — never
+    /// the incoming one's — whose path arrives as the eighth argument and is
+    /// validated before anything is touched (absolute, a regular executable
+    /// file). Both paths must be on the **same volume** (guaranteed: `.inflight`
+    /// is a same-directory sibling of the installed bundle). Atomic or Finder,
+    /// nothing in between: a volume that cannot swap makes the tool exit
+    /// `swapUnsupportedExitCode` having moved nothing, and the helper records
+    /// `swapUnsupported`. Any other tool failure records `swap` and leaves
+    /// `.inflight`. After a swap `.inflight` holds the old bundle and is
+    /// removed last; a crash before the swap leaves the installed app intact,
+    /// a crash after it leaves stale garbage beside the new app. In neither
+    /// case is the install location empty.
     static func helperScript(tools: HelperTools = .system) -> String {
         precondition(HelperTools.isSafePath(tools.codesign)
                      && HelperTools.isSafePath(tools.spctl)
@@ -149,13 +166,13 @@ public enum UpdateInstaller {
                      && HelperTools.isSafePath(tools.open),
                      "helper tool paths are constants and must be plain absolute paths")
         // Built line by line — NOT a Swift multi-line literal — so every line
-        // lands at column 0 (the PYEOF limit string and the Python source need it).
-        var lines: [String] = [
+        // lands at column 0.
+        let lines: [String] = [
             "#!/bin/bash",
             "set -e",
             // Arguments: see UpdateInstaller.helperArguments. Nothing below
             // ever lets one be parsed as code: every use is double-quoted.
-            #"[ "$#" -eq 7 ] || exit 2"#,
+            #"[ "$#" -eq 8 ] || exit 2"#,
             #"PID="$1""#,
             #"STAGED="$2""#,
             #"INSTALLED="$3""#,
@@ -163,6 +180,7 @@ public enum UpdateInstaller {
             #"RELAUNCH="$5""#,
             #"VERSION="$6""#,
             #"UPDATES="$7""#,
+            #"SWAP_TOOL="$8""#,
             #"INFLIGHT="$INSTALLED.inflight""#,
             #"STATUS="$UPDATES/\#(installStatusFileName)""#,
             // Re-validate what Swift validated. Explicit character lists, not
@@ -172,11 +190,14 @@ public enum UpdateInstaller {
             #"[ "${#TEAM}" -eq 10 ] || exit 2"#,
             #"case "$RELAUNCH" in 0|1) ;; *) exit 2;; esac"#,
             #"case "$VERSION" in ''|*[!0123456789.]*) exit 2;; esac"#,
-            // Absolute paths. (Tested by stripping the leading slash rather
-            // than a case pattern: a slash-star in this file would open a
-            // block comment for TripwireGrepTests' source scan.)
-            #"for p in "$STAGED" "$INSTALLED" "$UPDATES"; do [ "${p#/}" != "$p" ] || exit 2; done"#,
+            // Absolute paths, the swap tool included. (Tested by stripping the
+            // leading slash rather than a case pattern: a slash-star in this
+            // file would open a block comment for TripwireGrepTests' source scan.)
+            #"for p in "$STAGED" "$INSTALLED" "$UPDATES" "$SWAP_TOOL"; do [ "${p#/}" != "$p" ] || exit 2; done"#,
             #"case "$INSTALLED" in *.app) ;; *) exit 2;; esac"#,
+            // The swap tool is run, so it must be a regular executable file —
+            // checked before the wait, while nothing has been touched.
+            #"[ -f "$SWAP_TOOL" ] && [ -x "$SWAP_TOOL" ] || exit 2"#,
             // One line, overwritten (never appended), via a temp file and mv
             // so a reader never sees half of it. Its own failure changes nothing.
             #"record() { printf '%s\n' "$1" > "$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"; }"#,
@@ -185,22 +206,6 @@ public enum UpdateInstaller {
             // the untouched old one after any failure — so the writer is never
             // left with no Maugham running. Its own failure changes nothing.
             #"reopen() { if [ "$RELAUNCH" = 1 ]; then "\#(tools.open)" "$INSTALLED" || true; fi; }"#,
-            #"PY_TMP="""#,
-            #"trap 'rm -f "$PY_TMP"' EXIT"#,
-            // python3 guard (audit N2): the swap runs via python3 (ctypes →
-            // renamex_np), which ships with the Command Line Tools a clean Mac
-            // may lack. Probe it before the quit-wait and before any
-            // destructive step, so the running app is untouched. (Swift's
-            // launchSwapHelper pre-checks too; this is the backstop.) The app
-            // is quitting regardless, so the failure is recorded.
-            "if ! command -v python3 >/dev/null 2>&1; then",
-            #"  echo "maugham-update: python3 not found; aborting in-place swap (app left untouched)" >&2"#,
-            #"  record "failed $VERSION \#(HelperFailureStep.python3.rawValue)" || true"#,
-            // The app is quitting: let it go before reopening it.
-            #"  while [ "$RELAUNCH" = 1 ] && kill -0 "$PID" 2>/dev/null; do sleep 0.2; done"#,
-            "  reopen",
-            "  exit 1",
-            "fi",
             "# Wait for the running Maugham to fully exit.",
             #"while kill -0 "$PID" 2>/dev/null; do sleep 0.2; done"#,
             "# Copy the new bundle to a same-volume sibling (.inflight).",
@@ -220,42 +225,39 @@ public enum UpdateInstaller {
             "  exit 1",
             "fi",
             "# Atomically exchange .inflight <-> installed so the install location is",
-            "# NEVER absent. renamex_np(RENAME_SWAP=0x2) is Darwin-native (macOS 10.12+).",
-            "# A failed swap leaves .inflight: it may hold the only copy of the new app.",
-            #"if ! PY_TMP="$(mktemp /tmp/maugham-swap-XXXXXX.py)"; then"#,
+            "# NEVER absent: the swap tool makes one renamex_np(RENAME_SWAP) call.",
+            #"SWAP_EXIT=0"#,
+            #""$SWAP_TOOL" "$INFLIGHT" "$INSTALLED" || SWAP_EXIT=$?"#,
+            "# A volume that cannot swap: nothing moved. Atomic or Finder, nothing in",
+            "# between; .inflight is only a copy of the staged bundle, so it goes.",
+            #"if [ "$SWAP_EXIT" -eq \#(swapUnsupportedExitCode) ]; then"#,
+            #"  rm -rf "$INFLIGHT" || true"#,
+            #"  record "failed $VERSION \#(HelperFailureStep.swapUnsupported.rawValue)" || true"#,
+            "  reopen",
+            "  exit 1",
+            "fi",
+            "# Any other failure also moved nothing; .inflight is kept for the next try.",
+            #"if [ "$SWAP_EXIT" -ne 0 ]; then"#,
             #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
             "  reopen",
             "  exit 1",
             "fi",
-            #"if ! cat > "$PY_TMP" << 'PYEOF'"#,
-        ]
-        var s = lines.joined(separator: "\n") + "\n"
-        s += UpdateInstaller.pyAtomicSwapSource
-        lines = [
-            "PYEOF",
-            "then",
-            #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
-            "  reopen",
-            "  exit 1",
-            "fi",
-            #"if ! python3 "$PY_TMP" "$INFLIGHT" "$INSTALLED"; then"#,
-            #"  record "failed $VERSION \#(HelperFailureStep.swap.rawValue)" || true"#,
-            "  reopen",
-            "  exit 1",
-            "fi",
+            "# .inflight now holds the old bundle. Removing it may fail harmlessly:",
+            "# the next update clears it.",
+            #"rm -rf "$INFLIGHT" || true"#,
             "reopen",
         ]
-        s += lines.joined(separator: "\n") + "\n"
-        return s
+        return lines.joined(separator: "\n") + "\n"
     }
 
     /// The helper's argv, in the order `helperScript` reads it:
-    /// `[script, pid, staged, installed, team, relaunch (1/0), version, updatesDir]`.
+    /// `[script, pid, staged, installed, team, relaunch (1/0), version, updatesDir, swapTool]`.
     static func helperArguments(scriptPath: String, pid: Int32, stagedBundle: String,
                                 installedBundle: String, expectedTeamID: String,
-                                relaunch: Bool, version: String, updatesDirectory: String) -> [String] {
+                                relaunch: Bool, version: String, updatesDirectory: String,
+                                swapTool: String) -> [String] {
         [scriptPath, String(pid), stagedBundle, installedBundle, expectedTeamID,
-         relaunch ? "1" : "0", version, updatesDirectory]
+         relaunch ? "1" : "0", version, updatesDirectory, swapTool]
     }
 
     /// A team ID as Apple issues them: ten upper-case letters or digits. The
@@ -274,61 +276,85 @@ public enum UpdateInstaller {
         version.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || $0 == "." }
             && SemanticVersion(version)?.string == version
     }
-
-    /// Python source for the atomic bundle swap via `renamex_np(RENAME_SWAP)`.
-    ///
-    /// Kept as a top-level constant (not embedded inline in `helperScript`) so the
-    /// lines are verbatim — no leading-space indentation from Swift multi-line
-    /// string normalisation that would cause Python `IndentationError`s.
-    ///
-    /// The script receives `src` (`.inflight` staged bundle) and `dst` (installed
-    /// bundle path) as `argv[1]`/`argv[2]`. After a successful swap the `dst` holds
-    /// the new bundle and `src` is cleaned up; on `renamex_np` failure a
-    /// backup-rename fallback ensures the install location is never empty.
-    static let pyAtomicSwapSource: String = [
-        "import sys, ctypes, ctypes.util, shutil, os",
-        "src_path = sys.argv[1]",
-        "dst_path = sys.argv[2]",
-        "libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)",
-        "RENAME_SWAP = 0x00000002",
-        "rc = libc.renamex_np(src_path.encode(), dst_path.encode(), RENAME_SWAP)",
-        "if rc != 0:",
-        "    bak = dst_path + '.bak'",
-        "    shutil.rmtree(bak, ignore_errors=True)",
-        "    os.rename(dst_path, bak)",
-        "    os.rename(src_path, dst_path)",
-        "    shutil.rmtree(bak, ignore_errors=True)",
-        "    sys.exit(0)",
-        "shutil.rmtree(src_path, ignore_errors=True)",
-    ].joined(separator: "\n") + "\n"
 }
 
 extension UpdateInstaller {
-    /// Whether `python3` is resolvable on PATH (it backs the atomic swap via
-    /// ctypes → `renamex_np`). Ships with the Command Line Tools, which a clean
-    /// macOS may lack — see audit N2. Used as a pre-quit gate in `launchSwapHelper`.
-    static func python3Available() -> Bool {
-        let p = Process()
-        // `command -v` is a bash builtin (mirrors the helper script's own guard).
-        p.executableURL = URL(fileURLWithPath: "/bin/bash")
-        p.arguments = ["-c", "command -v python3"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return false }
-        p.waitUntilExit()
-        return p.terminationStatus == 0
+    /// The swap tool inside the bundle at `bundleURL`, or nil unless it is
+    /// there as an executable file. With the default this is the running app's
+    /// own tool: the helper swaps with the trusted, installed version's tool,
+    /// never the incoming one's.
+    static func swapToolURL(in bundleURL: URL = Bundle.main.bundleURL) -> URL? {
+        let url = bundleURL.appendingPathComponent(swapToolRelativePath) // local-path: a constant inside our own app bundle
+        return isRunnableTool(url) ? url : nil
     }
 
-    /// Decide how to install based on whether the installed bundle AND the
-    /// folder holding it are writable by the current user: the helper creates
+    /// An absolute path to a regular file this user may execute — what the
+    /// helper script itself checks (`-f` and `-x`) before it runs the tool.
+    static func isRunnableTool(_ url: URL) -> Bool {
+        let path = url.path
+        var isDirectory: ObjCBool = false
+        return path.hasPrefix("/")
+            && FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    /// Whether the volume holding `folder` can swap two entries atomically:
+    /// its `volumeSupportsSwapRenaming` says so (unknown is no), and no earlier
+    /// install there failed for that reason (`NoSwapVolumeMemory`).
+    static func volumeSupportsSwapRenaming(at folder: URL, defaults: UserDefaults = .standard) -> Bool {
+        guard !NoSwapVolumeMemory.remembers(folder: folder, defaults: defaults) else { return false }
+        let values = try? folder.resourceValues(forKeys: [.volumeSupportsSwapRenamingKey])
+        return values?.volumeSupportsSwapRenaming == true
+    }
+
+    /// Decide how to install. In place only when the installed bundle AND the
+    /// folder holding it are writable by the current user (the helper creates
     /// `<installed>.inflight` beside the bundle and swaps the two entries, both
-    /// of which need the folder (#67 New-4). Defaults are injected for testability.
-    public static func installMode(
+    /// of which need the folder, #67 New-4), the running app's swap tool is
+    /// there and executable, and the install volume can swap atomically.
+    /// Atomic or Finder, nothing in between. Every input is injectable.
+    static func installMode(
         installedBundlePath: String,
-        isWritable: (String) -> Bool = { FileManager.default.isWritableFile(atPath: $0) }
+        isWritable: (String) -> Bool = { FileManager.default.isWritableFile(atPath: $0) },
+        swapTool: () -> URL? = { UpdateInstaller.swapToolURL() },
+        volumeSupportsSwap: (URL) -> Bool = { UpdateInstaller.volumeSupportsSwapRenaming(at: $0) }
     ) -> InstallMode {
         let parent = (installedBundlePath as NSString).deletingLastPathComponent
-        return isWritable(installedBundlePath) && isWritable(parent) ? .inPlace : .finderFallback
+        guard isWritable(installedBundlePath), isWritable(parent) else { return .finderFallback }
+        guard let tool = swapTool(), isRunnableTool(tool) else { return .finderFallback }
+        guard volumeSupportsSwap(URL(fileURLWithPath: parent, isDirectory: true)) else { return .finderFallback }
+        return .inPlace
+    }
+}
+
+/// Install volumes on which the helper's swap tool answered that the volume
+/// cannot swap atomically (`HelperFailureStep.swapUnsupported`), so the next
+/// attempt there takes the Finder fallback instead of quitting into the same
+/// failure: `volumeSupportsSwapRenaming` said yes and was wrong once already.
+/// Keyed by the volume's UUID (its mount path when it has none). Never
+/// forgotten: a volume does not learn to swap. Unscoped key by the same
+/// reasoning as `PendingUpdateReveal`.
+enum NoSwapVolumeMemory {
+    static let defaultsKey = "maugham.updateNoSwapVolumes"
+
+    static func volumeKey(for folder: URL) -> String? {
+        let values = try? folder.resourceValues(forKeys: [.volumeUUIDStringKey, .volumeURLKey])
+        return values?.volumeUUIDString ?? values?.volume?.path
+    }
+
+    static func remember(folder: URL, defaults: UserDefaults) {
+        guard let key = volumeKey(for: folder) else { return }
+        var known = defaults.stringArray(forKey: defaultsKey) ?? []
+        guard !known.contains(key) else { return }
+        known.append(key)
+        defaults.set(known, forKey: defaultsKey)
+    }
+
+    static func remembers(folder: URL, defaults: UserDefaults) -> Bool {
+        guard let key = volumeKey(for: folder),
+              let known = defaults.stringArray(forKey: defaultsKey) else { return false }
+        return known.contains(key)
     }
 }
 
@@ -523,22 +549,23 @@ extension UpdateInstaller {
     /// install time; with none (an ad-hoc or unsigned build) or a malformed one
     /// there is nothing to check against, so nothing is swapped. `version` and
     /// `updatesDirectory` tell the helper where to write `install-status`.
+    /// `swapTool` is the running app's own compiled swap tool; without it, or
+    /// on a volume that cannot swap, `installMode` answers Finder.
     @discardableResult
     static func launchSwapHelper(stagedBundle: URL, version: String, updatesDirectory: URL,
                                  relaunch: Bool,
                                  installedBundlePath: String = Bundle.main.bundlePath,
                                  expectedTeamID: String? = UpdateInstaller.runningAppTeamID(),
-                                 python3Available: () -> Bool = UpdateInstaller.python3Available) -> Bool {
-        guard installMode(installedBundlePath: installedBundlePath) == .inPlace else {
-            return false  // not writable → caller does Finder fallback
+                                 swapTool: URL? = UpdateInstaller.swapToolURL()) -> Bool {
+        // Refuse now, while the app is still alive, rather than quit into a
+        // doomed helper: the caller takes the Finder-reveal fallback. The
+        // helper script re-checks its arguments as a backstop.
+        guard installMode(installedBundlePath: installedBundlePath, swapTool: { swapTool }) == .inPlace,
+              let tool = swapTool else {
+            return false
         }
         guard let team = expectedTeamID, isWellFormedTeamID(team) else { return false }
         guard isWellFormedVersion(version) else { return false }
-        // The detached swap depends on python3 (ctypes → renamex_np). If it's
-        // missing (CLT-less Mac), don't quit into a doomed helper — return false
-        // now, while the app is still alive, so the caller takes the Finder-reveal
-        // fallback (audit N2). The helper script also guards as a backstop.
-        guard python3Available() else { return false }
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("maugham-update-\(UUID().uuidString).sh")
         do { try helperScript().write(to: scriptURL, atomically: true, encoding: .utf8) }
@@ -559,7 +586,8 @@ extension UpdateInstaller {
                                       expectedTeamID: team,
                                       relaunch: relaunch,
                                       version: version,
-                                      updatesDirectory: updatesDirectory.path)
+                                      updatesDirectory: updatesDirectory.path,
+                                      swapTool: tool.path)
         do { try p.run() } catch { return false }
         return true
     }
