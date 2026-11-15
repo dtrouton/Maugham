@@ -423,22 +423,9 @@ struct ProjectWindow: View {
             treeState.paletteSectionExpanded = true
             treeState.scrollRequest = .paletteHeader
         }
-        .onGlobalEvent(.maughamAppWillTerminate) { _ in
-            // Best-effort flush. Task is fire-and-forget; NSApplication may
-            // give us only ~100ms before terminating us, and nothing defers
-            // the quit. The figure windows finish first — an open cell edit's
-            // commit is asked — and the close is ordered after their writes,
-            // but the process may end before either lands: ⌘Q stays
-            // best-effort for an edit still open in a table (ruling N1).
-            if let ds = documentStore {
-                let session = session
-                session?.figureWindows.closeAll()
-                Task {
-                    await session?.settleFigureWindows(within: .seconds(1))
-                    await ds.close()
-                }
-            }
-        }
+        // App quit closes the stores in one place, before `willTerminate`:
+        // `QuitCoordinator`, over the session registry's closers. This
+        // window starts no close of its own.
         .onKeyWindowCommand(.maughamShowProjectStatistics, window: window) { _ in
             openWindow(id: "project-stats", value: url)
         }

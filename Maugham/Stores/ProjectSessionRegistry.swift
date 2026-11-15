@@ -215,6 +215,15 @@ final class ProjectSessionRegistry {
         if closing[key] == close { closing[key] = nil }
     }
 
+    /// **App quit's closers** (`QuitCoordinator`): one per open project —
+    /// its stores' close (`ProjectSession.closeForQuit`) — and one per close
+    /// already in flight (a window shut just before ⌘Q), which is waited
+    /// for, never started again. Empty with no project open.
+    func quitClosers() -> [QuitCoordinator.Closer] {
+        entries.values.map { entry in { await entry.session.closeForQuit() } }
+            + closing.values.map { close in { await close.value } }
+    }
+
     /// App quit: ends every warm `claude` session of every open project —
     /// `AgentRoster.shutdownAll()` on each session's roster — whether or not
     /// a live window still holds it. The windows' own quit arms reach only

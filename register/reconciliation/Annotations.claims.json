@@ -1296,7 +1296,7 @@
   "claim_id": "M5-AN-081",
   "scope": "ResearchTableHost.write — a table closes the way a note does (RULING-60)",
   "kind": "POSTCONDITION",
-  "statement": "When a Research table's edits are flushed at close (the store's flush at window close and quit, the grid's leave, and the host's own close) and its previous version cannot be kept, the edits are saved anyway. When the save itself fails at close, the table's edits are written as a backup copy under .maugham/conflicts and the notice names the file. Reading Denver's \"at close\" as every flush, so that ⌘S and leaving the grid are included and only the debounced save still refuses, is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver; it is the notes' own split (`ResearchNoteDoor.SaveSource`). Everything else about a flush — the backup's name and contents, the notices' wording, what a second flush on the way out does, and background flushes — is M5-AN-082.",
+  "statement": "When a Research table's edits are flushed at close (the store's flush at window close and quit, the grid's leave, and the host's own close) and its previous version cannot be kept, the edits are saved anyway. When the save itself fails at close, the table's edits are written as a backup copy under .maugham/conflicts and the notice names the file. Reading Denver's \"at close\" as every flush, so that ⌘S and leaving the grid are included and only the debounced save still refuses, is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver; it is the notes' own split (`ResearchNoteDoor.SaveSource`). Everything else about a flush — the backup's name and contents, the notices' wording, what a second flush on the way out does, and background flushes — is M5-AN-082. Quit now waits for that save: ⌘Q is deferred until every open project's stores have closed, within a bound (M5-AN-087).",
   "source": {
    "type": "PRODUCTION",
    "ref": "MaughamTests/Editor/ResearchTableVersionTests.swift: test_aFlushWhoseVersionCannotBeKeptSavesAnyway, test_aFlushWhoseSaveFailsKeepsTheEditsAside; MaughamTests/Editor/ResearchTableGridTests.swift: test_aGridsLeaveSavesAnywayWhenTheVersionCannotBeKept, test_theCloseSavesAnywayWhenTheVersionCannotBeKept, test_theStoresFlushKeepsTheOpenEditInTheBackupWhenTheSaveFails"
@@ -1307,8 +1307,8 @@
   "evidence": {
    "property_test": null
   },
-  "known_gaps": "A quit within the save window is best-effort: nothing defers the quit, so the process may end before the store's close has flushed the table (the window's handler starts the close and does not wait for it). No test drives a quit.",
-  "fix_history": "Statement narrowed 2026-11-15 (hardening 11-11 plan 2 final review, G6): it carried material RULING-60 does not say (the backup's naming and contents, the exact notices, one backup and one notice on the way out, background flushes); that material is now in M5-AN-082, marked as the coordinator's call. No behaviour changed."
+  "known_gaps": "No test drives a real quit (AppKit's terminate cannot run in a test host); the quit's decision and its closers are pinned in M5-AN-087. A quit whose stores have not closed within the bound goes ahead.",
+  "fix_history": "Statement narrowed 2026-11-15 (hardening 11-11 plan 2 final review, G6): it carried material RULING-60 does not say (the backup's naming and contents, the exact notices, one backup and one notice on the way out, background flushes); that material is now in M5-AN-082, marked as the coordinator's call. No behaviour changed. Amended again 2026-11-15 (final review, G1): quit waits for the stores to close (M5-AN-087); before, the window's quit arm started the close and nothing waited for it."
  },
  {
   "claim_id": "M5-AN-082",
@@ -1395,5 +1395,22 @@
    "property_test": null
   },
   "known_gaps": "The third test's interleaving (which of two waiters the runtime wakes first) is the runtime's choice; it asserts the end state either way, and went red before the fix on the order observed. `reload()` called directly (the grid's own verb) is refused the same way and is not asked again."
+ },
+ {
+  "claim_id": "M5-AN-087",
+  "scope": "QuitCoordinator / MaughamAppDelegate.applicationShouldTerminate — ⌘Q waits for the stores to close",
+  "kind": "POSTCONDITION",
+  "statement": "When the app is asked to quit, it defers termination until every open project's stores have closed — the figure windows' last writes, then `DocumentStore.close()`, which flushes every pending save, a Research table's and a note's included (`ProjectSessionRegistry.quitClosers` → `ProjectSession.closeForQuit`), and any close already in flight is waited for — and then lets the quit go; with no project open the quit is immediate. The wait is bounded at ten seconds: stores that have not closed by then are left and the app quits anyway, never a hung quit. A second quit request while one is pending starts no second round, and the quit is let go exactly once. The quit coordinator is the only code that closes the stores at quit: the project window's own quit arm, which started a close nothing waited for, is gone. A test host is never held. The update paths are unchanged: Restart & Update's helper waits for the process to exit, and a dismissed staged update is handed to the helper at willTerminate, after the stores have closed. RULING-60 names quit as a close; the deferral, its bound and its shape are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/QuitCoordinatorTests.swift: test_theReplyComesAfterTheLastCloserHasFinished, test_aCloserThatNeverFinishesIsLeftAtTheBound, test_withNoOpenProjectTheQuitIsImmediate, test_aSecondRequestWhileOnePendsStartsNoSecondRound, test_aTablesPendingEditIsOnDiskBeforeTheReply, test_theRegistryOffersNoCloserWithNoProjectOpen, test_theDelegateAnswersFromTheCoordinator, test_theAppWiresTheDelegateAndTheWindowNoLongerClosesTheStoresAtQuit"
+  },
+  "warrant": "MEDIUM",
+  "intent": "INTENTIONAL — the coordinator's call, hardening 2026-11-11, not yet ruled by Denver (plan 2 final review, G1)",
+  "reachability": "LIVE — ⌘Q, Quit from the menu or the Dock, log out or restart, and Restart & Update, with a project open",
+  "evidence": {
+   "property_test": null
+  },
+  "known_gaps": "The AppKit half is not driven by any test: that AppKit asks the delegate, honours .terminateLater and quits on the reply is asserted only by the delegate's answer function and by reading the source (the adaptor is installed, the reply is made). It needs the manual smoke (type in a Research table, ⌘Q at once, reopen: the edit is there). While the quit is deferred the windows are still on screen over stores that are closing; nothing tested says a keystroke in that window of time is refused or kept."
  }
 ]

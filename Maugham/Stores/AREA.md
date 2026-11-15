@@ -8,7 +8,7 @@ Every file in `Maugham/Stores/` appears once.
 
 ### The session and the two big stores
 - `ProjectSession.swift` — an open project's stores and `claude` services, owned outside any view: `open(url:)`, `attachWindow`/`detachWindow`, `close()`; the sole assigner of the store's live canvas model (`CanvasLiveSeamTests`).
-- `ProjectSessionRegistry.swift` — one `ProjectSession` per project, borrowed by every window (`acquire(_:as:)`, `release`, `shutdownAll()`).
+- `ProjectSessionRegistry.swift` — one `ProjectSession` per project, borrowed by every window (`acquire(_:as:)`, `release`, `shutdownAll()`; `quitClosers()`: ⌘Q waits, `QuitCoordinator`).
 - `ProjectStore.swift` — the façade's core types (`ProjectStoreError`, `StructureItemKind`), the `ProjectStore` class, `load`, word counts, `derivedCache`.
 - `DocumentStore.swift` — the project-folder coordinator: the `NSFilePresenter` callbacks (`presenterDidChangeSubitem`), the `Document` registry, manifest IO and adoption hand-off, sessions and UI state, the typed mover (`relocate(plan:)`, `relocateUserContent`, `trash`), `coordinatedMove`/`coordinatedWrite`, `performFileSave(path:text:expecting:)`, `openResearchTable`'s registry (never hands back a closing or closed host), `admit`, `invalidateTrust`, `reReadAfterExternalChange`. Tripwires 14, 40, 49, 50.
 - `DocumentStore+Registry.swift` — `revoke(person:)`, `retire(device:)`, `claim(adopting:)`, `forgetPersonKey(person:)`, `settle`, `heldLines()`/`heldLinesByDevice()`, `highestOpIdApplied(fromPerson:)`, the silent-admission queue. Tripwires 41, 53.

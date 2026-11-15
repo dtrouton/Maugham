@@ -709,12 +709,17 @@
   "reason": "No ruling states when an outside change may reload a grid relative to a save in flight; the outside-change ruling (never overwritten silently) is kept by the save's own backup, which this claim does not change. The wait, the refusal and the asking again are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
  },
  {
+  "claim_id": "M5-AN-087",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-60 names quit among the closes whose save it rules (M5-AN-081) and says nothing of how the app makes time for that save; no ruling states that a quit is deferred, for how long, or what happens at the bound. The deferral, the ten-second bound and quitting anyway are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
   "_summary": {
    "reached": 32,
    "complies": 32,
    "violates": 0,
-   "no_ruling": 42,
-   "total": 74,
+   "no_ruling": 43,
+   "total": 75,
    "coverage": "43%",
    "by_ruling": {
     "RULING-1": [
