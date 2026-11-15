@@ -138,7 +138,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 ## Updates
 
-Maugham looks for a new version a minute after it opens, then every six hours, and also when the Mac wakes or you switch back to Maugham if one is due, and downloads it in the background. To look now, choose **Maugham → Check for Updates…**. While it's working, the menu item says what it's doing: *Checking for Updates…*, *Downloading Update…*, *Install Update…* once one is ready, then *Installing…*.
+Maugham looks for a new version a minute after it opens, then every six hours, and also when the Mac wakes or you switch back to Maugham if one is due, and downloads it in the background. To look now, choose **Maugham → Check for Updates…**. (If that window comes back by itself when Maugham reopens, it doesn't check until you click **Check Now**.) While it's working, the menu item says what it's doing: *Checking for Updates…*, *Downloading Update…*, *Install Update…* once one is ready, then *Installing…*.
 
 When an update is ready, a banner across the top of the project window says *Maugham <version> is ready*:
 
