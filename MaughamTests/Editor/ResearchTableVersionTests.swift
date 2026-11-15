@@ -37,6 +37,7 @@ final class ResearchTableVersionTests: XCTestCase {
         lockedFolders = []
         ResearchTableHost.wroteForTesting = nil
         ResearchTableHost.outsideBackupForTesting = nil
+        ResearchTableHost.duringReloadForTesting = nil
         DocumentStore.beforeCoordinatedWriteForTesting = nil
         for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
         noticeObservers = []
@@ -1327,6 +1328,146 @@ final class ResearchTableVersionTests: XCTestCase {
         ])
         await store.releaseResearchTable(host)
         XCTAssertEqual(heard.notices.count, 2, "the close says nothing more: \(heard.notices)")
+    }
+
+    // MARK: - Hardening 11-11 final review G3: no reload while a write is in flight
+
+    /// What the three tests below share: a mutable box the seams write to.
+    private final class Interleaving {
+        var midWrite: CheckedContinuation<Void, Never>?
+        var typed = false
+        var saves: [Task<Void, Never>] = []
+        var writes = 0
+    }
+
+    /// In a reload, after the file is read and before it lands: the writer
+    /// types and takes it back (the table is as it was, the host unsaved), and
+    /// the debounced save's write begins and is still in flight — it has read
+    /// the file and not yet written — when the reload goes on.
+    private func typeAndBeginASaveDuringTheReload(_ host: ResearchTableHost, _ steps: Interleaving) {
+        let clock = Clock()
+        host.now = {
+            steps.midWrite?.resume()
+            steps.midWrite = nil
+            return clock.date
+        }
+        ResearchTableHost.duringReloadForTesting = { [unowned self] host in
+            guard !steps.typed else { return }
+            steps.typed = true
+            let cell = self.key(host, 2, 2)
+            let original = host.state.table[cell]
+            try? await host.setCell(self.number(11), at: cell, undoManager: nil)
+            try? await host.setCell(original, at: cell, undoManager: nil)
+            await withCheckedContinuation { (reached: CheckedContinuation<Void, Never>) in
+                steps.midWrite = reached
+                steps.saves.append(Task { @MainActor in await host.saveAsTheTimerForTesting() })
+            }
+        }
+    }
+
+    /// **A reload never lands over a write in flight**: the file changes
+    /// outside a clean grid; while it is read again the writer types and
+    /// undoes, and the debounced save begins. The reload is refused — the
+    /// save keeps the outside version and writes the grid's — so the grid
+    /// shows what the file holds, not the other version.
+    func test_aReloadDoesNotLandWhileAWriteIsInFlight() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let steps = Interleaving()
+        typeAndBeginASaveDuringTheReload(host, steps)
+        try Data("Year,Revenue\n2025,40\n".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        await host.fileMayHaveChanged()
+        for save in steps.saves { await save.value }
+
+        XCTAssertTrue(steps.typed, "precondition: the reload ran, and the save began inside it")
+        XCTAssertEqual(steps.saves.count, 1)
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "10"]], "the writer's table was saved")
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)),
+                       "the grid shows what the file holds, not the outside version")
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(host.diskHash, ContentHash.of(try bytes(of: item)), "and knows the file's bytes as its own")
+        XCTAssertEqual(outsideBackups(of: item).count, 1, "the outside version is kept by the save")
+        XCTAssertFalse(heard.notices.contains { $0.hasPrefix("Reloaded") }, "\(heard.notices)")
+        XCTAssertEqual(heard.notices.filter { $0.contains("changed outside Maugham while you were editing it") }.count, 1,
+                       "\(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **A refused reload is asked again once the write has ended**: an
+    /// outside change that lands after that write is read then, and said —
+    /// not left until the file changes a third time.
+    func test_aReloadRefusedByAWriteInFlightHappensOnceTheWriteEnds() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let steps = Interleaving()
+        typeAndBeginASaveDuringTheReload(host, steps)
+        let path = file(try XCTUnwrap(item.path))
+        ResearchTableHost.wroteForTesting = { _ in
+            steps.writes += 1
+            if steps.writes == 1 { try? Data("Year,Revenue\n2025,50\n".utf8).write(to: path) }
+        }
+        try Data("Year,Revenue\n2025,40\n".utf8).write(to: path)
+
+        await host.fileMayHaveChanged()
+        for save in steps.saves { await save.value }
+
+        XCTAssertEqual(steps.writes, 1, "precondition: the save landed, and the file changed again after it")
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(50)),
+                       "the later outside change is read once the write has ended")
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "50"]], "nothing was written over it")
+        XCTAssertEqual(host.diskHash, ContentHash.of(try bytes(of: item)))
+        XCTAssertEqual(heard.notices.filter { $0.hasPrefix("Reloaded") }.count, 1, "said once: \(heard.notices)")
+        await store.releaseResearchTable(host)
+    }
+
+    /// **The sequence the review named**: save N is in flight when the file
+    /// is said to have changed; the writer types and the debounced save N+1
+    /// queues behind N; the outside change lands as N ends. Whichever of the
+    /// two the runtime wakes first, the grid ends showing the writer's table,
+    /// which is what the file holds, with the outside version kept.
+    func test_anOutsideChangeBetweenTwoQueuedSavesNeverReplacesTheGridMidWrite() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        let path = file(try XCTUnwrap(item.path))
+        let steps = Interleaving()
+        let clock = Clock()
+        host.now = { [unowned self, unowned host] in
+            // Inside save N: it has read the file and not yet written it.
+            if steps.saves.isEmpty {
+                steps.saves.append(Task { @MainActor in await host.fileMayHaveChanged() })
+                steps.saves.append(Task { @MainActor in
+                    try? await host.setCell(self.number(12), at: self.key(host, 2, 2), undoManager: nil)
+                    await host.saveAsTheTimerForTesting()
+                })
+            }
+            return clock.date
+        }
+        ResearchTableHost.wroteForTesting = { _ in
+            steps.writes += 1
+            if steps.writes == 1 { try? Data("Year,Revenue\n2025,40\n".utf8).write(to: path) }
+        }
+
+        try await writerSavesByTheTimer(11, host)   // save N
+        for save in steps.saves { await save.value }
+
+        XCTAssertEqual(steps.saves.count, 2, "precondition: both were asked inside save N")
+        XCTAssertEqual(steps.writes, 2, "precondition: N and N+1 both wrote")
+        XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(12)),
+                       "the grid shows the writer's table: \(heard.notices)")
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "12"]], "which is what the file holds")
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(host.diskHash, ContentHash.of(try bytes(of: item)))
+        XCTAssertEqual(outsideBackups(of: item).count, 1, "the outside version is kept")
+        XCTAssertFalse(heard.notices.contains { $0.hasPrefix("Reloaded") }, "\(heard.notices)")
+        await store.releaseResearchTable(host)
     }
 
     // MARK: - The rule

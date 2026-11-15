@@ -264,20 +264,46 @@ final class ResearchTableHost: FigureGridHost {
         _ = try await reloadUnlessEdited()
     }
 
+    /// **A write is in flight**: set as a save's body begins (`write`),
+    /// cleared as it ends. No reload lands while it is set (final review G3).
+    @ObservationIgnored private(set) var writeInFlight = false
+    /// How many writes have begun: a reload that read the file before one
+    /// began does not land after it.
+    @ObservationIgnored private var writesBegun = 0
+
     /// Test seam: runs in a reload after the file is read and before it lands
     /// — where a test types into the grid.
     static var duringReloadForTesting: (@MainActor (ResearchTableHost) async -> Void)?
 
-    /// The reload; false — nothing replaced — when an edit landed while the
-    /// file and the book were read (task 7 re-review N2): that edit is the
-    /// writer's, and its save keeps the outside version first (`write`).
-    private func reloadUnlessEdited() async throws -> Bool {
-        guard let store else { return false }
+    /// What a reload did.
+    private enum Reloaded {
+        /// The file's table replaced the one held.
+        case replaced
+        /// Nothing replaced: an edit landed while the file and the book were
+        /// read (or the host closed). That edit's save keeps the outside
+        /// version first (`write`).
+        case edited
+        /// Nothing replaced: a write was in flight, or began, while the file
+        /// was read — what was read may be older than what it writes.
+        case writing
+    }
+
+    /// The reload; nothing replaced when an edit landed while the file and
+    /// the book were read (task 7 re-review N2): that edit is the writer's,
+    /// and its save keeps the outside version first (`write`). **Nor over a
+    /// write in flight, or one begun since the file was read here** (final
+    /// review G3): the grid would show the outside table while the write puts
+    /// the writer's on disk. The caller asks again once the write has ended.
+    private func reloadUnlessEdited() async throws -> Reloaded {
+        guard let store else { return .edited }
+        guard !writeInFlight else { return .writing }
         let before = state.table
+        let begun = writesBegun
         let (read, _) = try await Self.readFile(itemId: itemId, store: store)
         await Self.duringReloadForTesting?(self)
         let context = try await store.tableImportContext()
-        guard state.table == before, !isClosed else { return false }
+        guard !writeInFlight, writesBegun == begun else { return .writing }
+        guard state.table == before, !isClosed else { return .edited }
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
@@ -294,7 +320,7 @@ final class ResearchTableHost: FigureGridHost {
         // A figure pinning this table reads the file just read: its card
         // follows the grid on screen (sweep 11-01 S2, #131).
         store.invalidateFigureCards()
-        return true
+        return .replaced
     }
 
     /// **The file may have changed outside Maugham** (the window's file
@@ -302,22 +328,45 @@ final class ResearchTableHost: FigureGridHost {
     /// longer hashes to what it read or wrote reads it again, and says so. A
     /// grid holding an edit — or given one while the file is read — is left
     /// to its save, which keeps the outside version first (`write`).
+    ///
+    /// **Never while a write is in flight** (final review G3): every save
+    /// asked is waited for — one queued behind the save seen at entry too —
+    /// and a reload a write overtook is refused (`reloadUnlessEdited`) and
+    /// asked again here once that write has ended, so an outside change
+    /// landing after it is still read.
     func fileMayHaveChanged() async {
-        await saving?.value
-        guard !isClosed, !isDirty, scheduledSave == nil, let store,
-              let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
-              let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
-        let lastSave = saving
-        let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
-        // A save of ours begun meanwhile is no outside change.
-        guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil, saving == lastSave else { return }
-        do {
-            guard try await reloadUnlessEdited() else { return }
-            MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
-                                    projectURL: projectURL)
-        } catch {
-            researchTableLog.error(
-                "\(path, privacy: .public) changed outside and did not read again: \(error.localizedDescription, privacy: .public)")
+        while true {
+            // Every save asked so far has ended: each waits on the one before it.
+            var waited: Task<Void, Never>?
+            while let last = saving, last != waited {
+                waited = last
+                await last.value
+            }
+            guard !isClosed, !isDirty, !writeInFlight, scheduledSave == nil, let store,
+                  let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
+                  let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
+            let lastSave = saving
+            let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
+            // A save of ours begun meanwhile is no outside change: it is
+            // waited for, and the file asked about again.
+            guard saving == lastSave, !writeInFlight else { continue }
+            guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil else { return }
+            do {
+                switch try await reloadUnlessEdited() {
+                case .replaced:
+                    MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
+                                            projectURL: projectURL)
+                    return
+                case .edited:
+                    return
+                case .writing:
+                    continue
+                }
+            } catch {
+                researchTableLog.error(
+                    "\(path, privacy: .public) changed outside and did not read again: \(error.localizedDescription, privacy: .public)")
+                return
+            }
         }
     }
 
@@ -659,6 +708,13 @@ final class ResearchTableHost: FigureGridHost {
     /// they take the outside-change branch; a second change is `saveFailed`.
     private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
                        restoring: Bool = false, source: SaveSource, secondRead: Bool = false) async -> WriteOutcome {
+        // In flight from here to its end (G3). Saves are one at a time
+        // (`saving`), so the flag is one write's; its second pass is inside it.
+        if !secondRead {
+            writeInFlight = true
+            writesBegun += 1
+        }
+        defer { if !secondRead { writeInFlight = false } }
         func refused(_ why: WriteOutcome.Refusal) -> WriteOutcome {
             isDirty = true
             return .refused(why)
