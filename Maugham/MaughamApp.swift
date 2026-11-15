@@ -130,7 +130,7 @@ struct MaughamApp: App {
                            UpdateInstaller.launchSwapHelper(
                                stagedBundle: bundleURL, version: version,
                                updatesDirectory: UpdateChecker.updatesDirectory, relaunch: relaunch) {
-                            NSApp.terminate(nil)  // willTerminate flushes autosave; helper waits for exit then swaps
+                            NSApp.terminate(nil)  // the quit coordinator closes the stores; the helper waits for exit, then swaps
                         } else {
                             NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
                         }
