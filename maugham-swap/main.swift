@@ -11,8 +11,10 @@
 //   0   swapped
 //   64  usage: not exactly two arguments, or a path that is not absolute
 //   1   the call failed (the strerror text on stderr); nothing was swapped
-//   3   the volume does not support swap renaming (ENOTSUP or EINVAL);
-//       nothing was swapped, and nothing in between is attempted
+//   3   the volume does not support swap renaming (ENOTSUP, or its alias
+//       EOPNOTSUPP); nothing was swapped, and nothing in between is attempted.
+//       NOT EINVAL: that is also a path-shaped error (`a/.`), and the app
+//       remembers exit 3 per volume for good (`NoSwapVolumeMemory`).
 
 import Darwin
 
@@ -31,7 +33,7 @@ guard arguments.count == 3,
 if renamex_np(arguments[1], arguments[2], UInt32(RENAME_SWAP)) != 0 {
     let code = errno
     let reason = String(cString: strerror(code))
-    if code == ENOTSUP || code == EINVAL {
+    if code == ENOTSUP || code == EOPNOTSUPP {
         fail("maugham-swap: this volume cannot swap entries atomically: " + reason, status: 3)
     }
     fail("maugham-swap: " + reason, status: 1)

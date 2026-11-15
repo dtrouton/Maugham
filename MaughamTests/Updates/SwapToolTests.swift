@@ -81,6 +81,18 @@ final class SwapToolTests: XCTestCase {
         XCTAssertEqual(try marker(in: b), "B")
     }
 
+    /// A path-shaped EINVAL (`a/.`) is a plain failure, never "this volume
+    /// cannot swap": that answer turns in-place updates off on the disk for good.
+    func test_aPathShapedEINVAL_exits1_notTheVolumeCode() throws {
+        let a = try makeDirectory("a", content: "A")
+        let b = try makeDirectory("b", content: "B")
+        let result = try runTool([a.path + "/.", b.path])
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertEqual(result.stderr, "maugham-swap: \(String(cString: strerror(EINVAL)))\n")
+        XCTAssertEqual(try marker(in: a), "A")
+        XCTAssertEqual(try marker(in: b), "B")
+    }
+
     func test_aMissingPath_exits1_namesTheError_andTouchesNothing() throws {
         let a = try makeDirectory("a", content: "A")
         let missing = TestTemp.root.appendingPathComponent("missing")

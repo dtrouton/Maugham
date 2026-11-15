@@ -21,7 +21,7 @@ Every file in `Maugham/Updates/` appears once.
 - `UpdateCheckRequest.swift` — the one-shot flag the menu item sets before `openWindow`.
 - `UpdateMenuCommand.swift` — the menu bar entry; its title derives from `UpdateState`.
 
-Outside the folder: `maugham-swap/main.swift` (repo root) — the compiled swap tool, `maugham-swap <absolute-pathA> <absolute-pathB>`, one `renamex_np(RENAME_SWAP)` call. Exit 0 swapped, 64 usage, 1 failed (`strerror` on stderr), 3 the volume cannot swap (`ENOTSUP`/`EINVAL`); nothing is swapped on a non-zero exit. Embedded at `Contents/Helpers/maugham-swap` in every configuration (`project.yml`); `release.yml` re-signs it inside-out and `verify-mac-signing.sh app` holds it, with `maugham-mcp`, to the team, the hardened runtime and no `get-task-allow` (`EXPECT_NESTED`).
+Outside the folder: `maugham-swap/main.swift` (repo root) — the compiled swap tool, `maugham-swap <absolute-pathA> <absolute-pathB>`, one `renamex_np(RENAME_SWAP)` call. Exit 0 swapped, 64 usage, 1 failed (`strerror` on stderr), 3 the volume cannot swap (`ENOTSUP` only: `EINVAL` is also path-shaped, and 3 is remembered for good); nothing is swapped on a non-zero exit. Embedded at `Contents/Helpers/maugham-swap` in every configuration (`project.yml`); `release.yml` re-signs it inside-out and `verify-mac-signing.sh app` holds it, with `maugham-mcp`, to the team, the hardened runtime and no `get-task-allow` (`EXPECT_NESTED`).
 
 ## Rules
 
