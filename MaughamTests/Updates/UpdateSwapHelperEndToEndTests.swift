@@ -100,6 +100,16 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
     private func runHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
                            swapToolArgument: String? = nil, bundleIdentifier: String? = nil,
                            allowance: TimeInterval = helperAllowance) throws -> Int32 {
+        let p = try launchHelper(f, relaunch: relaunch, team: team, swapToolArgument: swapToolArgument,
+                                 bundleIdentifier: bundleIdentifier)
+        // A reused pid would park the quit-wait, and a stuck step (ditto, a
+        // stub, the swap) would park the helper; never hang the gate on either.
+        return runBounded(p, allowance: allowance)
+    }
+
+    /// Starts the helper and returns at once; `runBounded` waits for it.
+    private func launchHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
+                              swapToolArgument: String? = nil, bundleIdentifier: String? = nil) throws -> Process {
         let script = f.root.appendingPathComponent("helper.sh")
         try write(UpdateInstaller.helperScript(tools: f.tools), to: script)
         let p = Process()
@@ -115,9 +125,20 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try p.run()
-        // A reused pid would park the quit-wait, and a stuck step (ditto, a
-        // stub, the swap) would park the helper; never hang the gate on either.
-        return runBounded(p, allowance: allowance)
+        return p
+    }
+
+    /// Polls (bounded, `seconds`) until a process whose command line ends with
+    /// `suffix` is listed. The self-tests start their 1 s allowance only once
+    /// the stuck step EXISTS, so a loaded machine slow to spawn it cannot
+    /// make the failure message miss it.
+    private func waitUntilListed(_ suffix: String, seconds: TimeInterval = 60) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if Self.processTable().contains(where: { $0.line.hasSuffix(suffix) }) { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return false
     }
 
     /// Waits for a launched `p` at most `allowance`. Past it the process tree
@@ -495,6 +516,10 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try p.run()
+        guard waitUntilListed("/bin/sleep 7\(marker)") else {
+            Self.killTree(under: p.processIdentifier)
+            return XCTFail("the stuck child never started")
+        }
 
         var messages: [String] = []
         let options = XCTExpectedFailure.Options()
@@ -508,16 +533,23 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 12, "bounded: no unbounded wait after the kill")
         XCTAssertEqual(messages.count, 1, "\(messages)")
-        XCTAssertTrue(messages.first?.contains("/bin/sleep 7\(marker)") ?? false, messages.first ?? "")
+        // A tree LINE that is the stuck process itself, not an argv quoting it.
+        XCTAssertTrue(Self.namesProcess("/bin/sleep 7\(marker)", in: messages.first), messages.first ?? "")
         XCTAssertFalse(p.isRunning, "the helper itself was killed")
         XCTAssertFalse(processStillListed("/bin/sleep 7\(marker)"), "its child was killed too")
     }
 
+    /// Whether a failure message's process tree has a line for a process
+    /// whose command line ends with `suffix`.
+    private static func namesProcess(_ suffix: String, in message: String?) -> Bool {
+        (message ?? "").split(separator: "\n").contains { $0.hasSuffix(suffix) }
+    }
+
     /// Whether a process whose command line ends with `suffix` is still
-    /// listed (or `ps` gives nothing), polling for up to 2 s while a
-    /// SIGKILLed one is reaped.
+    /// listed (or `ps` gives nothing), polling for up to 10 s while a
+    /// SIGKILLed one is reaped (a loaded machine reaps slowly).
     private func processStillListed(_ suffix: String) -> Bool {
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             let table = Self.processTable()
             // An empty table is ps failing, not proof of absence.
@@ -544,13 +576,19 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             messages.append(issue.compactDescription)
             return issue.compactDescription.contains("did not finish within 1 s")
         }
+        let p = try launchHelper(f)
+        guard waitUntilListed("/bin/sleep 6\(marker)") else {
+            Self.killTree(under: p.processIdentifier)
+            return XCTFail("the helper never reached the stuck codesign stub")
+        }
         let started = Date()
         XCTExpectFailure("the stuck stub must be reported", options: options) {
-            _ = try? runHelper(f, allowance: 1)
+            _ = runBounded(p, allowance: 1)
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 12, "bounded: no unbounded wait after the kill")
         XCTAssertEqual(messages.count, 1, "\(messages)")
-        XCTAssertTrue(messages.first?.contains("/bin/sleep 6\(marker)") ?? false, messages.first ?? "")
+        // A tree LINE that is the stuck process itself, not an argv quoting it.
+        XCTAssertTrue(Self.namesProcess("/bin/sleep 6\(marker)", in: messages.first), messages.first ?? "")
         XCTAssertFalse(processStillListed("/bin/sleep 6\(marker)"), "the stuck step survived the harness")
     }
 }
