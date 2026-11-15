@@ -240,7 +240,7 @@ public final class DocumentStore {
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
     @ObservationIgnored private(set) var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
-    @ObservationIgnored private var researchTableClosings: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var researchTableClosings: [String: Task<Bool, Never>] = [:]
 
     /// **Some figure's state may have moved** — bumped by every figure
     /// trigger that refills the cards (`invalidateFigureCards`: an open host's
@@ -948,7 +948,7 @@ public final class DocumentStore {
     /// wherever the item then is (its path is asked at the save).
     public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
         for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
-        for closing in Array(researchTableClosings.values) { await closing.value }
+        for closing in Array(researchTableClosings.values) { _ = await closing.value }
         if let fileSaveScheduler { await fileSaveScheduler.flush() }
         // Every note's pending edit, saved now (a flush saves even when the
         // version it replaces cannot be kept: `ResearchNoteDoor.whenTheKeepFails`),
@@ -974,7 +974,7 @@ public final class DocumentStore {
     /// never registered or handed back, and a closed entry is replaced.
     func openResearchTable(itemId: String) async throws -> ResearchTableHost {
         for _ in 0..<2 {
-            if let closing = researchTableClosings[itemId] { await closing.value }
+            if let closing = researchTableClosings[itemId] { _ = await closing.value }
             if let live = liveResearchTable(itemId) {
                 researchTableUses[itemId, default: 0] += 1
                 return live
@@ -1025,18 +1025,29 @@ public final class DocumentStore {
         }
         researchTableUses[id] = nil
         researchTables[id] = nil
-        let closing = Task { @MainActor in await host.close() }
+        // True when its last save landed (`settleResearchTable` asks).
+        let closing = Task { @MainActor () -> Bool in
+            await host.close()
+            return !host.isDirty
+        }
         researchTableClosings[id] = closing
-        await closing.value
+        _ = await closing.value
         if researchTableClosings[id] == closing { researchTableClosings[id] = nil }
     }
 
     /// **Research item `itemId`'s grid, settled** — its open edit committed and
     /// its pending save written — before a verb reads the file (*Use in
-    /// Document*, *Bring Back to Figures*).
-    func settleResearchTable(itemId: String) async {
-        await researchTables[itemId]?.settle(commitOpenEdits: true)
-        await researchTableClosings[itemId]?.value
+    /// Document*, *Bring Back to Figures*). **True when the file now holds
+    /// what the grid shows**: no grid has it open, or its host is clean after
+    /// the settle. False when the flush kept the edits aside (the host is
+    /// still unsaved, or closed so): the file is stale, and a verb that would
+    /// read it refuses (hardening 11-11 final review G2).
+    @discardableResult
+    func settleResearchTable(itemId: String) async -> Bool {
+        let host = researchTables[itemId]
+        await host?.settle(commitOpenEdits: true)
+        let closedClean = await researchTableClosings[itemId]?.value ?? true
+        return closedClean && !(host?.isDirty ?? false)
     }
 
     /// **Research item `itemId`'s table put back to a kept `version`** (report

@@ -82,8 +82,12 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
-        // A grid open on the table writes what it holds first (report plan 8b Task 7).
-        await documentStore.settleResearchTable(itemId: item.id)
+        // A grid open on the table writes what it holds first (report plan 8b
+        // Task 7); one whose edits could not be written leaves a stale file,
+        // which is not used.
+        guard await documentStore.settleResearchTable(itemId: item.id) else {
+            throw UseInDocumentRefused(reason: .unsavedEdits(item.title))
+        }
         let sidecar = researchTableSidecar(of: item)
         if try await figureToBringBack(namedBy: sidecar, itemId: item.id, documentStore: documentStore) != nil {
             return try await bringBack(researchItemId: item.id, piece: piece, name: name)
@@ -230,8 +234,12 @@ extension ProjectStore {
               item.type == .asset else {
             throw UseInDocumentRefused(reason: .notInResearch)
         }
-        // A grid open on the copy writes what it holds first (report plan 8b Task 7).
-        await documentStore.settleResearchTable(itemId: item.id)
+        // A grid open on the copy writes what it holds first (report plan 8b
+        // Task 7); one whose edits could not be written leaves a stale file,
+        // which is not brought back.
+        guard await documentStore.settleResearchTable(itemId: item.id) else {
+            throw FigureReturnRefused(reason: .unsavedEdits(item.title))
+        }
         guard let figureId = researchTableSidecar(of: item)?.figureId,
               let record = manifest.figures?.first(where: { $0.id == figureId }) else {
             throw FigureReturnRefused(reason: .notAParkedCopy)
@@ -747,12 +755,17 @@ public struct UseInDocumentRefused: LocalizedError, Equatable {
         case noFile(String)
         /// The table holds more non-empty cells than `TableCSV.figureCellLimit`.
         case tooLarge(cells: Int)
+        /// The table is open in a grid whose edits could not be saved: the
+        /// file does not hold what the grid shows.
+        case unsavedEdits(String)
     }
 
     public let reason: Reason
 
     public var errorDescription: String? {
         switch reason {
+        case .unsavedEdits(let title):
+            return "\(title) has edits that couldn't be saved, so it wasn't used. Try again once the table can be saved."
         case .notInResearch:
             return "That item is no longer in Research."
         case .notAFigure(let title):
@@ -809,12 +822,17 @@ public struct FigureReturnRefused: LocalizedError, Equatable {
         /// This copy is from an earlier park: the figure came back and was
         /// sent to Research again since (final re-review).
         case sentAgainSince(FigureKind)
+        /// The copy is open in a grid whose edits could not be saved: the
+        /// file does not hold what the grid shows.
+        case unsavedEdits(String)
     }
 
     public let reason: Reason
 
     public var errorDescription: String? {
         switch reason {
+        case .unsavedEdits(let title):
+            return "\(title) has edits that couldn't be saved, so it wasn't brought back. Try again once the table can be saved."
         case .notAParkedCopy:
             return "This item is not a figure's copy in Research."
         case .notParked:

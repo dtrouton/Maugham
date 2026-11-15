@@ -179,6 +179,49 @@ final class BringBackTests: XCTestCase {
         XCTAssertNil(store.openFigure(forId: record.id), "no host is left open")
     }
 
+    /// **A copy whose grid holds edits that could not be saved is not
+    /// brought back** (hardening 11-11 final review G2): the flush keeps the
+    /// edits aside (the folder is read-only), so the file is stale — the
+    /// return refuses, appends nothing to the figure's log, and says so once.
+    func test_aCopyWhoseEditsCouldNotBeSavedIsNotBroughtBack() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await budget(projectStore)
+        let item = try await projectStore.sendToResearch(figureId: record.id, scope: .shared)
+        let park = try XCTUnwrap(try ops(of: record.id).last)
+        let host = try await store.openResearchTable(itemId: item.id)
+        let table = host.state.table
+        try await host.setCell(Cell(content: .value(.number(7))),
+                               at: CellKey(row: table.rows[1], column: table.columns[1]), undoManager: nil)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+
+        var thrown: [FigureReturnRefused] = []
+        do {
+            _ = try await projectStore.bringBack(researchItemId: item.id, piece: nil)
+            XCTFail("a stale copy is not brought back")
+        } catch let refused as FigureReturnRefused {
+            thrown.append(refused)
+        }
+
+        XCTAssertEqual(thrown.map(\.reason), [.unsavedEdits(item.title)], "refused once")
+        XCTAssertEqual(thrown.first?.localizedDescription,
+                       "\(item.title) has edits that couldn't be saved, so it wasn't brought back. "
+                           + "Try again once the table can be saved.")
+        XCTAssertEqual(try ops(of: record.id).last?.opId, park.opId, "nothing was appended to the figure's log")
+        let after = try await state(record.id)
+        XCTAssertNotNil(after.parked, "the figure is still in Research")
+        XCTAssertTrue(host.isDirty, "precondition: the edits were kept aside, not saved")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        _ = try await projectStore.bringBack(researchItemId: item.id, piece: nil)
+        let back = try await state(record.id)
+        XCTAssertNil(back.parked, "once it saves, the copy comes back")
+        XCTAssertEqual(back.table[CellKey(row: back.table.rows[1], column: back.table.columns[1])]?.content,
+                       .value(.number(7)), "with what the grid shows")
+        await store.releaseResearchTable(host)
+    }
+
     // MARK: - Review Focus 3
 
     /// A working copy edited in Excel and re-saved — a byte-order mark, CRLF,
