@@ -59,6 +59,11 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let installed = root.appendingPathComponent(installedParent).appendingPathComponent("Maugham.app")
         let updates = root.appendingPathComponent("Updates", isDirectory: true)
         try write("new", to: staged.appendingPathComponent("Contents/marker"))
+        // The staged copy is this app at the version being installed; the
+        // helper reads the version back off the copy it is about to swap in.
+        XCTAssertTrue((["CFBundleIdentifier": bundleIdentifier, "CFBundleShortVersionString": version]
+                       as NSDictionary).write(to: staged.appendingPathComponent("Contents/Info.plist"),
+                                              atomically: true))
         try write("old", to: installed.appendingPathComponent("Contents/marker"))
         try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
         let toolsDir = root.appendingPathComponent("tools", isDirectory: true)
@@ -75,7 +80,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         return Fixture(root: root, staged: staged, installed: installed, updates: updates,
                        codesignLog: codesignLog, openLog: openLog,
                        tools: .init(codesign: codesign.path, spctl: spctl.path, ditto: "/usr/bin/ditto",
-                                    open: open.path),
+                                    open: open.path, plistBuddy: "/usr/libexec/PlistBuddy"),
                        swapTool: realSwapTool)
     }
 
@@ -313,7 +318,8 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     private func setStagedIdentifier(_ id: String, in f: Fixture) throws {
         let plist = f.staged.appendingPathComponent("Contents/Info.plist")
-        XCTAssertTrue((["CFBundleIdentifier": id] as NSDictionary).write(to: plist, atomically: true))
+        XCTAssertTrue((["CFBundleIdentifier": id, "CFBundleShortVersionString": version] as NSDictionary)
+            .write(to: plist, atomically: true))
     }
 
     /// The same team signs another app: its copy fails the requirement's
@@ -355,6 +361,40 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             XCTAssertNil(f.opened, bad)
         }
         XCTAssertFalse(allNamesUnderTheTestRoot().contains("PWNED"))
+    }
+
+    // MARK: - The version, re-read at install time
+
+    /// The staged copy waited in a user-writable folder: an older signed,
+    /// notarized Maugham put there passes codesign, spctl and the identifier
+    /// and team requirement — the version read off the copy refuses it, so
+    /// there is no silent downgrade.
+    func test_aCopyAtAnotherVersion_isRefusedAtInstall_andTheAppIsUntouched() throws {
+        for other in ["0.42.0", "0.43.1", "0.43.0.1", ""] {
+            let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+            var info: [String: Any] = ["CFBundleIdentifier": bundleIdentifier]
+            if !other.isEmpty { info["CFBundleShortVersionString"] = other }
+            XCTAssertTrue((info as NSDictionary).write(
+                to: f.staged.appendingPathComponent("Contents/Info.plist"), atomically: true))
+            let before = try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker"))
+            XCTAssertEqual(try runHelper(f, relaunch: true), 1, other)
+            XCTAssertEqual(try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker")), before, other)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.installed.path), ["Contents"], other)
+            XCTAssertFalse(exists(f.inflight), other)
+            XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n", other)
+            XCTAssertEqual(f.opened, [f.installed.path], "the old app comes back: \(other)")
+            try FileManager.default.removeItem(at: f.root)
+        }
+    }
+
+    /// A copy with no Info.plist at all is refused the same way.
+    func test_aCopyWithNoInfoPlist_isRefusedAtInstall() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try FileManager.default.removeItem(at: f.staged.appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(try runHelper(f), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
     }
 
     // MARK: - The swap tool ($8)

@@ -98,11 +98,15 @@ public enum UpdateInstaller {
         let spctl: String
         let ditto: String
         let open: String
+        /// Reads the `.inflight` copy's `CFBundleShortVersionString` back at
+        /// install time, so a copy swapped for another version is refused.
+        let plistBuddy: String
 
         static let system = HelperTools(codesign: "/usr/bin/codesign",
                                         spctl: "/usr/sbin/spctl",
                                         ditto: "/usr/bin/ditto",
-                                        open: "/usr/bin/open")
+                                        open: "/usr/bin/open",
+                                        plistBuddy: "/usr/libexec/PlistBuddy")
 
         /// Absolute, and nothing but letters, digits, `/`, `.`, `_` and `-`.
         static func isSafePath(_ path: String) -> Bool {
@@ -140,7 +144,7 @@ public enum UpdateInstaller {
     static let swapToolRelativePath = "Contents/Helpers/maugham-swap"
 
     /// The swap tool's exit status when the volume does not support swap
-    /// renaming (`ENOTSUP`/`EINVAL`). The helper records it as
+    /// renaming (`ENOTSUP`, never `EINVAL`). The helper records it as
     /// `HelperFailureStep.swapUnsupported`.
     static let swapUnsupportedExitCode: Int32 = 3
 
@@ -157,7 +161,8 @@ public enum UpdateInstaller {
     /// `.inflight` sibling, **re-checks that copy** — `codesign --verify --deep
     /// --strict` against a requirement naming the running app's bundle
     /// identifier and team, then
-    /// `spctl -a -t exec` — and only then atomically swaps it into the install
+    /// `spctl -a -t exec`, then its `CFBundleShortVersionString` against the
+    /// version being installed — and only then atomically swaps it into the install
     /// location using `renamex_np(RENAME_SWAP)` so /Applications/Maugham.app is
     /// NEVER absent (#67 F12). The re-check runs on the exact bytes the swap
     /// moves, after the app has exited, so the download-time verdict is never
@@ -183,7 +188,8 @@ public enum UpdateInstaller {
         precondition(HelperTools.isSafePath(tools.codesign)
                      && HelperTools.isSafePath(tools.spctl)
                      && HelperTools.isSafePath(tools.ditto)
-                     && HelperTools.isSafePath(tools.open),
+                     && HelperTools.isSafePath(tools.open)
+                     && HelperTools.isSafePath(tools.plistBuddy),
                      "helper tool paths are constants and must be plain absolute paths")
         // Built line by line — NOT a Swift multi-line literal — so every line
         // lands at column 0.
@@ -240,9 +246,11 @@ public enum UpdateInstaller {
             "  exit 1",
             "fi",
             "# Re-check the exact bytes about to be swapped in: this app, signed by our",
-            "# team (one codesign call checks validity, identifier AND team), and notarized.",
+            "# team (one codesign call checks validity, identifier AND team), notarized,",
+            "# and at exactly the version being installed (no silent downgrade).",
             #"if ! "\#(tools.codesign)" --verify --deep --strict --test-requirement="=identifier \"$IDENTIFIER\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT" \"#,
-            #"  || ! "\#(tools.spctl)" -a -t exec "$INFLIGHT"; then"#,
+            #"  || ! "\#(tools.spctl)" -a -t exec "$INFLIGHT" \"#,
+            #"  || [ "$("\#(tools.plistBuddy)" -c 'Print :CFBundleShortVersionString' "$INFLIGHT/Contents/Info.plist" 2>/dev/null)" != "$VERSION" ]; then"#,
             #"  rm -rf "$INFLIGHT" || true"#,
             #"  record "refused $VERSION" || true"#,
             "  reopen",

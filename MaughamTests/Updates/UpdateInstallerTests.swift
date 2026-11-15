@@ -119,6 +119,9 @@ final class UpdateInstallerTests: XCTestCase {
         let refused = at("record \"refused $VERSION\"")
         let swap = at("\"$SWAP_TOOL\" \"$INFLIGHT\"")
         XCTAssertTrue(wait < copy && copy < codesign && codesign < spctl && spctl < refused && refused < swap)
+        // The version is read off the copy after spctl, inside the same refusal.
+        let versionCheck = at(#"|| [ "$("/usr/libexec/PlistBuddy" -c 'Print :CFBundleShortVersionString' "$INFLIGHT/Contents/Info.plist" 2>/dev/null)" != "$VERSION" ]; then"#)
+        XCTAssertTrue(spctl < versionCheck && versionCheck < refused)
         let refusalBlock = String(script[refused...]).components(separatedBy: "\nfi\n")[0]
         XCTAssertTrue(refusalBlock.hasSuffix("exit 1"), refusalBlock)
         XCTAssertTrue(script[spctl..<refused].contains("rm -rf \"$INFLIGHT\""))
@@ -127,7 +130,8 @@ final class UpdateInstallerTests: XCTestCase {
     /// The tool paths are the only interpolated values; they must be inert.
     func test_helperToolPaths_arePlainAbsolutePaths() {
         let system = UpdateInstaller.HelperTools.system
-        for path in [system.codesign, system.spctl, system.ditto, system.open] {
+        XCTAssertEqual(system.plistBuddy, "/usr/libexec/PlistBuddy")
+        for path in [system.codesign, system.spctl, system.ditto, system.open, system.plistBuddy] {
             XCTAssertTrue(UpdateInstaller.HelperTools.isSafePath(path), path)
         }
         for bad in ["usr/bin/x", "/a b", "/a\"b", "/a$(b)", "/a`b`", "/a;b", ""] {
