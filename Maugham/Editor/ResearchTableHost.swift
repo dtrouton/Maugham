@@ -543,7 +543,8 @@ final class ResearchTableHost: FigureGridHost {
         await landPendingEdits()
         while scheduledSave != nil { await landPendingEdits() }
         guard !isDirty else {
-            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made. "
+                + "Don’t send it again; ask the writer to save or reopen the table.")
         }
         if isClosed { throw Refused(reason: .closed) }
         if let refusal { throw Refused(reason: refusal) }
@@ -564,7 +565,7 @@ final class ResearchTableHost: FigureGridHost {
         guard await write.value == .wrote else {
             guard let back = ResearchAssistantRevert.reverted(state.table, prior: prior, next: next) else {
                 throw NotSaved(message: "The table’s change couldn’t be saved. It is still in the table and "
-                    + "will be saved with the writer’s next edit, so don’t send it again.")
+                    + "will be saved with the writer’s next save, so don’t send it again.")
             }
             // What is left is the writer's own typing (if any): its save is the writer's.
             isDirty = state.table != next
@@ -650,7 +651,7 @@ final class ResearchTableHost: FigureGridHost {
         guard await write.value == .wrote else {
             guard state.table == restored else {
                 throw NotSaved(message: "The version couldn’t be restored. What is in the table now "
-                    + "will be saved with your next edit.")
+                    + "will be saved with your next save.")
             }
             state.table = priorTable
             (separator, lineEnding, hasBOM) = priorFile

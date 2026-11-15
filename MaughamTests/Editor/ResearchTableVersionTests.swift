@@ -719,7 +719,8 @@ final class ResearchTableVersionTests: XCTestCase {
             XCTFail("the write should not have been made")
         } catch let notSaved as ResearchTableHost.NotSaved {
             XCTAssertEqual(notSaved.message,
-                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made. "
+                               + "Don’t send it again; ask the writer to save or reopen the table.")
         }
 
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)), "the writer's edit, alone")
@@ -1057,7 +1058,8 @@ final class ResearchTableVersionTests: XCTestCase {
             XCTFail("the write should not have been made")
         } catch let notSaved as ResearchTableHost.NotSaved {
             XCTAssertEqual(notSaved.message,
-                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+                           "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made. "
+                               + "Don’t send it again; ask the writer to save or reopen the table.")
         }
 
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(11)), "the writer's edit, alone")
@@ -1328,6 +1330,35 @@ final class ResearchTableVersionTests: XCTestCase {
         ])
         await store.releaseResearchTable(host)
         XCTAssertEqual(heard.notices.count, 2, "the close says nothing more: \(heard.notices)")
+    }
+
+    // MARK: - Hardening 11-11 final review G4: what the assistant is told
+
+    /// **An assistant's change that could not be saved and cannot be taken
+    /// back cell by cell** (it deleted a row) stays in the table, and the
+    /// assistant is told it goes with the writer's next save — a flush or the
+    /// close saves it too, not only an edit.
+    func test_anAssistantChangeThatStaysSaysItGoesWithTheNextSave() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n2026,20\n", in: projectStore)
+        let host = try await open(item, store, clock: Clock())
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try lock(folder)
+
+        do {
+            try await host.assistantEdit { table in table.deleteRow(table.rows[2]) }
+            XCTFail("the save should not have landed")
+        } catch let notSaved as ResearchTableHost.NotSaved {
+            XCTAssertEqual(notSaved.message, "The table’s change couldn’t be saved. It is still in the table and "
+                + "will be saved with the writer’s next save, so don’t send it again.")
+        }
+
+        XCTAssertEqual(host.state.table.rows.count, 2, "the change stays in the table")
+        XCTAssertTrue(host.isDirty)
+        try unlock(folder)
+        await host.flush()
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "10"]], "and the next save writes it")
+        await store.releaseResearchTable(host)
     }
 
     // MARK: - Hardening 11-11 final review G3: no reload while a write is in flight
