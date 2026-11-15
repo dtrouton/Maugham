@@ -39,6 +39,55 @@ jobs:
           # pushes back to git, so don't leave the token in .git/config.
           persist-credentials: false
 
+      - name: Classify release (stable vs dry-run prerelease)
+        id: channel
+        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
+        # builds are throwaway signing/notarization shakedowns and MUST be marked
+        # prerelease so the stable channel's release poll (which skips
+        # prereleases, GitHubReleasesAPI.latestMacRelease) never surfaces them to installed users. Real releases use
+        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
+        # safety structural — not a manual post-publish flip that could race.
+        run: |
+          set -euo pipefail
+          PATCH="${GITHUB_REF_NAME##*.}"
+          if [[ "$PATCH" -ge 90 ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release (patch $PATCH) → not prerelease"
+          fi
+
+      - name: Require a green CI run for this commit
+        # This job does NOT run the test suite. It used to (23 of a release's
+        # 33 minutes), in Debug, on a second build — never on the signed app
+        # this job ships — and so repeated, for the same commit on the same
+        # image, what ci.yml had already proved on main. The gate asks for that
+        # proof instead: the tagged commit must have a SUCCESSFUL `CI` run.
+        # A cancelled run is not one (a newer push cancels the older run, so
+        # wait for the run on the commit you tag), and a `[skip ci]` commit
+        # has none. This makes "CI before tag" a gate rather than a habit.
+        # A dry-run tag (patch >= 90) may sit on a throwaway commit CI never
+        # saw: it warns and goes on — it is a signing shakedown, published as
+        # a prerelease no installed app is offered.
+        # It runs before any signing secret is loaded: a tag that is going to be
+        # refused never imports the certificate or the notary key.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+          if [[ "$GREEN" -ge 1 ]]; then
+            echo "CI is green for ${SHA}."
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            echo "::warning::No successful CI run for ${SHA}; continuing because this is a dry-run tag."
+          else
+            echo "::error::No successful CI run for ${SHA}. Push the commit to main, wait for CI to finish green on THAT commit, then delete and re-push the tag."
+            exit 1
+          fi
+
       - name: Set up Xcode 27.0
         # Pinned (NOT latest-stable) so an unexpected Xcode bump on the runner
         # can't silently change the toolchain between releases — and a preview
@@ -126,53 +175,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "Releasing Maugham $VERSION ($BUILD)"
-
-      - name: Classify release (stable vs dry-run prerelease)
-        id: channel
-        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
-        # builds are throwaway signing/notarization shakedowns and MUST be marked
-        # prerelease so the stable channel's release poll (which skips
-        # prereleases, GitHubReleasesAPI.latestMacRelease) never surfaces them to installed users. Real releases use
-        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
-        # safety structural — not a manual post-publish flip that could race.
-        run: |
-          set -euo pipefail
-          PATCH="${GITHUB_REF_NAME##*.}"
-          if [[ "$PATCH" -ge 90 ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "Stable release (patch $PATCH) → not prerelease"
-          fi
-
-      - name: Require a green CI run for this commit
-        # This job does NOT run the test suite. It used to (23 of a release's
-        # 33 minutes), in Debug, on a second build — never on the signed app
-        # this job ships — and so repeated, for the same commit on the same
-        # image, what ci.yml had already proved on main. The gate asks for that
-        # proof instead: the tagged commit must have a SUCCESSFUL `CI` run.
-        # A cancelled run is not one (a newer push cancels the older run, so
-        # wait for the run on the commit you tag), and a `[skip ci]` commit
-        # has none. This makes "CI before tag" a gate rather than a habit.
-        # A dry-run tag (patch >= 90) may sit on a throwaway commit CI never
-        # saw: it warns and goes on — it is a signing shakedown, published as
-        # a prerelease no installed app is offered.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
-        run: |
-          set -euo pipefail
-          SHA="$(git rev-parse HEAD)"
-          GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
-          if [[ "$GREEN" -ge 1 ]]; then
-            echo "CI is green for ${SHA}."
-          elif [[ "$PRERELEASE" == "true" ]]; then
-            echo "::warning::No successful CI run for ${SHA}; continuing because this is a dry-run tag."
-          else
-            echo "::error::No successful CI run for ${SHA}. Push the commit to main, wait for CI to finish green on THAT commit, then delete and re-push the tag."
-            exit 1
-          fi
 
       - name: Verify release notes exist
         env:
