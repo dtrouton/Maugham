@@ -7,12 +7,13 @@ on:
 
 permissions:
   contents: write
+  # The CI gate below reads this commit's workflow runs.
+  actions: read
 
 jobs:
   release:
     # `xcode-27` (image is macOS 27.0). The app's deployment target is macOS 27
-    # (shell slice, D4), so the Test step below cannot even launch it on an
-    # older image. Matching the developer machine's OS also matters for what
+    # (shell slice, D4), so an older image cannot build or run it. Matching the developer machine's OS also matters for what
     # this job SHIPS: SwiftUI's layout and styling differ between SDKs, and the
     # macOS 27 SDK moved `NavigationSplitView`'s column tie-break under us —
     # what ships must be built with the toolchain it was written against.
@@ -145,6 +146,34 @@ jobs:
             echo "Stable release (patch $PATCH) → not prerelease"
           fi
 
+      - name: Require a green CI run for this commit
+        # This job does NOT run the test suite. It used to (23 of a release's
+        # 33 minutes), in Debug, on a second build — never on the signed app
+        # this job ships — and so repeated, for the same commit on the same
+        # image, what ci.yml had already proved on main. The gate asks for that
+        # proof instead: the tagged commit must have a SUCCESSFUL `CI` run.
+        # A cancelled run is not one (a newer push cancels the older run, so
+        # wait for the run on the commit you tag), and a `[skip ci]` commit
+        # has none. This makes "CI before tag" a gate rather than a habit.
+        # A dry-run tag (patch >= 90) may sit on a throwaway commit CI never
+        # saw: it warns and goes on — it is a signing shakedown, published as
+        # a prerelease no installed app is offered.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+          if [[ "$GREEN" -ge 1 ]]; then
+            echo "CI is green for ${SHA}."
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            echo "::warning::No successful CI run for ${SHA}; continuing because this is a dry-run tag."
+          else
+            echo "::error::No successful CI run for ${SHA}. Push the commit to main, wait for CI to finish green on THAT commit, then delete and re-push the tag."
+            exit 1
+          fi
+
       - name: Verify release notes exist
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -252,47 +281,6 @@ jobs:
             -configuration Release build \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
             MAUGHAM_MAC_PROFILE_SPECIFIER="${PROFILE_NAME}"
-
-      - name: Restore the tectonic TeX bundle cache
-        # Mirrors ci.yml's step (see the WHY comment there — run 31874029028).
-        # Release run 31929127366 (v0.29.0, 2026-08-16) hit the identical cold
-        # bundle-fetch failure in PublishingEndToEndTests: CI got the cache,
-        # this workflow never did. Restore/save are SPLIT so a red Test step
-        # still seeds the cache. Keyed on scripts/fetch-tectonic.sh because
-        # that pin chooses the bundle URL/format.
-        id: tectonic-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/Library/Caches/Maugham Dev/tectonic
-            ~/Library/Caches/Maugham/tectonic
-          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
-          restore-keys: |
-            tectonic-bundle-${{ runner.os }}-
-
-      - name: Test
-        # Tests run in Debug — the scheme's Test action only builds the test
-        # target in Debug. The Release build step above already verifies the
-        # Release-config code path compiles cleanly. The timeout flags match
-        # ci.yml/test.sh: a parked test fails its 120s allowance instead of
-        # hanging the job (the MCP window-restoration family's residue).
-        run: |
-          xcodebuild -project Maugham.xcodeproj -scheme Maugham \
-            test CODE_SIGNING_ALLOWED=NO \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 120 \
-            -resultBundlePath TestResults.xcresult
-
-      - name: Save the tectonic TeX bundle cache
-        # `always()` so a red Test step still seeds the cache for the next run.
-        if: always() && steps.tectonic-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/Library/Caches/Maugham Dev/tectonic
-            ~/Library/Caches/Maugham/tectonic
-          key: tectonic-bundle-${{ runner.os }}-${{ hashFiles('scripts/fetch-tectonic.sh') }}
 
       - name: Locate built app
         id: locate

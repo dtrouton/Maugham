@@ -2,7 +2,9 @@ name: CI
 
 # Runs the Mac and iPhone test suites on every push / PR to main and claude/**
 # branches. Does NOT trigger on tags — release.yml and phone-release.yml own
-# tag-triggered builds and will continue to run their own test step.
+# tag-triggered builds. release.yml runs no tests of its own: it requires a
+# successful run of THIS workflow for the tagged commit, so this is the Mac
+# release's test gate.
 #
 # NOTE: This workflow intentionally reports failures. Tasks 0.2 / 0.3 of the
 # codebase-hardening plan add correctness tests that are RED against unfixed
@@ -48,12 +50,13 @@ jobs:
     # D2 — but it now carries Xcode 27.0 RELEASE (27A266a), the developer
     # machine's exact build, not the beta 6 the drift note recorded.
     runs-on: xcode-27
-    # Green runs finish in ~16 min on `xcode-27` (measured 15m53s, 2026-09-19);
-    # they took ~7 on `macos-26`, so the move roughly doubled it. Still well
-    # inside the cap, which exists to catch a hung simulator/process far below
-    # the 6 h GitHub default (which would burn macOS-runner minutes). Revisit
-    # the 30 if the preview image gets slower again, not the job.
-    timeout-minutes: 30
+    # Green runs took ~16 min on `xcode-27` on 2026-09-19 and 29m17s on
+    # 2026-11-12 (about 8 min of build, then 12,279 tests on two workers) —
+    # under the old 30-minute cap by 43 seconds. The cap exists to catch a hung
+    # process far below the 6 h GitHub default, not to fail a slow runner, so
+    # it sits at about one and a half times a green run. Revisit it when a
+    # green run passes 30 minutes again.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

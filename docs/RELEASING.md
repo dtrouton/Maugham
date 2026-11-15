@@ -6,14 +6,16 @@ Stable releases are tag-triggered via GitHub Actions. The recipe:
 2. Commit them on `main`.
 3. `./scripts/cut-release.sh 0.X.Y` — verifies notes exist, tree is clean,
    **verifies every GitHub Action pin resolves to the tag in its `# vX` comment**
-   (needs network + `gh` auth), runs tests, then creates the `v0.X.Y` tag and
-   prints the push command. Pass `--skip-tests` only if you know why; pass
-   `--skip-pin-check` only for a genuinely offline cut.
+   (needs network + `gh` auth), **checks that this exact commit has a successful `CI` run**,
+   runs tests, then creates the `v0.X.Y` tag and prints the push command. So push `main`
+   first and let CI finish green on the commit you will tag. Pass `--skip-tests` only if
+   you know why; pass `--skip-pin-check` / `--skip-ci-check` only for a genuinely offline cut.
 4. `git push origin v0.X.Y` — the ONE tag, by name, never `git push --tags`: GitHub creates no
    push event when more than three tags land in one push, so a stale local tag riding along
    means `release.yml` silently never starts (v0.36.0, 2026-09-06 — fixed by deleting and
-   re-pushing the tag alone). Workflow at `.github/workflows/release.yml` builds Release config,
-   runs tests, packages the `.dmg`, and creates the GitHub Release with the notes file as body
+   re-pushing the tag alone). Workflow at `.github/workflows/release.yml` requires a green
+   CI run for the tagged commit, builds Release config, signs, notarizes, packages the `.dmg`,
+   and creates the GitHub Release with the notes file as body
    **plus one machine line naming the build's minimum macOS** (see below).
 5. ~10 minutes later, the stable app's next check picks it up. Menu title goes to
    "Install Update…"; clicking reveals the `.dmg` in Finder.
@@ -30,6 +32,16 @@ non-author actor key — lines that stay refused, and are recovered per line by
 hand rather than by changing a rule. **It does not walk hidden directories**, so
 a project folder inside one has to be named directly. This developer's Mac:
 29 projects, 203 files, 5 segments, zero hits.
+
+**The release workflow runs no tests; CI on `main` is the test gate** (since 2026-11-12). It
+used to re-run the whole Mac suite — 23 of a release's 33 minutes — in Debug, on a second build,
+never on the signed app it ships: the same tests, for the same commit, on the same image CI had
+already run. Its "Require a green CI run for this commit" step asks the GitHub API for a
+**successful** `CI` run on the tagged commit and stops a stable release without one. A cancelled
+run does not count (a newer push to `main` cancels the older run — don't merge anything while the
+run you are waiting for is in flight), and a `[skip ci]` commit has none, so tag a commit CI ran.
+A dry-run tag (patch ≥ 90) only warns. If the gate stops a release: let CI go green on that
+commit, then delete the remote tag and push it again by name.
 
 **Version is tag-derived.** `project.yml`'s `CFBundleShortVersionString` stays at the placeholder
 `"0.0.0-dev"` for local builds; CI rewrites it from the tag at build time. Don't bump it in
