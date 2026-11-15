@@ -679,14 +679,14 @@
    "commit": "07f06d22 07617b08",
    "date": "2026-11-13",
    "authorised_by": "RULING-60 — Denver 2026-11-11, structured question, recommended option accepted — for the close only; the extension to every flush is the coordinator's call, not yet ruled by Denver",
-   "pinned_by": "ResearchTableVersionTests.test_aFlushWhoseVersionCannotBeKeptSavesAnyway and test_aFlushWhoseSaveFailsKeepsTheEditsAside; ResearchTableGridTests.test_theCloseSavesAnywayWhenTheVersionCannotBeKept and test_aGridsLeaveThenItsReleaseKeepOneBackupAndSayItOnce",
+   "pinned_by": "ResearchTableVersionTests.test_aFlushWhoseVersionCannotBeKeptSavesAnyway and test_aFlushWhoseSaveFailsKeepsTheEditsAside; ResearchTableGridTests.test_theCloseSavesAnywayWhenTheVersionCannotBeKept and test_theStoresFlushKeepsTheOpenEditInTheBackupWhenTheSaveFails",
    "note": "Filed already fixed: found in the hardening review (#138 R1), never carried a VIOLATES filing. Before the fix a version that could not be kept stopped the save at close and the table's last edits were dropped."
   }
  },
  {
   "claim_id": "M5-AN-082",
   "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, or the retry; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver. PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
+  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, the retry, the backup's name and contents, the notices' wording, a second flush on the way out, or background flushes; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver. PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
  },
  {
   "claim_id": "M5-AN-083",
@@ -699,13 +699,23 @@
   "reason": "No ruling states that a save re-checks the file it read; the design spec's R3 is a design, not a ruling, and the note door's check and the retry and second-mismatch arms are the coordinator's calls, hardening 2026-11-11, not yet ruled by Denver. RULING-56 versions research text and says nothing of an outside write landing mid-save."
  },
  {
+  "claim_id": "M5-AN-085",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states what Use in Document or Bring Back to Figures does with a table whose grid holds edits that could not be saved; RULING-60 is about the close's save, not the verbs that read the file after it. The refusal and its sentences are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-086",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states when an outside change may reload a grid relative to a save in flight; the outside-change ruling (never overwritten silently) is kept by the save's own backup, which this claim does not change. The wait, the refusal and the asking again are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
   "_summary": {
    "reached": 32,
    "complies": 32,
    "violates": 0,
-   "no_ruling": 40,
-   "total": 72,
-   "coverage": "44%",
+   "no_ruling": 42,
+   "total": 74,
+   "coverage": "43%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
