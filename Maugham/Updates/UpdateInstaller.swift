@@ -69,6 +69,25 @@ public enum UpdateInstaller {
         return .accept
     }
 
+    /// Pure decision on WHICH app a staged bundle is, read from its
+    /// `Contents/Info.plist` (nil when there is none or it cannot be read):
+    /// the running app's own bundle identifier, at exactly the version being
+    /// installed. The same certificate signs other apps, so a valid, notarized,
+    /// same-team bundle is not enough — another app renamed `Maugham.app`, or
+    /// an older signed Maugham inside a newer tag, would pass `decide`.
+    public static func decideIdentity(stagedInfo: [String: Any]?, expectedBundleIdentifier: String,
+                                      expectedVersion: String) -> InstallDecision {
+        guard let info = stagedInfo else { return .reject(reason: "Missing Info.plist") }
+        guard !expectedBundleIdentifier.isEmpty,
+              info["CFBundleIdentifier"] as? String == expectedBundleIdentifier else {
+            return .reject(reason: "Bundle identifier mismatch")
+        }
+        guard info["CFBundleShortVersionString"] as? String == expectedVersion else {
+            return .reject(reason: "Version mismatch")
+        }
+        return .accept
+    }
+
     /// The absolute paths of the system tools the helper runs. They are the
     /// only values interpolated into the script, and they are constants: a
     /// test passes stubs (`codesign`/`spctl` that exit 0 or 1), production
@@ -129,14 +148,15 @@ public enum UpdateInstaller {
     static let installStatusFileName = "install-status"
 
     /// Shell script run **detached** after the app quits. Fixed text: every
-    /// path, the pid, the team and the version arrive as ARGUMENTS
+    /// path, the pid, the team, the version and the bundle identifier arrive as ARGUMENTS
     /// (`helperArguments`), so a bundle path containing `"`, `$(…)` or a
     /// backtick is data, never code (#67 F13). Only `tools`' constant paths and
     /// constant status words are interpolated.
     ///
     /// It polls until our PID is gone, copies the staged bundle to the
     /// `.inflight` sibling, **re-checks that copy** — `codesign --verify --deep
-    /// --strict` against a requirement naming the running app's team, then
+    /// --strict` against a requirement naming the running app's bundle
+    /// identifier and team, then
     /// `spctl -a -t exec` — and only then atomically swaps it into the install
     /// location using `renamex_np(RENAME_SWAP)` so /Applications/Maugham.app is
     /// NEVER absent (#67 F12). The re-check runs on the exact bytes the swap
@@ -172,7 +192,7 @@ public enum UpdateInstaller {
             "set -e",
             // Arguments: see UpdateInstaller.helperArguments. Nothing below
             // ever lets one be parsed as code: every use is double-quoted.
-            #"[ "$#" -eq 8 ] || exit 2"#,
+            #"[ "$#" -eq 9 ] || exit 2"#,
             #"PID="$1""#,
             #"STAGED="$2""#,
             #"INSTALLED="$3""#,
@@ -181,6 +201,7 @@ public enum UpdateInstaller {
             #"VERSION="$6""#,
             #"UPDATES="$7""#,
             #"SWAP_TOOL="$8""#,
+            #"IDENTIFIER="$9""#,
             #"INFLIGHT="$INSTALLED.inflight""#,
             #"STATUS="$UPDATES/\#(installStatusFileName)""#,
             // Re-validate what Swift validated. Explicit character lists, not
@@ -190,6 +211,9 @@ public enum UpdateInstaller {
             #"[ "${#TEAM}" -eq 10 ] || exit 2"#,
             #"case "$RELAUNCH" in 0|1) ;; *) exit 2;; esac"#,
             #"case "$VERSION" in ''|*[!0123456789.]*) exit 2;; esac"#,
+            // Reverse-DNS characters only (it is quoted inside the code
+            // requirement); the hyphen last, so it is literal.
+            #"case "$IDENTIFIER" in ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-]*) exit 2;; esac"#,
             // Absolute paths, the swap tool included. (Tested by stripping the
             // leading slash rather than a case pattern: a slash-star in this
             // file would open a block comment for TripwireGrepTests' source scan.)
@@ -215,9 +239,9 @@ public enum UpdateInstaller {
             "  reopen",
             "  exit 1",
             "fi",
-            "# Re-check the exact bytes about to be swapped in: signed by our team",
-            "# (one codesign call checks validity AND the team), and notarized.",
-            #"if ! "\#(tools.codesign)" --verify --deep --strict --test-requirement="=anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT" \"#,
+            "# Re-check the exact bytes about to be swapped in: this app, signed by our",
+            "# team (one codesign call checks validity, identifier AND team), and notarized.",
+            #"if ! "\#(tools.codesign)" --verify --deep --strict --test-requirement="=identifier \"$IDENTIFIER\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT" \"#,
             #"  || ! "\#(tools.spctl)" -a -t exec "$INFLIGHT"; then"#,
             #"  rm -rf "$INFLIGHT" || true"#,
             #"  record "refused $VERSION" || true"#,
@@ -251,13 +275,22 @@ public enum UpdateInstaller {
     }
 
     /// The helper's argv, in the order `helperScript` reads it:
-    /// `[script, pid, staged, installed, team, relaunch (1/0), version, updatesDir, swapTool]`.
+    /// `[script, pid, staged, installed, team, relaunch (1/0), version, updatesDir, swapTool, bundleIdentifier]`.
     static func helperArguments(scriptPath: String, pid: Int32, stagedBundle: String,
                                 installedBundle: String, expectedTeamID: String,
                                 relaunch: Bool, version: String, updatesDirectory: String,
-                                swapTool: String) -> [String] {
+                                swapTool: String, bundleIdentifier: String) -> [String] {
         [scriptPath, String(pid), stagedBundle, installedBundle, expectedTeamID,
-         relaunch ? "1" : "0", version, updatesDirectory, swapTool]
+         relaunch ? "1" : "0", version, updatesDirectory, swapTool, bundleIdentifier]
+    }
+
+    /// A bundle identifier in reverse-DNS characters only (`^[A-Za-z0-9.-]+$`).
+    /// The helper quotes it inside a code requirement, so nothing else passes.
+    static func isWellFormedBundleIdentifier(_ identifier: String) -> Bool {
+        !identifier.isEmpty && identifier.unicodeScalars.allSatisfy {
+            ("a"..."z").contains($0) || ("A"..."Z").contains($0) || ("0"..."9").contains($0)
+                || $0 == "." || $0 == "-"
+        }
     }
 
     /// A team ID as Apple issues them: ten upper-case letters or digits. The
@@ -492,20 +525,33 @@ extension UpdateInstaller {
     /// re-staged and re-refused on every later check, silently on a background
     /// poll, and that version could never install. A new kind of refusal joins
     /// as an `InstallError` case and gets the same cleanup.
+    ///
+    /// `verifyBundle`, `expectedTeamID` and `expectedBundleIdentifier` default
+    /// to the real checks and the RUNNING app's own team and identifier (dev
+    /// and stable differ, so neither is ever a literal); tests inject them.
     static func stageAndVerifySync(zip: URL, version: String,
-                                           availableBytes: (URL) -> Int64? = UpdateInstaller.availableBytes(at:)) throws -> URL {
+                                   availableBytes: (URL) -> Int64? = UpdateInstaller.availableBytes(at:),
+                                   verifyBundle: (String) -> VerificationVerdict = UpdateInstaller.verify(bundlePath:),
+                                   expectedTeamID: () -> String? = UpdateInstaller.runningAppTeamID,
+                                   expectedBundleIdentifier: String? = Bundle.main.bundleIdentifier) throws -> URL {
         let stageDir = zip.deletingLastPathComponent()
             .appendingPathComponent("staged-\(version)", isDirectory: true)
         do {
-            return try stageAndVerifyUnchecked(zip: zip, stageDir: stageDir, availableBytes: availableBytes)
+            return try stageAndVerifyUnchecked(zip: zip, stageDir: stageDir, version: version,
+                                               availableBytes: availableBytes, verifyBundle: verifyBundle,
+                                               expectedTeamID: expectedTeamID,
+                                               expectedBundleIdentifier: expectedBundleIdentifier)
         } catch let refusal as InstallError {
             discardRefusedArchive(zip: zip, stageDir: stageDir)
             throw refusal
         }
     }
 
-    private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL,
-                                                availableBytes: (URL) -> Int64?) throws -> URL {
+    private static func stageAndVerifyUnchecked(zip: URL, stageDir: URL, version: String,
+                                                availableBytes: (URL) -> Int64?,
+                                                verifyBundle: (String) -> VerificationVerdict,
+                                                expectedTeamID: () -> String?,
+                                                expectedBundleIdentifier: String?) throws -> URL {
         guard let totals = archiveTotals(zip: zip) else {
             throw InstallError.archiveUnreadable
         }
@@ -525,14 +571,18 @@ extension UpdateInstaller {
         guard FileManager.default.fileExists(atPath: bundle.path) else { throw InstallError.unzipFailed }
         // Strip quarantine so the swapped-in copy launches clean.
         _ = run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", bundle.path])
-        let verdict = verify(bundlePath: bundle.path)
-        let expected = runningAppTeamID() ?? ""
-        switch decide(verdict: verdict, expectedTeamID: expected) {
-        case .accept:
-            return bundle
-        case .reject(let reason):
+        let verdict = verifyBundle(bundle.path)
+        if case .reject(let reason) = decide(verdict: verdict, expectedTeamID: expectedTeamID() ?? "") {
             throw InstallError.verifyFailed(reason)
         }
+        // Which app, at which version: the same team signs other apps.
+        let info = NSDictionary(contentsOf: bundle.appendingPathComponent("Contents/Info.plist")) as? [String: Any]
+        if case .reject(let reason) = decideIdentity(stagedInfo: info,
+                                                     expectedBundleIdentifier: expectedBundleIdentifier ?? "",
+                                                     expectedVersion: version) {
+            throw InstallError.verifyFailed(reason)
+        }
+        return bundle
     }
 
     /// The one cleanup for a refused archive: the staged folder and the zip it
@@ -549,6 +599,8 @@ extension UpdateInstaller {
     /// install time; with none (an ad-hoc or unsigned build) or a malformed one
     /// there is nothing to check against, so nothing is swapped. `version` and
     /// `updatesDirectory` tell the helper where to write `install-status`.
+    /// `expectedBundleIdentifier` is the running app's own, named in the
+    /// helper's code requirement; without a well-formed one nothing is swapped.
     /// `swapTool` is the running app's own compiled swap tool; without it, or
     /// on a volume that cannot swap, `installMode` answers Finder.
     @discardableResult
@@ -556,6 +608,7 @@ extension UpdateInstaller {
                                  relaunch: Bool,
                                  installedBundlePath: String = Bundle.main.bundlePath,
                                  expectedTeamID: String? = UpdateInstaller.runningAppTeamID(),
+                                 expectedBundleIdentifier: String? = Bundle.main.bundleIdentifier,
                                  swapTool: URL? = UpdateInstaller.swapToolURL()) -> Bool {
         // Refuse now, while the app is still alive, rather than quit into a
         // doomed helper: the caller takes the Finder-reveal fallback. The
@@ -565,6 +618,7 @@ extension UpdateInstaller {
             return false
         }
         guard let team = expectedTeamID, isWellFormedTeamID(team) else { return false }
+        guard let identifier = expectedBundleIdentifier, isWellFormedBundleIdentifier(identifier) else { return false }
         guard isWellFormedVersion(version) else { return false }
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("maugham-update-\(UUID().uuidString).sh")
@@ -587,7 +641,8 @@ extension UpdateInstaller {
                                       relaunch: relaunch,
                                       version: version,
                                       updatesDirectory: updatesDirectory.path,
-                                      swapTool: tool.path)
+                                      swapTool: tool.path,
+                                      bundleIdentifier: identifier)
         do { try p.run() } catch { return false }
         return true
     }

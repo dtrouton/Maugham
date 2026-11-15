@@ -114,14 +114,16 @@ setup and renewal: `docs/release-notes/SETUP-mac-signing.md` §4.
 
 **Auto-update is in-place — for the `.zip` path only.** The updater downloads the
 notarized `.zip`, verifies it in-app (codesign + our Team ID via
-`UpdateInstaller.runningAppTeamID` + notarization), and swaps the running app via a
+`UpdateInstaller.runningAppTeamID` + notarization, and that its `CFBundleIdentifier` is
+the running app's and its `CFBundleShortVersionString` is the tag's version without the
+`v` — which "Sync version into project.yml" guarantees), and swaps the running app via a
 detached helper — "Restart & Update" relaunches; dismissing applies the staged
 update on next ordinary quit (`UpdateChecker.pendingQuitInstall`). The swap itself is
 one `renamex_np(RENAME_SWAP)` call made by `maugham-swap`, a tiny tool target embedded
 at `Maugham.app/Contents/Helpers/` in every configuration (no python3, no Command Line
 Tools needed). The helper checks
 the update again at install time, after the app has quit: it re-runs `codesign`
-(against our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
+(against a requirement naming the running app's bundle identifier and our Team ID) and `spctl` on the copy it is about to swap in, and a copy that
 fails is not installed (the reason is left in `Updates/install-status`, which the next
 launch reads, removes and states once in the update banner; a refused version's
 download is deleted so the next check fetches it afresh). A build with

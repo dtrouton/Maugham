@@ -32,6 +32,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     private let version = "0.43.0"
     private let team = "ABCDE12345"
+    private let bundleIdentifier = "com.maugham.Maugham"
 
     /// The real built swap tool. Its absence FAILS the setup, never skips:
     /// every build embeds it, so a missing tool is a broken embed.
@@ -92,7 +93,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     @discardableResult
     private func runHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
-                           swapToolArgument: String? = nil,
+                           swapToolArgument: String? = nil, bundleIdentifier: String? = nil,
                            allowance: TimeInterval = helperAllowance) throws -> Int32 {
         let script = f.root.appendingPathComponent("helper.sh")
         try write(UpdateInstaller.helperScript(tools: f.tools), to: script)
@@ -102,7 +103,8 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             scriptPath: script.path, pid: try exitedPid(),
             stagedBundle: f.staged.path, installedBundle: f.installed.path,
             expectedTeamID: team ?? self.team, relaunch: relaunch, version: version,
-            updatesDirectory: f.updates.path, swapTool: swapToolArgument ?? f.swapTool.path)
+            updatesDirectory: f.updates.path, swapTool: swapToolArgument ?? f.swapTool.path,
+            bundleIdentifier: bundleIdentifier ?? self.bundleIdentifier)
         // A `$(touch PWNED)` that ran would land here, inside the test root.
         p.currentDirectoryURL = f.root
         p.standardOutput = FileHandle.nullDevice
@@ -211,11 +213,11 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertFalse(exists(f.inflight), "the old bundle left at .inflight is removed")
         XCTAssertFalse(exists(f.status), "success writes no status")
         XCTAssertEqual(marker(f.staged), "new", "the staged copy is copied, never moved")
-        // codesign was asked about the .inflight copy, against our team.
+        // codesign was asked about the .inflight copy: this app, from our team.
         let logged = try String(contentsOf: f.codesignLog, encoding: .utf8)
             .split(separator: "\n").map(String.init)
         XCTAssertEqual(logged, ["--verify", "--deep", "--strict",
-                                "--test-requirement==anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"",
+                                "--test-requirement==identifier \"\(bundleIdentifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"",
                                 f.inflight.path])
     }
 
@@ -289,6 +291,70 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertFalse(all.contains { ($0 as NSString).lastPathComponent == "PWNED" }, "\(all)")
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("PWNED")))
+    }
+
+    // MARK: - The bundle identifier ($9)
+
+    /// A codesign stub that answers as the real one would for the identifier
+    /// clause: exit 3 (requirement not satisfied) unless the requirement names
+    /// the identifier in the copy's own Info.plist.
+    private func identifierCheckingCodesign(_ f: Fixture) throws {
+        try write("""
+            #!/bin/bash
+            printf '%s\\n' "$@" > "\(f.codesignLog.path)"
+            req=""; for a in "$@"; do case "$a" in --test-requirement=*) req="${a#--test-requirement=}";; esac; done
+            target="${@: -1}"
+            id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null)"
+            case "$req" in "=identifier \\"$id\\" and "*) [ -n "$id" ] && exit 0;; esac
+            exit 3
+
+            """, to: URL(fileURLWithPath: f.tools.codesign), executable: true)
+    }
+
+    private func setStagedIdentifier(_ id: String, in f: Fixture) throws {
+        let plist = f.staged.appendingPathComponent("Contents/Info.plist")
+        XCTAssertTrue((["CFBundleIdentifier": id] as NSDictionary).write(to: plist, atomically: true))
+    }
+
+    /// The same team signs another app: its copy fails the requirement's
+    /// identifier clause, is never swapped in, and the refusal is recorded.
+    func test_anotherAppFromTheSameTeam_isRefusedAtInstall() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try identifierCheckingCodesign(f)
+        try setStagedIdentifier("com.example.OtherApp", in: f)
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
+        XCTAssertEqual(f.opened, [f.installed.path])
+        let requirement = try String(contentsOf: f.codesignLog, encoding: .utf8)
+        XCTAssertTrue(requirement.contains("=identifier \"\(bundleIdentifier)\" and anchor apple generic"), requirement)
+    }
+
+    /// Control for the stub: this app's own identifier passes it and installs.
+    func test_thisAppsIdentifier_passesTheSameStub() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try identifierCheckingCodesign(f)
+        try setStagedIdentifier(bundleIdentifier, in: f)
+        XCTAssertEqual(try runHelper(f), 0)
+        XCTAssertEqual(marker(f.installed), "new")
+        XCTAssertFalse(exists(f.status))
+    }
+
+    /// The identifier is re-validated like the team: one that could be live
+    /// inside the requirement stops the helper with exit 2 before anything.
+    func test_aMalformedBundleIdentifier_stopsTheHelperBeforeAnyStep() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        for bad in ["", "com.maugham.Maugham\"", "com.$(touch PWNED)", "com maugham", "com.x`id`", "com.é",
+                    "com.maugham.Maugham\" or anchor apple"] {
+            XCTAssertEqual(try runHelper(f, relaunch: true, bundleIdentifier: bad), 2, bad)
+            XCTAssertEqual(marker(f.installed), "old", bad)
+            XCTAssertFalse(exists(f.inflight), bad)
+            XCTAssertFalse(exists(f.status), bad)
+            XCTAssertFalse(exists(f.codesignLog), "codesign never ran: \(bad)")
+            XCTAssertNil(f.opened, bad)
+        }
+        XCTAssertFalse(allNamesUnderTheTestRoot().contains("PWNED"))
     }
 
     // MARK: - The swap tool ($8)

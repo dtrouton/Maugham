@@ -35,23 +35,24 @@ final class UpdateInstallerTests: XCTestCase {
                       installed: String = "/Applications/Maugham.app",
                       team: String = "ABCDE12345", relaunch: Bool = false,
                       version: String = "0.43.0", updates: String = "/Updates",
-                      swapTool: String = "/Applications/Maugham.app/Contents/Helpers/maugham-swap") -> [String] {
+                      swapTool: String = "/Applications/Maugham.app/Contents/Helpers/maugham-swap",
+                      identifier: String = "com.maugham.Maugham") -> [String] {
         UpdateInstaller.helperArguments(
             scriptPath: "/script.sh", pid: pid, stagedBundle: staged, installedBundle: installed,
             expectedTeamID: team, relaunch: relaunch, version: version, updatesDirectory: updates,
-            swapTool: swapTool)
+            swapTool: swapTool, bundleIdentifier: identifier)
     }
 
     func test_helperArguments_areInTheOrderTheScriptReadsThem() {
         XCTAssertEqual(args(relaunch: true),
                        ["/script.sh", "4242", "/staged/Maugham.app", "/Applications/Maugham.app",
                         "ABCDE12345", "1", "0.43.0", "/Updates",
-                        "/Applications/Maugham.app/Contents/Helpers/maugham-swap"])
+                        "/Applications/Maugham.app/Contents/Helpers/maugham-swap", "com.maugham.Maugham"])
         XCTAssertEqual(args(relaunch: false)[5], "0")
         let script = UpdateInstaller.helperScript()
-        XCTAssertTrue(script.contains("[ \"$#\" -eq 8 ] || exit 2\n"), "exactly eight arguments")
+        XCTAssertTrue(script.contains("[ \"$#\" -eq 9 ] || exit 2\n"), "exactly nine arguments")
         for (n, name) in ["PID", "STAGED", "INSTALLED", "TEAM", "RELAUNCH", "VERSION", "UPDATES",
-                          "SWAP_TOOL"].enumerated() {
+                          "SWAP_TOOL", "IDENTIFIER"].enumerated() {
             XCTAssertTrue(script.contains("\(name)=\"$\(n + 1)\"\n"), "\(name) must be read from $\(n + 1)")
         }
     }
@@ -62,7 +63,7 @@ final class UpdateInstallerTests: XCTestCase {
         let hostile = args(pid: 77, staged: "/s/Mau\"g$(touch PWNED)`id`ham/Maugham.app",
                            installed: "/i/$(touch PWNED)/Maugham.app", team: "ZZZZZ99999",
                            relaunch: true, version: "9.9.9", updates: "/u/\"x\"",
-                           swapTool: "/t/$(touch PWNED)/maugham-swap")
+                           swapTool: "/t/$(touch PWNED)/maugham-swap", identifier: "com.example.Other-App")
         let plain = args()
         let script = UpdateInstaller.helperScript()
         XCTAssertEqual(script, UpdateInstaller.helperScript(tools: .system))
@@ -111,7 +112,7 @@ final class UpdateInstallerTests: XCTestCase {
             }
             return r.lowerBound
         }
-        let requirement = #"--test-requirement="=anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT""#
+        let requirement = #"--test-requirement="=identifier \"$IDENTIFIER\" and anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$INFLIGHT""#
         let wait = at("while kill -0"), copy = at("\"/usr/bin/ditto\" \"$STAGED\"")
         let codesign = at("\"/usr/bin/codesign\" --verify --deep --strict " + requirement)
         let spctl = at("\"/usr/sbin/spctl\" -a -t exec \"$INFLIGHT\"")
@@ -132,6 +133,117 @@ final class UpdateInstallerTests: XCTestCase {
         for bad in ["usr/bin/x", "/a b", "/a\"b", "/a$(b)", "/a`b`", "/a;b", ""] {
             XCTAssertFalse(UpdateInstaller.HelperTools.isSafePath(bad), bad)
         }
+    }
+
+    func test_bundleIdentifierValidation() {
+        for good in ["com.maugham.Maugham", "com.maugham.Maugham.dev", "a-b.C9"] {
+            XCTAssertTrue(UpdateInstaller.isWellFormedBundleIdentifier(good), good)
+        }
+        for bad in ["", "com.maugham.Maugham\"", "com maugham", "com.$(x)", "com.x`id`", "com.é", "com/x", "com_x"] {
+            XCTAssertFalse(UpdateInstaller.isWellFormedBundleIdentifier(bad), bad)
+        }
+    }
+
+    // MARK: - decideIdentity: which app, at which version
+
+    private let stable = "com.maugham.Maugham"
+
+    func test_decideIdentity_acceptsThisAppAtThisVersion() {
+        XCTAssertEqual(UpdateInstaller.decideIdentity(
+            stagedInfo: ["CFBundleIdentifier": stable, "CFBundleShortVersionString": "0.43.0"],
+            expectedBundleIdentifier: stable, expectedVersion: "0.43.0"), .accept)
+        // A dry-run build (patch >= 90) carries its tag's version like any other.
+        XCTAssertEqual(UpdateInstaller.decideIdentity(
+            stagedInfo: ["CFBundleIdentifier": stable, "CFBundleShortVersionString": "0.43.90"],
+            expectedBundleIdentifier: stable, expectedVersion: "0.43.90"), .accept)
+    }
+
+    func test_decideIdentity_rejectsAMissingInfoPlist() {
+        XCTAssertEqual(UpdateInstaller.decideIdentity(stagedInfo: nil, expectedBundleIdentifier: stable,
+                                                      expectedVersion: "0.43.0"),
+                       .reject(reason: "Missing Info.plist"))
+    }
+
+    func test_decideIdentity_rejectsAnotherApp() {
+        for info: [String: Any] in [["CFBundleIdentifier": "com.example.OtherApp", "CFBundleShortVersionString": "0.43.0"],
+                                    ["CFBundleIdentifier": "com.maugham.Maugham.dev", "CFBundleShortVersionString": "0.43.0"],
+                                    ["CFBundleShortVersionString": "0.43.0"],
+                                    ["CFBundleIdentifier": 42, "CFBundleShortVersionString": "0.43.0"]] {
+            XCTAssertEqual(UpdateInstaller.decideIdentity(stagedInfo: info, expectedBundleIdentifier: stable,
+                                                          expectedVersion: "0.43.0"),
+                           .reject(reason: "Bundle identifier mismatch"), "\(info)")
+        }
+        // The running app's identifier missing (nil → "") never matches.
+        XCTAssertEqual(UpdateInstaller.decideIdentity(
+            stagedInfo: ["CFBundleIdentifier": "", "CFBundleShortVersionString": "0.43.0"],
+            expectedBundleIdentifier: "", expectedVersion: "0.43.0"),
+            .reject(reason: "Bundle identifier mismatch"))
+    }
+
+    func test_decideIdentity_rejectsAnotherVersion() {
+        for version: Any? in ["0.42.0", "0.43.1", "v0.43.0", "0.0.0-dev", nil] {
+            var info: [String: Any] = ["CFBundleIdentifier": stable]
+            if let version { info["CFBundleShortVersionString"] = version }
+            XCTAssertEqual(UpdateInstaller.decideIdentity(stagedInfo: info, expectedBundleIdentifier: stable,
+                                                          expectedVersion: "0.43.0"),
+                           .reject(reason: "Version mismatch"), "\(String(describing: version))")
+        }
+    }
+
+    /// A zip holding `Maugham.app` with this Info.plist (none when nil).
+    private func makeAppZip(info: [String: Any]?, version: String = "9.9.9") throws -> (zip: URL, updates: URL) {
+        let updates = TestTemp.root.appendingPathComponent("Updates", isDirectory: true)
+        let payload = TestTemp.root.appendingPathComponent("app-payload-\(UUID().uuidString)", isDirectory: true)
+        let contents = payload.appendingPathComponent("Maugham.app/Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        if let info {
+            XCTAssertTrue((info as NSDictionary).write(to: contents.appendingPathComponent("Info.plist"), atomically: true))
+        } else {
+            try Data("x".utf8).write(to: contents.appendingPathComponent("PkgInfo"))
+        }
+        let zip = updates.appendingPathComponent("Maugham-\(version).zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", payload.path, zip.path]
+        try ditto.run()
+        ditto.waitUntilExit()
+        XCTAssertEqual(ditto.terminationStatus, 0)
+        return (zip, updates)
+    }
+
+    private func stage(_ zip: URL, version: String = "9.9.9") throws -> URL {
+        try UpdateInstaller.stageAndVerifySync(
+            zip: zip, version: version, availableBytes: { _ in 100 * 1024 * 1024 * 1024 },
+            verifyBundle: { _ in VerificationVerdict(codesignValid: true, notarized: true, teamID: "ABCDE12345") },
+            expectedTeamID: { "ABCDE12345" }, expectedBundleIdentifier: stable)
+    }
+
+    /// Staging runs `decideIdentity` after the team check, through the same
+    /// `verifyFailed` path that discards the archive.
+    func test_stagingRefusesAnotherAppOrVersion_andDiscardsTheArchive() throws {
+        let cases: [([String: Any]?, String)] = [
+            (["CFBundleIdentifier": "com.example.OtherApp", "CFBundleShortVersionString": "9.9.9"], "Bundle identifier mismatch"),
+            (["CFBundleIdentifier": stable, "CFBundleShortVersionString": "9.9.8"], "Version mismatch"),
+            (nil, "Missing Info.plist"),
+        ]
+        for (info, reason) in cases {
+            let (zip, updates) = try makeAppZip(info: info)
+            XCTAssertThrowsError(try stage(zip)) { error in
+                guard case .verifyFailed(let why)? = error as? UpdateInstaller.InstallError
+                else { return XCTFail("expected .verifyFailed, got \(error)") }
+                XCTAssertEqual(why, reason)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: zip.path), reason)
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: updates.appendingPathComponent("staged-9.9.9").path), reason)
+        }
+    }
+
+    func test_stagingAcceptsThisAppAtThisVersion() throws {
+        let (zip, updates) = try makeAppZip(info: ["CFBundleIdentifier": stable, "CFBundleShortVersionString": "9.9.9"])
+        let bundle = try stage(zip)
+        XCTAssertEqual(bundle.path, updates.appendingPathComponent("staged-9.9.9/Maugham.app").path)
     }
 
     func test_teamIDAndVersionValidation() {

@@ -82,6 +82,21 @@ final class PendingUpdateRevealTests: XCTestCase {
             expectedTeamID: "ABCDE12345", swapTool: UpdateInstaller.swapToolURL()), "a malformed version")
     }
 
+    /// The helper's code requirement names the running app's bundle
+    /// identifier; without a well-formed one there is nothing to name.
+    func test_launchSwapHelper_returnsFalse_withoutAWellFormedBundleIdentifier() throws {
+        let installed = TestTemp.root.appendingPathComponent("Maugham.app")
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        let staged = URL(fileURLWithPath: "/tmp/does-not-matter/Maugham.app")
+        for identifier in [nil, "", "com.maugham.Maugham\"", "com.$(touch PWNED)"] as [String?] {
+            XCTAssertFalse(UpdateInstaller.launchSwapHelper(
+                stagedBundle: staged, version: "0.43.0", updatesDirectory: TestTemp.root,
+                relaunch: false, installedBundlePath: installed.path,
+                expectedTeamID: "ABCDE12345", expectedBundleIdentifier: identifier,
+                swapTool: UpdateInstaller.swapToolURL()), "\(identifier ?? "nil")")
+        }
+    }
+
     /// Without the running app's swap tool there is no atomic swap, so no
     /// helper is launched: Finder, never a helper that would fail after the
     /// app has quit.
