@@ -253,6 +253,7 @@ pre-auto-update behavior. **Worst case == status quo, never worse.**
 | `atomicSwap` missing staged path → `.sourceNotFound` | Yes | `test_atomicSwap_throwsSourceNotFound_*` |
 | `atomicSwap` cross-volume → `.crossVolume` | Yes (RAM disk via hdiutil; skipped if unavailable) | `test_atomicSwap_throwsCrossVolume_*` |
 | Download retry classifier, size cap, extension from the asset name | Yes (pure) | `UpdateDownloadTests` |
+| The schedule: due on the wall clock; a background check runs from idle, up to date, error and needs-newer-system and skips checking, downloading, ready and installing; a declined background check restores the state it began from; wake and activation each fetch once (injected notification centers) | Yes | `UpdateScheduleTests` |
 | Download delegate path: completes into place / progress never decreases and ends at 1.0 / refused past the cap leaves nothing | Yes (`file://` source under `TestTemp.root`, no network) | `UpdateDownloadTests.test_a*` |
 | An asset declaring more than the cap is never downloaded | Yes (injected download closure) | `UpdateCheckerTests.test_anAsset*Cap*` |
 | Only this repo's release URL is trusted; an untrusted one is never downloaded | Yes (pure table; injected download closure) | `GitHubReleasesAPITests.test_onlyThisRepos*`; `UpdateCheckerTests.test_anUntrustedAssetURL*` |
@@ -318,3 +319,16 @@ entry is superseded by this AREA.md description of what the code actually does.
 ## The compiled swap tool replaced python3 (2026-11-15)
 
 The swap used to be a Python source (`pyAtomicSwapSource`) embedded in the bash helper, calling `renamex_np(RENAME_SWAP)` through ctypes, guarded by `command -v python3` both in-app (`python3Available`) and in the script. On a Mac without Xcode's Command Line Tools `/usr/bin/python3` is a stub: the guard passed, running it failed (and raised Apple's "install developer tools" dialog), so every attempt recorded `failed <v> swap` and the Finder fallback was never reached. The Python also carried a non-atomic `.bak` fallback for a volume that cannot swap. Both are gone: `maugham-swap` (a tool target embedded at `Contents/Helpers/`) makes the one call, the helper runs the installed app's own copy, and Denver's ruling is atomic or Finder, nothing in between — `installMode` probes `volumeSupportsSwapRenaming`, the tool's exit 3 is the backstop, recorded as `swap-unsupported` and remembered per volume. The retired `failed <v> python3` line an older build may still write parses as a plain failure (`UpdateInstaller.legacyFailureSteps`). Ported from the Marker app's updater, itself ported from this one.
+
+## The macOS floor, measured (moved from AREA.md 2026-11-15)
+
+**What the BUILD does when `LSMinimumSystemVersion` and `MACOSX_DEPLOYMENT_TARGET` disagree** (measured on Xcode 27.0, building the app with each value in turn):
+
+| `project.yml` declares | `MACOSX_DEPLOYMENT_TARGET` | Built `Info.plist` carries | Xcode says |
+|---|---|---|---|
+| `LSMinimumSystemVersion: "15.0"` | `27.0` | **`27.0`** | `warning: LSMinimumSystemVersion of '15.0' is less than the value of MACOSX_DEPLOYMENT_TARGET '27.0' - setting to '27.0'.` |
+| `LSMinimumSystemVersion: "28.0"` | `27.0` | **`28.0`** | nothing |
+
+- **The build floors the value at the deployment target and does not cap it**, and the marker is read off the built plist.
+- **A stale-LOW declaration can never publish a lie**: the build has already raised it, so the updater cannot offer a build to a Mac that cannot run it.
+- **A stale-HIGH declaration can**: nothing raises the target to meet it and nothing warns, so the marker would publish a floor higher than the code needs and withhold updates from Macs that could run them. Every macOS floor in `project.yml` is the same number (`TripwireGrepTests.test_everyMacOSFloorInProjectYmlIsTheSameNumber`; control `test_theMacOSFloorCensusFiresOnAPlantedOffender`).
