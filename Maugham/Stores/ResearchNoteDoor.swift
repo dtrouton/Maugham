@@ -394,6 +394,10 @@ final class ResearchNoteDoor {
         }
 
         var kept = false
+        // A keep that failed on a save that goes ahead anyway is said once
+        // the write has landed (as the table door's `savedAnyway`): a retry
+        // (`secondRead`) or a failed write never hears it falsely or twice.
+        var savedAnywaySentence: String?
         if let onDisk, !onDisk.isEmpty {
             let state = notes[itemId] ?? NoteState()
             let onDiskHash = ContentHash.of(onDisk)
@@ -418,13 +422,11 @@ final class ResearchNoteDoor {
                     case .saveAnyway where source == .direct(mustLand: true):
                         // Not the writer's edits: the text a move's refs
                         // were rewritten in (the only write that must land).
-                        MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway.",
-                            projectURL: projectURL)
+                        savedAnywaySentence =
+                            "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway."
                     case .saveAnyway:
-                        MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway.",
-                            projectURL: projectURL)
+                        savedAnywaySentence =
+                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway."
                     }
                 } else {
                     // Written to the live entry, not a copy taken before the
@@ -480,6 +482,7 @@ final class ResearchNoteDoor {
         let writtenHash = ContentHash.of(newBytes)
         notes[itemId]?.knownHash = writtenHash
         notes[itemId]?.timerStopSaid = false
+        if let savedAnywaySentence { MaughamEvent.postNotice(savedAnywaySentence, projectURL: projectURL) }
         wroteForTesting?(itemId, text)
         do {
             try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: writtenHash, writtenBy: writer),

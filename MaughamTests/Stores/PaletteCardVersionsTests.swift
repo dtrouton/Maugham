@@ -257,8 +257,8 @@ final class PaletteCardVersionsTests: XCTestCase {
                                                          baselineTitle: first.title, in: projectStore)
         XCTAssertEqual(saved, first.title)
         XCTAssertTrue(try onDisk(first.researchItemId, projectStore).contains("Typed anyway."))
-        XCTAssertTrue(heard.notices.contains { $0.contains("couldn’t be kept; your edits were saved anyway") },
-                      "\(heard.notices)")
+        XCTAssertEqual(heard.notices.filter { $0.contains("couldn’t be kept; your edits were saved anyway") }.count, 1,
+                       "\(heard.notices)")
     }
 
     // MARK: - Restore

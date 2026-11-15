@@ -1261,13 +1261,19 @@ final class ResearchTableVersionTests: XCTestCase {
         let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
         let heard = listen()
         let host = try await open(item, store, clock: Clock())
-        let second = "Year,Revenue\n2025,50\n"
-        landOutside(["Year,Revenue\n2025,40\n", second], at: file(try XCTUnwrap(item.path)))
+        let first = "Year,Revenue\n2025,40\n", second = "Year,Revenue\n2025,50\n"
+        landOutside([first, second], at: file(try XCTUnwrap(item.path)))
 
         try await writerSaves(11, host)
 
         XCTAssertEqual(try bytes(of: item), Data(second.utf8), "not saved over the outside version")
         XCTAssertTrue(host.isDirty, "kept aside, still unsaved")
+        let outside = outsideBackups(of: item)
+        XCTAssertEqual(try outside.map { try Data(contentsOf: $0) }, [Data(first.utf8)],
+                       "the first change is kept as a conflict backup")
+        XCTAssertEqual(Set(try versions(of: item).map { try ResearchVersionStore(projectURL: projectURL).read($0).0 }),
+                       [Data("Year,Revenue\n2025,10\n".utf8), Data(first.utf8)],
+                       "and as a version, beside the run's start")
         let backup = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
         XCTAssertEqual(heard.notices, [kept(Self.changedWhileSaving, as: backup)])
         DocumentStore.beforeCoordinatedWriteForTesting = nil
@@ -1294,6 +1300,33 @@ final class ResearchTableVersionTests: XCTestCase {
         XCTAssertEqual(heard.notices, [kept("Couldn’t save “model”: it isn’t there any more.", as: first), said])
         await store.releaseResearchTable(host)
         XCTAssertEqual(heard.notices.count, 2, "the close keeps no third: \(heard.notices)")
+    }
+
+    /// **The backup has gone and a new one cannot be kept either** (fix
+    /// round 1): said once — the writer heard a file's name that no longer
+    /// holds the edits — and the close says nothing more.
+    func test_aFlushWhoseEarlierBackupHasGoneAndCannotBeKeptAgainSaysSoOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await open(item, store, clock: Clock())
+        try FileManager.default.removeItem(at: file(try XCTUnwrap(item.path)))
+
+        try await writerSaves(11, host)
+        let first = try theOneBackup(of: item, stem: "model", rows: [["Year", "Revenue"], ["2025", "11"]])
+        try FileManager.default.removeItem(at: first)
+        try lock(file(".maugham/conflicts"))
+
+        await host.flush()
+
+        XCTAssertTrue(unsavedBackups(of: item).isEmpty)
+        XCTAssertTrue(host.isDirty, "not kept, still unsaved")
+        XCTAssertEqual(heard.notices, [
+            kept("Couldn’t save “model”: it isn’t there any more.", as: first),
+            "Couldn’t save “model”: it isn’t there any more. Your edits weren’t saved, and they couldn’t be kept anywhere else.",
+        ])
+        await store.releaseResearchTable(host)
+        XCTAssertEqual(heard.notices.count, 2, "the close says nothing more: \(heard.notices)")
     }
 
     // MARK: - The rule
