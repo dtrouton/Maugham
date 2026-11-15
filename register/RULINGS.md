@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-59 rulings, 4 principles.
+60 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -624,6 +624,16 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *mechanism note:* Figures: `FigureDocument.acceptSuggestion` appends a status-only `claudeAccept` (`FigureAnnotationOps.statusOnlyAccept`) when the cell's content already is the suggested content; ⌘Z and a grid visit's undo are a status-only `claudeAcceptRevert` (`FigureReturnDiff.Change.statusOnly`). The manuscript sequence REPRODUCED (hardening 11-11 Task 5: accept, a peer's archive or stet, a Reopen, accept again, which wrote a `claudeAccept` with prior == next or spliced a span twice), so the guard is built there too, in one Core function (`SuggestionSplice.planAccept`) used by the Mac and the phone. No accept records a before-text equal to its after-text.
 
+### RULING-60 — O — a Research table closes the way a note does (RULING-56's family)  `RATIFIED_FROM_OPTIONS`
+
+> A Research table closes the way a note does. At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file. This inherits the notes' interim "save anyway" rule (`ResearchNoteDoor.whenTheKeepFails`); if that interim rule is later changed, tables change with it.
+
+*basis:* Denver, 2026-11-11, structured question (the hardening 2026-11-11 sitting): chose the recommended option. The question named a Research table's edits at window close and at quit, where today a version that cannot be kept stops the save and the last edits can be dropped.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-C verbatim. The ruling says 'at close'; the build reads that as the notes' own split (every flush saves anyway, the debounced save still refuses), a reading that is the coordinator's call and not yet ruled by Denver (see M5-AN-080 and M5-AN-081).
+
+*mechanism note:* `ResearchTableHost.write(_:by:restoring:source:secondRead:)` is told whether it is the debounced save (`.timer`), a flush (`.flush`: `flush()`, which `DocumentStore.flushPendingSave`, the grid's leave and `close()` all reach) or an assistant write or restore (`.direct`), and answers with a `WriteOutcome`. A flush whose version cannot be kept saves anyway and says so after the save lands. A flush that cannot save writes the held table's CSV through `Document.writeConflictBackup` (kind `unsaved`) and names the file. If that backup fails too, the notice says the edits were not saved.
+
 ## The enforcement gradient — how each ruling is held
 
 prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a
@@ -677,6 +687,7 @@ promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling 
 - **RULING-57** `test` — RewindReturningAcceptTests + PartialRestoreStrandedAcceptTests returning pins
 - **RULING-58** `test` — FigureRestoreNotePlanTests (core) + FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins
 - **RULING-59** `test` — FigureAnnotationDispositionTests/FigureVisitTests guarded-accept pins; AcceptOverAppliedTextTests; SuggestionSpliceTests.test_planAccept_*
+- **RULING-60** `test` — ResearchTableVersionTests flush-arm pins (test_aFlushWhoseVersionCannotBeKeptSavesAnyway and the kept-aside arm tests) + ResearchTableGridTests leave/close pins
 
 ## Principles — how to judge, not what to decide
 

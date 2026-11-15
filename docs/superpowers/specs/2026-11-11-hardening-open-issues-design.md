@@ -243,6 +243,7 @@ the accepted text, or fails to find its range and corrupts nothing, the outcome 
   A flush that ended in a backup leaves the host clean, so a second flush on the way out (`settle`
   then `close()`) does not write a second copy. The backup holds the CSV text, not the sidecar's
   formats; the notice does not promise formats.
+  *Correction, 2026-11-15 (hardening plan 2, Task 2.2 fix round 1; the sentence above is kept as it was written):* the host does not end clean. After a flush keeps the edits aside the host STAYS UNSAVED and remembers what it kept (the hash of the backed-up CSV text and the file), so the second flush on the way out writes no second copy and says nothing, which is what this sentence wanted. Three things a clean host got wrong: an assistant write passed `assistantEdit`'s unsaved check and carried the writer's kept-aside edits to disk as the assistant's; after a transient refusal (a briefly locked folder) ⌘S and ⌘Q never wrote the edits, because `save` returns at once on a clean host; and an outside change reloaded the grid over the held table. Now a later flush retries the write, an assistant write is refused meanwhile, no reload replaces the held edits, and a remembered backup that has gone is kept again. Coordinator's call, not yet ruled by Denver (task-2-findings-r1).
   Tests hang off `ResearchTableVersionTests.test_aVersionThatCannotBeKeptWritesNothing`: one per
   arm, each ending in either the edits on disk or a `.maugham/conflicts/*-unsaved-*.csv` holding
   them.

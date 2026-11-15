@@ -39,7 +39,7 @@ Every source file in `MaughamPhone/` appears once.
 - `PaletteLoading.swift`, `PaletteCardView.swift` — the read-only palette section.
 - `StatementLoading.swift` — the Craft Intent row's statement-first lookup (`intentRow(statements:research:)`).
 - `PhoneImageLoader.swift` — the eviction-safe image seam.
-- `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load, an unreadable or empty-reading figure left out, never shown empty. Cards load on open or Retry, like the reader's text, not when op logs arrive from another device. Tripwires 18, 19, 20, 58.
+- `PhoneFigureBook.swift` — a book's figure cards through Core (`FigureCache` → `FigureWorkbook` → `FigureCardBook`): streams and config downloaded first, trust resolved once per load and reported to `FigureCache.noteTrust` (a changed table drops the cached cards), an unreadable or empty-reading figure left out, never shown empty. Cards load on open or Retry, like the reader's text, not when op logs arrive from another device. Tripwires 18, 19, 20, 58.
 - `FigureCardView.swift` — a figure line's read-only card (`FigureCardPlan`, the pure plan the reader computes once per load): table, `FigureCardText`'s words (*Not downloaded yet* with Retry for a figure whose files have not arrived), or picture through `PhoneImageLoader`; no number, no changed banner. Tripwire 4.
 - `ReadIcons.swift` — row icons (`paletteRowSymbol`).
 
@@ -104,7 +104,7 @@ Every source file in `MaughamPhone/` appears once.
 
 ### Capture
 - **The writer takes a `DeviceIdentity`, never a device-id string**: the id, the manifest's filename slug and the key that seals a capture are one name, injectable for tests.
-- **Manifest rows go through `JSONLAppendStore` with a `ChainPolicy`** (`docId: InboxManifest.chainDocId`, the project as `projectURL`): chained onto the head this phone verified and sealed on the spot, one signature per capture. The store owns the encoding, so the phone cannot drift from the Mac's reader. Only the ASSET writes use `CoordinatedFileIO`.
+- **Manifest rows go through `JSONLAppendStore` with a `ChainPolicy`** (`docId: InboxManifest.chainDocId`, the project as `projectURL`): chained onto the head this phone verified and sealed on the spot, one signature per capture. Only the ASSET writes use `CoordinatedFileIO`.
 - **An unsigned phone writes the row and no seal**: a state, not a failure.
 - **There is no capture aim.** A capture lands in the inbox plain, and the Mac aims it at a palette card on promote. `InboxEntry.paletteSubject`/`sense` stay on the wire, decoded and tolerated, and the Mac's `InboxPane`/`PalettePickerSheet` still read them, but nothing on the phone writes them (`TripwirePhoneGrepTest.test_noPaletteAimWriterOnThePhone`).
 - **Inbox subdirectories are Core's `InboxConvention`**, never a literal (`test_noRawInboxSubdirLiteralsInInboxCaptureWriter`).

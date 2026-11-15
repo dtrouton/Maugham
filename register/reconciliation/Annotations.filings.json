@@ -662,13 +662,50 @@
   }
  },
  {
+  "claim_id": "M5-AN-080",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The timer's waiting is the notes' interim rule, which RULING-24's LOWER STANDARD line permits (a save may land without its earlier version) without saying what a timed save does in the other arms; no ruling states what the debounced save does in any arm, and the assistant's write is not a close. The per-arm behaviour is the coordinator's call, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-081",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-60",
+  "clause_that_reaches_it": "At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file.",
+  "why_in_scope": "The clause's own two halves, at the close the ruling names: the store's flush at window close and quit, the grid's leave and the host's close save anyway when the version cannot be kept, and write the table's CSV as a backup named in the notice when the save fails. Only that part is reached: the reading of 'at close' as every flush (⌘S, leaving the grid, background flushes) is the coordinator's call and no ruling reaches it, and nothing in this filing credits Denver with it.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-11 named window close and quit",
+  "call_path": "⌘Q / window close → DocumentStore.flushPendingSave(commitOpenEdits: true) → ResearchTableHost.flush → write(source: .flush); grid leave → flush; releaseResearchTable → close() → flush",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "07f06d22 07617b08",
+   "date": "2026-11-13",
+   "authorised_by": "RULING-60 — Denver 2026-11-11, structured question, recommended option accepted — for the close only; the extension to every flush is the coordinator's call, not yet ruled by Denver",
+   "pinned_by": "ResearchTableVersionTests.test_aFlushWhoseVersionCannotBeKeptSavesAnyway and test_aFlushWhoseSaveFailsKeepsTheEditsAside; ResearchTableGridTests.test_theCloseSavesAnywayWhenTheVersionCannotBeKept and test_aGridsLeaveThenItsReleaseKeepOneBackupAndSayItOnce",
+   "note": "Filed already fixed: found in the hardening review (#138 R1), never carried a VIOLATES filing. Before the fix a version that could not be kept stopped the save at close and the table's last edits were dropped."
+  }
+ },
+ {
+  "claim_id": "M5-AN-082",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, or the retry; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver. PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
+ },
+ {
+  "claim_id": "M5-AN-083",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Registry bookkeeping: which host an open returns and when a closed one is replaced. No ruling states it (the no-edit-lost consequence is the flush's, M5-AN-081). The bound and its error are the coordinator's call, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-084",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states that a save re-checks the file it read; the design spec's R3 is a design, not a ruling, and the note door's check and the retry and second-mismatch arms are the coordinator's calls, hardening 2026-11-11, not yet ruled by Denver. RULING-56 versions research text and says nothing of an outside write landing mid-save."
+ },
+ {
   "_summary": {
-   "reached": 31,
-   "complies": 31,
+   "reached": 32,
+   "complies": 32,
    "violates": 0,
-   "no_ruling": 36,
-   "total": 67,
-   "coverage": "46%",
+   "no_ruling": 40,
+   "total": 72,
+   "coverage": "44%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -732,6 +769,9 @@
     "RULING-59": [
      "M5-AN-075",
      "M5-AN-076"
+    ],
+    "RULING-60": [
+     "M5-AN-081"
     ]
    },
    "reached_by_a_root_only": [
