@@ -85,7 +85,7 @@ Every update is checked **twice**: when it is staged (in-app, `stageAndVerifySyn
 ### The detached helper
 The app cannot replace its own running bundle, so a detached helper does it.
 
-1. **Swift side** (`launchSwapHelper(stagedBundle:version:updatesDirectory:relaunch:…)`) refuses (returns false → Finder fallback) unless `installMode` answers in place (the bundle AND its folder writable, the running app's swap tool there and executable, the volume able to swap), the running app has a well-formed team ID and bundle identifier, and the version is `X.Y.Z`. It writes the fixed `helperScript()` to `$TMPDIR/maugham-update-<uuid>.sh` and launches it detached (`/bin/bash script.sh <pid> <staged> <installed> <team> <1|0> <version> <Updates dir> <swap tool> <bundle id>` via `Process`, without waiting).
+1. **Swift side** (`launchSwapHelper(stagedBundle:version:updatesDirectory:relaunch:…)`) refuses (returns false → Finder fallback) unless `installMode` answers in place ("Worst case" below), the running app has a well-formed team ID and bundle identifier, and the version is `X.Y.Z`. It writes the fixed `helperScript()` to `$TMPDIR/maugham-update-<uuid>.sh` and launches it detached (`/bin/bash script.sh <pid> <staged> <installed> <team> <1|0> <version> <Updates dir> <swap tool> <bundle id>` via `Process`, without waiting).
 2. **The app terminates.** The child reparents to launchd, which adopts orphans.
 3. **The bash helper** runs under `set -e`, and every failure path below is an explicit `if !` so it records. Every one after the argument guard ends in `reopen`: with `$RELAUNCH` `1` it runs `open "$INSTALLED"` (the untouched old app) before `exit 1`, `|| true` so it cannot trip `set -e`. In order:
    - validates its nine arguments, the swap tool included, before the wait (exit 2; nothing touched, nothing recorded; `test_helperScript_swapToolIsValidatedBeforeAnyStep`);
@@ -136,7 +136,7 @@ The app cannot replace its own running bundle, so a detached helper does it.
 | Script shape (string inspection): argv order, fixed text, re-check before the swap, tool validated first, exit 3 its own step, no rm+mv | `test_helperArguments_*`, `test_helperScript_*`, `test_helperToolPaths_*` |
 | **The helper end to end** (real `bash`, `ditto`, built `maugham-swap`; stub `codesign`/`spctl`/`open`; an exited pid): swap in; refusals leave the app byte-identical and reopen it; `ditto`, `swap`, `swap-unsupported` recorded; bad arguments stop it with exit 2; an identifier-checking stub refuses another app; hostile paths are data; a stuck run is killed, its process tree in the failure | `UpdateSwapHelperEndToEndTests` |
 | A restored Check for Updates… window does not check (pure, windowless) | `UpdateCheckRequestTests` |
-| The schedule: due on the wall clock; which states a background check runs from or skips; wake and activation fetch once | `UpdateScheduleTests` |
+| The schedule: when due, which states a background check skips, wake and activation | `UpdateScheduleTests` |
 | Download: retry, cap, extension, delegate path (`file://`), redirect decision (not the delegate's redirect) | `UpdateDownloadTests` |
 | Cap and trusted URL refused before a download; pending version not re-staged; refusal memory | `UpdateCheckerTests`, `GitHubReleasesAPITests` |
 | Zip totals and each size/space arm; refused zips deleted with their stage folder | `UpdateInstallerTests` |
