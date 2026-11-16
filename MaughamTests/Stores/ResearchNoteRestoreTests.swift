@@ -31,6 +31,7 @@ final class ResearchNoteRestoreTests: XCTestCase {
     override func tearDown() async throws {
         for store in stores { await store.close() }
         stores = []
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
         Document.localIdentitiesForTesting = nil
         Document.deviceStateForTesting = nil
         Document.registryCacheForTesting = nil
@@ -188,5 +189,61 @@ final class ResearchNoteRestoreTests: XCTestCase {
         }
         XCTAssertEqual(try bytes(of: item, projectStore), Data("Two.".utf8))
         XCTAssertTrue(heard.contains { $0.contains("the restored version wasn’t saved over it") }, "\(heard)")
+    }
+
+    // MARK: - A restore spares the version it restores (#141 N4)
+
+    /// Fills `item`'s versions to the retention with this device's, all newer
+    /// than `oldest`, so `oldest` ranks last: the one a prune past the
+    /// retention would remove.
+    private func fillToTheRetention(_ item: ResearchItem, oldest: ResearchVersion) throws {
+        let versions = ResearchVersionStore(projectURL: projectURL)
+        let base = Date().addingTimeInterval(3_600)
+        for i in 1..<ResearchVersionStore.retention {
+            try versions.keep(priorBytes: Data("filler \(i)".utf8), priorSidecar: nil, writtenBy: .writer,
+                              replacedBy: .writer, payload: .note, itemId: item.id,
+                              device: DeviceIdentity.author.slug, at: base.addingTimeInterval(Double(i)))
+        }
+        XCTAssertEqual(self.versions(of: item).count, ResearchVersionStore.retention)
+        XCTAssertTrue(self.versions(of: item).contains(oldest))
+    }
+
+    /// With exactly the retention kept, restoring the oldest makes one more;
+    /// the prune that follows must not remove the version being restored.
+    /// Disable experiment: pass no `sparing` for the restored name and the
+    /// restored version's file is gone after the restore.
+    func test_restoringTheOldestOfFiftyKeepsTheVersionItRestored() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note(Data("One.".utf8), in: projectStore)
+        let v1 = try await versionOf(Data("One.".utf8), final: "Two.", item, projectStore, store)
+        try fillToTheRetention(item, oldest: v1)
+
+        try await store.restoreResearchNote(itemId: item.id, to: v1, shareIsReadOnly: false)
+
+        XCTAssertEqual(try bytes(of: item, projectStore), Data("One.".utf8))
+        XCTAssertTrue(versions(of: item).contains(v1), "the restored version is still kept")
+        XCTAssertLessThanOrEqual(versions(of: item).count, ResearchVersionStore.retention)
+    }
+
+    /// The same, when the write then fails: the restored text is still there.
+    func test_aFailedRestoreOfTheOldestOfFiftyLeavesItsVersionOnDisk() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note(Data("One.".utf8), in: projectStore)
+        let v1 = try await versionOf(Data("One.".utf8), final: "Two.", item, projectStore, store)
+        try fillToTheRetention(item, oldest: v1)
+        let path = file(try XCTUnwrap(item.path))
+        var left = ["outside 1", "outside 2"]
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+
+        do {
+            try await store.restoreResearchNote(itemId: item.id, to: v1, shareIsReadOnly: false)
+            XCTFail("the write was changed twice, so the restore is refused")
+        } catch is ResearchNoteRestoreError {}
+
+        XCTAssertTrue(versions(of: item).contains(v1), "the restored version's file still exists")
+        XCTAssertEqual(try ResearchVersionStore(projectURL: projectURL).read(v1).0, Data("One.".utf8))
     }
 }

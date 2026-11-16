@@ -401,18 +401,21 @@ public struct ResearchVersionStore: Sendable {
     /// Another device's files are never touched (tripwire 17). A failed
     /// removal is left for the next prune.
     ///
-    /// `sparing` is the version the caller's keep just wrote: it is never
-    /// removed, and counts as one of the `keep`. Ranking is by stamp, so
+    /// `sparing` is the names the caller needs kept: the version its keep
+    /// just wrote, and for a restore the version being restored. None is ever
+    /// removed, and each counts as one of the `keep`. Ranking is by stamp, so
     /// after the clock moved back a keep's own version can rank oldest; a
-    /// keep that reported success must not have its version pruned at once.
+    /// keep that reported success must not have its version pruned at once,
+    /// and a restore must not prune the version it is about to write back
+    /// before that write has landed.
     public func prune(itemId: String, device: DeviceSlug, keep: Int = ResearchVersionStore.retention,
-                      sparing: String? = nil) {
+                      sparing: Set<String> = []) {
         let own = contents(itemId: itemId).payloads.keys
             .compactMap { name in Self.parse(name).flatMap { $0.isFrom(device) ? (name, $0) : nil } }
             .sorted { ($0.1.stamp, $0.1.suffix) > ($1.1.stamp, $1.1.suffix) }
-        let spared = sparing.flatMap { name in own.contains(where: { $0.0 == name }) ? name : nil }
-        let others = own.filter { $0.0 != spared }
-        let keepOthers = max(keep - (spared == nil ? 0 : 1), 0)
+        let spared = Set(own.map(\.0).filter { sparing.contains($0) })
+        let others = own.filter { !spared.contains($0.0) }
+        let keepOthers = max(keep - spared.count, 0)
         for (name, _) in others.dropFirst(keepOthers) { remove(name, itemId: itemId) }
         sweepLeftovers(itemId: itemId, device: device)
         removeFolderIfEmpty(itemId: itemId)

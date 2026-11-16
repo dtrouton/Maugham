@@ -254,7 +254,7 @@ final class ResearchNoteDoor {
     private func fire(_ itemId: String, generation: Int, in store: DocumentStore) async {
         guard let entry = pending[itemId], entry.generation == generation else { return }
         pending[itemId]?.timer = nil
-        let outcome = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+        let outcome = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                                     source: .editorTimer, in: store)
         if outcome != .stoppedTextStaysPending, pending[itemId]?.generation == generation {
             pending[itemId] = nil
@@ -269,7 +269,7 @@ final class ResearchNoteDoor {
     func flushPending(in store: DocumentStore) async {
         while let itemId = pending.keys.min(), let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
-            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                               source: .editorFlush, in: store)
         }
     }
@@ -286,10 +286,10 @@ final class ResearchNoteDoor {
                    in store: DocumentStore) async -> ResearchNoteSave {
         if let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
-            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                               source: .editorFlush, owner: owner, in: store)
         }
-        return await enqueue(itemId, text: text, by: .writer, restoring: false,
+        return await enqueue(itemId, text: text, by: .writer, restoring: nil,
                              source: .editorFlush, owner: owner, in: store).asSave
     }
 
@@ -300,11 +300,11 @@ final class ResearchNoteDoor {
     /// funnel, a rename sweep, Replace, a promotion): the item is looked up
     /// in it, so a store whose `DocumentStore` was wired one way only (a
     /// load-only test context) still finds what it is writing.
-    func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
+    func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
               mustLand: Bool, owner: ProjectStore? = nil, in store: DocumentStore) async -> ResearchNoteSave {
         if let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
-            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: false,
+            _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                               source: .editorFlush, owner: owner, in: store)
         }
         return await enqueue(itemId, text: text, by: writer, restoring: restoring,
@@ -312,7 +312,7 @@ final class ResearchNoteDoor {
     }
 
     /// One save, queued behind any save of the same note already in flight.
-    private func enqueue(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
+    private func enqueue(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
                          source: SaveSource, owner: ProjectStore? = nil,
                          in store: DocumentStore) async -> Outcome {
         let before = inFlight[itemId]?.task
@@ -369,7 +369,7 @@ final class ResearchNoteDoor {
     /// make the door run again from its read, once (`secondRead`), so they
     /// are kept as a version first; a second change takes the save-failure
     /// arm for `source`.
-    private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
+    private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
                        source: SaveSource, owner: ProjectStore?, in store: DocumentStore,
                        secondRead: Bool = false) async -> Outcome {
         let projectURL = store.projectURL
@@ -392,7 +392,7 @@ final class ResearchNoteDoor {
             // A file that is there but will not read cannot be kept: nothing
             // is written over it (RULING-7), whatever the source.
             return refusedOverAnUnreadableFile(itemId, item, fileURL, text: text, by: writer,
-                                               restoring: restoring, source: source, projectURL: projectURL)
+                                               restoring: restoring != nil, source: source, projectURL: projectURL)
         }
         let newBytes = Data(text.utf8)
         let at = now()
@@ -415,10 +415,10 @@ final class ResearchNoteDoor {
             let state = notes[itemId] ?? NoteState()
             let onDiskHash = ContentHash.of(onDisk)
             let overOwnBytes = onDiskHash == state.knownHash
-            if restoring || Self.keepsRegardlessOfTheRun(source, onDiskHash: onDiskHash, state.writtenBehindTheEditor)
+            if restoring != nil || Self.keepsRegardlessOfTheRun(source, onDiskHash: onDiskHash, state.writtenBehindTheEditor)
                 || state.run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes),
                onDiskHash != state.lastKeptHash {
-                if let failure = await keepThePriorVersion(onDisk, of: itemId, at: at, by: writer, in: store) {
+                if let failure = await keepThePriorVersion(onDisk, of: itemId, at: at, by: writer, sparing: restoring, in: store) {
                     researchNoteLog.error(
                         "\(item.title, privacy: .public)'s previous version was not kept: \(failure.localizedDescription, privacy: .public)")
                     switch Self.whenTheKeepFails(source) {
@@ -429,7 +429,7 @@ final class ResearchNoteDoor {
                         return .stoppedTextStaysPending
                     case .stopTheSave:
                         MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
+                            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring != nil)) saved over it.",
                             projectURL: projectURL)
                         return .notSaved
                     case .saveAnyway where source == .direct(mustLand: true):
@@ -439,7 +439,7 @@ final class ResearchNoteDoor {
                             "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway."
                     case .saveAnyway:
                         savedAnywaySentence =
-                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway."
+                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring != nil)) anyway."
                     }
                 } else {
                     // Written to the live entry, not a copy taken before the
@@ -715,10 +715,13 @@ final class ResearchNoteDoor {
     /// **The bytes about to be replaced, kept as a version** (payload
     /// `.note`), their author when the note's record was written for these
     /// bytes, `writer` as whose save replaces them; then this device's
-    /// versions past the retention are pruned. Off the main actor. The error
-    /// when it could not be kept.
+    /// versions past the retention are pruned, sparing the version just made
+    /// and, for a restore, the one being restored (`restoring`, its file
+    /// name): a failed write after the prune must not have lost its text.
+    /// Off the main actor. The error when it could not be kept.
     private func keepThePriorVersion(_ prior: Data, of itemId: String, at date: Date,
-                                     by writer: ResearchWriter, in store: DocumentStore) async -> Error? {
+                                     by writer: ResearchWriter, sparing restoring: String?,
+                                     in store: DocumentStore) async -> Error? {
         let versions = ResearchVersionStore(projectURL: store.projectURL)
         let projectURL = store.projectURL
         let device = DeviceIdentity.author.slug
@@ -733,7 +736,7 @@ final class ResearchNoteDoor {
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device, sparing: made.name)
+            versions.prune(itemId: itemId, device: device, sparing: Set([made.name] + [restoring].compactMap { $0 }))
             return nil
         }.value
     }
@@ -818,7 +821,7 @@ extension DocumentStore {
         }
         // `decoding:` keeps a leading BOM, which `String(data:encoding:)` may drop.
         let text = String(decoding: bytes, as: UTF8.self)
-        guard case .saved = await saveResearchNote(itemId: itemId, text: text, restoring: true) else {
+        guard case .saved = await saveResearchNote(itemId: itemId, text: text, restoring: version.name) else {
             throw ResearchNoteRestoreError(message: "That version wasn’t restored; the note is as it was.")
         }
     }
@@ -835,7 +838,7 @@ extension DocumentStore {
     /// `from`: the project store asking, when one is (`ResearchNoteDoor.save`'s `owner`).
     @discardableResult
     func saveResearchNote(itemId: String, text: String, by writer: ResearchWriter = .writer,
-                          restoring: Bool = false, mustLand: Bool = false,
+                          restoring: String? = nil, mustLand: Bool = false,
                           from projectStore: ProjectStore? = nil) async -> ResearchNoteSave {
         await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring,
                                     mustLand: mustLand, owner: projectStore, in: self)
