@@ -64,8 +64,21 @@ public final class UpdateChecker: ObservableObject {
     /// Single check + (if needed) download. Trigger drives error visibility.
     public func performCheck(trigger: Trigger) async {
         // Dev placeholder: don't try to "update" a local build to anything.
+        // What a background check that learns nothing puts back (#137): the
+        // state it began from, payload included, so "ready to install" or a
+        // sheet's error survives a poll that fails or declines. A manual
+        // check says what went wrong instead. An in-flight state is never
+        // restored (it would never finish), though no caller reaches that.
+        let began = state
+        let restored: UpdateState
+        switch began {
+        case .checking, .downloading: restored = .idle
+        case .idle, .readyToInstall, .installing, .error, .upToDate, .newerBuildNeedsNewerSystem:
+            restored = began
+        }
+        let declined: UpdateState = trigger == .background ? restored : .idle
         guard SemanticVersion(currentVersionString) != nil else {
-            state = .idle
+            state = declined
             return
         }
         state = .checking
@@ -77,7 +90,7 @@ public final class UpdateChecker: ObservableObject {
                   let currentVersion = SemanticVersion(currentVersionString) else {
                 state = trigger == .manual
                     ? .error("Couldn't parse version from release")
-                    : .idle
+                    : declined
                 return
             }
             guard newVersion > currentVersion else {
@@ -122,13 +135,13 @@ public final class UpdateChecker: ObservableObject {
             if trigger == .background,
                InstallRefusalMemory.refusals(for: newVersion.string, defaults: refusalDefaults)
                    >= InstallRefusalMemory.backgroundLimit {
-                state = .idle
+                state = declined
                 return
             }
             guard let asset = release.zipAsset ?? release.dmgAsset else {
                 state = trigger == .manual
                     ? .error(GitHubReleasesAPI.Error.noInstallableAsset.localizedDescription)
-                    : .idle
+                    : declined
                 return
             }
             // Only this repo's own release URL for this tag and asset is ever
@@ -137,7 +150,7 @@ public final class UpdateChecker: ObservableObject {
                 asset.browserDownloadURL, for: asset, tag: release.tagName) else {
                 state = trigger == .manual
                     ? .error(GitHubReleasesAPI.Error.untrustedAssetURL.localizedDescription)
-                    : .idle
+                    : declined
                 return
             }
             // A release declaring more than the cap is refused before a byte
@@ -147,7 +160,7 @@ public final class UpdateChecker: ObservableObject {
                     ? .error(UpdateDownloadError.tooLarge(
                         bytes: Int64(asset.size),
                         limit: UpdateLimits.standard.maxDownloadBytes).localizedDescription)
-                    : .idle
+                    : declined
                 return
             }
             let versionString = newVersion.string
@@ -170,7 +183,7 @@ public final class UpdateChecker: ObservableObject {
         } catch {
             state = trigger == .manual
                 ? .error(error.localizedDescription)
-                : .idle
+                : declined
         }
     }
 
@@ -307,9 +320,14 @@ public final class UpdateChecker: ObservableObject {
     /// Start the background schedule: a check 60 s after launch, then on a
     /// 30-minute tick, on wake and on app activation, each only when
     /// `UpdateSchedule.isDue`. Idempotent. Only starts when the current build
-    /// variant has the updater enabled.
-    public func startBackgroundLoop() {
-        guard BuildVariant.current.updaterEnabled else { return }
+    /// variant has the updater enabled. The centers are injectable so a test
+    /// posts to its own; the defaults are the app's.
+    public func startBackgroundLoop(
+        workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        appCenter: NotificationCenter = .default,
+        enabled: Bool = BuildVariant.current.updaterEnabled
+    ) {
+        guard enabled else { return }
         guard backgroundTask == nil else { return }
         backgroundTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.initialDelaySeconds * 1_000_000_000)
@@ -319,8 +337,8 @@ public final class UpdateChecker: ObservableObject {
             }
         }
         let triggers: [(NotificationCenter, Notification.Name)] = [
-            (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
-            (NotificationCenter.default, NSApplication.didBecomeActiveNotification),
+            (workspaceCenter, NSWorkspace.didWakeNotification),
+            (appCenter, NSApplication.didBecomeActiveNotification),
         ]
         for (center, name) in triggers {
             let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -330,7 +348,8 @@ public final class UpdateChecker: ObservableObject {
         }
     }
 
-    /// Stop the schedule and drop its observers.
+    /// Stop the schedule and drop its observers. Production never calls it
+    /// (the loop lives as long as the app); it is the tests' teardown.
     public func stopBackgroundLoop() {
         backgroundTask?.cancel()
         backgroundTask = nil
@@ -338,12 +357,16 @@ public final class UpdateChecker: ObservableObject {
         observerTokens = []
     }
 
-    /// A background trigger: checks only when due, and never while a check or
-    /// download is in flight.
+    /// A background trigger: checks only when due. It skips while a check or
+    /// download is in flight, and while an update is ready or installing: a
+    /// poll has nothing to add there, and re-staging a pending version would
+    /// delete the folder a quit may hand to the helper.
     func checkInBackgroundIfDue(now: Date = Date()) async {
         switch state {
-        case .checking, .downloading: return
-        default: break
+        case .checking, .downloading, .readyToInstall, .installing:
+            return
+        case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem:
+            break
         }
         guard UpdateSchedule.isDue(
             lastCompleted: UpdateSchedule.lastCompleted(defaults: refusalDefaults),

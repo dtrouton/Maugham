@@ -303,6 +303,18 @@ final class ProjectSession {
     /// How long a close waits for the figure windows' last writes.
     static let figureWindowsSettleLimit: Duration = .seconds(5)
 
+    /// **The stores' end at app quit** (`QuitCoordinator`, final review G1):
+    /// the figure windows' last writes, then the `DocumentStore`'s close —
+    /// every pending save, a Research table's and a note's included. As
+    /// `close()`, but the roster is left to `ProjectSessionRegistry
+    /// .shutdownAll()` in `willTerminate`, which ends its sessions rather
+    /// than detaching them.
+    func closeForQuit() async {
+        figureWindows.closeAll()
+        await settleFigureWindows(within: Self.figureWindowsSettleLimit)
+        await documentStore.close()
+    }
+
     /// The figure windows' last writes, awaited within `limit`; logged when
     /// they did not land in time. **Log-only, deliberately**: a project's
     /// notices render only in its project window, which is already gone at

@@ -1,6 +1,6 @@
 import XCTest
 @testable import MaughamPhone
-import MaughamCore
+@testable import MaughamCore
 
 /// A download double that EVICTS: every file it is told about reads empty, as
 /// an evicted iCloud file does (no error), until `download(at:)` is asked for
@@ -323,6 +323,33 @@ final class PhoneFigureBookTests: XCTestCase {
         XCTAssertEqual(afterTwo, 2)
     }
 
+    /// **R4 (#138): the cache follows trust.** A book kept across loads re-derives
+    /// a figure when the table `resolveTrust` answers changes, and not when it
+    /// does not.
+    func test_aChangedTrustTableMakesTheNextLoadDeriveAgain_andAnEqualOneDoesNot() async throws {
+        let (root, manifest) = try await fixture()
+        let keys = LocalIdentities.softwareForTesting()
+        let fp = keys.author.fingerprint
+        let rootRecord = PersonRecord(person: fp, label: "L", ownName: "Mac",
+                                      admittedAt: Date(timeIntervalSince1970: 10), admittedBy: fp)
+        let empty = TrustTable.resolve(registry: Registry(), mine: keys, joinedRoot: nil)
+        let rooted = TrustTable.resolve(registry: Registry(people: [rootRecord]), mine: keys, joinedRoot: nil)
+        XCTAssertNotEqual(empty, rooted)
+        let answer = TableBox(empty)
+        let book = loader(resolveTrust: { _ in await answer.value })
+
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertEqual(book.cacheDeriveCountForTesting, 1)
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertEqual(book.cacheDeriveCountForTesting, 1, "unchanged trust: the cached line serves")
+
+        await answer.set(rooted)
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertEqual(book.cacheDeriveCountForTesting, 2, "trust changed: derived again")
+        await book.load(manifest: manifest, projectURL: root)
+        XCTAssertEqual(book.cacheDeriveCountForTesting, 2, "and the new table is the one kept")
+    }
+
     func test_aBookWithNoFiguresLoadsNothing_andResolvesNoTrust() async throws {
         let (root, manifest) = try await fixture()
         var none = manifest
@@ -449,4 +476,10 @@ final class PhoneFigureBookTests: XCTestCase {
 private actor Counter {
     private(set) var value = 0
     func bump() { value += 1 }
+}
+
+private actor TableBox {
+    private(set) var value: TrustTable
+    init(_ value: TrustTable) { self.value = value }
+    func set(_ next: TrustTable) { value = next }
 }

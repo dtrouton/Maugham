@@ -194,9 +194,23 @@ struct AnnotationWriter: Sendable {
                 throw WriteError.malformedSuggestion(annotationId: annotation.id)
             }
             let current = currentParagraph ?? annotation.priorText ?? ""
-            switch SuggestionSplice.attempt(
-                suggestion: bare, span: annotation.span, to: current) {
-            case .applied(let next):
+            // R-B (hardening 11-11 Task 5): the Mac's guard, from the same
+            // Core plan — a suggestion whose splice is already in the text
+            // (reopened over it after another device's archive or stet) is
+            // accepted status-only, never spliced a second time. `loaded` is
+            // the fresh judged read the detail view verifies against; without
+            // it only the hand-typed arm (computed == current) can apply.
+            // Without a judged read there is no history to consult:
+            // `.nothingLoaded` (no ops) leaves only the hand-typed arm.
+            let history = loaded ?? .nothingLoaded
+            switch SuggestionSplice.planAccept(
+                annotationId: annotation.id, paragraphId: pid, suggestion: bare,
+                span: annotation.span,
+                paragraph: current, ops: history.ops,
+                amendments: history.amendments) {
+            case .statusOnly:
+                changes = []
+            case .splice(let next):
                 changes = [Op.ParagraphChange(paragraphId: pid, prior: current, next: next)]
             case .anchorLost:
                 // RULING-5: a span whose quoted phrase is gone is refused, not
@@ -384,6 +398,44 @@ struct AnnotationWriter: Sendable {
     @discardableResult
     func reopen(_ annotation: Annotation) async throws -> Op {
         try await append(makeReopen(for: annotation))
+    }
+
+    /// **Reopen & Revert, as the detail view asks it** (R-B fix round 1):
+    /// Core's one revert decision (`SuggestionSplice.revertPlan`, the Mac's
+    /// too). The newest accept that carried text is restored
+    /// (`makeAcceptRevert`); where no accept ever carried text — the writer
+    /// typed the suggestion, so every accept was status-only — Revert writes
+    /// a `claudeAcceptRevert` with no change: the note reopens and the
+    /// writer's words stay (RULING-29).
+    func makeRevert(
+        for annotation: Annotation, in ops: [Op], currentParagraph: String?
+    ) throws -> Op {
+        if FigureAnnotationOps.acceptsOnlyInTheTable(annotation, docId: docId) {
+            throw WriteError.acceptsInTheTable(annotationId: annotation.id)
+        }
+        switch SuggestionSplice.revertPlan(annotationId: annotation.id, in: ops) {
+        case .restore(let accept):
+            return try makeAcceptRevert(
+                for: annotation, acceptOp: accept, currentParagraph: currentParagraph)
+        case .reopenOnly:
+            return makeLifecycleOp(
+                for: annotation, kind: .claudeAcceptRevert, changes: [], userResponse: nil)
+        }
+    }
+
+    /// The accept Reopen & Revert takes back and the drift confirm reads —
+    /// the detail view's one lookup (Core's `newestAppliedAccept`).
+    static func acceptToRevert(annotationId: String, in ops: [Op]) -> Op? {
+        SuggestionSplice.newestAppliedAccept(annotationId: annotationId, in: ops)
+    }
+
+    /// Reopen & Revert. See `makeRevert`.
+    @discardableResult
+    func revert(
+        _ annotation: Annotation, in ops: [Op], currentParagraph: String?
+    ) async throws -> Op {
+        try await append(makeRevert(
+            for: annotation, in: ops, currentParagraph: currentParagraph))
     }
 
     /// Full revert of an accepted suggestion. See `makeAcceptRevert`.

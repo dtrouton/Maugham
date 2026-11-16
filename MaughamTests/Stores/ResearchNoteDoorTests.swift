@@ -37,6 +37,7 @@ final class ResearchNoteDoorTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
         }
         lockedPaths = []
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
         for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
         noticeObservers = []
         for store in stores { await store.close() }
@@ -189,6 +190,124 @@ final class ResearchNoteDoorTests: XCTestCase {
         try await typed("Mine again.", into: item, store)
         XCTAssertEqual(versions(of: item).count, 2, "bytes the store did not write are kept")
         XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
+    }
+
+    // MARK: - Hardening 11-11 task 2.4: the bytes read are the bytes written over (#138 R3)
+
+    /// Lands each of `landings` in turn on the file at `path` as the save
+    /// enters its coordinated write (after the door read it), one per save
+    /// attempt; nothing once they run out.
+    private func landOutside(_ landings: [String], at path: URL) {
+        var left = landings
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+    }
+
+    private func unsavedBackups(of item: ResearchItem) -> [URL] {
+        let folder = file(".maugham/conflicts")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.filter { $0.contains("-\(item.id)-unsaved-") }.sorted().map { folder.appendingPathComponent($0) }
+    }
+
+    private static let changedWhileSaving = "it changed outside Maugham while it was being saved."
+
+    /// **Bytes written outside between the door's read and its write are
+    /// never written over unseen**: the save finds them inside its
+    /// coordinated write, reads again, keeps them as a version, then saves.
+    func test_bytesWrittenOutsideAfterTheReadAreKeptAsAVersionBeforeTheSave() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
+
+        try await typed("Mine.", into: item, store)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Mine.", "the editor's text is saved")
+        XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["Before.", "From outside."],
+                       "the run's start and the outside bytes, each kept once")
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// A note file that was missing at the read and made outside before the
+    /// write (`FileExpectation.absent`) is kept too, not written over.
+    func test_aFileMadeOutsideWhereNoneWasReadIsKeptBeforeTheSave() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.createResearchNote(scope: .shared, title: "Missing")
+        let path = file(try XCTUnwrap(item.path))
+        try FileManager.default.removeItem(at: path)
+        landOutside(["Made outside."], at: path)
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Into the missing note.")
+
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try text(of: item, projectStore), "Into the missing note.")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Made outside."])
+    }
+
+    /// **A second change on the retry is not written over either**; a
+    /// flush's text — the last copy there is — is kept aside and named, and
+    /// the first change is kept as a version.
+    func test_aSecondChangeOnAFlushesRetryKeepsTheEditAside() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        landOutside(["First outside.", "Second outside."], at: file(try XCTUnwrap(item.path)))
+
+        try await typed("The only copy of this.", into: item, store)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Second outside.", "the file is as the outside last wrote it")
+        XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["Before.", "First outside."],
+                       "the run's start and the first change, each kept once")
+        let backups = unsavedBackups(of: item)
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), "The only copy of this.")
+        XCTAssertEqual(heard.notices, [
+            "Couldn’t save “Notes”: \(Self.changedWhileSaving) Your edits were kept in the project’s "
+                + ".maugham/conflicts folder as “\(backup.lastPathComponent)”."
+        ])
+    }
+
+    /// A timer's text stays pending on a second change, said once.
+    func test_aSecondChangeOnATimersRetryLeavesTheEditPending() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        landOutside(["First outside.", "Second outside."], at: file(try XCTUnwrap(item.path)))
+
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: "Typed.")
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+
+        XCTAssertEqual(try text(of: item, projectStore), "Second outside.", "nothing written over it")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
+        XCTAssertEqual(heard.notices, [
+            "Couldn’t save “Notes” yet: \(Self.changedWhileSaving) Your edits stay in the editor and are saved when you leave the note."
+        ])
+        try await store.flushPendingSave()
+        XCTAssertEqual(try text(of: item, projectStore), "Typed.", "the flush saves it")
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("Second outside."), "over a kept version")
+    }
+
+    /// Anyone else's write is not made on a second change, and said.
+    func test_aSecondChangeOnADirectSavesRetryIsNotMade() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        landOutside(["First outside.", "Second outside."], at: file(try XCTUnwrap(item.path)))
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Over it.", by: .assistant)
+
+        XCTAssertEqual(saved, .notSaved)
+        XCTAssertEqual(try text(of: item, projectStore), "Second outside.")
+        XCTAssertEqual(heard.notices, ["Couldn’t save “Notes”: \(Self.changedWhileSaving)"])
     }
 
     // MARK: - The prior file
@@ -379,9 +498,51 @@ final class ResearchNoteDoorTests: XCTestCase {
         try await store.flushPendingSave()
 
         XCTAssertEqual(try text(of: item, projectStore), "Saved anyway.")
-        XCTAssertTrue(heard.notices.contains("“Notes”’s previous version couldn’t be kept; your edits were saved anyway."),
-                      "\(heard.notices)")
+        XCTAssertEqual(heard.notices, ["“Notes”’s previous version couldn’t be kept; your edits were saved anyway."])
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// **"Saved anyway" is said once, after the write lands** (task 2.4 fix
+    /// round 1): a keep that fails, then an outside change that makes the
+    /// door read again (whose keep fails too) — the note lands and the
+    /// sentence is posted exactly once.
+    func test_aSaveAnywayRetriedAfterAnOutsideChangeSaysSoOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Not kept.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(ResearchVersionStore.folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try lock(folder, 0o555)
+        landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
+
+        try await typed("Saved anyway.", into: item, store)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Saved anyway.")
+        XCTAssertEqual(heard.notices, ["“Notes”’s previous version couldn’t be kept; your edits were saved anyway."])
+    }
+
+    /// **And never when the write does not land**: a keep that fails, then
+    /// a change on the retry too — the flush's text is kept aside and only
+    /// that is said; nothing claims it was saved.
+    func test_aSaveAnywayWhoseWriteNeverLandsNeverSaysSaved() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Not kept.", in: projectStore)
+        try read(item, store, projectStore)
+        let folder = file(ResearchVersionStore.folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try lock(folder, 0o555)
+        landOutside(["First outside.", "Second outside."], at: file(try XCTUnwrap(item.path)))
+
+        try await typed("The only copy of this.", into: item, store)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Second outside.")
+        let backup = try XCTUnwrap(unsavedBackups(of: item).first)
+        XCTAssertEqual(heard.notices, [
+            "Couldn’t save “Notes”: \(Self.changedWhileSaving) Your edits were kept in the project’s "
+                + ".maugham/conflicts folder as “\(backup.lastPathComponent)”."
+        ])
     }
 
     /// Controller ruling 4: a reader of one note's reload count is

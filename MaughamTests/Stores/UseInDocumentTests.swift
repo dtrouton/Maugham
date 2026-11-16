@@ -300,6 +300,44 @@ final class UseInDocumentTests: XCTestCase {
         XCTAssertEqual(projectStore.manifest.figures ?? [], [])
     }
 
+    /// **A table whose grid holds edits that could not be saved is not used**
+    /// (hardening 11-11 final review G2): the flush keeps the edits aside (the
+    /// folder is read-only), so the file is stale — the verb refuses, makes
+    /// no figure, and says so once. Once the folder opens, it works.
+    func test_aTableWhoseEditsCouldNotBeSavedIsNotUsed() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addResearchAsset(
+            parentId: nil, fromURL: try external("model.csv", Data("Year,Revenue\n2025,10\n".utf8)))
+        let host = try await store.openResearchTable(itemId: item.id)
+        let table = host.state.table
+        try await host.setCell(Cell(content: .value(.number(11))),
+                               at: CellKey(row: table.rows[1], column: table.columns[1]), undoManager: nil)
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+
+        var thrown: [UseInDocumentRefused] = []
+        do {
+            _ = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+            XCTFail("a stale file is not used")
+        } catch let refused as UseInDocumentRefused {
+            thrown.append(refused)
+        }
+
+        XCTAssertEqual(thrown.map(\.reason), [.unsavedEdits("model")], "refused once")
+        XCTAssertEqual(thrown.first?.localizedDescription,
+                       "model has edits that couldn't be saved, so it wasn't used. Try again once the table can be saved.")
+        XCTAssertEqual(projectStore.manifest.figures ?? [], [], "no figure was made")
+        XCTAssertTrue(host.isDirty, "precondition: the edits were kept aside, not saved")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        let result = try await projectStore.useInDocument(researchItemId: item.id, piece: "doc-a")
+        let made = try await state(result.record.id)
+        XCTAssertEqual(made.table[CellKey(row: made.table.rows[1], column: made.table.columns[1])]?.content,
+                       .value(.number(11)), "once it saves, the figure holds what the grid shows")
+        await store.releaseResearchTable(host)
+    }
+
     // MARK: - A parked figure's working copy (Task 8's seam)
 
     /// An item whose sidecar names a PARKED figure goes to `bringBack` (Task

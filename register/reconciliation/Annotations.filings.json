@@ -244,7 +244,7 @@
  {
   "claim_id": "M5-AN-034",
   "outcome": "NO_RULING_REACHES",
-  "reason": "UNTRACED today — reopen has no non-undo caller (M5-AN-039). Becomes rulable the day RULING-29's pane action ships, at which point .accepted's exclusion needs to compose with the Revert affordance that already serves it."
+  "reason": "Traced 2026-11-12 (hardening 11-11 Task 5): LIVE across devices. This Mac accepts a suggested change, and another device's newer `claudeArchive` or `annotationStet` wins the status. No repair runs (RULING-33 is reject-only). The pane's Reopen (RULING-29) and the phone's then act from those statuses as this claim says, and open the note over its own splice. Before R-B's guard, a second Accept wrote `claudeAccept` with prior == next, or spliced a span twice, and ⌘Z and Revert could no longer reach the original. Since `f5f12108`/`56f6cd55`/`128174cd`/`24d6349a`/`18b28714` the second Accept is status-only or splices only where the splice is out (M5-AN-076). A peer REJECT was always safe, because RULING-33 restores the text at the merge. Pinned by MaughamTests/Integration/AcceptOverAppliedTextTests.swift. Outcome unchanged: the claim is about the reopen verb's statuses and no ruling reaches it."
  },
  {
   "claim_id": "M5-AN-035",
@@ -577,13 +577,150 @@
   }
  },
  {
+  "claim_id": "M5-AN-073",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-58",
+  "clause_that_reaches_it": "A revert changes a suggestion only where it rewrites that suggestion's cell. A suggestion on a cell the revert does not write keeps its status. The one figure-only arm: a suggestion whose row or column does not exist at the checkpoint is archived",
+  "why_in_scope": "The clause is about exactly this walk: a figure checkpoint revert and the notes on the cells it rewrites, leaves alone, or removes. The returning class is RULING-57's own figure half (its 'a checkpoint revert alike'). The sub-rules marked as the coordinator's call (newest accept carries the change; own-value stays accepted; a guarded accept is judged by its anchor; accepted at the pointer is the latest honoured line there being an accept) refine the clause's 'only where it rewrites that suggestion's cell' and are not yet ruled by Denver.",
+  "intent_expressed_when": "contemporaneous — the writer's Revert here… on a checkpoint",
+  "call_path": "HistoryPane → Revert here… → PartialRestorePicker.restoreFigures → FigureDocument.restoreToCheckpoint → FigureCheckpointRestore.prepare → FigureRestoreNotePlan.plan",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "7f19c653 e2d4b0a9 5686c2bc f6f31c7b",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-58 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "FigureRestoreNotePlanTests (core), FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins",
+   "note": "Filed already fixed: found in the figures review (#136), never carried a VIOLATES filing. Before it a figure revert left a reverted accept open over its returned value and reopened a note on a cell it did not write."
+  }
+ },
+ {
+  "claim_id": "M5-AN-074",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-28",
+  "clause_that_reaches_it": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER.",
+  "why_in_scope": "Reverting a figure to a checkpoint is asked about the table; reopening, returning to accepted and archiving the notes on its cells is collateral, as the manuscript revert's is (M4-RW-039). The sheet's count and the result are built from one plan.",
+  "intent_expressed_when": "contemporaneous — the Revert sheet and its aftermath",
+  "call_path": "HistoryPane → Revert here… → PartialRestorePicker.revertNotes (confirm line) → restore → figureSentence (result)",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "65ce320d 674db796",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-28 — Denver 2026-08-08; issue #136 W3 scoped it",
+   "pinned_by": "PartialRestoreFigureTests (PartialRestoreScopeTests.swift) and FigureRestoreTests preview pins",
+   "note": "Filed already fixed: found in the figures review, never carried a VIOLATES filing."
+  }
+ },
+ {
+  "claim_id": "M5-AN-075",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-59",
+  "clause_that_reaches_it": "When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell.",
+  "why_in_scope": "The clause's figure half verbatim: a cell that already holds the suggested value, Accept pressed in the strip or the queue.",
+  "intent_expressed_when": "contemporaneous — the writer's Accept",
+  "call_path": "Grid strip Accept / queue row Accept → FigureDocument.acceptSuggestion (guarded arm); ⌘Z → registerFigureUndo → appendCompensation",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "2dde6d04 5686c2bc",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-59 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "FigureAnnotationDispositionTests and FigureVisitTests guarded-accept pins",
+   "note": "Filed already fixed: found in the figures review (#136 W2), never carried a VIOLATES filing."
+  }
+ },
+ {
+  "claim_id": "M5-AN-076",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-59",
+  "clause_that_reaches_it": "When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell. Figures now. The manuscript too if the same sequence reproduces there",
+  "why_in_scope": "The sequence reproduced in the manuscript (Task 5), so the clause's manuscript half applies: the paragraph already holds the suggested text (the splice is in place, or the paragraph already reads as the suggestion) and Accept writes no text.",
+  "intent_expressed_when": "contemporaneous — the writer's second Accept",
+  "call_path": "AnnotationsPane / margin card Accept → Document.acceptAnnotation → SuggestionSplice.planAccept; the phone's AnnotationWriter.makeAccept",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "f5f12108 56f6cd55 128174cd 24d6349a 18b28714 d6ba45d1",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-59 — Denver 2026-11-11, structured question, recommended option accepted",
+   "pinned_by": "AcceptOverAppliedTextTests, SuggestionSpliceTests, AnnotationWriterTests (phone)",
+   "note": "Filed already fixed: found and fixed in this branch; M5-AN-034's filing carries the trace. Plan 1 final review (F1, d6ba45d1): the gate asks the text first for an ordinary-shape suggestion, which closes L3 for those; the limits that remain (L1, L2, and L3 and L4 for the coincidence shape only) are in the claim."
+  }
+ },
+ {
+  "claim_id": "M5-AN-077",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-22",
+  "clause_that_reaches_it": "Controls are unambiguous and DO WHAT THEY SAY.",
+  "why_in_scope": "The pane's Revert and the phone's Reopen & Revert say they take the accept back; pressed over a status-only accept they silently did nothing.",
+  "intent_expressed_when": "contemporaneous — the writer's Revert",
+  "call_path": "AnnotationsPane Revert → Document.revertAcceptedAnnotation → SuggestionSplice.revertPlan; phone Reopen & Revert → AnnotationWriter.makeRevert",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "f5f12108 56f6cd55",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-22 — Denver 2026-08-08, 'Maugham should never surprise the writer'",
+   "pinned_by": "AcceptOverAppliedTextTests Revert pins; AnnotationWriterTests Reopen & Revert pins; SuggestionSpliceTests.test_revertPlan_*",
+   "note": "Filed already fixed, found in this branch."
+  }
+ },
+ {
+  "claim_id": "M5-AN-080",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The timer's waiting is the notes' interim rule, which RULING-24's LOWER STANDARD line permits (a save may land without its earlier version) without saying what a timed save does in the other arms; no ruling states what the debounced save does in any arm, and the assistant's write is not a close. The per-arm behaviour is the coordinator's call, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-081",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-60",
+  "clause_that_reaches_it": "At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file.",
+  "why_in_scope": "The clause's own two halves, at the close the ruling names: the store's flush at window close and quit, the grid's leave and the host's close save anyway when the version cannot be kept, and write the table's CSV as a backup named in the notice when the save fails. Only that part is reached: the reading of 'at close' as every flush (⌘S, leaving the grid, background flushes) is the coordinator's call and no ruling reaches it, and nothing in this filing credits Denver with it.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-11 named window close and quit",
+  "call_path": "⌘Q / window close → DocumentStore.flushPendingSave(commitOpenEdits: true) → ResearchTableHost.flush → write(source: .flush); grid leave → flush; releaseResearchTable → close() → flush",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "07f06d22 07617b08",
+   "date": "2026-11-13",
+   "authorised_by": "RULING-60 — Denver 2026-11-11, structured question, recommended option accepted — for the close only; the extension to every flush is the coordinator's call, not yet ruled by Denver",
+   "pinned_by": "ResearchTableVersionTests.test_aFlushWhoseVersionCannotBeKeptSavesAnyway and test_aFlushWhoseSaveFailsKeepsTheEditsAside; ResearchTableGridTests.test_theCloseSavesAnywayWhenTheVersionCannotBeKept and test_theStoresFlushKeepsTheOpenEditInTheBackupWhenTheSaveFails",
+   "note": "Filed already fixed: found in the hardening review (#138 R1), never carried a VIOLATES filing. Before the fix a version that could not be kept stopped the save at close and the table's last edits were dropped."
+  }
+ },
+ {
+  "claim_id": "M5-AN-082",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, the retry, the backup's name and contents, the notices' wording, a second flush on the way out, or background flushes; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver. PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
+ },
+ {
+  "claim_id": "M5-AN-083",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Registry bookkeeping: which host an open returns and when a closed one is replaced. No ruling states it (the no-edit-lost consequence is the flush's, M5-AN-081). The bound and its error are the coordinator's call, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-084",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states that a save re-checks the file it read; the design spec's R3 is a design, not a ruling, and the note door's check and the retry and second-mismatch arms are the coordinator's calls, hardening 2026-11-11, not yet ruled by Denver. RULING-56 versions research text and says nothing of an outside write landing mid-save."
+ },
+ {
+  "claim_id": "M5-AN-085",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states what Use in Document or Bring Back to Figures does with a table whose grid holds edits that could not be saved; RULING-60 is about the close's save, not the verbs that read the file after it. The refusal and its sentences are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-086",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states when an outside change may reload a grid relative to a save in flight; the outside-change ruling (never overwritten silently) is kept by the save's own backup, which this claim does not change. The wait, the refusal and the asking again are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
+  "claim_id": "M5-AN-087",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-60 names quit among the closes whose save it rules (M5-AN-081) and says nothing of how the app makes time for that save; no ruling states that a quit is deferred, for how long, or what happens at the bound. The deferral, the ten-second bound and quitting anyway are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
+ },
+ {
   "_summary": {
-   "reached": 26,
-   "complies": 26,
+   "reached": 32,
+   "complies": 32,
    "violates": 0,
-   "no_ruling": 36,
-   "total": 62,
-   "coverage": "42%",
+   "no_ruling": 43,
+   "total": 75,
+   "coverage": "43%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -597,13 +734,17 @@
      "M5-AN-060",
      "M5-AN-061",
      "M5-AN-062",
-     "M5-AN-069"
+     "M5-AN-069",
+     "M5-AN-077"
     ],
     "RULING-24": [
      "M5-AN-021"
     ],
     "RULING-25": [
      "M5-AN-038"
+    ],
+    "RULING-28": [
+     "M5-AN-074"
     ],
     "RULING-29": [
      "M5-AN-039"
@@ -636,6 +777,16 @@
     ],
     "RULING-55": [
      "M5-AN-012"
+    ],
+    "RULING-58": [
+     "M5-AN-073"
+    ],
+    "RULING-59": [
+     "M5-AN-075",
+     "M5-AN-076"
+    ],
+    "RULING-60": [
+     "M5-AN-081"
     ]
    },
    "reached_by_a_root_only": [

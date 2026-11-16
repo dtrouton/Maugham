@@ -13,6 +13,9 @@ final class FigureRestoreTests: XCTestCase {
 
     private var projectURL: URL!
     private var heldFigurePass: DebounceScheduler<Int>?
+    /// The window's `projectStore` is weak: a test that needs the registry
+    /// after `openBook` returns (a note on a figure) is held by this.
+    private var heldProjectStore: ProjectStore?
     private static let pieceB = "doc-b"
     private static let checkpoint = "ckpt-restore"
 
@@ -35,6 +38,7 @@ final class FigureRestoreTests: XCTestCase {
     override func tearDown() async throws {
         heldFigurePass?.cancel()
         heldFigurePass = nil
+        heldProjectStore = nil
         FigureDocument.beforeCommitAppendForTesting = nil
         FigureDocument.betweenRestoreOpsForTesting = nil
         Document.localIdentitiesForTesting = nil
@@ -71,6 +75,7 @@ final class FigureRestoreTests: XCTestCase {
         let projectStore = try await ProjectStore.load(from: projectURL)
         projectStore.documentStore = store
         store.projectStore = projectStore
+        heldProjectStore = projectStore
         return (store, projectStore)
     }
 
@@ -512,6 +517,34 @@ final class FigureRestoreTests: XCTestCase {
         XCTAssertEqual(host.state.table.cells, then.table.cells)
         await store.closeFigure(figureId: record.id)
     }
+    /// **A note the assistant adds mid-restore does not stop it** (hardening
+    /// 11-11 W6): the note rides the figure's stream, not the table, so the
+    /// restore's plan is still right; the store adopts the op into the host
+    /// without a reload (no `reloadGeneration` bump), and the restore finishes.
+    func test_aNoteAddedBetweenRestoreOpsDoesNotStopIt() async throws {
+        let (store, record, host, then, pointer) = try await twoOpsToGo()
+        let generation = host.reloadGeneration
+        let note = try FigureAnnotationOps.creation(
+            kind: .comment, anchor: FigureCellAnchor(row: then.table.rows[0], column: then.table.columns[0]),
+            body: "mid-restore", author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: record.id, device: Document.loadIdentities[.assistant].deviceId))
+        var landed = false
+        FigureDocument.betweenRestoreOpsForTesting = { _ in
+            FigureDocument.betweenRestoreOpsForTesting = nil
+            do { try await store.addFigureAnnotation(note); landed = true } catch { XCTFail("\(error)") }
+        }
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertTrue(landed, "premise: the note was added between two restore ops")
+        XCTAssertEqual(outcome, .restored(opCount: 2))
+        XCTAssertEqual(host.reloadGeneration, generation, "adopting the note is not a reload")
+        XCTAssertEqual(host.state.table.cells, then.table.cells)
+        XCTAssertTrue(host._ops.contains { $0.opId == note.opId }, "the host holds the note")
+        XCTAssertTrue(try ops(of: record.id).contains { $0.opId == note.opId }, "and it is on disk")
+        await store.closeFigure(figureId: record.id)
+    }
+
     // MARK: - Across a trip to Research (plan 6c final review I5, M6)
 
     /// **A figure that went to Research, or came back, since the checkpoint
@@ -576,5 +609,230 @@ final class FigureRestoreTests: XCTestCase {
         }
         XCTAssertTrue((files...files + 1).contains(hashes.hashCount),
                       "each file once, and the one written over again: \(hashes.hashCount)")
+    }
+
+    // MARK: - The notes preview (hardening 11-11 Task 3, #136 W3, RULING-28)
+
+    private func number(_ n: Double) -> Cell { Cell(content: .value(.number(n))) }
+
+    /// The assistant suggests `cell` for `key` on the open `host`, as another
+    /// writer would, and the host reads it.
+    private func suggest(_ cell: Cell?, at key: CellKey, on host: FigureDocument) async throws -> String {
+        let op = try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Should be this", suggestedCell: cell, prior: host.state.table[key],
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: host.figureId, device: Document.loadIdentities[.assistant].deviceId))
+        try await Document.makeLoadOpStore(projectURL: projectURL, presenter: nil).append(op)
+        try await host.reload()
+        return op.opId
+    }
+
+    /// **A figure whose restore answers one note of each class**, open, and
+    /// the checkpoint's pointer: `returning` accepted at the checkpoint and
+    /// reverted by ⌘Z since (its value comes back), `stranded` accepted since
+    /// (its cell goes back), `gone` accepted since on a row added since.
+    private func oneOfEachNote() async throws -> (
+        record: FigureRecord, host: FigureDocument, pointer: String,
+        returning: String, stranded: String, gone: String
+    ) {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let rows = host.state.table.rows, columns = host.state.table.columns
+        let a1 = CellKey(row: rows[0], column: columns[0]), b2 = CellKey(row: rows[1], column: columns[1])
+        try await host.setCell(text("old"), at: a1)
+        try await host.setCell(text("old"), at: b2)
+        let returning = try await suggest(number(42), at: a1, on: host)
+        let um = UndoManager()
+        try await host.acceptSuggestion(id: returning, undoManager: um)
+        let stranded = try await suggest(number(7), at: b2, on: host)
+        let pointer = try mark(record.id)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        try await host.acceptSuggestion(id: stranded)
+        let row = try await host.insertRow(after: nil)
+        let gone = try await suggest(number(9), at: CellKey(row: row, column: columns[0]), on: host)
+        try await host.acceptSuggestion(id: gone)
+        return (record, host, pointer, returning, stranded, gone)
+    }
+
+    /// **The preview is what the restore then answers, and writes nothing**
+    /// (RULING-28's two halves from one preparation): one note of each class;
+    /// the preview names all three, appends no op, announces nothing and
+    /// leaves `lastRestoreNotes` as it was; the restore that follows answers
+    /// exactly the preview.
+    func test_theNotesPreviewIsWhatTheRestoreThenAnswers_andWritesNothing() async throws {
+        let (record, host, pointer, returning, stranded, gone) = try await oneOfEachNote()
+        let before = try streamBytes(of: record.id)
+        var announced: [String] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamAnnotationsChanged, object: nil, queue: nil
+        ) { note in
+            if let id = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String { announced.append(id) }
+        }
+
+        let preview = await host.restoreNotesPreview(through: pointer)
+
+        NotificationCenter.default.removeObserver(token)
+        let notes = try XCTUnwrap(preview)
+        XCTAssertEqual(notes.reopened, [stranded])
+        XCTAssertEqual(notes.reaccepted, [returning])
+        XCTAssertEqual(notes.archived, [gone])
+        XCTAssertEqual(try streamBytes(of: record.id), before, "the preview appends nothing")
+        XCTAssertEqual(announced, [], "the preview announces nothing")
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(), "the preview leaves the last answer alone")
+
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 4), "two cells with their notes, the row, the archive")
+        XCTAssertEqual(host.lastRestoreNotes, notes, "BEFORE is what AFTER reports")
+        await host.documentStore?.closeFigure(figureId: record.id)
+    }
+
+    /// **The preview is nil where the restore would skip or refuse** — a
+    /// parked figure, one that went to Research since, one whose piece is
+    /// yielded (this Mac may neither edit it nor answer its notes) — and
+    /// appends nothing. Each has a stranded accept, so a preview that went
+    /// on would name it.
+    func test_theNotesPreviewIsNilWhereTheRestoreSkipsOrRefuses() async throws {
+        let (store, projectStore) = try await openBook()
+        func stranded(_ name: String, piece: String? = nil) async throws -> (FigureRecord, FigureDocument, String) {
+            let record = try await projectStore.createFigure(kind: .table, name: name, piece: piece)
+            let host = try await store.openFigure(figureId: record.id)
+            let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+            try await host.setCell(text("old"), at: key)
+            let id = try await suggest(number(7), at: key, on: host)
+            let pointer = try mark(record.id)
+            try await host.acceptSuggestion(id: id)
+            return (record, host, pointer)
+        }
+
+        let (parked, parkedHost, parkedPointer) = try await stranded("parked")
+        try await parkedHost.parkInResearch(
+            path: "research/parked.csv", hash: "h", itemId: "item-1", expecting: parkedHost.state, alongside: {})
+        let parkedBefore = try streamBytes(of: parked.id)
+        let parkedPreview = await parkedHost.restoreNotesPreview(through: parkedPointer)
+        XCTAssertNil(parkedPreview, "parked")
+        XCTAssertEqual(try streamBytes(of: parked.id), parkedBefore, "parked: nothing appended")
+        await store.closeFigure(figureId: parked.id)
+
+        let (went, _, wentPointer) = try await stranded("went")
+        await store.closeFigure(figureId: went.id)
+        let copy = try await projectStore.sendToResearch(figureId: went.id, scope: .shared)
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+        let back = try await store.openFigure(figureId: went.id)
+        let wentBefore = try streamBytes(of: went.id)
+        let wentPreview = await back.restoreNotesPreview(through: wentPointer)
+        XCTAssertNil(wentPreview, "went to Research since")
+        XCTAssertEqual(try streamBytes(of: went.id), wentBefore, "went: nothing appended")
+        await store.closeFigure(figureId: went.id)
+
+        let (yielded, yieldedHost, yieldedPointer) = try await stranded("yielded", piece: Self.pieceB)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces([Self.pieceB])))
+        await store.postureSettled()
+        let mayAnswer = await yieldedHost.mayHere(.acceptOrReject)
+        XCTAssertFalse(mayAnswer, "premise: this Mac may not answer the yielded figure's notes")
+        let yieldedBefore = try streamBytes(of: yielded.id)
+        let yieldedPreview = await yieldedHost.restoreNotesPreview(through: yieldedPointer)
+        XCTAssertNil(yieldedPreview, "yielded")
+        XCTAssertEqual(try streamBytes(of: yielded.id), yieldedBefore, "yielded: nothing appended")
+        await store.closeFigure(figureId: yielded.id)
+    }
+
+    // MARK: - Final review F2 and F3
+
+    /// **F3: the AFTER report never names an earlier restore's notes.** A
+    /// figure is reverted and a note answered; it is then parked in Research,
+    /// and a second revert skips it. The second report counts no notes for it.
+    func test_aSkippedRestoreReportsNoNotesFromAnEarlierRestore() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        try await host.setCell(text("old"), at: key)
+        let id = try await suggest(number(7), at: key, on: host)
+        let pointer = try mark(record.id)
+        try await host.acceptSuggestion(id: id)
+
+        let first = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+        XCTAssertEqual(first, .restored(opCount: 1), "premise: the cell and its note in one op")
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(reopened: [id]), "premise: a note answered")
+
+        try await host.parkInResearch(
+            path: "research/budget.csv", hash: "h", itemId: "item-1", expecting: host.state, alongside: {})
+        let second = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertEqual(second, .skippedParked)
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(),
+                       "a skipped restore answered no note, so its report names none")
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **F2 on a host, BEFORE == AFTER: a guarded accept that was accepted at
+    /// the checkpoint is not reopened.** Type 42, Accept (status only), edit
+    /// to 7, checkpoint, edit to 9, revert: the cell goes back to 7 and the
+    /// note stays accepted; the preview and the report both name no note.
+    func test_aGuardedAcceptAcceptedAtTheCheckpointStaysAccepted_previewAndReportAgree() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        try await host.setCell(text("old"), at: key)
+        let id = try await suggest(number(42), at: key, on: host)
+        try await host.setCell(number(42), at: key)
+        try await host.acceptSuggestion(id: id)
+        XCTAssertNil(try ops(of: record.id).last { $0.kind == .claudeAccept }?.figure,
+                     "premise: the accept wrote no cell")
+        try await host.setCell(number(7), at: key)
+        let pointer = try mark(record.id)
+        try await host.setCell(number(9), at: key)
+
+        let preview = await host.restoreNotesPreview(through: pointer)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 1))
+        XCTAssertEqual(host.state.table[key]?.content, number(7).content)
+        XCTAssertEqual(preview, FigureRestoreNotes(), "BEFORE names no note")
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(), "and AFTER reports none")
+        XCTAssertEqual(host.annotations().first { $0.id == id }?.status, .accepted)
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **F2's mirror on a host, BEFORE == AFTER: a guarded accept taken back
+    /// since the checkpoint returns accepted with its value.** Type 42,
+    /// Accept (status only), checkpoint, ⌘Z, edit to 7, revert: 42 is written
+    /// back and the note is accepted again by a status-only line.
+    func test_aGuardedAcceptTakenBackSinceTheCheckpointReturnsAccepted_previewAndReportAgree() async throws {
+        let (store, projectStore) = try await openBook()
+        let record = try await projectStore.createFigure(kind: .table, name: "budget", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let key = CellKey(row: host.state.table.rows[0], column: host.state.table.columns[0])
+        try await host.setCell(text("old"), at: key)
+        let id = try await suggest(number(42), at: key, on: host)
+        try await host.setCell(number(42), at: key)
+        let um = UndoManager()
+        try await host.acceptSuggestion(id: id, undoManager: um)
+        let pointer = try mark(record.id)
+        um.undo()
+        await host.awaitPendingUndoWork()
+        XCTAssertEqual(host.annotations().first { $0.id == id }?.status, .open, "premise: ⌘Z reopened it")
+        try await host.setCell(number(7), at: key)
+
+        let preview = await host.restoreNotesPreview(through: pointer)
+        let outcome = try await host.restoreToCheckpoint(Self.checkpoint, through: pointer)
+
+        XCTAssertEqual(outcome, .restored(opCount: 2), "the cell, then the note's status line")
+        XCTAssertEqual(host.state.table[key]?.content, number(42).content)
+        XCTAssertEqual(preview, FigureRestoreNotes(reaccepted: [id]), "BEFORE")
+        XCTAssertEqual(host.lastRestoreNotes, FigureRestoreNotes(reaccepted: [id]), "AFTER reports the same")
+        XCTAssertEqual(host.annotations().first { $0.id == id }?.status, .accepted)
+        let line = try XCTUnwrap(try ops(of: record.id).last { $0.provenance?.sourceAnnotationId == id })
+        XCTAssertEqual(line.kind, .claudeAccept)
+        XCTAssertNil(line.figure, "status only: the cell set stayed a plain cell set")
+        await store.closeFigure(figureId: record.id)
     }
 }

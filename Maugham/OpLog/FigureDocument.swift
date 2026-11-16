@@ -109,17 +109,6 @@ public enum FigureRestoreOutcome: Equatable, Sendable {
     }
 }
 
-/// **What a figure restore did to its notes** (RULING-28): the accepted
-/// suggestions it reopened and those it archived, by note id.
-public struct FigureRestoreNotes: Equatable, Sendable {
-    public var reopened: [String] = []
-    public var archived: [String] = []
-    public init(reopened: [String] = [], archived: [String] = []) {
-        self.reopened = reopened; self.archived = archived
-    }
-    public var isEmpty: Bool { reopened.isEmpty && archived.isEmpty }
-}
-
 /// **One grid visit, as one undoable step** (report plan 7d Task 5): the
 /// ops the grid wrote between `beginVisit` and `endVisit` — through verbs
 /// handed the visit's undo manager, and that manager's own undos and redos —
@@ -309,7 +298,7 @@ public final class FigureDocument {
 
     /// Bumped by every `reload`: a read that a later reload overtook does not
     /// land over the later one's answer.
-    @ObservationIgnored private var reloadGeneration = 0
+    @ObservationIgnored private(set) var reloadGeneration = 0
 
     /// Test seam: runs in `reload` after the read and before it lands — where
     /// a local commit racing the read is put. Nil in production.
@@ -328,7 +317,11 @@ public final class FigureDocument {
     /// one replaced and the one that replaced it, by content hash — for this
     /// open document only: a temporary folder, never `.maugham/` (nothing
     /// syncs it), removed at `close()`.
-    @ObservationIgnored private var imageUndoFolder: URL?
+    @ObservationIgnored private(set) var imageUndoFolder: URL?
+
+    /// This figure's checkpoint restore (`restoreToCheckpoint`), which holds
+    /// the last restore's notes.
+    @ObservationIgnored private lazy var checkpointRestore = FigureCheckpointRestore(host: self)
 
     /// The open grid visit's ops, in order (`beginVisit`); nil between visits.
     @ObservationIgnored private var visitRecord: [FigureReturnDiff.Change]?
@@ -1579,242 +1572,40 @@ public final class FigureDocument {
     // MARK: - Checkpoint restore (report plan 6c Task 2, rulings Q-1, Q-2)
 
     /// **Wind this figure back to a checkpoint** — to the figure at its op
-    /// `pointer` (`FigureRestoreDiff.target` over this host's ops). The changes
-    /// that bring the figure as it stands now to it (`FigureRestoreDiff.changes`)
-    /// are appended as ordinary figure ops, each carrying
-    /// `provenance.sourceCheckpoint = checkpointId` and signed by this host's
-    /// actor; the render follows once, after the last.
-    ///
-    /// - **This figure's door** (`.editFigure`, through `requireWritable`),
-    ///   asked again after the pin sources' read; a refusal throws
-    ///   `FigureEditRefused` before any op. A figure parked in Research is
-    ///   skipped (`.skippedParked`) with nothing appended: its content lives in
-    ///   the working copy until it comes back. One parked or resumed after the
-    ///   pointer is skipped too (`.skippedWentToResearch`, final review I5).
-    /// - **A pin live now is never replaced by one inert now**: the current
-    ///   park cycle of every figure the pins name, now or then, goes to the
-    ///   diff (`DocumentStore.parkCycles`). With no window there are none to
-    ///   read, and every pin counts.
-    /// - **Every change is checked to apply before anything is appended**
-    ///   (`FigureReturnDiff.everyChangeApplies`).
-    /// - **A picture comes back only when its bytes still exist** — a file in
-    ///   `figures/` or in this open host's undo folder with the checkpoint's
-    ///   content hash, of the figure's own format — written under the
-    ///   figure's current file name through the window's door; `pictureHashes`
-    ///   hashes each file in `figures/` once per restore (final review M6).
-    ///   Otherwise the
-    ///   rest is restored and the outcome names the picture
-    ///   (`.skippedPicture`, with what did restore). A checkpoint with no
-    ///   picture takes none away.
-    /// - **It stops part way rather than write against a fold that moved**:
-    ///   another device's lines read in meanwhile (a `reload`) stop it before
-    ///   the next op, and an op that will not write stops it too; either way
-    ///   what landed stays and the answer is `.partlyRestored` with the count.
-    ///   **Restoring again is safe**: the diff is worked out afresh from the
-    ///   figure as it then stands, so it does only what is left. An op that
-    ///   fails before any landed throws.
-    /// - Not registered for ⌘Z (ruling Q-2), like the text's partial restore.
+    /// `pointer`, as ordinary figure ops stamped `sourceCheckpoint`, behind
+    /// this figure's door; the notes it would strand answered with it
+    /// (RULING-28). The restore is `FigureCheckpointRestore.run`'s.
     func restoreToCheckpoint(
         _ checkpointId: String, through pointer: String,
         pictureHashes: FigurePictureHashes = FigurePictureHashes()
     ) async throws -> FigureRestoreOutcome {
-        do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
-        if FigureRestoreDiff.wentToResearch(since: pointer, in: _ops) { return .skippedWentToResearch }
-        let first = FigureRestoreDiff.target(of: _ops, through: pointer)
-        let parks = try await currentParks(reading: first)
-        let wanted = first.image.flatMap { $0.contentHash == state.image?.contentHash ? nil : $0 }
-        let picture = await keptPicture(wanted, hashes: pictureHashes)
-        // The note lines a restore may write answer a note, so each asks the
-        // verb it IS (final review M2): a revert that reopens one asks
-        // `.acceptOrReject` (as `appendCompensation` does), an archive
-        // `.dispose`. Asked before the door's last await, so nothing lands
-        // between the answer and the writes.
-        let mayAnswerNotes = await mayHere(.acceptOrReject)
-        let mayDisposeNotes = await mayHere(.dispose)
-        // The reads awaited: the door is asked again before anything is written.
-        do { try await requireWritable("restoreToCheckpoint") } catch is FigureParkedRefused { return .skippedParked }
-        if FigureRestoreDiff.wentToResearch(since: pointer, in: _ops) { return .skippedWentToResearch }
-        let target = FigureRestoreDiff.target(of: _ops, through: pointer)
-
-        let changes = FigureRestoreDiff.changes(from: state, to: target, parks: parks)
-        let tableChanges = changes.filter { $0.kind != .figureImageSet }
-        guard FigureReturnDiff.everyChangeApplies(tableChanges, onto: state) else {
-            throw FigureEditInvalid(reason: "the checkpoint's changes don't fit the figure")
-        }
-        let pictureChange = changes.first { $0.kind == .figureImageSet }?.payload.image
-        let restoresPicture = pictureChange != nil && pictureChange?.contentHash == picture?.hash
-        let reason = Op.Provenance(sourceCheckpoint: checkpointId)
-        let (restoreChanges, stranded) = answeringStrandedAccepts(tableChanges, above: pointer, target: target)
-        // Where this hand may not dispose of a note, a stranded accept whose
-        // cell is gone is reopened instead of archived (status only): open
-        // over a deleted cell is honest, and the author can archive it.
-        let noteLines = stranded.map { kind, id in
-            (kind == .claudeArchive && !mayDisposeNotes ? .claudeAcceptRevert : kind, id)
-        }
-        if !mayAnswerNotes,
-           !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }) {
-            documentLog.error(
-                "restoreToCheckpoint refused on \(self.figureId, privacy: .public): it would answer a note this device may not answer")
-            throw FigureEditRefused(site: "restoreToCheckpoint")
-        }
-        lastRestoreNotes = FigureRestoreNotes()
-        // Every change was worked out against this fold: a reload replaces it.
-        let generation = reloadGeneration
-        var appended = 0
-        var stop: FigureRestoreOutcome.Stop?
-        holdOpenCellNotes()
-        defer { releaseOpenCellNotes() }
-        do {
-            for change in restoreChanges {
-                if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
-                guard reloadGeneration == generation else { stop = .changedElsewhere; break }
-                let provenance = change.sourceAnnotationId.map {
-                    FigureAnnotationOps.lifecycleProvenance(
-                        annotationId: $0, sourceCheckpoint: checkpointId, stamp: noteStamp)
-                } ?? reason
-                try await commit(change.kind, change.payload, provenance: provenance, render: false)
-                appended += 1
-                if let id = change.sourceAnnotationId { lastRestoreNotes.reopened.append(id) }
-            }
-            // A stranded accept whose cell the restore did not write: the
-            // note is reopened (its cell already stands as it did then) or
-            // archived (its cell is gone then), status only.
-            for (kind, id) in noteLines where stop == nil {
-                guard reloadGeneration == generation else { stop = .changedElsewhere; break }
-                try await commit(kind, nil, provenance: FigureAnnotationOps.lifecycleProvenance(
-                    annotationId: id, sourceCheckpoint: checkpointId, stamp: noteStamp), render: false)
-                appended += 1
-                if kind == .claudeArchive {
-                    lastRestoreNotes.archived.append(id)
-                } else {
-                    lastRestoreNotes.reopened.append(id)
-                }
-            }
-            if stop == nil, restoresPicture, let picture {
-                if appended > 0, let hook = Self.betweenRestoreOpsForTesting { await hook(self) }
-                if reloadGeneration != generation {
-                    stop = .changedElsewhere
-                } else {
-                    let (payload, putBack) = try await placeReturningPicture(picture)
-                    do {
-                        try await commit(.figureImageSet, payload, provenance: reason, render: false)
-                    } catch {
-                        await putBack()
-                        throw error
-                    }
-                    appended += 1
-                }
-            }
-        } catch {
-            guard appended > 0 else { throw error }
-            stop = .notRecorded(error.localizedDescription)
-        }
-        if appended > 0 { await documentStore?.figureHostAppended(figureId) }
-        if !noteLines.isEmpty || restoreChanges.contains(where: { $0.sourceAnnotationId != nil }), appended > 0 {
-            MaughamEvent.postAnnotationsChanged(docId: figureId, projectURL: projectURL)
-        }
-        if let stop { return .partlyRestored(opCount: appended, why: stop) }
-        if let pictureChange, !restoresPicture {
-            return .skippedPicture(hash: pictureChange.contentHash, opCount: appended)
-        }
-        return appended == 0 ? .unchanged : .restored(opCount: appended)
+        try await checkpointRestore.run(checkpointId, through: pointer, pictureHashes: pictureHashes)
     }
 
-    /// **A restore never strands an accepted note** (RULING-28, as the
-    /// manuscript's restore): a figure suggestion accepted after `pointer`,
-    /// and still accepted, has its cell put back by the restore — so that
-    /// cell's change becomes the note's `claudeAcceptRevert` (cell and note in
-    /// one op). Where the restore writes no change to its cell, the note is
-    /// reopened by a status-only revert; where the cell is gone then, it is
-    /// archived. Answers the restore's changes and those status-only lines.
-    private func answeringStrandedAccepts(
-        _ changes: [FigureReturnDiff.Change], above pointer: String, target: FigureState
-    ) -> ([FigureReturnDiff.Change], [(OpKind, String)]) {
-        let accepted = Set(annotations().filter { $0.status == .accepted }.map(\.id))
-        var latest: [String: Op] = [:]
-        // Honoured lines only (final review M3): a reopen the fold does not
-        // honour never happened as far as the note's status goes, so it must
-        // not stand as the latest line and hide the accept it follows.
-        for op in _ops where Self.noteLifecycleKinds.contains(op.kind)
-            && AnnotationDeriver.isHonouredLifecycleOp(op, amendments: annotationAmendments) {
-            guard let id = op.provenance?.sourceAnnotationId, accepted.contains(id) else { continue }
-            if latest[id].map({ op.opId > $0.opId }) ?? true { latest[id] = op }
-        }
-        // Stranded = the latest lifecycle line is ANY accept — a status-only
-        // re-accept (a stet's or archive's ⌘Z) included, standing in for the
-        // cell-writing accept it put back — judged against the newest accept
-        // for that note that CARRIES a cell (Document+Rewind's rule).
-        var stranded = latest.compactMap { id, op -> (id: String, cell: CellKey)? in
-            guard op.kind == .claudeAccept,
-                  let written = _ops.filter({
-                      $0.kind == .claudeAccept && $0.provenance?.sourceAnnotationId == id && $0.figure?.cell != nil
-                  }).max(by: { $0.opId < $1.opId }),
-                  written.opId > pointer, let cell = written.figure?.cell else { return nil }
-            return (id, cell)
-        }.sorted { $0.id < $1.id }
-        let answered = changes.map { change -> FigureReturnDiff.Change in
-            guard change.kind == .figureCellSet, let cell = change.payload.cell,
-                  let i = stranded.firstIndex(where: { $0.cell == cell }) else { return change }
-            let id = stranded.remove(at: i).id
-            return FigureReturnDiff.Change(kind: .claudeAcceptRevert, payload: change.payload, sourceAnnotationId: id)
-        }
-        let lines = stranded.map { note -> (OpKind, String) in
-            let live = target.table.rowIndex(of: note.cell.row) != nil && target.table.columnIndex(of: note.cell.column) != nil
-            return (live ? .claudeAcceptRevert : .claudeArchive, note.id)
-        }
-        return (answered, lines)
+    /// What `restoreToCheckpoint(_:through:)` would do to this figure's notes,
+    /// writing nothing. Nil where the restore would skip the figure, refuse it,
+    /// or throw before its first op. RULING-28's BEFORE half: the revert
+    /// sheet counts it, from the preparation the restore itself runs
+    /// (`FigureCheckpointRestore.notesPreview`).
+    func restoreNotesPreview(through pointer: String) async -> FigureRestoreNotes? {
+        await checkpointRestore.notesPreview(through: pointer)
     }
 
     /// **The notes the last `restoreToCheckpoint` answered** (RULING-28's
-    /// AFTER half): the accepted suggestions it reopened (cell and note put
-    /// back together) and those it archived (their cell is gone then), by
-    /// id — what the restore sheet names beside its outcome.
-    @ObservationIgnored private(set) var lastRestoreNotes = FigureRestoreNotes()
+    /// AFTER half), by id — what the restore sheet names beside its outcome.
+    var lastRestoreNotes: FigureRestoreNotes { checkpointRestore.lastNotes }
 
     /// Test seam: runs in `restoreToCheckpoint` between one landed op and the
     /// next — where another device's reload is put. Nil in production.
-    static var betweenRestoreOpsForTesting: (@MainActor (FigureDocument) async -> Void)?
-
-    /// The current park cycle of each figure this figure's pins name, now or
-    /// in `target` — whether or not a formula reads it
-    /// (`DocumentStore.parkCycles`, one assembly). Empty with no window, or
-    /// when neither holds a pin. Throws when the registry will not read:
-    /// nothing has been written yet.
-    private func currentParks(reading target: FigureState) async throws -> [String: String] {
-        let sources = Set([state.pins, target.pins].flatMap { $0.values.joined() }.map(\.research))
-        guard let documentStore, !sources.isEmpty else { return [:] }
-        return try await documentStore.parkCycles(of: sources)
-    }
-
-    /// A file holding picture `wanted`'s bytes that may go in place of this
-    /// figure's file: one in this host's undo folder (kept by content hash) or
-    /// in `figures/`, of the figure's own format. Nil when there is none, no
-    /// picture is wanted, the figure has no file to write over, or no window
-    /// holds it to write through.
-    private func keptPicture(
-        _ wanted: FigureImageRef?, hashes: FigurePictureHashes
-    ) async -> (url: URL, hash: String)? {
-        guard let wanted, state.kind == .image, let current = state.image, documentStore != nil else { return nil }
-        let ext = (current.filename as NSString).pathExtension.lowercased()
-        let fm = FileManager.default
-        if let imageUndoFolder,
-           let kept = try? fm.contentsOfDirectory(at: imageUndoFolder, includingPropertiesForKeys: nil)
-            .first(where: { $0.deletingPathExtension().lastPathComponent == wanted.contentHash
-                && Self.sameImageFormat($0.pathExtension.lowercased(), ext) }) {
-            return (kept, wanted.contentHash)
-        }
-        let folder = projectURL.appendingPathComponent(ProjectStore.figuresFolder, isDirectory: true) // local-path: the app's own folder name
-        let candidates = ((try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
-            .filter { !DotfileScan.isDotfile($0) && Self.sameImageFormat($0.pathExtension.lowercased(), ext) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        let found = await hashes.first(in: candidates, matching: wanted.contentHash)
-        return found.map { ($0, wanted.contentHash) }
+    static var betweenRestoreOpsForTesting: (@MainActor (FigureDocument) async -> Void)? {
+        get { FigureCheckpointRestore.betweenOpsForTesting }
+        set { FigureCheckpointRestore.betweenOpsForTesting = newValue }
     }
 
     /// A returning picture's copy in place of this figure's file, kept name
     /// and all, and its `figureImageSet` payload — with how to put the old
     /// picture back. Through the window's coordinated door.
-    private func placeReturningPicture(
+    func placeReturningPicture(
         _ picture: (url: URL, hash: String)
     ) async throws -> (FigureOpPayload, () async -> Void) {
         guard state.kind == .image, let prior = state.image else {
@@ -1852,7 +1643,7 @@ public final class FigureDocument {
     }
 
     /// `jpg` and `jpeg` are one format; every other extension is its own.
-    private static func sameImageFormat(_ a: String, _ b: String) -> Bool {
+    static func sameImageFormat(_ a: String, _ b: String) -> Bool {
         let jpeg: Set<String> = ["jpg", "jpeg"]
         return a == b || (jpeg.contains(a) && jpeg.contains(b))
     }
@@ -1982,11 +1773,16 @@ public final class FigureDocument {
         redo: @escaping @MainActor (FigureDocument) async -> Void
     ) {
         // An accept carries its note's id beside the payload, so its inverse
-        // reopens the note as it puts the cell back (report plan 9c-1).
-        let visit = ([forward] + alongside).compactMap { op in
-            op.figure.map {
-                FigureReturnDiff.Change(kind: op.kind, payload: $0, sourceAnnotationId: op.provenance?.sourceAnnotationId)
+        // reopens the note as it puts the cell back (report plan 9c-1); an
+        // accept that wrote no cell (ruling R-B) is its note's status-only
+        // line, whose inverse reopens the note alone.
+        let visit = ([forward] + alongside).compactMap { op -> FigureReturnDiff.Change? in
+            let note = op.provenance?.sourceAnnotationId
+            guard let payload = op.figure else {
+                guard op.kind == .claudeAccept, let note else { return nil }
+                return .statusOnly(op.kind, annotationId: note)
             }
+            return FigureReturnDiff.Change(kind: op.kind, payload: payload, sourceAnnotationId: note)
         }
         // A write handed the open visit's manager joins the visit — before
         // the guard, so one with no inverse is in it and says so at its end.
@@ -2039,13 +1835,16 @@ public final class FigureDocument {
         holdOpenCellNotes()
         defer { releaseOpenCellNotes() }
         do {
-            // A visit renders once, after its last inverse. An accept or its
-            // revert is stamped with the note it answers, and the notes are
-            // announced once after the run.
+            // A visit renders once, after its last inverse — none when every
+            // op is a note's status-only line, which writes no cell and is
+            // appended with no payload. An accept or its revert is stamped
+            // with the note it answers, and the notes are announced once
+            // after the run.
+            let renders = ops.contains { !$0.isStatusOnly }
             for (i, change) in ops.enumerated() {
                 try await commit(
-                    change.kind, change.payload, provenance: noteProvenance(change),
-                    render: i == ops.count - 1)
+                    change.kind, change.isStatusOnly ? nil : change.payload, provenance: noteProvenance(change),
+                    render: renders && i == ops.count - 1)
                 if isVisitManager(manager) { visitRecord?.append(change) }
             }
             if ops.contains(where: { $0.sourceAnnotationId != nil }) {
@@ -2123,7 +1922,8 @@ public final class FigureDocument {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.undo,
                                  stillAsWritten: {
-                                     FigureReturnDiff.applied(visit.undo, onto: $0.state) != nil
+                                     FigureReturnDiff.applied(
+                                         visit.undo, onto: $0.state, noteCells: $0.noteCells(for: visit.undo)) != nil
                                          && $0.notesStillAnswer(visit.undo)
                                  },
                                  drifted: .visitChanged(redo: false))
@@ -2137,7 +1937,8 @@ public final class FigureDocument {
         guard visit.isUndoable else { decline(.visitHasNoUndo); return false }
         return await appendCompensation(visit.redo,
                                  stillAsWritten: {
-                                     FigureReturnDiff.applied(visit.redo, onto: $0.state) != nil
+                                     FigureReturnDiff.applied(
+                                         visit.redo, onto: $0.state, noteCells: $0.noteCells(for: visit.redo)) != nil
                                          && $0.notesStillAnswer(visit.redo)
                                  },
                                  drifted: .visitChanged(redo: true))
@@ -2164,7 +1965,7 @@ public final class FigureDocument {
     /// what folds onto the table (`FigureOpPayload.folds`) is folded, and a
     /// note's other lines ride the stream for the annotation layer.
     @discardableResult
-    private func commit(
+    func commit(
         _ kind: OpKind, _ payload: FigureOpPayload?, after floor: String? = nil,
         provenance: Op.Provenance? = nil, render: Bool = true
     ) async throws -> Op {
@@ -2209,6 +2010,48 @@ public final class FigureDocument {
         return op
     }
 
+    /// **Append another actor's note creation and adopt it into this host
+    /// without a reload** (hardening 11-11 W6) — what `DocumentStore.
+    /// addFigureAnnotation` does for an MCP note on a figure this window holds.
+    /// The op is already built and signed by the device it names (the
+    /// assistant's), so it is appended as it stands; the host folds nothing onto
+    /// the table (a creation never folds, `FigureOpPayload.folds`), carries it
+    /// in `_ops` and `streams` and rebuilds `openCellNotes`, and treats it as
+    /// unconfirmed until a read sees it, as `commit` does.
+    ///
+    /// **It does not bump `reloadGeneration`**: a restore in flight worked out
+    /// its plan against the fold, and a note changes no cell, so the plan is
+    /// still right; the restore's generation check stays exactly as strict for
+    /// a real reload. Refuses an op for another figure, one that is not a
+    /// note's creation, and one that would fold (MCP writes no cell).
+    func adoptNoteCreation(_ op: Op) async throws {
+        guard !isClosed else { throw DocumentNotWritableError(site: "adoptNoteCreation") }
+        // Checked here, not trusted from the one caller: the op is appended
+        // as it stands, so it must be a note's creation on THIS figure.
+        guard op.docId == figureId, DocumentStore.figureNoteCreationKinds.contains(op.kind) else {
+            throw FigureEditInvalid(reason: "only a note's creation on this figure is adopted")
+        }
+        guard !FigureOpPayload.folds(op) else {
+            throw FigureEditInvalid(reason: "a note's creation writes no cell")
+        }
+        let at = _ops.firstIndex { $0.opId > op.opId } ?? _ops.endIndex
+        _ops.insert(op, at: at)
+        streams[op.device, default: []].append(op.opId)
+        newestOpId = max(newestOpId ?? "", op.opId)
+        unconfirmedLocalOpIds.insert(op.opId)
+        rebuildOpenCellNotes()
+        do {
+            try await opStore.append(op)
+            if unconfirmedLocalOpIds.contains(op.opId) { appendedLocalOpIds.insert(op.opId) }
+        } catch {
+            unconfirmedLocalOpIds.remove(op.opId)
+            _ops.removeAll { $0.opId == op.opId }
+            streams[op.device]?.removeAll { $0 == op.opId }
+            rebuildOpenCellNotes()
+            throw error
+        }
+    }
+
     // MARK: - Open cell notes (report plan 9c-2)
 
     /// The rows and columns in order: what a note's top-left cell is
@@ -2240,7 +2083,7 @@ public final class FigureDocument {
     /// rows or columns moved (an insert, a delete, a move, a sort's step),
     /// waiting inside a run for the run's end. A cell edit never rebuilds.
     private func openCellNotesMayHaveMoved(by op: Op, shapeBefore: TableShape) {
-        if Self.noteLifecycleKinds.contains(op.kind) {
+        if FigureNoteLifecycle.kinds.contains(op.kind) {
             rebuildOpenCellNotes()
             return
         }
@@ -2254,9 +2097,9 @@ public final class FigureDocument {
 
     /// A run of ops begins: `openCellNotes` is rebuilt once, at its end
     /// (`releaseOpenCellNotes`), however many of its ops move it.
-    private func holdOpenCellNotes() { openCellNotesHeld += 1 }
+    func holdOpenCellNotes() { openCellNotesHeld += 1 }
 
-    private func releaseOpenCellNotes() {
+    func releaseOpenCellNotes() {
         openCellNotesHeld -= 1
         guard openCellNotesHeld == 0, openCellNotesOwed else { return }
         openCellNotesOwed = false
@@ -2265,12 +2108,6 @@ public final class FigureDocument {
 
     // MARK: - A note's lines (report plan 9c-1)
 
-    /// The lifecycle kinds a note's disposition appends to a figure's stream.
-    private static let noteLifecycleKinds: Set<OpKind> = [
-        .claudeAccept, .claudeAcceptRevert, .claudeReject, .claudeArchive,
-        .annotationStet, .annotationReopen,
-    ]
-
     /// **Append a note's lifecycle line** as `FigureAnnotationOps` built it,
     /// through `commit` — minted after the newest op folded here, folded
     /// when it writes a cell (an accept), rolled back when the append fails.
@@ -2278,7 +2115,7 @@ public final class FigureDocument {
     /// kind that is not a note's lifecycle is refused.
     @discardableResult
     func commitNoteOp(_ built: Op, render: Bool) async throws -> Op {
-        guard Self.noteLifecycleKinds.contains(built.kind), built.provenance?.sourceAnnotationId != nil else {
+        guard FigureNoteLifecycle.kinds.contains(built.kind), built.provenance?.sourceAnnotationId != nil else {
             throw FigureEditInvalid(reason: "a \(built.kind.rawValue) line is not a note's disposition")
         }
         return try await commit(built.kind, built.figure, provenance: built.provenance, render: render)
@@ -2295,6 +2132,22 @@ public final class FigureDocument {
         change.sourceAnnotationId.map {
             FigureAnnotationOps.lifecycleProvenance(annotationId: $0, stamp: noteStamp)
         }
+    }
+
+    /// **Where each note a status-only line in `changes` answers stands**:
+    /// its anchor cell and suggested content, for `FigureReturnDiff.applied`
+    /// to ask in order — so a visit's undo or redo of an accept that wrote no
+    /// cell checks the cell as the direct ⌘Z and ⇧⌘Z do. A note that is not
+    /// a one-cell suggestion (or is withdrawn) is left out, and its line is
+    /// refused.
+    func noteCells(for changes: [FigureReturnDiff.Change]) -> [String: FigureReturnDiff.NoteCell] {
+        let named = Set(changes.filter(\.isStatusOnly).compactMap(\.sourceAnnotationId))
+        guard !named.isEmpty else { return [:] }
+        var out: [String: FigureReturnDiff.NoteCell] = [:]
+        for note in annotations() where named.contains(note.id) {
+            out[note.id] = FigureReturnDiff.NoteCell(suggestion: note)
+        }
+        return out
     }
 
     /// **Would each note `changes` answers move as they say?** Walked in

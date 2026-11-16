@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-57 rulings, 4 principles.
+60 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -604,6 +604,36 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *mechanism note:* One rule, `RewindImpact.travelStatusChanges`, compares each note's status at the target with its status now. Its stranded class is step 8's (RULING-28). Its returning class is this ruling's and RULING-26's, kept to the paragraphs the restore writes (`returningAccepts`). The instrument is RULING-26's status-only `.claudeAccept`: `.rewind`-stamped in `restoreToOp`'s step 8b, and checkpoint-stamped in the partial restore (`Restore.travelStatusLines`). The rewind preview and the revert sheet count it, and the toast and the sheet's result report it. ⌘Z of a full rewind reopens it status-only. A checkpoint revert has no ⌘Z (plan 6c ruling Q-2).
 
+### RULING-58 — N — figure suggestions follow the manuscript's rule on a checkpoint revert (RULING-57's family)  `RATIFIED_FROM_OPTIONS`
+
+> Figure suggestions follow the manuscript's rule on a checkpoint revert. A revert changes a suggestion only where it rewrites that suggestion's cell. A suggestion on a cell the revert does not write keeps its status. The one figure-only arm: a suggestion whose row or column does not exist at the checkpoint is archived, because a figure revert can remove cells and a manuscript revert never removes a paragraph.
+
+*basis:* Denver, 2026-11-11, structured question (the hardening 2026-11-11 sitting): chose the recommended option. The example put to him: "you type 12 by hand, take a checkpoint, then accept a suggestion for 12; reverting reopens it over the 12." Accepted consequence, stated in the option: accept a suggestion, type the old value back by hand, revert, and the note now stays accepted where it used to reopen.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case.
+
+*mechanism note:* One walk, `FigureRestoreNotePlan.plan` (MaughamCore), the figure twin of `RewindImpact.travelStatusChanges`: stranded (the revert writes the accepted cell away: the cell change becomes the note's `claudeAcceptRevert`), returning (the revert writes a reverted accept's value back: the change becomes a `claudeAccept`, RULING-57's figure half) and gone (row or column absent at the checkpoint: `claudeArchive`, or a status-only reopen where this hand may not dispose). The restore (`FigureCheckpointRestore`) acts on that plan and the revert sheet counts from the same one (`notesPreview`), so RULING-28's before and after cannot drift.
+
+### RULING-59 — M — accept is guarded at the root (RULING-22's family)  `RATIFIED_FROM_OPTIONS`
+
+> Accept is guarded at the root. When the cell already holds the suggestion's value, Accept marks the note accepted and writes nothing to the cell. Figures now. The manuscript too if the same sequence reproduces there; otherwise the manuscript gap is filed in the register.
+
+*basis:* Denver, 2026-11-11, structured question (the hardening 2026-11-11 sitting): chose the recommended option. The example put to him: the phone rejects or archives a suggestion just after the Mac accepted it, a reopen leaves it open over its own value, and accepting again records the suggested value as the "before" value.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case.
+
+*mechanism note:* Figures: `FigureDocument.acceptSuggestion` appends a status-only `claudeAccept` (`FigureAnnotationOps.statusOnlyAccept`) when the cell's content already is the suggested content; ⌘Z and a grid visit's undo are a status-only `claudeAcceptRevert` (`FigureReturnDiff.Change.statusOnly`). The manuscript sequence REPRODUCED (hardening 11-11 Task 5: accept, a peer's archive or stet, a Reopen, accept again, which wrote a `claudeAccept` with prior == next or spliced a span twice), so the guard is built there too, in one Core function (`SuggestionSplice.planAccept`) used by the Mac and the phone. No accept records a before-text equal to its after-text.
+
+### RULING-60 — O — a Research table closes the way a note does (RULING-56's family)  `RATIFIED_FROM_OPTIONS`
+
+> A Research table closes the way a note does. At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file. This inherits the notes' interim "save anyway" rule (`ResearchNoteDoor.whenTheKeepFails`); if that interim rule is later changed, tables change with it.
+
+*basis:* Denver, 2026-11-11, structured question (the hardening 2026-11-11 sitting): chose the recommended option. The question named a Research table's edits at window close and at quit, where today a version that cannot be kept stops the save and the last edits can be dropped.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-C verbatim. The ruling says 'at close'; the build reads that as the notes' own split (every flush saves anyway, the debounced save still refuses), a reading that is the coordinator's call and not yet ruled by Denver (see M5-AN-080 and M5-AN-081).
+
+*mechanism note:* `ResearchTableHost.write(_:by:restoring:source:secondRead:)` is told whether it is the debounced save (`.timer`), a flush (`.flush`: `flush()`, which `DocumentStore.flushPendingSave`, the grid's leave and `close()` all reach) or an assistant write or restore (`.direct`), and answers with a `WriteOutcome`. A flush whose version cannot be kept saves anyway and says so after the save lands. A flush that cannot save writes the held table's CSV through `Document.writeConflictBackup` (kind `unsaved`) and names the file. If that backup fails too, the notice says the edits were not saved.
+
 ## The enforcement gradient — how each ruling is held
 
 prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a
@@ -655,6 +685,9 @@ promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling 
 - **RULING-44** `prose` — ruled-quiet: no warning owed — nothing to enforce
 - **RULING-45** `type+test` — carriesFile:false entries + link round-trip pins
 - **RULING-57** `test` — RewindReturningAcceptTests + PartialRestoreStrandedAcceptTests returning pins
+- **RULING-58** `test` — FigureRestoreNotePlanTests (core) + FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins
+- **RULING-59** `test` — FigureAnnotationDispositionTests/FigureVisitTests guarded-accept pins; AcceptOverAppliedTextTests; SuggestionSpliceTests.test_planAccept_*
+- **RULING-60** `test` — ResearchTableVersionTests flush-arm pins (test_aFlushWhoseVersionCannotBeKeptSavesAnyway and the kept-aside arm tests) + ResearchTableGridTests leave/close pins
 
 ## Principles — how to judge, not what to decide
 

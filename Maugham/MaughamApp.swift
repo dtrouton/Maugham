@@ -4,6 +4,9 @@ import AppKit
 
 @main
 struct MaughamApp: App {
+    /// Answers `applicationShouldTerminate`: ⌘Q waits for the stores to
+    /// close (`QuitCoordinator`).
+    @NSApplicationDelegateAdaptor(MaughamAppDelegate.self) private var appDelegate
     @State private var userPreferences = UserPreferences()
     @State private var backupCoordinator = BackupCoordinator()
     @State private var recents = RecentsStore()
@@ -43,9 +46,13 @@ struct MaughamApp: App {
         // Before any window exists, so the policy is in force for the first one.
         TestHost.applyActivationPolicyIfHosting()
 
-        // Best-effort: post a notification on app termination so any open
-        // ProjectWindow can synchronously flush its DocumentStore. This is
-        // belt-and-suspenders alongside .onDisappear.
+        // ⌘Q waits for every open project's stores to close, bounded
+        // (`QuitCoordinator`, asked by the delegate before `willTerminate`).
+        MaughamAppDelegate.quit = QuitCoordinator(closers: { sessions.quitClosers() })
+
+        // On app termination, tell every window (the services' quit arms,
+        // the MCP server's stop). The stores were closed before this, by the
+        // quit coordinator.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil, queue: nil
@@ -123,7 +130,7 @@ struct MaughamApp: App {
                            UpdateInstaller.launchSwapHelper(
                                stagedBundle: bundleURL, version: version,
                                updatesDirectory: UpdateChecker.updatesDirectory, relaunch: relaunch) {
-                            NSApp.terminate(nil)  // willTerminate flushes autosave; helper waits for exit then swaps
+                            NSApp.terminate(nil)  // the quit coordinator closes the stores; the helper waits for exit, then swaps
                         } else {
                             NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
                         }

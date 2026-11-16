@@ -60,6 +60,49 @@ final class FigureCacheTests: XCTestCase {
         XCTAssertEqual(a.table.rows, [r1])
     }
 
+    /// Two tables that differ (an empty registry, then one with a root), built from
+    /// the same keys so an equal pair is genuinely equal.
+    private func trustTables() -> (empty: TrustTable, rooted: TrustTable, rootedAgain: TrustTable) {
+        let keys = LocalIdentities.softwareForTesting()
+        let fp = keys.author.fingerprint
+        let root = PersonRecord(person: fp, label: "L", ownName: "Mac",
+                                admittedAt: Date(timeIntervalSince1970: 10), admittedBy: fp)
+        let rooted = { TrustTable.resolve(registry: Registry(people: [root]), mine: keys, joinedRoot: nil) }
+        return (TrustTable.resolve(registry: Registry(), mine: keys, joinedRoot: nil), rooted(), rooted())
+    }
+
+    func test_noteTrust_firstCallInvalidatesNothing_andAnEqualTableTwiceKeepsTheLine() throws {
+        let root = newRoot()
+        try append(skeleton("fig-aaaa1111"), docId: "fig-aaaa1111", to: root)
+        let cache = FigureCache()
+        let facts = DocumentClass.Facts.empty
+        let t = trustTables()
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.rooted, facts: facts)
+        XCTAssertEqual(cache.deriveCount, 1)
+        cache.noteTrust(t.rooted)   // first call: nothing remembered, nothing dropped
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.rooted, facts: facts)
+        XCTAssertEqual(cache.deriveCount, 1, "the first table given invalidates nothing")
+        cache.noteTrust(t.rootedAgain)
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.rooted, facts: facts)
+        XCTAssertEqual(cache.deriveCount, 1, "an equal table is not a change")
+    }
+
+    func test_noteTrust_aDifferentTableMakesTheNextReadDeriveAgain() throws {
+        let root = newRoot()
+        try append(skeleton("fig-aaaa1111"), docId: "fig-aaaa1111", to: root)
+        let cache = FigureCache()
+        let facts = DocumentClass.Facts.empty
+        let t = trustTables()
+        cache.noteTrust(t.empty)
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.empty, facts: facts)
+        cache.noteTrust(t.rooted)
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.rooted, facts: facts)
+        XCTAssertEqual(cache.deriveCount, 2, "trust changed: the line was dropped")
+        cache.noteTrust(t.rooted)
+        _ = try cache.state(forFigureId: "fig-aaaa1111", in: root, trust: t.rooted, facts: facts)
+        XCTAssertEqual(cache.deriveCount, 2, "and the new table is the one remembered")
+    }
+
     func test_appendingAnOp_invalidatesByToken_andInvalidateForcesARederive() throws {
         let root = newRoot()
         let id = "fig-aaaa1111"

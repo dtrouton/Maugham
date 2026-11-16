@@ -351,9 +351,14 @@ final class ResearchNoteDoor {
     /// door's: the item and its path asked now; the prior bytes read off the
     /// main actor; the version kept (off it) when the run, a restore, or bytes
     /// this store did not write say so; then the file; then the record of who
-    /// wrote it.
+    /// wrote it. **The file is written only if it still holds what was read
+    /// here** (#138 R3, `FileExpectation`): bytes put there after the read
+    /// make the door run again from its read, once (`secondRead`), so they
+    /// are kept as a version first; a second change takes the save-failure
+    /// arm for `source`.
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: Bool,
-                       source: SaveSource, owner: ProjectStore?, in store: DocumentStore) async -> Outcome {
+                       source: SaveSource, owner: ProjectStore?, in store: DocumentStore,
+                       secondRead: Bool = false) async -> Outcome {
         let projectURL = store.projectURL
         let item: ResearchItem, path: String
         switch noteLookup(itemId, owner: owner, in: store) {
@@ -366,9 +371,10 @@ final class ResearchNoteDoor {
 
         let prior: PriorBytes = await Task.detached { PriorBytes.read(fileURL) }.value
         let onDisk: Data?
+        let expecting: FileExpectation
         switch prior {
-        case .missing: onDisk = nil
-        case .bytes(let data): onDisk = data
+        case .missing: (onDisk, expecting) = (nil, .absent)
+        case .bytes(let data): (onDisk, expecting) = (data, .bytesHashing(ContentHash.of(data)))
         case .unreadable:
             // A file that is there but will not read cannot be kept: nothing
             // is written over it (RULING-7), whatever the source.
@@ -388,6 +394,10 @@ final class ResearchNoteDoor {
         }
 
         var kept = false
+        // A keep that failed on a save that goes ahead anyway is said once
+        // the write has landed (as the table door's `savedAnyway`): a retry
+        // (`secondRead`) or a failed write never hears it falsely or twice.
+        var savedAnywaySentence: String?
         if let onDisk, !onDisk.isEmpty {
             let state = notes[itemId] ?? NoteState()
             let onDiskHash = ContentHash.of(onDisk)
@@ -412,13 +422,11 @@ final class ResearchNoteDoor {
                     case .saveAnyway where source == .direct(mustLand: true):
                         // Not the writer's edits: the text a move's refs
                         // were rewritten in (the only write that must land).
-                        MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway.",
-                            projectURL: projectURL)
+                        savedAnywaySentence =
+                            "“\(item.title)”’s previous version couldn’t be kept; its picture links were updated anyway."
                     case .saveAnyway:
-                        MaughamEvent.postNotice(
-                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway.",
-                            projectURL: projectURL)
+                        savedAnywaySentence =
+                            "“\(item.title)”’s previous version couldn’t be kept; \(Self.saved(writer, restoring: restoring)) anyway."
                     }
                 } else {
                     // Written to the live entry, not a copy taken before the
@@ -440,7 +448,14 @@ final class ResearchNoteDoor {
         case let missed: return unreachable(itemId, missed, text: text, source: source, in: store)
         }
         do {
-            try await store.performFileSave(path: pathNow, text: text)
+            try await store.performFileSave(path: pathNow, text: text, expecting: expecting)
+        } catch FileSaveError.changedSinceRead where !secondRead {
+            // Written outside after the read above: nothing was written over
+            // it. The door runs again from its read, so those bytes are kept
+            // as a version before the note is saved.
+            researchNoteLog.error("\(pathNow, privacy: .public) changed after it was read; reading it again")
+            return await write(itemId, text: text, by: writer, restoring: restoring, source: source,
+                               owner: owner, in: store, secondRead: true)
         } catch ProjectStoreError.unsafeProjectPath(let refused, let reason) {
             store.logRefusedSave(path: refused, reason: reason)
             return unreachable(itemId, .refusedPath(item, pathNow), text: text, source: source, in: store)
@@ -467,6 +482,7 @@ final class ResearchNoteDoor {
         let writtenHash = ContentHash.of(newBytes)
         notes[itemId]?.knownHash = writtenHash
         notes[itemId]?.timerStopSaid = false
+        if let savedAnywaySentence { MaughamEvent.postNotice(savedAnywaySentence, projectURL: projectURL) }
         wroteForTesting?(itemId, text)
         do {
             try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: writtenHash, writtenBy: writer),

@@ -13463,9 +13463,11 @@ final class TripwireGrepTests: XCTestCase {
         // A checkpoint restore's figure ops (report plan 6c Task 2), behind
         // the same guard; a parked figure is skipped, not written. Its note
         // lines (report plan 9c-1: a stranded accept's `claudeAcceptRevert`,
-        // cell-carrying or status-only, and `claudeArchive`) ask their own
-        // verbs first through `mayHere`: `.acceptOrReject` for any revert
-        // (refused → the restore throws `FigureEditRefused` before any op),
+        // cell-carrying or status-only, a returning note's cell-carrying
+        // `claudeAccept` (hardening 11-11), and `claudeArchive`) ask their
+        // own verbs first through `mayHere`: `.acceptOrReject` for any revert
+        // or accept (refused → the restore throws `FigureEditRefused` before
+        // any op),
         // `.dispose` for an archive (refused → a status-only revert instead).
         "restoreToCheckpoint": "figure",
         // The batch verbs (report plan 7c Task 1): many cells or row moves
@@ -15643,8 +15645,8 @@ extension TripwireGrepTests {
     /// name the manuscript or a `.maugham/` file as a Research item;
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
-    /// - `ResearchTableHost.swift:write(_:by:restoring:)` — the table door, `tablePath(`.
-    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)` — the
+    /// - `ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)` — the table door, `tablePath(`.
+    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
     /// Since palette cards keep versions (2026-11-11) every card writer —
@@ -15665,8 +15667,8 @@ extension TripwireGrepTests {
     /// question spelled inside a string literal, and two files of one name
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
-        "ResearchTableHost.swift:write(_:by:restoring:)": "ResearchTextRole.tablePath(",
-        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:)": "noteLookup(",
+        "ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)": "ResearchTextRole.tablePath(",
+        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
 

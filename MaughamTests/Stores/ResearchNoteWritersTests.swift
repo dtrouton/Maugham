@@ -369,8 +369,8 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "![](./quay_assets/img.png)",
                        "the refs follow the folder that moved")
         XCTAssertTrue(versions(of: item).isEmpty)
-        XCTAssertTrue(heard.notices.contains("“Quay”’s previous version couldn’t be kept; its picture links were updated anyway."),
-                      "the notice speaks of the refs, not of edits the writer never typed: \(heard.notices)")
+        XCTAssertEqual(heard.notices.filter { $0 == "“Quay”’s previous version couldn’t be kept; its picture links were updated anyway." }.count, 1,
+                       "the notice speaks of the refs, not of edits the writer never typed, once: \(heard.notices)")
     }
 
     // MARK: - A writer that reads the note waits for a save in flight (whole-branch C1)

@@ -392,7 +392,7 @@
   "outcome": "COMPLIES",
   "ruling": "RULING-28",
   "clause_that_reaches_it": "An operation that changes more than the writer asked about states the FULL set of collateral changes BEFORE they commit AND confirms what it actually did AFTER.",
-  "why_in_scope": "Reverting text to a checkpoint is asked about the words; reopening the accepted suggestions whose change it takes back is collateral to it, as the full rewind's step 8 is. WHY_IT_VIOLATED: the manuscript revert did no stranded-accept handling at all and its sheet named no collateral, so a note stayed accepted over text without its change and the writer was told nothing; the figure revert already reopened and named its notes (#128 item 2). As of the fix the same plan feeds the confirm line, the appended reopens and the result sentence.",
+  "why_in_scope": "Reverting text to a checkpoint is asked about the words; reopening the accepted suggestions whose change it takes back is collateral to it, as the full rewind's step 8 is. WHY_IT_VIOLATED: the manuscript revert did no stranded-accept handling at all and its sheet named no collateral, so a note stayed accepted over text without its change and the writer was told nothing; the figure revert already reopened and named its notes (#128 item 2; since hardening 11-11 it also returns a reverted accept to accepted, leaves a note on a cell it does not write, and counts all three classes before it writes — M5-AN-073, M5-AN-074). As of the fix the same plan feeds the confirm line, the appended reopens and the result sentence.",
   "intent_expressed_when": "contemporaneous — the Revert sheet and its aftermath",
   "call_path": "HistoryPane → Revert here… → PartialRestorePicker (confirm line: revertNotes → RevertNotes.confirmSentence) → Revert → restore(_:) → revertPlan → restore op + claudeAcceptRevert per stranded accept → RevertNotes.reportSentence",
   "violation_or_enhancement": "violation",
@@ -401,6 +401,12 @@
    "date": "2026-11-01",
    "authorised_by": "RULING-28",
    "pinned_by": "PartialRestoreStrandedAcceptTests.test_aRevertReopensTheAcceptItTakesBack_andLeavesEveryOtherAnswer + test_theSheetNamesTheReopensBeforeAndConfirmsThemAfter"
+  },
+  "amendment": {
+   "commit": "7f19c653 65ce320d",
+   "date": "2026-11-12",
+   "authorised_by": "RULING-58 / RULING-28",
+   "note": "The filing's sentence about the figure revert was true only of its reopen; the figure twin now follows the same classes as the manuscript's (RULING-57), recorded as M5-AN-073/074."
   }
  },
  {
@@ -469,13 +475,18 @@
   }
  },
  {
+  "claim_id": "M4-RW-043",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling says what status an undone rewind returns a stranded-archived accepted note to; RULING-22's 'one ⌘Z returns the whole rewind' (M4-RW-024) covers the act, not this reading. The behaviour (ACCEPTED, with the original reply) is coordinator's call, hardening 2026-11-11, not yet ruled by Denver; file it under a ruling if Denver rules. Fixed in 18b28714, pinned by the four AcceptOverAppliedTextTests undo and redo tests."
+ },
+ {
   "_summary": {
    "reached": 25,
    "complies": 25,
    "violates": 0,
-   "no_ruling": 14,
-   "total": 39,
-   "coverage": "64%",
+   "no_ruling": 15,
+   "total": 40,
+   "coverage": "62%",
    "by_ruling": {
     "RULING-19": [
      "M4-RW-003"
@@ -513,6 +524,9 @@
     "RULING-37": [
      "M4-RW-021"
     ],
+    "RULING-57": [
+     "M4-RW-040"
+    ],
     "RULING-7": [
      "M4-RW-026"
     ],
@@ -520,9 +534,6 @@
      "M4-RW-017",
      "M4-RW-018",
      "M4-RW-031"
-    ],
-    "RULING-57": [
-     "M4-RW-040"
     ]
    },
    "reached_by_a_root_only": [

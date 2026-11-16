@@ -238,9 +238,9 @@ public final class DocumentStore {
     /// Not observed: a save invalidates no view.
     @ObservationIgnored let researchNoteDoor = ResearchNoteDoor()
     @ObservationIgnored private(set) var researchTables: [String: ResearchTableHost] = [:]
-    @ObservationIgnored private var researchTableUses: [String: Int] = [:]
+    @ObservationIgnored private(set) var researchTableUses: [String: Int] = [:]
     @ObservationIgnored private var researchTableOpenings: [String: Task<ResearchTableHost, Error>] = [:]
-    @ObservationIgnored private var researchTableClosings: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var researchTableClosings: [String: Task<Bool, Never>] = [:]
 
     /// **Some figure's state may have moved** — bumped by every figure
     /// trigger that refills the cards (`invalidateFigureCards`: an open host's
@@ -948,7 +948,7 @@ public final class DocumentStore {
     /// wherever the item then is (its path is asked at the save).
     public func flushPendingSave(commitOpenEdits: Bool = false) async throws {
         for table in Array(researchTables.values) { await table.settle(commitOpenEdits: commitOpenEdits) }
-        for closing in Array(researchTableClosings.values) { await closing.value }
+        for closing in Array(researchTableClosings.values) { _ = await closing.value }
         if let fileSaveScheduler { await fileSaveScheduler.flush() }
         // Every note's pending edit, saved now (a flush saves even when the
         // version it replaces cannot be kept: `ResearchNoteDoor.whenTheKeepFails`),
@@ -962,31 +962,59 @@ public final class DocumentStore {
     /// holds open, or read now (after a host still closing on it has written
     /// its last save). Each call is one use; `releaseResearchTable` gives it
     /// back. Throws what the read throws (`ResearchTableHost.load`).
+    ///
+    /// Callers that arrive while the table is being read share one opening
+    /// (`researchTableOpenings`). The first back from it registers the host
+    /// it read — no one else has held it. Each later one takes the host now
+    /// registered, the identical instance, when it is live (#138 R2): never
+    /// the one it was handed, which a caller ahead of it may have let go
+    /// meanwhile. With none live, the table is opened again — once; a second
+    /// opening let go before this caller is back throws
+    /// `ResearchTableHost.ClosedWhileOpening`. A closing or closed host is
+    /// never registered or handed back, and a closed entry is replaced.
     func openResearchTable(itemId: String) async throws -> ResearchTableHost {
-        if let closing = researchTableClosings[itemId] { await closing.value }
-        if let host = researchTables[itemId], !host.isClosed {
-            researchTableUses[itemId, default: 0] += 1
-            return host
+        for _ in 0..<2 {
+            if let closing = researchTableClosings[itemId] { _ = await closing.value }
+            if let live = liveResearchTable(itemId) {
+                researchTableUses[itemId, default: 0] += 1
+                return live
+            }
+            let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
+                try await ResearchTableHost.load(itemId: itemId, store: self)
+            }
+            researchTableOpenings[itemId] = opening
+            let host: ResearchTableHost
+            do {
+                host = try await opening.value
+            } catch {
+                if researchTableOpenings[itemId] == opening { researchTableOpenings[itemId] = nil }
+                throw error
+            }
+            if researchTableOpenings[itemId] == opening {
+                // First back: a new host no one has held, in place of any closed entry.
+                researchTableOpenings[itemId] = nil
+                researchTables[itemId] = host
+                researchTableUses[itemId] = 1
+                return host
+            }
+            if let live = liveResearchTable(itemId) {
+                researchTableUses[itemId, default: 0] += 1
+                return live
+            }
+            // The host this opening read was let go before this caller was back.
         }
-        let opening = researchTableOpenings[itemId] ?? Task { @MainActor in
-            try await ResearchTableHost.load(itemId: itemId, store: self)
-        }
-        researchTableOpenings[itemId] = opening
-        let host: ResearchTableHost
-        do {
-            host = try await opening.value
-        } catch {
-            researchTableOpenings[itemId] = nil
-            throw error
-        }
-        researchTableOpenings[itemId] = nil
-        if researchTables[itemId] == nil { researchTables[itemId] = host }
-        researchTableUses[itemId, default: 0] += 1
+        throw ResearchTableHost.ClosedWhileOpening()
+    }
+
+    /// The host registered for `itemId`, unless it has closed.
+    private func liveResearchTable(_ itemId: String) -> ResearchTableHost? {
+        guard let host = researchTables[itemId], !host.isClosed else { return nil }
         return host
     }
 
     /// One use of a Research table given back; the last closes it — its last
-    /// save written before another grid may read the file again.
+    /// save written before another grid may read the file again. A host that
+    /// is not the registered one (closed, or replaced) is no use: a no-op.
     func releaseResearchTable(_ host: ResearchTableHost) async {
         let id = host.itemId
         guard researchTables[id] === host else { return }
@@ -997,18 +1025,29 @@ public final class DocumentStore {
         }
         researchTableUses[id] = nil
         researchTables[id] = nil
-        let closing = Task { @MainActor in await host.close() }
+        // True when its last save landed (`settleResearchTable` asks).
+        let closing = Task { @MainActor () -> Bool in
+            await host.close()
+            return !host.isDirty
+        }
         researchTableClosings[id] = closing
-        await closing.value
+        _ = await closing.value
         if researchTableClosings[id] == closing { researchTableClosings[id] = nil }
     }
 
     /// **Research item `itemId`'s grid, settled** — its open edit committed and
     /// its pending save written — before a verb reads the file (*Use in
-    /// Document*, *Bring Back to Figures*).
-    func settleResearchTable(itemId: String) async {
-        await researchTables[itemId]?.settle(commitOpenEdits: true)
-        await researchTableClosings[itemId]?.value
+    /// Document*, *Bring Back to Figures*). **True when the file now holds
+    /// what the grid shows**: no grid has it open, or its host is clean after
+    /// the settle. False when the flush kept the edits aside (the host is
+    /// still unsaved, or closed so): the file is stale, and a verb that would
+    /// read it refuses (hardening 11-11 final review G2).
+    @discardableResult
+    func settleResearchTable(itemId: String) async -> Bool {
+        let host = researchTables[itemId]
+        await host?.settle(commitOpenEdits: true)
+        let closedClean = await researchTableClosings[itemId]?.value ?? true
+        return closedClean && !(host?.isDirty ?? false)
     }
 
     /// **Research item `itemId`'s table put back to a kept `version`** (report
@@ -1098,8 +1137,29 @@ public final class DocumentStore {
     /// `paletteCoordinatedWrite(_:to:)` funnel can call it directly for
     /// immediate (non-debounced) coordinated writes — palette card saves
     /// are await-and-done, unlike `scheduleFileSave`'s 750ms debounce.
+    /// Expects nothing of the file (`FileExpectation.anything`): the
+    /// manuscript's clean render, whose truth is the op log.
     func performFileSave(path: String, text: String) async throws {
+        try await performFileSave(path: path, text: text, expecting: .anything)
+    }
+
+    /// Test seam: runs on the save path just before the coordinator is
+    /// entered — after a door read the file and awaited, before its write
+    /// (#138 R3). Nil in production.
+    static var beforeCoordinatedWriteForTesting: (() -> Void)?
+
+    /// **The coordinated whole-file write, checked against what the caller
+    /// read** (#138 R3). A door reads the file, keeps what it replaces, and
+    /// awaits other work before it writes; bytes another program or another
+    /// Mac put there meanwhile would be written over unseen. So, inside the
+    /// one coordinated write — which holds the write claim, so nothing
+    /// coordinated lands between the check and the write — the file is read
+    /// and compared with `expecting`; a mismatch writes nothing and throws
+    /// `FileSaveError.changedSinceRead` (the door reads again). The
+    /// comparison sits inside the block for `writeManifest`'s reason.
+    func performFileSave(path: String, text: String, expecting: FileExpectation) async throws {
         let url = try resolvedProjectPathToChange(path)
+        Self.beforeCoordinatedWriteForTesting?()
         let coordinator = NSFileCoordinator(filePresenter: presenter)
         var coordError: NSError?
         var saveError: Error?
@@ -1107,6 +1167,7 @@ public final class DocumentStore {
             writingItemAt: url, options: .forReplacing, error: &coordError
         ) { writeURL in
             do {
+                guard expecting.isMet(byFileAt: writeURL) else { throw FileSaveError.changedSinceRead }
                 try text.data(using: .utf8)?
                     .write(to: writeURL, options: [.atomic])
             } catch {
@@ -2699,6 +2760,46 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
         catch {
             documentStoreLog.error(
                 "conflict-backup write failed at \(backupURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+/// **What a save expects the file to hold as it writes** (#138 R3): the
+/// bytes its door read at the start of this save. Checked inside
+/// `DocumentStore.performFileSave`'s coordinated write.
+enum FileExpectation: Equatable {
+    /// No check: the manuscript's clean render (`scheduleFileSave`), whose
+    /// truth is the op log — an outside `.md` edit is discarded by design.
+    case anything
+    /// The file holds bytes whose `ContentHash.of` is this.
+    case bytesHashing(String)
+    /// There was no file at the read (a note door save that makes it).
+    case absent
+
+    /// Whether the file at `url` is what was expected — read plainly: the
+    /// caller is inside the coordinated write, which holds the claim.
+    func isMet(byFileAt url: URL) -> Bool {
+        switch self {
+        case .anything:
+            return true
+        case .absent:
+            return !FileManager.default.fileExists(atPath: url.path)
+        case .bytesHashing(let hash):
+            guard let data = try? Data(contentsOf: url) else { return false } // adr-0018-ok: a Research file's bytes compared before its save; not manuscript
+            return ContentHash.of(data) == hash
+        }
+    }
+}
+
+/// Why `performFileSave(path:text:expecting:)` wrote nothing.
+enum FileSaveError: Error, Equatable, LocalizedError {
+    /// The file no longer held what the save's door read: something outside
+    /// Maugham wrote it in between.
+    case changedSinceRead
+
+    var errorDescription: String? {
+        switch self {
+        case .changedSinceRead: return "it changed outside Maugham while it was being saved."
         }
     }
 }

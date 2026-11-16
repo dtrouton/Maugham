@@ -117,7 +117,7 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `SpanText.swift` — typography- and whitespace-insensitive canonical form for span matching.
 - `ShingleMatcher.swift` — k-word shingle overlap used for orphan recovery.
 - `SuggestionDisplay.swift` — the before/after of a suggested change, as both surfaces show it; a figure suggestion's cells and anchor line; the assistant-note colour.
-- `SuggestionSplice.swift` — applies a suggestion's replacement to a paragraph identically on both surfaces.
+- `SuggestionSplice.swift` — plans and applies a suggestion's Accept identically on both surfaces (R-B).
 
 ### Statements, passes and roles
 - `Statement.swift` — a writer statement (intent, visual language, edition brief, lessons, first reader) and `Statement.Kind`.
@@ -198,7 +198,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `FigureTablePipe.swift` — a pipe table as a figure table.
 - `PinStatus.swift` — research pins: what a figure reads through one (a Research table, a parked figure), each source's status (current, changed, missing, unpinned), Compare's old and new values, the pins a refresh or formula entry writes, and `FigurePinChoice`, the one rule for which pin wins.
 - `FigureReturnDiff.swift` — a changed working copy's return to its parked figure: kept ids, three-way against what the parker read; `FigureReturnMatch.swift` matches its rows and columns.
-- `FigureRestoreDiff.swift` — a figure wound back to a checkpoint's op pointer, by id: revives carrying the checkpoint's slice, deletes, moves, cells, settings, pins, picture, folded through the return's shared `Simulation`; `changes` takes the book's `parks`, so a pin live now is never replaced by one inert under the current park; `wentToResearch(since:in:)` tells a restore across a park or resume.
+- `FigureRestoreDiff.swift` — a figure wound back to a checkpoint's op pointer, by id: revives carrying the checkpoint's slice, deletes, moves, cells, settings, pins, picture, folded through the return's shared `Simulation`; `changes` takes the book's `parks`, so a live pin is never replaced by an inert one; `wentToResearch(since:in:)` spots a park or resume since.
+- `FigureRestoreNotePlan.swift` — a restore's note classes.
 - `FigureCarry.swift` — what a Collection piece's promotion carries of the figures: its own move, those its text or carried formulas name are copied; the ops re-creating each with its ids, parked again when parked; reads of Research left behind; what staying in the Collection reads (`readByWhatStays`: the piece's own figures kept as copies; `stayingReadsOfCarriedResearch`). `canRecreate` is the one kind test (an unknown kind is refused); a picture missing or changed is listed.
 - `FigureSort.swift` — a table figure's row order sorted by one column (R7c-7); header and total rows stay put.
 - `FigureRangeAnchors.swift` — a row reorder keeps each range's positional span: own ranges re-anchored, another figure's reported.

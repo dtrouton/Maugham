@@ -557,4 +557,226 @@ final class PartialRestoreFigureTests: XCTestCase {
         XCTAssertNil(PartialRestorePicker.figureSentence(for: [
             (r("done"), .outcome(.restored(opCount: 1))), (r("same"), .outcome(.unchanged))]))
     }
+
+    // MARK: - The notes, before and after (hardening 11-11 Task 3, #136 W3)
+
+    private func number(_ n: Double) -> Cell { Cell(content: .value(.number(n))) }
+
+    /// The store's figure pass held for the test: every host here reads
+    /// another writer's line by hand (`FigureRestoreTests.holdTheFigurePass`).
+    private func holdTheFigurePass(of store: DocumentStore) {
+        let held = DebounceScheduler<Int>(delay: .seconds(86_400)) { _ in }
+        store._figureChangeScheduler = held
+        addTeardownBlock { @MainActor in held.cancel() }
+    }
+
+    /// The assistant suggests `cell` for `key` on the open `host`.
+    private func suggest(_ cell: Cell?, at key: CellKey, on host: FigureDocument) async throws -> String {
+        let op = try FigureAnnotationOps.creation(
+            kind: .suggestedChange, anchor: FigureCellAnchor(row: key.row, column: key.column),
+            body: "Should be this", suggestedCell: cell, prior: host.state.table[key],
+            author: AnnotationAuthor(sourceKind: .claude, displayName: "Claude"),
+            stamp: .init(figureId: host.figureId, device: Document.loadIdentities[.assistant].deviceId))
+        try await Document.makeLoadOpStore(projectURL: projectURL, presenter: nil).append(op)
+        try await host.reload()
+        return op.opId
+    }
+
+    /// A closed table figure with one suggestion accepted after `checkpoint`
+    /// is taken (stranded by a revert), its cell "old" then.
+    private func strandedFigure(
+        _ name: String, piece: String?, _ store: DocumentStore, _ projectStore: ProjectStore
+    ) async throws -> FigureRecord {
+        let record = try await projectStore.createFigure(kind: .table, name: name, piece: piece)
+        let host = try await store.openFigure(figureId: record.id)
+        try await host.setCell(text("old"), at: firstCell(host))
+        _ = try await suggest(number(7), at: firstCell(host), on: host)
+        await store.closeFigure(figureId: record.id)
+        return record
+    }
+
+    /// Accepts the one suggestion on a closed figure, through a host closed after.
+    private func acceptItsSuggestion(_ id: String, _ store: DocumentStore) async throws {
+        let host = try await store.openFigure(figureId: id)
+        let note = try XCTUnwrap(host.annotations().first)
+        try await host.acceptSuggestion(id: note.id)
+        await store.closeFigure(figureId: id)
+    }
+
+    /// **A mixed revert's figure notes, BEFORE equal to AFTER** (RULING-28):
+    /// one figure whose revert reopens one accepted suggestion, restores one
+    /// to accepted and archives one whose row is gone then. The sheet counts
+    /// all three before Revert, through a host it borrows and releases,
+    /// writing nothing, and says so in the documents' words plus "archived";
+    /// the revert then reports the same three, "restored to accepted" in the
+    /// manuscript toast's words.
+    func test_aMixedRevertsFigureNotes_beforeEqualTheReportAfter() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let record = try await projectStore.createFigure(kind: .table, name: "t", piece: nil)
+        let host = try await store.openFigure(figureId: record.id)
+        let rows = host.state.table.rows, columns = host.state.table.columns
+        let a1 = CellKey(row: rows[0], column: columns[0]), b2 = CellKey(row: rows[1], column: columns[1])
+        try await host.setCell(text("old"), at: a1)
+        try await host.setCell(text("old"), at: b2)
+        let returning = try await suggest(number(42), at: a1, on: host)
+        let um = UndoManager()
+        try await host.acceptSuggestion(id: returning, undoManager: um)
+        let stranded = try await suggest(number(7), at: b2, on: host)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", record.id])
+        um.undo()
+        await host.awaitPendingUndoWork()
+        try await host.acceptSuggestion(id: stranded)
+        let row = try await host.insertRow(after: nil)
+        let gone = try await suggest(number(9), at: CellKey(row: row, column: columns[0]), on: host)
+        try await host.acceptSuggestion(id: gone)
+        await store.closeFigure(figureId: record.id)
+        let streamBefore = try streamBytes(of: record.id)
+        let sheet = picker(cp, store, projectStore)
+
+        let before = await sheet.revertNotes(for: .wholeProject)
+
+        let entry = try XCTUnwrap(before.entries.first { $0.title == "t" }, "the figure is counted, by name")
+        XCTAssertEqual(entry, .init(title: "t", reopened: 1, reaccepted: 1, archived: 1))
+        XCTAssertEqual(before.confirmSentence,
+            "1 accepted suggestion will be reopened on t. "
+            + "1 suggestion will be restored to accepted on t. "
+            + "1 accepted suggestion will be archived on t — its cell is gone then.")
+        XCTAssertEqual(try streamBytes(of: record.id), streamBefore, "counting writes nothing")
+        XCTAssertNil(store.openFigure(forId: record.id), "the host borrowed to count is released")
+
+        let results = await PartialRestorePicker.restoreFigures(
+            projectStore.manifest.figures ?? [], in: .wholeProject, to: cp, documentStore: store)
+
+        guard case .outcome(_, let after)? = results.first?.result else {
+            return XCTFail("the figure was not restored: \(results)")
+        }
+        XCTAssertEqual(after, FigureRestoreNotes(reopened: [stranded], reaccepted: [returning], archived: [gone]))
+        XCTAssertEqual(
+            [after.reopened.count, after.reaccepted.count, after.archived.count],
+            [entry.reopened, entry.reaccepted, entry.archived], "BEFORE is what AFTER reports")
+        XCTAssertEqual(PartialRestorePicker.figureSentence(for: results),
+            "Reopened 1 accepted suggestion, restored 1 suggestion to accepted "
+            + "and archived 1 accepted suggestion whose cells are gone on t.")
+    }
+
+    /// **A figure the revert skips or refuses is in no count**, as a document
+    /// behind a closed door is not: a parked figure (the restore's skip) and
+    /// one in a piece yielded to Sam (the sheet's door, `reach`, the one
+    /// `restoreFigures` acts on) each hold a stranded accept, and neither is
+    /// counted nor left open; a reachable one beside them is.
+    func test_aFigureTheRevertSkipsOrRefusesIsInNoCount() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let kept = try await strandedFigure("kept", piece: nil, store, projectStore)
+        let parked = try await strandedFigure("parked", piece: nil, store, projectStore)
+        let yielded = try await strandedFigure("yielded", piece: "doc-b", store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", kept.id, parked.id, yielded.id])
+        for record in [kept, parked, yielded] { try await acceptItsSuggestion(record.id, store) }
+        let parkedHost = try await store.openFigure(figureId: parked.id)
+        try await parkedHost.parkInResearch(
+            path: "research/parked.csv", hash: "h", itemId: "item-1",
+            expecting: parkedHost.state, alongside: {})
+        await store.closeFigure(figureId: parked.id)
+        let sam = LocalIdentities.softwareForTesting()
+        _ = try await store.admit(
+            device: sam.author.fingerprint, label: "Sam", ownName: "Sam’s Mac",
+            permit: .author(.pieces(["doc-b"])))
+        await store.postureSettled()
+        let reach = await PartialRestorePicker.reach(yielded, in: .wholeProject, to: cp, documentStore: store)
+        XCTAssertEqual(reach, .refused(yielded), "premise: the sheet's door refuses the yielded figure")
+        let streams = try [kept, parked, yielded].map { try streamBytes(of: $0.id) }
+
+        let notes = await picker(cp, store, projectStore).revertNotes(for: .wholeProject)
+
+        XCTAssertEqual(notes.entries.filter { $0.reopened + $0.reaccepted + $0.archived > 0 },
+                       [.init(title: "kept", reopened: 1)])
+        XCTAssertEqual(notes.confirmSentence, "1 accepted suggestion will be reopened on kept.")
+        XCTAssertEqual(try [kept, parked, yielded].map { try streamBytes(of: $0.id) }, streams,
+                       "counting writes nothing")
+        for record in [kept, parked, yielded] {
+            XCTAssertNil(store.openFigure(forId: record.id), "\(record.name): no host left open")
+        }
+    }
+
+    /// **The figure report says "restored to accepted"** (W3; the manuscript
+    /// toast's words), alone and with the other two classes.
+    func test_theFigureReportNamesTheReturnedSuggestions() {
+        func r(_ name: String) -> FigureRecord {
+            FigureRecord(id: "fig-\(name)", name: name, kind: .table, piece: nil, path: "figures/\(name).csv")
+        }
+        XCTAssertEqual(PartialRestorePicker.figureSentence(for: [
+            (r("cash"), .outcome(.restored(opCount: 2), notes: FigureRestoreNotes(reaccepted: ["n1", "n2"]))),
+        ]), "Restored 2 suggestions to accepted on cash.")
+        XCTAssertEqual(PartialRestorePicker.figureSentence(for: [
+            (r("cash"), .outcome(.restored(opCount: 2), notes: FigureRestoreNotes(reopened: ["n1"], reaccepted: ["n2"]))),
+        ]), "Reopened 1 accepted suggestion and restored 1 suggestion to accepted on cash.")
+    }
+
+    /// **A figure the window already holds is counted from that host, which
+    /// stays open** (fix round 1): the borrow door releases only what it
+    /// alone opened, so the sheet's count leaves the window's host open and
+    /// registered, and the count is that host's.
+    func test_anOpenFigureIsCountedThroughItsOwnHostAndStaysOpen() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let record = try await strandedFigure("open", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", record.id])
+        try await acceptItsSuggestion(record.id, store)
+        let host = try await store.openFigure(figureId: record.id)
+
+        let notes = await picker(cp, store, projectStore).revertNotes(for: .wholeProject)
+
+        XCTAssertEqual(notes.entries.first { $0.title == "open" }, .init(title: "open", reopened: 1))
+        XCTAssertTrue(store.openFigure(forId: record.id) === host, "the window's own host, still registered")
+        XCTAssertFalse(host.isClosed, "and still open")
+        await store.closeFigure(figureId: record.id)
+    }
+
+    /// **A figure that went to Research since the checkpoint is in no count**:
+    /// its revert is skipped (`.skippedWentToResearch`), so the sheet
+    /// promises nothing for its stranded accept.
+    func test_aFigureThatWentToResearchSinceIsInNoCount() async throws {
+        let (store, projectStore) = try await openBook()
+        holdTheFigurePass(of: store)
+        let went = try await strandedFigure("went", piece: nil, store, projectStore)
+        let cp = try await checkpoint(of: ["doc-a", "doc-b", went.id])
+        try await acceptItsSuggestion(went.id, store)
+        let copy = try await projectStore.sendToResearch(figureId: went.id, scope: .shared)
+        _ = try await projectStore.bringBack(researchItemId: copy.id, piece: nil)
+        let stream = try streamBytes(of: went.id)
+
+        let notes = await picker(cp, store, projectStore).revertNotes(for: .wholeProject)
+
+        XCTAssertNil(notes.entries.first { $0.title == "went" }, "no entry")
+        XCTAssertNil(notes.confirmSentence)
+        XCTAssertEqual(try streamBytes(of: went.id), stream, "counting writes nothing")
+    }
+
+    /// **BEFORE and AFTER say each class in one wording** (RULING-28; fix
+    /// round 1): for the same notes, the confirm sentence and the figure
+    /// report carry the same counted phrase for each class
+    /// (`RevertNotes.counted`), so a wording change in one half alone fails.
+    func test_beforeAndAfterCountEachClassInTheSameWords() throws {
+        let record = FigureRecord(id: "fig-t", name: "t", kind: .table, piece: nil, path: "figures/t.csv")
+        let notes = FigureRestoreNotes(reopened: ["n1", "n2"], reaccepted: ["n3"], archived: ["n4", "n5", "n6"])
+        let before = try XCTUnwrap(PartialRestorePicker.RevertNotes(entries: [.init(
+            title: "t", reopened: notes.reopened.count, reaccepted: notes.reaccepted.count,
+            archived: notes.archived.count)]).confirmSentence)
+        let after = try XCTUnwrap(PartialRestorePicker.figureSentence(
+            for: [(record, .outcome(.restored(opCount: 6), notes: notes))]))
+        typealias N = PartialRestorePicker.RevertNotes
+        let reopened = N.counted(2, .reopened), reaccepted = N.counted(1, .reaccepted)
+        let archived = N.counted(3, .archived)
+        XCTAssertEqual([reopened, reaccepted, archived],
+                       ["2 accepted suggestions", "1 suggestion", "3 accepted suggestions"])
+        XCTAssertTrue(before.contains("\(reopened) will be reopened"), before)
+        XCTAssertTrue(after.contains("Reopened \(reopened)"), after)
+        XCTAssertTrue(before.contains("\(reaccepted) will be restored to accepted"), before)
+        XCTAssertTrue(after.contains("restored \(reaccepted) to accepted"), after)
+        XCTAssertTrue(before.contains("\(archived) will be archived"), before)
+        XCTAssertTrue(after.contains("archived \(archived) whose cells are gone"), after)
+        XCTAssertEqual(after, "Reopened 2 accepted suggestions, restored 1 suggestion to accepted "
+            + "and archived 3 accepted suggestions whose cells are gone on t.")
+    }
 }

@@ -141,8 +141,8 @@ public enum GitHubReleasesAPI {
         // the first response for the lifetime of the app session, so
         // "Check for Updates" mid-session returns the stale "you're up
         // to date" answer even though CI has published a newer release.
-        // The background 24h poll already throttles request volume; we
-        // don't need URLCache piling on. Belt-and-braces: send the HTTP
+        // The background poll's schedule (UpdateSchedule) already throttles
+        // request volume; we don't need URLCache piling on. Belt-and-braces: send the HTTP
         // no-cache header AND set the URLRequest cache policy so any
         // intermediate CDN revalidates.
         req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData

@@ -16,8 +16,9 @@ public enum FigureNoteError: LocalizedError, Equatable {
     case withdrawn
     /// Accept takes a suggested change anchored to one cell.
     case notACellSuggestion
-    /// The suggestion is already accepted: its cell is written, and the way
-    /// back is its accept's ⌘Z, never a second answer over it.
+    /// The suggestion is already accepted: its cell is written (or already
+    /// held the suggestion), and the way back is its accept's ⌘Z, never a
+    /// second answer over it.
     case notOpen
     /// The suggestion's cell is gone — its row or column deleted (RULING-5):
     /// Maugham never guesses where an AI-proposed change belongs.
@@ -26,8 +27,9 @@ public enum FigureNoteError: LocalizedError, Equatable {
     /// The surface asks, then accepts again with `confirmChanged: true`.
     case cellChangedSinceSuggestion
     /// Reopen answers a rejected, archived or stetted note, or an accepted
-    /// one that wrote no cell — an accepted suggestion is taken back by
-    /// undoing its accept, which puts the cell back.
+    /// one that is not a suggestion — an accepted suggestion is taken back by
+    /// undoing its accept, which puts the cell back (or, where the accept
+    /// wrote no cell, reopens the note alone).
     case cannotReopen
     /// A suggested change writes a cell, so it is accepted in the table, never
     /// by `acceptNote` (which writes no cell).
@@ -135,12 +137,21 @@ extension FigureDocument {
     /// cell whose row or column is gone (RULING-5), and — unless
     /// `confirmChanged` — a cell that no longer holds what it held when the
     /// suggestion was made (`cellChangedSinceSuggestion`). A cell that already
-    /// holds the suggestion has nothing to lose, and is not asked about.
+    /// holds the suggestion has nothing to lose, is not asked about, and is
+    /// accepted without writing the cell.
+    ///
+    /// **That accept writes no cell** (hardening 11-11, #136 W2, ruling R-B):
+    /// where the cell's CONTENT is already the suggested content (its format
+    /// and alignment aside), the line is a status-only `claudeAccept`
+    /// (`FigureAnnotationOps.statusOnlyAccept`), so no accept ever records a
+    /// `prior` equal to its `next`; nor does it read Research pins.
     ///
     /// ⌘Z appends the `claudeAcceptRevert` that puts the cell back and
     /// reopens the note — one step, and inside an open grid visit the visit's
     /// own undo compensates both (`FigureVisit`); declined when the cell or
-    /// the note moved since. ⇧⌘Z accepts again.
+    /// the note moved since. Over an accept that wrote no cell the revert is
+    /// status only too: the note reopens, the cell stays, and a visit's undo
+    /// does the same. ⇧⌘Z accepts again.
     public func acceptSuggestion(
         id: String, confirmChanged: Bool = false, undoManager: UndoManager? = nil
     ) async throws {
@@ -171,11 +182,16 @@ extension FigureDocument {
         if !confirmChanged, content != creation.figure?.prior?.content, content != suggested?.content {
             throw FigureNoteError.cellChangedSinceSuggestion
         }
+        // The cell already holds the suggestion (ruling R-B): the note is
+        // accepted and nothing is written to the cell. Then `suggested` IS
+        // `replaced` (the content equal, the format and alignment taken from
+        // it), so the drift guards below read the same either way.
+        let writesTheCell = content != suggested?.content
         // A formula reading Research takes its pins as `setCell`'s does, in
         // the same ⌘Z; the read awaited, so the doors, the note and the cell
         // are asked again.
         var entryPins: [PinWrite] = []
-        if let pins = await researchEntryPins(writing: suggested, at: key) {
+        if writesTheCell, let pins = await researchEntryPins(writing: suggested, at: key) {
             entryPins = pins
             try await requireWritable("acceptSuggestion")
             try await requireNoteDisposition("acceptSuggestion", .acceptOrReject)
@@ -185,9 +201,11 @@ extension FigureDocument {
             }
         }
         let op = try await commitNoteOp(
-            FigureAnnotationOps.accept(
-                annotationId: id, cell: key, next: suggested, prior: replaced, stamp: noteStamp),
-            render: entryPins.isEmpty)
+            writesTheCell
+                ? FigureAnnotationOps.accept(
+                    annotationId: id, cell: key, next: suggested, prior: replaced, stamp: noteStamp)
+                : FigureAnnotationOps.statusOnlyAccept(annotationId: id, stamp: noteStamp),
+            render: writesTheCell && entryPins.isEmpty)
         let (pinOps, pinFailure) = await appendEntryPins(entryPins)
         let pinned = pinOps.compactMap { op in op.figure.flatMap { p in p.cell.flatMap { c in p.pin.map { (c, $0) } } } }
         registerFigureUndo(

@@ -17,11 +17,16 @@ enum FigureAnnotationWriteError: LocalizedError, Equatable {
     /// The op is not a note's creation: a disposition or a cell write is the
     /// author's, through the figure's host.
     case notANoteCreation(OpKind)
+    /// The op's anchor names a row or column the open figure no longer holds:
+    /// the figure changed between the caller reading it and this append. The
+    /// MCP tools turn it into their own orphaned-anchor refusal.
+    case orphanedAnchor(rows: Int, columns: Int)
 
     var errorDescription: String? {
         switch self {
         case .unknownFigure(let id): "There is no figure \(id) in this book."
         case .notANoteCreation(let kind): "A \(kind.rawValue) op is not a note on a figure."
+        case .orphanedAnchor: "The note's cell is no longer in the figure."
         }
     }
 }
@@ -39,12 +44,13 @@ extension DocumentStore {
     /// MCP note stamped with the assistant's device lands in the figure's
     /// `.assistant-` stream under the assistant's key).
     ///
-    /// - **Through the open host when this window holds the figure**: its own
-    ///   store appends, then the host re-reads its stream (`reload`, the path
-    ///   another device's lines take), so its streams and frontier include the
-    ///   note and its next edit is minted after it. A failed re-read is logged,
-    ///   never thrown: the note is already on disk, and a retry would mint a
-    ///   duplicate.
+    /// - **Through the open host when this window holds the figure**: the
+    ///   anchor is first re-resolved against `host.state` (a row deleted since
+    ///   the caller built it refuses, `orphanedAnchor`), then the host appends
+    ///   the op and adopts it (`adoptNoteCreation`), so its streams and
+    ///   frontier include the note and its next edit is minted after it. It is
+    ///   not a reload: `reloadGeneration` does not move, so a checkpoint
+    ///   restore in flight is not stopped by a note (a note changes no cell).
     /// - **Otherwise windowless**: a store built as a load's is
     ///   (`Document.makeLoadOpStore`), sealed straight after the append.
     ///
@@ -68,11 +74,15 @@ extension DocumentStore {
             guard host.state.parked == nil else {
                 throw FigureParkedRefused(site: "addFigureAnnotation", kind: host.state.kind)
             }
-            try await host.opStore.append(op)
-            do { try await host.reload() } catch {
-                documentLog.error(
-                    "figure \(figureId, privacy: .public) did not re-read after a note was added: \(error.localizedDescription, privacy: .public)")
+            // The figure may have changed since the caller built the anchor
+            // (a row deleted through this host after the snapshot): a note
+            // already orphaned is never appended.
+            if let anchor = FigureCellAnchor(provenance: op.provenance),
+               anchor.resolve(in: host.state.table) == .orphaned {
+                throw FigureAnnotationWriteError.orphanedAnchor(
+                    rows: host.state.table.rows.count, columns: host.state.table.columns.count)
             }
+            try await host.adoptNoteCreation(op)
         } else {
             guard try await !figureIsParked(figureId) else {
                 throw FigureParkedRefused(site: "addFigureAnnotation", kind: record.kind)

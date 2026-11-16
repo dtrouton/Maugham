@@ -12,7 +12,10 @@ import Foundation
 /// ONE read folds the state and builds the judged `FigureCellNotes` beside it
 /// (report plan 9c-2). It never hand-rolls a partition call (tripwire 45) and
 /// never reads `figures/<name>.csv` (tripwire 20). The token does not cover
-/// `trust` or `facts`: a caller whose either changed must `invalidateAll()`.
+/// `trust` or `facts`: a caller that learns the trust table only by resolving
+/// it (the phone, once per load) reports it with `noteTrust(_:)`, which
+/// invalidates when the table differs from the last one; one told of a change
+/// by an event, or whose `facts` changed, calls `invalidateAll()`.
 ///
 /// Main-actor only, one per project.
 @MainActor
@@ -82,6 +85,17 @@ public final class FigureCache {
     /// Drop every line whose figure is not in `keeping`.
     func evict(except keeping: Set<String>) {
         for id in lines.keys where !keeping.contains(id) { lines[id] = nil }
+    }
+
+    private var lastTrust: TrustTable?
+
+    /// **Report the trust table a read is about to be judged by.** The first
+    /// table given is only remembered; a later one that differs from the last
+    /// drops every line (`invalidateAll()`), since a line's notes are judged by
+    /// the table it was read under. An equal table changes nothing.
+    public func noteTrust(_ trust: TrustTable) {
+        if let last = lastTrust, last != trust { invalidateAll() }
+        lastTrust = trust
     }
 
     /// Drop everything, e.g. when trust or the registry changed.

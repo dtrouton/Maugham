@@ -412,7 +412,8 @@ struct PartialRestorePicker: View {
         return entry
     }
 
-    /// **What a revert in `scope` will reopen or restore to accepted**, before it runs — RULING-28's
+    /// **What a revert in `scope` will reopen, restore to accepted or
+    /// archive**, before it runs — RULING-28's
     /// BEFORE half, from the same plans `restore` acts on, behind the SAME
     /// door: `splitByTheDoor`'s settled (acting) posture, not the drawing one,
     /// because the acting answer is the one Revert obeys — a document the
@@ -433,6 +434,32 @@ struct PartialRestorePicker: View {
             let plan = await revertPlan(docId, opStore: opStore)
             entries.append(.init(title: title(of: docId), reopened: plan.named(.stranded),
                                  reaccepted: plan.named(.returning)))
+        }
+        // The figures `restoreFigures` will reach, through the same reach and
+        // the store's borrow door, each counted from the preparation its
+        // restore runs (`FigureDocument.restoreNotesPreview`, #136 W3). A
+        // figure the restore would skip or refuse counts nothing.
+        for listed in figures {
+            guard let documentStore,
+                  case .reachable(let record, let pointer) = await Self.reach(
+                      listed, in: scope, to: checkpoint, documentStore: documentStore)
+            else { continue }
+            let preview: FigureRestoreNotes?
+            do {
+                preview = try await documentStore.withFigureHost(record.id) {
+                    await $0.restoreNotesPreview(through: pointer)
+                }
+            } catch {
+                // A figure that will not load counts nothing; its revert
+                // will name it (`.failed`).
+                partialRestoreLog.error(
+                    "partial-restore could not count the notes of figure \(record.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            guard let notes = preview else { continue }
+            entries.append(.init(
+                title: record.name, reopened: notes.reopened.count,
+                reaccepted: notes.reaccepted.count, archived: notes.archived.count))
         }
         return RevertNotes(entries: entries)
     }
@@ -457,40 +484,69 @@ struct PartialRestorePicker: View {
             var reaccepted: Int = 0
             /// Returning accepts whose re-accept did not write: still open.
             var notReaccepted: Int = 0
+            /// Stranded accepts whose cell is gone then, archived — a
+            /// figure's only (#136 W3).
+            var archived: Int = 0
         }
         var entries: [Entry]
 
-        private static func suggestions(_ n: Int, accepted: Bool = true) -> String {
-            let noun = accepted ? "accepted suggestion" : "suggestion"
+        /// A class of note a revert answers, by the noun its count takes.
+        enum NoteClass {
+            /// Stranded accepts reopened: "accepted suggestion(s)".
+            case reopened
+            /// Reverted accepts returned: "suggestion(s)" (it is open now).
+            case reaccepted
+            /// Stranded accepts whose cell is gone then: "accepted suggestion(s)".
+            case archived
+        }
+
+        /// **One wording for BEFORE and AFTER** (RULING-28): "<n> accepted
+        /// suggestion(s)" or "<n> suggestion(s)", as `class` counts — what
+        /// `confirmSentence`, `reportSentence` and the figure report
+        /// (`figureSentence`) all say, so the two halves cannot disagree.
+        static func counted(_ n: Int, _ noteClass: NoteClass) -> String {
+            let noun = noteClass == .reaccepted ? "suggestion" : "accepted suggestion"
             return n == 1 ? "1 \(noun)" : "\(n) \(noun)s"
         }
-        /// "<n> [accepted] suggestion(s)" and the titles counted by `count`.
-        private func phrase(_ count: (Entry) -> Int, accepted: Bool = true) -> (String, String)? {
+
+        /// "a", "a and b", "a, b and c" — the clauses of one sentence.
+        static func series(_ parts: [String]) -> String {
+            guard parts.count > 2 else { return parts.joined(separator: " and ") }
+            return parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+        }
+
+        /// The `count`ed phrase and the titles counted by it.
+        private func phrase(_ count: (Entry) -> Int, as noteClass: NoteClass) -> (String, String)? {
             let total = entries.map(count).reduce(0, +)
             guard total > 0 else { return nil }
             let named = entries.filter { count($0) > 0 }.map(\.title).joined(separator: ", ")
-            return (Self.suggestions(total, accepted: accepted), named)
+            return (Self.counted(total, noteClass), named)
         }
 
-        private static func joined(_ parts: [String?]) -> String? {
+        /// The sentences present, one after another; nil when none is.
+        static func joined(_ parts: [String?]) -> String? {
             let present = parts.compactMap { $0 }
             return present.isEmpty ? nil : present.joined(separator: " ")
         }
 
         var confirmSentence: String? {
             Self.joined([
-                phrase(\.reopened).map { "\($0) will be reopened on \($1)." },
-                phrase(\.reaccepted, accepted: false)
+                phrase(\.reopened, as: .reopened).map { "\($0) will be reopened on \($1)." },
+                phrase(\.reaccepted, as: .reaccepted)
                     .map { "\($0) will be restored to accepted on \($1)." },
+                phrase(\.archived, as: .archived).map { phrase, named in
+                    let one = entries.map(\.archived).reduce(0, +) == 1
+                    return "\(phrase) will be archived on \(named) — \(one ? "its cell is" : "their cells are") gone then."
+                },
             ])
         }
         var reportSentence: String? {
             Self.joined([
-                phrase(\.reopened).map { "Reopened \($0) on \($1)." },
-                phrase(\.reaccepted, accepted: false)
+                phrase(\.reopened, as: .reopened).map { "Reopened \($0) on \($1)." },
+                phrase(\.reaccepted, as: .reaccepted)
                     .map { "Restored \($0) to accepted on \($1)." },
-                phrase(\.notReopened).map { "Couldn't reopen \($0) on \($1) — still marked accepted." },
-                phrase(\.notReaccepted, accepted: false)
+                phrase(\.notReopened, as: .reopened).map { "Couldn't reopen \($0) on \($1) — still marked accepted." },
+                phrase(\.notReaccepted, as: .reaccepted)
                     .map { "Couldn't restore \($0) to accepted on \($1) — still open." },
             ])
         }
@@ -544,17 +600,19 @@ struct PartialRestorePicker: View {
         // One memo for the whole restore: `figures/` is hashed once (M6).
         let pictureHashes = FigurePictureHashes()
         for listed in figures {
+            // No `DocumentStore` behind the sheet fails closed.
             guard let documentStore else {
                 results.append((listed, .refused))
                 continue
             }
-            guard let record = documentStore.projectStore?.manifest.figures?
-                    .first(where: { $0.id == listed.id }),
-                  let pointer = checkpoint.docPointers[record.id],
-                  !figuresInScope([record], scope, of: checkpoint).isEmpty else { continue }
-            guard await documentStore.settledPosture(forDocId: record.id).allows(.editFigure) else {
-                results.append((record, .refused))
+            let record: FigureRecord, pointer: String
+            switch await reach(listed, in: scope, to: checkpoint, documentStore: documentStore) {
+            case .outOfScope: continue
+            case .refused(let refused):
+                results.append((refused, .refused))
                 continue
+            case .reachable(let reached, let reachedPointer):
+                (record, pointer) = (reached, reachedPointer)
             }
             let result: FigureResult
             do {
@@ -576,6 +634,38 @@ struct PartialRestorePicker: View {
         return results
     }
 
+    /// Whether a revert in `scope` reaches one listed figure.
+    enum FigureReach: Equatable {
+        /// Removed or promoted since the sheet was built, out of scope, or
+        /// with no pointer in the checkpoint: left alone, unnamed.
+        case outOfScope
+        /// Its door refuses `.editFigure`: left as it was, named.
+        case refused(FigureRecord)
+        /// The live record, and the figure's op at the checkpoint.
+        case reachable(FigureRecord, pointer: String)
+    }
+
+    /// **The one answer to "does this revert reach this figure"**, which
+    /// `restoreFigures` acts on and `revertNotes` counts from: the figure
+    /// re-read from the LIVE registry (Q-1), in scope by its live piece, with
+    /// a pointer in the checkpoint, then its own door
+    /// (`settledPosture(forDocId:)`, `.editFigure`, Q-2) asked before any
+    /// host opens. Its callers fail closed where no `DocumentStore` stands
+    /// behind the sheet.
+    static func reach(
+        _ listed: FigureRecord, in scope: ScopeChoice, to checkpoint: Checkpoint,
+        documentStore: DocumentStore
+    ) async -> FigureReach {
+        guard let record = documentStore.projectStore?.manifest.figures?
+                .first(where: { $0.id == listed.id }),
+              let pointer = checkpoint.docPointers[record.id],
+              !figuresInScope([record], scope, of: checkpoint).isEmpty else { return .outOfScope }
+        guard await documentStore.settledPosture(forDocId: record.id).allows(.editFigure) else {
+            return .refused(record)
+        }
+        return .reachable(record, pointer: pointer)
+    }
+
     /// What the sheet says about the figures a revert did not fully restore,
     /// by name, beside the documents it left alone; `nil` when every figure
     /// in scope was restored or already stood as it did then.
@@ -585,10 +675,11 @@ struct PartialRestorePicker: View {
         var refused: [String] = [], parked: [String] = [], wentToResearch: [String] = []
         var pictures: [String] = []
         var partly: [String] = [], failed: [String] = []
-        var reopened = 0, archived = 0, answeredOn: [String] = []
+        var reopened = 0, reaccepted = 0, archived = 0, answeredOn: [String] = []
         for (record, result) in results {
             if case .outcome(_, let notes) = result, !notes.isEmpty {
                 reopened += notes.reopened.count
+                reaccepted += notes.reaccepted.count
                 archived += notes.archived.count
                 answeredOn.append(record.name)
             }
@@ -624,14 +715,18 @@ struct PartialRestorePicker: View {
             sentences.append("Not restored: \(list(failed)).")
         }
         // RULING-28's AFTER half: what the restore changed beyond the cells.
-        if reopened + archived > 0 {
-            func suggestions(_ n: Int) -> String { n == 1 ? "1 accepted suggestion" : "\(n) accepted suggestions" }
-            let parts = [reopened > 0 ? "reopened \(suggestions(reopened))" : nil,
-                         archived > 0 ? "archived \(suggestions(archived)) whose cells are gone" : nil]
-                .compactMap { $0 }.joined(separator: " and ")
+        // Counted in the confirm sentence's words (`RevertNotes.counted`);
+        // the returning class in the manuscript toast's ("restored to
+        // accepted", `RewindImpact.toast`).
+        if reopened + reaccepted + archived > 0 {
+            let parts = RevertNotes.series([
+                reopened > 0 ? "reopened \(RevertNotes.counted(reopened, .reopened))" : nil,
+                reaccepted > 0 ? "restored \(RevertNotes.counted(reaccepted, .reaccepted)) to accepted" : nil,
+                archived > 0 ? "archived \(RevertNotes.counted(archived, .archived)) whose cells are gone" : nil,
+            ].compactMap { $0 })
             sentences.append(parts.prefix(1).uppercased() + parts.dropFirst() + " on \(list(answeredOn)).")
         }
-        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        return RevertNotes.joined(sentences)
     }
 
     /// **The `.md` after a landed restore**: the log as it now stands (the

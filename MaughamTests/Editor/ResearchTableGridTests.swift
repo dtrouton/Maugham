@@ -818,8 +818,10 @@ final class ResearchTableGridTests: XCTestCase {
 
     /// **R2-2 — a save whose file has gone does not make it again** (another
     /// Mac trashed the table and this manifest has not caught up): nothing is
-    /// written, the writer is told it isn't there any more, and the pending
-    /// save is dropped — a later flush writes nothing either.
+    /// written there. A flush never drops the edits (hardening 11-11 task
+    /// 2.2, ruling R-C): they are kept aside under `.maugham/conflicts`, the
+    /// notice names the file, and the host stays dirty — a later flush tries
+    /// the file again, makes nothing, keeps no second copy and says nothing more.
     func test_aSaveWhoseFileHasGoneDoesNotRecreateIt() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
@@ -834,12 +836,132 @@ final class ResearchTableGridTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
         XCTAssertEqual(writes(), 0)
-        XCTAssertEqual(heard.notices, ["“model” isn’t there any more, so its edits weren’t saved."])
-        XCTAssertFalse(host.isDirty, "the pending save is dropped")
+        let backup = try XCTUnwrap(unsavedBackups(of: item).first)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1)
+        XCTAssertEqual(TableCSV.rows(try String(contentsOf: backup, encoding: .utf8)).rows,
+                       [["Year", "Revenue"], ["2025", "11"]])
+        XCTAssertEqual(heard.notices, [keptAside("Couldn’t save “model”: it isn’t there any more.", backup)])
+        XCTAssertTrue(host.isDirty, "kept aside, still unsaved: a later flush tries the file again")
         await host.flush()
-        XCTAssertEqual(writes(), 0, "and not tried again")
+        XCTAssertEqual(writes(), 0, "and a second flush makes nothing either")
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
+        XCTAssertEqual(unsavedBackups(of: item).count, 1, "nor a second copy")
+        XCTAssertEqual(heard.notices.count, 1, "nor a second notice: \(heard.notices)")
         await store.releaseResearchTable(host)
+    }
+
+    // MARK: - Hardening 11-11 task 2.2: the grid's leave and the close never drop the edits
+
+    /// The unsaved-edits backups kept for `item`, oldest first.
+    private func unsavedBackups(of item: ResearchItem) -> [URL] {
+        let folder = file(".maugham/conflicts")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.filter { $0.contains("-\(item.id)-unsaved-") }.sorted().map { folder.appendingPathComponent($0) }
+    }
+
+    private func keptAside(_ couldNot: String, _ backup: URL) -> String {
+        "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”."
+    }
+
+    /// A file where the versions' folder goes: no version can be kept.
+    private func plantVersionsBlocker() throws {
+        try FileManager.default.createDirectory(at: file(".maugham"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: file(ResearchVersionStore.folder))
+    }
+
+    /// **A mounted grid's leave, then its release** (the window closing on
+    /// it): one backup, one notice, though the leave flushes and the release's
+    /// close flushes again.
+    func test_aGridsLeaveThenItsReleaseKeepOneBackupAndSayItOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let path = file(try XCTUnwrap(item.path))
+        let heard = listen()
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        let host = try XCTUnwrap(mount.host)
+        host.saveDelay = .seconds(600)
+        await type("11", at: 2, 2, in: c)
+        try FileManager.default.removeItem(at: path)
+
+        mount.leave()
+        await mount.finishing?.value
+
+        XCTAssertTrue(host.isClosed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path), "the file was not made again")
+        let backups = unsavedBackups(of: item)
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(TableCSV.rows(try String(contentsOf: backup, encoding: .utf8)).rows,
+                       [["Year", "Revenue"], ["2025", "11"]])
+        XCTAssertEqual(heard.notices, [keptAside("Couldn’t save “model”: it isn’t there any more.", backup)])
+    }
+
+    /// **Review Focus 3 — the store's flush commits the cell being typed
+    /// first**, so a backup kept because the save failed holds the open edit.
+    func test_theStoresFlushKeepsTheOpenEditInTheBackupWhenTheSaveFails() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let before = try bytes(of: item)
+        let heard = listen()
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        c.handle(.click(key(c.host, 2, 2), extend: false))
+        c.handle(.type("4"))
+        c.handle(.editTextChanged("42"))
+        let folder = file(try XCTUnwrap(item.path)).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+
+        try await store.flushPendingSave(commitOpenEdits: true)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        XCTAssertEqual(try bytes(of: item), before, "nothing written over the file")
+        let backup = try XCTUnwrap(unsavedBackups(of: item).first)
+        XCTAssertEqual(unsavedBackups(of: item).count, 1)
+        XCTAssertEqual(TableCSV.rows(try String(contentsOf: backup, encoding: .utf8)).rows,
+                       [["Year", "Revenue"], ["2025", "42"]], "the open edit, committed and kept")
+        XCTAssertEqual(heard.notices.count, 1, "\(heard.notices)")
+        XCTAssertTrue(heard.notices[0].hasPrefix("Couldn’t save “model”: "), heard.notices[0])
+        XCTAssertTrue(heard.notices[0].hasSuffix("as “\(backup.lastPathComponent)”."), heard.notices[0])
+    }
+
+    /// **The grid's leave saves anyway** where the version cannot be kept.
+    func test_aGridsLeaveSavesAnywayWhenTheVersionCannotBeKept() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let mount = await mount(item, store, projectStore)
+        let c = try XCTUnwrap(mount.controller)
+        try XCTUnwrap(mount.host).saveDelay = .seconds(600)
+        try plantVersionsBlocker()
+        await type("11", at: 2, 2, in: c)
+
+        mount.leave()
+        await mount.finishing?.value
+
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "11"]], "saved anyway")
+        XCTAssertEqual(heard.notices, ["“model”’s previous version couldn’t be kept; your edits were saved anyway."])
+        XCTAssertTrue(unsavedBackups(of: item).isEmpty)
+    }
+
+    /// **The close (`releaseResearchTable` → `close()`) saves anyway** where
+    /// the version cannot be kept.
+    func test_theCloseSavesAnywayWhenTheVersionCannotBeKept() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
+        let heard = listen()
+        let host = try await store.openResearchTable(itemId: item.id)
+        host.saveDelay = .seconds(600)
+        try plantVersionsBlocker()
+        try await host.setCell(Cell(content: .value(.number(11))), at: key(host, 2, 2), undoManager: nil)
+
+        await store.releaseResearchTable(host)
+
+        XCTAssertTrue(host.isClosed)
+        XCTAssertFalse(host.isDirty)
+        XCTAssertEqual(TableCSV.rows(try text(of: item)).rows, [["Year", "Revenue"], ["2025", "11"]], "saved anyway")
+        XCTAssertEqual(heard.notices, ["“model”’s previous version couldn’t be kept; your edits were saved anyway."])
     }
 
     /// **R2-1 — trashing a table open in a grid commits the open cell

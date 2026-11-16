@@ -1,7 +1,7 @@
 #!/bin/bash
 # test.sh — one command for the test loops everyone retypes.
 #
-#   ./scripts/test.sh          # fast: core package + Mac scheme minus the two slow suites
+#   ./scripts/test.sh          # fast: core package + Mac scheme minus the three slow suites
 #   ./scripts/test.sh full     # core package + full Mac scheme (pre-merge/tag gate)
 #   ./scripts/test.sh phone    # the iOS simulator run (slow; CI runs it on every push)
 #   ./scripts/test.sh core     # MaughamCore's package tests alone, behind the same lock

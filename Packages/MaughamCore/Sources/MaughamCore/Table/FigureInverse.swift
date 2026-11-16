@@ -111,11 +111,18 @@ public enum FigureInverse {
     /// `compensating(visit:)` over changes that may name a note: each inverse
     /// keeps its change's `sourceAnnotationId`, so a visit holding an accept
     /// takes back the cell and reopens the note in the same step (and its
-    /// redo accepts again). All or nothing, as the tuple form is.
+    /// redo accepts again). A note's status-only line (an accept that wrote
+    /// no cell, `FigureReturnDiff.Change.statusOnly`) inverts to the other
+    /// status-only line. All or nothing, as the tuple form is.
     public static func compensating(_ changes: [FigureReturnDiff.Change]) -> [FigureReturnDiff.Change] {
         var out: [FigureReturnDiff.Change] = []
         out.reserveCapacity(changes.count)
         for change in changes.reversed() {
+            if change.isStatusOnly, let id = change.sourceAnnotationId {
+                out.append(.statusOnly(change.kind == .claudeAccept ? .claudeAcceptRevert : .claudeAccept,
+                                       annotationId: id))
+                continue
+            }
             guard let inv = inverse(of: change.payload, kind: change.kind) else { return [] }
             out.append(FigureReturnDiff.Change(
                 kind: inv.0, payload: inv.1, sourceAnnotationId: change.sourceAnnotationId))

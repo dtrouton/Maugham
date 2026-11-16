@@ -54,6 +54,46 @@ public enum FigureReturnDiff {
             self.payload = payload
             self.sourceAnnotationId = sourceAnnotationId
         }
+
+        /// **A note's status-only line in a grid visit** (hardening 11-11
+        /// Task 4, ruling R-B): a suggestion accepted over a cell that already
+        /// held it writes no cell — a `claudeAccept` with no `Op.figure` — and
+        /// its ⌘Z is a status-only `claudeAcceptRevert`. Here it carries an
+        /// empty payload: it folds as nothing (`applied` passes over it), its
+        /// inverse is the other status-only line (`FigureInverse.compensating`),
+        /// and the host appends it with no payload.
+        public static func statusOnly(_ kind: OpKind, annotationId: String) -> Change {
+            precondition(kind == .claudeAccept || kind == .claudeAcceptRevert,
+                         "a status-only line is a note's accept or its revert")
+            return Change(kind: kind, payload: FigureOpPayload(), sourceAnnotationId: annotationId)
+        }
+
+        /// Is this a note's status-only line (`statusOnly`)?
+        public var isStatusOnly: Bool {
+            (kind == .claudeAccept || kind == .claudeAcceptRevert)
+                && sourceAnnotationId != nil && payload == FigureOpPayload()
+        }
+    }
+
+    /// **Where a note's status-only line stands** (hardening 11-11 Task 4):
+    /// the suggestion's anchor cell and its suggested content. `applied`
+    /// takes a status-only line only where that cell is live and holds that
+    /// content at its point in the run — what the direct ⌘Z and ⇧⌘Z of an
+    /// accept that wrote no cell ask (`FigureDocument.acceptSuggestion`).
+    public struct NoteCell: Equatable, Sendable {
+        public var cell: CellKey
+        public var content: CellContent?
+        public init(cell: CellKey, content: CellContent?) {
+            self.cell = cell; self.content = content
+        }
+        /// A one-cell suggestion's anchor and suggested content; nil for
+        /// any other note.
+        public init?(suggestion note: Annotation) {
+            guard note.kind == .suggestedChange, let anchor = note.figureAnchor,
+                  (anchor.rowEnd ?? anchor.row) == anchor.row,
+                  (anchor.columnEnd ?? anchor.column) == anchor.column else { return nil }
+            self.init(cell: CellKey(row: anchor.row, column: anchor.column), content: note.suggestedCell?.content)
+        }
     }
 
     /// What the return appends, and what it says.
@@ -136,9 +176,24 @@ public enum FigureReturnDiff {
     /// - a move's `priorAfter` is the slot before it;
     /// - a setting's prior is the table's;
     /// - a pin set's `priorPin`, and a pin clear's pin, are held by the cell.
-    public static func applied(_ changes: [Change], onto state: FigureState) -> FigureState? {
+    public static func applied(
+        _ changes: [Change], onto state: FigureState, noteCells: [String: NoteCell] = [:]
+    ) -> FigureState? {
         var sim = Simulation(state: state)
         for change in changes {
+            // A note's status-only line folds as nothing, and applies only
+            // where its note's cell is live and holds the suggested content
+            // at this point in the run (`noteCells`; none named: refused).
+            // Whether the note's status may move is the host's question
+            // (`notesStillAnswer`).
+            if change.isStatusOnly {
+                guard let id = change.sourceAnnotationId, let at = noteCells[id],
+                      sim.state.table.rowIndex(of: at.cell.row) != nil,
+                      sim.state.table.columnIndex(of: at.cell.column) != nil,
+                      sim.state.table[at.cell]?.content == at.content else { return nil }
+                continue
+            }
+
             let diagnosed = sim.state.diagnostics.count, held = sim.state.held.count
             guard FigureOpPayload.validate(kind: change.kind, payload: change.payload),
                   describesWhatItReplaces(change, in: sim.state) else { return nil }

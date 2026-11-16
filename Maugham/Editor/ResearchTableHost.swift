@@ -89,6 +89,14 @@ final class ResearchTableHost: FigureGridHost {
         var errorDescription: String? { message }
     }
 
+    /// A table let go by another caller each time it was opened for this
+    /// one (`DocumentStore.openResearchTable` opens it twice, then says so).
+    struct ClosedWhileOpening: LocalizedError, Equatable {
+        var errorDescription: String? {
+            "This table was closed while it was being opened. Open it again."
+        }
+    }
+
     /// A table too large for the grid: it is shown as text instead.
     struct TooLarge: LocalizedError, Equatable {
         let cells: Int
@@ -157,6 +165,9 @@ final class ResearchTableHost: FigureGridHost {
     static var wroteForTesting: (@MainActor (String) -> Void)?
     /// Test seam: replaces the sidecar write, so a test can make it fail.
     static var sidecarWriteForTesting: (@MainActor (ResearchTableSidecar) throws -> Void)?
+    /// Test seam: replaces the outside version's backup (nil: it could not be
+    /// kept), so a test can fail it while the unsaved backup beside it lands.
+    static var outsideBackupForTesting: (@MainActor (Data) -> URL?)?
 
     private init(itemId: String, projectURL: URL, store: DocumentStore, table: FigureTable,
                  read: FileRead, locale: TableLocale, names: FormulaNames) {
@@ -182,11 +193,18 @@ final class ResearchTableHost: FigureGridHost {
     static func load(itemId: String, store: DocumentStore) async throws -> ResearchTableHost {
         let (read, _) = try await readFile(itemId: itemId, store: store)
         let context = try await store.tableImportContext()
-        return ResearchTableHost(
+        let host = ResearchTableHost(
             itemId: itemId, projectURL: store.projectURL, store: store,
             table: table(of: read, context: context), read: read,
             locale: context.locale, names: context.names)
+        await Self.duringLoadForTesting?()
+        return host
     }
+
+    /// Test seam: runs in a load after the host is built and before it is
+    /// handed back — where a test holds the store's shared opening while
+    /// other callers come and go (`DocumentStore.openResearchTable`).
+    static var duringLoadForTesting: (@MainActor () async -> Void)?
 
     /// The item's file read off the main actor, and its title.
     private static func readFile(itemId: String, store: DocumentStore) async throws -> (FileRead, String) {
@@ -246,23 +264,50 @@ final class ResearchTableHost: FigureGridHost {
         _ = try await reloadUnlessEdited()
     }
 
+    /// **A write is in flight**: set as a save's body begins (`write`),
+    /// cleared as it ends. No reload lands while it is set (final review G3).
+    @ObservationIgnored private(set) var writeInFlight = false
+    /// How many writes have begun: a reload that read the file before one
+    /// began does not land after it.
+    @ObservationIgnored private var writesBegun = 0
+
     /// Test seam: runs in a reload after the file is read and before it lands
     /// — where a test types into the grid.
     static var duringReloadForTesting: (@MainActor (ResearchTableHost) async -> Void)?
 
-    /// The reload; false — nothing replaced — when an edit landed while the
-    /// file and the book were read (task 7 re-review N2): that edit is the
-    /// writer's, and its save keeps the outside version first (`write`).
-    private func reloadUnlessEdited() async throws -> Bool {
-        guard let store else { return false }
+    /// What a reload did.
+    private enum Reloaded {
+        /// The file's table replaced the one held.
+        case replaced
+        /// Nothing replaced: an edit landed while the file and the book were
+        /// read (or the host closed). That edit's save keeps the outside
+        /// version first (`write`).
+        case edited
+        /// Nothing replaced: a write was in flight, or began, while the file
+        /// was read — what was read may be older than what it writes.
+        case writing
+    }
+
+    /// The reload; nothing replaced when an edit landed while the file and
+    /// the book were read (task 7 re-review N2): that edit is the writer's,
+    /// and its save keeps the outside version first (`write`). **Nor over a
+    /// write in flight, or one begun since the file was read here** (final
+    /// review G3): the grid would show the outside table while the write puts
+    /// the writer's on disk. The caller asks again once the write has ended.
+    private func reloadUnlessEdited() async throws -> Reloaded {
+        guard let store else { return .edited }
+        guard !writeInFlight else { return .writing }
         let before = state.table
+        let begun = writesBegun
         let (read, _) = try await Self.readFile(itemId: itemId, store: store)
         await Self.duringReloadForTesting?(self)
         let context = try await store.tableImportContext()
-        guard state.table == before, !isClosed else { return false }
+        guard !writeInFlight, writesBegun == begun else { return .writing }
+        guard state.table == before, !isClosed else { return .edited }
         scheduledSave?.cancel()
         scheduledSave = nil
         isDirty = false
+        keptAside = nil        // what is held now is the file's
         pendingSidecar = nil   // it described bytes that are gone
         run.end()   // what is on disk now is not this run's: the next save keeps it
         sidecar = read.sidecar
@@ -275,7 +320,7 @@ final class ResearchTableHost: FigureGridHost {
         // A figure pinning this table reads the file just read: its card
         // follows the grid on screen (sweep 11-01 S2, #131).
         store.invalidateFigureCards()
-        return true
+        return .replaced
     }
 
     /// **The file may have changed outside Maugham** (the window's file
@@ -283,32 +328,123 @@ final class ResearchTableHost: FigureGridHost {
     /// longer hashes to what it read or wrote reads it again, and says so. A
     /// grid holding an edit — or given one while the file is read — is left
     /// to its save, which keeps the outside version first (`write`).
+    ///
+    /// **Never while a write is in flight** (final review G3): every save
+    /// asked is waited for — one queued behind the save seen at entry too —
+    /// and a reload a write overtook is refused (`reloadUnlessEdited`) and
+    /// asked again here once that write has ended, so an outside change
+    /// landing after it is still read.
     func fileMayHaveChanged() async {
-        await saving?.value
-        guard !isClosed, !isDirty, scheduledSave == nil, let store,
-              let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
-              let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
-        let lastSave = saving
-        let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
-        // A save of ours begun meanwhile is no outside change.
-        guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil, saving == lastSave else { return }
-        do {
-            guard try await reloadUnlessEdited() else { return }
-            MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
-                                    projectURL: projectURL)
-        } catch {
-            researchTableLog.error(
-                "\(path, privacy: .public) changed outside and did not read again: \(error.localizedDescription, privacy: .public)")
+        while true {
+            // Every save asked so far has ended: each waits on the one before it.
+            var waited: Task<Void, Never>?
+            while let last = saving, last != waited {
+                waited = last
+                await last.value
+            }
+            guard !isClosed, !isDirty, !writeInFlight, scheduledSave == nil, let store,
+                  let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
+                  let path = item.path, let file = try? store.resolvedProjectPath(path) else { return }
+            let lastSave = saving
+            let onDisk = try? await Task.detached { try ContentHash.ofFile(file) }.value
+            // A save of ours begun meanwhile is no outside change: it is
+            // waited for, and the file asked about again.
+            guard saving == lastSave, !writeInFlight else { continue }
+            guard let onDisk, onDisk != diskHash, !isDirty, scheduledSave == nil else { return }
+            do {
+                switch try await reloadUnlessEdited() {
+                case .replaced:
+                    MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
+                                            projectURL: projectURL)
+                    return
+                case .edited:
+                    return
+                case .writing:
+                    continue
+                }
+            } catch {
+                researchTableLog.error(
+                    "\(path, privacy: .public) changed outside and did not read again: \(error.localizedDescription, privacy: .public)")
+                return
+            }
         }
     }
 
     // MARK: Saving
 
+    /// **Which kind of save `write` is** (hardening 11-11 R1, after
+    /// `ResearchNoteDoor.SaveSource`): the debounced save, a flush that
+    /// commits the held edits for the last time or on the writer's say-so,
+    /// or a save the caller answers for itself. A `.flush` never drops the
+    /// edits (ruling R-C): saved anyway, or kept aside and said (`write`).
+    enum SaveSource: Equatable {
+        /// The debounced save (`scheduleSave`).
+        case timer
+        /// `settle` (⌘S, ⌘Q, a window's close), the grid's leave, `close()`.
+        case flush
+        /// `assistantEdit`, `restore`, and the pre-flush each runs to land
+        /// the writer's pending edits (`landPendingEdits`).
+        case direct
+    }
+
+    /// **What one save did**: wrote the file; refused, and why — every
+    /// refusal leaves the host dirty, and says so once (`noStore` silently);
+    /// or, a `.flush` only, kept the edits aside where they could not be
+    /// written. The two flush arms leave the host dirty (the edits are still
+    /// not in the file) and remember what they kept, so a second flush on the
+    /// way out keeps no second copy and says nothing again.
+    enum WriteOutcome: Equatable {
+        case wrote
+        case refused(Refusal)
+        /// A flush that could not write: the table's CSV is kept as this
+        /// conflict backup; the host stays dirty (an `-unsaved-` `.csv` under `.maugham/conflicts`), and said.
+        case keptAside(URL)
+        /// A flush that could not write, whose backup failed too: said in
+        /// plain words.
+        case notKept
+
+        enum Refusal: Equatable {
+            /// The `DocumentStore` has gone.
+            case noStore
+            /// The item (or its path) is no longer in Research.
+            case itemGone
+            /// The research-root guard (`ResearchTextRole.tablePath`) refuses the path.
+            case outsideResearch
+            /// The file has gone (another Mac trashed it): it is not made again.
+            case fileGone
+            /// The file is there but will not read, so its prior version cannot be kept.
+            case priorUnreadable
+            /// The file changed outside, and that version could not be backed up.
+            case outsideVersionNotKept
+            /// The prior version could not be kept.
+            case versionNotKept
+            /// The file save itself failed.
+            case saveFailed
+        }
+    }
+
     /// Every edit asked has been written (a pending save now, not later).
     func flush() async {
         scheduledSave?.cancel()
         scheduledSave = nil
-        await save()
+        await save(source: .flush)
+    }
+
+    /// The debounced save, run now with no sleep (the scheduled one cancelled).
+    func saveAsTheTimerForTesting() async {
+        scheduledSave?.cancel()
+        scheduledSave = nil
+        await save(source: .timer)
+    }
+
+    /// **The writer's pending edits landed first** by `assistantEdit` and
+    /// `restore`, as the writer's own save: a refusal leaves the host dirty,
+    /// which stops the caller.
+    @discardableResult
+    private func landPendingEdits() async -> WriteOutcome {
+        scheduledSave?.cancel()
+        scheduledSave = nil
+        return await save(source: .direct)
     }
 
     /// An open grid's "commit what is typed and let it land", asked by
@@ -360,23 +496,27 @@ final class ResearchTableHost: FigureGridHost {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             self.scheduledSave = nil
-            await self.save()
+            await self.save(source: .timer)
         }
     }
 
-    /// One save at a time, in the order asked; nothing when nothing changed.
-    /// The writer's: an assistant's save is `assistantEdit`'s own.
-    private func save() async {
+    /// One save at a time, in the order asked; nothing when nothing changed
+    /// (`.wrote`). The writer's: an assistant's save is `assistantEdit`'s own.
+    /// Marked clean as the write begins, so an edit made during it marks the
+    /// host dirty again; a refusal, or a flush that kept the edits aside,
+    /// marks it dirty (`write`): clean iff it wrote.
+    @discardableResult
+    private func save(source: SaveSource) async -> WriteOutcome {
         let previous = saving
-        let task = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] () -> WriteOutcome in
             await previous?.value
-            guard let self else { return }
-            guard self.isDirty else { self.retryPendingSidecar(); return }
+            guard let self else { return .refused(.noStore) }
+            guard self.isDirty else { self.retryPendingSidecar(); return .wrote }
             self.isDirty = false
-            await self.write(self.state.table)
+            return await self.write(self.state.table, source: source)
         }
-        saving = task
-        await task.value
+        saving = Task { _ = await task.value }
+        return await task.value
     }
 
     /// Why an assistant's write was not saved.
@@ -400,10 +540,11 @@ final class ResearchTableHost: FigureGridHost {
         // The writer's state lands first; a keystroke during that wait is
         // flushed too. A writer's save that did not land stops the write:
         // the two would otherwise share the assistant's save.
-        await flush()
-        while scheduledSave != nil { await flush() }
+        await landPendingEdits()
+        while scheduledSave != nil { await landPendingEdits() }
         guard !isDirty else {
-            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made.")
+            throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the change wasn’t made. "
+                + "Don’t send it again; ask the writer to save or reopen the table.")
         }
         if isClosed { throw Refused(reason: .closed) }
         if let refusal { throw Refused(reason: refusal) }
@@ -415,16 +556,16 @@ final class ResearchTableHost: FigureGridHost {
         // Started with no suspension since the table changed: a writer's edit
         // after this point schedules its own save, which waits on this one.
         let previous = saving
-        let write = Task { @MainActor [weak self] () -> Bool in
+        let write = Task { @MainActor [weak self] () -> WriteOutcome in
             await previous?.value
-            guard let self else { return false }
-            return await self.write(next, by: .assistant)
+            guard let self else { return .refused(.noStore) }
+            return await self.write(next, by: .assistant, source: .direct)
         }
         saving = Task { _ = await write.value }
-        guard await write.value else {
+        guard await write.value == .wrote else {
             guard let back = ResearchAssistantRevert.reverted(state.table, prior: prior, next: next) else {
                 throw NotSaved(message: "The table’s change couldn’t be saved. It is still in the table and "
-                    + "will be saved with the writer’s next edit, so don’t send it again.")
+                    + "will be saved with the writer’s next save, so don’t send it again.")
             }
             // What is left is the writer's own typing (if any): its save is the writer's.
             isDirty = state.table != next
@@ -475,8 +616,8 @@ final class ResearchTableHost: FigureGridHost {
         let context = try await store.tableImportContext()
         // The writer's state lands first, as its own save (a keystroke during
         // that wait too); one that did not land stops the restore.
-        await flush()
-        while scheduledSave != nil { await flush() }
+        await landPendingEdits()
+        while scheduledSave != nil { await landPendingEdits() }
         guard !isDirty else {
             throw NotSaved(message: "The table’s unsaved edits couldn’t be saved first, so the version wasn’t restored.")
         }
@@ -501,16 +642,16 @@ final class ResearchTableHost: FigureGridHost {
         state.table = restored
         // Started with no suspension since the table changed, as an assistant's write is.
         let previous = saving
-        let write = Task { @MainActor [weak self] () -> Bool in
+        let write = Task { @MainActor [weak self] () -> WriteOutcome in
             await previous?.value
-            guard let self else { return false }
-            return await self.write(restored, by: .writer, restoring: true)
+            guard let self else { return .refused(.noStore) }
+            return await self.write(restored, by: .writer, restoring: true, source: .direct)
         }
         saving = Task { _ = await write.value }
-        guard await write.value else {
+        guard await write.value == .wrote else {
             guard state.table == restored else {
                 throw NotSaved(message: "The version couldn’t be restored. What is in the table now "
-                    + "will be saved with your next edit.")
+                    + "will be saved with your next save.")
             }
             state.table = priorTable
             (separator, lineEnding, hasBOM) = priorFile
@@ -537,102 +678,168 @@ final class ResearchTableHost: FigureGridHost {
         }
     }
 
-    /// An outside version kept as a conflict backup by a save that has not
+    /// The outside versions kept as conflict backups by a save that has not
     /// landed yet: a retry over the same bytes keeps no second, and the
-    /// writer is told once the save lands.
-    @ObservationIgnored private var pendingOutsideBackup: (hash: String, file: URL)?
+    /// writer is told once the save lands. More than one when the file
+    /// changed again between a read and its write (#138 R3): each is named.
+    @ObservationIgnored private var pendingOutsideBackups: [(hash: String, file: URL)] = []
     /// The hash of the bytes this host last kept as a version: a keep of the
     /// same bytes again (a retry after a failed save) keeps nothing.
     @ObservationIgnored private var lastKeptHash: String?
+    /// **What a flush last kept aside** (fix round 1): the hash of the CSV
+    /// text, and its backup — nil when the backup failed and that was said.
+    /// A flush of the same text keeps no second copy and says nothing again;
+    /// one whose backup failed retries it silently. Cleared when a write
+    /// lands or the file is read again.
+    @ObservationIgnored private var keptAside: (hash: String, file: URL?)?
 
     /// **The one door: the version kept, the file, then its sidecar, then
     /// the cards** — what one save writes, `writer` its author. A restore
     /// (`restoring`) always keeps the state it replaces and ends the run.
-    /// True when the file was written.
-    @discardableResult
+    /// Says what it did: `.wrote`, or why not — and every refusal leaves the
+    /// host dirty (the next edit, a flush or the close tries again) and is
+    /// said once, `noStore` silently. `source` is which save this is
+    /// (`SaveSource`). **A `.flush` never drops the edits** (ruling R-C, the
+    /// note door's rule): a version that cannot be kept is saved over anyway;
+    /// any other arm writes nothing over the file and keeps the table's CSV
+    /// aside (`keepTheFlushedTable`), the host still dirty. **The file is
+    /// written only if it still holds the bytes read here** (#138 R3,
+    /// `FileExpectation`): bytes another program or Mac put there after the
+    /// read make the door run again from its read, once (`secondRead`), so
+    /// they take the outside-change branch; a second change is `saveFailed`.
     private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
-                       restoring: Bool = false) async -> Bool {
-        guard let store else { return false }
+                       restoring: Bool = false, source: SaveSource, secondRead: Bool = false) async -> WriteOutcome {
+        // In flight from here to its end (G3). Saves are one at a time
+        // (`saving`), so the flag is one write's; its second pass is inside it.
+        if !secondRead {
+            writeInFlight = true
+            writesBegun += 1
+        }
+        defer { if !secondRead { writeInFlight = false } }
+        func refused(_ why: WriteOutcome.Refusal) -> WriteOutcome {
+            isDirty = true
+            return .refused(why)
+        }
+        let flushing = source == .flush
+        guard let store else { return refused(.noStore) }
         guard let item = store.projectStore.flatMap({ $0.findResearchItem(id: itemId, in: $0.manifest.research) }),
               let path = item.path else {
+            if flushing {
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save a Research table: it is no longer in Research.",
+                                           anchor: backupAnchor(nil))
+            }
             MaughamEvent.postNotice("A Research table’s edits couldn’t be saved: it is no longer in Research.",
                                     projectURL: projectURL)
-            return false
+            return refused(.itemGone)
         }
         // **Only inside a research root** (`ResearchTextRole.tablePath`),
         // asked of the manifest now: one synced since the table opened can
         // name the manuscript or a `.maugham/` file. Nothing is kept or
-        // written; the edits stay unsaved, and said.
+        // written there; the timer's edits stay unsaved, a flush's are kept
+        // aside, and said.
         guard ResearchTextRole.tablePath(of: item, structure: store.projectStore?.manifest.structure ?? []) == path else {
             researchTableLog.error("\(path, privacy: .public) is not inside Research; the table door wrote nothing")
+            if flushing {
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t a table inside Research any more.",
+                                           anchor: backupAnchor(path))
+            }
             MaughamEvent.postNotice(
                 "“\(item.title)” isn’t a table inside Research any more, so \(Self.whose(writer, restoring: restoring)) saved.",
                 projectURL: projectURL)
-            return false
+            return refused(.outsideResearch)
         }
         // A file that has gone (another Mac trashed it, and this manifest has
-        // not caught up) is not made again: the edits are dropped and said
-        // (task 7 re-review R2-2).
+        // not caught up) is not made again (task 7 re-review R2-2): the timer's
+        // edits wait, and it is said; a flush's are kept aside and said.
         guard await fileIsThere(at: path) else {
+            if flushing {
+                return await keepTheFlushedTable(table, couldNot: "Couldn’t save “\(item.title)”: it isn’t there any more.",
+                                           anchor: backupAnchor(path))
+            }
             MaughamEvent.postNotice(
                 "“\(item.title)” isn’t there any more, so its edits weren’t saved.", projectURL: projectURL)
-            return false
+            return refused(.fileGone)
         }
         // A file that is there but will not read cannot be kept: nothing is written over it.
         guard let onDisk = await bytesOnDisk(at: path) else {
-            isDirty = true
+            if flushing {
+                return await keepTheFlushedTable(
+                    table, couldNot: "Couldn’t save “\(item.title)”: Maugham couldn’t read it to keep its previous version.",
+                    anchor: backupAnchor(path))
+            }
             MaughamEvent.postNotice(
                 "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
-            return false
+            return refused(.priorUnreadable)
         }
         let onDiskHash = ContentHash.of(onDisk)
         let overOwnBytes = onDiskHash == diskHash
-        if !overOwnBytes, pendingOutsideBackup?.hash != onDiskHash {
-            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring) else {
-                isDirty = true   // the next edit, or the close, tries again
-                return false
+        if !overOwnBytes, !pendingOutsideBackups.contains(where: { $0.hash == onDiskHash }) {
+            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring,
+                                                     source: source) else {
+                if flushing {
+                    return await keepTheFlushedTable(
+                        table, couldNot: "Couldn’t save “\(item.title)”: it changed outside Maugham, and that version couldn’t be kept.",
+                        anchor: backupAnchor(path))
+                }
+                return refused(.outsideVersionNotKept)
             }
-            pendingOutsideBackup = (onDiskHash, backup)
+            pendingOutsideBackups.append((onDiskHash, backup))
         }
         let at = now()
-        var kept = false
+        var kept = false, savedAnyway = false
         if restoring || run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
-            guard await keepThePriorVersion(onDisk, of: item, at: at, by: writer, restoring: restoring) else {
-                isDirty = true
-                return false
+            if await keepThePriorVersion(onDisk, of: item, at: at, by: writer, restoring: restoring, source: source) {
+                lastKeptHash = onDiskHash
+                kept = true
+                // The inspector's list reloads only when it has a version to show (M1).
+                store.researchVersionsRevision += 1
+            } else if flushing {
+                // Saved anyway (the notes' rule, `ResearchNoteDoor.whenTheKeepFails`), said once it lands.
+                savedAnyway = true
+            } else {
+                return refused(.versionNotKept)
             }
-            lastKeptHash = onDiskHash
-            kept = true
-            // The inspector's list reloads only when it has a version to show (M1).
-            store.researchVersionsRevision += 1
         }
         // Counted once the version is kept, saved or not: a retry after a
         // failed save is still the run whose start is kept. A restore ends it.
         if restoring { run.end() } else { run.saved(by: writer, at: at) }
         // The names its formulas read as they are now; the ones it opened with if they will not read.
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
-        let text = (hasBOM ? "\u{FEFF}" : "") + TableCSV.renderResearch(
-            table, locale: locale, names: names, separator: separator, lineEnding: lineEnding)
+        let text = csvText(table)
         do {
-            try await store.performFileSave(path: path, text: text)
+            try await store.performFileSave(path: path, text: text, expecting: .bytesHashing(onDiskHash))
+        } catch FileSaveError.changedSinceRead where !secondRead {
+            // Written outside after the read above: nothing was written over
+            // it. The door runs again from its read, so those bytes are kept
+            // (the outside-change branch) before the table is saved.
+            researchTableLog.error("\(path, privacy: .public) changed after it was read; reading it again")
+            return await write(table, by: writer, restoring: restoring, source: source, secondRead: true)
         } catch {
-            isDirty = true
             researchTableLog.error(
                 "\(path, privacy: .public) was not saved: \(error.localizedDescription, privacy: .public)")
-            MaughamEvent.postNotice("Couldn’t save “\(item.title)”: \(error.localizedDescription)",
-                                    projectURL: projectURL)
-            return false
+            let couldNot = "Couldn’t save “\(item.title)”: \(error.localizedDescription)"
+            // A flush may have no later retry (⌘Q): nothing more is written over the file.
+            if flushing { return await keepTheFlushedTable(table, couldNot: couldNot, anchor: backupAnchor(path)) }
+            MaughamEvent.postNotice(couldNot, projectURL: projectURL)
+            return refused(.saveFailed)
         }
         diskHash = ContentHash.of(Data(text.utf8))
-        if let backup = pendingOutsideBackup {
-            pendingOutsideBackup = nil
+        keptAside = nil   // the edits are on disk: a backup kept earlier simply remains
+        if savedAnyway {
+            MaughamEvent.postNotice("“\(item.title)”’s previous version couldn’t be kept; your edits were saved anyway.",
+                                    projectURL: projectURL)
+        }
+        if !pendingOutsideBackups.isEmpty {
+            let files = pendingOutsideBackups.map { ".maugham/conflicts/\($0.file.lastPathComponent)" }
+            pendingOutsideBackups = []
             let (when, saved) = restoring ? ("", "the restored version was saved")
                 : writer == .writer ? (" while you were editing it", "yours was saved")
                 : ("", "the assistant’s change was saved")
+            let kept = files.count == 1 ? "That version is kept in \(files[0])"
+                : "Those versions are kept in " + files.dropLast().joined(separator: ", ") + " and " + files[files.count - 1]
             MaughamEvent.postNotice(
-                "“\(item.title)” changed outside Maugham\(when). That version is kept in "
-                    + ".maugham/conflicts/\(backup.file.lastPathComponent); \(saved).",
+                "“\(item.title)” changed outside Maugham\(when). \(kept); \(saved).",
                 projectURL: projectURL)
         }
         var next = ResearchTableSidecar(
@@ -658,7 +865,7 @@ final class ResearchTableHost: FigureGridHost {
         store.invalidateFigureCards()
         if restoring, !kept { store.researchVersionsRevision += 1 }
         Self.wroteForTesting?(text)
-        return true
+        return .wrote
     }
 
     private func writeSidecar(_ next: ResearchTableSidecar) throws {
@@ -705,10 +912,11 @@ final class ResearchTableHost: FigureGridHost {
     /// that described them (the one on disk, else the one held), their
     /// author when that sidecar was written for these bytes, and `writer` as
     /// whose save replaces them (`replaced_by`); then this
-    /// device's versions past the retention are pruned. False — write nothing
-    /// — when the version could not be kept, and said.
+    /// device's versions past the retention are pruned. False when the
+    /// version could not be kept, and said: the save stops, or a flush's is
+    /// made anyway.
     private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date,
-                                     by writer: ResearchWriter, restoring: Bool) async -> Bool {
+                                     by writer: ResearchWriter, restoring: Bool, source: SaveSource) async -> Bool {
         let held = sidecar
         let itemId = itemId
         let versions = ResearchVersionStore(projectURL: projectURL)
@@ -730,6 +938,8 @@ final class ResearchTableHost: FigureGridHost {
         guard let kept else { return true }
         researchTableLog.error(
             "\(item.title, privacy: .public)'s previous version was not kept: \(kept.localizedDescription, privacy: .public)")
+        // A flush's is said once its save lands (`write`).
+        guard source != .flush else { return false }
         MaughamEvent.postNotice(
             "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
             projectURL: projectURL)
@@ -739,21 +949,88 @@ final class ResearchTableHost: FigureGridHost {
     /// **The file changed outside since it was read or written here**: its
     /// bytes are kept as a conflict backup before the save replaces them (the
     /// writer is told once the save lands). Nil — write nothing — when they
-    /// could not be kept, and said.
+    /// could not be kept, and said (a flush's caller says it, with where the
+    /// edits went).
     private func keepTheOutsideVersion(_ outside: Data, of item: ResearchItem, at path: String,
-                                       by writer: ResearchWriter, restoring: Bool) -> URL? {
+                                       by writer: ResearchWriter, restoring: Bool, source: SaveSource) -> URL? {
         guard let file = try? store?.resolvedProjectPath(path) else { return nil }
         let text = ProjectStore.decodeResearchTable(outside) ?? String(decoding: outside, as: UTF8.self)
         do {
+            if let seam = Self.outsideBackupForTesting {
+                guard let url = seam(outside) else { throw CocoaError(.fileWriteUnknown) }
+                return url
+            }
             return try Document.writeConflictBackup(forFileAt: file, docId: itemId, text: text, kind: "outside")
         } catch {
             researchTableLog.error(
                 "\(path, privacy: .public)'s outside version was not kept: \(error.localizedDescription, privacy: .public)")
+            guard source != .flush else { return nil }
             MaughamEvent.postNotice(
                 "“\(item.title)” changed outside Maugham, and that version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
                 projectURL: projectURL)
             return nil
         }
+    }
+
+    /// **A flush that could not write keeps the edits aside** (ruling R-C,
+    /// after `ResearchNoteDoor.keepTheFlushedText`): the table's CSV — the
+    /// text a save would write now (its formula names read fresh), never its
+    /// sidecar's formats — as a conflict backup in `.maugham/conflicts`, said
+    /// with `couldNot` (a sentence) and the file's name, or that it is
+    /// nowhere. **The host stays dirty** (fix round 1): the edits are still
+    /// not in the file, so a later flush or the close tries the file again,
+    /// an assistant write is refused until they land, and an outside change
+    /// does not reload over them. What was kept is remembered (`keptAside`):
+    /// a second flush of the same table on the way out keeps no second copy
+    /// and says nothing; one whose backup failed retries it silently, and
+    /// names the file if it lands. A later edit changes the text, so its
+    /// flush keeps a new backup — intended: each holds the table as it was.
+    private func keepTheFlushedTable(_ table: FigureTable, couldNot: String, anchor: URL) async -> WriteOutcome {
+        isDirty = true
+        if let fresh = try? await store?.formulaNamesForUse() { names = fresh }
+        let text = csvText(table)
+        let hash = ContentHash.of(Data(text.utf8))
+        // The same text already kept — unless that backup is gone (the writer
+        // deleted it, or it was pruned): then a new one is kept, and said.
+        if let held = keptAside, held.hash == hash, let file = held.file,
+           FileManager.default.fileExists(atPath: file.path) { return .keptAside(file) }
+        do {
+            let backup = try Document.writeConflictBackup(forFileAt: anchor, docId: itemId, text: text,
+                                                          kind: "unsaved", at: now())
+            keptAside = (hash, backup)
+            MaughamEvent.postNotice(
+                "\(couldNot) Your edits were kept in the project’s .maugham/conflicts folder as “\(backup.lastPathComponent)”.",
+                projectURL: projectURL)
+            return .keptAside(backup)
+        } catch {
+            researchTableLog.error(
+                "\(self.itemId, privacy: .public)'s unsaved edits were not kept: \(error.localizedDescription, privacy: .public)")
+            // Said unless this very failure was said already (a backup that
+            // has gone and cannot be kept again is said too).
+            if !(keptAside?.hash == hash && keptAside?.file == nil) {
+                MaughamEvent.postNotice(
+                    "\(couldNot) Your edits weren’t saved, and they couldn’t be kept anywhere else.", projectURL: projectURL)
+            }
+            keptAside = (hash, nil)
+            return .notKept
+        }
+    }
+
+    /// `table` as its file's text: its separator, line ending and BOM, its
+    /// formulas read by `names`.
+    private func csvText(_ table: FigureTable) -> String {
+        (hasBOM ? "\u{FEFF}" : "") + TableCSV.renderResearch(
+            table, locale: locale, names: names, separator: separator, lineEnding: lineEnding)
+    }
+
+    /// The file a flush's backup is named after: the item's own, when it
+    /// resolves to a `.csv`; else a table in Research would be (the project
+    /// root is found from it), so the backup is always `*-unsaved-*.csv`.
+    private func backupAnchor(_ path: String?) -> URL {
+        if let path, let file = try? store?.resolvedProjectPath(path), file.pathExtension.lowercased() == "csv" {
+            return file
+        }
+        return projectURL.appendingPathComponent("research/table.csv") // local-path: only names the backup under .maugham/conflicts/
     }
 
     // MARK: Editing

@@ -40,6 +40,8 @@ Every checkpoint row has **Revert here…**. It opens a sheet titled *Revert to 
 
 When the checkpoint was made inside a document, that document is chosen for you. When it wasn't, nothing is chosen and **Revert** stays off until you pick one. That way pressing Return can never revert more than you meant.
 
+Reverting also answers the suggestions on a document's tables, and only where it rewrites the suggested cell. A suggestion you accepted since the checkpoint is reopened where the revert writes its cell back; one whose accept you had taken back is returned to **Accepted** where the revert puts its value back again; one on a cell the revert doesn't touch keeps its status; and one whose row or column didn't exist at the checkpoint is archived. The sheet counts them before you press **Revert** and reports them afterwards.
+
 Reverting adds to the history rather than erasing it. Everything you wrote after the checkpoint is still in the History pane, and you can rewind back to it.
 
 ### Rewinding one document
