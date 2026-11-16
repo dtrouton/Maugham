@@ -171,13 +171,23 @@
   "violation_or_enhancement": "neither — born with the fix"
  },
  {
+  "claim_id": "M9-OL-018",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-9 is the nearest ('what a writer does to their project outside Maugham is their risk; what Maugham does on their behalf is Maugham's'): a stale .md the load itself left behind is Maugham's own output, not something the writer did outside. But RULING-9 says nothing of when an outside edit is snapshotted, so it does not state this claim's rule. That Maugham's own stale render is not an outside edit is the coordinator's call, hardening 2026-11-16, not Denver's; if it is genuinely a product decision it is unruled and Denver's to take. ADR 0019 F4 is the design."
+ },
+ {
+  "claim_id": "M9-OL-019",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "The close order is an internal invariant (a clean close leaves no pending file; a failed flush keeps it). RULING-56/60 are about what a Research note or table saves at close, not this buffer, and nothing rules the order of a document's close. The coordinator's call, hardening 2026-11-16, not Denver's."
+ },
+ {
   "_summary": {
    "reached": 17,
    "complies": 17,
    "violates": 0,
-   "no_ruling": 0,
-   "total": 17,
-   "coverage": "100%",
+   "no_ruling": 2,
+   "total": 19,
+   "coverage": "89%",
    "by_ruling": {
     "RULING-52": [
      "M9-OL-004",

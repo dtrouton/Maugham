@@ -63,6 +63,8 @@ Branch `claude/hardening-2026-11-16`. Sources: `gh issue view 142`, `gh issue vi
 
 ### Task 2 — the door never writes at a path a verb is moving (#142 T2) [opus]
 
+> **Correction (2026-11-16, as built).** The door does not wait on a verb, and there is no `waitUntilNotInFlight`. `ProjectStore.withResearchItemsInFlight` spans each verb over a counted dictionary; a save that reads `.missing` for a note in the span, and is not the verb's own (`ResearchItemsMoving.byThisTask`), either stays pending (a timer save, re-armed when the span ends) or is turned away with `NoteLookup.beingMoved` (a flush keeps its text as a conflict backup). Two rounds of review found wait cycles; a hang of ⌘S or close is worse than a named backup (commits 422d46d5, 7ca238dd). The text below is the original plan.
+
 **Files:**
 - Modify: `Maugham/Stores/ProjectStore.swift` (state), `Maugham/Stores/ProjectStore+ResearchMove.swift` (`moveResearchItems`), `Maugham/Stores/ProjectStore+Research.swift` (`updateResearchItem`'s rename, `trashResearchItemCore`), `Maugham/Stores/ResearchNoteDoor.swift` (`write`)
 - Test: `MaughamTests/Stores/ResearchNoteDoorTests.swift`
@@ -124,6 +126,8 @@ Branch `claude/hardening-2026-11-16`. Sources: `gh issue view 142`, `gh issue vi
 - [ ] Gate: `./scripts/test.sh`. Commit.
 
 ### Task 6 — a second Replace waits for a fresh search; one ordinal, one sentence (#141 follow-up from plan 1 Task 3) [opus]
+
+> **Correction (2026-11-16, as built).** Replace All is on the chain, not untouched: single Replaces and Replace All run one at a time through one chain (`takingTheReplaceTurn`), each ends by refreshing `currentSearch` undebounced, a match whose id is not in the current results throws `.staleSearchMatch` ("That match has changed. Search again."), searches land only if newer, and `clearSearch` drops in-flight searches (commits 7407bf5b, 231d60c0). The text below is the original plan.
 
 **Files:**
 - Modify: `Maugham/Views/ProjectSearchView.swift` (`runReplaceMatch`, the Replace controls), `Maugham/Stores/ProjectStore+Search.swift` (`performSearch`, `replaceMatch`, `researchOrdinal(of:)`, the manuscript arm's ordinal)

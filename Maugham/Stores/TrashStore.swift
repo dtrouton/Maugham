@@ -35,8 +35,9 @@ public enum TrashSubject: String, Codable, Sendable {
     /// **Visible in the Trash pane, and that is the whole difference from
     /// `internalArtifact`.** A style file's prior version is a paranoia copy
     /// nothing would point at again, so RULING-43 hides it. This one is the
-    /// writer's own prose and it is the ONLY route back to it: research is
-    /// recoverable but not versioned (RULING-24's middle tier), and a note that
+    /// writer's own prose and it is the ONLY route back to it: research FILES
+    /// are recoverable but not versioned (RULING-24's middle tier); research
+    /// TEXT is versioned since 2026-11-11. A note that
     /// was *deleted* rather than rewritten would be sitting in this same pane.
     /// Hiding it would give a rewrite a weaker guarantee than a delete.
     ///

@@ -183,7 +183,11 @@ edges. Fixed:
   can overwrite them. The comparison is on display forms so an unmigrated
   still-anchored file doesn't false-positive; the write dedups against the newest
   existing backup for the doc (byte-equality) so repeated open/close of an
-  unchanged divergent file doesn't accumulate copies. Conflict backups now root
+  unchanged divergent file doesn't accumulate copies.
+  *(Amended 2026-11-16: the backup is skipped when the stored bytes equal the
+  render of the ops before a pending-file fold this load performed — Maugham's
+  own stale render, not an outside edit; the re-render still happens.)*
+  Conflict backups now root
   via `resolveProjectURL` (walk up to the manifest), so a **Collection piece's**
   backups land under the project root, not `pieces/.maugham/conflicts/` where
   nothing looks (F8). `performAutosave` also stopped swallowing pending-flush

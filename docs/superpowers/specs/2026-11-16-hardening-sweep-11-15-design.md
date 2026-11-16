@@ -130,6 +130,12 @@ when the ordinal is gone; `replaceAll` replaces every match found in the fresh t
 search-time list. The ranges are found in the stored text, which also removes the anchor-offset
 skew. One helper, used by both arms; the manuscript arm is untouched.
 
+*Correction (2026-11-16, as built):* the stale error is `.staleSearchMatch` ("That match has changed.
+Search again."); the helper is `ordinal(of:)`, over the current results, and the manuscript arm uses
+it too. Single Replaces and Replace All run one at a time through one chain, each ending with an
+undebounced refresh of `currentSearch`; searches land only if newer, and `clearSearch` drops those in
+flight.
+
 ### 3. An open note or card hears an outside change (#141 N3, R-E; closes N9's notice)
 
 The door gains one entry point, `fileMayHaveChanged(itemId:)`, the note twin of
@@ -187,6 +193,11 @@ describe); after teardown they throw. `noteWriterFilesWriteCeiling` becomes a ce
   direct save waits for the set to clear and runs once more. The mover's own flush runs before the
   file moves, so it never meets `.missing`. An editor save of a note deleted outside Maugham still
   recreates it, as today.
+  *Correction (2026-11-16, as built):* the door never waits on a verb. `withResearchItemsInFlight`
+  spans the verb over a counted dictionary; a save that meets `.missing` for a note in the span and
+  is not the verb's own stays pending if it is a timer save (re-armed when the span ends), and is
+  otherwise turned away with `NoteLookup.beingMoved` (a flush keeps its text as a conflict backup).
+  Two rounds of review found wait cycles; a hang of ⌘S or close is worse than a named backup.
 - **T3.** `rewriteMovedNoteAssetRefs` runs before `saveManifest` in the move and the rename.
   `Stores/AREA.md`'s "asset refs follow manifest saves" is reworded, word-neutral.
 

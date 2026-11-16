@@ -52,12 +52,12 @@
  {
   "claim_id": "M3-TR-008",
   "outcome": "NO_RULING_REACHES",
-  "reason": "The leftover folder is EMPTY — no file, no meta.json, none of the writer's content. RULING-7's 'unreadable shown as empty' needs something to be there. Litter, and an enhancement at most (PRINCIPLE-2)."
+  "reason": "The refused move now leaves nothing: the entry folder it minted is removed again, so the old 'litter' reading is gone with the litter. RULING-63's stated scope is the deletion of a row whose file is missing and a gesture that fails partway (complete as one; save, arm, name); it does not state what a refused or failed move leaves under .trash/, so it does not reach this claim, and RULING-7's 'unreadable shown as empty' still needs something to be there. Removing the folder is the coordinator's call, hardening 2026-11-16, not Denver's, and nothing here credits it to RULING-63."
  },
  {
   "claim_id": "M3-TR-009",
   "outcome": "NO_RULING_REACHES",
-  "reason": "Stated of a failed move, where the folder holds nothing. The case where such a folder DOES hold the writer's words is M3-TR-015/021, and is filed there."
+  "reason": "Stated of a failed move, which now takes back the empty folder it minted (the coordinator's call, hardening 2026-11-16, not Denver's; RULING-63 does not state it). The case where such a folder DOES hold the writer's words is M3-TR-015/021, and is filed there."
  },
  {
   "claim_id": "M3-TR-010",
@@ -744,13 +744,64 @@
   "reason": "RULING-23 says Trash destroying its contents honours the writer's intent and losing trash is not a defect; it permits the removal of a destroyed item's derived files without requiring it, and RULING-24 calls derived material unprotected without saying when it is removed. No ruling states that Permanently Delete, Empty Trash or the sweep remove an item's note record and table sidecar, the age gate on the sweep, or the cross-device edge. The removal is the coordinator's call, hardening 2026-11-16, not Denver's."
  },
  {
+  "claim_id": "M3-TR-068",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-63",
+  "clause_that_reaches_it": "A row whose file is already missing can be deleted, and a delete gesture completes as one. The row is removed and recorded in the Trash as a row with no file, so the gesture completes and ⌘⌥Z undoes it as one.",
+  "why_in_scope": "The claim is that case itself: a Research row whose file is gone is deleted, recorded in the Trash as a row with no file (carriesFile false), and the gesture, alone or in a batch, completes and ⌘⌥Z undoes it as one. Only that is credited to RULING-63. What counts as 'already missing' (only a true no-such-file error, never an unreadable folder or an iCloud placeholder) is the ruling's word read narrowly by the coordinator; the ruling does not define it, and the claim says so.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-16 put three notes selected with the second's file deleted in Finder",
+  "call_path": "binder or Research pane Delete (one or several rows) → ProjectStore.deleteResearchItems → trashResearchItemCore (namesAMissingFile) → TrashStore.recordManifestOnlyTrash; ⌘⌥Z → restoreLastDeletion",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "e060bcfc ff55afbf",
+   "date": "2026-11-16",
+   "authorised_by": "RULING-63 — Denver, 2026-11-16, structured question, recommended option accepted",
+   "pinned_by": "ResearchMoverOutsideResearchTests.test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne and test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne",
+   "note": "Filed already built: hardening 2026-11-16 plan 2 (#142 T1), not a flip of an earlier VIOLATES."
+  }
+ },
+ {
+  "claim_id": "M3-TR-069",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-63",
+  "clause_that_reaches_it": "Any other failure partway stops, saves what was trashed, arms undo for it, and the error names what was and was not deleted (RULING-52's route).",
+  "why_in_scope": "A failure that is not a missing file, partway through a batch, is the case the sentence states: the gesture stops, the manifest is saved without what was trashed, ⌘⌥Z is armed for exactly that, and the thrown error (deletedInPart) names what was and was not deleted. RULING-63 is the most specific (it states RULING-52's route for this operation), so RULING-52 is not cited beside it. A failure on the FIRST item has done nothing, so there is nothing to name beyond its own error, which is rethrown unchanged; the wording, the 'N items' label and clearing undo when no entry landed are the coordinator's calls and are not credited to the ruling.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-16 put a delete that fails after the first item, today with no undo",
+  "call_path": "Research pane multi-select Delete → ProjectStore.deleteResearchItems → a later trashResearchItemCore throws → settleDeletedInPart → deletedInPart surfaced as the pane's error",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "e060bcfc ff55afbf 8eefa68e",
+   "date": "2026-11-16",
+   "authorised_by": "RULING-63 — Denver, 2026-11-16, structured question, recommended option accepted",
+   "pinned_by": "ResearchMoverOutsideResearchTests.test_aBatchDeleteThatFailsPartwaySavesWhatItTrashed_armsIt_andNamesBothHalves, test_aPartwayFailureNamesARowRemovedWithNoEntryApart_andCountsOnlyWhatUndoRestores and test_aPartwayFailureWithNoEntryClearsTheEarlierUndo_asACleanDeleteDoes",
+   "note": "Filed already built: hardening 2026-11-16 plan 2 (#142 T1), not a flip of an earlier VIOLATES."
+  }
+ },
+ {
+  "claim_id": "M3-TR-070",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-40",
+  "clause_that_reaches_it": "Whatever one delete action removed — one item or fifty — one restore returns, or it refuses and says why. ... It never returns part of a deletion and reports nothing about the rest.",
+  "why_in_scope": "A restore that would make a second row with an id the tree already holds refuses and says why (alreadyInProject names the row), before anything moves, and ⌘⌥Z checks every entry of the gesture first so it never returns part of the deletion. Only that half is RULING-40's. Whether such a clash is refused rather than inserted as a duplicate row is the coordinator's call (before this, a restore inserted a duplicate), so the claim says so and the ruling is not credited with the choice.",
+  "intent_expressed_when": "contemporaneous — the writer pressed ⌘⌥Z or Restore about what they just deleted",
+  "call_path": "Trash pane Restore → ProjectStore.restoreTrashEntry → refuseADuplicate; ⌘⌥Z → restoreLastDeletion (pre-check of every entry) → restoreTrashEntry",
+  "violation_or_enhancement": "neither",
+  "fix": {
+   "commit": "e060bcfc ff55afbf",
+   "date": "2026-11-16",
+   "authorised_by": "RULING-63 — Denver, 2026-11-16, structured question, recommended option accepted",
+   "pinned_by": "ResearchMoverOutsideResearchTests.test_aRestoreOfAnItemAlreadyInTheProjectIsRefused and test_anUndoWhoseSecondEntryClashesRestoresNothing_andWorksOnceTheClashIsGone",
+   "note": "Filed already built: hardening 2026-11-16 plan 2 (#142 T1), not a flip of an earlier VIOLATES."
+  }
+ },
+ {
   "_summary": {
-   "reached": 42,
-   "complies": 42,
+   "reached": 45,
+   "complies": 45,
    "violates": 0,
    "no_ruling": 24,
-   "total": 66,
-   "coverage": "64%",
+   "total": 69,
+   "coverage": "65%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",
@@ -789,7 +840,8 @@
     "RULING-40": [
      "M3-TR-036",
      "M3-TR-037",
-     "M3-TR-056"
+     "M3-TR-056",
+     "M3-TR-070"
     ],
     "RULING-41": [
      "M3-TR-039",
@@ -806,6 +858,10 @@
     "RULING-45": [
      "M3-TR-035",
      "M3-TR-055"
+    ],
+    "RULING-63": [
+     "M3-TR-068",
+     "M3-TR-069"
     ],
     "RULING-7": [
      "M3-TR-015",

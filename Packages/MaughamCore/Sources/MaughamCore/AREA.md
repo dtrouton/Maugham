@@ -170,16 +170,16 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `A1.swift` — A1 notation: column letters, `$` absolute markers.
 - `FormulaParser.swift` — parses formula text (Excel precedence), renders it as A1 by live position (a deleted range edge shrinks inward), shifts it for fill.
 - `FormulaEvaluator.swift` — evaluates a formula over an environment of cell and range readers: Excel's coercion, comparison and error rules.
-- `FormulaFunctions.swift` — the function table (totals, rounding, IF/IFERROR, the …IF criteria with wildcards).
+- `FormulaFunctions.swift` — the function table (totals, rounding, IF/IFERROR, the …IF criteria with wildcards), one dictionary per group.
 - `ExcelRounding.swift` — ROUND, ROUNDUP and ROUNDDOWN on the value's 15-significant-digit decimal form.
 - `FinanceFunctions.swift` — NPV, IRR, MIRR, PV, FV, PMT, NPER, RATE and CAGR to Excel's values; IRR and RATE fall back to bisection where Newton fails.
 - `DateSerial.swift` — Excel's 1900 date serials as integer calendar arithmetic: serial and components, ISO strings, month addition clamped to month end.
 - `DateFunctions.swift` — YEAR, MONTH, EDATE, XNPV and XIRR; XIRR shares the finance solver.
 - `DependencyGraph.swift` — the workbook cell address and which formula cells read which cells: transitive dependents, cycle-finding components in evaluation order, all iterative.
 - `Workbook.swift` — a document's tables evaluated together: live refs between tables, research refs read through a pin source, recalculation of only what reads a change, cycles as `#CIRC!`, the NPV first-flow note.
-- `TableLocale.swift` — the book's language for a table: separators, currency symbol, day-first order, financial-year start month; region from the tag.
+- `TableLocale.swift` — the book's language for a table: separators, currency symbol, day-first order, financial-year start month; region from the tag, else a fallback.
 - `CellDisplay.swift` — a value and its format as the string the writer sees: Excel-rounded first, number, percent, currency, compact and date styles in the locale, financial-year labels.
-- `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates.
+- `CellInput.swift` — typed or pasted cell text read in the book's language: formulas, text escapes, numbers, percentages, currency and dates, with the format Excel would suggest.
 - `TableCSV.swift` — a table as CSV: the clean values render, research copies that keep formulas, RFC 4180 reading with separator detection, and import with formulas resolved to ids.
 - `ResearchTableSidecar.swift` — what a Research table's CSV cannot hold, at `.maugham/research-tables/<item id>.json`: the parked figure it copies, its name, caption, header and total rows, and formats and widths by position; tolerant.
 - `ResearchNoteRecord.swift` — a Research note's current writer, at `.maugham/research-notes/<item id>.json`.
@@ -323,10 +323,10 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
 Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the kind-equality census.
 
 ## Pointers
-- `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files (see the first Rules bullet), and the op log's behaviour.
+- `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files, and the op log's behaviour.
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
-- `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
+- `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share.
 - No history file: nothing was moved out of this guide.
 - `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51, 53–56 and 58: the tripwires cited above.
-- Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). See `DocBudgetTests`, `FountainTokenizerDifferentialTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; app-side censuses: `MaughamTests/TripwireGrepTests.swift`, `MaughamTests/PersonKeyCensusTests.swift`.
-- Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
+- Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). `DocBudgetTests` (this map's census), `RegistryCanonicalCensusTests`; app-side censuses: `MaughamTests/TripwireGrepTests.swift`, `MaughamTests/PersonKeyCensusTests.swift`.
+- Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md`.

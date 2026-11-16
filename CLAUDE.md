@@ -61,7 +61,7 @@ When a gate is red and the failure doesn't name your change, read docs/testing/T
 
 ## Releases
 
-See `docs/RELEASING.md` for the full recipe (cut-release.sh, signing/notarization, auto-update-in-place, phone pipeline, the capital-M bundle-id history). One-line summary: `./scripts/cut-release.sh 0.X.Y` then `git push origin v0.X.Y` (the one tag by name — never `--tags`, which fires no workflow past three tags); write release notes first. Version is tag-derived — don't bump `project.yml`.
+Recipe: `docs/RELEASING.md`. Summary: push `main`, wait for a green `CI` on that commit first (`cut-release.sh` checks), then `./scripts/cut-release.sh 0.X.Y` and `git push origin v0.X.Y` (the one tag by name — never `--tags`, which fires no workflow past three tags); write release notes first. Version is tag-derived — don't bump `project.yml`.
 **The Mac release needs the `MAC_PROVISIONING_PROFILE` secret** (a Developer ID profile for `com.maugham.Maugham` granting the person-key keychain group): with the group in the entitlements a signed Release build fails without it, and `release.yml` stops at its install step naming the secret (`docs/release-notes/SETUP-mac-signing.md` §4).
 
 ## Architectural tripwires

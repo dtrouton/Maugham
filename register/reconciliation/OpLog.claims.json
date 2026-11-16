@@ -270,5 +270,37 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M9-OL-018",
+  "scope": "Document.load — the divergence check and a stale render of Maugham's own",
+  "kind": "POSTCONDITION",
+  "statement": "When the stored .md differs (anchors stripped) from the render of the derived state, the load still counts the document as diverged, so the re-render is still scheduled, and still snapshots the stored bytes under .maugham/conflicts/ (kind 'diverged') — unless they are Maugham's own stale render. A stored .md equal (anchors stripped) to the render of the state BEFORE a pending fold this load performed (a pending file with changes; or the ordering-only fold with a current basis; `opsBeforeFold`, derived and reconciled as the load derives its initial state) gets no backup: a kill after a burst reached the op log and before the autosave wrote the .md leaves exactly that file, and it is Maugham's, not an outside edit. A .md equal to neither render is backed up as before, even beside a pending fold, and once (the existing dedup); a load that folded nothing does no extra work. Residual: only the render before THIS load's fold is forgiven. (a) The burst variant: a kill between performClose's burst append (which clears the pending file on success) and its trailing .md write leaves no pending file, so nothing is folded and the next load still writes a 'diverged' backup of Maugham's own stale render. (b) A .md older than the pre-fold state (bursts appended after the last .md write, then a cut autosave) is also backed up. That the stale own render is not an outside edit, and these residuals, are the coordinator's call, hardening 2026-11-16, not Denver's (#143 Q1)",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/AutosaveOffMainTests.swift: test_anAutosaveCutBetweenTheMirrorAndTheWriteLeavesNoDivergedBackup; MaughamTests/OpLog/LoadDivergenceSnapshotTests.swift: test_anOutsideEditBesideAPendingFileIsStillBackedUpOnce"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the coordinator's call, hardening 2026-11-16, not Denver's (#143 Q1); the load's divergence backup itself is ADR 0019 F4",
+  "reachability": "LIVE — quit or kill during typing, then reopen the project",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-019",
+  "scope": "Document.close() — the order of a clean close",
+  "kind": "POSTCONDITION",
+  "statement": "A clean close runs in one order: the final burst flush (which clears the pending file on success), the trailing autosave flush and a drain of every queued autosave run, the chain seal, a final drain, `isClosed = true` with no suspension between that drain and it, then the clean `pending.clear()` (only when the burst flush succeeded and `mayWriteThePendingFile`), then the husk. So a clean close leaves no pending file even when an autosave lands during the seals (its re-created mirror is cleared; from `isClosed` on, performAutosave and runAutosave refuse, so none can begin during the clear's suspension), while a failed burst flush still keeps the file as the sole recovery source. `Document.mayWriteThePendingFile` is one expression at four sites (autosave mirror, burst clear, failed-flush re-persist, clean clear): a prose rule that no census counts. Autosave's render, as well as its write, runs off the main thread (`autosaveRenderHook`, pinned beside the write hook). The order is the coordinator's call, hardening 2026-11-16, not Denver's (#143 Q2, Q3)",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/OpLog/PendingBasisFoldTests.swift: test_anAutosaveArrivingDuringTheSealsLeavesNoPendingFileAfterAClose; MaughamTests/OpLog/DocumentCloseFlushTests.swift: test_close_failingBurstAppend_persistsPendingForRecovery; MaughamTests/OpLog/AutosaveOffMainTests.swift: test_theRenderAndWriteRunOffTheMainThread"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the coordinator's call, hardening 2026-11-16, not Denver's (#143 Q2); the clean-close rule itself is Issue 2a of the op-log spine",
+  "reachability": "LIVE — closing a window or a document after typing; ⌘Q closes every open project's stores through QuitCoordinator",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

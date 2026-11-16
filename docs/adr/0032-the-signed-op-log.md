@@ -2468,7 +2468,9 @@ from the flips each task named.
 - **The derived `.md` follows an applied re-read (C12, Task 4).**
   `handleExternalLogChange` now schedules the ordinary autosave once it is past
   its echo guard. The load schedules one when the `.md` on disk diverged from
-  the render, and the "diverged" conflict backup is still taken as evidence.
+  the render, and the "diverged" conflict backup is still taken as evidence
+  (amended 2026-11-16: not when the stale `.md` is Maugham's own render from before a
+  pending-file fold this load performed).
   Neither calls `performAutosave` directly, and nothing is a second writer:
   whatever `performAutosave`'s guards refuse (a closed or husked document, a
   moved or trashed one, a load that refused with `waitingForPiece`) stays

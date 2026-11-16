@@ -750,7 +750,7 @@
  {
   "claim_id": "M5-AN-090",
   "outcome": "NO_RULING_REACHES",
-  "reason": "No ruling states where a Research Replace splices, what a stale match does, or what a file whose query has gone does; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal as the manuscript arm does, refusing when the ordinal is gone and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
+  "reason": "No ruling states where a Research Replace splices, what a stale match does, whether Replaces take turns or what happens to the results after one; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal, refusing a stale match, running Replaces one at a time (Replace All included), refreshing the results after each and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
  },
  {
   "claim_id": "M5-AN-091",
