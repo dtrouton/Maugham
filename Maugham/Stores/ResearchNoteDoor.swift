@@ -114,6 +114,8 @@ final class ResearchNoteDoor {
     var keepWillRunForTesting: (@MainActor () async -> Void)?
     /// Told the item id once a timer-fired save has finished.
     var timerSaveFinishedForTesting: (@MainActor (String) -> Void)?
+    /// Told the item id once `fileMayHaveChanged` has answered.
+    var heardForTesting: (@MainActor (String) -> Void)?
 
     /// Where a save came from: what the keep-failure rule asks.
     enum SaveSource: Equatable {
@@ -183,6 +185,11 @@ final class ResearchNoteDoor {
         /// The timer-stop notice was posted: said once, not once per typing
         /// pause, until a save of the note lands or the note is read again.
         var timerStopSaid = false
+        /// Bytes changed outside Maugham were kept as a version by a save of
+        /// the writer's own edit (an editor timer or flush): said once, when
+        /// a save of their edit lands — on the first read or on the retry
+        /// (RULING-62; the controller's ruling for task 1.7).
+        var outsideKeptForTheWriter = false
     }
 
     /// One note's edit waiting for its debounce.
@@ -209,6 +216,7 @@ final class ResearchNoteDoor {
         state.knownHash = hash
         state.writtenBehindTheEditor = nil
         state.timerStopSaid = false
+        state.outsideKeptForTheWriter = false
         notes[itemId] = state
     }
 
@@ -240,6 +248,49 @@ final class ResearchNoteDoor {
         let made = ResearchNoteReloadSignal()
         reloadSignals[itemId] = made
         return made
+    }
+
+    // MARK: An outside change
+
+    /// **`itemId`'s file may have changed outside Maugham** (another device
+    /// syncing, an external editor), heard by the window's file presenter
+    /// (`DocumentStore.researchFileMayHaveChanged`) — the note twin of
+    /// `ResearchTableHost.fileMayHaveChanged()` (#141 N3, RULING-62):
+    /// - bytes nobody here has read (`knownHash` nil): nothing is on screen
+    ///   to be stale, and nothing is said;
+    /// - the bytes the door last read or wrote (its own save coming back):
+    ///   nothing;
+    /// - other bytes with an edit pending: the edit is left alone — its save
+    ///   keeps those bytes as a version and says so once it lands
+    ///   (`outsideKeptForTheWriter`);
+    /// - other bytes with nothing pending: they are known now, the writer's
+    ///   run ends (their next save keeps them), an open editor re-reads the
+    ///   file (the reload signal), and it is said.
+    /// A save in flight is waited for and the file asked about again: its
+    /// own write is no outside change, and bytes that came after it are.
+    func fileMayHaveChanged(itemId: String, in store: DocumentStore) async {
+        defer { heardForTesting?(itemId) }
+        while true {
+            guard notes[itemId]?.knownHash != nil, pending[itemId] == nil else { return }
+            if let saving = inFlight[itemId]?.task {
+                _ = await saving.value
+                continue
+            }
+            guard case .note(let item, let path) = noteLookup(itemId, owner: nil, in: store),
+                  let fileURL = resolved(path, in: store) else { return }
+            let onDisk: PriorBytes = await Task.detached { PriorBytes.read(fileURL) }.value
+            // An edit or a save begun during the read: asked again.
+            guard pending[itemId] == nil, inFlight[itemId] == nil else { continue }
+            guard case .bytes(let bytes) = onDisk else { return }
+            let hash = ContentHash.of(bytes)
+            guard let known = notes[itemId]?.knownHash, hash != known else { return }
+            notes[itemId]?.knownHash = hash
+            notes[itemId]?.run.end()
+            signal(itemId).count += 1
+            MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
+                                    projectURL: store.projectURL)
+            return
+        }
     }
 
     // MARK: The editor's pending edits
@@ -461,6 +512,9 @@ final class ResearchNoteDoor {
                     // Written to the live entry, not a copy taken before the
                     // await: a read recorded meanwhile is not undone.
                     notes[itemId, default: NoteState()].lastKeptHash = onDiskHash
+                    if Self.isTheWritersEdit(source), state.knownHash != nil, !overOwnBytes {
+                        notes[itemId]?.outsideKeptForTheWriter = true
+                    }
                     kept = true
                     store.researchVersionsRevision += 1
                 }
@@ -512,6 +566,14 @@ final class ResearchNoteDoor {
         notes[itemId]?.knownHash = writtenHash
         notes[itemId]?.timerStopSaid = false
         if let savedAnywaySentence { MaughamEvent.postNotice(savedAnywaySentence, projectURL: projectURL) }
+        if notes[itemId]?.outsideKeptForTheWriter == true {
+            notes[itemId]?.outsideKeptForTheWriter = false
+            if Self.isTheWritersEdit(source) {
+                MaughamEvent.postNotice(
+                    "“\(item.title)” changed outside Maugham while you were editing it. That version is kept in its Versions; yours was saved.",
+                    projectURL: projectURL)
+            }
+        }
         wroteForTesting?(itemId, text)
         do {
             try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: writtenHash, writtenBy: writer),
@@ -654,6 +716,14 @@ final class ResearchNoteDoor {
         switch source {
         case .direct: return true
         case .editorTimer, .editorFlush: return onDiskHash == writtenBehind
+        }
+    }
+
+    /// Whether a save is of the writer's own edit (its debounce, or a flush).
+    private static func isTheWritersEdit(_ source: SaveSource) -> Bool {
+        switch source {
+        case .editorTimer, .editorFlush: return true
+        case .direct: return false
         }
     }
 

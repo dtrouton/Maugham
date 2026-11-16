@@ -1092,7 +1092,8 @@ public final class DocumentStore {
     /// cards refill (sweep 11-01 S1, #131: the card owners watch
     /// `manifest.research` by identity, which a content change leaves alone),
     /// grid open or not. A Research table open in a grid on it is asked
-    /// whether to read it again (`ResearchTableHost.fileMayHaveChanged`).
+    /// whether to read it again (`ResearchTableHost.fileMayHaveChanged`), and
+    /// a note or card the note door (`ResearchNoteDoor.fileMayHaveChanged`).
     func researchFileMayHaveChanged(at relativePath: String) {
         guard let research = projectStore?.manifest.research else { return }
         let changed = relativePath.lowercased()
@@ -1100,6 +1101,9 @@ public final class DocumentStore {
             $0.path?.lowercased() == changed && Self.aFigureCanRead($0)
         }) != nil {
             invalidateFigureCards()
+        }
+        if let note = researchNoteItem(atPath: relativePath) {
+            Task { @MainActor in await researchNoteDoor.fileMayHaveChanged(itemId: note.id, in: self) }
         }
         guard !researchTables.isEmpty else { return }
         for (id, host) in researchTables {

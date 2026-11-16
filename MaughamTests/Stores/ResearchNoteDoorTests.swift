@@ -218,6 +218,7 @@ final class ResearchNoteDoorTests: XCTestCase {
     /// coordinated write, reads again, keeps them as a version, then saves.
     func test_bytesWrittenOutsideAfterTheReadAreKeptAsAVersionBeforeTheSave() async throws {
         let (store, projectStore) = try await openBook()
+        let heard = listen()
         let item = try await note("Before.", in: projectStore)
         try read(item, store, projectStore)
         landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
@@ -228,6 +229,141 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["Before.", "From outside."],
                        "the run's start and the outside bytes, each kept once")
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+        XCTAssertEqual(heard.notices, [Self.changedWhileEditing], "said once, across the retry")
+    }
+
+    private static let changedWhileEditing =
+        "“Notes” changed outside Maugham while you were editing it. That version is kept in its Versions; yours was saved."
+    private static let reloaded = "Reloaded “Notes” — the file changed outside Maugham."
+
+    // MARK: - Hardening 11-16 task 1.7: an outside change is heard (#141 N3, RULING-62)
+
+    /// The window's file presenter hears `item`'s file change, and the
+    /// door's answer to it is awaited.
+    private func presenterHears(_ item: ResearchItem, _ store: DocumentStore,
+                                _ projectStore: ProjectStore) async throws {
+        let url = file(try XCTUnwrap(current(item, projectStore).path))
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.heardForTesting = { id in
+                guard id == item.id else { return }
+                store.researchNoteDoor.heardForTesting = nil
+                done.resume()
+            }
+            store.presenterDidChangeSubitem(at: url)
+        }
+    }
+
+    func test_anOutsideChangeToACleanNoteReloadsItAndSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads + 1, "the open editor is told to read it")
+        XCTAssertEqual(heard.notices, [Self.reloaded])
+        // The same change heard again (a presenter burst) is not a second change.
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads + 1)
+        XCTAssertEqual(heard.notices, [Self.reloaded], "said once")
+        // The outside text ended the writer's run: their next typing keeps it.
+        try await typed("Mine.", into: item, store)
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
+    }
+
+    /// **Review Focus 3**: what the door itself wrote (a typed save, anyone
+    /// else's save, a card's template) and bytes it read with a BOM are its
+    /// own: heard back, they reload nothing and say nothing.
+    func test_theDoorsOwnSaveComingBackIsNotAnOutsideChange() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("", in: projectStore)
+        let bom = Data([0xEF, 0xBB, 0xBF]) + Data("With a BOM.\r\n".utf8)
+        try bom.write(to: file(try XCTUnwrap(item.path)))
+        store.researchNoteWasRead(itemId: item.id, bytes: bom)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the BOM file as read")
+
+        try await typed("Typed.", into: item, store)
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the editor's own save")
+
+        await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+        let afterDirect = store.researchNoteReloadCount(itemId: item.id)
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), afterDirect, "anyone else's save")
+
+        let card = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        let cardReloads = store.researchNoteReloadCount(itemId: card.id)
+        try await presenterHears(card, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: card.id), cardReloads, "a card's template")
+
+        XCTAssertEqual(heard.notices, [], "nothing is said")
+    }
+
+    /// Anyone else's save over an outside change keeps it, as it always
+    /// has, and is not "you were editing it": nothing of the writer's was.
+    func test_anotherWritersSaveOverAnOutsideChangeIsNotSaidAsTheWritersEdit() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        let saved = await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try versions(of: item).map(versionText), ["From outside."])
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// **Review Focus 4**: a note this store never read has nothing on
+    /// screen to be stale; a change to it is not news.
+    func test_anOutsideChangeToANoteNobodyReadSaysNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Never read.", in: projectStore)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// The writer's pending edit is never discarded: the change heard under
+    /// it waits for the save, which keeps the outside bytes (here, a change
+    /// before its read and another during its write: the retry) and says so
+    /// once, when the writer's text has landed.
+    func test_anOutsideChangeUnderAPendingEditIsKeptAsAVersion_andSaidOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "Mine.")
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the edit is not reloaded over")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
+        XCTAssertEqual(heard.notices, [], "nothing is said before the save")
+
+        landOutside(["Again outside."], at: file(try XCTUnwrap(item.path)))
+        try await store.flushPendingSave()
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Mine.", "the writer's text is saved")
+        XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["From outside.", "Again outside."])
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [Self.changedWhileEditing], "said once, across the retry")
     }
 
     /// A note file that was missing at the read and made outside before the
