@@ -267,6 +267,44 @@ final class AutosaveOffMainTests: XCTestCase {
         return task
     }
 
+    /// #143 Q1: an autosave cut between the pending mirror and the `.md`
+    /// write leaves the `.md` holding Maugham's own older render. The next
+    /// load folds the pending file; the stale `.md` is not an outside edit, so
+    /// no `diverged` backup — and the `.md` still catches up.
+    func test_anAutosaveCutBetweenTheMirrorAndTheWriteLeavesNoDivergedBackup() async throws {
+        let doc = try await makeDoc()
+        let gate = WriteGate(fail: [1])
+        doc.autosaveWriteHook = gate.hook
+        doc.setFullText("Typed before the cut.")
+        do {
+            try await doc.performAutosave()
+            XCTFail("the cut write must throw out of performAutosave")
+        } catch {}
+        let url = doc.url
+        let staleMd = try onDisk(doc)
+        XCTAssertFalse(staleMd.contains("Typed before the cut."),
+            "precondition: the .md still holds the render before the typing")
+        XCTAssertTrue(conflictBackups(of: doc).isEmpty, "precondition: no backup yet")
+
+        // Dropped without a close: the process died here.
+        let reloaded = try await Document.load(
+            url: url, device: "autosave-mac", session: "s2", presenter: nil,
+            burstIdle: .seconds(3600), burstMax: .seconds(3600))
+
+        XCTAssertEqual(reloaded.displayText, "Typed before the cut.",
+            "the pending file was folded: the typed text survives")
+        XCTAssertFalse(conflictBackups(of: reloaded).contains { $0.contains("-diverged-") },
+            "Maugham's own stale render is not an outside edit")
+        XCTAssertEqual(try onDisk(reloaded), staleMd,
+            "the load itself writes nothing")
+        await reloaded.autosaveScheduler.flush()
+        XCTAssertEqual(try onDisk(reloaded), cleanRender(reloaded),
+            "the load scheduled the re-render, so the .md catches up")
+        XCTAssertTrue(try onDisk(reloaded).contains("Typed before the cut."))
+        await reloaded.close()
+        withExtendedLifetime(doc) {}
+    }
+
     private func conflictBackups(of doc: Document) -> [String] {
         let dir = Document.conflictsDir(for: doc.url)
         return ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])

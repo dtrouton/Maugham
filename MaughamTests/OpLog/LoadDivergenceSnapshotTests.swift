@@ -159,6 +159,54 @@ final class LoadDivergenceSnapshotTests: XCTestCase {
             "a still-anchored file whose content equals op-log truth must NOT snapshot")
     }
 
+    // MARK: - (c2) outside edit beside a pending file → still one snapshot
+
+    /// #143 Q1, Review Focus 4: the load forgives a stale `.md` only when it
+    /// equals the render from BEFORE the pending fold. A real outside edit made
+    /// while a crashed session's pending file also exists equals neither render,
+    /// and is still backed up as `diverged`, exactly once.
+    func test_anOutsideEditBesideAPendingFileIsStillBackedUpOnce() async throws {
+        let (project, url) = try makeTestProject(
+            prefix: "LDS", initialMd: "Alpha.\n\nBravo.")
+        let docId: String
+        let ids: [String]
+        do {
+            let doc = try await Document.load(
+                url: url, device: "m", session: "s1", presenter: nil)
+            docId = doc.docId
+            ids = doc.sequence
+            await doc.close()
+        }
+        let basis = try await OpLogStore(projectURL: project)
+            .load(docId: docId).map(\.opId).max()!
+
+        // A crashed session's pending file: an edit to Alpha never bursted.
+        do {
+            let pb = PendingBuffer(projectURL: project, docId: docId, device: "m")
+            pb.recordChange(paragraphId: ids[0], prior: "Alpha.", next: "Alpha crashed-edit.")
+            pb.setSequence(ids, basis: basis)
+            try await pb.flushToDisk()
+        }
+
+        // And an outside editor wrote a third text to the `.md`.
+        let external = "A third text from outside.\n"
+        try external.write(to: url, atomically: true, encoding: .utf8)
+
+        let doc = try await Document.load(
+            url: url, device: "m", session: "s2", presenter: nil)
+        XCTAssertTrue(doc.displayText.contains("Alpha crashed-edit."),
+            "precondition: the pending file was folded")
+        XCTAssertFalse(doc.displayText.contains("A third text from outside"))
+
+        let files = conflictFiles(project.appendingPathComponent(".maugham/conflicts"))
+        XCTAssertEqual(files.count, 1, "exactly one divergence snapshot expected")
+        XCTAssertTrue(files.allSatisfy { $0.lastPathComponent.contains("-diverged-") })
+        XCTAssertEqual(
+            try files.map { try String(contentsOf: $0, encoding: .utf8) }, [external],
+            "the snapshot must preserve the outside edit's exact bytes")
+        await doc.close()
+    }
+
     // MARK: - (d) Collection piece → snapshot under the PROJECT root
 
     func test_collectionPiece_divergence_snapshotUnderProjectRoot() async throws {
