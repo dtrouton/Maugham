@@ -205,4 +205,154 @@ final class ProjectSearchReplaceTests: XCTestCase {
         let text = try await displayText(of: project, "c1")
         XCTAssertEqual(text, "mist!! one fog two fog three")
     }
+
+    // MARK: - Replace All takes its turn and refreshes (fix round 1)
+
+    /// **A single Replace of an old match after Replace All is refused**:
+    /// Replace All leaves the results fresh, so a match from before it —
+    /// here one whose occurrence now sits inside a replacement that holds
+    /// the query — says "search again" and changes nothing.
+    func test_aSingleReplaceOfAnOldMatchAfterReplaceAllIsRefused() async throws {
+        let project = try await makeProject(manuscript: [("c1", "Tom met Tom.\n")])
+        let store = try await ProjectStore.load(from: project)
+        let results = await search(store, "Tom")
+        let old = results.matches
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+        XCTAssertEqual(old.count, 2)
+
+        try await store.replaceAll(in: results, with: "Tommy")
+
+        XCTAssertEqual(listed(store, "c1").map(\.charRangeInDocument.location), [0, 10],
+                       "the results are fresh when Replace All returns")
+        do {
+            try await store.replaceMatch(old[1], with: "Tommy")
+            XCTFail("a match from before Replace All must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "Tommy met Tommy.", "the text is as Replace All left it")
+    }
+
+    /// **Replace All and a single Replace issued together run in turn**,
+    /// in the order issued, and neither is dropped silently: the single
+    /// Replace, judged after Replace All, finds its match gone and says so.
+    func test_replaceAllAndASingleReplaceIssuedTogetherRunInTurn() async throws {
+        let project = try await makeProject(manuscript: [("c1", "Tom met Tom.\n")])
+        let store = try await ProjectStore.load(from: project)
+        let results = await search(store, "Tom")
+        let second = try XCTUnwrap(results.matches
+            .max { $0.charRangeInDocument.location < $1.charRangeInDocument.location })
+
+        let all = Task { try await store.replaceAll(in: results, with: "Tommy") }
+        let single = Task { () -> Bool in
+            do {
+                try await store.replaceMatch(second, with: "Tommy")
+                return true
+            } catch ProjectStoreError.staleSearchMatch {
+                return false
+            }
+        }
+        let outcome = try await all.value
+        let singleLanded = try await single.value
+
+        XCTAssertEqual(outcome.leftAlone, [])
+        XCTAssertFalse(singleLanded, "the single Replace ran after Replace All and was refused")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "Tommy met Tommy.")
+    }
+
+    // MARK: - Which search lands (fix round 1)
+
+    /// **An older, slower search that finishes after a newer one is
+    /// dropped**: `currentSearch` keeps the newer results.
+    func test_anOlderSearchFinishingAfterANewerOneIsDropped() async throws {
+        let project = try await makeProject(manuscript: [("c1", "fog and rain\n")])
+        let store = try await ProjectStore.load(from: project)
+        let gate = SearchGate(holding: "fog")
+        store.searchWillLandForTesting = { await gate.pass($0) }
+
+        let older = Task { await store.searchNow(query: "fog", options: SearchOptions()) }
+        await gate.untilHeld()
+        await store.searchNow(query: "rain", options: SearchOptions())
+        XCTAssertEqual(store.currentSearch?.query, "rain")
+        gate.release()
+        await older.value
+
+        XCTAssertEqual(store.currentSearch?.query, "rain", "the older search did not land over the newer")
+    }
+
+    /// **`clearSearch` drops a search still in flight**: closing the
+    /// overlay leaves no results behind, whenever that search finishes.
+    func test_clearSearchDropsASearchStillInFlight() async throws {
+        let project = try await makeProject(manuscript: [("c1", "fog and rain\n")])
+        let store = try await ProjectStore.load(from: project)
+        let gate = SearchGate(holding: "fog")
+        store.searchWillLandForTesting = { await gate.pass($0) }
+
+        let inFlight = Task { await store.searchNow(query: "fog", options: SearchOptions()) }
+        await gate.untilHeld()
+        store.clearSearch()
+        gate.release()
+        await inFlight.value
+
+        XCTAssertNil(store.currentSearch, "a search started before the close did not land after it")
+    }
+
+    /// **A Replace's refresh is not overwritten by a debounced search that
+    /// was already in flight when the Replace began** — one that read the
+    /// text before the write and finishes after the refresh.
+    func test_aReplacesRefreshIsNotOverwrittenByAnEarlierDebouncedSearch() async throws {
+        let project = try await makeProject(manuscript: [("c1", "fog one fog two fog three\n")])
+        let store = try await ProjectStore.load(from: project)
+        let matches = await search(store, "fog").matches
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+        let gate = SearchGate(holding: "fog", times: 1)
+        store.searchWillLandForTesting = { await gate.pass($0) }
+
+        await store.performSearch(query: "fog", options: SearchOptions())
+        await gate.untilHeld()   // the debounced search has read the old text
+        try await store.replaceMatch(matches[0], with: "mist!!")
+        XCTAssertEqual(listed(store, "c1").map(\.charRangeInDocument.location), [11, 19])
+        gate.release()
+        await store.searchTask?.value
+
+        XCTAssertEqual(listed(store, "c1").map(\.charRangeInDocument.location), [11, 19],
+                       "the debounced search that read the old text did not land over the refresh")
+        XCTAssertFalse(store.searchInProgress)
+    }
+}
+
+/// Holds the first `times` searches for `query` just before they land,
+/// until `release()`; `untilHeld()` returns once one is held. Main-actor
+/// only, so no step races another.
+@MainActor
+private final class SearchGate {
+    private let query: String
+    private var remaining: Int
+    private var held: CheckedContinuation<Void, Never>?
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var arrived = false
+
+    init(holding query: String, times: Int = 1) {
+        self.query = query
+        self.remaining = times
+    }
+
+    func pass(_ searched: String) async {
+        guard searched == query, remaining > 0 else { return }
+        remaining -= 1
+        arrived = true
+        arrival?.resume()
+        arrival = nil
+        await withCheckedContinuation { held = $0 }
+    }
+
+    func untilHeld() async {
+        if arrived { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+
+    func release() {
+        held?.resume()
+        held = nil
+    }
 }

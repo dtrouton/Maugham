@@ -407,9 +407,12 @@ public final class ProjectStore {
     /// The query and options the search field last asked for (nil once the
     /// overlay closes): what a Replace's own refresh searches.
     @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
-    /// The single Replace in flight, if any: the next one waits for it (and
-    /// its refresh) so it is judged against fresh results.
-    @ObservationIgnored var singleReplaceTail: Task<Void, Never>?
+    /// The Replace (single or Replace All) in flight, if any: the next one
+    /// waits for it and its refresh, so it is judged against fresh results.
+    @ObservationIgnored var replaceTail: Task<Void, Never>?
+    /// Test seam: awaited by every search after it has read the text and
+    /// before its results land, with the search's query. Nil in production.
+    @ObservationIgnored var searchWillLandForTesting: (@MainActor (String) async -> Void)?
 
     // MARK: - Project-scope task state (milestone-tasks)
     //

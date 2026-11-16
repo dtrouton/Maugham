@@ -359,6 +359,31 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two fog three")
     }
 
+    /// **A single Replace of an old match after Replace All is refused** —
+    /// the research arm's mirror of
+    /// `ProjectSearchReplaceTests.test_aSingleReplaceOfAnOldMatchAfterReplaceAllIsRefused`.
+    func test_aSingleReplaceOfAnOldNoteMatchAfterReplaceAllIsRefused() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("Tom met Tom.", in: projectStore)
+        let results = await search("Tom", projectStore)
+        projectStore.currentSearch = results
+        let old = researchMatches(results)
+        XCTAssertEqual(old.count, 2)
+
+        try await projectStore.replaceAll(in: results, with: "Tommy")
+
+        XCTAssertEqual(researchMatches(try XCTUnwrap(projectStore.currentSearch))
+                        .map(\.charRangeInDocument.location), [0, 10],
+                       "the results are fresh when Replace All returns")
+        let kept = versions(of: item).count
+        do {
+            try await projectStore.replaceMatch(old[1], with: "Tommy")
+            XCTFail("a match from before Replace All must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), "Tommy met Tommy.", "the text is as Replace All left it")
+        XCTAssertEqual(versions(of: item).count, kept, "and nothing more was kept")
+    }
+
     func test_replaceMatchWhoseQueryIsGoneFromTheNoteThrowsAndWritesNothing() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await note("The fog came in.", in: projectStore)

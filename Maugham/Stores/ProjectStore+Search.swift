@@ -36,6 +36,7 @@ extension ProjectStore {
 
             let engine = ProjectSearchEngine()
             let results = await engine.search(query: query, options: options, in: self)
+            await self.searchWillLandForTesting?(query)
 
             if Task.isCancelled { return }
 
@@ -55,6 +56,7 @@ extension ProjectStore {
         searchGeneration += 1
         let generation = searchGeneration
         let results = await ProjectSearchEngine().search(query: query, options: options, in: self)
+        await searchWillLandForTesting?(query)
         land(results, generation: generation)
     }
 
@@ -123,7 +125,7 @@ extension ProjectStore {
 
     /// What `replaceAll` did not do: the manuscript documents it left alone
     /// because this Mac may not write their text (ruling AI), by title.
-    public struct ReplaceAllOutcome: Equatable {
+    public struct ReplaceAllOutcome: Equatable, Sendable {
         public let leftAlone: [String]
     }
 
@@ -142,8 +144,9 @@ extension ProjectStore {
     /// match is re-found by the same ordinal in the text just read
     /// (`replacingResearchMatches`) and written through `writeReplacedResearchText`.
     ///
-    /// **Single Replaces run one at a time**, each waiting for the one before
-    /// it and its refresh, and **each ends by refreshing `currentSearch`**
+    /// **Replaces run one at a time** (`takingTheReplaceTurn`, shared with
+    /// Replace All), each waiting for the one before it and its refresh, and
+    /// **each ends by refreshing `currentSearch`**
     /// (`searchNow`, no debounce): a second click — even on the same match,
     /// even while the first is in flight — is judged against fresh results,
     /// where its stale match is gone, and throws
@@ -151,16 +154,40 @@ extension ProjectStore {
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
     ) async throws {
-        let previous = singleReplaceTail
-        let mine = Task {
-            await previous?.value
+        try await takingTheReplaceTurn {
             try await self.replaceOneMatch(match, with: replacement)
         }
-        singleReplaceTail = Task { _ = await mine.result }
-        try await mine.value
     }
 
-    /// One single Replace, once every earlier one has finished.
+    /// **Every Replace takes its turn** — a single Replace or Replace All
+    /// runs once the one issued before it has finished, refresh included,
+    /// in the order issued. A Replace that throws still ends its turn, so
+    /// the next one runs; its error goes to its own caller.
+    private func takingTheReplaceTurn<T: Sendable>(
+        _ body: @escaping @MainActor () async throws -> T
+    ) async throws -> T {
+        let previous = replaceTail
+        let mine = Task {
+            await previous?.value
+            return try await body()
+        }
+        replaceTail = Task { _ = await mine.result }
+        return try await mine.value
+    }
+
+    /// **The results, refreshed after a Replace** (`searchNow`, no
+    /// debounce): what the field asks for now (typing may have moved on),
+    /// else the current results' own query; nothing once the overlay has
+    /// closed.
+    private func refreshAfterReplace() async {
+        if let request = latestSearchRequest {
+            await searchNow(query: request.query, options: request.options)
+        } else if let current = currentSearch {
+            await searchNow(query: current.query, options: current.options)
+        }
+    }
+
+    /// One single Replace, once every earlier Replace has finished.
     private func replaceOneMatch(
         _ match: SearchMatch, with replacement: String
     ) async throws {
@@ -205,14 +232,8 @@ extension ProjectStore {
                 replacement: replacement, ordinals: IndexSet(integer: ordinal))
             try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
         }
-        // The results are never older than this Replace. What the field asks
-        // for now is searched (typing may have moved on); nothing, once the
-        // overlay has closed.
-        if let request = latestSearchRequest {
-            await searchNow(query: request.query, options: request.options)
-        } else if let current = currentSearch {
-            await searchNow(query: current.query, options: current.options)
-        }
+        // The results are never older than this Replace.
+        await refreshAfterReplace()
     }
 
     /// **A clicked match's ordinal** — its index among its document's
@@ -317,8 +338,30 @@ extension ProjectStore {
     /// **A manuscript document this Mac may not write is SKIPPED and named**
     /// (controller ruling AI), never replaced and never a part-way failure:
     /// the rest of the book is replaced, and the outcome lists what was left.
+    ///
+    /// **It takes its turn with the single Replaces** (`takingTheReplaceTurn`)
+    /// **and ends by refreshing `currentSearch`** — on a throw too, since a
+    /// Replace All that stops part-way may already have changed text — so a
+    /// single Replace of a match found before it finds that match gone.
     @discardableResult
     public func replaceAll(
+        in results: SearchResults, with replacement: String
+    ) async throws -> ReplaceAllOutcome {
+        try await takingTheReplaceTurn {
+            let outcome: ReplaceAllOutcome
+            do {
+                outcome = try await self.replaceEveryMatch(in: results, with: replacement)
+            } catch {
+                await self.refreshAfterReplace()
+                throw error
+            }
+            await self.refreshAfterReplace()
+            return outcome
+        }
+    }
+
+    /// Replace All's work, once every earlier Replace has finished.
+    private func replaceEveryMatch(
         in results: SearchResults, with replacement: String
     ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
