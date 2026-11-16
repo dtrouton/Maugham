@@ -789,7 +789,7 @@
   "fix": {
    "commit": "e060bcfc ff55afbf",
    "date": "2026-11-16",
-   "authorised_by": "RULING-63 — Denver, 2026-11-16, structured question, recommended option accepted",
+   "authorised_by": "RULING-40 for the whole-or-nothing half (a clash refuses the restore, or the gesture, before anything moves); that a duplicate id is refused rather than inserted as a second row is the coordinator's call, not a ruling's",
    "pinned_by": "ResearchMoverOutsideResearchTests.test_aRestoreOfAnItemAlreadyInTheProjectIsRefused and test_anUndoWhoseSecondEntryClashesRestoresNothing_andWorksOnceTheClashIsGone",
    "note": "Filed already built: hardening 2026-11-16 plan 2 (#142 T1), not a flip of an earlier VIOLATES."
   }

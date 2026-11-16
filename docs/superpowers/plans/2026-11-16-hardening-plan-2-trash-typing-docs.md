@@ -127,7 +127,7 @@ Branch `claude/hardening-2026-11-16`. Sources: `gh issue view 142`, `gh issue vi
 
 ### Task 6 — a second Replace waits for a fresh search; one ordinal, one sentence (#141 follow-up from plan 1 Task 3) [opus]
 
-> **Correction (2026-11-16, as built).** Replace All is on the chain, not untouched: single Replaces and Replace All run one at a time through one chain (`takingTheReplaceTurn`), each ends by refreshing `currentSearch` undebounced, a match whose id is not in the current results throws `.staleSearchMatch` ("That match has changed. Search again."), searches land only if newer, and `clearSearch` drops in-flight searches (commits 7407bf5b, 231d60c0). The text below is the original plan.
+> **Correction (2026-11-16, as built).** Replace All is on the chain, not untouched: single Replaces and Replace All run one at a time through one chain (`takingTheReplaceTurn`), each ends by refreshing `currentSearch` undebounced, a match whose id is not in the current results throws `.staleSearchMatch` ("That match has changed. Search again."), searches land only if newer, and `clearSearch` drops in-flight searches (commits 7407bf5b, 231d60c0). The plan's `researchOrdinal(of:)` is now `ordinal(of:)`, one helper for both arms. In the final fix wave a single Replace also refuses (and refreshes) when the text holds a different count of occurrences than the results listed, or a different line at the ordinal, found by the search engine's own matcher (`ClickedOccurrence.range`). The text below is the original plan.
 
 **Files:**
 - Modify: `Maugham/Views/ProjectSearchView.swift` (`runReplaceMatch`, the Replace controls), `Maugham/Stores/ProjectStore+Search.swift` (`performSearch`, `replaceMatch`, `researchOrdinal(of:)`, the manuscript arm's ordinal)

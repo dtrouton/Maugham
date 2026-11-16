@@ -277,7 +277,12 @@ final class ResearchNoteWritersTests: XCTestCase {
             .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
     }
 
-    func test_replaceMatchAfterAnEditInsertedBeforeItReplacesTheMatch_notTheOldOffsets() async throws {
+    // MARK: - Replace refuses when the occurrences changed since the search (final fix wave)
+
+    /// An edit on the clicked occurrence's own line changes what the result
+    /// showed, so Replace refuses rather than guess (final fix wave): the
+    /// edit stands, nothing is written, and the results are refreshed.
+    func test_replaceAfterAnEditOnTheClickedOccurrencesLineIsRefused() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await note("alpha beta alpha", in: projectStore)
         let results = await search("alpha", projectStore)
@@ -286,9 +291,97 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(matches.count, 2)
         queueEdit("xx alpha beta alpha", of: item, store)
 
+        try await assertReplaceIsRefused(matches[1], of: item, before: "alpha beta alpha",
+                                         leaving: "xx alpha beta alpha",
+                                         projectStore, store)
+    }
+
+    /// `match` is refused as stale; the note holds exactly `edited` (the
+    /// writer's queued edit, saved by Replace's flush and untouched by
+    /// Replace); the only version kept is the one the writer's own save kept
+    /// of `before` — Replace kept none of `edited` — and no open editor
+    /// re-read; and the results are refreshed to what the note holds now.
+    private func assertReplaceIsRefused(
+        _ match: SearchMatch, of item: ResearchItem, before: String, leaving edited: String,
+        _ projectStore: ProjectStore, _ store: DocumentStore,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        do {
+            try await projectStore.replaceMatch(match, with: "Z")
+            XCTFail("a Replace whose occurrences changed since the search must be refused",
+                    file: file, line: line)
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), edited, "Replace wrote nothing",
+                       file: file, line: line)
+        XCTAssertEqual(try versionTexts(of: item), [before],
+                       "only the writer's own save kept a version; Replace kept none", file: file, line: line)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads,
+                       "nothing went through the door, so no open editor re-reads", file: file, line: line)
+        let fresh = researchMatches(try XCTUnwrap(projectStore.currentSearch))
+        XCTAssertEqual(fresh.count, Self.occurrences(of: match, in: edited),
+                       "the refusal refreshed the results", file: file, line: line)
+        XCTAssertTrue(fresh.allSatisfy { $0.id != match.id }, file: file, line: line)
+    }
+
+    /// How many times the query `match` was found by occurs in `text` (the
+    /// tests' queries are plain words, case as written).
+    private static func occurrences(of match: SearchMatch, in text: String) -> Int {
+        let query = (match.linePreview as NSString).substring(with: match.matchRangeInLine)
+        return text.components(separatedBy: query).count - 1
+    }
+
+    /// One more "Anna." typed before the clicked (second) one: ordinal 1 now
+    /// names the line just typed — the same words, so only the count tells.
+    func test_replaceAfterAnOccurrenceWasAddedBeforeTheClickedOneIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna.\nAnna.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Anna.\nAnna.\nAnna.", of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna.\nAnna.",
+                                         leaving: "Anna.\nAnna.\nAnna.",
+                                         projectStore, store)
+    }
+
+    /// One occurrence added before the clicked one and one removed after
+    /// it: the count is as the search found it, but ordinal 1 now names a
+    /// line the result never showed.
+    func test_replaceAfterOneOccurrenceWasAddedAndAnotherRemovedIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna one.\nAnna two.\nAnna three.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 3)
+        let edited = "Anna one.\nAnna new.\nAnna two.\nBob three."
+        queueEdit(edited, of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna one.\nAnna two.\nAnna three.",
+                                         leaving: edited, projectStore, store)
+    }
+
+    /// The control: an edit elsewhere — a line typed above, moving every
+    /// offset and line number — neither adds nor removes an occurrence and
+    /// leaves the clicked line alone, so the clicked occurrence is replaced,
+    /// re-found in the text just read, never at the old offsets.
+    func test_replaceAfterAnEditThatLeavesTheOccurrencesAloneStillReplacesTheClickedOne() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna one.\nAnna two.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Prologue.\nAnna one.\nAnna two.", of: item, store)
+
         try await projectStore.replaceMatch(matches[1], with: "Z")
 
-        XCTAssertEqual(try text(of: item, projectStore), "xx alpha beta Z")
+        XCTAssertEqual(try text(of: item, projectStore), "Prologue.\nAnna one.\nZ two.")
+        XCTAssertEqual(try newestVersionText(of: item), "Prologue.\nAnna one.\nAnna two.",
+                       "a note's Replace still keeps what it replaced")
     }
 
     /// **A single Replace leaves the results fresh, and a stale match is

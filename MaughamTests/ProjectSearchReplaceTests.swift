@@ -206,6 +206,86 @@ final class ProjectSearchReplaceTests: XCTestCase {
         XCTAssertEqual(text, "mist!! one fog two fog three")
     }
 
+    // MARK: - Replace refuses when the occurrences changed since the search (final fix wave)
+
+    /// The writer's edit of `slug`, made through the document (the op log),
+    /// as typing makes it.
+    private func edit(_ project: URL, _ slug: String, to text: String) async throws {
+        let doc = try await Document.load(
+            url: project.appendingPathComponent("manuscript/\(slug).md"),
+            device: "test", session: "edit", presenter: nil)
+        doc.setFullText(text)
+        await doc.close()
+    }
+
+    /// `match` is refused as stale; `slug` holds exactly `edited` (the
+    /// writer's edit, untouched by Replace); and the refusal refreshed the
+    /// results to `fresh` matches, none of them the clicked one.
+    private func assertReplaceIsRefused(
+        _ match: SearchMatch, _ store: ProjectStore, _ project: URL, _ slug: String,
+        leaving edited: String, fresh: Int,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        do {
+            try await store.replaceMatch(match, with: "Z")
+            XCTFail("a Replace whose occurrences changed since the search must be refused",
+                    file: file, line: line)
+        } catch ProjectStoreError.staleSearchMatch {}
+        let text = try await displayText(of: project, slug)
+        XCTAssertEqual(text, edited, "Replace wrote nothing", file: file, line: line)
+        let listedNow = listed(store, slug)
+        XCTAssertEqual(listedNow.count, fresh, "the refusal refreshed the results", file: file, line: line)
+        XCTAssertTrue(listedNow.allSatisfy { $0.id != match.id }, file: file, line: line)
+    }
+
+    /// One more "Anna." typed before the clicked (second) one: ordinal 1 now
+    /// names the line just typed — the same words, so only the count tells.
+    func test_replaceAfterAnOccurrenceWasAddedBeforeTheClickedOneIsRefused() async throws {
+        let project = try await makeProject(manuscript: [("c1", "Anna.\nAnna.\n")])
+        let store = try await ProjectStore.load(from: project)
+        let matches = listedAfterSearch(await search(store, "Anna"))
+        XCTAssertEqual(matches.count, 2)
+        try await edit(project, "c1", to: "Anna.\nAnna.\nAnna.")
+
+        try await assertReplaceIsRefused(matches[1], store, project, "c1",
+                                         leaving: "Anna.\nAnna.\nAnna.", fresh: 3)
+    }
+
+    /// One occurrence added before the clicked one and one removed after
+    /// it: the count is as the search found it, but ordinal 1 now names a
+    /// line the result never showed.
+    func test_replaceAfterOneOccurrenceWasAddedAndAnotherRemovedIsRefused() async throws {
+        let project = try await makeProject(manuscript: [("c1", "Anna one.\nAnna two.\nAnna three.\n")])
+        let store = try await ProjectStore.load(from: project)
+        let matches = listedAfterSearch(await search(store, "Anna"))
+        XCTAssertEqual(matches.count, 3)
+        let edited = "Anna one.\nAnna new.\nAnna two.\nBob three."
+        try await edit(project, "c1", to: edited)
+
+        try await assertReplaceIsRefused(matches[1], store, project, "c1", leaving: edited, fresh: 3)
+    }
+
+    /// The control: a line typed above moves every offset and line number
+    /// but neither adds nor removes an occurrence and leaves the clicked
+    /// line alone, so the clicked occurrence is replaced.
+    func test_replaceAfterAnEditThatLeavesTheOccurrencesAloneStillReplacesTheClickedOne() async throws {
+        let project = try await makeProject(manuscript: [("c1", "Anna one.\nAnna two.\n")])
+        let store = try await ProjectStore.load(from: project)
+        let matches = listedAfterSearch(await search(store, "Anna"))
+        XCTAssertEqual(matches.count, 2)
+        try await edit(project, "c1", to: "Prologue.\nAnna one.\nAnna two.")
+
+        try await store.replaceMatch(matches[1], with: "Z")
+
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "Prologue.\nAnna one.\nZ two.")
+    }
+
+    /// `results`' matches, left to right.
+    private func listedAfterSearch(_ results: SearchResults) -> [SearchMatch] {
+        results.matches.sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+    }
+
     // MARK: - Replace All takes its turn and refreshes (fix round 1)
 
     /// **A single Replace of an old match after Replace All is refused**:

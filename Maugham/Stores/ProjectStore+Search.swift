@@ -105,8 +105,9 @@ extension ProjectStore {
     // from are never older than the last Replace; a match whose id is not in
     // them (it came from results a Replace has since refreshed) is refused
     // with `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
-    // occurrence. So is an ordinal past what the text just read holds (an
-    // edit since the search removed occurrences).
+    // occurrence. So is a text that changed since the search under the
+    // ordinal (`ClickedOccurrence.range`): a different count of occurrences,
+    // or a different line at the ordinal.
 
     // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
 
@@ -194,6 +195,8 @@ extension ProjectStore {
         // What the clicked match was found by — taken before any await.
         let query = currentSearch?.query ?? ""
         let options = currentSearch?.options ?? SearchOptions()
+        let url: URL?
+        let target: ResearchReplaceTarget?
         switch match.documentSource {
         case .manuscript:
             // With no live search there is nothing we can do safely.
@@ -201,36 +204,46 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError(
                     "No active search query for replaceMatch")
             }
-            // Which display-form occurrence to hit, left to right.
-            guard let ordinal = ordinal(of: match) else {
-                throw ProjectStoreError.staleSearchMatch
-            }
-            try await replaceInManuscript(
-                path: match.documentPath, title: match.documentTitle,
-                query: query, options: options,
-                replacement: replacement, occurrenceIndices: [ordinal])
-
+            url = nil
+            target = nil
         case .research:
             // A path that escapes the project is refused as unsafe first (tripwire 58).
-            let url = try resolvedProjectPathToChange(match.documentPath)
-            guard let target = researchReplaceTarget(at: match.documentPath) else {
+            url = try resolvedProjectPathToChange(match.documentPath)
+            target = researchReplaceTarget(at: match.documentPath)
+            guard target != nil else {
                 throw ProjectStoreError.fileSystemError(
                     "“\(match.documentTitle)” is not a Research note Maugham can change.")
             }
-            guard let ordinal = ordinal(of: match) else {
-                throw ProjectStoreError.staleSearchMatch
+        }
+        // Which occurrence to hit, and what the search showed of it — taken
+        // before any await.
+        guard let clicked = clickedOccurrence(match) else {
+            throw ProjectStoreError.staleSearchMatch
+        }
+        do {
+            if let url, let target {
+                // The editor's queued edits land first, so the bytes read below
+                // are the newest and the write cannot be undone by a later save.
+                try? await documentStore?.flushPendingSave()
+                await settleResearchEdits(target)
+                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+                // Re-found in the text just read, by its ordinal in the search —
+                // never the search-time offsets, which an edit since may have moved.
+                let updated = try Self.replacingResearchMatches(
+                    in: original, query: query, options: options,
+                    replacement: replacement, clicked: clicked)
+                try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
+            } else {
+                try await replaceInManuscript(
+                    path: match.documentPath, title: match.documentTitle,
+                    query: query, options: options,
+                    replacement: replacement, clicked: clicked)
             }
-            // The editor's queued edits land first, so the bytes read below
-            // are the newest and the write cannot be undone by a later save.
-            try? await documentStore?.flushPendingSave()
-            await settleResearchEdits(target)
-            let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
-            // Re-found in the text just read, by its ordinal in the search —
-            // never the search-time offsets, which an edit since may have moved.
-            let updated = try Self.replacingResearchMatches(
-                in: original, query: query, options: options,
-                replacement: replacement, ordinals: IndexSet(integer: ordinal))
-            try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
+        } catch {
+            // A refusal for text changed since the search (or a failed
+            // write) still leaves the results showing what the text holds.
+            await refreshAfterReplace()
+            throw error
         }
         // The results are never older than this Replace.
         await refreshAfterReplace()
@@ -249,26 +262,69 @@ extension ProjectStore {
             .firstIndex { $0.id == match.id }
     }
 
+    /// The clicked match as a single Replace will check it, from
+    /// `currentSearch`; nil when its id is not there (`ordinal(of:)`).
+    private func clickedOccurrence(_ match: SearchMatch) -> ClickedOccurrence? {
+        guard let ordinal = ordinal(of: match) else { return nil }
+        let count = (currentSearch?.matches ?? []).filter { $0.documentPath == match.documentPath }.count
+        return ClickedOccurrence(match: match, ordinal: ordinal, count: count)
+    }
+
+    /// **The occurrence a single Replace was clicked on** — its ordinal
+    /// among its document's matches in the results it came from, how many
+    /// there were, and the match itself (the line the result showed).
+    struct ClickedOccurrence {
+        let match: SearchMatch
+        let ordinal: Int
+        let count: Int
+
+        /// **The one rule both arms re-find by** (final fix wave): the
+        /// clicked occurrence's range in `text` — the text about to be
+        /// changed, in the form the search read — found by the search
+        /// engine's own matcher (`ProjectSearchEngine.matchesIn`), or
+        /// `.staleSearchMatch` when `text` no longer holds what the search
+        /// showed: a different number of occurrences (one added or removed
+        /// since), or, at the ordinal, a different line (`linePreview`) or
+        /// place in it (`matchRangeInLine`) — one added and another removed.
+        /// An edit elsewhere that leaves the occurrences and the clicked line
+        /// alone still replaces it.
+        @MainActor func range(in text: String, query: String, options: SearchOptions) throws -> NSRange {
+            let found = ProjectSearchEngine.matchesIn(
+                content: text, query: query, options: options,
+                documentPath: match.documentPath, documentTitle: match.documentTitle,
+                documentSource: match.documentSource)
+            guard found.count == count else { throw ProjectStoreError.staleSearchMatch }
+            let now = found[ordinal]
+            guard now.linePreview == match.linePreview,
+                  now.matchRangeInLine == match.matchRangeInLine else {
+                throw ProjectStoreError.staleSearchMatch
+            }
+            return now.charRangeInDocument
+        }
+    }
+
     /// **A research file's text with its matches replaced, re-found in
     /// `stored`** — the text Replace has just read — never at the search's
     /// offsets, which an edit made since (or an earlier Replace) may have
-    /// moved (#141 N2). `ordinals` names which occurrences, left to right;
-    /// nil replaces every match `stored` holds. An ordinal past what `stored`
-    /// holds is a stale match: it throws `.staleSearchMatch`, and the caller
-    /// writes nothing.
+    /// moved (#141 N2). `clicked` names the one occurrence a single Replace
+    /// changes (`ClickedOccurrence.range`, which throws `.staleSearchMatch`
+    /// when `stored` no longer holds what the search showed, and the caller
+    /// writes nothing); nil replaces every match `stored` holds.
+    ///
+    /// The search read `MarkdownDisplayFilter.stripAnchors(stored)`; a note
+    /// carries no anchors, so that is `stored` itself, and the check runs on
+    /// the very text replaced in. A note that did carry one on the clicked
+    /// line, or one holding the query, is refused by the same check.
     private static func replacingResearchMatches(
         in stored: String, query: String, options: SearchOptions,
-        replacement: String, ordinals: IndexSet?
+        replacement: String, clicked: ClickedOccurrence?
     ) throws -> String {
-        let ranges = matchRanges(in: stored, query: query, options: options)
-        if let last = ordinals?.last, last >= ranges.count {
-            throw ProjectStoreError.staleSearchMatch
-        }
-        let targets = ordinals ?? IndexSet(integersIn: ranges.indices)
+        let ranges = try clicked.map { [try $0.range(in: stored, query: query, options: options)] }
+            ?? matchRanges(in: stored, query: query, options: options)
         // Right-to-left so earlier offsets aren't shifted by later edits.
         var ns = stored as NSString
-        for index in targets.reversed() {
-            ns = ns.replacingCharacters(in: ranges[index], with: replacement) as NSString
+        for range in ranges.reversed() {
+            ns = ns.replacingCharacters(in: range, with: replacement) as NSString
         }
         return ns as String
     }
@@ -376,12 +432,12 @@ extension ProjectStore {
                   let source = matches.first?.documentSource else { continue }
             switch source {
             case .manuscript:
-                // Replace ALL occurrences (occurrenceIndices: nil).
+                // Replace ALL occurrences (clicked: nil).
                 do {
                     try await replaceInManuscript(
                         path: path, title: matches[0].documentTitle,
                         query: results.query, options: results.options,
-                        replacement: replacement, occurrenceIndices: nil)
+                        replacement: replacement, clicked: nil)
                 } catch let refused as ManuscriptReplaceRefused {
                     leftAlone.append(contentsOf: refused.titles)
                 }
@@ -399,7 +455,7 @@ extension ProjectStore {
                 // Every match the text just read holds, not the search-time list.
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: results.query, options: results.options,
-                    replacement: replacement, ordinals: nil)
+                    replacement: replacement, clicked: nil)
                 // Nothing left to replace (the query is gone since the
                 // search): the file is skipped and nothing is written.
                 guard updated != original else { continue }
@@ -412,8 +468,8 @@ extension ProjectStore {
     /// Apply a query→replacement edit to a manuscript document through the op
     /// log. Holds the document through the door-checked route
     /// (`openManuscriptForWriting`); re-finds occurrences in `displayText`
-    /// (display coordinates, respecting `options`); replaces either the given
-    /// ordinal occurrences (`occurrenceIndices`) or all of them (nil); commits
+    /// (display coordinates, respecting `options`); replaces either the
+    /// clicked occurrence (`clicked`) or all of them (nil); commits
     /// via `setFullText`; persists + closes a transiently-loaded doc.
     private func replaceInManuscript(
         path: String,
@@ -421,7 +477,7 @@ extension ProjectStore {
         query: String,
         options: SearchOptions,
         replacement: String,
-        occurrenceIndices: [Int]?
+        clicked: ClickedOccurrence?
     ) async throws {
         let held = try await openManuscriptForWriting(
             path: path, title: title, session: "find-replace")
@@ -444,7 +500,7 @@ extension ProjectStore {
         do {
             try applyReplacement(
                 to: held.doc, query: query, options: options,
-                replacement: replacement, occurrenceIndices: occurrenceIndices)
+                replacement: replacement, clicked: clicked)
         } catch {
             thrown = error
         }
@@ -885,45 +941,28 @@ extension ProjectStore {
     }
 
     /// Pure-in-memory replacement step: re-find occurrences in the doc's CURRENT
-    /// display form, replace the requested ordinals (or all), and commit via
-    /// `setFullText`. Throws the stale-match guard (`.staleSearchMatch`). Persistence/teardown is the
+    /// display form, replace the clicked one (or all), and commit via
+    /// `setFullText`. The clicked one is found by `ClickedOccurrence.range`,
+    /// which throws `.staleSearchMatch` — nothing committed — when the text
+    /// no longer holds what the search showed. Persistence/teardown is the
     /// caller's responsibility (see `replaceInManuscript`).
     private func applyReplacement(
         to doc: Document,
         query: String,
         options: SearchOptions,
         replacement: String,
-        occurrenceIndices: [Int]?
+        clicked: ClickedOccurrence?
     ) throws {
-        // Re-find occurrences in DISPLAY form (anchors stripped) so the ranges
-        // are valid coordinates for `setFullText`.
+        // Re-find occurrences in DISPLAY form (anchors stripped) — the form
+        // the search read — so the ranges are valid coordinates for
+        // `setFullText`.
         let display = doc.displayText
-        let ranges = Self.matchRanges(
-            in: display, query: query, options: options)
-
-        // Stale-match guard: if the live display form has fewer occurrences
-        // than the search expected to address, the text changed since the
-        // search. A single-ordinal replace that targets a missing index is
-        // refused, and the writer is told to search again.
-        if let indices = occurrenceIndices {
-            for idx in indices where idx >= ranges.count {
-                throw ProjectStoreError.staleSearchMatch
-            }
-        }
-
-        // Determine which occurrences to replace.
-        let targetIndices: [Int]
-        if let indices = occurrenceIndices {
-            targetIndices = indices
-        } else {
-            targetIndices = Array(ranges.indices)
-        }
+        let ranges = try clicked.map { [try $0.range(in: display, query: query, options: options)] }
+            ?? Self.matchRanges(in: display, query: query, options: options)
 
         // Apply right-to-left so earlier offsets aren't shifted by later edits.
         var ns = display as NSString
-        for idx in targetIndices.sorted(by: >) {
-            guard idx < ranges.count else { continue }
-            let r = ranges[idx]
+        for r in ranges.reversed() {
             guard r.location + r.length <= ns.length else { continue }
             ns = ns.replacingCharacters(in: r, with: replacement) as NSString
         }

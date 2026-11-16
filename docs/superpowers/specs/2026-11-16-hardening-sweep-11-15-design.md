@@ -134,7 +134,10 @@ skew. One helper, used by both arms; the manuscript arm is untouched.
 Search again."); the helper is `ordinal(of:)`, over the current results, and the manuscript arm uses
 it too. Single Replaces and Replace All run one at a time through one chain, each ending with an
 undebounced refresh of `currentSearch`; searches land only if newer, and `clearSearch` drops those in
-flight.
+flight. In the final fix wave a single Replace re-finds its occurrence with the search engine's own
+matcher (`ClickedOccurrence.range`, both arms) and refuses with `.staleSearchMatch`, refreshing the
+results, when the text holds a different count of occurrences than the results listed, or a
+different line at the ordinal.
 
 ### 3. An open note or card hears an outside change (#141 N3, R-E; closes N9's notice)
 
