@@ -48,8 +48,11 @@ final class AutosaveOffMainTests: XCTestCase {
         let doc = try await makeDoc()
         let gate = WriteGate()
         doc.autosaveWriteHook = gate.hook
+        doc.autosaveRenderHook = gate.renderHook
         doc.setFullText("Written from a worker thread.")
         try await doc.performAutosave()
+        XCTAssertEqual(gate.renderMainThreadFlags, [false],
+            "the render must run off the main thread")
         XCTAssertEqual(gate.mainThreadFlags, [false],
             "the .md write must run off the main thread")
         XCTAssertEqual(try onDisk(doc), cleanRender(doc))
@@ -336,9 +339,19 @@ private final class WriteGate: @unchecked Sendable {
     var enteredWrites: Int { lock.withLock { entered } }
     var completedWrites: Int { lock.withLock { completed } }
     var mainThreadFlags: [Bool] { lock.withLock { flags } }
+    private var renderFlags: [Bool] = []
+    var renderMainThreadFlags: [Bool] { lock.withLock { renderFlags } }
 
     var hook: @Sendable (Data, URL) throws -> Void {
         { [self] data, url in try self.write(data, url) }
+    }
+
+    /// For `Document.autosaveRenderHook`: records the render's thread.
+    var renderHook: @Sendable () -> Void {
+        { [self] in
+            let onMain = Thread.isMainThread
+            lock.withLock { renderFlags.append(onMain) }
+        }
     }
 
     private func write(_ data: Data, _ url: URL) throws {

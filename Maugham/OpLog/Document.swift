@@ -864,6 +864,10 @@ public final class Document {
     /// write through it. Nil in production.
     @ObservationIgnored internal var autosaveWriteHook: (@Sendable (Data, URL) throws -> Void)?
 
+    /// Test seam: called inside the off-main render closure, so a test can
+    /// prove the render runs off the main thread. Nil in production.
+    @ObservationIgnored internal var autosaveRenderHook: (@Sendable () -> Void)?
+
     /// How many autosaves have been queued. Test-observable: lets a test know
     /// a second call is waiting behind a held write.
     @ObservationIgnored internal private(set) var autosaveRunsQueued = 0
@@ -952,8 +956,10 @@ public final class Document {
         let sequence = self.sequence
         // ADR 0019: the on-disk file is the clean display form (no ¶id / t-
         // anchors). The op log + in-memory NSTextStorage keep the anchors.
+        let renderHook = self.autosaveRenderHook
         let bytes = try await Self.offMain {
-            MarkdownDisplayFilter.stripAnchors(
+            renderHook?()
+            return MarkdownDisplayFilter.stripAnchors(
                 Materializer.materialize(paragraphs: paragraphs, sequence: sequence))
         }
         // The render suspended: ask again before anything reaches the disk.
@@ -1791,6 +1797,10 @@ public final class Document {
     /// way one lands during its real suspensions. Nil in production.
     @ObservationIgnored internal var externalLogChangeWillBegin: (@MainActor () async -> Void)?
 
+    /// Test seam: awaited after close's seals and before its final drain, so
+    /// a test can land a late autosave there. Nil in production.
+    @ObservationIgnored internal var closeWillFinishForTesting: (@MainActor () async -> Void)?
+
     private func performClose() async {
         closeBodyRuns += 1
         await closeBodyWillRun?()
@@ -1886,21 +1896,6 @@ public final class Document {
         await autosaveScheduler.flush()
         await drainAutosaveRuns()
 
-        // Issue 2a: a CLEAN close leaves NO pending file. The burst flush above
-        // already persisted every un-bursted change as real ops and cleared the
-        // pending buffer; the trailing autosave then re-created a
-        // `{sequence, changes: []}` mirror that has ZERO recovery value now — but
-        // if left on disk it is a stale ordering assertion that a peer's
-        // while-closed delete/reorder (syncing in before the next open) could
-        // reawaken. Remove it. On a FAILED burst flush the pending file is the
-        // sole recovery source (re-persisted in the catch above) — keep it.
-        // P3a Task 8's second clause: a Document that declined to READ its
-        // pending file must not delete it either — those are the writer's
-        // un-bursted keystrokes, waiting for a load that may fold them.
-        if burstFlushSucceeded && mayWriteThePendingFile {
-            try? await pending.clear()
-        }
-
         // Seal-on-close, chain half FIRST (signed op log P1): sign this
         // device's own live tail before the rotation below may turn it into an
         // immutable segment, so a sealed segment ENDS on a seal line and its
@@ -1951,9 +1946,9 @@ public final class Document {
         _shingleSetCache.clear()
 
         // Husk (mirror of EditorCoordinator.detach()): the disk truth is now
-        // durably written above (burst flushed, trailing autosave flushed,
-        // pending cleared, tail sealed), so drop the O(doc) in-memory state.
-        // This is the load-bearing memory win — a closed Document's `@State`
+        // durably written (burst flushed, trailing autosave flushed, tail
+        // sealed; pending cleared just below), so drop the O(doc) in-memory
+        // state. This is the load-bearing memory win — a closed Document's `@State`
         // box can stay retained by a dead SwiftUI scene graph
         // (`StoredLocation<Optional<Document>>` under `GraphHost.sharedGraph`;
         // window close never dismantles it and we can't nil another view's
@@ -1966,8 +1961,27 @@ public final class Document {
         // above: no suspension separates the drain's last check from
         // `isClosed`, so nothing is in flight, and nothing queued later passes
         // `performAutosave`'s guard.
+        if let closeWillFinish = closeWillFinishForTesting { await closeWillFinish() }
         await drainAutosaveRuns()
         isClosed = true
+
+        // Issue 2a: a CLEAN close leaves NO pending file. The burst flush above
+        // already persisted every un-bursted change as real ops and cleared the
+        // pending buffer; the trailing autosave then re-created a
+        // `{sequence, changes: []}` mirror that has ZERO recovery value now — but
+        // if left on disk it is a stale ordering assertion that a peer's
+        // while-closed delete/reorder (syncing in before the next open) could
+        // reawaken. Remove it. On a FAILED burst flush the pending file is the
+        // sole recovery source (re-persisted in the catch above) — keep it.
+        // P3a Task 8's second clause: a Document that declined to READ its
+        // pending file must not delete it either — those are the writer's
+        // un-bursted keystrokes, waiting for a load that may fold them.
+        // AFTER `isClosed` (#143 Q2): an autosave queued during the seals
+        // re-creates the mirror, so only a clear no run can follow removes it:
+        // from here on `performAutosave` and `runAutosave` stop at `isClosed`.
+        if burstFlushSucceeded && mayWriteThePendingFile {
+            try? await pending.clear()
+        }
         huskInMemoryState()
     }
 
