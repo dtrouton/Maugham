@@ -638,6 +638,22 @@ extension ProjectStore {
         }
     }
 
+    /// **Whether `item`'s file (a group's folder) is already gone from disk**
+    /// — deleted in Finder, say. RULING-63: such a row is still deletable, and
+    /// is trashed as the ROW (a manifest-only entry), so the gesture completes
+    /// and ⌘⌥Z puts the row back. A group is missing only if its folder is;
+    /// its rows go with it in the entry. The leaf is not followed (a dangling
+    /// link is there, and moves as a link), and an old-style iCloud placeholder
+    /// (`.<name>.icloud`) is a file still coming down, never a missing one
+    /// (tripwire 18): it takes the ordinary route.
+    private func namesAMissingFile(_ item: ResearchItem) -> Bool {
+        guard item.kind != .link, let path = item.path, !path.isEmpty,
+              let fileURL = try? resolvedProjectPathToChange(path) else { return false }
+        let fm = FileManager.default
+        return (try? fm.attributesOfItem(atPath: fileURL.path)) == nil
+            && !Self.hasICloudPlaceholder(for: fileURL)
+    }
+
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -650,9 +666,10 @@ extension ProjectStore {
         // A link has no file; a row naming a file outside every research root
         // must not move that file (it is the manuscript or Maugham's own), so
         // both are trashed as the ROW only: the entry is the record, the file
-        // stays exactly where it is, and a restore puts the row back.
+        // stays exactly where it is, and a restore puts the row back. A row
+        // whose file is already gone has nothing to move either (RULING-63).
         try refuseTrashing(item)
-        if item.kind == .link || namesAFileOutsideResearch(item) {
+        if item.kind == .link || namesAFileOutsideResearch(item) || namesAMissingFile(item) {
             let metadata = try JSONEncoder().encode(item)
             entry = try await trashStore.recordManifestOnlyTrash(
                 originalRelativePath: item.path ?? "",
@@ -720,17 +737,57 @@ extension ProjectStore {
             titles.append(item.title)
         }
         var entries: [TrashEntry] = []
-        for id in effective {
-            if let entry = try await trashResearchItemCore(id: id) {
-                entries.append(entry)
+        var trashed: [String] = []
+        for (id, title) in zip(effective, titles) {
+            do {
+                if let entry = try await trashResearchItemCore(id: id) {
+                    entries.append(entry)
+                }
+                trashed.append(title)
+            } catch {
+                // RULING-63 (RULING-52's route): nothing landed, nothing to say
+                // beyond the item's own error; something landed, and it is
+                // saved, shown, armed and named beside what was not deleted.
+                guard !trashed.isEmpty else { throw error }
+                throw await settleDeletedInPart(
+                    entries: entries, trashed: trashed, failed: title, underlying: error)
             }
         }
         manifest.modified = Date()
         try await saveManifest()
         trashEntries = (try? await trashStore.list()) ?? trashEntries
-        armDeletion(
-            trashIds: entries.map(\.id),
-            label: titles.count == 1 ? (titles.first ?? "") : "\(titles.count) items")
+        armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(titles))
+    }
+
+    /// ⌘⌥Z's name for a gesture over `titles`: the one title, or "N items".
+    private static func deletionLabel(_ titles: [String]) -> String {
+        titles.count == 1 ? (titles.first ?? "") : "\(titles.count) items"
+    }
+
+    /// **A delete gesture that stopped partway, settled** (RULING-63): the
+    /// rows already trashed are saved as gone, the pane is refreshed and ⌘⌥Z
+    /// is armed with exactly the entries that landed — armed before the save,
+    /// so a save that fails still leaves the route back — and the error to
+    /// throw names both halves. A save that fails throws its own error with
+    /// the trashed titles named in it.
+    private func settleDeletedInPart(
+        entries: [TrashEntry], trashed: [String], failed: String, underlying: Error
+    ) async -> Error {
+        let partial = ProjectStoreError.deletedInPart(
+            trashed: trashed, failed: failed, underlying: underlying.localizedDescription)
+        manifest.modified = Date()
+        armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(trashed))
+        var saveError: Error?
+        do { try await saveManifest() } catch { saveError = error }
+        trashEntries = (try? await trashStore.list()) ?? trashEntries
+        guard let saveError else { return partial }
+        let saveFailure: String
+        if case .manifestUnwritable(let detail)? = saveError as? ProjectStoreError {
+            saveFailure = detail
+        } else {
+            saveFailure = saveError.localizedDescription
+        }
+        return ProjectStoreError.manifestUnwritable("\(saveFailure). \(partial.errorDescription ?? "")")
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree

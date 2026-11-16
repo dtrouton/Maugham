@@ -118,6 +118,13 @@ public enum ProjectStoreError: Error, Equatable {
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
     case profileFromNewerBuild(String)
+    /// RULING-63 (RULING-52's route): a delete gesture that failed partway.
+    /// `trashed` is what reached the Trash before `failed` could not be
+    /// deleted (`underlying` is that failure's own words); the manifest is
+    /// saved without the trashed rows and ⌘⌥Z is armed with exactly them.
+    /// Never thrown with `trashed` empty: a gesture whose first item fails
+    /// changed nothing, and rethrows that item's error as it was.
+    case deletedInPart(trashed: [String], failed: String, underlying: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -177,6 +184,13 @@ extension ProjectStoreError: LocalizedError {
             return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
+        case .deletedInPart(let trashed, let failed, let underlying):
+            let named = trashed.map { "“\($0)”" }.joined(separator: ", ")
+            // The underlying sentence's own full stop would double this one's.
+            let reason = underlying.hasSuffix(".") ? String(underlying.dropLast()) : underlying
+            return "Moved \(trashed.count) to the Trash (\(named)), then “\(failed)” could not be "
+                + "deleted: \(reason). ⌘⌥Z puts "
+                + (trashed.count == 1 ? "it" : "the \(trashed.count)") + " back."
         }
     }
 }

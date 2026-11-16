@@ -338,6 +338,9 @@ extension ProjectStore {
     private func restoreStructureItem(
         _ decoded: StructureItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
+        try Self.refuseADuplicate(
+            of: TreeWalk.collectIds(in: [decoded]), amongst: TreeWalk.collectIds(in: manifest.structure),
+            titled: { id in TreeWalk.find(id: id, in: [decoded])?.title ?? decoded.title })
         var item = decoded
         let targetParentId = survivingParentId(
             pending?.originalParentId, exists: { findItem(id: $0, in: manifest.structure) != nil })
@@ -376,6 +379,9 @@ extension ProjectStore {
     private func restoreResearchItem(
         _ decoded: ResearchItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
+        try Self.refuseADuplicate(
+            of: TreeWalk.collectIds(in: [decoded]), amongst: TreeWalk.collectIds(in: manifest.research),
+            titled: { id in TreeWalk.find(id: id, in: [decoded])?.title ?? decoded.title })
         var item = decoded
         var targetParentId = survivingParentId(
             pending?.originalParentId,
@@ -451,6 +457,19 @@ extension ProjectStore {
         siblings.insert(item, at: clampedIndex)
         replaceResearchChildren(parentId: targetParentId, with: siblings)
         return report
+    }
+
+    /// **A restore never makes a second row with an id the tree already
+    /// holds** — a row put back by hand, or by a sync, while its entry sat in
+    /// the Trash. Asked of every id the entry carries, before anything moves,
+    /// so a refusal restores nothing and the entry stays whole.
+    private static func refuseADuplicate(
+        of ids: [String], amongst present: [String], titled title: (String) -> String
+    ) throws {
+        let inTree = Set(present)
+        if let clash = ids.first(where: inTree.contains) {
+            throw TrashStore.TrashError.alreadyInProject(title: title(clash))
+        }
     }
 
     /// Put a kept prior version back, and give it a ROW (whole-branch review,

@@ -128,9 +128,10 @@ public struct TrashStore {
     /// The row for an entry Maugham wrote and cannot read back, or nil when the
     /// folder holds NOTHING but its unreadable metadata.
     ///
-    /// The empty case is the other half of the same duty: a refused or
-    /// interrupted move that never got as far as moving the file leaves an empty
-    /// folder, and a row promising "contents preserved" over it would be its own
+    /// The empty case is the other half of the same duty: a move interrupted
+    /// before the file moved (a crash between the mint and the move — a move
+    /// that THROWS takes its folder back, `moveToTrash`) leaves an empty folder,
+    /// and a row promising "contents preserved" over it would be its own
     /// misrepresentation. What is on disk decides, not what the folder is called.
     static func unreadableEntry(at folder: URL, trashedAt: Date) -> TrashEntry? {
         let contents = (try? FileManager.default.contentsOfDirectory(
@@ -387,14 +388,23 @@ public struct TrashStore {
         // fileRelativePath ultimately traces back to a manifest-derived path
         // (item.path / a StructureItem's relative path) — validate it stays
         // inside the project root before touching the filesystem (A5).
-        let source: URL
+        //
+        // **A throw before the move landed takes back the folder it minted**
+        // (RULING-63): a refused path or a failed move used to leave an empty,
+        // meta-less folder under `.trash/` that no surface lists.
         do {
-            source = try SafeRelativePath.resolveForChange(fileRelativePath, under: projectURL)
+            let source: URL
+            do {
+                source = try SafeRelativePath.resolveForChange(fileRelativePath, under: projectURL)
+            } catch {
+                throw TrashError.unsafeRelativePath(fileRelativePath, underlying: error)
+            }
+            let dest = entryFolder.appendingPathComponent(source.lastPathComponent)
+            try fm.moveItem(at: source, to: dest)
         } catch {
-            throw TrashError.unsafeRelativePath(fileRelativePath, underlying: error)
+            Self.removeIfEmpty(entryFolder)
+            throw error
         }
-        let dest = entryFolder.appendingPathComponent(source.lastPathComponent)
-        try fm.moveItem(at: source, to: dest)
 
         try writeMeta(
             TrashMeta(
@@ -417,6 +427,16 @@ public struct TrashStore {
             subject: subject,
             carriesFile: true,
             trashedBy: trashedBy)
+    }
+
+    /// Remove an entry folder this store minted moments ago, ONLY while it is
+    /// still empty: anything in it — a move that got partway — is the
+    /// writer's, and stays where the sweep and the pane can reach it.
+    private static func removeIfEmpty(_ entryFolder: URL) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: entryFolder.path),
+              contents.isEmpty else { return }
+        try? fm.removeItem(at: entryFolder)
     }
 
     /// Record a trash entry whose contents are handed over as TEXT rather than
@@ -638,6 +658,10 @@ public struct TrashStore {
         /// UUID. Unreachable in practice; a silent share of someone else's
         /// folder is what this refuses to do instead.
         case couldNotMintEntry(String)
+        /// A restore whose row (or a row inside it) has an id the project's
+        /// tree already holds — a second copy of it would be two rows the
+        /// tree can no longer tell apart. Refused before anything moves.
+        case alreadyInProject(title: String)
 
         public var errorDescription: String? {
             switch self {
@@ -652,6 +676,8 @@ public struct TrashStore {
                     + "record of what it was can’t be read."
             case .couldNotMintEntry(let stem):
                 return "Maugham could not make a trash entry for \(stem)."
+            case .alreadyInProject(let title):
+                return "“\(title)” is already in the project; nothing was restored."
             }
         }
     }

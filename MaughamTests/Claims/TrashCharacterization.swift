@@ -162,9 +162,9 @@ final class TrashCharacterization: XCTestCase {
     }
 
     /// M3-TR-007 / M3-TR-008 — an unsafe relative path is refused BEFORE the
-    /// filesystem is touched, but the entry folder was already created and is
-    /// left behind.
-    func test_moveToTrash_refusesUnsafePaths_butLeavesTheEntryFolderBehind() async throws {
+    /// writer's file is touched, and the entry folder minted for it is removed
+    /// again (RULING-63, hardening 11-16 plan 2 task 1): nothing is left behind.
+    func test_moveToTrash_refusesUnsafePaths_andLeavesNoEntryFolder() async throws {
         let cases: [(String, SafeRelativePath.PathError)] = [
             ("/etc/passwd", .absolutePath("/etc/passwd")),
             ("../escape.md", .escapesRoot("../escape.md")),
@@ -188,20 +188,16 @@ final class TrashCharacterization: XCTestCase {
                 XCTAssertEqual(path, bad)
                 XCTAssertEqual(underlying as? SafeRelativePath.PathError, expected)
             }
-            // M3-TR-008: the refusal still litters .trash/ with an empty folder.
-            XCTAssertEqual(trashFolders(in: p).count, 1,
-                           "a refused move still leaves its entry folder for \(bad.debugDescription)")
-            let folder = p.appendingPathComponent(".trash/\(trashFolders(in: p)[0])")
-            XCTAssertEqual(
-                try FileManager.default.contentsOfDirectory(at: folder,
-                                                            includingPropertiesForKeys: nil).count, 0,
-                "the leftover folder is empty — no file, no meta.json")
+            // M3-TR-008: the refusal leaves .trash/ as it found it.
+            XCTAssertEqual(trashFolders(in: p), [],
+                           "a refused move leaves no entry folder for \(bad.debugDescription)")
         }
     }
 
-    /// M3-TR-009 / M3-TR-010 — a source that is not there throws a Cocoa error and
-    /// leaves an empty, meta-less entry folder that `list()` cannot see.
-    func test_moveToTrash_missingSource_leavesAnEntryFolderListCannotSee() async throws {
+    /// M3-TR-009 / M3-TR-010 — a source that is not there throws a Cocoa error,
+    /// and the entry folder minted for it is removed again: no meta-less folder
+    /// is left for `list()` not to see (RULING-63).
+    func test_moveToTrash_missingSource_throwsAndLeavesNoEntryFolder() async throws {
         let p = try project()
         let store = TrashStore(projectURL: p)
         do {
@@ -214,10 +210,9 @@ final class TrashCharacterization: XCTestCase {
         } catch let error as NSError {
             XCTAssertEqual(error.domain, NSCocoaErrorDomain)
         }
-        XCTAssertEqual(trashFolders(in: p).count, 1)
+        XCTAssertEqual(trashFolders(in: p), [], "no entry folder is left on disk")
         let visible = try await store.list()
-        XCTAssertEqual(visible.count, 0,
-                       "the folder exists on disk and is invisible to list()")
+        XCTAssertEqual(visible.count, 0)
     }
 
     /// M3-TR-011 / M3-TR-012 — fixed under RULING-4, 2026-08-09. Two deletions
@@ -755,9 +750,10 @@ final class TrashCharacterization: XCTestCase {
     }
 
     /// M3-TR-034 — a structure item with no path cannot be deleted at all: the
-    /// empty path is refused by the path guard, the row survives, and an empty
-    /// trash folder is left behind.
-    func test_deleteStructureItem_withNoPath_throws_andLeavesTheRowAndALitterFolder() async throws {
+    /// empty path is refused by the path guard and the row survives; the entry
+    /// folder minted for it is removed again (RULING-63), so `.trash/` is
+    /// left as it was.
+    func test_deleteStructureItem_withNoPath_throws_andLeavesTheRowAndNoFolder() async throws {
         let url = try makeNestedProject()
         let store = try await ProjectStore.load(from: url)
         XCTAssertTrue(store.manifest.structure.contains { $0.id == "doc-pathless" })
@@ -774,7 +770,7 @@ final class TrashCharacterization: XCTestCase {
         }
         XCTAssertTrue(store.manifest.structure.contains { $0.id == "doc-pathless" },
                       "the row survives the failed delete")
-        XCTAssertEqual(trashFolders(in: url).count, 1, "and an empty entry folder is left")
+        XCTAssertEqual(trashFolders(in: url), [], "and no entry folder is left")
     }
 
     /// M3-TR-035 / M3-TR-036 — fixed under RULING-45 and RULING-40,
