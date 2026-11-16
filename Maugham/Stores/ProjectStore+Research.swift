@@ -836,18 +836,17 @@ extension ProjectStore {
     /// so a save that fails still leaves the route back — and the error to
     /// throw names both halves. A row removed with no entry (`removed`) is
     /// named apart and never counted as what ⌘⌥Z puts back; with no entry at
-    /// all, ⌘⌥Z is left holding whatever it held before (an empty arm would
-    /// clear it). A save that fails throws its own error with the titles
-    /// named in it.
+    /// all, ⌘⌥Z is cleared, as a clean delete that makes no entry clears it
+    /// (M3-TR-036): it never points at an earlier, unrelated gesture. Only
+    /// reached once something changed. A save that fails throws its own
+    /// error with the titles named in it.
     private func settleDeletedInPart(
         entries: [TrashEntry], trashed: [String], removed: [String], failed: String, underlying: Error
     ) async -> Error {
         let partial = ProjectStoreError.deletedInPart(
             trashed: trashed, removed: removed, failed: failed, underlying: underlying.localizedDescription)
         manifest.modified = Date()
-        if !entries.isEmpty {
-            armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(trashed))
-        }
+        armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(trashed))
         var saveError: Error?
         do { try await saveManifest() } catch { saveError = error }
         trashEntries = (try? await trashStore.list()) ?? trashEntries

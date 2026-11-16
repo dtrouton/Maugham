@@ -584,9 +584,10 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
     }
 
     /// The same, when NOTHING that landed has an entry: there is nothing for
-    /// ⌘⌥Z to put back, so the sentence offers none, and the gesture armed
-    /// before is left as it was rather than cleared.
-    func test_aPartwayFailureWithNoEntryLeavesTheEarlierUndoArmed() async throws {
+    /// ⌘⌥Z to put back, so the sentence offers none — and, as a clean delete
+    /// that makes no entry does (M3-TR-036), the gesture armed before is
+    /// cleared rather than left pointing at an earlier, unrelated deletion.
+    func test_aPartwayFailureWithNoEntryClearsTheEarlierUndo_asACleanDeleteDoes() async throws {
         let (url, store) = try await novel()
         let earlier = try await store.addResearchTextNote(parentId: nil, title: "Earlier")
         try await store.deleteResearchItems(ids: [earlier.id])
@@ -609,7 +610,8 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
             XCTAssertTrue(message.hasPrefix("Removed “Bare”, then “Note Two” could not be deleted: "), message)
             XCTAssertFalse(message.contains("⌘⌥Z"), message)
         }
-        XCTAssertEqual(store.lastDeletion, armedBefore, "the earlier gesture is still what ⌘⌥Z restores")
+        XCTAssertEqual(armedBefore.label, "Earlier", "the premise: an earlier gesture was armed")
+        XCTAssertNil(store.lastDeletion, "⌘⌥Z no longer points at the earlier, unrelated gesture")
         let onDisk = try await researchIdsOnDisk(url)
         XCTAssertFalse(onDisk.contains(bare.id), "the removed row is saved as gone")
         XCTAssertTrue(onDisk.contains(note.id))
