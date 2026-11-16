@@ -298,6 +298,13 @@ extension ProjectStore {
         let device = DeviceIdentity.author.slug
         await Task.detached {
             versions.sweepOrphans(liveItemIds: live, device: device, minimumAge: TrashStore.expiry, now: now)
+            // The note records and table sidecars: one file per item, no device,
+            // so the file's own age decides (an item in the Trash is in `live`).
+            let projectURL = versions.projectURL
+            ResearchNoteRecord.sweepOrphans(
+                liveItemIds: live, in: projectURL, minimumAge: TrashStore.expiry, now: now)
+            ResearchTableSidecar.sweepOrphans(
+                liveItemIds: live, in: projectURL, minimumAge: TrashStore.expiry, now: now)
         }.value
     }
 
@@ -319,7 +326,11 @@ extension ProjectStore {
         guard !gone.isEmpty else { return }
         let versions = ResearchVersionStore(projectURL: url)
         let device = DeviceIdentity.author.slug
-        await Task.detached { versions.removeVersions(ofItems: gone, device: device) }.value
+        await Task.detached {
+            versions.removeVersions(ofItems: gone, device: device)
+            ResearchNoteRecord.remove(forItems: gone, in: versions.projectURL)
+            ResearchTableSidecar.remove(forItems: gone, in: versions.projectURL)
+        }.value
     }
 
     // MARK: - Per-tree restore
