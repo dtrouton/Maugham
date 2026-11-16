@@ -70,6 +70,8 @@ final class ResearchNoteEditorReloadTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        for observer in noticeObservers { NotificationCenter.default.removeObserver(observer) }
+        noticeObservers = []
         for window in windows { window.contentView = NSView(frame: .zero) }
         pump(0.05)
         windows = []
@@ -252,6 +254,22 @@ final class ResearchNoteEditorReloadTests: XCTestCase {
 
     // MARK: - An outside change (hardening 11-16 task 1.7, RULING-62)
 
+    private final class Heard: @unchecked Sendable { var notices: [String] = [] }   // touched on the main actor only
+    private var noticeObservers: [NSObjectProtocol] = []
+
+    /// Every notice posted from now until the test ends.
+    private func listen() -> Heard {
+        let heard = Heard()
+        noticeObservers.append(NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
+            forName: .maughamDocumentNotice, object: nil, queue: nil
+        ) { note in
+            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                MainActor.assumeIsolated { heard.notices.append(message) }
+            }
+        })
+        return heard
+    }
+
     /// The window's file presenter hears `item`'s file change, and the
     /// note door's answer is awaited.
     private func presenterHears(_ item: ResearchItem) async throws {
@@ -295,22 +313,43 @@ final class ResearchNoteEditorReloadTests: XCTestCase {
         windows.append(window)
         await pumpUntil(deadline: 5) { self.textView(in: window)?.string.hasSuffix("With a BOM.") == true }
         XCTAssertEqual(textView(in: window)?.string.hasSuffix("With a BOM."), true, "premise: the editor shows the file")
-        final class Heard: @unchecked Sendable { var notices: [String] = [] }   // touched on the main actor only
-        let heard = Heard()
-        let observer = NotificationCenter.default.addObserver( // adr-0021-ok: a test observing the production post, not a production subscription
-            forName: .maughamDocumentNotice, object: nil, queue: nil
-        ) { note in
-            if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
-                MainActor.assumeIsolated { heard.notices.append(message) }
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
+        let heard = listen()
         let reloads = documentStore.researchNoteReloadCount(itemId: item.id)
 
         try await presenterHears(item)
 
         XCTAssertEqual(documentStore.researchNoteReloadCount(itemId: item.id), reloads)
         XCTAssertEqual(heard.notices, [], "nothing is said")
+    }
+
+    /// **Switching the editor to another note lets the first go**: a change
+    /// to it outside Maugham then reloads nothing and says nothing, while
+    /// the note now shown still hears one.
+    func test_switchingToAnotherNoteLetsTheFirstGo() async throws {
+        let first = try await note("First.", title: "One")
+        let second = try await note("Second.", title: "Two")
+        let (probe, _) = try await mount(first)
+        await pumpUntil(deadline: 5) { self.documentStore.researchNoteDoor.isOpen(first.id) }
+        XCTAssertTrue(documentStore.researchNoteDoor.isOpen(first.id), "premise: the shown note is open")
+
+        probe.itemId = second.id
+        probe.path = try XCTUnwrap(second.path)
+        await pumpUntil(deadline: 5) {
+            !self.documentStore.researchNoteDoor.isOpen(first.id) && self.documentStore.researchNoteDoor.isOpen(second.id)
+        }
+        XCTAssertFalse(documentStore.researchNoteDoor.isOpen(first.id), "the first note was let go")
+        XCTAssertTrue(documentStore.researchNoteDoor.isOpen(second.id))
+
+        let heard = listen()
+        let reloads = documentStore.researchNoteReloadCount(itemId: first.id)
+        try Data("First, from outside.".utf8).write(to: file(of: first))
+        try await presenterHears(first)
+        XCTAssertEqual(documentStore.researchNoteReloadCount(itemId: first.id), reloads)
+        XCTAssertEqual(heard.notices, [], "nothing is said for a note no longer shown")
+
+        try Data("Second, from outside.".utf8).write(to: file(of: second))
+        try await presenterHears(second)
+        XCTAssertEqual(heard.notices, ["Reloaded “Two” — the file changed outside Maugham."])
     }
 
     // MARK: - Review Focus 2

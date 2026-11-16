@@ -72,6 +72,9 @@ struct ResearchNoteEditor: View {
             }
         }
         .task(id: path) { await loadDocument() }
+        // Shown here: the door hears an outside change to this note only
+        // while an editor holds it (let go on a switch or on disappearing).
+        .task(id: itemId) { await documentStore.holdResearchNoteOpen(itemId: itemId) }
         // A write behind the editor: re-read, schedule nothing. Observes this
         // note's count only (`researchNoteReloadCount`).
         .onChange(of: documentStore.researchNoteReloadCount(itemId: itemId)) { _, _ in

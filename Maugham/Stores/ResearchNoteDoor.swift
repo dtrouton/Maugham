@@ -116,6 +116,8 @@ final class ResearchNoteDoor {
     var timerSaveFinishedForTesting: (@MainActor (String) -> Void)?
     /// Told the item id once `fileMayHaveChanged` has answered.
     var heardForTesting: (@MainActor (String) -> Void)?
+    /// Awaited between `fileMayHaveChanged`'s read of the file and its resume.
+    var outsideReadWillResumeForTesting: (@MainActor () async -> Void)?
 
     /// Where a save came from: what the keep-failure rule asks.
     enum SaveSource: Equatable {
@@ -190,6 +192,11 @@ final class ResearchNoteDoor {
         /// a save of their edit lands — on the first read or on the retry
         /// (RULING-62; the controller's ruling for task 1.7).
         var outsideKeptForTheWriter = false
+        /// The hash of outside bytes `fileMayHaveChanged` told an open
+        /// editor to reload that no editor has read since: the writer typed
+        /// before the reload landed, so the save over them is "while you were
+        /// editing it" though the door already knows them.
+        var reloadedFromOutside: String?
     }
 
     /// One note's edit waiting for its debounce.
@@ -205,6 +212,21 @@ final class ResearchNoteDoor {
     private var pending: [String: Pending] = [:]
     private var nextGeneration = 0
     private var reloadSignals: [String: ResearchNoteReloadSignal] = [:]
+    /// How many editors show each note now (`opened` / `letGo`). Plain door
+    /// state, observed by nothing.
+    private var openCounts: [String: Int] = [:]
+
+    /// An editor (the note editor, the palette card editor) shows `itemId`.
+    func opened(_ itemId: String) { openCounts[itemId, default: 0] += 1 }
+
+    /// An editor let `itemId` go (it switched to another, or went away).
+    func letGo(_ itemId: String) {
+        let left = (openCounts[itemId] ?? 0) - 1
+        openCounts[itemId] = left > 0 ? left : nil
+    }
+
+    /// Whether an editor shows `itemId` now.
+    func isOpen(_ itemId: String) -> Bool { openCounts[itemId] != nil }
 
     /// The bytes `itemId` holds were read (an editor's load): they are known.
     /// Bytes that are not the ones known end the writer's run, so the next
@@ -217,6 +239,7 @@ final class ResearchNoteDoor {
         state.writtenBehindTheEditor = nil
         state.timerStopSaid = false
         state.outsideKeptForTheWriter = false
+        state.reloadedFromOutside = nil
         notes[itemId] = state
     }
 
@@ -256,8 +279,11 @@ final class ResearchNoteDoor {
     /// syncing, an external editor), heard by the window's file presenter
     /// (`DocumentStore.researchFileMayHaveChanged`) — the note twin of
     /// `ResearchTableHost.fileMayHaveChanged()` (#141 N3, RULING-62):
-    /// - bytes nobody here has read (`knownHash` nil): nothing is on screen
-    ///   to be stale, and nothing is said;
+    /// - a note no editor shows (`isOpen`; the editors hold it through
+    ///   `holdResearchNoteOpen`), or bytes nobody here has read (`knownHash`
+    ///   nil): nothing is on screen to be stale, and nothing is said.
+    ///   `knownHash` is left as it was, so the next save still finds bytes
+    ///   that are not the door's own and keeps them as a version;
     /// - the bytes the door last read or wrote (its own save coming back):
     ///   nothing;
     /// - other bytes with an edit pending: the edit is left alone — its save
@@ -265,26 +291,36 @@ final class ResearchNoteDoor {
     ///   (`outsideKeptForTheWriter`);
     /// - other bytes with nothing pending: they are known now, the writer's
     ///   run ends (their next save keeps them), an open editor re-reads the
-    ///   file (the reload signal), and it is said.
+    ///   file (the reload signal), and it is said. If the writer typed before
+    ///   the editor re-read (`reloadedFromOutside`), the save that covers
+    ///   those bytes says "while you were editing it" too.
     /// A save in flight is waited for and the file asked about again: its
-    /// own write is no outside change, and bytes that came after it are.
+    /// own write is no outside change, and bytes that came after it are. So
+    /// is a save (or a read) that began and ended during the door's own read:
+    /// the bytes read predate it.
     func fileMayHaveChanged(itemId: String, in store: DocumentStore) async {
         defer { heardForTesting?(itemId) }
         while true {
-            guard notes[itemId]?.knownHash != nil, pending[itemId] == nil else { return }
+            guard isOpen(itemId), notes[itemId]?.knownHash != nil, pending[itemId] == nil else { return }
             if let saving = inFlight[itemId]?.task {
                 _ = await saving.value
                 continue
             }
             guard case .note(let item, let path) = noteLookup(itemId, owner: nil, in: store),
                   let fileURL = resolved(path, in: store) else { return }
+            let (saves, known) = (nextToken, notes[itemId]?.knownHash)
             let onDisk: PriorBytes = await Task.detached { PriorBytes.read(fileURL) }.value
-            // An edit or a save begun during the read: asked again.
-            guard pending[itemId] == nil, inFlight[itemId] == nil else { continue }
+            await outsideReadWillResumeForTesting?()
+            // An edit, a save or a read begun during the read — even a save
+            // that has already ended (`finished` cleared `inFlight`), whose
+            // bytes the ones read predate: asked again.
+            guard pending[itemId] == nil, inFlight[itemId] == nil, nextToken == saves,
+                  notes[itemId]?.knownHash == known else { continue }
             guard case .bytes(let bytes) = onDisk else { return }
             let hash = ContentHash.of(bytes)
             guard let known = notes[itemId]?.knownHash, hash != known else { return }
             notes[itemId]?.knownHash = hash
+            notes[itemId]?.reloadedFromOutside = hash
             notes[itemId]?.run.end()
             signal(itemId).count += 1
             MaughamEvent.postNotice("Reloaded “\(item.title)” — the file changed outside Maugham.",
@@ -512,7 +548,8 @@ final class ResearchNoteDoor {
                     // Written to the live entry, not a copy taken before the
                     // await: a read recorded meanwhile is not undone.
                     notes[itemId, default: NoteState()].lastKeptHash = onDiskHash
-                    if Self.isTheWritersEdit(source), state.knownHash != nil, !overOwnBytes {
+                    if Self.isTheWritersEdit(source), state.knownHash != nil,
+                       !overOwnBytes || onDiskHash == state.reloadedFromOutside {
                         notes[itemId]?.outsideKeptForTheWriter = true
                     }
                     kept = true
@@ -566,6 +603,7 @@ final class ResearchNoteDoor {
         notes[itemId]?.knownHash = writtenHash
         notes[itemId]?.timerStopSaid = false
         if let savedAnywaySentence { MaughamEvent.postNotice(savedAnywaySentence, projectURL: projectURL) }
+        if Self.isTheWritersEdit(source) { notes[itemId]?.reloadedFromOutside = nil }
         if notes[itemId]?.outsideKeptForTheWriter == true {
             notes[itemId]?.outsideKeptForTheWriter = false
             if Self.isTheWritersEdit(source) {
@@ -965,6 +1003,21 @@ extension DocumentStore {
         await researchNoteDoor.settle(itemId, in: self)
     }
 
+    /// An editor shows note or card `itemId` (`ResearchNoteDoor.opened`).
+    func researchNoteOpened(itemId: String) { researchNoteDoor.opened(itemId) }
+
+    /// An editor let note or card `itemId` go (`ResearchNoteDoor.letGo`).
+    func researchNoteLetGo(itemId: String) { researchNoteDoor.letGo(itemId) }
+
+    /// **Holds note or card `itemId` open until the calling task is
+    /// cancelled** — an editor's `.task(id:)`, which SwiftUI cancels when the
+    /// editor switches to another item or goes away, so a count never leaks.
+    func holdResearchNoteOpen(itemId: String) async {
+        researchNoteOpened(itemId: itemId)
+        defer { researchNoteLetGo(itemId: itemId) }
+        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+    }
+
     /// The note `itemId`'s `bytes` were read (the editor's load): a later save
     /// over them is over known bytes.
     func researchNoteWasRead(itemId: String, bytes: Data) {
@@ -979,11 +1032,14 @@ extension DocumentStore {
 
     /// **The Research note or palette card at `path`**, nil for a path whose
     /// text the door does not take (a table, anything else) — the one path →
-    /// door item lookup.
+    /// door item lookup. Case is not compared, as the table lookup beside its
+    /// caller (`researchFileMayHaveChanged`) does not: a presenter path from
+    /// a case-insensitive volume may be spelled otherwise than the manifest.
     func researchNoteItem(atPath path: String) -> ResearchItem? {
         guard let projectStore else { return nil }
+        let wanted = path.lowercased()
         return TreeWalk.first(in: projectStore.manifest.research) { item in
-            item.path == path && ResearchNoteDoor.takes(item, structure: projectStore.manifest.structure)
+            item.path?.lowercased() == wanted && ResearchNoteDoor.takes(item, structure: projectStore.manifest.structure)
         }
     }
 }
