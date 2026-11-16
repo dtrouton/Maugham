@@ -265,9 +265,11 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
         // From just before the typed mover until the in-memory manifest names
-        // where the items now are, a note save that finds the old file gone
-        // waits for that instead of writing it afresh (#142 T2). The save and
-        // the asset refs are outside the span.
+        // where the items now are, a note save by anyone but this verb that
+        // finds the old file gone is turned away rather than writing it afresh
+        // (#142 T2): a timer save stays pending and is re-armed when the span
+        // ends, a flush keeps its text aside, a direct save is not made. The
+        // asset refs and the save are outside the span.
         try await withResearchItemsInFlight(items.map(\.id)) {
             // ---- Phase 3: execute FS surgery through the typed mover ----
             if !plan.steps.isEmpty, let documentStore {
@@ -305,20 +307,24 @@ extension ProjectStore {
         // move-out. A containment-only association simply severs on move-out;
         // no auto-link is minted.
 
-        manifest.modified = Date()
-        try await saveManifest()
-
         // Dedup changed a note's stem → its assets folder was renamed to
-        // match; rewrite the note's ./<stem>_assets/ image refs, now that the
-        // manifest names where the note is (the note door asks it).
+        // match; rewrite the note's ./<stem>_assets/ image refs. The in-memory
+        // manifest already names where the note is (the note door asks it), and
+        // this runs BEFORE the save so a save that throws cannot leave the
+        // refs naming a folder that is gone (#142 T3). Outside the in-flight
+        // span, so the rewrite's own save is an ordinary one.
         for (item, pending) in zip(items, pendings) {
             guard let (oldStem, newStem) = pending.refRewrite else { continue }
             await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
         }
+
+        manifest.modified = Date()
+        try await saveManifest()
+
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
-    /// the manifest names where it now is. A note or a palette card goes
+    /// the in-memory manifest names where it now is (before the save). A note or a palette card goes
     /// through the note door (what it held is kept as a version; an editor
     /// open on it reloads); with no `DocumentStore` the raw write. Anything
     /// else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept

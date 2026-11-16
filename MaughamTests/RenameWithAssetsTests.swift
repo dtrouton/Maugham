@@ -184,4 +184,40 @@ final class RenameWithAssetsTests: XCTestCase {
             contentsOf: research.appendingPathComponent("new-name-2.md"), encoding: .utf8)
         XCTAssertTrue(updated.contains("./new-name-2_assets/image-1.png"))
     }
+
+    /// #142 T3: the refs are rewritten before the manifest save, so a save that
+    /// fails (the project folder read-only) still leaves the moved note naming
+    /// the folder it travelled with.
+    func test_renamingNote_whoseManifestSaveFails_stillRewritesItsRefs() async throws {
+        let project = TestTemp.root.appendingPathComponent("RenameAssetsSaveFails-\(UUID())")
+        let research = project.appendingPathComponent("research")
+        try FileManager.default.createDirectory(
+            at: research.appendingPathComponent("old-name_assets"), withIntermediateDirectories: true)
+        try Data().write(to: research.appendingPathComponent("old-name_assets/image-1.png"))
+        try "# Old Name\n\n![](./old-name_assets/image-1.png)".write(
+            to: research.appendingPathComponent("old-name.md"), atomically: true, encoding: .utf8)
+        let note = ResearchItem(
+            id: "note-1", title: "Old Name",
+            type: .asset, kind: .document, path: "research/old-name.md")
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A",
+            created: Date(), modified: Date(), structure: [], research: [note])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: project.appendingPathComponent("project.maugham.json"))
+
+        let store = try await ProjectStore.load(from: project)
+        try await UnwritableFolder.with(project) {
+            do {
+                try await store.updateResearchItem(id: "note-1", title: "New Name")
+                XCTFail("the manifest save did not fail")
+            } catch let error as ProjectStoreError {
+                guard case .manifestUnwritable = error else { return XCTFail("\(error)") }
+            }
+        }
+        let moved = try String(
+            contentsOf: research.appendingPathComponent("new-name.md"), encoding: .utf8)
+        XCTAssertTrue(moved.contains("./new-name_assets/image-1.png"), moved)
+        XCTAssertFalse(moved.contains("./old-name_assets"), moved)
+    }
 }

@@ -720,10 +720,12 @@ extension ProjectStore {
         let index = currentResearchIndex(of: id, parentId: parentId)
 
         try refuseTrashing(item)
-        // From just before the trash until the row is gone, a note save that
-        // finds the file missing (moved to the trash, or already gone outside:
-        // the row-only arm) waits and then finds the note gone, rather than
-        // writing the file afresh at its old path (#142 T2).
+        // From just before the trash until the row is gone, a note save by
+        // anyone but this verb that finds the file missing (moved to the trash, or
+        // already gone outside: the row-only arm) is turned away rather than
+        // writing the file afresh at its old path (#142 T2): a timer save stays
+        // pending and is re-armed when the span ends, a flush keeps its text
+        // aside, a direct save is not made.
         return try await withResearchItemsInFlight([id]) {
             var entry: TrashEntry?
             // A link has no file; a row naming a file outside every research root
@@ -1002,9 +1004,11 @@ extension ProjectStore {
             }
             // From just before the typed mover until the in-memory manifest
             // names the new path (the item's, and a group's descendants'), a
-            // note save that finds the old file gone waits for that instead of
-            // writing it afresh (#142 T2). The save and the asset refs are
-            // outside the span.
+            // note save by anyone but this verb that finds the old file gone is
+            // turned away rather than writing it afresh (#142 T2): a timer save
+            // stays pending and is re-armed when the span ends, a flush keeps
+            // its text aside, a direct save is not made. The asset refs and
+            // the save are outside the span.
             try await withResearchItemsInFlight([id]) {
                 if let ds = documentStore {
                     try await ds.relocateUserContent(
@@ -1021,21 +1025,23 @@ extension ProjectStore {
             applyFields()
         }
 
-        manifest.modified = Date()
-        try await saveManifest()
-
-        // The renamed note's `./<old>_assets/` refs, once the manifest names
-        // where it now is: the note door asks the item's path at the write.
+        // The renamed note's `./<old>_assets/` refs, once the in-memory manifest
+        // names where it now is (the note door asks the item's path at the
+        // write) and BEFORE the save, so a save that throws cannot leave them
+        // naming a folder that is gone (#142 T3). Outside the in-flight span.
         if let assetRefs {
             await rewriteMovedNoteAssetRefs(
                 itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem)
         }
+
+        manifest.modified = Date()
+        try await saveManifest()
     }
 
     /// Rename the backing file or folder when a research item's title changes.
     /// Returns (newRelativePath, childPathRewrites, assetRefs) or nil if no
     /// rename is needed; `assetRefs` is the stem pair a note that travelled
-    /// with its `<slug>_assets/` folder has its refs rewritten by, after the
+    /// with its `<slug>_assets/` folder has its refs rewritten by, before the
     /// manifest is saved (`rewriteMovedNoteAssetRefs`). Runs its moves through `ds.coordinatedMove` / `coordinatedWrite`
     /// (not raw `FileManager`) and is invoked only from inside the typed mover's
     /// `relocateUserContent(perform:)` closure, so the close+flush discipline
