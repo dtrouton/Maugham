@@ -87,6 +87,26 @@ extension ProjectStore {
                         + "in the project’s trash, and a deletion is restored whole or not at all.")
         }
 
+        // Every entry is read, and asked whether its rows are already in the
+        // tree (or in an entry before it in this gesture), BEFORE any moves:
+        // a refusal on the second of three would otherwise come after the
+        // first was back, leaving a gesture ⌘⌥Z can never return whole.
+        let pending = (try? await trashStore.entriesIncludingInternal()) ?? []
+        var structureIds = Set(TreeWalk.collectIds(in: manifest.structure))
+        var researchIds = Set(TreeWalk.collectIds(in: manifest.research))
+        for trashId in deletion.trashIds {
+            switch try restoreRoute(for: pending.first { $0.id == trashId }) {
+            case .manuscript(let item):
+                try Self.refuseADuplicate(of: item, amongst: structureIds, title: \.title)
+                structureIds.formUnion(TreeWalk.collectIds(in: [item]))
+            case .research(let item):
+                try Self.refuseADuplicate(of: item, amongst: researchIds, title: \.title)
+                researchIds.formUnion(TreeWalk.collectIds(in: [item]))
+            case .priorVersion, .figure, .fileOnly, .unknownEntry:
+                break
+            }
+        }
+
         var report = TrashRestoreReport()
         for trashId in deletion.trashIds {
             report.absorb(try await restoreTrashEntry(id: trashId))
@@ -339,8 +359,7 @@ extension ProjectStore {
         _ decoded: StructureItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
         try Self.refuseADuplicate(
-            of: TreeWalk.collectIds(in: [decoded]), amongst: TreeWalk.collectIds(in: manifest.structure),
-            titled: { id in TreeWalk.find(id: id, in: [decoded])?.title ?? decoded.title })
+            of: decoded, amongst: Set(TreeWalk.collectIds(in: manifest.structure)), title: \.title)
         var item = decoded
         let targetParentId = survivingParentId(
             pending?.originalParentId, exists: { findItem(id: $0, in: manifest.structure) != nil })
@@ -380,8 +399,7 @@ extension ProjectStore {
         _ decoded: ResearchItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
         try Self.refuseADuplicate(
-            of: TreeWalk.collectIds(in: [decoded]), amongst: TreeWalk.collectIds(in: manifest.research),
-            titled: { id in TreeWalk.find(id: id, in: [decoded])?.title ?? decoded.title })
+            of: decoded, amongst: Set(TreeWalk.collectIds(in: manifest.research)), title: \.title)
         var item = decoded
         var targetParentId = survivingParentId(
             pending?.originalParentId,
@@ -462,13 +480,15 @@ extension ProjectStore {
     /// **A restore never makes a second row with an id the tree already
     /// holds** — a row put back by hand, or by a sync, while its entry sat in
     /// the Trash. Asked of every id the entry carries, before anything moves,
-    /// so a refusal restores nothing and the entry stays whole.
-    private static func refuseADuplicate(
-        of ids: [String], amongst present: [String], titled title: (String) -> String
+    /// so a refusal restores nothing and the entry stays whole — by
+    /// `restoreTrashEntry`'s routes, and by `restoreLastDeletion` of every
+    /// entry of the gesture first. Names the clashing row as the entry has it.
+    private static func refuseADuplicate<N: TreeNode>(
+        of item: N, amongst present: Set<String>, title: KeyPath<N, String>
     ) throws {
-        let inTree = Set(present)
-        if let clash = ids.first(where: inTree.contains) {
-            throw TrashStore.TrashError.alreadyInProject(title: title(clash))
+        if let clash = TreeWalk.collectIds(in: [item]).first(where: present.contains) {
+            let row = TreeWalk.find(id: clash, in: [item]) ?? item
+            throw TrashStore.TrashError.alreadyInProject(title: row[keyPath: title])
         }
     }
 

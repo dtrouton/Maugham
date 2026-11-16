@@ -120,11 +120,13 @@ public enum ProjectStoreError: Error, Equatable {
     case profileFromNewerBuild(String)
     /// RULING-63 (RULING-52's route): a delete gesture that failed partway.
     /// `trashed` is what reached the Trash before `failed` could not be
-    /// deleted (`underlying` is that failure's own words); the manifest is
-    /// saved without the trashed rows and ⌘⌥Z is armed with exactly them.
-    /// Never thrown with `trashed` empty: a gesture whose first item fails
-    /// changed nothing, and rethrows that item's error as it was.
-    case deletedInPart(trashed: [String], failed: String, underlying: String)
+    /// deleted (`underlying` is that failure's own words) — exactly what ⌘⌥Z
+    /// puts back; `removed` is rows taken out with no Trash entry (no file and
+    /// no link), named apart and never counted as restorable. The manifest is
+    /// saved without both, and ⌘⌥Z is armed with `trashed` alone (left as it
+    /// was when that is empty). Never thrown when both are empty: a gesture
+    /// whose first item fails changed nothing, and rethrows that item's error.
+    case deletedInPart(trashed: [String], removed: [String], failed: String, underlying: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -184,13 +186,17 @@ extension ProjectStoreError: LocalizedError {
             return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
-        case .deletedInPart(let trashed, let failed, let underlying):
-            let named = trashed.map { "“\($0)”" }.joined(separator: ", ")
+        case .deletedInPart(let trashed, let removed, let failed, let underlying):
+            func quoted(_ titles: [String]) -> String { titles.map { "“\($0)”" }.joined(separator: ", ") }
+            var done: [String] = []
+            if !trashed.isEmpty { done.append("Moved \(trashed.count) to the Trash (\(quoted(trashed)))") }
+            if !removed.isEmpty { done.append((trashed.isEmpty ? "Removed " : "removed ") + quoted(removed)) }
             // The underlying sentence's own full stop would double this one's.
             let reason = underlying.hasSuffix(".") ? String(underlying.dropLast()) : underlying
-            return "Moved \(trashed.count) to the Trash (\(named)), then “\(failed)” could not be "
-                + "deleted: \(reason). ⌘⌥Z puts "
-                + (trashed.count == 1 ? "it" : "the \(trashed.count)") + " back."
+            let undo = trashed.isEmpty ? ""
+                : " ⌘⌥Z puts " + (trashed.count == 1 ? "it" : "the \(trashed.count)") + " back."
+            return done.joined(separator: " and ")
+                + ", then “\(failed)” could not be deleted: \(reason)." + undo
         }
     }
 }

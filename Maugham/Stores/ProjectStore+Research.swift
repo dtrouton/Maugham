@@ -646,12 +646,30 @@ extension ProjectStore {
     /// link is there, and moves as a link), and an old-style iCloud placeholder
     /// (`.<name>.icloud`) is a file still coming down, never a missing one
     /// (tripwire 18): it takes the ordinary route.
+    ///
+    /// **Only "no such file" is missing.** A folder Maugham may not read, or a
+    /// volume that is not there, fails the same look for another reason; the
+    /// file may well be there, and trashing its row alone would leave it with
+    /// no row to own it. Any other failure takes the ordinary route, whose
+    /// move fails and is reported.
     private func namesAMissingFile(_ item: ResearchItem) -> Bool {
         guard item.kind != .link, let path = item.path, !path.isEmpty,
               let fileURL = try? resolvedProjectPathToChange(path) else { return false }
-        let fm = FileManager.default
-        return (try? fm.attributesOfItem(atPath: fileURL.path)) == nil
-            && !Self.hasICloudPlaceholder(for: fileURL)
+        do {
+            _ = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            return false
+        } catch {
+            return Self.isNoSuchFile(error) && !Self.hasICloudPlaceholder(for: fileURL)
+        }
+    }
+
+    /// `NSFileReadNoSuchFileError`, or POSIX `ENOENT` beneath it — and nothing else.
+    private static func isNoSuchFile(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError { return true }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOENT) { return true }
+        guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError else { return false }
+        return underlying.domain == NSPOSIXErrorDomain && underlying.code == Int(ENOENT)
     }
 
     // MARK: - Items a verb is moving (#142 T2)
@@ -790,19 +808,22 @@ extension ProjectStore {
         }
         var entries: [TrashEntry] = []
         var trashed: [String] = []
+        var removed: [String] = []
         for (id, title) in zip(effective, titles) {
             do {
                 if let entry = try await trashResearchItemCore(id: id) {
                     entries.append(entry)
+                    trashed.append(title)
+                } else {
+                    removed.append(title)
                 }
-                trashed.append(title)
             } catch {
-                // RULING-63 (RULING-52's route): nothing landed, nothing to say
-                // beyond the item's own error; something landed, and it is
-                // saved, shown, armed and named beside what was not deleted.
-                guard !trashed.isEmpty else { throw error }
+                // RULING-63 (RULING-52's route): nothing changed, nothing to say
+                // beyond the item's own error; something did, and it is saved,
+                // shown, armed and named beside what was not deleted.
+                guard !trashed.isEmpty || !removed.isEmpty else { throw error }
                 throw await settleDeletedInPart(
-                    entries: entries, trashed: trashed, failed: title, underlying: error)
+                    entries: entries, trashed: trashed, removed: removed, failed: title, underlying: error)
             }
         }
         manifest.modified = Date()
@@ -817,18 +838,23 @@ extension ProjectStore {
     }
 
     /// **A delete gesture that stopped partway, settled** (RULING-63): the
-    /// rows already trashed are saved as gone, the pane is refreshed and ⌘⌥Z
+    /// rows already taken are saved as gone, the pane is refreshed and ⌘⌥Z
     /// is armed with exactly the entries that landed — armed before the save,
     /// so a save that fails still leaves the route back — and the error to
-    /// throw names both halves. A save that fails throws its own error with
-    /// the trashed titles named in it.
+    /// throw names both halves. A row removed with no entry (`removed`) is
+    /// named apart and never counted as what ⌘⌥Z puts back; with no entry at
+    /// all, ⌘⌥Z is left holding whatever it held before (an empty arm would
+    /// clear it). A save that fails throws its own error with the titles
+    /// named in it.
     private func settleDeletedInPart(
-        entries: [TrashEntry], trashed: [String], failed: String, underlying: Error
+        entries: [TrashEntry], trashed: [String], removed: [String], failed: String, underlying: Error
     ) async -> Error {
         let partial = ProjectStoreError.deletedInPart(
-            trashed: trashed, failed: failed, underlying: underlying.localizedDescription)
+            trashed: trashed, removed: removed, failed: failed, underlying: underlying.localizedDescription)
         manifest.modified = Date()
-        armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(trashed))
+        if !entries.isEmpty {
+            armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(trashed))
+        }
         var saveError: Error?
         do { try await saveManifest() } catch { saveError = error }
         trashEntries = (try? await trashStore.list()) ?? trashEntries
