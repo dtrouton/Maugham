@@ -926,7 +926,8 @@ final class ResearchNoteDoorTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path) is untouched")
             XCTAssertTrue(versions(of: item).isEmpty, "\(path): no version kept")
             XCTAssertNil(store.researchNoteItem(atPath: path), path)
-            XCTAssertNil(ResearchTextRole.of(item, structure: projectStore.manifest.structure), path)
+            XCTAssertNil(ResearchTextRole.of(item, structure: projectStore.manifest.structure,
+                                             research: projectStore.manifest.research), path)
         }
     }
 }

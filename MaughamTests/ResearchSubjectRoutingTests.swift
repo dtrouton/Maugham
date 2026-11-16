@@ -258,6 +258,64 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             .note(item: note, path: path))
     }
 
+    /// #141 N1 (RULING-61): a card is a card by its group's role. Renaming
+    /// the Palette group moves its folder off `research/palette/`, and the
+    /// card under it still opens in the card editor, never the note editor.
+    func test_aCardUnderARenamedPaletteGroupRoutesToTheCardEditor() async throws {
+        let store = try await novel(notes: [], cards: ["Harbour"])
+        let group = try XCTUnwrap(store.paletteGroup())
+        let added = try XCTUnwrap(store.paletteCardItems().first)
+        try await store.updateResearchItem(id: group.id, title: "Moods")
+        let card = try XCTUnwrap(TreeWalk.find(id: added.id, in: store.manifest.research))
+        let path = try XCTUnwrap(card.path)
+        XCTAssertFalse(path.hasPrefix(ProjectStore.paletteFolderPath + "/"),
+                       "premise: the rename moved the card out of the palette folder — \(path)")
+
+        XCTAssertEqual(ProjectWindow.researchCentreRoute(id: card.id, in: store.manifest),
+                       .paletteCard(card.id))
+    }
+
+    /// The role decides both ways: a note moved in as a direct child of the
+    /// Palette group is a card (what the wall shows), and a document in a
+    /// subgroup beneath it is a note even though its path is inside the
+    /// palette folder (the wall does not show it).
+    func test_aNoteMovedIntoThePaletteGroupIsACard_andADocumentInASubgroupBeneathItIsANote() async throws {
+        let store = try await novel(notes: ["Ships", "Loose"], cards: ["Harbour"])
+        let group = try XCTUnwrap(store.paletteGroup())
+        let ships = try XCTUnwrap(researchItem(named: "Ships", in: store))
+        try await store.moveResearchItem(id: ships.id, toParentId: group.id, atIndex: 0)
+        XCTAssertEqual(ProjectWindow.researchCentreRoute(id: ships.id, in: store.manifest),
+                       .paletteCard(ships.id))
+
+        let sub = try await store.addResearchItem(parentId: group.id, title: "Drafts", kind: nil)
+        let loose = try XCTUnwrap(researchItem(named: "Loose", in: store))
+        try await store.moveResearchItem(id: loose.id, toParentId: sub.id, atIndex: 0)
+        let moved = try XCTUnwrap(TreeWalk.find(id: loose.id, in: store.manifest.research))
+        let path = try XCTUnwrap(moved.path)
+        XCTAssertTrue(path.hasPrefix(ProjectStore.paletteFolderPath + "/"),
+                      "premise: the subgroup's document sits inside the palette folder — \(path)")
+        XCTAssertEqual(ProjectWindow.researchCentreRoute(id: moved.id, in: store.manifest),
+                       .note(item: moved, path: path))
+    }
+
+    /// The legacy fallback: with no palette group in the manifest (neither a
+    /// role-stamped group nor one at `research/palette`), the folder prefix
+    /// still decides, separator and all.
+    func test_withNoPaletteGroupThePathPrefixStillDecides() async throws {
+        let store = try await novel(notes: [], cards: [])
+        XCTAssertNil(PaletteLookup.paletteGroup(in: store.manifest.research), "premise: no palette group")
+        let inside = ResearchItem(id: "res-fallb001", title: "Inside", type: .asset,
+                                  kind: .document, path: ProjectStore.paletteFolderPath + "/x.md")
+        let beside = ResearchItem(id: "res-fallb002", title: "Beside", type: .asset,
+                                  kind: .document, path: "research/palettes/x.md")
+        store.manifest.research.append(contentsOf: [inside, beside])
+        let structure = store.manifest.structure, research = store.manifest.research
+
+        XCTAssertEqual(ResearchTextRole.of(inside, structure: structure, research: research), .paletteCard)
+        XCTAssertEqual(ResearchTextRole.of(beside, structure: structure, research: research),
+                       .note(path: "research/palettes/x.md"))
+    }
+
     /// **A text item outside a research root is not an editable note**
     /// (note versions plan 2, whole-branch C2): a synced manifest listing the
     /// manuscript or a `.maugham/` file as a Research `.document` routes to

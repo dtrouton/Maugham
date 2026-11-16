@@ -70,9 +70,9 @@ enum ResearchVersionsModel {
     }
 
     /// What a refusal calls `item`: "table", "card" or "note".
-    static func noun(for item: ResearchItem, structure: [StructureItem]) -> String {
+    static func noun(for item: ResearchItem, structure: [StructureItem], research: [ResearchItem]) -> String {
         if item.kind == .table { return "table" }
-        if case .paletteCard = ResearchTextRole.of(item, structure: structure) { return "card" }
+        if case .paletteCard = ResearchTextRole.of(item, structure: structure, research: research) { return "card" }
         return "note"
     }
 

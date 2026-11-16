@@ -99,6 +99,43 @@ final class AddNoteToolTests: XCTestCase {
         }
     }
 
+    /// #141 N1 (RULING-61): the Palette holds the writer's cards, and the
+    /// assistant writes notes only (ADR 0034). `add_note` into the Palette
+    /// group is refused before anything is created — no manifest row, no
+    /// file — whatever the group is called.
+    func test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let id = ProjectIdentifier.id(for: url)
+        let group = try await store.ensurePaletteGroup()
+
+        func files() -> Set<String> {
+            let root = url.appendingPathComponent("research")
+            let walker = FileManager.default.enumerator(atPath: root.path)
+            return Set((walker?.allObjects as? [String]) ?? [])
+        }
+
+        for title in ["Palette", "Moods"] {
+            if title != group.title {
+                try await store.updateResearchItem(id: group.id, title: title)
+            }
+            let researchBefore = store.manifest.research
+            let filesBefore = files()
+            let req = "{\"project_id\":\"\(id)\",\"title\":\"Fog\",\"body\":\"y\",\"parent_group_id\":\"\(group.id)\"}"
+            do {
+                _ = try await AddNoteTool.handle(paramsJSON: Data(req.utf8), registry: reg)
+                XCTFail("add_note into the palette group (called \(title)) must be refused")
+            } catch MCPError.invalidArgument(let message) {
+                XCTAssertEqual(message, "The Palette holds the writer's cards; add_note can't create one. "
+                                   + "Add the note to another Research group.")
+            } catch {
+                XCTFail("wrong: \(error)")
+            }
+            XCTAssertEqual(store.manifest.research, researchBefore, "no manifest row (\(title))")
+            XCTAssertEqual(files(), filesBefore, "no file (\(title))")
+        }
+    }
+
     // MARK: - Flush-before-body-write (tripwire 14 / finding 1.6)
 
     /// Regression test: `add_note` must flush any pending `scheduleFileSave`

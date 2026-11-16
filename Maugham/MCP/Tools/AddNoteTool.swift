@@ -38,6 +38,14 @@ public enum AddNoteTool: MCPTool {
             if !exists {
                 throw MCPError.invalidArgument("parent_group_id not found: \(parentId)")
             }
+            // The Palette holds the writer's cards, whatever the group is
+            // called (role-first), and the assistant writes notes only
+            // (ADR 0034; #141 N1, RULING-61): refused before anything exists.
+            if parentId == PaletteLookup.paletteGroup(in: store.manifest.research)?.id {
+                throw MCPError.invalidArgument(
+                    "The Palette holds the writer's cards; add_note can't create one. "
+                    + "Add the note to another Research group.")
+            }
         }
 
         // Use the existing research-create path — creates an empty .md file

@@ -482,7 +482,8 @@ struct PromotionPerformer {
             // A row with no file yet is `writeBody`'s `itemHasNoFile`.
             guard let item = TreeWalk.find(id: itemID, in: store.manifest.research),
                   item.path != nil else { return }
-            guard case .note = ResearchTextRole.of(item, structure: store.manifest.structure) else {
+            guard case .note = ResearchTextRole.of(item, structure: store.manifest.structure,
+                                                   research: store.manifest.research) else {
                 throw PromotionFailure.artifactIsADifferentKind(itemID: itemID, found: "outside Research")
             }
         case .paletteCard:

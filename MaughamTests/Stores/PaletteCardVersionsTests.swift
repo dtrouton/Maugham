@@ -292,7 +292,8 @@ final class PaletteCardVersionsTests: XCTestCase {
         let structure = projectStore.manifest.structure
         XCTAssertEqual(ResearchVersionsModel.kind(for: item, structure: structure), .note,
                        "a card's inspector shows the Versions section, restoring through the note door")
-        XCTAssertEqual(ResearchVersionsModel.noun(for: item, structure: structure), "card")
+        XCTAssertEqual(ResearchVersionsModel.noun(for: item, structure: structure,
+                                                  research: projectStore.manifest.research), "card")
         XCTAssertEqual(ProjectWindow.researchCentreRoute(id: item.id, in: projectStore.manifest),
                        .paletteCard(item.id), "and it is still edited as a card, never as a note")
     }

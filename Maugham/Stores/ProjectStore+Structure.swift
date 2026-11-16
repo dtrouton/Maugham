@@ -726,7 +726,7 @@ extension ProjectStore {
             // Only a note or a palette card inside a research root is
             // Research text: a synced manifest's `.document` naming the
             // manuscript or a `.maugham/` file is never read or written here.
-            guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+            guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
                 projectStoreLog.error(
                     "Wiki-rename: \(path, privacy: .public) is not inside a research root, skipped")
                 continue

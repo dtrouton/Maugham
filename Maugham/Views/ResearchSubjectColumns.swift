@@ -217,7 +217,7 @@ extension ProjectWindow {
             return .table(item: item, path: path)
         }
         // Note or card is asked of the one predicate the note door asks too.
-        switch ResearchTextRole.of(item, structure: manifest.structure) {
+        switch ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) {
         case .paletteCard: return .paletteCard(item.id)
         case .note(let path): return .note(item: item, path: path)
         case nil: return .preview(item)

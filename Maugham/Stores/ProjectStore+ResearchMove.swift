@@ -322,7 +322,7 @@ extension ProjectStore {
               let path = item.path else { return }
         // Only a note or a palette card inside a research root is rewritten:
         // a synced manifest's `.document` naming any other file is left alone.
-        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+        guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
             projectStoreLog.error(
                 "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
             return

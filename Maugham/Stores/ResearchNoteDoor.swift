@@ -11,7 +11,10 @@ private let researchNoteLog = Logger(
 /// Versions section, the note door, `researchNoteItem(atPath:)` and
 /// `update_note`. A text document (`type == .asset`, `kind == .document`, a
 /// path) inside a research root (`isInsideAResearchRoot`) is a palette card
-/// when its path is inside the palette folder, and a note otherwise.
+/// when it is one of the palette group's cards (`PaletteLookup.paletteCards`,
+/// role-first, so a renamed group keeps its cards: #141 N1, RULING-61), or,
+/// in a manifest with no palette group at all, when its path is inside the
+/// palette folder; and a note otherwise.
 /// Anything else (a table, a picture, a PDF, audio, a link, a group, a
 /// pathless item, and a text item whose path is anywhere else) is neither:
 /// nil, and nothing writes it as Research text. A note and a card both keep
@@ -24,15 +27,25 @@ enum ResearchTextRole: Equatable {
     case paletteCard
 
     /// `structure` says which `pieces/…` folders are loose pieces, whose
-    /// `research/` folders are research roots.
-    static func of(_ item: ResearchItem, structure: [StructureItem]) -> ResearchTextRole? {
+    /// `research/` folders are research roots; `research` is the manifest's
+    /// Research tree, whose palette group says which items are cards.
+    static func of(_ item: ResearchItem, structure: [StructureItem],
+                   research: [ResearchItem]) -> ResearchTextRole? {
         guard item.type == .asset, item.kind == .document, let path = item.path,
               isInsideAResearchRoot(path, structure: structure) else { return nil }
-        // **A path prefix ending in the SEPARATOR**, not a name test and not a
-        // bare `hasPrefix`: a research group called "Palette research" gives its
-        // notes paths that start with the palette folder's characters and are
-        // not inside it, and calling one of those a card shows "Card
-        // unavailable" over a note the writer can see in their tree
+        // **The group's role first** — the wall's own question, Core's
+        // `PaletteLookup` (tripwire 19): after the writer renames "Palette"
+        // its folder moves, and its cards are still cards.
+        if PaletteLookup.paletteGroup(in: research) != nil {
+            return PaletteLookup.paletteCards(in: research).contains(where: { $0.id == item.id })
+                ? .paletteCard : .note(path: path)
+        }
+        // **No palette group: the folder decides**, by a path prefix ending in
+        // the SEPARATOR, not a name test and not a bare `hasPrefix`: a research
+        // group called "Palette research" gives its notes paths that start
+        // with the palette folder's characters and are not inside it, and
+        // calling one of those a card shows "Card unavailable" over a note the
+        // writer can see in their tree
         // (`test_aNoteBesideThePaletteFolderIsStillANote`).
         if path.hasPrefix(ProjectStore.paletteFolderPath + "/") { return .paletteCard }
         return .note(path: path)
@@ -681,8 +694,11 @@ final class ResearchNoteDoor {
     /// neither. Every card writer — the card editor, the palette funnel
     /// (`ProjectStore.paletteCoordinatedWrite`), a promotion, the inbox, the
     /// rename's link sweep, Replace, a move's asset refs — comes here.
+    ///
+    /// A note and a card are both taken, so the palette group is not asked
+    /// (`research: []`): which of the two an item is never changes the answer.
     nonisolated static func takes(_ item: ResearchItem, structure: [StructureItem]) -> Bool {
-        ResearchTextRole.of(item, structure: structure) != nil
+        ResearchTextRole.of(item, structure: structure, research: []) != nil
     }
 
     private func resolved(_ path: String, in store: DocumentStore) -> URL? {
