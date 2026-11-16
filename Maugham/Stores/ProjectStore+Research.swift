@@ -682,10 +682,13 @@ extension ProjectStore {
     /// the span from just before it calls the typed mover until the
     /// in-memory manifest names where the items now are (or their rows are
     /// gone); the manifest's save and a moved note's asset refs are outside
-    /// it. The ids leave when `body` returns or throws, and whoever waits on
-    /// one (`waitUntilNotInFlight`) is resumed then. Inside `body` the task
-    /// is marked as the one moving them (`ResearchItemsMoving.byThisTask`),
-    /// so the mover's own flush is never held on the verb it runs inside.
+    /// it. Inside `body` the task is marked as the one moving them
+    /// (`ResearchItemsMoving.byThisTask`), so the mover's own flush is
+    /// written as before. Nothing waits on the span (the note door turns a
+    /// save that meets it away, `ResearchNoteDoor.write`). The ids leave when
+    /// `body` returns or throws, and a note released then whose timer's save
+    /// the span stopped has its timer set again
+    /// (`DocumentStore.researchNoteSpanEnded`).
     func withResearchItemsInFlight<T>(_ ids: [String], _ body: () async throws -> T) async rethrows -> T {
         var all: [String] = []
         for id in ids {
@@ -701,21 +704,11 @@ extension ProjectStore {
                 researchItemsInFlightCounts[id] = left > 0 ? left : nil
             }
             for id in Set(all) where researchItemsInFlightCounts[id] == nil {
-                for waiter in researchInFlightWaiters.removeValue(forKey: id) ?? [] { waiter.resume() }
+                documentStore?.researchNoteSpanEnded(itemId: id)
             }
         }
         return try await ResearchItemsMoving.$byThisTask.withValue(
             ResearchItemsMoving.byThisTask.union(all)) { try await body() }
-    }
-
-    /// **Returns once no verb is moving Research item `itemId`'s file** — at
-    /// once when none is; otherwise when the last span holding it ends
-    /// (`withResearchItemsInFlight`'s exit resumes it: no polling).
-    func waitUntilNotInFlight(_ itemId: String) async {
-        guard researchItemsInFlightCounts[itemId] != nil else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            researchInFlightWaiters[itemId, default: []].append(continuation)
-        }
     }
 
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
@@ -1176,9 +1169,8 @@ extension ProjectStore {
 /// **Which Research items the CURRENT task is moving** (#142 T2): bound by
 /// `ProjectStore.withResearchItemsInFlight` around its body, and inherited by
 /// the tasks the note door starts from inside it (the mover's own flush). The
-/// door never holds that task's saves on the span it is in, and its settle
-/// never waits there for a save held on it: either would make the mover wait
-/// on itself.
+/// door never turns that task's saves away on the span it is in: the
+/// mover's flush is the writer's last copy, written before the file moves.
 enum ResearchItemsMoving {
     @TaskLocal static var byThisTask: Set<String> = []
 }

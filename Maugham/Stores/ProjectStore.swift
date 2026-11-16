@@ -301,12 +301,10 @@ public final class ProjectStore {
     /// (#142 T2), counted, so two verbs over one item each hold it until
     /// their own span ends. Entered only by `withResearchItemsInFlight`, and
     /// read by the note door: a save that finds such a note's file missing
-    /// waits for the manifest to name where it went (`waitUntilNotInFlight`)
-    /// instead of writing a phantom file at the old path (tripwire 14).
+    /// is not written afresh at the old path (tripwire 14) and waits on
+    /// nothing — a timer's text stays pending, any other is kept aside or
+    /// not made, and said (`ResearchNoteDoor.write`).
     @ObservationIgnored internal var researchItemsInFlightCounts: [String: Int] = [:]
-    /// Who waits for an item to leave `researchItemsInFlight`; resumed by the
-    /// wrapper's exit, however its body ends.
-    @ObservationIgnored internal var researchInFlightWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
