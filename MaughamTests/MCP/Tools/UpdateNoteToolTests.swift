@@ -339,10 +339,34 @@ final class UpdateNoteToolTests: XCTestCase {
     func test_aPaletteCardIsRefusedWhateverP2Says() async throws {
         let book = try await openBook()
         let card = try await book.store.addPaletteCard(title: "Fog", kind: .other)
-        XCTAssertEqual(ResearchTextRole.of(card, structure: book.store.manifest.structure), .paletteCard)
+        XCTAssertEqual(ResearchTextRole.of(card, structure: book.store.manifest.structure,
+                                           research: book.store.manifest.research), .paletteCard)
         XCTAssertThrowsError(try UpdateNoteTool.noteItem(card.id, in: book.store))
         let source = try CanvasSourceCensus.source(at: "Maugham/MCP/Tools/UpdateNoteTool.swift")
         XCTAssertFalse(source.contains("ResearchNoteDoor.takes"),
                        "the tool asks `ResearchTextRole.of` for `.note`, never the door's `takes`, which takes cards")
+    }
+
+    /// #141 N1 (RULING-61): a card is a card by its group's role, not by its
+    /// folder. Renaming the Palette group to "Moods" moves its folder off
+    /// `research/palette/`; the card under it is still the writer's, so
+    /// `update_note` refuses it as a card and nothing on disk changes (ADR 0034).
+    func test_aCardUnderARenamedPaletteGroupIsStillRefused() async throws {
+        let book = try await openBook()
+        let group = try await book.store.ensurePaletteGroup()
+        let added = try await book.store.addPaletteCard(title: "Fog", kind: .other)
+        try await book.store.updateResearchItem(id: group.id, title: "Moods")
+        let card = try XCTUnwrap(book.store.findResearchItem(id: added.id, in: book.store.manifest.research))
+        let path = try XCTUnwrap(card.path)
+        XCTAssertFalse(path.hasPrefix(ProjectStore.paletteFolderPath + "/"),
+                       "premise: the rename moved the card out of the palette folder — \(path)")
+        XCTAssertEqual(ResearchTextRole.of(card, structure: book.store.manifest.structure,
+                                           research: book.store.manifest.research), .paletteCard)
+        let before = try Data(contentsOf: file(path))
+
+        let message = await refusal { try await self.update(book, card.id, "Overwritten.") }
+        XCTAssertTrue(message.hasPrefix("'\(card.title)' (\(card.id)) is a palette card, not a note"), message)
+        XCTAssertEqual(try Data(contentsOf: file(path)), before, "the card's bytes are unchanged")
+        XCTAssertTrue(versions(of: card).isEmpty)
     }
 }

@@ -140,8 +140,10 @@ public struct ProjectSearchEngine {
     }
 
     /// Find all matches of `query` in `content` according to `options`.
-    /// Returns matches in document order.
-    private static func matchesIn(
+    /// Returns matches in document order. Also how a single Replace re-finds
+    /// its occurrence and the line the result showed
+    /// (`ProjectStore.ClickedOccurrence`): one spelling of the line rule.
+    static func matchesIn(
         content: String,
         query: String,
         options: SearchOptions,

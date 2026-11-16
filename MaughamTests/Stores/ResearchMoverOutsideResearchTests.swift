@@ -16,6 +16,10 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
 
     private var parent: URL!
     private var stores: [DocumentStore] = []
+    /// Files a test locked and folders it made unreadable, put back in
+    /// `tearDown` (before the temp root is removed) whatever the test did.
+    private var lockedFiles: [String] = []
+    private var unreadableFolders: [String] = []
 
     override func setUp() async throws {
         parent = TestTemp.root.appendingPathComponent("moveroutside-\(UUID().uuidString)")
@@ -33,6 +37,12 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        for path in unreadableFolders {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        }
+        unreadableFolders = []
+        for path in lockedFiles { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: path) }
+        lockedFiles = []
         for store in stores { await store.close() }
         stores = []
         Document.localIdentitiesForTesting = nil
@@ -257,6 +267,354 @@ final class ResearchMoverOutsideResearchTests: XCTestCase {
         XCTAssertNotNil(store.findResearchItem(id: a.id, in: store.manifest.research), "A's row stays")
         let trashedAfter = try await store.trashStore.list().count
         XCTAssertEqual(trashedAfter, trashedBefore, "the Trash gains nothing")
+    }
+
+    // MARK: - A delete gesture completes as one, or says what it did (RULING-63)
+
+    private func threeNotes(_ store: ProjectStore) async throws -> [ResearchItem] {
+        var notes: [ResearchItem] = []
+        for title in ["Note One", "Note Two", "Note Three"] {
+            notes.append(try await store.addResearchTextNote(parentId: nil, title: title))
+        }
+        return notes
+    }
+
+    private func removeFile(of item: ResearchItem, in url: URL) throws {
+        try FileManager.default.removeItem(at: url.appendingPathComponent(try XCTUnwrap(item.path)))
+    }
+
+    /// The research ids the manifest ON DISK holds (a fresh load reads it).
+    private func researchIdsOnDisk(_ url: URL) async throws -> Set<String> {
+        Set(TreeWalk.collectIds(in: try await ProjectStore.load(from: url).manifest.research))
+    }
+
+    /// Finder's Locked box (`uchg`): the file is there and will not move.
+    private func lock(_ path: String) throws {
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: path)
+        lockedFiles.append(path)
+    }
+
+    private func trashFolderCount(_ url: URL) -> Int {
+        ((try? FileManager.default.contentsOfDirectory(
+            atPath: url.appendingPathComponent(".trash").path)) ?? []).count
+    }
+
+    func test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne() async throws {
+        let (url, store) = try await novel()
+        let notes = try await threeNotes(store)
+        try removeFile(of: notes[1], in: url)
+
+        try await store.deleteResearchItems(ids: notes.map(\.id))
+
+        XCTAssertEqual(store.trashEntries.count, 3, "every row of the gesture has an entry")
+        XCTAssertEqual(store.trashEntries.filter { !$0.carriesFile }.map(\.displayTitle), ["Note Two"],
+                       "the row whose file was missing is recorded as a row")
+        let onDisk = try await researchIdsOnDisk(url)
+        for note in notes { XCTAssertFalse(onDisk.contains(note.id), "\(note.title) is gone from the saved manifest") }
+        let deletion = try XCTUnwrap(store.lastDeletion)
+        XCTAssertEqual(Set(deletion.trashIds), Set(store.trashEntries.map(\.id)))
+        XCTAssertEqual(deletion.label, "3 items")
+
+        let report = try await store.restoreLastDeletion()
+        XCTAssertTrue(try XCTUnwrap(report).isComplete)
+        for note in notes {
+            XCTAssertEqual(store.findResearchItem(id: note.id, in: store.manifest.research)?.path, note.path,
+                           "\(note.title) is back as it was")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(try XCTUnwrap(notes[0].path)).path))
+        XCTAssertTrue(store.trashEntries.isEmpty)
+        XCTAssertEqual(trashFolderCount(url), 0)
+    }
+
+    /// Review focus: one missing row alone, and a gesture whose files are all missing.
+    func test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne() async throws {
+        let (url, store) = try await novel()
+        let notes = try await threeNotes(store)
+        for note in notes { try removeFile(of: note, in: url) }
+
+        try await store.deleteResearchItems(ids: [notes[0].id])
+        XCTAssertEqual(store.trashEntries.map(\.carriesFile), [false])
+        XCTAssertEqual(store.lastDeletion?.label, "Note One")
+        try await store.restoreLastDeletion()
+        XCTAssertNotNil(store.findResearchItem(id: notes[0].id, in: store.manifest.research))
+
+        try await store.deleteResearchItems(ids: notes.map(\.id))
+        XCTAssertEqual(store.trashEntries.count, 3)
+        XCTAssertTrue(store.trashEntries.allSatisfy { !$0.carriesFile })
+        let onDisk = try await researchIdsOnDisk(url)
+        XCTAssertTrue(onDisk.isDisjoint(with: notes.map(\.id)), "all three are gone from the saved manifest")
+        try await store.restoreLastDeletion()
+        for note in notes { XCTAssertNotNil(store.findResearchItem(id: note.id, in: store.manifest.research)) }
+        XCTAssertTrue(store.trashEntries.isEmpty)
+    }
+
+    /// An old-style iCloud placeholder (`.<name>.icloud`) is a file still
+    /// coming down, not a missing one (tripwire 18): the row is not trashed
+    /// as a row, so its file cannot arrive later with no row to own it.
+    func test_aRowWhoseFileIsStillComingDownFromICloudIsNotTakenAsMissing() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Note One")
+        let file = url.appendingPathComponent(try XCTUnwrap(note.path))
+        try FileManager.default.removeItem(at: file)
+        try Data().write(to: file.deletingLastPathComponent()
+            .appendingPathComponent("." + file.lastPathComponent + ".icloud"))
+
+        do { try await store.deleteResearchItems(ids: [note.id]); XCTFail("expected the move's own error") }
+        catch let error as NSError { XCTAssertEqual(error.domain, NSCocoaErrorDomain) }
+        XCTAssertNotNil(store.findResearchItem(id: note.id, in: store.manifest.research), "the row stays")
+        XCTAssertTrue(store.trashEntries.isEmpty)
+        XCTAssertEqual(trashFolderCount(url), 0)
+    }
+
+    /// Item 2 is LOCKED (Finder's Locked box, `uchg`): it exists, and moving it
+    /// fails — a failure partway that is not a missing file.
+    func test_aBatchDeleteThatFailsPartwaySavesWhatItTrashed_armsIt_andNamesBothHalves() async throws {
+        let (url, store) = try await novel()
+        let notes = try await threeNotes(store)
+        let locked = url.appendingPathComponent(try XCTUnwrap(notes[1].path)).path
+        try lock(locked)
+
+        do {
+            try await store.deleteResearchItems(ids: notes.map(\.id))
+            XCTFail("expected the gesture to say it stopped partway")
+        } catch let error as ProjectStoreError {
+            guard case .deletedInPart(let trashed, let removed, let failed, let underlying) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(trashed, ["Note One"])
+            XCTAssertEqual(removed, [])
+            XCTAssertEqual(failed, "Note Two")
+            XCTAssertFalse(underlying.isEmpty)
+            let message = try XCTUnwrap(error.errorDescription)
+            XCTAssertTrue(message.hasPrefix("Moved 1 to the Trash (“Note One”), then “Note Two” could not be deleted: "),
+                          message)
+            XCTAssertTrue(message.hasSuffix(". ⌘⌥Z puts it back."), message)
+        } catch {
+            XCTFail("expected deletedInPart, got \(error)")
+        }
+
+        let onDisk = try await researchIdsOnDisk(url)
+        XCTAssertFalse(onDisk.contains(notes[0].id), "the trashed row is saved as gone")
+        XCTAssertTrue(onDisk.contains(notes[1].id), "the failed row stays")
+        XCTAssertTrue(onDisk.contains(notes[2].id), "the row after it was never reached")
+        XCTAssertEqual(store.trashEntries.map(\.displayTitle), ["Note One"], "the pane shows what landed")
+        XCTAssertEqual(trashFolderCount(url), 1, "the failed move left no entry folder")
+        XCTAssertEqual(store.lastDeletion?.trashIds, store.trashEntries.map(\.id), "⌘⌥Z holds exactly what landed")
+        XCTAssertEqual(store.lastDeletion?.label, "Note One")
+
+        try await store.restoreLastDeletion()
+        XCTAssertNotNil(store.findResearchItem(id: notes[0].id, in: store.manifest.research))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(try XCTUnwrap(notes[0].path)).path))
+    }
+
+    /// Review focus: a failure on the FIRST item changed nothing, so it says
+    /// nothing new — the item's own error, and ⌘⌥Z still holds the gesture before.
+    func test_aBatchDeleteWhoseFirstItemFailsChangesNothing_andThrowsItsOwnError() async throws {
+        let (url, store) = try await novel()
+        let earlier = try await store.addResearchTextNote(parentId: nil, title: "Earlier")
+        try await store.deleteResearchItems(ids: [earlier.id])
+        let armedBefore = try XCTUnwrap(store.lastDeletion)
+        let notes = try await threeNotes(store)
+        let locked = url.appendingPathComponent(try XCTUnwrap(notes[0].path)).path
+        try lock(locked)
+        let foldersBefore = trashFolderCount(url)
+
+        do {
+            try await store.deleteResearchItems(ids: notes.map(\.id))
+            XCTFail("expected the locked file's own error")
+        } catch let error as ProjectStoreError {
+            XCTFail("the first item's failure is rethrown as it was, not as \(error)")
+        } catch let error as NSError {
+            XCTAssertEqual(error.domain, NSCocoaErrorDomain)
+        }
+
+        XCTAssertEqual(store.lastDeletion, armedBefore, "⌘⌥Z still holds the earlier gesture")
+        XCTAssertEqual(trashFolderCount(url), foldersBefore, "no entry folder was left")
+        for note in notes { XCTAssertNotNil(store.findResearchItem(id: note.id, in: store.manifest.research)) }
+    }
+
+    /// A restore never puts a second copy of a row the tree already holds —
+    /// on the Research route and the binder route alike — and the refused
+    /// entry stays in the Trash, whole, for a restore once the clash is gone.
+    func test_aRestoreOfAnItemAlreadyInTheProjectIsRefused() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Note One")
+        try await store.deleteResearchItems(ids: [note.id])
+        let noteEntry = try XCTUnwrap(store.trashEntries.first)
+        store.manifest.research.append(note)
+
+        let chapter = try XCTUnwrap(store.manifest.structure.first { $0.type == .document })
+        try await store.deleteStructureItem(id: chapter.id)
+        let chapterEntry = try XCTUnwrap(store.trashEntries.first { $0.displayTitle == chapter.title })
+        store.manifest.structure.append(chapter)
+
+        for (entry, title) in [(noteEntry, note.title), (chapterEntry, chapter.title)] {
+            do {
+                _ = try await store.restoreTrashEntry(id: entry.id)
+                XCTFail("\(title): expected a refusal")
+            } catch let error as TrashStore.TrashError {
+                guard case .alreadyInProject = error else { return XCTFail("wrong case: \(error)") }
+                XCTAssertEqual(error.errorDescription, "“\(title)” is already in the project; nothing was restored.")
+            }
+            XCTAssertNotNil(store.trashStore.entryFileURL(trashId: entry.id), "\(title): the entry still holds its file")
+            XCTAssertTrue(store.trashEntries.contains { $0.id == entry.id }, "\(title): the pane still lists it")
+        }
+        XCTAssertEqual(store.manifest.research.filter { $0.id == note.id }.count, 1)
+        XCTAssertEqual(store.manifest.structure.filter { $0.id == chapter.id }.count, 1)
+        XCTAssertEqual(trashFolderCount(url), 2)
+
+        // The clash gone, each entry restores.
+        store.manifest.research.removeAll { $0.id == note.id }
+        store.manifest.structure.removeAll { $0.id == chapter.id }
+        _ = try await store.restoreTrashEntry(id: noteEntry.id)
+        _ = try await store.restoreTrashEntry(id: chapterEntry.id)
+        XCTAssertEqual(store.manifest.research.filter { $0.id == note.id }.count, 1)
+        XCTAssertEqual(store.manifest.structure.filter { $0.id == chapter.id }.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathComponent(try XCTUnwrap(note.path)).path))
+        XCTAssertTrue(store.trashEntries.isEmpty)
+    }
+
+    /// ⌘⌥Z over a gesture whose SECOND entry clashes with a row in the tree
+    /// is refused before anything moves (RULING-40): nothing comes back, the
+    /// three entries stay, ⌘⌥Z stays armed — and works once the clash is gone.
+    func test_anUndoWhoseSecondEntryClashesRestoresNothing_andWorksOnceTheClashIsGone() async throws {
+        let (url, store) = try await novel()
+        let notes = try await threeNotes(store)
+        try await store.deleteResearchItems(ids: notes.map(\.id))
+        let armed = try XCTUnwrap(store.lastDeletion)
+        store.manifest.research.append(notes[1])
+
+        do {
+            _ = try await store.restoreLastDeletion()
+            XCTFail("expected a refusal")
+        } catch let error as TrashStore.TrashError {
+            XCTAssertEqual(error.errorDescription, "“Note Two” is already in the project; nothing was restored.")
+        }
+        XCTAssertNil(store.findResearchItem(id: notes[0].id, in: store.manifest.research), "nothing came back")
+        XCTAssertNil(store.findResearchItem(id: notes[2].id, in: store.manifest.research))
+        XCTAssertEqual(store.trashEntries.count, 3, "all three entries are still in the Trash")
+        XCTAssertEqual(trashFolderCount(url), 3)
+        XCTAssertEqual(store.lastDeletion, armed, "⌘⌥Z is still armed with the whole gesture")
+
+        store.manifest.research.removeAll { $0.id == notes[1].id }
+        let report = try await store.restoreLastDeletion()
+        XCTAssertTrue(try XCTUnwrap(report).isComplete)
+        for note in notes {
+            XCTAssertEqual(store.manifest.research.filter { $0.id == note.id }.count, 1, "\(note.title) is back once")
+        }
+        XCTAssertNil(store.lastDeletion)
+        XCTAssertTrue(store.trashEntries.isEmpty)
+    }
+
+    /// Two entries of one gesture carrying the SAME row (the row was put back
+    /// by hand and deleted again) would put two copies in the tree: refused
+    /// before anything moves.
+    func test_anUndoWhoseEntriesCarryTheSameRowTwiceRestoresNothing() async throws {
+        let (_, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Note One")
+        try await store.deleteResearchItems(ids: [note.id])
+        let first = try XCTUnwrap(store.lastDeletion?.trashIds.first)
+        store.manifest.research.append(ResearchItem(
+            id: note.id, title: "Note One", type: .asset, kind: .link, path: nil, url: "https://example.com"))
+        try await store.deleteResearchItems(ids: [note.id])
+        let second = try XCTUnwrap(store.lastDeletion?.trashIds.first)
+        store.lastDeletion = TrashDeletion(trashIds: [first, second], label: "2 items")
+
+        do {
+            _ = try await store.restoreLastDeletion()
+            XCTFail("expected a refusal")
+        } catch let error as TrashStore.TrashError {
+            XCTAssertEqual(error.errorDescription, "“Note One” is already in the project; nothing was restored.")
+        }
+        XCTAssertNil(store.findResearchItem(id: note.id, in: store.manifest.research), "nothing came back")
+        XCTAssertEqual(store.trashEntries.count, 2)
+    }
+
+    /// A folder Maugham cannot read is not a missing file: the note in it is
+    /// not trashed as a row (its file would be left with no row to own it).
+    /// The move fails and says so; the row and the file stay.
+    func test_aNoteWhoseFolderCannotBeReadIsNotTakenAsMissing() async throws {
+        let (url, store) = try await novel()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Note One")
+        let file = url.appendingPathComponent(try XCTUnwrap(note.path))
+        let folder = file.deletingLastPathComponent().path
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder)
+        unreadableFolders.append(folder)
+
+        do {
+            try await store.deleteResearchItems(ids: [note.id])
+            XCTFail("expected the delete to report a failure")
+        } catch {}
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder)
+
+        XCTAssertNotNil(store.findResearchItem(id: note.id, in: store.manifest.research), "the row stays")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the file stays")
+        XCTAssertTrue(store.trashEntries.isEmpty, "nothing was trashed as a row")
+        XCTAssertEqual(trashFolderCount(url), 0)
+    }
+
+    /// A row with no file and no link is removed with no Trash entry. In a
+    /// gesture that stops partway it is named as removed, never counted
+    /// among what ⌘⌥Z puts back.
+    func test_aPartwayFailureNamesARowRemovedWithNoEntryApart_andCountsOnlyWhatUndoRestores() async throws {
+        let (url, store) = try await novel()
+        let notes = try await threeNotes(store)
+        let bare = ResearchItem(id: "res-bare0001", title: "Bare", type: .asset, kind: .document, path: nil)
+        store.manifest.research.append(bare)
+        try lock(url.appendingPathComponent(try XCTUnwrap(notes[1].path)).path)
+
+        do {
+            try await store.deleteResearchItems(ids: [notes[0].id, bare.id, notes[1].id])
+            XCTFail("expected the gesture to say it stopped partway")
+        } catch let error as ProjectStoreError {
+            guard case .deletedInPart(let trashed, let removed, let failed, _) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(trashed, ["Note One"])
+            XCTAssertEqual(removed, ["Bare"])
+            XCTAssertEqual(failed, "Note Two")
+            let message = try XCTUnwrap(error.errorDescription)
+            XCTAssertTrue(message.hasPrefix(
+                "Moved 1 to the Trash (“Note One”) and removed “Bare”, then “Note Two” could not be deleted: "), message)
+            XCTAssertTrue(message.hasSuffix(". ⌘⌥Z puts it back."), message)
+        }
+        XCTAssertEqual(store.lastDeletion?.trashIds, store.trashEntries.map(\.id))
+        let onDisk = try await researchIdsOnDisk(url)
+        XCTAssertFalse(onDisk.contains(bare.id), "the removed row is saved as gone")
+    }
+
+    /// The same, when NOTHING that landed has an entry: there is nothing for
+    /// ⌘⌥Z to put back, so the sentence offers none — and, as a clean delete
+    /// that makes no entry does (M3-TR-036), the gesture armed before is
+    /// cleared rather than left pointing at an earlier, unrelated deletion.
+    func test_aPartwayFailureWithNoEntryClearsTheEarlierUndo_asACleanDeleteDoes() async throws {
+        let (url, store) = try await novel()
+        let earlier = try await store.addResearchTextNote(parentId: nil, title: "Earlier")
+        try await store.deleteResearchItems(ids: [earlier.id])
+        let armedBefore = try XCTUnwrap(store.lastDeletion)
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Note Two")
+        let bare = ResearchItem(id: "res-bare0002", title: "Bare", type: .asset, kind: .document, path: nil)
+        store.manifest.research.append(bare)
+        try lock(url.appendingPathComponent(try XCTUnwrap(note.path)).path)
+
+        do {
+            try await store.deleteResearchItems(ids: [bare.id, note.id])
+            XCTFail("expected the gesture to say it stopped partway")
+        } catch let error as ProjectStoreError {
+            guard case .deletedInPart(let trashed, let removed, _, _) = error else {
+                return XCTFail("wrong case: \(error)")
+            }
+            XCTAssertEqual(trashed, [])
+            XCTAssertEqual(removed, ["Bare"])
+            let message = try XCTUnwrap(error.errorDescription)
+            XCTAssertTrue(message.hasPrefix("Removed “Bare”, then “Note Two” could not be deleted: "), message)
+            XCTAssertFalse(message.contains("⌘⌥Z"), message)
+        }
+        XCTAssertEqual(armedBefore.label, "Earlier", "the premise: an earlier gesture was armed")
+        XCTAssertNil(store.lastDeletion, "⌘⌥Z no longer points at the earlier, unrelated gesture")
+        let onDisk = try await researchIdsOnDisk(url)
+        XCTAssertFalse(onDisk.contains(bare.id), "the removed row is saved as gone")
+        XCTAssertTrue(onDisk.contains(note.id))
     }
 
     // MARK: - Refused before the mover closes anything

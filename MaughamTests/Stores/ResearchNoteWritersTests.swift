@@ -53,14 +53,7 @@ final class ResearchNoteWritersTests: XCTestCase {
     /// A novel with one chapter, "Alpha", and both stores wired both ways, as
     /// `ProjectSession.open` wires them.
     private func openBook() async throws -> (DocumentStore, ProjectStore) {
-        try "Words.\n".write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [StructureItem(id: "doc-a", title: "Alpha", type: .document, path: "manuscript/a.md")],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(to: file(ProjectManifest.fileName))
+        try writeBook()
         let store = try await DocumentStore.open(url: projectURL)
         stores.append(store)
         let doc = try await Document.load(
@@ -70,6 +63,18 @@ final class ResearchNoteWritersTests: XCTestCase {
         projectStore.documentStore = store
         store.projectStore = projectStore
         return (store, projectStore)
+    }
+
+    /// The book's files on disk: one chapter, "Alpha", and its manifest.
+    private func writeBook() throws {
+        try "Words.\n".write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [StructureItem(id: "doc-a", title: "Alpha", type: .document, path: "manuscript/a.md")],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: file(ProjectManifest.fileName))
     }
 
     private func file(_ relative: String) -> URL { projectURL.appendingPathComponent(relative) }
@@ -262,6 +267,385 @@ final class ResearchNoteWritersTests: XCTestCase {
             XCTAssertTrue(reason.contains("Notes"), reason)
         }
         XCTAssertEqual(try text(of: item, projectStore), "The fog came in.")
+    }
+
+    // MARK: - Replace re-finds its match in the text it read (#141 N2)
+
+    /// The research matches of `results`, left to right.
+    private func researchMatches(_ results: SearchResults) -> [SearchMatch] {
+        results.matches.filter { $0.documentSource == .research }
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+    }
+
+    // MARK: - Replace refuses when the occurrences changed since the search (final fix wave)
+
+    /// An edit on the clicked occurrence's own line changes what the result
+    /// showed, so Replace refuses rather than guess (final fix wave): the
+    /// edit stands, nothing is written, and the results are refreshed.
+    func test_replaceAfterAnEditOnTheClickedOccurrencesLineIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("alpha beta alpha", in: projectStore)
+        let results = await search("alpha", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("xx alpha beta alpha", of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "alpha beta alpha",
+                                         leaving: "xx alpha beta alpha",
+                                         projectStore, store)
+    }
+
+    /// `match` is refused as stale; the note holds exactly `edited` (the
+    /// writer's queued edit, saved by Replace's flush and untouched by
+    /// Replace); the only version kept is the one the writer's own save kept
+    /// of `before` — Replace kept none of `edited` — and no open editor
+    /// re-read; and the results are refreshed to what the note holds now.
+    private func assertReplaceIsRefused(
+        _ match: SearchMatch, of item: ResearchItem, before: String, leaving edited: String,
+        _ projectStore: ProjectStore, _ store: DocumentStore,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        do {
+            try await projectStore.replaceMatch(match, with: "Z")
+            XCTFail("a Replace whose occurrences changed since the search must be refused",
+                    file: file, line: line)
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), edited, "Replace wrote nothing",
+                       file: file, line: line)
+        XCTAssertEqual(try versionTexts(of: item), [before],
+                       "only the writer's own save kept a version; Replace kept none", file: file, line: line)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads,
+                       "nothing went through the door, so no open editor re-reads", file: file, line: line)
+        let fresh = researchMatches(try XCTUnwrap(projectStore.currentSearch))
+        XCTAssertEqual(fresh.count, Self.occurrences(of: match, in: edited),
+                       "the refusal refreshed the results", file: file, line: line)
+        XCTAssertTrue(fresh.allSatisfy { $0.id != match.id }, file: file, line: line)
+    }
+
+    /// How many times the query `match` was found by occurs in `text` (the
+    /// tests' queries are plain words, case as written).
+    private static func occurrences(of match: SearchMatch, in text: String) -> Int {
+        let query = (match.linePreview as NSString).substring(with: match.matchRangeInLine)
+        return text.components(separatedBy: query).count - 1
+    }
+
+    /// One more "Anna." typed before the clicked (second) one: ordinal 1 now
+    /// names the line just typed — the same words, so only the count tells.
+    func test_replaceAfterAnOccurrenceWasAddedBeforeTheClickedOneIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna.\nAnna.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Anna.\nAnna.\nAnna.", of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna.\nAnna.",
+                                         leaving: "Anna.\nAnna.\nAnna.",
+                                         projectStore, store)
+    }
+
+    /// One occurrence added before the clicked one and one removed after
+    /// it: the count is as the search found it, but ordinal 1 now names a
+    /// line the result never showed.
+    func test_replaceAfterOneOccurrenceWasAddedAndAnotherRemovedIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna one.\nAnna two.\nAnna three.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 3)
+        let edited = "Anna one.\nAnna new.\nAnna two.\nBob three."
+        queueEdit(edited, of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna one.\nAnna two.\nAnna three.",
+                                         leaving: edited, projectStore, store)
+    }
+
+    /// The control: an edit elsewhere — a line typed above, moving every
+    /// offset and line number — neither adds nor removes an occurrence and
+    /// leaves the clicked line alone, so the clicked occurrence is replaced,
+    /// re-found in the text just read, never at the old offsets.
+    func test_replaceAfterAnEditThatLeavesTheOccurrencesAloneStillReplacesTheClickedOne() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna one.\nAnna two.", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Prologue.\nAnna one.\nAnna two.", of: item, store)
+
+        try await projectStore.replaceMatch(matches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Prologue.\nAnna one.\nZ two.")
+        XCTAssertEqual(try newestVersionText(of: item), "Prologue.\nAnna one.\nAnna two.",
+                       "a note's Replace still keeps what it replaced")
+    }
+
+    // MARK: - The check reads the text the search read (final fix wave, correction)
+
+    /// The research matches of `results` in `item`, left to right.
+    private func researchMatches(_ results: SearchResults, in item: ResearchItem) -> [SearchMatch] {
+        researchMatches(results).filter { $0.documentPath == item.path }
+    }
+
+    /// The search reads `stripAnchors(stored)`, which joins `\r\n` lines with
+    /// `\n`; the Replace still lands on the clicked occurrence in the stored
+    /// text, and every other `\r\n` is left exactly as it was.
+    func test_replaceInANoteWithWindowsLineEndingsReplacesTheClickedOccurrence() async throws {
+        let (_, projectStore) = try await openBook()
+        let stored = "Anna one.\r\nAnna two.\r\nThe end.\r\n"
+        let item = try await note(stored, in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+
+        try await projectStore.replaceMatch(matches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Anna one.\r\nZ two.\r\nThe end.\r\n")
+        XCTAssertEqual(try newestVersionText(of: item), stored, "a note's Replace still keeps what it replaced")
+    }
+
+    /// The search trims the note's leading and trailing whitespace; a Replace
+    /// on its first or its last line lands in place, the whitespace kept.
+    func test_replaceOnTheEdgeLinesOfANoteWithLeadingAndTrailingWhitespaceReplacesTheClickedOccurrence() async throws {
+        let (_, projectStore) = try await openBook()
+        let stored = "  Anna one.\nAnna two.  \n\n"
+        let first = try await note(stored, titled: "First", in: projectStore)
+        let last = try await note(stored, titled: "Last", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let firstMatches = researchMatches(results, in: try current(first, projectStore))
+        XCTAssertEqual(firstMatches.count, 2)
+
+        try await projectStore.replaceMatch(firstMatches[0], with: "Z")
+
+        XCTAssertEqual(try text(of: first, projectStore), "  Z one.\nAnna two.  \n\n")
+        let lastMatches = researchMatches(try XCTUnwrap(projectStore.currentSearch),
+                                          in: try current(last, projectStore))
+        XCTAssertEqual(lastMatches.count, 2)
+
+        try await projectStore.replaceMatch(lastMatches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: last, projectStore), "  Anna one.\nZ two.  \n\n")
+    }
+
+    /// The protection still holds in a `\r\n` note: one more occurrence typed
+    /// before the clicked one is refused, nothing written.
+    func test_replaceInAWindowsLineEndingNoteStillRefusesWhenAnOccurrenceWasAdded() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna.\r\nAnna.\r\n", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Anna.\r\nAnna.\r\nAnna.\r\n", of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna.\r\nAnna.\r\n",
+                                         leaving: "Anna.\r\nAnna.\r\nAnna.\r\n", projectStore, store)
+    }
+
+    /// A line shaped like a paragraph anchor is dropped from what the search
+    /// reads; when it holds the query, the stored text holds one occurrence
+    /// more than the results listed, so the Replace is refused rather than
+    /// aimed at the anchor.
+    func test_replaceInANoteHoldingAnAnchorShapedLineWithTheQueryIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let stored = "<!-- ¶ab12 -->\nab12 is here."
+        let item = try await note(stored, in: projectStore)
+        let results = await search("ab12", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 1, "the search does not see the anchor-shaped line")
+
+        do {
+            try await projectStore.replaceMatch(matches[0], with: "Z")
+            XCTFail("a Replace whose stored text holds an occurrence the search did not list must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), stored, "Replace wrote nothing")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0)
+    }
+
+    /// Replace All in a `\r\n` note (not the clicked-occurrence rule)
+    /// replaces both and keeps the line endings.
+    func test_replaceAllInAWindowsLineEndingNoteKeepsTheLineEndings() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("Anna one.\r\nAnna two.\r\n", in: projectStore)
+
+        try await projectStore.replaceAll(in: await search("Anna", projectStore), with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Z one.\r\nZ two.\r\n")
+    }
+
+    /// **A single Replace leaves the results fresh, and a stale match is
+    /// refused** — the research arm's mirror of
+    /// `ProjectSearchReplaceTests.test_aSecondReplaceOfTheSameStaleMatchIsRefused_andAFreshMatchLands`:
+    /// the same match value clicked again, or another from the old list,
+    /// says "search again" and writes nothing; the match the fresh results
+    /// list second replaces that one.
+    func test_aSecondReplaceOfTheSameStaleMatchInANoteIsRefused_andAFreshMatchLands() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("fog one fog two fog three", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 3)
+
+        try await projectStore.replaceMatch(matches[0], with: "mist!!")
+
+        let fresh = researchMatches(try XCTUnwrap(projectStore.currentSearch))
+        XCTAssertEqual(fresh.map(\.charRangeInDocument.location), [11, 19],
+                       "the results are fresh when the Replace returns")
+        XCTAssertTrue(Set(fresh.map(\.id)).isDisjoint(with: matches.map(\.id)))
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        let kept = versions(of: item).count
+
+        for stale in [matches[0], matches[1]] {
+            do {
+                try await projectStore.replaceMatch(stale, with: "mist!!")
+                XCTFail("a match from the old results must be refused")
+            } catch ProjectStoreError.staleSearchMatch {}
+        }
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two fog three",
+                       "a refused Replace writes nothing")
+        XCTAssertEqual(versions(of: item).count, kept, "and keeps nothing")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+
+        try await projectStore.replaceMatch(fresh[1], with: "mist!!")
+
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two mist!! three")
+    }
+
+    /// **Replace clicked twice quickly on the same match** (Review Focus 5):
+    /// both presses in flight at once; one lands, the other finds the match
+    /// gone and says so — it never replaces the next occurrence.
+    func test_replaceClickedTwiceQuicklyOnTheSameNoteMatchReplacesOnce() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("fog one fog two fog three", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let first = try XCTUnwrap(researchMatches(results).first)
+
+        func press() async -> Bool {
+            do {
+                try await projectStore.replaceMatch(first, with: "mist!!")
+                return true
+            } catch ProjectStoreError.staleSearchMatch {
+                return false
+            } catch {
+                XCTFail("unexpected: \(error)")
+                return false
+            }
+        }
+        let one = Task { await press() }
+        let two = Task { await press() }
+        let landed = [await one.value, await two.value]
+
+        XCTAssertEqual(landed.filter { $0 }.count, 1, "one press lands, one is refused: \(landed)")
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two fog three")
+    }
+
+    /// **A single Replace of an old match after Replace All is refused** —
+    /// the research arm's mirror of
+    /// `ProjectSearchReplaceTests.test_aSingleReplaceOfAnOldMatchAfterReplaceAllIsRefused`.
+    func test_aSingleReplaceOfAnOldNoteMatchAfterReplaceAllIsRefused() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("Tom met Tom.", in: projectStore)
+        let results = await search("Tom", projectStore)
+        projectStore.currentSearch = results
+        let old = researchMatches(results)
+        XCTAssertEqual(old.count, 2)
+
+        try await projectStore.replaceAll(in: results, with: "Tommy")
+
+        XCTAssertEqual(researchMatches(try XCTUnwrap(projectStore.currentSearch))
+                        .map(\.charRangeInDocument.location), [0, 10],
+                       "the results are fresh when Replace All returns")
+        let kept = versions(of: item).count
+        do {
+            try await projectStore.replaceMatch(old[1], with: "Tommy")
+            XCTFail("a match from before Replace All must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), "Tommy met Tommy.", "the text is as Replace All left it")
+        XCTAssertEqual(versions(of: item).count, kept, "and nothing more was kept")
+    }
+
+    func test_replaceMatchWhoseQueryIsGoneFromTheNoteThrowsAndWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("The fog came in.", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let match = try XCTUnwrap(researchMatches(results).first)
+        try Data("The rain came in.".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        do {
+            try await projectStore.replaceMatch(match, with: "mist")
+            XCTFail("a match whose query has left the note must say so")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), "The rain came in.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+    }
+
+    /// Fewer occurrences than the ordinal clicked: the second match's
+    /// ordinal is past what the note now holds, so Replace refuses with
+    /// "That match has changed. Search again."
+    func test_replaceMatchWhoseNoteNowHoldsFewerMatchesThanItsOrdinalThrowsAndWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("fog and fog", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        try Data("fog and rain".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        do {
+            try await projectStore.replaceMatch(matches[1], with: "mist")
+            XCTFail("an ordinal past what the note holds must say so")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), "fog and rain")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+    }
+
+    /// A note whose query is gone by the time Replace All runs is skipped:
+    /// nothing is written to it and nothing is kept.
+    func test_replaceAllSkipsANoteWhoseQueryIsGone() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("The fog came in.", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).count, 1)
+        try Data("The rain came in.".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        let outcome = try await projectStore.replaceAll(in: results, with: "mist")
+
+        XCTAssertEqual(try text(of: item, projectStore), "The rain came in.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+        XCTAssertEqual(outcome.leftAlone, [], "nothing was left alone: there was nothing to replace")
+    }
+
+    /// `replaceAll` returns what it left alone, not a count; the three
+    /// replacements are counted in the note itself.
+    func test_replaceAllReplacesWhatTheNoteHoldsNow() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("fog and fog", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).count, 2)
+        queueEdit("fog and fog and fog", of: item, store)
+
+        try await projectStore.replaceAll(in: results, with: "mist")
+
+        XCTAssertEqual(try text(of: item, projectStore), "mist and mist and mist")
+        let after = await search("mist", projectStore)
+        XCTAssertEqual(researchMatches(after).count, 3)
     }
 
     // MARK: - Asset refs after a rename or a move (recon §6 row 6)
@@ -499,5 +883,79 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: file("manuscript/unlisted.md"), encoding: .utf8), "The fog.")
         XCTAssertEqual(try String(contentsOf: file("research/loose.md"), encoding: .utf8), "The mist.",
                        "an unlisted file inside research/ keeps its raw write")
+    }
+
+    // MARK: - No raw write behind a door that was there (#141 N6)
+
+    /// `card` as it loads, its body now "Walk-up.".
+    private func walkUp(_ card: ResearchItem, _ projectStore: ProjectStore) throws -> PaletteCard {
+        let loaded = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == card.id })
+        return PaletteCard(researchItemId: loaded.researchItemId, title: loaded.title, kind: loaded.kind,
+                           swatches: loaded.swatches, notes: loaded.notes,
+                           imagePaths: loaded.imagePaths, body: "Walk-up.")
+    }
+
+    /// **A store that had a `DocumentStore` and lost it (the window's
+    /// teardown) refuses the raw fallback**: the raw write keeps no version,
+    /// so taking it there would silently replace the door's write. The link
+    /// sweep (it cannot throw) writes nothing; Replace throws; the asset-ref
+    /// rewrite writes nothing. Each note's bytes are as they were.
+    func test_aStoreThatLostItsDocumentStoreRefusesTheRawNoteWrite() async throws {
+        let (_, projectStore) = try await openBook()
+        let swept = try await note("See [[Alpha]].", titled: "Swept", in: projectStore)
+        let replaced = try await note("The fog came in.", titled: "Replaced", in: projectStore)
+        let moved = try await note("![](./a_assets/1.png)", titled: "Moved", in: projectStore)
+        let card = try await projectStore.addPaletteCard(title: "Fog", kind: .other)
+        let cardBefore = try text(of: card, projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).filter { $0.documentPath == replaced.path }.count, 1,
+                       "premise: the note's match is found")
+        let before = try [swept, replaced, moved].map { try text(of: $0, projectStore) }
+
+        projectStore.documentStore = nil   // what the window's teardown leaves behind
+        XCTAssertEqual(projectStore.rawNoteWriteWithNoDoor(), .refused)
+
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+        do {
+            try await projectStore.replaceAll(in: results, with: "mist")
+            XCTFail("Replace with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        await projectStore.rewriteMovedNoteAssetRefs(itemId: moved.id, oldStem: "a", newStem: "b")
+        let edited = try walkUp(card, projectStore)
+        do {
+            try await projectStore.updatePaletteCard(edited)
+            XCTFail("the palette funnel with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        XCTAssertEqual(try text(of: card, projectStore), cardBefore, "the card's bytes are unchanged")
+
+        let after = try [swept, replaced, moved].map { try text(of: $0, projectStore) }
+        XCTAssertEqual(after, before, "no note's bytes changed")
+        XCTAssertEqual(before, ["See [[Alpha]].", "The fog came in.", "![](./a_assets/1.png)"])
+        for item in [swept, replaced, moved] { XCTAssertTrue(versions(of: item).isEmpty) }
+    }
+
+    /// **Review Focus 5: a `ProjectStore` never given a `DocumentStore` (a
+    /// load-only context) still writes raw**, keeping nothing, as it always
+    /// has.
+    func test_aStoreNeverGivenADocumentStoreStillWritesRaw() async throws {
+        try writeBook()
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        XCTAssertFalse(projectStore.hadADocumentStore)
+        XCTAssertEqual(projectStore.rawNoteWriteWithNoDoor(), .allowed)
+        let swept = try await note("See [[Alpha]].", titled: "Swept", in: projectStore)
+        let replaced = try await note("The fog came in.", titled: "Replaced", in: projectStore)
+        let moved = try await note("![](./a_assets/1.png)", titled: "Moved", in: projectStore)
+
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+        try await projectStore.replaceAll(in: await search("fog", projectStore), with: "mist")
+        await projectStore.rewriteMovedNoteAssetRefs(itemId: moved.id, oldStem: "a", newStem: "b")
+        XCTAssertEqual(try text(of: swept, projectStore), "See [[Omega]].")
+        XCTAssertEqual(try text(of: replaced, projectStore), "The mist came in.")
+        XCTAssertEqual(try text(of: moved, projectStore), "![](./b_assets/1.png)")
+        for item in [swept, replaced, moved] { XCTAssertTrue(versions(of: item).isEmpty, "the raw write keeps nothing") }
     }
 }

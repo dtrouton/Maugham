@@ -44,6 +44,27 @@ final class PendingBasisFoldTests: XCTestCase {
             "a clean close must leave no pending file — the burst already persisted the edits as ops")
     }
 
+    /// #143 Q2: an autosave that lands while `close()` seals re-creates the
+    /// `{sequence, changes: []}` mirror; the clean clear must still win.
+    func test_anAutosaveArrivingDuringTheSealsLeavesNoPendingFileAfterAClose() async throws {
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+        let doc = try await Document.load(
+            url: url, device: "m", session: "s1", presenter: nil)
+        let pendingURL = pendingFileURL(project: project, docId: doc.docId, device: "m")
+        doc.setFullText("Alpha edited.\n\nBravo.")
+        var mirrorRecreated = false
+        doc.closeWillFinishForTesting = { [unowned doc] in
+            try? await doc.performAutosave()
+            mirrorRecreated = FileManager.default.fileExists(atPath: pendingURL.path)
+        }
+        await doc.close()
+
+        XCTAssertTrue(mirrorRecreated, "premise: the late autosave wrote the pending mirror")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: pendingURL.path),
+            "a clean close must leave no pending file, even when an autosave lands during the seals")
+    }
+
     // MARK: - (b) peer delete while closed → not reverted by a stale pending file
 
     func test_peerDeleteWhileClosed_staleEmptyPending_doesNotRevertDelete() async throws {

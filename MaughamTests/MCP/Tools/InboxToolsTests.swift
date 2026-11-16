@@ -67,6 +67,41 @@ final class InboxToolsTests: XCTestCase {
         withExtendedLifetime(ds) {}
     }
 
+    /// #141 N5: an MCP promotion's body is the assistant's, through the note
+    /// door — so the writer's first edit keeps it as a version marked as the
+    /// assistant's.
+    /// Disable experiment: pass `.writer` from `PromoteInboxEntryTool` and
+    /// the kept version says the writer wrote it.
+    func test_theWritersFirstEditOfAnMCPPromotedNoteKeepsTheAssistantsTextMarkedAsTheAssistants() async throws {
+        let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
+        ds.projectStore = store
+        try await seed(url, [InboxEntry(
+            id: "e9", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Captured on the phone.")])
+
+        let params = #"{"project_id":"\#(projectId)","entry_id":"e9"}"#
+        let result = try JSONDecoder().decode(
+            PromoteInboxEntryTool.Result.self,
+            from: try await PromoteInboxEntryTool.handle(paramsJSON: Data(params.utf8), registry: reg))
+        let fileURL = url.appendingPathComponent(result.path)
+        let body = try Data(contentsOf: fileURL)
+        XCTAssertEqual(String(decoding: body, as: UTF8.self), "Captured on the phone.")
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: result.research_id, in: url)?.writtenBy, .assistant)
+
+        ds.researchNoteWasRead(itemId: result.research_id, bytes: body)
+        ds.researchNoteDoor.saveDelay = .seconds(3600)
+        ds.scheduleNoteSave(itemId: result.research_id, text: "The writer's edit.")
+        try await ds.flushPendingSave()
+
+        let versions = ResearchVersionStore(projectURL: url).versions(itemId: result.research_id)
+        XCTAssertEqual(versions.count, 1)
+        let kept = try XCTUnwrap(versions.first)
+        XCTAssertEqual(try ResearchVersionStore(projectURL: url).read(kept).0, body)
+        XCTAssertEqual(kept.writtenBy, .assistant)
+        XCTAssertEqual(kept.replacedBy, .writer)
+        withExtendedLifetime(ds) {}
+    }
+
     func test_promote_unknownTargetDocumentId_failsLoudly() async throws {
         let (url, _, ds, reg, projectId) = try await openNovelWithRegistry()
         try await seed(url, [InboxEntry(
@@ -87,6 +122,12 @@ final class InboxToolsTests: XCTestCase {
     func test_promote_withPaletteCardId_landsNoteOnCard() async throws {
         let (url, store, ds, reg, projectId) = try await openNovelWithRegistry()
         let item = try await store.addPaletteCard(title: "The Flat", kind: .location)
+        // The writer's text on the card first: a new card's blank template is
+        // nobody's version (#141 N8), so the promotion has something to keep.
+        let made = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == item.id })
+        try await store.updatePaletteCard(PaletteCard(
+            researchItemId: made.researchItemId, title: made.title, kind: made.kind, swatches: made.swatches,
+            notes: made.notes, imagePaths: made.imagePaths, body: "Mine."))
         try await seed(url, [InboxEntry(
             id: "e4", createdAt: Date(timeIntervalSince1970: 100),
             deviceId: "phone", kind: .text, inlineText: "Damp plaster smell.")])

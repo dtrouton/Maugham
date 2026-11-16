@@ -385,6 +385,64 @@ final class ResearchTableVersionTests: XCTestCase {
         await store.releaseResearchTable(host)
     }
 
+    // MARK: - A restore spares the version it restores (#141 N4)
+
+    /// A table with the writer's one version (the original bytes, the oldest)
+    /// and fillers up to the retention, all newer, on this device.
+    private func tableWithTheRetentionKept(_ store: DocumentStore, _ projectStore: ProjectStore,
+                                           clock: Clock) async throws -> (ResearchItem, ResearchTableHost, ResearchVersion) {
+        let item = try await researchTable("Year,Revenue\n2025,10\n", in: projectStore)
+        let host = try await open(item, store, clock: clock)
+        try await writerSaves(11, host)
+        let oldest = try XCTUnwrap(versions(of: item).first)
+        let store = ResearchVersionStore(projectURL: projectURL)
+        for i in 1..<ResearchVersionStore.retention {
+            try store.keep(priorBytes: Data("Year,Revenue\n2025,\(100 + i)\n".utf8), priorSidecar: nil, writtenBy: .writer,
+                           itemId: item.id, device: DeviceIdentity.author.slug,
+                           at: clock.date.addingTimeInterval(3_600 * Double(i)))
+        }
+        XCTAssertEqual(versions(of: item).count, ResearchVersionStore.retention)
+        XCTAssertTrue(versions(of: item).contains(oldest))
+        return (item, host, oldest)
+    }
+
+    /// Restoring the oldest of exactly the retention makes one more; its
+    /// prune must not remove the version being restored.
+    /// Disable experiment: pass no `sparing` for the restored name and the
+    /// restored version's file is gone after the restore.
+    func test_restoringTheOldestOfFiftyKeepsTheVersionItRestored() async throws {
+        let (store, projectStore) = try await openBook()
+        let (item, host, oldest) = try await tableWithTheRetentionKept(store, projectStore, clock: Clock())
+
+        try await host.restore(oldest)
+
+        XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "10"]])
+        XCTAssertTrue(versions(of: item).contains(oldest), "the restored version is still kept")
+        XCTAssertEqual(versions(of: item).count, ResearchVersionStore.retention)
+        await store.releaseResearchTable(host)
+    }
+
+    /// The same, when the write then fails: the restored table is still on disk as a version.
+    func test_aFailedRestoreOfTheOldestOfFiftyLeavesItsVersionOnDisk() async throws {
+        let (store, projectStore) = try await openBook()
+        let (item, host, oldest) = try await tableWithTheRetentionKept(store, projectStore, clock: Clock())
+        let path = file(try XCTUnwrap(item.path))
+        var left = ["Year,Revenue\n2025,outside 1\n", "Year,Revenue\n2025,outside 2\n"]
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+
+        do {
+            try await host.restore(oldest)
+            XCTFail("the write was changed twice, so the restore fails")
+        } catch is ResearchTableHost.NotSaved {}
+
+        XCTAssertTrue(versions(of: item).contains(oldest), "the restored version's file still exists")
+        XCTAssertEqual(try versionRows(oldest), [["Year", "Revenue"], ["2025", "10"]])
+        await store.releaseResearchTable(host)
+    }
+
     /// A version that cannot be kept writes nothing over the file, and says so.
     func test_aVersionThatCannotBeKeptWritesNothing() async throws {
         let (store, projectStore) = try await openBook()

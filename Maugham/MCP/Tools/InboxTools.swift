@@ -162,7 +162,7 @@ public enum PromoteInboxEntryTool: MCPTool {
         let scope: ResearchScope =
             params.target_document_id.map { .document($0) } ?? .shared
         let created = try await inbox.promoteToResearch(
-            entry, projectStore: store, scope: scope)
+            entry, projectStore: store, scope: scope, by: .assistant)
         return try JSONEncoder().encode(Result(
             research_id: created.id, title: created.title, path: created.path ?? ""))
     }

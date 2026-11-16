@@ -218,6 +218,7 @@ final class ResearchNoteDoorTests: XCTestCase {
     /// coordinated write, reads again, keeps them as a version, then saves.
     func test_bytesWrittenOutsideAfterTheReadAreKeptAsAVersionBeforeTheSave() async throws {
         let (store, projectStore) = try await openBook()
+        let heard = listen()
         let item = try await note("Before.", in: projectStore)
         try read(item, store, projectStore)
         landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
@@ -228,6 +229,297 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["Before.", "From outside."],
                        "the run's start and the outside bytes, each kept once")
         XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+        XCTAssertEqual(heard.notices, [Self.changedWhileEditing], "said once, across the retry")
+    }
+
+    private static let changedWhileEditing =
+        "“Notes” changed outside Maugham while you were editing it. That version is kept in its Versions; yours was saved."
+    private static let reloaded = "Reloaded “Notes” — the file changed outside Maugham."
+
+    // MARK: - Hardening 11-16 task 1.7: an outside change is heard (#141 N3, RULING-62)
+
+    /// The window's file presenter hears `item`'s file change, and the
+    /// door's answer to it is awaited.
+    private func presenterHears(_ item: ResearchItem, _ store: DocumentStore,
+                                _ projectStore: ProjectStore) async throws {
+        let url = file(try XCTUnwrap(current(item, projectStore).path))
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.heardForTesting = { id in
+                guard id == item.id else { return }
+                store.researchNoteDoor.heardForTesting = nil
+                done.resume()
+            }
+            store.presenterDidChangeSubitem(at: url)
+        }
+    }
+
+    func test_anOutsideChangeToACleanNoteReloadsItAndSaysSo() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads + 1, "the open editor is told to read it")
+        XCTAssertEqual(heard.notices, [Self.reloaded])
+        // The same change heard again (a presenter burst) is not a second change.
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads + 1)
+        XCTAssertEqual(heard.notices, [Self.reloaded], "said once")
+        // The outside text ended the writer's run: their next typing keeps it.
+        try await typed("Mine.", into: item, store)
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
+    }
+
+    /// **Review Focus 3**: what the door itself wrote (a typed save, anyone
+    /// else's save, a card's template) and bytes it read with a BOM are its
+    /// own: heard back, they reload nothing and say nothing.
+    func test_theDoorsOwnSaveComingBackIsNotAnOutsideChange() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("", in: projectStore)
+        let bom = Data([0xEF, 0xBB, 0xBF]) + Data("With a BOM.\r\n".utf8)
+        try bom.write(to: file(try XCTUnwrap(item.path)))
+        store.researchNoteWasRead(itemId: item.id, bytes: bom)
+        store.researchNoteOpened(itemId: item.id)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the BOM file as read")
+
+        try await typed("Typed.", into: item, store)
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the editor's own save")
+
+        await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+        let afterDirect = store.researchNoteReloadCount(itemId: item.id)
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), afterDirect, "anyone else's save")
+
+        let card = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        store.researchNoteOpened(itemId: card.id)
+        let cardReloads = store.researchNoteReloadCount(itemId: card.id)
+        try await presenterHears(card, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: card.id), cardReloads, "a card's template")
+
+        XCTAssertEqual(heard.notices, [], "nothing is said")
+    }
+
+    /// Anyone else's save over an outside change keeps it, as it always
+    /// has, and is not "you were editing it": nothing of the writer's was.
+    func test_anotherWritersSaveOverAnOutsideChangeIsNotSaidAsTheWritersEdit() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        let saved = await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try versions(of: item).map(versionText), ["From outside."])
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// **Review Focus 4**: a note this store never read has nothing on
+    /// screen to be stale; a change to it is not news.
+    func test_anOutsideChangeToANoteNobodyReadSaysNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Never read.", in: projectStore)
+        store.researchNoteOpened(itemId: item.id)   // open, but its bytes were never read
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// **The open hold is one suspension that cancellation ends, and it is
+    /// balanced**: two editors holding a note keep it open until both are
+    /// cancelled; a hold cancelled before it ever starts raises and lowers
+    /// once each, leaving the count where it was.
+    /// Disable experiment: lower the count twice (or not at all) in
+    /// `holdResearchNoteOpen` and a step below fails.
+    func test_theOpenHoldEndsOnCancellationAndIsBalanced() async throws {
+        let (store, _) = try await openBook()
+        let door = store.researchNoteDoor
+        let first = Task { await store.holdResearchNoteOpen(itemId: "n1") }
+        let second = Task { await store.holdResearchNoteOpen(itemId: "n1") }
+        while !door.isOpen("n1") { await Task.yield() }
+        first.cancel()
+        await first.value
+        XCTAssertTrue(door.isOpen("n1"), "the second editor still holds it")
+        second.cancel()
+        await second.value
+        XCTAssertFalse(door.isOpen("n1"), "both let go: not open")
+
+        let early = Task { await store.holdResearchNoteOpen(itemId: "n2") }
+        early.cancel()
+        await early.value
+        XCTAssertFalse(door.isOpen("n2"), "raised then lowered once, even cancelled before it started")
+        let again = Task { await store.holdResearchNoteOpen(itemId: "n2") }
+        while !door.isOpen("n2") { await Task.yield() }
+        again.cancel()
+        await again.value
+        XCTAssertFalse(door.isOpen("n2"), "and the count did not go negative: one hold, one release")
+    }
+
+    /// **Review Focus 4, a note known but not open**: one the writer read
+    /// and has left. Nothing is on screen to reload, so nothing moves and
+    /// nothing is said; the next save still keeps the outside bytes.
+    func test_anOutsideChangeToANoteNoLongerOpenSaysNothing_andTheNextSaveKeepsIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+        store.researchNoteLetGo(itemId: item.id)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [])
+        await store.saveResearchNote(itemId: item.id, text: "Later.")
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."),
+                      "the outside bytes were not made the door's own")
+    }
+
+    /// The same for a note only the assistant's `add_note` wrote (its body
+    /// through the door, by the assistant, must land): known, never open.
+    func test_anOutsideChangeToANoteOnlyAddNoteWroteSaysNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        await store.saveResearchNote(itemId: item.id, text: "The assistant's note.", by: .assistant, mustLand: true)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [])
+        await store.saveResearchNote(itemId: item.id, text: "Later.")
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
+    }
+
+    /// And for a new card's template (known, never opened).
+    func test_anOutsideChangeToANewCardNobodyOpenedSaysNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let card = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        let reloads = store.researchNoteReloadCount(itemId: card.id)
+
+        try Data("# Harbour\n\nFrom outside.\n".utf8).write(to: file(try XCTUnwrap(current(card, projectStore).path)))
+        try await presenterHears(card, store, projectStore)
+
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: card.id), reloads)
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// **A save that starts and ends while the door reads the file** (the
+    /// assistant's, needing no pending edit) is no outside change: the
+    /// bytes read are stale, and the door asks again.
+    func test_aSaveDuringTheDoorsReadIsNotAnOutsideChange() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        // The presenter fires (a burst; nothing changed); the door reads
+        // "Before.", and the assistant's save lands before that read resumes.
+        store.researchNoteDoor.outsideReadWillResumeForTesting = {
+            store.researchNoteDoor.outsideReadWillResumeForTesting = nil
+            await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+        }
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(try text(of: item, projectStore), "The assistant's.")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads + 1, "only the assistant's own reload")
+        XCTAssertEqual(heard.notices, [], "nothing is said")
+    }
+
+    /// **The writer typed between the "Reloaded" notice and the editor's
+    /// re-read**: the editor kept their text, so the save that covers the
+    /// outside bytes says so, once.
+    func test_typingBeforeAnOutsideReloadLandsIsSaidWhenItsSaveKeepsTheOutsideBytes() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+        // No `researchNoteWasRead`: the editor had an edit pending and did not reload.
+        try await typed("Before. Mine.", into: item, store)
+
+        XCTAssertTrue(try versions(of: item).map(versionText).contains("From outside."))
+        XCTAssertEqual(heard.notices, [Self.reloaded, Self.changedWhileEditing])
+        try await typed("Before. Mine, more.", into: item, store)
+        XCTAssertEqual(heard.notices, [Self.reloaded, Self.changedWhileEditing], "said once")
+    }
+
+    /// A presenter path whose case differs from the manifest's (a
+    /// case-insensitive volume) still finds the note.
+    func test_aPresenterPathInAnotherCaseFindsTheNote() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+        let path = try XCTUnwrap(item.path)
+        _ = try XCTUnwrap(store.researchNoteItem(atPath: path.uppercased()), "the lookup ignores case")
+
+        try Data("From outside.".utf8).write(to: file(path))
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.heardForTesting = { id in
+                guard id == item.id else { return }
+                store.researchNoteDoor.heardForTesting = nil
+                done.resume()
+            }
+            store.presenterDidChangeSubitem(at: file(path.uppercased()))
+        }
+        XCTAssertEqual(heard.notices, [Self.reloaded])
+    }
+
+    /// The writer's pending edit is never discarded: the change heard under
+    /// it waits for the save, which keeps the outside bytes (here, a change
+    /// before its read and another during its write: the retry) and says so
+    /// once, when the writer's text has landed.
+    func test_anOutsideChangeUnderAPendingEditIsKeptAsAVersion_andSaidOnce() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        store.researchNoteOpened(itemId: item.id)
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "Mine.")
+
+        try Data("From outside.".utf8).write(to: file(try XCTUnwrap(item.path)))
+        try await presenterHears(item, store, projectStore)
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads, "the edit is not reloaded over")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit is still pending")
+        XCTAssertEqual(heard.notices, [], "nothing is said before the save")
+
+        landOutside(["Again outside."], at: file(try XCTUnwrap(item.path)))
+        try await store.flushPendingSave()
+        try await presenterHears(item, store, projectStore)
+
+        XCTAssertEqual(try text(of: item, projectStore), "Mine.", "the writer's text is saved")
+        XCTAssertEqual(Set(try versions(of: item).map(versionText)), ["From outside.", "Again outside."])
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+        XCTAssertEqual(heard.notices, [Self.changedWhileEditing], "said once, across the retry")
     }
 
     /// A note file that was missing at the read and made outside before the
@@ -416,9 +708,9 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try versions(of: item).map(versionText), ["Before the move."])
     }
 
-    /// Controller's interim ruling on P3: an edit whose debounce elapsed is
-    /// not saved over a version that cannot be kept, and is not dropped
-    /// either — the flush still has it.
+    /// P3 (Denver, 2026-11-11: as built; RULING-24's amendment): an edit whose
+    /// debounce elapsed is not saved over a version that cannot be kept, and is
+    /// not dropped either — the flush still has it.
     func test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush() async throws {
         let (store, projectStore) = try await openBook()
         let heard = listen()
@@ -639,17 +931,15 @@ final class ResearchNoteDoorTests: XCTestCase {
         let table = try await projectStore.addResearchTable(parentId: nil)
         let tableBytes = try Data(contentsOf: file(try XCTUnwrap(table.path)))
         let card = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
-        let cardBytes = try Data(contentsOf: file(try XCTUnwrap(card.path)))
 
         let onTable = await store.saveResearchNote(itemId: table.id, text: "not,a,note")
         let onCard = await store.saveResearchNote(itemId: card.id, text: "# Harbour\n\nA card.\n")
         let onNothing = await store.saveResearchNote(itemId: "res-00000000", text: "Nothing.")
-        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .saved(keptAVersion: true), .notSaved])
+        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .saved(keptAVersion: false), .notSaved])
         XCTAssertEqual(try Data(contentsOf: file(try XCTUnwrap(table.path))), tableBytes)
         XCTAssertEqual(try text(of: card, projectStore), "# Harbour\n\nA card.\n")
         XCTAssertTrue(versions(of: table).isEmpty)
-        XCTAssertEqual(try versions(of: card).map(versionText), [String(decoding: cardBytes, as: UTF8.self)],
-                       "the card's template is kept as its version")
+        XCTAssertTrue(versions(of: card).isEmpty, "the card is taken, and keeps nothing over its blank template")
         XCTAssertNil(store.researchNoteItem(atPath: try XCTUnwrap(table.path)))
         XCTAssertEqual(store.researchNoteItem(atPath: try XCTUnwrap(card.path))?.id, card.id)
     }
@@ -926,7 +1216,298 @@ final class ResearchNoteDoorTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: file(path)), before, "\(path) is untouched")
             XCTAssertTrue(versions(of: item).isEmpty, "\(path): no version kept")
             XCTAssertNil(store.researchNoteItem(atPath: path), path)
-            XCTAssertNil(ResearchTextRole.of(item, structure: projectStore.manifest.structure), path)
+            XCTAssertNil(ResearchTextRole.of(item, structure: projectStore.manifest.structure,
+                                             research: projectStore.manifest.research), path)
         }
+    }
+
+    // MARK: - A verb moving the note (#142 T2)
+
+    /// A structural verb's span over some Research items, built by hand as
+    /// `test_aNoteMovedDuringTheKeepIsWrittenWhereItNowIs` builds its move:
+    /// entered (`withResearchItemsInFlight`), then held open at its body's
+    /// first line until `end()`, when the body runs its rest (the manifest
+    /// naming the new place, or the row removed) and the span ends.
+    @MainActor private final class Span {
+        var release: CheckedContinuation<Void, Never>?
+        var verb: Task<Void, Never>?
+        func end() async {
+            release?.resume()
+            release = nil
+            await verb?.value
+        }
+    }
+
+    private func spanHeldOpen(over ids: [String], _ projectStore: ProjectStore,
+                              then rest: @escaping @MainActor () async throws -> Void) async -> Span {
+        let span = Span()
+        await withCheckedContinuation { (entered: CheckedContinuation<Void, Never>) in
+            span.verb = Task { @MainActor in
+                try? await projectStore.withResearchItemsInFlight(ids) {
+                    await withCheckedContinuation { (gate: CheckedContinuation<Void, Never>) in
+                        span.release = gate
+                        entered.resume()
+                    }
+                    try await rest()
+                }
+            }
+        }
+        return span
+    }
+
+    @MainActor private final class Box<T> { var value: T? }
+
+    private func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: file(path).path) }
+    private func contents(_ path: String) throws -> String {
+        String(decoding: try Data(contentsOf: file(path)), as: UTF8.self)
+    }
+
+    /// The editor's debounced save of `text`, run by its own timer at no
+    /// delay and awaited by the door's hook — no clock.
+    private func timerSave(_ text: String, of item: ResearchItem, _ store: DocumentStore) async {
+        store.researchNoteDoor.saveDelay = .zero
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.timerSaveFinishedForTesting = { _ in done.resume() }
+            store.scheduleNoteSave(itemId: item.id, text: text)
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+    }
+
+    private func conflictBackups() -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: file(".maugham/conflicts").path)) ?? []
+    }
+
+    static let beingMoved = "it was being moved or deleted just then"
+
+    /// A timer's save that finds the note's file gone while a verb is moving
+    /// it writes nothing at the old path: its text stays pending, and when
+    /// the span ends its timer is set again, so it lands where the note now
+    /// is without another keystroke.
+    func test_aTimerSaveOfANoteAVerbIsMovingWritesNothingAtTheOldPath_andStaysPending() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before the move.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        let newPath = "research/moved-by-a-verb.md"
+        let span = await spanHeldOpen(over: [item.id], projectStore) {
+            projectStore.mutateResearchItem(id: item.id) { $0.path = newPath }
+        }
+        try FileManager.default.moveItem(at: file(oldPath), to: file(newPath))
+
+        await timerSave("Typed during the move.", of: item, store)
+        XCTAssertFalse(exists(oldPath), "nothing is written at the path the verb is moving it from")
+        XCTAssertTrue(store.researchNoteHasPendingSave(itemId: item.id), "the edit stays pending")
+        XCTAssertEqual(try contents(newPath), "Before the move.")
+        XCTAssertEqual(heard.notices, [], "a timer's stop mid-move says nothing: its text lands after")
+
+        // The span ends: the timer is set again (no keystroke), and its own
+        // save lands at the new path. Asked directly first, so a timer that
+        // is not set again fails here rather than leaving the test waiting.
+        let landed = Box<Bool>()
+        let waiter = Box<CheckedContinuation<Void, Never>>()
+        store.researchNoteDoor.timerSaveFinishedForTesting = { _ in
+            landed.value = true
+            waiter.value?.resume()
+            waiter.value = nil
+        }
+        await span.end()
+        let setAgain = store.researchNoteDoor.timerIsSetForTesting(item.id) || landed.value == true
+        XCTAssertTrue(setAgain, "the span's end set the timer again")
+        guard setAgain else { return }
+        if landed.value != true {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in waiter.value = done }
+        }
+        store.researchNoteDoor.timerSaveFinishedForTesting = nil
+        XCTAssertEqual(try contents(newPath), "Typed during the move.")
+        XCTAssertFalse(exists(oldPath))
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+    }
+
+    /// A flush (a note switch, ⌘S) that finds the file gone mid-move writes
+    /// nothing at the old path and never waits on the verb: the writer's text
+    /// is kept as a conflict backup and named, once.
+    func test_aFlushOfANoteAVerbIsMovingWritesNothingAtTheOldPath_andKeepsTheTextAside() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before the move.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        let newPath = "research/moved-by-a-verb.md"
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        let span = await spanHeldOpen(over: [item.id], projectStore) {
+            projectStore.mutateResearchItem(id: item.id) { $0.path = newPath }
+        }
+        try FileManager.default.moveItem(at: file(oldPath), to: file(newPath))
+        store.scheduleNoteSave(itemId: item.id, text: "Flushed during the move.")
+
+        try await store.flushPendingSave()   // returns with the span still open
+        XCTAssertFalse(exists(oldPath), "nothing is written at the path the verb is moving it from")
+        XCTAssertEqual(try contents(newPath), "Before the move.")
+        let backups = conflictBackups()
+        XCTAssertEqual(backups.count, 1, "\(backups)")
+        let backup = try XCTUnwrap(backups.first)
+        XCTAssertEqual(try contents(".maugham/conflicts/\(backup)"), "Flushed during the move.")
+        XCTAssertEqual(heard.notices,
+            ["Couldn’t save “Notes”: \(Self.beingMoved). Your edits were kept in the project’s .maugham/conflicts folder as “\(backup)”."])
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+
+        await span.end()
+        XCTAssertFalse(exists(oldPath))
+        XCTAssertEqual(try contents(newPath), "Before the move.")
+    }
+
+    /// A direct save (the assistant, Replace) landing while the note is being
+    /// trashed is not made and is said; no file is made at the old path.
+    func test_aDirectSaveDuringATrashWritesNothing_andSaysTheNoteIsGone() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before the trash.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        let span = await spanHeldOpen(over: [item.id], projectStore) {
+            projectStore.removeResearchItem(id: item.id)
+        }
+        try FileManager.default.removeItem(at: file(oldPath))
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "The assistant's change.", by: .assistant)
+        XCTAssertEqual(saved, .notSaved)
+        XCTAssertFalse(exists(oldPath), "a note being trashed has no file made again")
+        XCTAssertEqual(heard.notices, ["Couldn’t save “Notes”: \(Self.beingMoved)."])
+
+        await span.end()
+        XCTAssertFalse(exists(oldPath))
+        XCTAssertTrue(conflictBackups().isEmpty, "a direct write is not the writer's text: nothing kept aside")
+    }
+
+    /// Review Focus 3: with no verb moving it, a note whose file was deleted
+    /// outside Maugham is written afresh by the editor's save, as before.
+    func test_anEditorSaveOfANoteDeletedOutsideStillRecreatesIt() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let path = try XCTUnwrap(item.path)
+        try FileManager.default.removeItem(at: file(path))
+
+        await timerSave("Typed by the timer.", of: item, store)
+        XCTAssertEqual(try contents(path), "Typed by the timer.", "the timer's save writes it afresh")
+
+        try FileManager.default.removeItem(at: file(path))
+        try await typed("Flushed.", into: item, store)
+        XCTAssertEqual(try contents(path), "Flushed.", "so does a flush")
+    }
+
+    /// A real move of a note with an edit pending: the mover's own flush runs
+    /// inside the verb's span and is not turned away by it, and the edit is
+    /// in the moved file.
+    func test_theMoversOwnFlushIsNeverHeld() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before the move.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        let group = try await projectStore.addResearchItem(parentId: nil, title: "World", kind: nil)
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "Pending when the move began.")
+
+        try await projectStore.moveResearchItems(ids: [item.id], to: .group(group.id))
+        let newPath = try XCTUnwrap(current(item, projectStore).path)
+        XCTAssertNotEqual(newPath, oldPath, "premise: the note moved")
+        XCTAssertEqual(try contents(newPath), "Pending when the move began.")
+        XCTAssertFalse(exists(oldPath))
+        XCTAssertFalse(store.researchNoteHasPendingSave(itemId: item.id))
+        XCTAssertTrue(conflictBackups().isEmpty)
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// The same, for a note whose file was deleted outside Maugham before the
+    /// move: the mover's own flush finds it missing INSIDE the span and is
+    /// still its own (`ResearchItemsMoving`): it writes the file afresh, as
+    /// before, and the move carries it.
+    func test_theMoversOwnFlushOfANoteDeletedOutsideIsNeverHeld() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        try FileManager.default.removeItem(at: file(oldPath))
+        let group = try await projectStore.addResearchItem(parentId: nil, title: "World", kind: nil)
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+        store.scheduleNoteSave(itemId: item.id, text: "Pending when the move began.")
+
+        try await projectStore.moveResearchItems(ids: [item.id], to: .group(group.id))
+        let newPath = try XCTUnwrap(current(item, projectStore).path)
+        XCTAssertNotEqual(newPath, oldPath, "premise: the note moved")
+        XCTAssertEqual(try contents(newPath), "Pending when the move began.")
+        XCTAssertFalse(exists(oldPath))
+        XCTAssertTrue(conflictBackups().isEmpty, "the mover's own flush was written, not kept aside")
+        XCTAssertEqual(heard.notices, [])
+    }
+
+    /// Review finding 1 (fix round 1): an outside save of a note deleted
+    /// outside Maugham, enqueued before the verb and parked before its read,
+    /// is the save the mover's own flush waits for — and its own pending
+    /// edit's save is queued behind it. Released once the verb's span is
+    /// open, it reads the file missing inside the span: it is not made (no
+    /// phantom at the old path), it waits on nothing, and the move completes
+    /// with the edit the mover's flush saved.
+    func test_anOutsideSaveThatReadsInsideTheSpanNeitherWaitsNorWritesAtTheOldPath() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let oldPath = try XCTUnwrap(item.path)
+        try FileManager.default.removeItem(at: file(oldPath))
+        let group = try await projectStore.addResearchItem(parentId: nil, title: "World", kind: nil)
+        store.researchNoteDoor.saveDelay = .seconds(3600)
+
+        // T0, the assistant's save, parked between its lookup and its read.
+        let parked = Box<CheckedContinuation<Void, Never>>()
+        let t0Saved = Box<ResearchNoteSave>()
+        var outside: Task<Void, Never>!
+        await withCheckedContinuation { (atTheRead: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.willReadForTesting = { _ in
+                await withCheckedContinuation { (gate: CheckedContinuation<Void, Never>) in
+                    parked.value = gate
+                    atTheRead.resume()
+                }
+            }
+            outside = Task { @MainActor in
+                t0Saved.value = await store.saveResearchNote(
+                    itemId: item.id, text: "The assistant's change.", by: .assistant)
+            }
+        }
+        store.researchNoteDoor.willReadForTesting = nil
+        // The writer types after it: the mover's flush saves this, queued behind T0.
+        store.scheduleNoteSave(itemId: item.id, text: "Typed after it.")
+
+        // The move begins; its flush enqueues the pending edit inside the span.
+        let moveError = Box<Error>()
+        var move: Task<Void, Never>!
+        await withCheckedContinuation { (flushing: CheckedContinuation<Void, Never>) in
+            store.researchNoteDoor.enqueuedForTesting = { id in
+                if id == item.id, projectStore.researchItemsInFlight.contains(id) { flushing.resume() }
+            }
+            move = Task { @MainActor in
+                do { try await projectStore.moveResearchItems(ids: [item.id], to: .group(group.id)) }
+                catch { moveError.value = error }
+            }
+        }
+        store.researchNoteDoor.enqueuedForTesting = nil
+        XCTAssertTrue(projectStore.researchItemsInFlight.contains(item.id), "premise: the span is open")
+
+        parked.value?.resume()
+        await outside.value
+        await move.value
+
+        XCTAssertNil(moveError.value, "the move completes")
+        XCTAssertEqual(t0Saved.value, .notSaved, "T0 is not made")
+        XCTAssertEqual(heard.notices, ["Couldn’t save “Notes”: \(Self.beingMoved)."])
+        let newPath = try XCTUnwrap(current(item, projectStore).path)
+        XCTAssertNotEqual(newPath, oldPath, "premise: the note moved")
+        XCTAssertFalse(exists(oldPath), "nothing is left at the old path")
+        XCTAssertEqual(try contents(newPath), "Typed after it.", "the mover's flush saved the newer edit")
+        XCTAssertFalse(try versions(of: item).map(versionText).contains("The assistant's change."),
+                       "T0's text was never written anywhere")
     }
 }

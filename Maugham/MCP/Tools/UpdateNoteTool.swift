@@ -68,7 +68,8 @@ public enum UpdateNoteTool: MCPTool {
         guard let item = store.findResearchItem(id: id, in: store.manifest.research) else {
             throw MCPError.invalidArgument(notInResearch(id, in: store))
         }
-        let role = ResearchTextRole.of(item, structure: store.manifest.structure)
+        let role = ResearchTextRole.of(item, structure: store.manifest.structure,
+                                       research: store.manifest.research)
         if case .note = role { return item }
         throw MCPError.invalidArgument("'\(item.title)' (\(id)) \(whatItIs(item, role: role))")
     }

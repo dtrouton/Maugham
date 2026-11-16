@@ -83,7 +83,8 @@ struct InspectorResearchPanel: View {
                     Divider()
                     ResearchVersionsSection(store: documentStore, itemId: item.id, shareIsReadOnly: shareIsReadOnly,
                                             kind: versionsKind,
-                                            noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure),
+                                            noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure,
+                                                                             research: store.manifest.research),
                                             reviewing: reviewing)
                         .id(item.id)
                 }

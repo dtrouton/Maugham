@@ -15864,6 +15864,7 @@ extension TripwireGrepTests {
     /// - `type:PromotionPerformer` × 1 — `write(_:over:at:)`: a Rewrite, a
     ///   new note's body, a line's link, an accepted offer's links.
     /// - `type:UpdateNoteTool` × 1 — the assistant's `update_note` (ADR 0034).
+    /// - `type:LetterKeep` × 1 — a kept letter's body, as the assistant's.
     /// A new caller is a new writer of note text: name it here. The census
     /// sees the `.saveResearchNote(` spelling only; a bare call from inside a
     /// `DocumentStore` extension would escape it.
@@ -15873,6 +15874,9 @@ extension TripwireGrepTests {
     /// editing run): `type:ProjectStore` × 1, the palette funnel's `typed`
     /// arm, which only the card editor asks for.
     static let researchNoteDoorCallers: [String: Int] = [
+        "type:AddNoteTool": 1,
+        "type:InboxStore": 1,
+        "type:LetterKeep": 1,
         "type:ProjectStore": 4,
         "type:PromotionPerformer": 1,
         "type:UpdateNoteTool": 1,
@@ -15896,52 +15900,188 @@ extension TripwireGrepTests {
             + "same commit. Found: \(found.sorted(by: { $0.key < $1.key }))")
     }
 
-    /// **A ceiling, not a census of raw note writes**: the count of every
-    /// `.write(` in the five files whose note writers go through the door,
-    /// whatever bytes it writes. It sees nothing outside these files, and it
-    /// cannot tell a note's text from other bytes, so it cannot prove a file
-    /// free of raw note writes. What it does: a `.write(` added to one of
-    /// these files (a note writer going back to a raw write is the case it
-    /// exists for) fails it until the new one is named here. Today's:
-    /// - `PromotionPerformer.swift` × 1 — `write(_:toPath:of:)`'s no-store fallback.
-    /// - `ProjectStore+Structure.swift` × 3 — a new manuscript file's empty
-    ///   create, a staged manuscript's bytes, the link sweep's no-store fallback.
-    /// - `ProjectStore+Search.swift` × 1 — Replace's write of a file no item
-    ///   names, or with no store.
-    /// - `ProjectStore+Research.swift` × 3 — a new note's empty create, a
-    ///   staged table's bytes, a table's sidecar.
-    /// - `ProjectStore+ResearchMove.swift` × 1 — the asset-ref rewrite's
-    ///   no-store fallback.
-    static let noteWriterFilesWriteCeiling: [String: Int] = [
-        "PromotionPerformer.swift": 1,
-        "ProjectStore+Structure.swift": 3,
-        "ProjectStore+Search.swift": 1,
-        "ProjectStore+Research.swift": 3,
-        "ProjectStore+ResearchMove.swift": 1,
+    /// **Every raw write of a Research note's or palette card's text in the
+    /// app, by file** (#141 N6) — a write straight to the file that keeps no
+    /// version. Each carries `// raw-research-text: <why>` on its line, and
+    /// is one of two kinds:
+    /// - `create` — a brand-new note's empty file: nothing is replaced.
+    /// - `no-door fallback` — a writer whose store was never given a
+    ///   `DocumentStore` (a load-only context): it asks
+    ///   `ProjectStore.rawNoteWriteWithNoDoor()` first, and a store that had
+    ///   one and lost it (teardown) refuses rather than reach this line.
+    /// A new raw write of note text is either named here, with its kind and
+    /// marker, or goes through the note door (`saveResearchNote`).
+    static let rawResearchTextWrites: [String: Int] = [
+        "AddNoteTool.swift": 1,                    // no-door fallback — `add_note`'s body
+        "InboxStore.swift": 1,                     // no-door fallback — a text capture's promotion
+        "LetterKeep.swift": 1,                     // no-door fallback — a kept letter's body
+        "PromotionPerformer.swift": 1,             // no-door fallback — `write(_:toPath:of:)`
+        "ProjectStore+CollectionPieces.swift": 1,  // create — a piece's new research note, empty
+        "ProjectStore+Palette.swift": 1,           // no-door fallback — the palette funnel
+        "ProjectStore+Research.swift": 1,          // create — a new note's empty file
+        "ProjectStore+ResearchMove.swift": 1,      // no-door fallback — a moved note's asset refs
+        "ProjectStore+Search.swift": 1,            // no-door fallback — Replace (also a file no item names: it has no door)
+        "ProjectStore+Structure.swift": 1,         // no-door fallback — the rename's link sweep
     ]
 
-    /// Every `.write(` in `roots`, per file, for the files the ceiling names.
-    private func noteWriterFilesWritesFound(in roots: [URL]) throws -> [String: Int] {
-        Self.byFile(try occurrences(of: ".write(", in: roots), combine: +)
-            .filter { Self.noteWriterFilesWriteCeiling.keys.contains($0.key) }
+    /// **Every call of the one question** (`ProjectStore.rawNoteWriteWithNoDoor()`)
+    /// by file: each raw fallback that writes a note's text with no door asks
+    /// it first, so a store that had a `DocumentStore` and lost it refuses.
+    /// A file carrying a `// raw-research-text: no-door fallback` marker is
+    /// here with as many calls as it has markers
+    /// (`test_everyNoDoorFallbackAsksTheQuestion`).
+    static let rawNoteWriteQuestionSites: [String: Int] = [
+        "AddNoteTool.swift": 1,
+        "InboxStore.swift": 1,
+        "LetterKeep.swift": 1,
+        "ProjectStore+Palette.swift": 1,
+        "ProjectStore+ResearchMove.swift": 1,
+        "ProjectStore+Search.swift": 1,
+        "ProjectStore+Structure.swift": 1,
+        "PromotionPerformer.swift": 1,
+    ]
+    static let noDoorFallbackMarker = "raw-research-text: no-door fallback"
+
+    /// Code with its trailing `//` comment dropped; a whole-comment line is "".
+    private static func withoutItsTrailingComment(_ line: String) -> String {
+        if admissionExcludeLine(line) { return "" }
+        if let range = line.range(of: "//") { return String(line[..<range.lowerBound]) }
+        return line
     }
 
-    func test_theNoteWriterFilesStayAtTheirWriteCeiling() throws {
-        let found = try noteWriterFilesWritesFound(in: admissionRoots)
-        XCTAssertEqual(Self.missingScope(Set(Self.noteWriterFilesWriteCeiling.keys),
-                                         seen: Set(found.keys)), [])
-        XCTAssertEqual(found, Self.noteWriterFilesWriteCeiling,
-            "A `.write(` was added to (or left) a file whose Research-note writers "
-            + "go through the note door (`saveResearchNote`). Write a note's text "
-            + "through the door; for bytes that are not a note's text, update "
-            + "`noteWriterFilesWriteCeiling` with what it writes. Found: "
-            + "\(found.sorted(by: { $0.key < $1.key }))")
+    /// By file under `roots`: the calls of `rawNoteWriteWithNoDoor()` (its
+    /// declaration and comments excluded), and the `no-door fallback` markers.
+    private func rawNoteWriteQuestionsFound(in roots: [URL]) throws -> (calls: [String: Int], markers: [String: Int]) {
+        var calls: [String: Int] = [:], markers: [String: Int] = [:]
+        for root in roots {
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try SourceTreeCache.text(url)
+                guard text.contains("rawNoteWriteWithNoDoor") || text.contains(Self.noDoorFallbackMarker) else { continue }
+                let name = url.lastPathComponent
+                for line in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+                    if Self.withoutItsTrailingComment(line).contains("rawNoteWriteWithNoDoor()"),
+                       !line.contains("func rawNoteWriteWithNoDoor") { calls[name, default: 0] += 1 }
+                    if !Self.admissionExcludeLine(line), line.contains(Self.noDoorFallbackMarker) { markers[name, default: 0] += 1 }
+                }
+            }
+        }
+        return (calls, markers)
     }
 
-    /// The caller census and the write ceiling fire: a planted caller of the
-    /// door is counted under its type, a planted raw write in a named file
-    /// raises its count, and a
-    /// comment or the door's own declaration is counted by neither.
+    func test_everyNoDoorFallbackAsksTheQuestion() throws {
+        let (calls, markers) = try rawNoteWriteQuestionsFound(in: admissionRoots)
+        XCTAssertEqual(calls, Self.rawNoteWriteQuestionSites,
+            "The calls of `rawNoteWriteWithNoDoor()` moved. Every raw fallback that writes a "
+            + "note's text asks it first (a store that lost its `DocumentStore` refuses); name the "
+            + "new site in `rawNoteWriteQuestionSites`. Found: \(calls.sorted(by: { $0.key < $1.key }))")
+        XCTAssertEqual(markers, Self.rawNoteWriteQuestionSites,
+            "Each `// \(Self.noDoorFallbackMarker)` marker needs one `rawNoteWriteWithNoDoor()` call "
+            + "in its file, and each call one marker. Markers: \(markers.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// The question census fires: a planted file with a marker and no call, a
+    /// call and no marker, and a comment or the declaration naming the
+    /// question are each counted as the code is, not as the words are.
+    func test_theQuestionCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root.appendingPathComponent("question-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+        func a(_ text: String, _ url: URL) throws {
+            try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
+        }
+        """.write(to: dir.appendingPathComponent("MarkerNoCall.swift"), atomically: true, encoding: .utf8)
+        try """
+        func b(_ s: ProjectStore) -> Bool {
+            // asks rawNoteWriteWithNoDoor() in a comment
+            return s.rawNoteWriteWithNoDoor() == .allowed  // rawNoteWriteWithNoDoor() again, in a comment
+        }
+        public func rawNoteWriteWithNoDoor() -> RawNoteWrite { .allowed }
+        """.write(to: dir.appendingPathComponent("CallNoMarker.swift"), atomically: true, encoding: .utf8)
+        let (calls, markers) = try rawNoteWriteQuestionsFound(in: [dir])
+        XCTAssertEqual(calls, ["CallNoMarker.swift": 1])
+        XCTAssertEqual(markers, ["MarkerNoCall.swift": 1])
+        XCTAssertNotEqual(calls, markers, "a marker without its call (and the reverse) fails the census")
+    }
+
+    /// **Every other write in a file that handles Research items**, by file:
+    /// a file whose code names `researchVocabulary` and has a `.write(` line
+    /// without the marker is listed here with that count. This is what lets
+    /// the census see a raw note write it was never told about: one added to
+    /// any such file, anywhere in the app, raises a count or adds a file and
+    /// fails until it is named (marked above, or counted here as not a note's
+    /// text). It cannot see a note written by a file that names none of the
+    /// vocabulary. Today's, none of them a note's or card's text:
+    static let otherWritesInResearchFiles: [String: Int] = [
+        "DocumentStore.swift": 8,                  // coordinated file saves (the note door's, the manuscript's), the manifest and its shadow, JSON state, a conflict backup
+        "ProjectStore+CollectionPieces.swift": 4,  // a new piece's empty manuscript file, its link files, the manifest
+        "ProjectStore+FigureResearch.swift": 4,    // a figure's held bytes (×2), a figure table's CSV and its sidecar
+        "ProjectStore+Research.swift": 2,          // a staged table's bytes, a table's sidecar
+        "ProjectStore+StatementAdoption.swift": 1, // an adopted statement's file
+        "ProjectStore+Structure.swift": 2,         // a new manuscript file's empty create, a staged manuscript's bytes
+        "ResearchNoteDoor.swift": 2,               // the door's own write, and its record of who wrote last
+        "ResearchNoteRecord.swift": 1,             // that record (MaughamCore)
+        "ResearchPasteImporter.swift": 2,          // a pasted image's and text's temporary file, outside the project
+        "ResearchTableHost.swift": 4,              // the table door's own writes (×3) and a table's sidecar
+        "ResearchTableSidecar.swift": 1,           // a table's sidecar (MaughamCore)
+    ]
+
+    /// Code that names one of these handles Research items.
+    static let researchVocabulary = [
+        "ResearchItem", "createResearchNote(", "ResearchNoteDoor", "ResearchTextRole",
+        "isInsideAResearchRoot(", "saveResearchNote(",
+    ]
+    static let rawResearchTextMarker = "raw-research-text:"
+
+    /// The `.write(` lines under `roots`, comments excluded, by file: those
+    /// carrying `rawResearchTextMarker` (in any file), and the rest in files
+    /// whose code names `researchVocabulary`.
+    private func researchTextWritesFound(in roots: [URL]) throws -> (raw: [String: Int], other: [String: Int]) {
+        var raw: [String: Int] = [:], other: [String: Int] = [:]
+        for root in roots {
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try SourceTreeCache.text(url)
+                guard text.contains(".write(") else { continue }
+                let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map(String.init).filter { !Self.admissionExcludeLine($0) }
+                let handlesResearch = code.contains { line in
+                    Self.researchVocabulary.contains { line.contains($0) }
+                }
+                let name = url.lastPathComponent
+                for line in code where line.contains(".write(") {
+                    if line.contains(Self.rawResearchTextMarker) {
+                        raw[name, default: 0] += 1
+                    } else if handlesResearch {
+                        other[name, default: 0] += 1
+                    }
+                }
+            }
+        }
+        return (raw, other)
+    }
+
+    func test_everyRawResearchTextWriteIsCounted() throws {
+        let (raw, other) = try researchTextWritesFound(in: admissionRoots)
+        XCTAssertEqual(raw, Self.rawResearchTextWrites,
+            "The raw writes of Research note text moved. Write a note's text through "
+            + "the note door (`saveResearchNote`); a create or a no-door fallback "
+            + "(which asks `rawNoteWriteWithNoDoor()` first) is marked "
+            + "`// raw-research-text: <why>` and named in `rawResearchTextWrites`. Found: "
+            + "\(raw.sorted(by: { $0.key < $1.key }))")
+        XCTAssertEqual(other, Self.otherWritesInResearchFiles,
+            "A `.write(` was added to (or left) a file that handles Research items. "
+            + "If it writes a note's or card's text, go through the note door or mark it "
+            + "`// raw-research-text: <why>`; if not, update `otherWritesInResearchFiles` "
+            + "with what it writes. Found: \(other.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// The caller census and the raw-write census fire: a planted caller of
+    /// the door is counted under its type; an unmarked raw write in a file
+    /// that handles Research items and is on neither list, and a marked one
+    /// in another such file, are each counted under their file; a comment or
+    /// the door's own declaration is counted by neither.
     func test_theNoteDoorCensusesFireOnPlantedOffenders() throws {
         let dir = TestTemp.root.appendingPathComponent("note-door-census-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -15952,11 +16092,28 @@ extension TripwireGrepTests {
             func saveResearchNote(itemId: String, text: String) async {}
             func sweep(_ ds: DocumentStore, _ id: String, _ text: String, _ url: URL) async throws {
                 _ = await ds.saveResearchNote(itemId: id, text: text)
+            }
+        }
+        """.write(to: dir.appendingPathComponent("ProjectStore+Search.swift"), atomically: true, encoding: .utf8)
+        try """
+        extension ProjectStore {
+            // .write( in a comment is not a write.
+            func stamp(_ item: ResearchItem, _ text: String, _ url: URL) throws {
                 try text.write(to: url, atomically: true, encoding: .utf8)
                 try text.write(to: url, atomically: true, encoding: .utf8)
             }
         }
-        """.write(to: dir.appendingPathComponent("ProjectStore+Search.swift"), atomically: true, encoding: .utf8)
+        """.write(to: dir.appendingPathComponent("ProjectStore+Planted.swift"), atomically: true, encoding: .utf8)
+        try """
+        func keep(_ item: ResearchItem, _ text: String, _ url: URL) throws {
+            try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
+        }
+        """.write(to: dir.appendingPathComponent("Marked.swift"), atomically: true, encoding: .utf8)
+        try """
+        func export(_ text: String, _ url: URL) throws {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        """.write(to: dir.appendingPathComponent("Unrelated.swift"), atomically: true, encoding: .utf8)
 
         let (callers, unresolved) = try countedListFound(
             of: ".saveResearchNote(", keyedLike: ["type:ProjectStore": 1], in: [dir])
@@ -15965,9 +16122,12 @@ extension TripwireGrepTests {
                        "the call is counted; the comment and the declaration are not")
         XCTAssertNotEqual(callers, Self.researchNoteDoorCallers)
 
-        let raw = try noteWriterFilesWritesFound(in: [dir])
-        XCTAssertEqual(raw, ["ProjectStore+Search.swift": 2], "both raw writes, not the comment")
-        XCTAssertNotEqual(raw["ProjectStore+Search.swift"],
-                          Self.noteWriterFilesWriteCeiling["ProjectStore+Search.swift"])
+        let (raw, other) = try researchTextWritesFound(in: [dir])
+        XCTAssertEqual(raw, ["Marked.swift": 1], "a marked raw write is counted under its file")
+        XCTAssertEqual(other, ["ProjectStore+Planted.swift": 2],
+                       "both unmarked writes in a file naming ResearchItem, not the comment; "
+                       + "a file that handles no Research item is not read")
+        XCTAssertNil(Self.rawResearchTextWrites["Marked.swift"])
+        XCTAssertNil(Self.otherWritesInResearchFiles["ProjectStore+Planted.swift"])
     }
 }

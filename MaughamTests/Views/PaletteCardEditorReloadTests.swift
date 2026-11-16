@@ -100,6 +100,47 @@ final class PaletteCardEditorReloadTests: XCTestCase {
         XCTAssertEqual(bodyView(in: window)?.string, "The first draft.")
     }
 
+    /// **A change to the card's file made outside Maugham** (another device,
+    /// an external editor), heard by the window's file presenter: the open
+    /// card editor re-seeds from it, as it does from a door write (RULING-62).
+    func test_anOutsideChangeToTheOpenCardIsShown() async throws {
+        let item = try await store.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(store.loadPaletteCards().first { $0.researchItemId == item.id })
+        try await store.updatePaletteCard(withBody(made, "Before."))
+        let window = try await mount(item.id, showing: "Before.")
+        let path = try XCTUnwrap(store.findResearchItem(id: item.id, in: store.manifest.research)?.path)
+        let url = store.url.appendingPathComponent(path)
+        let versionsBefore = ResearchVersionStore(projectURL: store.url).versions(itemId: item.id).count
+
+        let outside = PaletteCardRenderer.render(withBody(made, "From outside."),
+                                                 cardDirectory: (path as NSString).deletingLastPathComponent)
+        try Data(outside.utf8).write(to: url)
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            documentStore.researchNoteDoor.heardForTesting = { [documentStore] id in
+                guard id == item.id else { return }
+                documentStore?.researchNoteDoor.heardForTesting = nil
+                done.resume()
+            }
+            documentStore.presenterDidChangeSubitem(at: url)
+        }
+
+        await pumpUntil(deadline: 5) { self.bodyView(in: window)?.string == "From outside." }
+        XCTAssertEqual(bodyView(in: window)?.string, "From outside.",
+                       "the open card editor re-seeds from the outside change")
+        XCTAssertFalse(documentStore.researchNoteHasPendingSave(itemId: item.id), "the re-seed schedules no save")
+        let versions = ResearchVersionStore(projectURL: store.url)
+        XCTAssertEqual(versions.versions(itemId: item.id).count, versionsBefore, "the reload kept no version")
+
+        documentStore.researchNoteDoor.saveDelay = .seconds(3600)
+        type(" Typed.", into: try XCTUnwrap(bodyView(in: window)))
+        try await documentStore.flushPendingSave()
+        XCTAssertEqual(store.loadPaletteCards().first { $0.researchItemId == item.id }?.body, "From outside. Typed.",
+                       "the next keystroke built on the outside text")
+        XCTAssertTrue(versions.versions(itemId: item.id).contains {
+            String(decoding: (try? versions.read($0).0) ?? Data(), as: UTF8.self).contains("From outside.")
+        }, "the outside text is a version")
+    }
+
     /// Type `text` at the end of `field` through AppKit's own
     /// `shouldChangeText` → `didChangeText`, which reaches the binding.
     private func type(_ text: String, into field: NSTextView) {

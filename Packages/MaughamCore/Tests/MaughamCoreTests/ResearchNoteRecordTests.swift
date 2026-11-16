@@ -41,4 +41,49 @@ final class ResearchNoteRecordTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: root.appendingPathComponent(".maugham").path), "nothing was created")
     }
+
+    // MARK: - Removal (hardening 11-16 task 1.6)
+
+    private func age(_ url: URL, by seconds: TimeInterval) throws {
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-seconds)], ofItemAtPath: url.path)
+    }
+
+    func test_removeTakesOnlyTheNamedItemsRecord_forNoteAndTable() throws {
+        let root = TestTemp.root
+        try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: "h", writtenBy: .assistant), forItem: item, in: root)
+        try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: "h", writtenBy: .writer), forItem: "res-sibling", in: root)
+        try ResearchTableSidecar.write(ResearchTableSidecar(), forItem: item, in: root)
+        try ResearchTableSidecar.write(ResearchTableSidecar(), forItem: "res-sibling", in: root)
+
+        ResearchNoteRecord.remove(forItems: [item, "../escape"], in: root)
+        ResearchTableSidecar.remove(forItems: [item, "../escape"], in: root)
+
+        XCTAssertNil(try ResearchNoteRecord.read(forItem: item, in: root))
+        XCTAssertNotNil(try ResearchNoteRecord.read(forItem: "res-sibling", in: root))
+        XCTAssertNil(try ResearchTableSidecar.read(forItem: item, in: root))
+        XCTAssertNotNil(try ResearchTableSidecar.read(forItem: "res-sibling", in: root))
+    }
+
+    func test_sweepRemovesAnOldOrphan_keepsAYoungOne_andKeepsALiveOne() throws {
+        let root = TestTemp.root
+        let expiry: TimeInterval = 30 * 86_400
+        for id in ["res-oldorph", "res-young", "res-oldlive"] {
+            try ResearchNoteRecord.write(ResearchNoteRecord(contentHash: "h", writtenBy: .writer), forItem: id, in: root)
+            try ResearchTableSidecar.write(ResearchTableSidecar(), forItem: id, in: root)
+        }
+        for id in ["res-oldorph", "res-oldlive"] {
+            try age(ResearchNoteRecord.fileURL(forItem: id, in: root), by: expiry + 86_400)
+            try age(ResearchTableSidecar.fileURL(forItem: id, in: root), by: expiry + 86_400)
+        }
+        ResearchNoteRecord.sweepOrphans(liveItemIds: ["res-oldlive"], in: root, minimumAge: expiry, now: Date())
+        ResearchTableSidecar.sweepOrphans(liveItemIds: ["res-oldlive"], in: root, minimumAge: expiry, now: Date())
+
+        XCTAssertNil(try ResearchNoteRecord.read(forItem: "res-oldorph", in: root))
+        XCTAssertNotNil(try ResearchNoteRecord.read(forItem: "res-young", in: root))
+        XCTAssertNotNil(try ResearchNoteRecord.read(forItem: "res-oldlive", in: root))
+        XCTAssertNil(try ResearchTableSidecar.read(forItem: "res-oldorph", in: root))
+        XCTAssertNotNil(try ResearchTableSidecar.read(forItem: "res-young", in: root))
+        XCTAssertNotNil(try ResearchTableSidecar.read(forItem: "res-oldlive", in: root))
+    }
 }

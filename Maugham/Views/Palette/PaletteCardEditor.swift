@@ -107,6 +107,9 @@ struct PaletteCardEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: cardId) { seed() }
+        // Shown here: the door hears an outside change to this card only
+        // while an editor holds it (let go on a switch or on disappearing).
+        .task(id: cardId) { await store.documentStore?.holdResearchNoteOpen(itemId: cardId) }
         .task(id: draft?.imagePaths) { loadThumbnails() }
         // A write behind the editor: re-seed, schedule nothing. Observes this
         // card's count only.

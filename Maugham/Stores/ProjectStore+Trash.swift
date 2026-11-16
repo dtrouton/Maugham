@@ -87,6 +87,26 @@ extension ProjectStore {
                         + "in the project’s trash, and a deletion is restored whole or not at all.")
         }
 
+        // Every entry is read, and asked whether its rows are already in the
+        // tree (or in an entry before it in this gesture), BEFORE any moves:
+        // a refusal on the second of three would otherwise come after the
+        // first was back, leaving a gesture ⌘⌥Z can never return whole.
+        let pending = (try? await trashStore.entriesIncludingInternal()) ?? []
+        var structureIds = Set(TreeWalk.collectIds(in: manifest.structure))
+        var researchIds = Set(TreeWalk.collectIds(in: manifest.research))
+        for trashId in deletion.trashIds {
+            switch try restoreRoute(for: pending.first { $0.id == trashId }) {
+            case .manuscript(let item):
+                try Self.refuseADuplicate(of: item, amongst: structureIds, title: \.title)
+                structureIds.formUnion(TreeWalk.collectIds(in: [item]))
+            case .research(let item):
+                try Self.refuseADuplicate(of: item, amongst: researchIds, title: \.title)
+                researchIds.formUnion(TreeWalk.collectIds(in: [item]))
+            case .priorVersion, .figure, .fileOnly, .unknownEntry:
+                break
+            }
+        }
+
         var report = TrashRestoreReport()
         for trashId in deletion.trashIds {
             report.absorb(try await restoreTrashEntry(id: trashId))
@@ -298,6 +318,13 @@ extension ProjectStore {
         let device = DeviceIdentity.author.slug
         await Task.detached {
             versions.sweepOrphans(liveItemIds: live, device: device, minimumAge: TrashStore.expiry, now: now)
+            // The note records and table sidecars: one file per item, no device,
+            // so the file's own age decides (an item in the Trash is in `live`).
+            let projectURL = versions.projectURL
+            ResearchNoteRecord.sweepOrphans(
+                liveItemIds: live, in: projectURL, minimumAge: TrashStore.expiry, now: now)
+            ResearchTableSidecar.sweepOrphans(
+                liveItemIds: live, in: projectURL, minimumAge: TrashStore.expiry, now: now)
         }.value
     }
 
@@ -319,7 +346,11 @@ extension ProjectStore {
         guard !gone.isEmpty else { return }
         let versions = ResearchVersionStore(projectURL: url)
         let device = DeviceIdentity.author.slug
-        await Task.detached { versions.removeVersions(ofItems: gone, device: device) }.value
+        await Task.detached {
+            versions.removeVersions(ofItems: gone, device: device)
+            ResearchNoteRecord.remove(forItems: gone, in: versions.projectURL)
+            ResearchTableSidecar.remove(forItems: gone, in: versions.projectURL)
+        }.value
     }
 
     // MARK: - Per-tree restore
@@ -327,6 +358,8 @@ extension ProjectStore {
     private func restoreStructureItem(
         _ decoded: StructureItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
+        try Self.refuseADuplicate(
+            of: decoded, amongst: Set(TreeWalk.collectIds(in: manifest.structure)), title: \.title)
         var item = decoded
         let targetParentId = survivingParentId(
             pending?.originalParentId, exists: { findItem(id: $0, in: manifest.structure) != nil })
@@ -365,6 +398,8 @@ extension ProjectStore {
     private func restoreResearchItem(
         _ decoded: ResearchItem, entryId: String, pending: TrashEntry?
     ) async throws -> TrashRestoreReport {
+        try Self.refuseADuplicate(
+            of: decoded, amongst: Set(TreeWalk.collectIds(in: manifest.research)), title: \.title)
         var item = decoded
         var targetParentId = survivingParentId(
             pending?.originalParentId,
@@ -440,6 +475,21 @@ extension ProjectStore {
         siblings.insert(item, at: clampedIndex)
         replaceResearchChildren(parentId: targetParentId, with: siblings)
         return report
+    }
+
+    /// **A restore never makes a second row with an id the tree already
+    /// holds** — a row put back by hand, or by a sync, while its entry sat in
+    /// the Trash. Asked of every id the entry carries, before anything moves,
+    /// so a refusal restores nothing and the entry stays whole — by
+    /// `restoreTrashEntry`'s routes, and by `restoreLastDeletion` of every
+    /// entry of the gesture first. Names the clashing row as the entry has it.
+    private static func refuseADuplicate<N: TreeNode>(
+        of item: N, amongst present: Set<String>, title: KeyPath<N, String>
+    ) throws {
+        if let clash = TreeWalk.collectIds(in: [item]).first(where: present.contains) {
+            let row = TreeWalk.find(id: clash, in: [item]) ?? item
+            throw TrashStore.TrashError.alreadyInProject(title: row[keyPath: title])
+        }
     }
 
     /// Put a kept prior version back, and give it a ROW (whole-branch review,

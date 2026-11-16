@@ -18,7 +18,7 @@ public enum AddNoteTool: MCPTool {
     public static let method = "add_note"
     public static let description =
         "Create a research note (.md) under the project's research folder. " +
-        "Optionally placed in an existing group."
+        "Optionally placed in an existing group, but never the Palette: cards are the writer's."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"parent_group_id":{"type":"string"}},"required":["project_id","title","body"]}"#
 
@@ -38,6 +38,14 @@ public enum AddNoteTool: MCPTool {
             if !exists {
                 throw MCPError.invalidArgument("parent_group_id not found: \(parentId)")
             }
+            // The Palette holds the writer's cards, whatever the group is
+            // called (role-first), and the assistant writes notes only
+            // (ADR 0034; #141 N1, RULING-61): refused before anything exists.
+            if parentId == PaletteLookup.paletteGroup(in: store.manifest.research)?.id {
+                throw MCPError.invalidArgument(
+                    "The Palette holds the writer's cards; add_note can't create one. "
+                    + "Add the note to another Research group.")
+            }
         }
 
         // Use the existing research-create path — creates an empty .md file
@@ -56,10 +64,26 @@ public enum AddNoteTool: MCPTool {
         // don't wire a DocumentStore) or when no save is pending.
         try? await store.documentStore?.flushPendingSave()
 
-        // Write the supplied body to the freshly-created file.
-        if let path = created.path {
-            let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
-            try params.body.write(to: absURL, atomically: true, encoding: .utf8)
+        // Write the supplied body to the freshly-created file — through the
+        // note door when a store is wired, as the assistant's (#141 N5), so
+        // the writer's first edit keeps it marked as the assistant's. It
+        // must land: the note already exists, and nothing over it is lost
+        // (the file was just made empty).
+        if let documentStore = store.documentStore {
+            guard case .saved = await documentStore.saveResearchNote(
+                itemId: created.id, text: params.body, by: .assistant, mustLand: true, from: store) else {
+                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+            }
+        } else {
+            // Never given a store: the raw write. Lost it (teardown): refused,
+            // never raw (#141 N6).
+            guard store.rawNoteWriteWithNoDoor() == .allowed else {
+                throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+            }
+            if let path = created.path {
+                let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
+                try params.body.write(to: absURL, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
+            }
         }
 
         // Project-scoped (ADR 0021): the project id that was manual payload +

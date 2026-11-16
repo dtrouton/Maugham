@@ -726,7 +726,7 @@ extension ProjectStore {
             // Only a note or a palette card inside a research root is
             // Research text: a synced manifest's `.document` naming the
             // manuscript or a `.maugham/` file is never read or written here.
-            guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+            guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
                 projectStoreLog.error(
                     "Wiki-rename: \(path, privacy: .public) is not inside a research root, skipped")
                 continue
@@ -771,11 +771,19 @@ extension ProjectStore {
                 }
                 continue
             }
-            // No DocumentStore (a load-only context such as a unit test): no
-            // presenter to coordinate with, no debounced save to race and no
-            // door; the raw write keeps nothing. Mirrors `PromotionPerformer.write`.
+            // No DocumentStore. Never given one (a load-only context such as
+            // a unit test): no presenter to coordinate with, no debounced save
+            // to race and no door; the raw write keeps nothing. Mirrors
+            // `PromotionPerformer.write`. Given one and lost it (teardown):
+            // the raw write would replace the door's, so the sweep stops here,
+            // writing nothing, and says so once (#141 N6).
+            guard rawNoteWriteWithNoDoor() == .allowed else {
+                projectStoreLog.error(
+                    "Wiki-rename: the project is closing; research notes were not rewritten")
+                break
+            }
             do {
-                try rewritten.write(to: noteURL, atomically: true, encoding: .utf8)
+                try rewritten.write(to: noteURL, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
             } catch {
                 projectStoreLog.error(
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")

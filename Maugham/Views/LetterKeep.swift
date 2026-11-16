@@ -125,7 +125,8 @@ enum LetterKeep {
     /// the caller can name it in its confirmation — the store resolves the
     /// title against its siblings, and a caller echoing back the title it
     /// ASKED for would name a note that is not there.
-    /// **`write` is a seam, and it exists because the ordering could not
+    /// **`write` is a seam for the no-door arm only (the door writes the other),
+    /// and it exists because the ordering could not
     /// otherwise be tested** (fix round 1, Important 1). Both writes land in
     /// the same folder, so an unwritable destination refuses at the STORE's
     /// empty-file write and this function's own `try` is never reached — which
@@ -146,6 +147,24 @@ enum LetterKeep {
             throw ProjectStoreError.fileSystemError(
                 "The kept letter's note has no file to write to: \(created.id)")
         }
+        // **Through the note door when a store is wired**, as the assistant's:
+        // a letter is the compiler persona's text (a `CompilerRun`'s derived
+        // `Letter`), so the writer's first edit of the kept note keeps it as a
+        // version marked "Written by assistant". It must land: the note was
+        // just made empty and nothing over it is lost. Not `.saved` throws —
+        // the same shape as `add_note`, `LetterKeepTests` pins it.
+        if let documentStore = store.documentStore {
+            guard case .saved = await documentStore.saveResearchNote(
+                itemId: created.id, text: rendered.body, by: .assistant, mustLand: true, from: store) else {
+                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+            }
+            return created
+        }
+        // Never given a store: the raw write. Lost it (teardown): refused,
+        // never raw (#141 N6).
+        guard store.rawNoteWriteWithNoDoor() == .allowed else {
+            throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+        }
         // `try`, not `try?`: a failed body write used to leave an EMPTY note
         // reported as a successful promotion on this store's other callers
         // (`InboxStore.promote`, M8-IN-001/002). Falsified by
@@ -160,7 +179,7 @@ enum LetterKeep {
     /// isolation would otherwise ride into the parameter's function type,
     /// which Swift 6 rejects at every call site that passes it as a value.
     nonisolated static func atomicWrite(_ text: String, _ url: URL) throws {
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback — a kept letter's body, into the note `keep` has just made empty
     }
 
     /// The whole verb, as the closure `LetterSection.onKeep` takes —

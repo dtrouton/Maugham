@@ -78,7 +78,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - `list_figures` — the book's figures: number, caption, status (`used`/`unused`/`in_research`), used-in lines, pins and `changed`; read-only.
 
 **Research / links**
-- `add_note` — a new research note under `research/` (a write tool).
+- `add_note` — a new research note under `research/`, never into the Palette; its body goes through the note door as the assistant (a write tool).
 - `update_note` — an existing Research note's whole body, the replaced text kept as a version (a write tool).
 - `list_research` — research items, each with its citation details when it has some.
 - `link_research` / `unlink_research` — create or remove a research ↔ manuscript link.
@@ -312,7 +312,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - ADRs: 0003 (live-only Unix socket), 0004 (foundation scope, the 1 MB incident), 0010 (typed seams, the sweep reason), 0020 (the test MCP), 0026 (the canvas write), 0032 (the signed op log, actors); ADR 0030 §7 and the translation pipeline spec for the propose tools.
 - `docs/superpowers/specs/2026-07-01-test-mcp-design.md`.
 - `docs/tripwires.md` rows 10, 13, 20, 21, 38, 51, 52, 54.
-- Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests` (the real bridge against bogus or absent sockets), `MCPColdStartTests` (the bridge against a stub listener; the cold-launch pin), `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.
+- Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests`, `MCPColdStartTests`, `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.
 - Elsewhere: manuscript persistence in `Maugham/Stores/DocumentStore.swift`; the op log in `Maugham/OpLog/`.
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (actors; "Chain, identity and seals"), `Maugham/Canvas/AREA.md` (`CanvasClaudeWrite`, placement), `Maugham/Compiler/AREA.md` (the allowlist, the statement gate), `Maugham/Stores/AREA.md` (the research mover, statements).
 - History: `docs/history/mcp.md`.

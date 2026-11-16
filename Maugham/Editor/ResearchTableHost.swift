@@ -645,7 +645,7 @@ final class ResearchTableHost: FigureGridHost {
         let write = Task { @MainActor [weak self] () -> WriteOutcome in
             await previous?.value
             guard let self else { return .refused(.noStore) }
-            return await self.write(restored, by: .writer, restoring: true, source: .direct)
+            return await self.write(restored, by: .writer, restoring: version.name, source: .direct)
         }
         saving = Task { _ = await write.value }
         guard await write.value == .wrote else {
@@ -708,7 +708,7 @@ final class ResearchTableHost: FigureGridHost {
     /// read make the door run again from its read, once (`secondRead`), so
     /// they take the outside-change branch; a second change is `saveFailed`.
     private func write(_ table: FigureTable, by writer: ResearchWriter = .writer,
-                       restoring: Bool = false, source: SaveSource, secondRead: Bool = false) async -> WriteOutcome {
+                       restoring: String? = nil, source: SaveSource, secondRead: Bool = false) async -> WriteOutcome {
         // In flight from here to its end (G3). Saves are one at a time
         // (`saving`), so the flag is one write's; its second pass is inside it.
         if !secondRead {
@@ -744,7 +744,7 @@ final class ResearchTableHost: FigureGridHost {
                                            anchor: backupAnchor(path))
             }
             MaughamEvent.postNotice(
-                "“\(item.title)” isn’t a table inside Research any more, so \(Self.whose(writer, restoring: restoring)) saved.",
+                "“\(item.title)” isn’t a table inside Research any more, so \(Self.whose(writer, restoring: restoring != nil)) saved.",
                 projectURL: projectURL)
             return refused(.outsideResearch)
         }
@@ -768,14 +768,14 @@ final class ResearchTableHost: FigureGridHost {
                     anchor: backupAnchor(path))
             }
             MaughamEvent.postNotice(
-                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer, restoring: restoring)) saved over it.",
+                "Maugham couldn’t read “\(item.title)” to keep its previous version, so \(Self.whose(writer, restoring: restoring != nil)) saved over it.",
                 projectURL: projectURL)
             return refused(.priorUnreadable)
         }
         let onDiskHash = ContentHash.of(onDisk)
         let overOwnBytes = onDiskHash == diskHash
         if !overOwnBytes, !pendingOutsideBackups.contains(where: { $0.hash == onDiskHash }) {
-            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring,
+            guard let backup = keepTheOutsideVersion(onDisk, of: item, at: path, by: writer, restoring: restoring != nil,
                                                      source: source) else {
                 if flushing {
                     return await keepTheFlushedTable(
@@ -788,7 +788,7 @@ final class ResearchTableHost: FigureGridHost {
         }
         let at = now()
         var kept = false, savedAnyway = false
-        if restoring || run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
+        if restoring != nil || run.keepsAVersion(by: writer, at: at, overOwnBytes: overOwnBytes), onDiskHash != lastKeptHash {
             if await keepThePriorVersion(onDisk, of: item, at: at, by: writer, restoring: restoring, source: source) {
                 lastKeptHash = onDiskHash
                 kept = true
@@ -803,7 +803,7 @@ final class ResearchTableHost: FigureGridHost {
         }
         // Counted once the version is kept, saved or not: a retry after a
         // failed save is still the run whose start is kept. A restore ends it.
-        if restoring { run.end() } else { run.saved(by: writer, at: at) }
+        if restoring != nil { run.end() } else { run.saved(by: writer, at: at) }
         // The names its formulas read as they are now; the ones it opened with if they will not read.
         if let fresh = try? await store.formulaNamesForUse() { names = fresh }
         let text = csvText(table)
@@ -833,7 +833,7 @@ final class ResearchTableHost: FigureGridHost {
         if !pendingOutsideBackups.isEmpty {
             let files = pendingOutsideBackups.map { ".maugham/conflicts/\($0.file.lastPathComponent)" }
             pendingOutsideBackups = []
-            let (when, saved) = restoring ? ("", "the restored version was saved")
+            let (when, saved) = restoring != nil ? ("", "the restored version was saved")
                 : writer == .writer ? (" while you were editing it", "yours was saved")
                 : ("", "the assistant’s change was saved")
             let kept = files.count == 1 ? "That version is kept in \(files[0])"
@@ -863,7 +863,7 @@ final class ResearchTableHost: FigureGridHost {
                 projectURL: projectURL)
         }
         store.invalidateFigureCards()
-        if restoring, !kept { store.researchVersionsRevision += 1 }
+        if restoring != nil, !kept { store.researchVersionsRevision += 1 }
         Self.wroteForTesting?(text)
         return .wrote
     }
@@ -912,11 +912,13 @@ final class ResearchTableHost: FigureGridHost {
     /// that described them (the one on disk, else the one held), their
     /// author when that sidecar was written for these bytes, and `writer` as
     /// whose save replaces them (`replaced_by`); then this
-    /// device's versions past the retention are pruned. False when the
+    /// device's versions past the retention are pruned, sparing the version
+    /// just made and, for a restore, the one being restored (`restoring`, its
+    /// file name). False when the
     /// version could not be kept, and said: the save stops, or a flush's is
     /// made anyway.
     private func keepThePriorVersion(_ prior: Data, of item: ResearchItem, at date: Date,
-                                     by writer: ResearchWriter, restoring: Bool, source: SaveSource) async -> Bool {
+                                     by writer: ResearchWriter, restoring: String?, source: SaveSource) async -> Bool {
         let held = sidecar
         let itemId = itemId
         let versions = ResearchVersionStore(projectURL: projectURL)
@@ -932,7 +934,8 @@ final class ResearchTableHost: FigureGridHost {
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device, sparing: made.name)
+            versions.prune(itemId: itemId, device: device,
+                           sparing: ResearchVersionStore.sparing(made: made.name, restoring: restoring))
             return nil
         }.value
         guard let kept else { return true }
@@ -941,7 +944,7 @@ final class ResearchTableHost: FigureGridHost {
         // A flush's is said once its save lands (`write`).
         guard source != .flush else { return false }
         MaughamEvent.postNotice(
-            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring)) saved over it.",
+            "“\(item.title)”’s previous version couldn’t be kept, so \(Self.whose(writer, restoring: restoring != nil)) saved over it.",
             projectURL: projectURL)
         return false
     }

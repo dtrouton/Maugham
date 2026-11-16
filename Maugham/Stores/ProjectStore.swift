@@ -118,6 +118,20 @@ public enum ProjectStoreError: Error, Equatable {
     /// .unknown`, kept verbatim). Refused rather than overwritten: this build
     /// cannot say what it would be replacing. Carries the raw profile.
     case profileFromNewerBuild(String)
+    /// RULING-63 (RULING-52's route): a delete gesture that failed partway.
+    /// `trashed` is what reached the Trash before `failed` could not be
+    /// deleted (`underlying` is that failure's own words) — exactly what ⌘⌥Z
+    /// puts back; `removed` is rows taken out with no Trash entry (no file and
+    /// no link), named apart and never counted as restorable. The manifest is
+    /// saved without both, and ⌘⌥Z is armed with `trashed` alone (left as it
+    /// was when that is empty). Never thrown when both are empty: a gesture
+    /// whose first item fails changed nothing, and rethrows that item's error.
+    case deletedInPart(trashed: [String], removed: [String], failed: String, underlying: String)
+    /// A single Replace whose match is no longer what the text holds: its id
+    /// is not in the current results (a Replace since has refreshed them),
+    /// or its occurrence is gone from the text just read. Refused before
+    /// anything is written, never re-aimed at a guessed occurrence.
+    case staleSearchMatch
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -177,6 +191,19 @@ extension ProjectStoreError: LocalizedError {
             return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
+        case .staleSearchMatch:
+            return "That match has changed. Search again."
+        case .deletedInPart(let trashed, let removed, let failed, let underlying):
+            func quoted(_ titles: [String]) -> String { titles.map { "“\($0)”" }.joined(separator: ", ") }
+            var done: [String] = []
+            if !trashed.isEmpty { done.append("Moved \(trashed.count) to the Trash (\(quoted(trashed)))") }
+            if !removed.isEmpty { done.append((trashed.isEmpty ? "Removed " : "removed ") + quoted(removed)) }
+            // The underlying sentence's own full stop would double this one's.
+            let reason = underlying.hasSuffix(".") ? String(underlying.dropLast()) : underlying
+            let undo = trashed.isEmpty ? ""
+                : " ⌘⌥Z puts " + (trashed.count == 1 ? "it" : "the \(trashed.count)") + " back."
+            return done.joined(separator: " and ")
+                + ", then “\(failed)” could not be deleted: \(reason)." + undo
         }
     }
 }
@@ -217,7 +244,21 @@ public final class ProjectStore {
     /// manifest saves route through DocumentStore.writeManifest. When nil
     /// (e.g., during initial load before DocumentStore exists), saves use
     /// the legacy direct atomic-write path.
-    public weak var documentStore: DocumentStore?
+    ///
+    /// **Assigning one is remembered** (`hadADocumentStore`): a store wired
+    /// and then released (the window's teardown, or the referent simply
+    /// going) is not a load-only context, and a Research note write must not
+    /// fall back to the raw write there (`rawNoteWriteWithNoDoor`, #141 N6).
+    /// The `didSet` fires on an assignment, not when the weak referent
+    /// deallocates; it needs only the assignment that made it non-nil.
+    public weak var documentStore: DocumentStore? {
+        didSet { if documentStore != nil { hadADocumentStore = true } }
+    }
+
+    /// True once a non-nil `documentStore` has been assigned; never reset.
+    /// Production wires one store per `ProjectStore`, once
+    /// (`ProjectSession.open`); nil after that is teardown.
+    @ObservationIgnored public private(set) var hadADocumentStore = false
 
     /// Optional reference to the `CanvasModel` this project's window is showing.
     /// Set by ProjectWindow at open time, exactly as `documentStore` above is,
@@ -262,6 +303,15 @@ public final class ProjectStore {
     @ObservationIgnored internal var statementOpensInFlight: Set<String> = []
     @ObservationIgnored internal var statementOpenWaiters:
         [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    /// **The Research items whose files a structural verb is moving now**
+    /// (#142 T2), counted, so two verbs over one item each hold it until
+    /// their own span ends. Entered only by `withResearchItemsInFlight`, and
+    /// read by the note door: a save that finds such a note's file missing
+    /// is not written afresh at the old path (tripwire 14) and waits on
+    /// nothing — a timer's text stays pending, any other is kept aside or
+    /// not made, and said (`ResearchNoteDoor.write`).
+    @ObservationIgnored internal var researchItemsInFlightCounts: [String: Int] = [:]
 
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,
@@ -348,6 +398,21 @@ public final class ProjectStore {
     public internal(set) var currentSearch: SearchResults?
     public internal(set) var searchInProgress: Bool = false
     var searchTask: Task<Void, Never>?
+    /// **Which search may land** (`ProjectStore+Search.land`): each search
+    /// takes the next number as it starts reading, and lands only when it
+    /// is newer than the last one that landed, so a search that started
+    /// before a Replace's write never overwrites the fresh results after it.
+    @ObservationIgnored var searchGeneration = 0
+    @ObservationIgnored var landedSearchGeneration = 0
+    /// The query and options the search field last asked for (nil once the
+    /// overlay closes): what a Replace's own refresh searches.
+    @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
+    /// The Replace (single or Replace All) in flight, if any: the next one
+    /// waits for it and its refresh, so it is judged against fresh results.
+    @ObservationIgnored var replaceTail: Task<Void, Never>?
+    /// Test seam: awaited by every search after it has read the text and
+    /// before its results land, with the search's query. Nil in production.
+    @ObservationIgnored var searchWillLandForTesting: (@MainActor (String) async -> Void)?
 
     // MARK: - Project-scope task state (milestone-tasks)
     //
@@ -866,4 +931,37 @@ public final class ProjectStore {
         return "\(base)-\(n)"
     }
 
+}
+
+// MARK: - No raw note write behind a door that was there (#141 N6)
+
+/// Whether a Research note's or palette card's text may be written raw
+/// (straight to the file, keeping no version) where no `DocumentStore` is
+/// wired to take it through the note door.
+public enum RawNoteWrite: Equatable {
+    /// This store was never given a `DocumentStore`: a load-only context
+    /// (many unit suites build one). The raw write is the only write there is.
+    case allowed
+    /// This store had a `DocumentStore` and has none now (teardown): the raw
+    /// write would silently replace the door's and keep nothing. Refused.
+    case refused
+}
+
+extension ProjectStoreError {
+    /// What a writer throws when `rawNoteWriteWithNoDoor()` is `.refused`.
+    static var noteWriteRefusedAsTheProjectCloses: ProjectStoreError {
+        .fileSystemError("The project is closing; the note was not written.")
+    }
+}
+
+extension ProjectStore {
+    /// **The one question every no-door fallback asks** before writing a
+    /// Research note's text raw: `.allowed` only when this store never had a
+    /// `DocumentStore`. A writer that may throw throws
+    /// `ProjectStoreError.noteWriteRefusedAsTheProjectCloses` on `.refused`;
+    /// one that cannot returns without writing and logs once.
+    /// `TripwireGrepTests.rawResearchTextWrites` counts the raw writes.
+    public func rawNoteWriteWithNoDoor() -> RawNoteWrite {
+        hadADocumentStore ? .refused : .allowed
+    }
 }

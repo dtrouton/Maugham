@@ -777,6 +777,39 @@ final class ResearchMoveTests: XCTestCase {
             write: { text, _ in written = text })
         XCTAssertEqual(written, "![i](./new_assets/i.png)")
     }
+
+    /// #142 T3: a move whose dedup renamed the stem rewrites the note's refs
+    /// before the manifest save, so a failed save leaves them current.
+    func test_move_dedupedStem_whoseManifestSaveFails_stillRewritesRefs() async throws {
+        let (url, store, ds, piece) = try await makeCollection()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        let assetsURL = url.appendingPathComponent("research/sarah_assets")
+        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
+        try Data([0xFF]).write(to: assetsURL.appendingPathComponent("img.png"))
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+
+        try await UnwritableFolder.with(url) {
+            do {
+                try await store.moveResearchItems(ids: [note.id], to: .piece(piece.id))
+                XCTFail("the manifest save did not fail")
+            } catch let error as ProjectStoreError {
+                guard case .manifestUnwritable = error else { return XCTFail("\(error)") }
+            }
+        }
+        let moved = try XCTUnwrap(item(store, note.id))
+        XCTAssertTrue(moved.path!.hasSuffix("sarah-2.md"), "got \(moved.path!)")
+        let content = try String(  // adr-0018-ok: research-note read, not manuscript
+            contentsOf: url.appendingPathComponent(moved.path!), encoding: .utf8)
+        XCTAssertTrue(content.contains("./sarah-2_assets/"), "refs rewritten: \(content)")
+        XCTAssertFalse(content.contains("./sarah_assets/"), content)
+        await ds.close()
+    }
 }
 
 func XCTAssertThrowsErrorAsync<T>(

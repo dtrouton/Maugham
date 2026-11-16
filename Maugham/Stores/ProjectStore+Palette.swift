@@ -55,9 +55,14 @@ extension ProjectStore {
         let group = try await ensurePaletteGroup()
         let item = try await addResearchTextNote(parentId: group.id, title: title)
         if let rel = item.path {
-            try await paletteCoordinatedWrite(
-                PaletteCardParser.template(title: title, kind: kind), to: rel,
-                itemId: item.id, by: .writer, typed: false)
+            let template = PaletteCardParser.template(title: title, kind: kind)
+            try await paletteCoordinatedWrite(template, to: rel, itemId: item.id, by: .writer, typed: false)
+            // The template is nobody's text: the first save over exactly
+            // these bytes keeps nothing (#141 N8). Told to `documentStore`'s
+            // door, which is the door that wrote them: this write never
+            // passes `through:`, so `paletteCoordinatedWrite` used that same
+            // store. With none, the raw write records nothing.
+            documentStore?.researchCardTemplateWritten(itemId: item.id, bytes: Data(template.utf8))
         }
         return item
     }
@@ -235,8 +240,9 @@ extension ProjectStore {
     /// (tripwire 17 / A1-High). `typed` is the card editor's own save
     /// (`saveTypedResearchText`); anything else is `by` its writer. The door
     /// writing nothing throws `researchTextNotSaved` (it has said why). Falls
-    /// back to a direct write, keeping nothing, only when `documentStore` is
-    /// nil (unit-test contexts with no store wiring) — mirrors `saveManifest`'s
+    /// back to a direct write, keeping nothing, only when this store was never
+    /// given a `documentStore` (unit-test contexts with no store wiring;
+    /// `rawNoteWriteWithNoDoor`) — mirrors `saveManifest`'s
     /// documentStore-present/absent split. This is the ONE allowed write
     /// spelling in this file; `TripwireGrepTests.test_noRawWriteInPaletteStore`
     /// enforces it.
@@ -253,7 +259,12 @@ extension ProjectStore {
             guard case .saved = saved else { throw ProjectStoreError.researchTextNotSaved(title: title) }
             return
         }
-        try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (documentStore == nil)
+        // A store that had a DocumentStore and lost it (teardown) refuses
+        // rather than write raw (#141 N6).
+        guard rawNoteWriteWithNoDoor() == .allowed else {
+            throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+        }
+        try text.write(  // palette-coordinated-write: fallback direct write for unit-test contexts (never given a documentStore); raw-research-text: no-door fallback
             to: try resolvedProjectPathToChange(path), atomically: true, encoding: .utf8)
     }
 

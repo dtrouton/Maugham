@@ -77,6 +77,88 @@ final class ResearchVersionLifecycleTests: XCTestCase {
         return (all.filter { $0.isKept(by: here) }.count, all.filter { $0.isKept(by: elsewhere) }.count)
     }
 
+    /// Gives `itemId` a note record and a table sidecar, the two derived files an item may own.
+    private func writeDerivedFiles(_ itemId: String, in url: URL) throws {
+        try ResearchNoteRecord.write(
+            ResearchNoteRecord(contentHash: "h", writtenBy: .assistant), forItem: itemId, in: url)
+        try ResearchTableSidecar.write(ResearchTableSidecar(contentHash: "h"), forItem: itemId, in: url)
+    }
+
+    private func hasDerivedFiles(_ itemId: String, in url: URL) throws -> (record: Bool, sidecar: Bool) {
+        (try ResearchNoteRecord.read(forItem: itemId, in: url) != nil,
+         try ResearchTableSidecar.read(forItem: itemId, in: url) != nil)
+    }
+
+    private func ageDerivedFiles(_ itemId: String, in url: URL) throws {
+        let longAgo = Date().addingTimeInterval(-TrashStore.expiry - 86_400)
+        for file in [try ResearchNoteRecord.fileURL(forItem: itemId, in: url),
+                     try ResearchTableSidecar.fileURL(forItem: itemId, in: url)] {
+            try FileManager.default.setAttributes([.modificationDate: longAgo], ofItemAtPath: file.path)
+        }
+    }
+
+    // MARK: - Records and sidecars follow the item (#141 N7)
+
+    func test_permanentDeleteRemovesTheDestroyedItemsRecordAndSidecar_andASiblingsStay() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let kept = try await projectStore.addResearchTable(parentId: nil, title: "Kept")
+        let gone = try await projectStore.addResearchTable(parentId: nil, title: "Gone")
+        try writeDerivedFiles(kept.id, in: projectStore.url)
+        try writeDerivedFiles(gone.id, in: projectStore.url)
+
+        try await projectStore.deleteResearchItems(ids: [gone.id])
+        let inTrash = try hasDerivedFiles(gone.id, in: projectStore.url)
+        XCTAssertTrue(inTrash.record && inTrash.sidecar, "an item in the Trash keeps both")
+        try await projectStore.permanentlyDeleteTrashEntry(id: try XCTUnwrap(projectStore.trashEntries.first?.id))
+
+        let after = try hasDerivedFiles(gone.id, in: projectStore.url)
+        XCTAssertFalse(after.record); XCTAssertFalse(after.sidecar)
+        let sibling = try hasDerivedFiles(kept.id, in: projectStore.url)
+        XCTAssertTrue(sibling.record && sibling.sidecar, "a live item's files stay")
+    }
+
+    func test_aRestoreBringsTheMarkAndTheSidecarBack() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let item = try await projectStore.addResearchTable(parentId: nil, title: "Budget")
+        try writeDerivedFiles(item.id, in: projectStore.url)
+        try await projectStore.deleteResearchItems(ids: [item.id])
+        await projectStore.sweepResearchVersions()
+        try ageDerivedFiles(item.id, in: projectStore.url)
+        let reopened = try await ProjectStore.load(from: projectStore.url)
+        _ = try await reopened.restoreTrashEntry(id: try XCTUnwrap(reopened.trashEntries.first?.id))
+
+        let files = try hasDerivedFiles(item.id, in: projectStore.url)
+        XCTAssertTrue(files.record && files.sidecar, "old files of a trashed item survive the open sweep")
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: item.id, in: projectStore.url)?.writtenBy, .assistant)
+    }
+
+    func test_emptyTrashRemovesTheirRecordsAndSidecars() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        let item = try await projectStore.addResearchTable(parentId: nil, title: "Budget")
+        try writeDerivedFiles(item.id, in: projectStore.url)
+        try await projectStore.deleteResearchItems(ids: [item.id])
+        try await projectStore.emptyTrash()
+        let files = try hasDerivedFiles(item.id, in: projectStore.url)
+        XCTAssertFalse(files.record); XCTAssertFalse(files.sidecar)
+    }
+
+    func test_theOpenSweepRemovesAnOldOrphansFiles_andKeepsAYoungOne() async throws {
+        let (projectStore, store) = try await openNovel()
+        defer { withExtendedLifetime(store) {} }
+        try writeDerivedFiles("res-oldorph", in: projectStore.url)
+        try writeDerivedFiles("res-younggg", in: projectStore.url)
+        try ageDerivedFiles("res-oldorph", in: projectStore.url)
+
+        let reopened = try await ProjectStore.load(from: projectStore.url)
+        let old = try hasDerivedFiles("res-oldorph", in: reopened.url)
+        XCTAssertFalse(old.record); XCTAssertFalse(old.sidecar)
+        let young = try hasDerivedFiles("res-younggg", in: reopened.url)
+        XCTAssertTrue(young.record && young.sidecar, "a young orphan may have a Trash entry on its way")
+    }
+
     // MARK: - Trash keeps, restore brings back
 
     func test_anItemInTheTrashKeepsItsVersions_andARestoreListsThemAgain() async throws {

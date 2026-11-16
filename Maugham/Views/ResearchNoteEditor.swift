@@ -72,6 +72,9 @@ struct ResearchNoteEditor: View {
             }
         }
         .task(id: path) { await loadDocument() }
+        // Shown here: the door hears an outside change to this note only
+        // while an editor holds it (let go on a switch or on disappearing).
+        .task(id: itemId) { await documentStore.holdResearchNoteOpen(itemId: itemId) }
         // A write behind the editor: re-read, schedule nothing. Observes this
         // note's count only (`researchNoteReloadCount`).
         .onChange(of: documentStore.researchNoteReloadCount(itemId: itemId)) { _, _ in
@@ -190,11 +193,11 @@ struct ResearchNoteEditor: View {
         try? await documentStore.flushPendingSave()
         // A synced path that leaves the project is shown as unreadable, the
         // state that keeps a blank from being saved over it (tripwire 58).
-        let load: ResearchNoteLoad
-        do { load = ResearchNoteLoad.read(try store.resolvedProjectPath(path)) } catch {
-            load = .unreadable(error.localizedDescription)
+        let load: ResearchNoteLoad, bytes: Data?
+        do { (load, bytes) = ResearchNoteLoad.readWithBytes(try store.resolvedProjectPath(path)) } catch {
+            (load, bytes) = (.unreadable(error.localizedDescription), nil)
         }
-        adopt(load)
+        adopt(load, bytes: bytes)
         researchCursor = nil
         loadedPath = path
     }
@@ -208,17 +211,20 @@ struct ResearchNoteEditor: View {
         // A load under way reads the newest bytes itself.
         guard loadedPath == path else { return }
         guard !documentStore.researchNoteHasPendingSave(itemId: itemId) else { return }
-        let load: ResearchNoteLoad
-        do { load = ResearchNoteLoad.read(try store.resolvedProjectPath(path)) } catch {
-            load = .unreadable(error.localizedDescription)
+        let load: ResearchNoteLoad, bytes: Data?
+        do { (load, bytes) = ResearchNoteLoad.readWithBytes(try store.resolvedProjectPath(path)) } catch {
+            (load, bytes) = (.unreadable(error.localizedDescription), nil)
         }
-        adopt(load)
+        adopt(load, bytes: bytes)
     }
 
-    private func adopt(_ load: ResearchNoteLoad) {
+    /// `bytes` are the file's bytes as read, told to the door as they are —
+    /// not the text re-encoded, which drops a BOM: the door hears its own
+    /// read come back as no outside change (`ResearchNoteDoor.fileMayHaveChanged`).
+    private func adopt(_ load: ResearchNoteLoad, bytes: Data?) {
         switch load {
         case .text(let text):
-            documentStore.researchNoteWasRead(itemId: itemId, bytes: Data(text.utf8))
+            documentStore.researchNoteWasRead(itemId: itemId, bytes: bytes ?? Data(text.utf8))
             documentText = text
             loadFailure = nil
         case .unreadable(let reason):
@@ -241,12 +247,20 @@ enum ResearchNoteLoad: Equatable {
     /// A file that is not there reads as empty, as it always has: there is
     /// nothing at risk, and a note's file is written the moment it is created.
     /// A file that IS there and cannot be decoded is reported as what it is.
-    static func read(_ url: URL) -> ResearchNoteLoad {
+    static func read(_ url: URL) -> ResearchNoteLoad { readWithBytes(url).load }
+
+    /// The same, with the bytes the text was decoded from (nil when there
+    /// were none: a missing file, or one that would not read).
+    static func readWithBytes(_ url: URL) -> (load: ResearchNoteLoad, bytes: Data?) {
         do {
-            return .text(try String(contentsOf: url, encoding: .utf8))  // adr-0018-ok: research-note read, not manuscript
+            let bytes = try Data(contentsOf: url)  // adr-0018-ok: research-note read, not manuscript
+            guard let text = String(data: bytes, encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            return (.text(text), bytes)
         } catch {
-            guard FileManager.default.fileExists(atPath: url.path) else { return .text("") }
-            return .unreadable(error.localizedDescription)
+            guard FileManager.default.fileExists(atPath: url.path) else { return (.text(""), nil) }
+            return (.unreadable(error.localizedDescription), nil)
         }
     }
 }

@@ -45,12 +45,15 @@ final class PaletteWriteCoordinationTests: XCTestCase {
         fallbackStore.documentStore = fallbackDS
         let fallbackItem = try await fallbackStore.addPaletteCard(
             title: "The Flat", kind: .location)
-        fallbackStore.documentStore = nil   // forces the direct-write fallback branch
-        try await fallbackStore.updatePaletteCard(
-            makeSwatchCard(from: fallbackStore.loadPaletteCards()[0]))
+        await fallbackDS.close()
+        // A store never given a DocumentStore (a load-only context) takes the
+        // direct-write fallback; one that had a store and lost it refuses
+        // rather than write raw (#141 N6).
+        let loadOnlyStore = try await ProjectStore.load(from: fallbackURL)
+        try await loadOnlyStore.updatePaletteCard(
+            makeSwatchCard(from: loadOnlyStore.loadPaletteCards()[0]))
         let fallbackContents = try String(
             contentsOf: fallbackURL.appendingPathComponent(fallbackItem.path!), encoding: .utf8)
-        await fallbackDS.close()
 
         XCTAssertEqual(coordinatedContents, fallbackContents)
     }

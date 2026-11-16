@@ -553,6 +553,8 @@ extension Document {
         // while non-empty changes keep today's text+sequence recovery.
         let newestFoldedOpId = ops.map(\.opId).max()
         let pendingBasis = pending.basis
+        // #143 Q1: the ops BEFORE a pending fold, kept only when one happens.
+        var opsBeforeFold: [Op]?
         let basisStale = pendingBasis != nil && pendingBasis != newestFoldedOpId
         let basisCurrent = pendingBasis != nil && pendingBasis == newestFoldedOpId
 
@@ -574,6 +576,7 @@ extension Document {
                 changes: pending.snapshot(),
                 sequence: recoveredSequence.isEmpty ? nil : recoveredSequence,
                 provenance: Op.Provenance(synthesisSource: .pendingRecovery))
+            opsBeforeFold = ops
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)
@@ -596,6 +599,7 @@ extension Document {
                 changes: [],
                 sequence: pending.sequence,
                 provenance: Op.Provenance(synthesisSource: .pendingRecovery))
+            opsBeforeFold = ops
             try await opStore.append(recovered)
             try await pending.clear()
             ops.append(recovered)
@@ -618,7 +622,11 @@ extension Document {
         // NOT the fresh-bootstrap path, whose `.md` IS the seed) and the
         // on-disk display form diverges from the op-log-derived display form,
         // snapshot the on-disk bytes forensically BEFORE the `Document` — and
-        // its autosave — exist to clobber them. Compare DISPLAY forms
+        // its autosave — exist to clobber them: unless those bytes are
+        // Maugham's own render of the state before this load's pending fold
+        // (an autosave cut between the pending mirror and the `.md` write,
+        // #143 Q1), which is no outside edit and is re-rendered below with no
+        // backup. Compare DISPLAY forms
         // (`stripAnchors` both) so an unmigrated still-anchored file whose
         // content equals op-log truth does not false-positive. Dedup against
         // the newest existing snapshot so repeated open/close of an unchanged
@@ -634,20 +642,33 @@ extension Document {
             let derivedRender = MarkdownDisplayFilter.stripAnchors(
                 Materializer.materialize(
                     paragraphs: initial.paragraphs, sequence: initial.sequence))
-            if MarkdownDisplayFilter.stripAnchors(storedBytes) != derivedRender {
+            let storedRender = MarkdownDisplayFilter.stripAnchors(storedBytes)
+            if storedRender != derivedRender {
                 divergedAtLoad = true
-                do {
-                    let newest = Document.newestConflictBackup(
-                        forFileAt: url, docId: docId)
-                        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }  // adr-0018-ok: conflict-backup snapshot read for dedup, not manuscript truth
-                    if newest != storedBytes {
-                        _ = try Document.writeConflictBackup(
-                            forFileAt: url, docId: docId, text: storedBytes,
-                            kind: "diverged")
+                // #143 Q1: an autosave cut between the pending mirror and the
+                // `.md` write leaves Maugham's own render of the state before
+                // this load's pending fold. Re-rendered (below), not backed up.
+                let isOurOwnPreFoldRender = opsBeforeFold.map { before in
+                    let prior = Document.reconcile(
+                        derived: Deriver.deriveWithSequenceFallback(ops: before))
+                    return storedRender == MarkdownDisplayFilter.stripAnchors(
+                        Materializer.materialize(
+                            paragraphs: prior.paragraphs, sequence: prior.sequence))
+                } ?? false
+                if !isOurOwnPreFoldRender {
+                    do {
+                        let newest = Document.newestConflictBackup(
+                            forFileAt: url, docId: docId)
+                            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }  // adr-0018-ok: conflict-backup snapshot read for dedup, not manuscript truth
+                        if newest != storedBytes {
+                            _ = try Document.writeConflictBackup(
+                                forFileAt: url, docId: docId, text: storedBytes,
+                                kind: "diverged")
+                        }
+                    } catch {
+                        documentLog.error(
+                            "divergence snapshot write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
-                } catch {
-                    documentLog.error(
-                        "divergence snapshot write failed for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -718,7 +739,8 @@ extension Document {
         // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
         // that reached this piece while it was closed re-derived nothing on
         // disk; its next open is where the render catches up. The "diverged"
-        // backup above stays, as evidence. Scheduled through the ordinary
+        // backup above (written unless the stored `.md` was Maugham's own render
+        // before a pending fold) stays, as evidence. Scheduled through the ordinary
         // debounce, so `performAutosave`'s guards decide, and asked last,
         // once `provenance` is stamped: a load HOLDING lines renders nothing
         // on its own account (`rendersOnItsOwnAccount`). A load that refused

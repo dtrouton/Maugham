@@ -260,35 +260,43 @@ extension ProjectStore {
                 oldPath: oldPath, newPath: newPath, refRewrite: refRewrite))
         }
 
-        // ---- Phase 3: execute FS surgery through the typed mover ----
         let plan = try RenamePlan(steps: steps)
-        if !plan.steps.isEmpty {
-            guard let documentStore else {
-                throw ProjectStoreError.fileSystemError("DocumentStore not available")
-            }
-            try await documentStore.relocate(plan: plan)
+        if !plan.steps.isEmpty, documentStore == nil {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
+        // From just before the typed mover until the in-memory manifest names
+        // where the items now are, a note save by anyone but this verb that
+        // finds the old file gone is turned away rather than writing it afresh
+        // (#142 T2): a timer save stays pending and is re-armed when the span
+        // ends, a flush keeps its text aside, a direct save is not made. The
+        // asset refs and the save are outside the span.
+        try await withResearchItemsInFlight(items.map(\.id)) {
+            // ---- Phase 3: execute FS surgery through the typed mover ----
+            if !plan.steps.isEmpty, let documentStore {
+                try await documentStore.relocate(plan: plan)
+            }
 
-        // ---- Phase 4: rewrite the manifest, one save ----
-        var updatedItems: [ResearchItem] = []
-        for (item, pending) in zip(items, pendings) {
-            var copy = item
-            if let newPath = pending.newPath, newPath != pending.oldPath {
-                copy.path = newPath
-                // A group's descendant paths rebase under the new prefix (only
-                // meaningful when the group had a prior path).
-                if let oldPath = pending.oldPath, let children = copy.children {
-                    copy.children = Self.researchRewriteChildPaths(
-                        children, oldPrefix: oldPath, newPrefix: newPath)
+            // ---- Phase 4: rewrite the manifest, one save ----
+            var updatedItems: [ResearchItem] = []
+            for (item, pending) in zip(items, pendings) {
+                var copy = item
+                if let newPath = pending.newPath, newPath != pending.oldPath {
+                    copy.path = newPath
+                    // A group's descendant paths rebase under the new prefix (only
+                    // meaningful when the group had a prior path).
+                    if let oldPath = pending.oldPath, let children = copy.children {
+                        copy.children = Self.researchRewriteChildPaths(
+                            children, oldPrefix: oldPath, newPrefix: newPath)
+                    }
                 }
+                updatedItems.append(copy)
             }
-            updatedItems.append(copy)
+            for item in items { removeResearchItem(id: item.id) }
+            var siblings = childrenOfResearch(parentId: dest.parentId)
+            let insertAt = max(0, min(destIndex ?? siblings.count, siblings.count))
+            siblings.insert(contentsOf: updatedItems, at: insertAt)
+            replaceResearchChildren(parentId: dest.parentId, with: siblings)
         }
-        for item in items { removeResearchItem(id: item.id) }
-        var siblings = childrenOfResearch(parentId: dest.parentId)
-        let insertAt = max(0, min(destIndex ?? siblings.count, siblings.count))
-        siblings.insert(contentsOf: updatedItems, at: insertAt)
-        replaceResearchChildren(parentId: dest.parentId, with: siblings)
 
         // Scope moves deliberately leave `linkedResearchIds` UNTOUCHED (user
         // feedback 2026-07-17). Because we now auto-associate on move-in
@@ -299,30 +307,34 @@ extension ProjectStore {
         // move-out. A containment-only association simply severs on move-out;
         // no auto-link is minted.
 
-        manifest.modified = Date()
-        try await saveManifest()
-
         // Dedup changed a note's stem → its assets folder was renamed to
-        // match; rewrite the note's ./<stem>_assets/ image refs, now that the
-        // manifest names where the note is (the note door asks it).
+        // match; rewrite the note's ./<stem>_assets/ image refs. The in-memory
+        // manifest already names where the note is (the note door asks it), and
+        // this runs BEFORE the save so a save that throws cannot leave the
+        // refs naming a folder that is gone (#142 T3). Outside the in-flight
+        // span, so the rewrite's own save is an ordinary one.
         for (item, pending) in zip(items, pendings) {
             guard let (oldStem, newStem) = pending.refRewrite else { continue }
             await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
         }
+
+        manifest.modified = Date()
+        try await saveManifest()
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
-    /// the manifest names where it now is. A note or a palette card goes
-    /// through the note door (what it held is kept as a version; an editor
-    /// open on it reloads); with no `DocumentStore` the raw write. Anything
-    /// else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
-    /// (`mustLand`); a write that fails is logged and the move stands.
+    /// the in-memory manifest names where it now is (before the save). A note
+    /// or a palette card goes through the note door (what it held is kept as
+    /// a version; an editor open on it reloads); with no `DocumentStore` the
+    /// raw write. Anything else (`ResearchTextRole` nil) is not written. It
+    /// lands even when the earlier version cannot be kept (`mustLand`); a
+    /// write that fails is logged and the move stands.
     func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
               let path = item.path else { return }
         // Only a note or a palette card inside a research root is rewritten:
         // a synced manifest's `.document` naming any other file is left alone.
-        guard ResearchTextRole.of(item, structure: manifest.structure) != nil else {
+        guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
             projectStoreLog.error(
                 "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
             return
@@ -341,7 +353,12 @@ extension ProjectStore {
                         throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
                     }
                 } else {
-                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    // Lost its store (teardown): refused, never raw (#141 N6);
+                    // the best-effort rewrite logs the throw.
+                    guard rawNoteWriteWithNoDoor() == .allowed else {
+                        throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+                    }
+                    try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
                 }
             })
     }

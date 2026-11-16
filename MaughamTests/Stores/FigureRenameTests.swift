@@ -136,15 +136,8 @@ final class FigureRenameTests: XCTestCase {
         return FormulaParser.render(f, in: table, names: names)
     }
 
-    /// Runs `body` with the project folder read-only, so `saveManifest`'s
-    /// temporary file cannot be made — the disk's own failure, not a seam.
-    /// Its subfolders stay writable.
     private func withUnwritableProjectFolder(_ body: () async throws -> Void) async throws {
-        let fm = FileManager.default
-        let original = try XCTUnwrap(fm.attributesOfItem(atPath: projectURL.path)[.posixPermissions] as? NSNumber)
-        try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: projectURL.path)
-        defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: projectURL.path) }
-        try await body()
+        try await UnwritableFolder.with(projectURL, body)
     }
 
     /// A real PNG outside the project, of one colour.

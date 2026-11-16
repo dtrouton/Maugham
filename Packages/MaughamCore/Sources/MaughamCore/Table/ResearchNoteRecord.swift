@@ -60,4 +60,20 @@ public struct ResearchNoteRecord: Codable, Equatable, Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(record).write(to: url, options: .atomic)
     }
+
+    /// Removes the files of items destroyed for good (never one in the Trash:
+    /// a restore needs it). Ids that cannot name a file are skipped.
+    public static func remove(forItems ids: Set<String>, in projectURL: URL) {
+        ResearchItemFiles.remove(forItems: ids, in: projectURL, fileURL: fileURL(forItem:in:))
+    }
+
+    /// Removes the file of every item not in `liveItemIds` (callers unite the
+    /// manifest's and the Trash's ids) whose modification date is older than
+    /// `minimumAge`; these files carry no device, so the file's own date rules.
+    public static func sweepOrphans(liveItemIds: Set<String>, in projectURL: URL,
+                                    minimumAge: TimeInterval, now: Date = Date()) {
+        ResearchItemFiles.sweepOrphans(
+            liveItemIds: liveItemIds, in: projectURL, folder: folder, minimumAge: minimumAge,
+            now: now, fileURL: fileURL(forItem:in:))
+    }
 }

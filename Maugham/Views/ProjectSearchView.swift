@@ -258,8 +258,8 @@ struct ProjectSearchView: View {
 
     private func runReplaceMatch(_ match: SearchMatch) async {
         do {
+            // The store refreshes the results itself before it returns.
             try await store.replaceMatch(match, with: replacement)
-            await store.performSearch(query: query, options: options)
         } catch {
             pendingError = error.localizedDescription
         }
@@ -268,8 +268,8 @@ struct ProjectSearchView: View {
     private func runReplaceAll() async {
         guard let r = store.currentSearch else { return }
         do {
+            // The store refreshes the results itself before it returns.
             let outcome = try await store.replaceAll(in: r, with: replacement)
-            await store.performSearch(query: query, options: options)
             // What was left is SAID (ruling AI), never a silent partial pass.
             leftAloneNotice = ProjectStore.leftAloneSentence(outcome.leftAlone)
         } catch {

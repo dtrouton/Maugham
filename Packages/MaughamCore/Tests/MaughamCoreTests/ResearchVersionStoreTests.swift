@@ -414,7 +414,7 @@ final class ResearchVersionStoreTests: XCTestCase {
         for i in 0..<3 { _ = try keepNote(store, "later \(i)", device: mac, at: t0.addingTimeInterval(Double(100 + i))) }
         let justKept = try keepNote(store, "the clock moved back", device: mac, at: t0)
 
-        store.prune(itemId: item, device: mac, keep: 3, sparing: justKept.name)
+        store.prune(itemId: item, device: mac, keep: 3, sparing: [justKept.name])
 
         let mine = store.versions(itemId: item).filter { $0.isKept(by: mac) }
         XCTAssertEqual(mine.count, 3, "still the retention")
@@ -426,6 +426,35 @@ final class ResearchVersionStoreTests: XCTestCase {
         let again = try keepNote(store, "back again", device: mac, at: t0.addingTimeInterval(-10))
         store.prune(itemId: item, device: mac, keep: 3)
         XCTAssertFalse(store.versions(itemId: item).contains(again))
+    }
+
+    /// The doors' one answer to what a keep's prune spares: the version just
+    /// made, and the restored one when the save is a restore.
+    func test_sparingIsTheVersionMadeAndTheOneBeingRestored() {
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: nil), ["a.md"])
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: "b.md"), ["a.md", "b.md"])
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: "a.md"), ["a.md"])
+    }
+
+    /// A restore spares the version it restores as well as the one its keep
+    /// wrote: neither is removed, and each counts as one of the `keep`.
+    func test_pruneSparesEveryNameItIsGiven() throws {
+        let root = TestTemp.root
+        let store = ResearchVersionStore(projectURL: root)
+        let oldest = try keepNote(store, "oldest", device: mac, at: t0)
+        for i in 1..<5 { _ = try keepNote(store, "v\(i)", device: mac, at: t0.addingTimeInterval(Double(i))) }
+        let justKept = try keepNote(store, "just kept", device: mac, at: t0.addingTimeInterval(10))
+
+        store.prune(itemId: item, device: mac, keep: 3, sparing: [oldest.name, justKept.name])
+
+        let mine = store.versions(itemId: item).filter { $0.isKept(by: mac) }
+        XCTAssertEqual(mine.count, 3, "still the retention")
+        XCTAssertTrue(mine.contains(oldest), "the version being restored survives the prune")
+        XCTAssertTrue(mine.contains(justKept), "the version the keep wrote survives it too")
+
+        // Control: spared nothing, the oldest ranks last and goes.
+        store.prune(itemId: item, device: mac, keep: 2)
+        XCTAssertFalse(store.versions(itemId: item).contains(oldest))
     }
 
     func test_aPayloadWithoutItsMetaIsNotListed_forEitherKind() throws {
