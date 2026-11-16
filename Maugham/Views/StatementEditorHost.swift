@@ -544,12 +544,12 @@ struct StatementEditorHost: View {
             leave()
         }
         // The manuscript's belt, worn here too: `DocumentStore.close()` closes
-        // every REGISTERED Document at quit (`ProjectWindow`'s own
-        // `.onGlobalEvent`), and a statement is deliberately in no registry —
+        // every REGISTERED Document at quit (the `QuitCoordinator`, before
+        // `willTerminate`), and a statement is deliberately in no registry —
         // registering one would put it in `allOpenDocuments()`, which is step 1a
         // of the project Tasks aggregation, contradicting spec §8. So it takes
-        // the same best-effort flush directly. Like ProjectWindow's, this is
-        // fire-and-forget: NSApplication may give us ~100ms. The real
+        // a best-effort flush directly, at `willTerminate`. Unlike the stores'
+        // close, nothing waits for it: this is fire-and-forget. The real
         // crash-safety net for both is `PendingBuffer`'s 750ms disk mirror.
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             if let id = target.statementID { store.forgetStatementDocument(id: id) }

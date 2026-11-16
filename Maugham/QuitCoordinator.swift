@@ -59,6 +59,9 @@ final class QuitCoordinator {
         guard !pending else { return .later }
         let closers = closers()
         guard !closers.isEmpty else { return .now }
+        // Never reset: the only reply is `true`, which always ends the
+        // process. A cancel path, if one is ever added, must reset this, or a
+        // later quit would answer `.later` and never reply.
         pending = true
         hasBegun = true
         var replied = false

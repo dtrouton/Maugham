@@ -161,6 +161,57 @@ final class QuitCoordinatorTests: XCTestCase {
         XCTAssertEqual(log.events, ["a began", "a ended", "reply"], "one round, one reply")
     }
 
+    /// **The closers finishing and the bound passing together make one
+    /// reply**: both are ready before either task has run, and the reply
+    /// closure is still called exactly once.
+    func test_theClosersFinishingAndTheBoundPassingTogetherReplyOnce() async {
+        let log = Log()
+        let held = gate(), bound = gate(), ended = gate()
+        let quit = coordinator([{
+            await held.wait()
+            ended.open()
+        }], bound: bound, log: log)
+
+        held.open()
+        bound.open()
+        XCTAssertEqual(quit.quitRequested(reply: log.reply), .later)
+        await log.replied.wait()
+        await ended.wait()
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(log.events, ["reply"], "exactly one reply: \(log.events)")
+    }
+
+    /// **The quit coordinator only delays the quit** (the updater's
+    /// constraints): its file never names the update install — the swap
+    /// helper is launched where it always was, in `willTerminate`, after the
+    /// reply — and the delegate's one reply is `true`, so a deferred quit is
+    /// never cancelled. The app's `willTerminate` observer still holds the
+    /// one install-on-quit hand-off.
+    func test_theQuitCoordinatorNeverTouchesTheInstallAndNeverCancelsTheQuit() throws {
+        let file = try SourceTree.sourceOfType("QuitCoordinator", under: ["Maugham"])
+        let code = String(decoding: SourceTree.mask(file), as: UTF8.self)
+        for name in ["launchSwapHelper", "pendingQuitInstall", "UpdateInstaller", "UpdateChecker", "performInstall"] {
+            XCTAssertFalse(code.contains(name), "QuitCoordinator.swift must not name \(name): the install stays in willTerminate")
+        }
+        XCTAssertFalse(code.contains("reply(toApplicationShouldTerminate: false)"), "a deferred quit is never cancelled")
+        XCTAssertFalse(code.contains(".terminateCancel"), "a deferred quit is never cancelled")
+        XCTAssertEqual(code.components(separatedBy: "reply(toApplicationShouldTerminate:").count - 1, 1,
+                       "one reply site, and it says true")
+        XCTAssertTrue(code.contains("reply(toApplicationShouldTerminate: true)"))
+
+        let app = try SourceTree.sourceOfType("MaughamApp", under: ["Maugham"])
+        let appCode = String(decoding: SourceTree.mask(app), as: UTF8.self)
+        XCTAssertEqual(appCode.components(separatedBy: "UpdateChecker.shared.pendingQuitInstall").count - 1, 1,
+                       "the dismissed update is handed to the helper in one place")
+        let quitSetUp = try XCTUnwrap(appCode.range(of: "MaughamAppDelegate.quit ="))
+        let observer = try XCTUnwrap(appCode.range(of: "NSApplication.willTerminateNotification"))
+        let handOff = try XCTUnwrap(appCode.range(of: "UpdateChecker.shared.pendingQuitInstall"))
+        XCTAssertTrue(quitSetUp.lowerBound < observer.lowerBound && observer.lowerBound < handOff.lowerBound,
+                      "and that place is the willTerminate observer, which runs after the reply")
+    }
+
     // MARK: - The stores
 
     /// **A Research table's pending edit is on disk before the reply**: the
