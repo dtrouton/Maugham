@@ -934,7 +934,8 @@ final class ResearchTableHost: FigureGridHost {
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device, sparing: Set([made.name] + [restoring].compactMap { $0 }))
+            versions.prune(itemId: itemId, device: device,
+                           sparing: ResearchVersionStore.sparing(made: made.name, restoring: restoring))
             return nil
         }.value
         guard let kept else { return true }

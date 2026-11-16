@@ -4,8 +4,8 @@ import XCTest
 
 /// **A Research note put back to a kept version** (note versions plan 2,
 /// Task 5): `DocumentStore.restoreResearchNote` goes through the note door
-/// with `restoring: true`, so what it replaces is kept and restoring again
-/// undoes it.
+/// with `restoring:` naming the version restored, so what it replaces is
+/// kept and restoring again undoes it.
 @MainActor
 final class ResearchNoteRestoreTests: XCTestCase {
 
@@ -162,7 +162,8 @@ final class ResearchNoteRestoreTests: XCTestCase {
 
     /// A restore whose replaced text cannot be kept is not made, says it was
     /// the restored version, and leaves the note as it was.
-    /// Disable experiment: drop `restoring: true` from the verb and the
+    /// Disable experiment: pass `restoring: nil` (not the version's name)
+    /// from the verb and the
     /// notice names "your edits" instead.
     func test_aRestoreWhoseKeepFailsIsNotMade_andSaysItWasTheRestoredVersion() async throws {
         let (store, projectStore) = try await openBook()
@@ -222,7 +223,7 @@ final class ResearchNoteRestoreTests: XCTestCase {
 
         XCTAssertEqual(try bytes(of: item, projectStore), Data("One.".utf8))
         XCTAssertTrue(versions(of: item).contains(v1), "the restored version is still kept")
-        XCTAssertLessThanOrEqual(versions(of: item).count, ResearchVersionStore.retention)
+        XCTAssertEqual(versions(of: item).count, ResearchVersionStore.retention)
     }
 
     /// The same, when the write then fails: the restored text is still there.

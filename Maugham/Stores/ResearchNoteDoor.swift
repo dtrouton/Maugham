@@ -212,6 +212,20 @@ final class ResearchNoteDoor {
         notes[itemId] = state
     }
 
+    /// **`bytes` are the blank template a new palette card was just made
+    /// with** (`ProjectStore.addPaletteCard`, once its write has landed):
+    /// text nobody wrote, so the first save over exactly these bytes keeps
+    /// nothing (#141 N8). Recorded as already kept (`lastKeptHash`) and as
+    /// known; bytes on disk that differ from them — the card edited outside
+    /// before its first save — are kept as any others are. Never a
+    /// comparison with a re-rendered template: the title is deduped after
+    /// rendering, and the renderer and the template disagree on blank lines.
+    func wroteATemplate(itemId: String, bytes: Data) {
+        let hash = ContentHash.of(bytes)
+        notes[itemId, default: NoteState()].knownHash = hash
+        notes[itemId, default: NoteState()].lastKeptHash = hash
+    }
+
     // MARK: The reload signal
 
     /// **Moves when the door wrote `itemId` for anyone but the editor**: an
@@ -736,7 +750,8 @@ final class ResearchNoteDoor {
             } catch {
                 return error
             }
-            versions.prune(itemId: itemId, device: device, sparing: Set([made.name] + [restoring].compactMap { $0 }))
+            versions.prune(itemId: itemId, device: device,
+                           sparing: ResearchVersionStore.sparing(made: made.name, restoring: restoring))
             return nil
         }.value
     }
@@ -793,9 +808,10 @@ struct ResearchNoteRestoreError: LocalizedError, Equatable {
 extension DocumentStore {
 
     /// **Research note `itemId` put back to a kept `version`**, through the
-    /// door (`restoring: true`: what it replaces is kept, so restoring again
-    /// undoes it). Refused under a view-only share (as `restoreResearchTable`),
-    /// for a version that is not a note's, and for bytes that are not UTF-8
+    /// door (`restoring:` names the version, so what it replaces is kept,
+    /// restoring again undoes it, and the prune spares the version restored).
+    /// Refused under a view-only share (as `restoreResearchTable`), for a
+    /// version that is not a note's, and for bytes that are not UTF-8
     /// (nothing is written). A version's bytes are the file's bytes verbatim:
     /// the text is those bytes decoded without normalising (a BOM and CRLF
     /// survive). Restoring the text the note already holds writes and keeps
@@ -881,6 +897,12 @@ extension DocumentStore {
     /// over them is over known bytes.
     func researchNoteWasRead(itemId: String, bytes: Data) {
         researchNoteDoor.wasRead(itemId: itemId, bytes: bytes)
+    }
+
+    /// A new palette card's blank template `bytes` were written: the first
+    /// save over exactly them keeps nothing (`ResearchNoteDoor.wroteATemplate`).
+    func researchCardTemplateWritten(itemId: String, bytes: Data) {
+        researchNoteDoor.wroteATemplate(itemId: itemId, bytes: bytes)
     }
 
     /// **The Research note or palette card at `path`**, nil for a path whose

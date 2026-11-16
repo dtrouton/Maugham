@@ -395,6 +395,15 @@ public struct ResearchVersionStore: Sendable {
 
     // MARK: - Pruning
 
+    /// **What a door's prune spares** after a keep (`prune`'s `sparing`): the
+    /// version the keep just `made`, and for a restore the version being
+    /// restored (`restoring`, its file name; nil when the save is not a
+    /// restore). The note door and the table door both ask this, so the two
+    /// cannot spare differently.
+    public static func sparing(made: String, restoring: String?) -> Set<String> {
+        Set([made] + [restoring].compactMap { $0 })
+    }
+
     /// **Removes `device`'s versions of `itemId` past the newest `keep`**
     /// (by stamp, then the `-n` as a number), then this device's leftovers
     /// (`sweepLeftovers`), and the item's folder if that left it empty.

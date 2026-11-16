@@ -316,6 +316,30 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                        .note(path: "research/palettes/x.md"))
     }
 
+    /// A legacy palette group — at `research/palette`, never role-stamped —
+    /// still holds its cards: a direct document child is a card, and a
+    /// document in a subgroup beneath it is a note.
+    func test_aLegacyUnstampedPaletteGroupStillHoldsCards() async throws {
+        let store = try await novel(notes: [], cards: [])
+        let card = ResearchItem(id: "res-legcy001", title: "Harbour", type: .asset,
+                                kind: .document, path: ProjectStore.paletteFolderPath + "/harbour.md")
+        let nested = ResearchItem(id: "res-legcy002", title: "Draft", type: .asset,
+                                  kind: .document, path: ProjectStore.paletteFolderPath + "/drafts/draft.md")
+        let sub = ResearchItem(id: "res-legcy003", title: "Drafts", type: .group,
+                               path: ProjectStore.paletteFolderPath + "/drafts", children: [nested])
+        let group = ResearchItem(id: "res-legcy004", title: "Palette", type: .group,
+                                 path: ProjectStore.paletteFolderPath, children: [card, sub])
+        store.manifest.research = [group]
+        XCTAssertNil(group.role, "premise: the group carries no role stamp")
+        XCTAssertEqual(PaletteLookup.paletteGroup(in: store.manifest.research)?.id, group.id,
+                       "premise: found by its legacy path")
+        let structure = store.manifest.structure, research = store.manifest.research
+
+        XCTAssertEqual(ResearchTextRole.of(card, structure: structure, research: research), .paletteCard)
+        XCTAssertEqual(ResearchTextRole.of(nested, structure: structure, research: research),
+                       .note(path: ProjectStore.paletteFolderPath + "/drafts/draft.md"))
+    }
+
     /// **A text item outside a research root is not an editable note**
     /// (note versions plan 2, whole-branch C2): a synced manifest listing the
     /// manuscript or a `.maugham/` file as a Research `.document` routes to

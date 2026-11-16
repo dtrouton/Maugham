@@ -64,8 +64,17 @@ public enum AddNoteTool: MCPTool {
         // don't wire a DocumentStore) or when no save is pending.
         try? await store.documentStore?.flushPendingSave()
 
-        // Write the supplied body to the freshly-created file.
-        if let path = created.path {
+        // Write the supplied body to the freshly-created file — through the
+        // note door when a store is wired, as the assistant's (#141 N5), so
+        // the writer's first edit keeps it marked as the assistant's. It
+        // must land: the note already exists, and nothing over it is lost
+        // (the file was just made empty).
+        if let documentStore = store.documentStore {
+            guard case .saved = await documentStore.saveResearchNote(
+                itemId: created.id, text: params.body, by: .assistant, mustLand: true, from: store) else {
+                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+            }
+        } else if let path = created.path {
             let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
             try params.body.write(to: absURL, atomically: true, encoding: .utf8)
         }

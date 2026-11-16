@@ -675,11 +675,14 @@ final class InboxStore {
     /// the move. Non-destructive in the failure sense: if the original removal
     /// fails, a duplicate asset is left (harmless) rather than data lost.
     /// A `scope` routes the created item — shared research, a collection
-    /// piece's folder, or a chapter link (spec 2026-07-07).
+    /// piece's folder, or a chapter link (spec 2026-07-07). `writer` is whose
+    /// promotion this is (`promote_inbox_entry` passes the assistant): a text
+    /// capture's body goes through the note door as theirs when the project
+    /// has a `DocumentStore` (#141 N5).
     @discardableResult
     func promoteToResearch(
         _ entry: InboxEntry, projectStore: ProjectStore,
-        scope: ResearchScope = .shared
+        scope: ResearchScope = .shared, by writer: ResearchWriter = .writer
     ) async throws -> ResearchItem {
         // The ordering is the palette sibling's, adopted here under RULING-7
         // (M8-IN-001/002, fixed 2026-08-09): every fallible write BEFORE the
@@ -694,11 +697,18 @@ final class InboxStore {
         case .text:
             created = try await projectStore.createResearchNote(
                 scope: scope, title: promotionTitle(for: entry))
-            if let path = created.path {
+            // A failed body write throws, before the flip: it used to leave
+            // an EMPTY note reported as a successful promotion, the capture's
+            // words surviving only in the promoted-hidden manifest history.
+            if let documentStore = projectStore.documentStore {
+                // Through the note door, so the writer's first edit keeps
+                // this text marked as `writer`'s (#141 N5).
+                guard case .saved = await documentStore.saveResearchNote(
+                    itemId: created.id, text: entry.inlineText ?? "", by: writer, from: projectStore) else {
+                    throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                }
+            } else if let path = created.path {
                 let dest = try projectStore.resolvedProjectPathToChange(path)
-                // `try`, not `try?`: a failed body write used to leave an EMPTY
-                // note reported as a successful promotion, the capture's words
-                // surviving only in the promoted-hidden manifest history.
                 try (entry.inlineText ?? "").write(
                     to: dest, atomically: true, encoding: .utf8)
             }

@@ -418,7 +418,7 @@ final class ResearchTableVersionTests: XCTestCase {
 
         XCTAssertEqual(try rows(of: item), [["Year", "Revenue"], ["2025", "10"]])
         XCTAssertTrue(versions(of: item).contains(oldest), "the restored version is still kept")
-        XCTAssertLessThanOrEqual(versions(of: item).count, ResearchVersionStore.retention)
+        XCTAssertEqual(versions(of: item).count, ResearchVersionStore.retention)
         await store.releaseResearchTable(host)
     }
 

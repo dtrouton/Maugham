@@ -136,6 +136,42 @@ final class AddNoteToolTests: XCTestCase {
         }
     }
 
+    // MARK: - The assistant's text is recorded as the assistant's (#141 N5)
+
+    /// `add_note`'s body goes through the note door as the assistant's, so
+    /// the writer's first edit of the note keeps the assistant's text as a
+    /// version marked as written by the assistant.
+    /// Disable experiment: write the body raw (the no-store arm) with a
+    /// store wired, and the kept version's author is nil.
+    func test_theWritersFirstEditOfAnAddedNoteKeepsTheAssistantsTextMarkedAsTheAssistants() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        ds.projectStore = store
+        let body = "The assistant's note."
+        let req = try JSONSerialization.data(withJSONObject: [
+            "project_id": ProjectIdentifier.id(for: url), "title": "Fog", "body": body])
+        let result = try JSONDecoder().decode(
+            AddNoteTool.Result.self, from: try await AddNoteTool.handle(paramsJSON: req, registry: reg))
+        let fileURL = url.appendingPathComponent(result.path)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), body)
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: result.id, in: url),
+                       ResearchNoteRecord(contentHash: ContentHash.of(Data(body.utf8)), writtenBy: .assistant))
+
+        // The writer opens the note and types.
+        ds.researchNoteWasRead(itemId: result.id, bytes: try Data(contentsOf: fileURL))
+        ds.researchNoteDoor.saveDelay = .seconds(3600)
+        ds.scheduleNoteSave(itemId: result.id, text: "The writer's edit.")
+        try await ds.flushPendingSave()
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "The writer's edit.")
+        let versions = ResearchVersionStore(projectURL: url).versions(itemId: result.id)
+        XCTAssertEqual(versions.count, 1)
+        let kept = try XCTUnwrap(versions.first)
+        XCTAssertEqual(try ResearchVersionStore(projectURL: url).read(kept).0, Data(body.utf8))
+        XCTAssertEqual(kept.writtenBy, .assistant)
+        XCTAssertEqual(kept.replacedBy, .writer)
+    }
+
     // MARK: - Flush-before-body-write (tripwire 14 / finding 1.6)
 
     /// Regression test: `add_note` must flush any pending `scheduleFileSave`

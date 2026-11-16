@@ -639,17 +639,15 @@ final class ResearchNoteDoorTests: XCTestCase {
         let table = try await projectStore.addResearchTable(parentId: nil)
         let tableBytes = try Data(contentsOf: file(try XCTUnwrap(table.path)))
         let card = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
-        let cardBytes = try Data(contentsOf: file(try XCTUnwrap(card.path)))
 
         let onTable = await store.saveResearchNote(itemId: table.id, text: "not,a,note")
         let onCard = await store.saveResearchNote(itemId: card.id, text: "# Harbour\n\nA card.\n")
         let onNothing = await store.saveResearchNote(itemId: "res-00000000", text: "Nothing.")
-        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .saved(keptAVersion: true), .notSaved])
+        XCTAssertEqual([onTable, onCard, onNothing], [.notSaved, .saved(keptAVersion: false), .notSaved])
         XCTAssertEqual(try Data(contentsOf: file(try XCTUnwrap(table.path))), tableBytes)
         XCTAssertEqual(try text(of: card, projectStore), "# Harbour\n\nA card.\n")
         XCTAssertTrue(versions(of: table).isEmpty)
-        XCTAssertEqual(try versions(of: card).map(versionText), [String(decoding: cardBytes, as: UTF8.self)],
-                       "the card's template is kept as its version")
+        XCTAssertTrue(versions(of: card).isEmpty, "the card is taken, and keeps nothing over its blank template")
         XCTAssertNil(store.researchNoteItem(atPath: try XCTUnwrap(table.path)))
         XCTAssertEqual(store.researchNoteItem(atPath: try XCTUnwrap(card.path))?.id, card.id)
     }

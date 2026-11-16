@@ -15873,6 +15873,8 @@ extension TripwireGrepTests {
     /// editing run): `type:ProjectStore` × 1, the palette funnel's `typed`
     /// arm, which only the card editor asks for.
     static let researchNoteDoorCallers: [String: Int] = [
+        "type:AddNoteTool": 1,
+        "type:InboxStore": 1,
         "type:ProjectStore": 4,
         "type:PromotionPerformer": 1,
         "type:UpdateNoteTool": 1,

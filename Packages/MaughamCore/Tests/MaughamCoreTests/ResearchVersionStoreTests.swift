@@ -428,6 +428,14 @@ final class ResearchVersionStoreTests: XCTestCase {
         XCTAssertFalse(store.versions(itemId: item).contains(again))
     }
 
+    /// The doors' one answer to what a keep's prune spares: the version just
+    /// made, and the restored one when the save is a restore.
+    func test_sparingIsTheVersionMadeAndTheOneBeingRestored() {
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: nil), ["a.md"])
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: "b.md"), ["a.md", "b.md"])
+        XCTAssertEqual(ResearchVersionStore.sparing(made: "a.md", restoring: "a.md"), ["a.md"])
+    }
+
     /// A restore spares the version it restores as well as the one its keep
     /// wrote: neither is removed, and each counts as one of the `keep`.
     func test_pruneSparesEveryNameItIsGiven() throws {

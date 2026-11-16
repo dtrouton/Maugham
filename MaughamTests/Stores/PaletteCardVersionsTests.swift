@@ -224,6 +224,81 @@ final class PaletteCardVersionsTests: XCTestCase {
         XCTAssertEqual(try versionTexts(first.researchItemId).last.map { $0.contains("One way.") }, true)
     }
 
+    // MARK: - A new card's blank template is nobody's version (#141 N8)
+
+    /// The template `addPaletteCard` writes is not text anyone wrote: the
+    /// first save over exactly those bytes keeps nothing, and the save after
+    /// it keeps that first save's text as usual.
+    /// Disable experiment: drop `addPaletteCard`'s `wroteATemplate` call and
+    /// the first update keeps the template.
+    func test_aNewCardsBlankTemplateIsNotKeptAsAVersion() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == item.id })
+
+        try await projectStore.updatePaletteCard(withBody(made, "Promoted in."))
+        XCTAssertEqual(versions(item.id).count, 0, "the blank template is not kept")
+        let first = try onDisk(item.id, projectStore)
+
+        clock.advance(seconds: 60)
+        try await projectStore.updatePaletteCard(withBody(made, "Promoted again."))
+        XCTAssertEqual(try versionTexts(item.id), [first], "the next save keeps the first save's text")
+    }
+
+    /// The binder's New Card: the template, then the card editor opens it and
+    /// the writer types. The first typed save keeps nothing; a later run
+    /// keeps the typed text.
+    func test_theBindersNewCardThenTheWritersFirstTypedSaveKeepsNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == item.id })
+        PaletteCardEditor.markRead(item.id, in: projectStore)
+
+        try await typed(withBody(made, "Typed first."), store, projectStore)
+        XCTAssertEqual(versions(item.id).count, 0, "the blank template is not kept")
+        let first = try onDisk(item.id, projectStore)
+
+        clock.advance(seconds: ResearchSaveRun.gap + 1)
+        try await typed(withBody(made, "A new sitting."), store, projectStore)
+        XCTAssertEqual(try versionTexts(item.id), [first])
+    }
+
+    /// The inbox pane's Promote to New Card (`promoteToPaletteNewCard`): the
+    /// card is made, then the capture is appended to it. Nothing is kept.
+    func test_anInboxPromotionIntoANewCardKeepsNothing() async throws {
+        let (_, projectStore) = try await openBook()
+        let file = projectURL.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await JSONLAppendStore<InboxEntry>(fileURL: file).append(InboxEntry(
+            id: "e-1", createdAt: Date(timeIntervalSince1970: 100), deviceId: "phone",
+            kind: .text, inlineText: "Tar and rope."))
+        let inbox = InboxStore(projectURL: projectURL, deviceId: "mac")
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "e-1" })
+
+        let item = try await projectStore.addPaletteCard(title: "Harbour", kind: .other)
+        _ = try await inbox.promoteToPaletteCard(entry, projectStore: projectStore, cardId: item.id)
+
+        let now = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == item.id })
+        XCTAssertEqual(now.notes.map(\.text), ["Tar and rope."], "premise: the capture landed")
+        XCTAssertEqual(versions(item.id).count, 0, "the blank template is not kept")
+    }
+
+    /// The exception is the bytes the door recorded, never "whatever is
+    /// there": a card edited outside Maugham before its first save keeps
+    /// what was put there.
+    func test_aCardWhoseTemplateWasEditedOutsideBeforeTheFirstSaveKeepsThoseBytes() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await projectStore.addPaletteCard(title: "Harbour", kind: .location)
+        let made = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == item.id })
+        let outside = "# Harbour\n\nWritten in another editor.\n"
+        try outside.write(to: file(try XCTUnwrap(item.path)), atomically: true, encoding: .utf8)
+
+        try await projectStore.updatePaletteCard(withBody(made, "Promoted in."))
+
+        XCTAssertEqual(try versionTexts(item.id), [outside], "bytes nobody recorded as the template are kept")
+    }
+
     // MARK: - A keep that fails
 
     /// Anyone else's write is refused when the version cannot be kept: the
