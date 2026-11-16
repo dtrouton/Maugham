@@ -138,7 +138,7 @@ The on-disk filenames have a numeric prefix (`01-chapter-1.md`) so manuscripts s
 
 ## Updates
 
-Maugham looks for a new version a minute after it opens, then every six hours, and also when the Mac wakes or you switch back to Maugham if one is due, and downloads it in the background. To look now, choose **Maugham → Check for Updates…**. While it's working, the menu item says what it's doing: *Checking for Updates…*, *Downloading Update…*, *Install Update…* once one is ready, then *Installing…*.
+Maugham looks for a new version a minute after it opens, then every six hours, and also when the Mac wakes or you switch back to Maugham if one is due, and downloads it in the background. To look now, choose **Maugham → Check for Updates…**. (If that window comes back by itself when Maugham reopens, it doesn't check until you click **Check Now**.) While it's working, the menu item says what it's doing: *Checking for Updates…*, *Downloading Update…*, *Install Update…* once one is ready, then *Installing…*.
 
 When an update is ready, a banner across the top of the project window says *Maugham <version> is ready*:
 
@@ -150,6 +150,9 @@ Before an update is installed, Maugham checks it once more — that it's really 
 - *"The update to Maugham <version> didn't pass its safety check and wasn't installed. Maugham will download it again."*
 - *"The update to Maugham <version> didn't pass its safety check again and wasn't installed. Choose Check for Updates… to try once more."* — after the same version has been refused twice, Maugham stops downloading it on its own.
 - *"The update to Maugham <version> couldn't be installed. Maugham will try again."* — something went wrong part-way through installing. The download is kept, and the next **Restart & Update** or quit tries again.
+- *"The update to Maugham <version> couldn't be installed in place, because the disk Maugham is on can't swap apps safely. Maugham will show the update in Finder instead."* — Maugham replaces itself in one step or not at all, and some disks (exFAT, some network drives) can't do that.
+
+When Maugham can't replace itself where it is — a folder you can't write to, or a disk like that — **Restart & Update** shows the new version in Finder instead, for you to drag into place.
 
 If a new version needs a newer macOS than this Mac has, the check says so — *"Maugham <version> needs macOS <version> or later."* — and downloads nothing.
 

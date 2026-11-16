@@ -93,7 +93,7 @@ expect() {
     fi
 }
 
-ENV_OK=("EXPECT_TEAM=$TEAM" "EXPECT_BUNDLE_ID=$PROBE_ID" "EXPECT_GROUP=$GROUP")
+ENV_OK=("EXPECT_TEAM=$TEAM" "EXPECT_BUNDLE_ID=$PROBE_ID" "EXPECT_GROUP=$GROUP" "EXPECT_NESTED=")
 
 write_ents "$WORK/good.plist" "$TEAM.$PROBE_ID" "$GROUP"
 write_ents "$WORK/nogroup.plist" "$TEAM.$PROBE_ID" ""
@@ -161,6 +161,60 @@ ARGS=(app "$WORK/xcode.app")
 expect pass "app: an Xcode-shaped app (get-task-allow = true) re-signed through resign-entitlements passes" "" -- "${ENV_OK[@]}"
 ARGS=(resign-entitlements "$WORK/nowhere.app" "$WORK/nowhere.plist")
 expect fail "resign-entitlements: a missing app is refused" "no signed code at" --
+
+# --- app mode, nested executables (EXPECT_NESTED): the MCP bridge and the
+# updater's swap tool must be there, signed by the team with the hardened
+# runtime and no get-task-allow. Positive fixtures need this team's Developer
+# ID identity to sign them (no timestamp); without it these arms SKIP.
+ARGS=(app "$GOOD")
+expect fail "app: EXPECT_NESTED unset is refused in app mode, never silently skipped" "EXPECT_NESTED is required" -- EXPECT_TEAM=$TEAM EXPECT_BUNDLE_ID=$PROBE_ID EXPECT_GROUP=$GROUP
+NESTED="Contents/MacOS/maugham-mcp Contents/Helpers/maugham-swap"
+ENV_NESTED=("EXPECT_TEAM=$TEAM" "EXPECT_BUNDLE_ID=$PROBE_ID" "EXPECT_GROUP=$GROUP" "EXPECT_NESTED=$NESTED")
+DEVID="$(security find-identity -v -p codesigning 2>/dev/null | sed -nE "s/.*\"(Developer ID Application: .*\($TEAM\))\"$/\1/p" | head -1)"
+
+# make_nested_app <name> <swap-tool-signing: good|adhoc|noruntime|gta|missing>
+# Both nested executables are signed well except the swap tool, per the mode;
+# then the outer app is sealed over them.
+make_nested_app() {
+    local app="$WORK/$1.app" how="$2" mcp swap
+    rm -rf "$app"; cp -R "$GOOD" "$app"
+    mcp="$app/Contents/MacOS/maugham-mcp"; swap="$app/Contents/Helpers/maugham-swap"
+    mkdir -p "$(dirname "$swap")"
+    cp /usr/bin/true "$mcp"
+    codesign --force --options runtime --timestamp=none --sign "$DEVID" "$mcp" 2>/dev/null
+    if [[ "$how" != missing ]]; then
+        cp /usr/bin/true "$swap"
+        case "$how" in
+            good) codesign --force --options runtime --timestamp=none --sign "$DEVID" "$swap" 2>/dev/null ;;
+            adhoc) codesign --force --options runtime --sign - "$swap" 2>/dev/null ;;
+            noruntime) codesign --force --timestamp=none --sign "$DEVID" "$swap" 2>/dev/null ;;
+            gta) codesign --force --options runtime --timestamp=none --sign "$DEVID" \
+                     --entitlements "$WORK/nested-gta.plist" "$swap" 2>/dev/null ;;
+        esac
+    fi
+    codesign --force --sign - --entitlements "$WORK/good.plist" "$app" 2>/dev/null
+    echo "$app"
+}
+
+if [[ -n "$DEVID" ]]; then
+    {
+        echo '<?xml version="1.0" encoding="UTF-8"?>'
+        echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+        echo '<plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>'
+    } > "$WORK/nested-gta.plist"
+    ARGS=(app "$(make_nested_app nested-good good)")
+    expect pass "app: both nested executables signed by the team, hardened, no get-task-allow" "" -- "${ENV_NESTED[@]}"
+    ARGS=(app "$(make_nested_app nested-missing missing)")
+    expect fail "app: a missing swap tool fails" "Contents/Helpers/maugham-swap is missing" -- "${ENV_NESTED[@]}"
+    ARGS=(app "$(make_nested_app nested-adhoc adhoc)")
+    expect fail "app: an ad-hoc (team-less) swap tool fails" "signed by team 'not set'" -- "${ENV_NESTED[@]}"
+    ARGS=(app "$(make_nested_app nested-noruntime noruntime)")
+    expect fail "app: a swap tool without the hardened runtime fails" "not signed with the hardened runtime" -- "${ENV_NESTED[@]}"
+    ARGS=(app "$(make_nested_app nested-gta gta)")
+    expect fail "app: a swap tool carrying get-task-allow fails" "get-task-allow" -- "${ENV_NESTED[@]}"
+else
+    echo "SKIP: nested-executable arms (no Developer ID Application identity for $TEAM on this Mac)"
+fi
 
 # A profile slipped in AFTER signing breaks the seal.
 cp -R "$NOPROFILE" "$WORK/late.app"

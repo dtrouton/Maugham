@@ -33,7 +33,10 @@ public enum InstallStatus: Equatable {
         case ("refused", 2):
             return .refused(version: parts[1])
         case ("failed", 3):
-            guard UpdateInstaller.HelperFailureStep(rawValue: parts[2]) != nil else { return nil }
+            // A step an older installed build's helper wrote (`python3`) is a
+            // plain failure, not garbage.
+            guard UpdateInstaller.HelperFailureStep(rawValue: parts[2]) != nil
+                    || UpdateInstaller.legacyFailureSteps.contains(parts[2]) else { return nil }
             return .failed(version: parts[1], step: parts[2])
         default:
             return nil
@@ -57,6 +60,10 @@ public enum InstallStatus: Equatable {
         switch self {
         case .refused(let v):
             return "The update to Maugham \(v) didn't pass its safety check and wasn't installed. Maugham will download it again."
+        case .failed(let v, UpdateInstaller.HelperFailureStep.swapUnsupported.rawValue):
+            // The next install on this disk takes the Finder fallback
+            // (`NoSwapVolumeMemory`), so "will try again" would be false.
+            return "The update to Maugham \(v) couldn't be installed in place, because the disk Maugham is on can't swap apps safely. Maugham will show the update in Finder instead."
         case .failed(let v, _):
             return "The update to Maugham \(v) couldn't be installed. Maugham will try again."
         }

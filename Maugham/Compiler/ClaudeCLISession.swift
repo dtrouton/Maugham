@@ -586,9 +586,8 @@ final class ClaudeCLISession: CompilerRunner {
     /// Find `claude` the way the writer's shell would.
     ///
     /// A GUI app inherits launchd's minimal PATH, which does not include
-    /// `~/.local/bin` or Homebrew — so the plain `command -v` probe that
-    /// `UpdateInstaller.python3Available()` uses would answer "no CLI" on a
-    /// machine that plainly has one. Well-known install locations are checked
+    /// `~/.local/bin` or Homebrew — so a plain `command -v` probe would
+    /// answer "no CLI" on a machine that plainly has one. Well-known install locations are checked
     /// first (no subprocess), then a *login* shell is asked, which sources the
     /// writer's profile and therefore sees their real PATH.
     /// `nonisolated` on purpose: this is the thing that must never run on the
@@ -611,8 +610,8 @@ final class ClaudeCLISession: CompilerRunner {
     }
 
     /// Run `command` in a login shell and return its trimmed first line of
-    /// stdout, or nil. Mirrors `UpdateInstaller.python3Available()`'s probe,
-    /// widened to capture the path rather than only the exit status.
+    /// stdout, or nil: a `command -v` probe, widened to capture the path
+    /// rather than only the exit status.
     nonisolated private static func loginShellProbe(_ command: String) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")

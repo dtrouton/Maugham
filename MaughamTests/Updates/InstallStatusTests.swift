@@ -176,6 +176,51 @@ final class InstallStatusTests: XCTestCase {
                        "The update to Maugham 0.43.0 couldn't be installed. Maugham will try again.")
     }
 
+    /// An installed build from before the compiled swap tool may have
+    /// written `failed <v> python3`. It is read as a plain failure, not as
+    /// garbage and not as a crash, though this build never writes it.
+    func test_anOlderBuildsPython3Line_isAPlainFailure() {
+        XCTAssertNil(UpdateInstaller.HelperFailureStep(rawValue: "python3"), "no longer a step this build names")
+        let status = InstallStatus.parse("failed 0.43.0 python3\n")
+        XCTAssertEqual(status, .failed(version: "0.43.0", step: "python3"))
+        XCTAssertEqual(status?.sentence, "The update to Maugham 0.43.0 couldn't be installed. Maugham will try again.")
+    }
+
+    /// The tool's "this volume cannot swap" names no step either, but it may
+    /// not promise a retry: the next install on that disk takes Finder.
+    func test_aVolumeThatCannotSwap_saysFinderNotTryAgain() {
+        XCTAssertEqual(InstallStatus.failed(version: "0.43.0", step: "swap-unsupported").sentence,
+                       "The update to Maugham 0.43.0 couldn't be installed in place, because the disk Maugham is on can't swap apps safely. Maugham will show the update in Finder instead.")
+    }
+
+    /// After `failed <v> swap-unsupported` the install volume is remembered,
+    /// so the next attempt there is not in place again; any other failure
+    /// remembers nothing.
+    func test_aVolumeThatCannotSwap_isRemembered_soTheNextInstallThereTakesFinder() throws {
+        let installed = TestTemp.root.appendingPathComponent("Applications/Maugham.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
+        let folder = installed.deletingLastPathComponent()
+        let defaults = try XCTUnwrap(self.defaults)
+        func mode() -> InstallMode {
+            UpdateInstaller.installMode(
+                installedBundlePath: installed.path,
+                swapTool: { UpdateInstaller.swapToolURL() },
+                volumeSupportsSwap: { UpdateInstaller.volumeSupportsSwapRenaming(at: $0, defaults: defaults) })
+        }
+        XCTAssertEqual(mode(), .inPlace, "premise: APFS, writable, the host's own tool")
+
+        _ = try writeStatus("failed 0.43.0 swap\n")
+        makeChecker().reportInstallStatus(in: TestTemp.root, installedBundlePath: installed.path)
+        XCTAssertEqual(mode(), .inPlace, "an ordinary swap failure is tried again")
+
+        _ = try writeStatus("failed 0.43.0 swap-unsupported\n")
+        let checker = makeChecker()
+        checker.reportInstallStatus(in: TestTemp.root, installedBundlePath: installed.path)
+        XCTAssertEqual(checker.installNotice, .failed(version: "0.43.0", step: "swap-unsupported"))
+        XCTAssertFalse(UpdateInstaller.volumeSupportsSwapRenaming(at: folder, defaults: defaults))
+        XCTAssertEqual(mode(), .finderFallback)
+    }
+
     func test_garbage_leavesTheCheckerIdle_andNoFileBehind() throws {
         let file = try writeStatus("refused banana")
         let checker = makeChecker()

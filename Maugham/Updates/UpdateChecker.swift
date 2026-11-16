@@ -257,17 +257,25 @@ public final class UpdateChecker: ObservableObject {
     ///   touched. (`pendingQuitInstall` is in-memory and starts nil at launch,
     ///   so nothing else would reuse the refused bundle.)
     /// - `failed`: the staged files are KEPT. The step that broke (`ditto`,
-    ///   `swap`, or `python3`) is about this Mac at that moment, not the
-    ///   bytes, so the next check re-stages them without a download and the
-    ///   next install tries again. Without python3, `launchSwapHelper` refuses
-    ///   up front and the install takes the Finder fallback instead.
+    ///   `swap`, `swap-unsupported`, or an older build's `python3`) is about
+    ///   this Mac at that moment, not the bytes, so the next check re-stages
+    ///   them without a download and the next install tries again.
+    ///   `swap-unsupported` also remembers the install volume
+    ///   (`NoSwapVolumeMemory`, in `refusalDefaults`), so the next install
+    ///   there takes the Finder fallback instead of failing the same way.
     ///
     /// A line naming a version this app already is (or is newer than) is stale
     /// — that update arrived after all — and says nothing; it is removed all
     /// the same, as is a line that does not parse.
     @discardableResult
-    func reportInstallStatus(in updatesDirectory: URL) -> InstallStatus? {
+    func reportInstallStatus(in updatesDirectory: URL,
+                             installedBundlePath: String = Bundle.main.bundlePath) -> InstallStatus? {
         guard let status = InstallStatus.consume(in: updatesDirectory) else { return nil }
+        if case .failed(_, UpdateInstaller.HelperFailureStep.swapUnsupported.rawValue) = status {
+            NoSwapVolumeMemory.remember(
+                folder: URL(fileURLWithPath: installedBundlePath).deletingLastPathComponent(),
+                defaults: refusalDefaults)
+        }
         if case .refused(let version) = status {
             InstallRefusalMemory.recordRefusal(version: version, defaults: refusalDefaults)
             UpdateInstaller.discardRefusedArchive(

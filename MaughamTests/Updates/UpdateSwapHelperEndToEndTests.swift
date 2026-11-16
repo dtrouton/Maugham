@@ -4,9 +4,10 @@ import XCTest
 /// Runs the real swap helper (`UpdateInstaller.helperScript`) with `/bin/bash`,
 /// synchronously, against fake bundles under `TestTemp.root` (#67 F12, F13).
 /// `codesign` and `spctl` are stub scripts that log their arguments and exit
-/// 0 or 1, so no signed app and no network is needed; `ditto` and `python3`
-/// (the `renamex_np` swap) are the real ones. The pid is one that has already
-/// exited, so the quit-wait falls straight through.
+/// 0 or 1, so no signed app and no network is needed; `ditto` and the swap
+/// tool (`maugham-swap`, the one the test host's own bundle embeds, found by
+/// `UpdateInstaller.swapToolURL()`) are the real ones. The pid is one that
+/// has already exited, so the quit-wait falls straight through.
 ///
 /// What this cannot prove: that launchd adopts the helper when the app quits.
 /// That is still the real-update smoke (`Maugham/Updates/AREA.md`).
@@ -19,6 +20,7 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let codesignLog: URL
         let openLog: URL
         let tools: UpdateInstaller.HelperTools
+        var swapTool: URL
         var status: URL { updates.appendingPathComponent(UpdateInstaller.installStatusFileName) }
         var inflight: URL { URL(fileURLWithPath: installed.path + ".inflight") }
         /// Each `open` call's arguments, one per line; nil if `open` never ran.
@@ -30,11 +32,15 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     private let version = "0.43.0"
     private let team = "ABCDE12345"
+    private let bundleIdentifier = "com.maugham.Maugham"
+
+    /// The real built swap tool. Its absence FAILS the setup, never skips:
+    /// every build embeds it, so a missing tool is a broken embed.
+    private var realSwapTool: URL!
 
     override func setUpWithError() throws {
-        guard UpdateInstaller.python3Available() else {
-            throw XCTSkip("python3 is not on PATH; the helper's swap needs it")
-        }
+        realSwapTool = try XCTUnwrap(UpdateInstaller.swapToolURL(),
+            "the test host must embed \(UpdateInstaller.swapToolRelativePath)")
     }
 
     private func write(_ text: String, to url: URL, executable: Bool = false) throws {
@@ -53,6 +59,11 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         let installed = root.appendingPathComponent(installedParent).appendingPathComponent("Maugham.app")
         let updates = root.appendingPathComponent("Updates", isDirectory: true)
         try write("new", to: staged.appendingPathComponent("Contents/marker"))
+        // The staged copy is this app at the version being installed; the
+        // helper reads the version back off the copy it is about to swap in.
+        XCTAssertTrue((["CFBundleIdentifier": bundleIdentifier, "CFBundleShortVersionString": version]
+                       as NSDictionary).write(to: staged.appendingPathComponent("Contents/Info.plist"),
+                                              atomically: true))
         try write("old", to: installed.appendingPathComponent("Contents/marker"))
         try FileManager.default.createDirectory(at: updates, withIntermediateDirectories: true)
         let toolsDir = root.appendingPathComponent("tools", isDirectory: true)
@@ -69,19 +80,36 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         return Fixture(root: root, staged: staged, installed: installed, updates: updates,
                        codesignLog: codesignLog, openLog: openLog,
                        tools: .init(codesign: codesign.path, spctl: spctl.path, ditto: "/usr/bin/ditto",
-                                    open: open.path))
+                                    open: open.path, plistBuddy: "/usr/libexec/PlistBuddy"),
+                       swapTool: realSwapTool)
     }
 
     private func exitedPid() throws -> Int32 {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/true")
         try p.run()
-        p.waitUntilExit()
+        guard Self.waitBounded(p, seconds: 10) else {
+            kill(p.processIdentifier, SIGKILL)
+            throw NSError(domain: "UpdateSwapHelperEndToEndTests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "/usr/bin/true did not exit within 10 s"])
+        }
         return p.processIdentifier
     }
 
     @discardableResult
-    private func runHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil) throws -> Int32 {
+    private func runHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
+                           swapToolArgument: String? = nil, bundleIdentifier: String? = nil,
+                           allowance: TimeInterval = helperAllowance) throws -> Int32 {
+        let p = try launchHelper(f, relaunch: relaunch, team: team, swapToolArgument: swapToolArgument,
+                                 bundleIdentifier: bundleIdentifier)
+        // A reused pid would park the quit-wait, and a stuck step (ditto, a
+        // stub, the swap) would park the helper; never hang the gate on either.
+        return runBounded(p, allowance: allowance)
+    }
+
+    /// Starts the helper and returns at once; `runBounded` waits for it.
+    private func launchHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
+                              swapToolArgument: String? = nil, bundleIdentifier: String? = nil) throws -> Process {
         let script = f.root.appendingPathComponent("helper.sh")
         try write(UpdateInstaller.helperScript(tools: f.tools), to: script)
         let p = Process()
@@ -90,21 +118,111 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
             scriptPath: script.path, pid: try exitedPid(),
             stagedBundle: f.staged.path, installedBundle: f.installed.path,
             expectedTeamID: team ?? self.team, relaunch: relaunch, version: version,
-            updatesDirectory: f.updates.path)
+            updatesDirectory: f.updates.path, swapTool: swapToolArgument ?? f.swapTool.path,
+            bundleIdentifier: bundleIdentifier ?? self.bundleIdentifier)
         // A `$(touch PWNED)` that ran would land here, inside the test root.
         p.currentDirectoryURL = f.root
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         try p.run()
-        // A reused pid would park the quit-wait; never hang the gate on it.
-        let deadline = Date().addingTimeInterval(10)
+        return p
+    }
+
+    /// Polls (bounded, `seconds`) until a process whose command line ends with
+    /// `suffix` is listed. The self-tests start their 1 s allowance only once
+    /// the stuck step EXISTS, so a loaded machine slow to spawn it cannot
+    /// make the failure message miss it.
+    private func waitUntilListed(_ suffix: String, seconds: TimeInterval = 60) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if Self.processTable().contains(where: { $0.line.hasSuffix(suffix) }) { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return false
+    }
+
+    /// Waits for a launched `p` at most `allowance`. Past it the process tree
+    /// is captured first, so the failure names the stuck step, then the whole
+    /// tree is SIGKILLed: a bash that ignores or traps SIGTERM keeps waiting
+    /// on its foreground child, so a `terminate()` followed by an unbounded
+    /// wait hangs as long as the child does. Every wait here is bounded.
+    private func runBounded(_ p: Process, allowance: TimeInterval) -> Int32 {
+        let deadline = Date().addingTimeInterval(allowance)
         while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if p.isRunning {
-            p.terminate()
-            p.waitUntilExit()
-            XCTFail("the helper did not finish within 10 s (was the exited pid reused?)")
+            let tree = Self.processTree(under: p.processIdentifier)
+            Self.killTree(under: p.processIdentifier)
+            let exited = Self.waitBounded(p, seconds: 5)
+            XCTFail("the helper did not finish within \(Int(allowance)) s "
+                    + "(was the exited pid reused?)\(exited ? "" : "; it survived SIGKILL for 5 s")"
+                    + "\nprocess tree at the timeout:\n\(tree)")
+            return exited ? p.terminationStatus : -1
         }
         return p.terminationStatus
+    }
+
+    /// How long one helper run may take before the harness stops it.
+    private static let helperAllowance: TimeInterval = 10
+
+    /// Polls until `p` exits or `seconds` pass. Never blocks longer.
+    private static func waitBounded(_ p: Process, seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        return !p.isRunning
+    }
+
+    /// Every process as `(pid, ppid, line)` from one bounded `ps` run. The
+    /// output goes to a file, not a pipe, so a full pipe can never stall it.
+    private static func processTable() -> [(pid: Int32, ppid: Int32, line: String)] {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-A", "-o", "pid=,ppid=,stat=,etime=,command="]
+        let out = TestTemp.root.appendingPathComponent("ps-\(UUID().uuidString).txt")
+        guard FileManager.default.createFile(atPath: out.path, contents: nil),
+              let handle = try? FileHandle(forWritingTo: out) else { return [] }
+        defer { try? handle.close() }
+        ps.standardOutput = handle
+        ps.standardError = FileHandle.nullDevice
+        guard (try? ps.run()) != nil else { return [] }
+        guard waitBounded(ps, seconds: 5) else {
+            kill(ps.processIdentifier, SIGKILL)
+            return []
+        }
+        guard let text = try? String(contentsOf: out, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").compactMap { row in
+            let fields = row.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count >= 2, let pid = Int32(fields[0]), let ppid = Int32(fields[1]) else { return nil }
+            return (pid, ppid, String(row))
+        }
+    }
+
+    /// `root` and its descendants, parents before children.
+    private static func descendants(of root: Int32,
+                                    in table: [(pid: Int32, ppid: Int32, line: String)]) -> [Int32] {
+        var result = [root]
+        var index = 0
+        while index < result.count {
+            let parent = result[index]
+            result += table.filter { $0.ppid == parent && $0.pid != parent && !result.contains($0.pid) }
+                .map(\.pid)
+            index += 1
+        }
+        return result
+    }
+
+    /// `PID PPID STAT ELAPSED COMMAND` for `root` and every descendant.
+    private static func processTree(under root: Int32) -> String {
+        let table = processTable()
+        let lines = descendants(of: root, in: table).compactMap { pid in table.first { $0.pid == pid }?.line }
+        return lines.isEmpty
+            ? "(ps gave nothing)"
+            : "  PID  PPID STAT ELAPSED COMMAND\n" + lines.joined(separator: "\n")
+    }
+
+    /// SIGKILL the descendants, deepest first, then `root` itself.
+    private static func killTree(under root: Int32) {
+        for pid in descendants(of: root, in: processTable()).reversed() { kill(pid, SIGKILL) }
+        kill(root, SIGKILL)
     }
 
     private func marker(_ bundle: URL) -> String? {
@@ -121,11 +239,11 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertFalse(exists(f.inflight), "the old bundle left at .inflight is removed")
         XCTAssertFalse(exists(f.status), "success writes no status")
         XCTAssertEqual(marker(f.staged), "new", "the staged copy is copied, never moved")
-        // codesign was asked about the .inflight copy, against our team.
+        // codesign was asked about the .inflight copy: this app, from our team.
         let logged = try String(contentsOf: f.codesignLog, encoding: .utf8)
             .split(separator: "\n").map(String.init)
         XCTAssertEqual(logged, ["--verify", "--deep", "--strict",
-                                "--test-requirement==anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"",
+                                "--test-requirement==identifier \"\(bundleIdentifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"",
                                 f.inflight.path])
     }
 
@@ -199,5 +317,278 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertFalse(all.contains { ($0 as NSString).lastPathComponent == "PWNED" }, "\(all)")
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("PWNED")))
+    }
+
+    // MARK: - The bundle identifier ($9)
+
+    /// A codesign stub that answers as the real one would for the identifier
+    /// clause: exit 3 (requirement not satisfied) unless the requirement names
+    /// the identifier in the copy's own Info.plist.
+    private func identifierCheckingCodesign(_ f: Fixture) throws {
+        try write("""
+            #!/bin/bash
+            printf '%s\\n' "$@" > "\(f.codesignLog.path)"
+            req=""; for a in "$@"; do case "$a" in --test-requirement=*) req="${a#--test-requirement=}";; esac; done
+            target="${@: -1}"
+            id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null)"
+            case "$req" in "=identifier \\"$id\\" and "*) [ -n "$id" ] && exit 0;; esac
+            exit 3
+
+            """, to: URL(fileURLWithPath: f.tools.codesign), executable: true)
+    }
+
+    private func setStagedIdentifier(_ id: String, in f: Fixture) throws {
+        let plist = f.staged.appendingPathComponent("Contents/Info.plist")
+        XCTAssertTrue((["CFBundleIdentifier": id, "CFBundleShortVersionString": version] as NSDictionary)
+            .write(to: plist, atomically: true))
+    }
+
+    /// The same team signs another app: its copy fails the requirement's
+    /// identifier clause, is never swapped in, and the refusal is recorded.
+    func test_anotherAppFromTheSameTeam_isRefusedAtInstall() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try identifierCheckingCodesign(f)
+        try setStagedIdentifier("com.example.OtherApp", in: f)
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
+        XCTAssertEqual(f.opened, [f.installed.path])
+        let requirement = try String(contentsOf: f.codesignLog, encoding: .utf8)
+        XCTAssertTrue(requirement.contains("=identifier \"\(bundleIdentifier)\" and anchor apple generic"), requirement)
+    }
+
+    /// Control for the stub: this app's own identifier passes it and installs.
+    func test_thisAppsIdentifier_passesTheSameStub() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try identifierCheckingCodesign(f)
+        try setStagedIdentifier(bundleIdentifier, in: f)
+        XCTAssertEqual(try runHelper(f), 0)
+        XCTAssertEqual(marker(f.installed), "new")
+        XCTAssertFalse(exists(f.status))
+    }
+
+    /// The identifier is re-validated like the team: one that could be live
+    /// inside the requirement stops the helper with exit 2 before anything.
+    func test_aMalformedBundleIdentifier_stopsTheHelperBeforeAnyStep() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        for bad in ["", "com.maugham.Maugham\"", "com.$(touch PWNED)", "com maugham", "com.x`id`", "com.é",
+                    "com.maugham.Maugham\" or anchor apple"] {
+            XCTAssertEqual(try runHelper(f, relaunch: true, bundleIdentifier: bad), 2, bad)
+            XCTAssertEqual(marker(f.installed), "old", bad)
+            XCTAssertFalse(exists(f.inflight), bad)
+            XCTAssertFalse(exists(f.status), bad)
+            XCTAssertFalse(exists(f.codesignLog), "codesign never ran: \(bad)")
+            XCTAssertNil(f.opened, bad)
+        }
+        XCTAssertFalse(allNamesUnderTheTestRoot().contains("PWNED"))
+    }
+
+    // MARK: - The version, re-read at install time
+
+    /// The staged copy waited in a user-writable folder: an older signed,
+    /// notarized Maugham put there passes codesign, spctl and the identifier
+    /// and team requirement — the version read off the copy refuses it, so
+    /// there is no silent downgrade.
+    func test_aCopyAtAnotherVersion_isRefusedAtInstall_andTheAppIsUntouched() throws {
+        for other in ["0.42.0", "0.43.1", "0.43.0.1", ""] {
+            let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+            var info: [String: Any] = ["CFBundleIdentifier": bundleIdentifier]
+            if !other.isEmpty { info["CFBundleShortVersionString"] = other }
+            XCTAssertTrue((info as NSDictionary).write(
+                to: f.staged.appendingPathComponent("Contents/Info.plist"), atomically: true))
+            let before = try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker"))
+            XCTAssertEqual(try runHelper(f, relaunch: true), 1, other)
+            XCTAssertEqual(try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker")), before, other)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.installed.path), ["Contents"], other)
+            XCTAssertFalse(exists(f.inflight), other)
+            XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n", other)
+            XCTAssertEqual(f.opened, [f.installed.path], "the old app comes back: \(other)")
+            try FileManager.default.removeItem(at: f.root)
+        }
+    }
+
+    /// A copy with no Info.plist at all is refused the same way.
+    func test_aCopyWithNoInfoPlist_isRefusedAtInstall() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        try FileManager.default.removeItem(at: f.staged.appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(try runHelper(f), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "refused \(version)\n")
+    }
+
+    // MARK: - The swap tool ($8)
+
+    /// Every file name anywhere under `TestTemp.root`.
+    private func allNamesUnderTheTestRoot() -> [String] {
+        FileManager.default.enumerator(atPath: TestTemp.root.path)?
+            .compactMap { $0 as? String }
+            .map { ($0 as NSString).lastPathComponent } ?? []
+    }
+
+    /// As in production: the tool runs from the INSTALLED bundle, so its path
+    /// carries whatever the install folder is called — quotes, spaces and
+    /// `$(…)` are data — and the swap moves the bundle the tool lives in.
+    func test_theInstalledBundlesOwnTool_swapsItself_throughAHostilePath() throws {
+        var f = try makeFixture(installedParent: "My \"Apps\" $(touch PWNED)", codesignExit: 0, spctlExit: 0)
+        let tool = f.installed.appendingPathComponent(UpdateInstaller.swapToolRelativePath)
+        try FileManager.default.createDirectory(at: tool.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: realSwapTool, to: tool)
+        f.swapTool = tool
+        XCTAssertTrue(tool.path.contains("My \"Apps\" $(touch PWNED)/Maugham.app/Contents/Helpers/"))
+
+        XCTAssertEqual(try runHelper(f, relaunch: true), 0)
+        XCTAssertEqual(marker(f.installed), "new", "the staged bundle is swapped in")
+        XCTAssertEqual(f.opened, [f.installed.path])
+        XCTAssertFalse(exists(f.inflight), "the old bundle, tool and all, is removed after the swap")
+        XCTAssertFalse(exists(f.status))
+        XCTAssertFalse(allNamesUnderTheTestRoot().contains("PWNED"))
+    }
+
+    /// A swap tool that fails moved nothing: `failed <v> swap`, the installed
+    /// app untouched and reopened, and `.inflight` — the verified new app — kept.
+    func test_aSwapToolThatFails_recordsFailedSwap_andKeepsInflight() throws {
+        var f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let failing = f.root.appendingPathComponent("tools/failing-swap")
+        try write("#!/bin/bash\necho 'maugham-swap: Operation not permitted' >&2\nexit 1\n",
+                  to: failing, executable: true)
+        f.swapTool = failing
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old", "the installed app is untouched")
+        XCTAssertEqual(marker(f.inflight), "new", "a failed swap keeps .inflight")
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "failed \(version) swap\n")
+        XCTAssertEqual(f.opened, [f.installed.path], "the old app comes back")
+    }
+
+    /// Atomic or Finder: a volume that cannot swap (the tool's exit 3) is its
+    /// own step, nothing in between is tried, the installed app is untouched,
+    /// and the copy — only a copy of the staged bundle — is removed.
+    func test_aVolumeThatCannotSwap_recordsItsOwnStep_andTriesNothingElse() throws {
+        var f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let unsupported = f.root.appendingPathComponent("tools/unsupported-swap")
+        try write("#!/bin/bash\nexit \(UpdateInstaller.swapUnsupportedExitCode)\n", to: unsupported, executable: true)
+        f.swapTool = unsupported
+        XCTAssertEqual(try runHelper(f, relaunch: true), 1)
+        XCTAssertEqual(marker(f.installed), "old")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: f.installed.path), ["Contents"])
+        XCTAssertFalse(exists(f.inflight))
+        XCTAssertFalse(exists(URL(fileURLWithPath: f.installed.path + ".bak")), "no backup-rename fallback")
+        XCTAssertEqual(try String(contentsOf: f.status, encoding: .utf8), "failed \(version) swap-unsupported\n")
+        XCTAssertEqual(InstallStatus.parse("failed \(version) swap-unsupported"),
+                       .failed(version: version, step: "swap-unsupported"))
+        XCTAssertEqual(f.opened, [f.installed.path])
+    }
+
+    /// A swap tool argument that is not an absolute path to an executable
+    /// regular file stops the helper with exit 2 before anything is touched.
+    func test_aBadSwapToolArgument_stopsTheHelperBeforeAnythingIsTouched() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        let notExecutable = f.root.appendingPathComponent("tools/plain-file")
+        try write("#!/bin/bash\nexit 0\n", to: notExecutable)  // 0644
+        let directory = f.root.appendingPathComponent("tools", isDirectory: true)
+        let missing = f.root.appendingPathComponent("tools/no-such-tool")
+        let relative = "tools/codesign"  // executable from the helper's cwd, but not absolute
+        let before = try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker"))
+        for argument in [notExecutable.path, directory.path, missing.path, relative, ""] {
+            XCTAssertEqual(try runHelper(f, relaunch: true, swapToolArgument: argument), 2, argument)
+            XCTAssertEqual(try Data(contentsOf: f.installed.appendingPathComponent("Contents/marker")),
+                           before, argument)
+            XCTAssertFalse(exists(f.inflight), argument)
+            XCTAssertFalse(exists(f.status), argument)
+            XCTAssertFalse(exists(f.codesignLog), "codesign never ran: \(argument)")
+            XCTAssertNil(f.opened, "nothing reopened: \(argument)")
+        }
+    }
+
+    // MARK: - The harness itself
+
+    /// A helper that ignores SIGTERM while it waits on a child that never
+    /// finishes is stopped within seconds of the allowance: SIGTERM alone
+    /// would leave it (and the gate) waiting on the child.
+    func test_aHelperThatIgnoresSIGTERM_isKilledWithinTheAllowance() throws {
+        let marker = "\(Int.random(in: 100_000...999_999))"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        // The trailing `:` keeps bash the parent, waiting on the sleep.
+        p.arguments = ["-c", "trap '' TERM; /bin/sleep 7\(marker); :"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        guard waitUntilListed("/bin/sleep 7\(marker)") else {
+            Self.killTree(under: p.processIdentifier)
+            return XCTFail("the stuck child never started")
+        }
+
+        var messages: [String] = []
+        let options = XCTExpectedFailure.Options()
+        options.issueMatcher = { issue in
+            messages.append(issue.compactDescription)
+            return issue.compactDescription.contains("did not finish within 1 s")
+        }
+        let started = Date()
+        XCTExpectFailure("the stuck helper must be reported", options: options) {
+            _ = runBounded(p, allowance: 1)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 12, "bounded: no unbounded wait after the kill")
+        XCTAssertEqual(messages.count, 1, "\(messages)")
+        // A tree LINE that is the stuck process itself, not an argv quoting it.
+        XCTAssertTrue(Self.namesProcess("/bin/sleep 7\(marker)", in: messages.first), messages.first ?? "")
+        XCTAssertFalse(p.isRunning, "the helper itself was killed")
+        XCTAssertFalse(processStillListed("/bin/sleep 7\(marker)"), "its child was killed too")
+    }
+
+    /// Whether a failure message's process tree has a line for a process
+    /// whose command line ends with `suffix`.
+    private static func namesProcess(_ suffix: String, in message: String?) -> Bool {
+        (message ?? "").split(separator: "\n").contains { $0.hasSuffix(suffix) }
+    }
+
+    /// Whether a process whose command line ends with `suffix` is still
+    /// listed (or `ps` gives nothing), polling for up to 10 s while a
+    /// SIGKILLed one is reaped (a loaded machine reaps slowly).
+    private func processStillListed(_ suffix: String) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            let table = Self.processTable()
+            // An empty table is ps failing, not proof of absence.
+            if !table.isEmpty, !table.contains(where: { $0.line.hasSuffix(suffix) }) { return false }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return true
+    }
+
+    /// A step that never finishes, and ignores SIGTERM, fails the test within
+    /// seconds of the allowance instead of hanging the suite; the failure
+    /// carries the captured process tree, naming the stuck step; and the
+    /// stuck step is killed, not left running.
+    func test_aStuckStepThatIgnoresSIGTERM_failsWithinTheAllowance_andNamesTheStep() throws {
+        let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+        // Unique, so the process-table search below finds only this run's.
+        let marker = "\(Int.random(in: 100_000...999_999))"
+        try write("#!/bin/bash\ntrap '' TERM\nexec /bin/sleep 6\(marker)\n",
+                  to: URL(fileURLWithPath: f.tools.codesign), executable: true)
+
+        var messages: [String] = []
+        let options = XCTExpectedFailure.Options()
+        options.issueMatcher = { issue in
+            messages.append(issue.compactDescription)
+            return issue.compactDescription.contains("did not finish within 1 s")
+        }
+        let p = try launchHelper(f)
+        guard waitUntilListed("/bin/sleep 6\(marker)") else {
+            Self.killTree(under: p.processIdentifier)
+            return XCTFail("the helper never reached the stuck codesign stub")
+        }
+        let started = Date()
+        XCTExpectFailure("the stuck stub must be reported", options: options) {
+            _ = runBounded(p, allowance: 1)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 12, "bounded: no unbounded wait after the kill")
+        XCTAssertEqual(messages.count, 1, "\(messages)")
+        // A tree LINE that is the stuck process itself, not an argv quoting it.
+        XCTAssertTrue(Self.namesProcess("/bin/sleep 6\(marker)", in: messages.first), messages.first ?? "")
+        XCTAssertFalse(processStillListed("/bin/sleep 6\(marker)"), "the stuck step survived the harness")
     }
 }

@@ -24,6 +24,9 @@ public struct UpdateMenuCommand: Commands {
         CommandGroup(after: .appInfo) {
             if BuildVariant.current.updaterEnabled {
                 Button(Self.menuTitle(for: checker.state)) {
+                    // Only a window opened from here checks on appear; one
+                    // macOS restores does not (`UpdateCheckRequest`).
+                    UpdateCheckRequest.shared.request()
                     openWindow(id: updateWindowID)
                 }
             }

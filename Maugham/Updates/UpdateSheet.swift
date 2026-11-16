@@ -41,29 +41,45 @@ public struct UpdateSheet: View {
         .padding(24)
         .frame(maxWidth: 480)
         .task {
-            // Run a fresh check whenever the sheet opens, unless an active
-            // download/install is mid-flight. Earlier code gated on
-            // `state == .idle`, but after the first background poll the
-            // state becomes `.upToDate(currentVersion: …)` and stays
-            // there — so manual "Check for Updates" would just show the
-            // cached up-to-date message and never re-fetch. v0.3.1's
-            // URLCache-bypass fix was correct but irrelevant because the
-            // fetch wasn't being invoked at all.
-            switch checker.state {
-            case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem:
-                // Blocked re-checks like up-to-date does: the Mac may have been
-                // upgraded since the last poll.
+            // Only when the writer asked (the menu item set the one-shot
+            // `UpdateCheckRequest`): a window macOS restores at launch checks
+            // nothing, and its idle state offers Check Now instead.
+            if Self.checksOnAppear(requested: UpdateCheckRequest.shared.consume(),
+                                   state: checker.state) {
                 await checker.checkNow()
-            case .checking, .downloading, .readyToInstall, .installing:
-                break  // already doing something; don't restart it
             }
+        }
+    }
+
+    /// Whether an appearance of the window runs a check: only one the menu
+    /// item asked for, and then a fresh check whenever the window opens,
+    /// unless an active check/download/install is mid-flight. Earlier code
+    /// gated on `state == .idle`, but after the first background poll the
+    /// state becomes `.upToDate(currentVersion: …)` and stays there — so
+    /// manual "Check for Updates" would just show the cached up-to-date
+    /// message and never re-fetch. v0.3.1's URLCache-bypass fix was correct
+    /// but irrelevant because the fetch wasn't being invoked at all. Blocked
+    /// (`.newerBuildNeedsNewerSystem`) re-checks like up-to-date does: the Mac
+    /// may have been upgraded since the last poll.
+    static func checksOnAppear(requested: Bool, state: UpdateState) -> Bool {
+        guard requested else { return false }
+        switch state {
+        case .idle, .upToDate, .error, .newerBuildNeedsNewerSystem:
+            return true
+        case .checking, .downloading, .readyToInstall, .installing:
+            return false  // already doing something; don't restart it
         }
     }
 
     @ViewBuilder
     private var content: some View {
         switch checker.state {
-        case .idle, .checking:
+        case .idle:
+            // Nothing checked yet: a window restored at launch, which checks
+            // only when asked (`UpdateCheckRequest`).
+            Text("Choose Check Now to look for a newer version.")
+                .foregroundColor(.secondary)
+        case .checking:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Contacting GitHub…")
@@ -104,7 +120,13 @@ public struct UpdateSheet: View {
     @ViewBuilder
     private var buttons: some View {
         switch checker.state {
-        case .idle, .checking, .downloading:
+        case .idle:
+            Button("Close", action: dismiss)
+            Button("Check Now") {
+                Task { await checker.checkNow() }
+            }
+            .keyboardShortcut(.defaultAction)
+        case .checking, .downloading:
             Button("Close", action: dismiss)
         case .readyToInstall(let bundle, let version, _):
             Button("Later", action: dismiss)

@@ -27,6 +27,9 @@ jobs:
       # step fails if the two ever disagree.
       MAC_BUNDLE_ID: com.maugham.Maugham
       PERSON_KEY_GROUP: FF3XH4ZJ45.com.maugham.person
+      # The nested executables both verify steps hold to the team, the
+      # hardened runtime and no get-task-allow (re-signed inside-out below).
+      MAC_NESTED_EXECUTABLES: Contents/MacOS/maugham-mcp Contents/Helpers/maugham-swap
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +41,55 @@ jobs:
           # This job loads Developer ID signing + notarization secrets and never
           # pushes back to git, so don't leave the token in .git/config.
           persist-credentials: false
+
+      - name: Classify release (stable vs dry-run prerelease)
+        id: channel
+        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
+        # builds are throwaway signing/notarization shakedowns and MUST be marked
+        # prerelease so the stable channel's release poll (which skips
+        # prereleases, GitHubReleasesAPI.latestMacRelease) never surfaces them to installed users. Real releases use
+        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
+        # safety structural — not a manual post-publish flip that could race.
+        run: |
+          set -euo pipefail
+          PATCH="${GITHUB_REF_NAME##*.}"
+          if [[ "$PATCH" -ge 90 ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release (patch $PATCH) → not prerelease"
+          fi
+
+      - name: Require a green CI run for this commit
+        # This job does NOT run the test suite. It used to (23 of a release's
+        # 33 minutes), in Debug, on a second build — never on the signed app
+        # this job ships — and so repeated, for the same commit on the same
+        # image, what ci.yml had already proved on main. The gate asks for that
+        # proof instead: the tagged commit must have a SUCCESSFUL `CI` run.
+        # A cancelled run is not one (a newer push cancels the older run, so
+        # wait for the run on the commit you tag), and a `[skip ci]` commit
+        # has none. This makes "CI before tag" a gate rather than a habit.
+        # A dry-run tag (patch >= 90) may sit on a throwaway commit CI never
+        # saw: it warns and goes on — it is a signing shakedown, published as
+        # a prerelease no installed app is offered.
+        # It runs before any signing secret is loaded: a tag that is going to be
+        # refused never imports the certificate or the notary key.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
+          if [[ "$GREEN" -ge 1 ]]; then
+            echo "CI is green for ${SHA}."
+          elif [[ "$PRERELEASE" == "true" ]]; then
+            echo "::warning::No successful CI run for ${SHA}; continuing because this is a dry-run tag."
+          else
+            echo "::error::No successful CI run for ${SHA}. Push the commit to main, wait for CI to finish green on THAT commit, then delete and re-push the tag."
+            exit 1
+          fi
 
       - name: Set up Xcode 27.0
         # Pinned (NOT latest-stable) so an unexpected Xcode bump on the runner
@@ -126,53 +178,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "Releasing Maugham $VERSION ($BUILD)"
-
-      - name: Classify release (stable vs dry-run prerelease)
-        id: channel
-        # Patch number >= 90 is the reserved DRY-RUN band (e.g. v0.5.90). Such
-        # builds are throwaway signing/notarization shakedowns and MUST be marked
-        # prerelease so the stable channel's release poll (which skips
-        # prereleases, GitHubReleasesAPI.latestMacRelease) never surfaces them to installed users. Real releases use
-        # normal patch numbers (0, 1, 2, …) and publish as stable. This makes the
-        # safety structural — not a manual post-publish flip that could race.
-        run: |
-          set -euo pipefail
-          PATCH="${GITHUB_REF_NAME##*.}"
-          if [[ "$PATCH" -ge 90 ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "Dry-run band (patch $PATCH >= 90) → prerelease"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "Stable release (patch $PATCH) → not prerelease"
-          fi
-
-      - name: Require a green CI run for this commit
-        # This job does NOT run the test suite. It used to (23 of a release's
-        # 33 minutes), in Debug, on a second build — never on the signed app
-        # this job ships — and so repeated, for the same commit on the same
-        # image, what ci.yml had already proved on main. The gate asks for that
-        # proof instead: the tagged commit must have a SUCCESSFUL `CI` run.
-        # A cancelled run is not one (a newer push cancels the older run, so
-        # wait for the run on the commit you tag), and a `[skip ci]` commit
-        # has none. This makes "CI before tag" a gate rather than a habit.
-        # A dry-run tag (patch >= 90) may sit on a throwaway commit CI never
-        # saw: it warns and goes on — it is a signing shakedown, published as
-        # a prerelease no installed app is offered.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
-        run: |
-          set -euo pipefail
-          SHA="$(git rev-parse HEAD)"
-          GREEN="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success&per_page=1" --jq '.total_count')"
-          if [[ "$GREEN" -ge 1 ]]; then
-            echo "CI is green for ${SHA}."
-          elif [[ "$PRERELEASE" == "true" ]]; then
-            echo "::warning::No successful CI run for ${SHA}; continuing because this is a dry-run tag."
-          else
-            echo "::error::No successful CI run for ${SHA}. Push the commit to main, wait for CI to finish green on THAT commit, then delete and re-push the tag."
-            exit 1
-          fi
 
       - name: Verify release notes exist
         env:
@@ -346,6 +351,13 @@ jobs:
           if [[ -f "$MCP" ]]; then
             codesign $OPTS "$IDENTITY" "$MCP"
           fi
+          # The updater's swap tool (Maugham/Updates/AREA.md, "The atomic swap"):
+          # required, since without it every in-place update falls back to
+          # Finder. Re-signed like the MCP tool: hardened, timestamped, and with
+          # no entitlements, so Xcode's get-task-allow does not survive.
+          SWAP="$APP/Contents/Helpers/maugham-swap"
+          test -f "$SWAP" || { echo "::error::maugham-swap not found at $SWAP"; exit 1; }
+          codesign $OPTS "$IDENTITY" "$SWAP"
           # Re-sign the outer app LAST so its seal covers the freshly-signed
           # nested code. (Xcode already signed it once; this re-seals with the
           # entitlements + hardened runtime intact.)
@@ -369,6 +381,7 @@ jobs:
           set -euo pipefail
           codesign -d --entitlements - "$APP"
           EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            EXPECT_NESTED="$MAC_NESTED_EXECUTABLES" \
             scripts/verify-mac-signing.sh app "$APP"
 
       - name: Notarize + staple
@@ -434,6 +447,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           # Once more over exactly what gets packaged.
           EXPECT_TEAM="$TEAM_ID" EXPECT_BUNDLE_ID="$MAC_BUNDLE_ID" EXPECT_GROUP="$PERSON_KEY_GROUP" \
+            EXPECT_NESTED="$MAC_NESTED_EXECUTABLES" \
             scripts/verify-mac-signing.sh app "$APP"
 
       - name: Package .dmg and .zip

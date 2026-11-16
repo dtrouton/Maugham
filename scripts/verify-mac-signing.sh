@@ -18,7 +18,9 @@
 #   verify-mac-signing.sh app <Maugham.app>
 #       after signing: Contents/embedded.provisionprofile exists and passes the
 #       same checks, and the app's own signature names the group and the
-#       application identifier, and the signature verifies.
+#       application identifier, and the signature verifies; and every nested
+#       executable named in EXPECT_NESTED is there, signed by EXPECT_TEAM with
+#       the hardened runtime, without get-task-allow, and verifies.
 #   verify-mac-signing.sh resign-entitlements <Maugham.app> <out.plist>
 #       before the outer re-sign: writes the entitlements to re-sign with —
 #       Xcode's own set minus get-task-allow (see resign_entitlements). Needs
@@ -28,6 +30,11 @@
 #   EXPECT_TEAM       e.g. FF3XH4ZJ45
 #   EXPECT_BUNDLE_ID  e.g. com.maugham.Maugham
 #   EXPECT_GROUP      e.g. FF3XH4ZJ45.com.maugham.person
+# Required in app mode (it may be set empty, but it must be set, so a caller
+# cannot forget it silently):
+#   EXPECT_NESTED     space-separated bundle-relative paths of the nested
+#                     executables, e.g.
+#                     "Contents/MacOS/maugham-mcp Contents/Helpers/maugham-swap"
 # Optional (profile mode): MAC_PROFILE_PLIST — where to leave the decoded plist.
 #
 # Exit 0 = every check passed; anything else prints `::error::<why>` (a GitHub
@@ -143,6 +150,35 @@ check_app() {
         fail "codesign --verify failed for $app: $(tr '\n' ' ' < "$TMP/verify.err")"
 
     echo "ok: $app embeds its profile and is signed for $appid with $EXPECT_GROUP"
+
+    local rel
+    for rel in $EXPECT_NESTED; do
+        check_nested "$app" "$rel"
+    done
+}
+
+# A nested executable (the MCP bridge, the updater's swap tool): Xcode's
+# `build` signs each with get-task-allow and no team, so the release re-signs
+# them inside-out; this proves that happened. Hardened runtime and our team
+# are what notarization and the updater's install-time requirement rely on.
+check_nested() {
+    local app="$1" rel="$2" code="$1/$2" sig flags team
+    [[ -f "$code" && -x "$code" ]] || fail "nested executable $rel is missing from $app (or not executable)"
+    sig="$(codesign -dv --verbose=2 "$code" 2>&1)" || fail "codesign could not read the signature of $rel"
+    flags="$(printf '%s\n' "$sig" | sed -nE 's/.*flags=0x[0-9a-f]+\(([^)]*)\).*/\1/p' | head -1)"
+    [[ ",$flags," == *",runtime,"* ]] || fail "$rel is not signed with the hardened runtime (flags: '$flags')"
+    team="$(printf '%s\n' "$sig" | sed -n 's/^TeamIdentifier=//p' | head -1)"
+    [[ "$team" == "$EXPECT_TEAM" ]] || fail "$rel is signed by team '$team', not $EXPECT_TEAM"
+    local ents="$TMP/nested-entitlements.plist" gta
+    codesign -d --entitlements - --xml "$code" > "$ents" 2>/dev/null || : > "$ents"
+    if [[ -s "$ents" ]]; then
+        gta="$(pb "$ents" ":com.apple.security.get-task-allow" || true)"
+        [[ -z "$gta" || "$gta" == "false" ]] ||
+            fail "$rel's signature carries com.apple.security.get-task-allow ($gta) — notarization rejects a debuggable executable"
+    fi
+    codesign --verify --strict "$code" 2>"$TMP/nested-verify.err" ||
+        fail "codesign --verify failed for $rel: $(tr '\n' ' ' < "$TMP/nested-verify.err")"
+    echo "ok: $rel is signed by $team with the hardened runtime and no get-task-allow"
 }
 
 # The entitlements the release re-signs the outer app with: the set XCODE
@@ -191,6 +227,9 @@ case "$mode" in
         # Optional: hand the decoded plist back so the caller need not decode again.
         if [[ -n "${MAC_PROFILE_PLIST:-}" ]]; then cp "$TMP/profile.plist" "$MAC_PROFILE_PLIST"; fi
         ;;
-    app) check_app "$target" ;;
+    app)
+        [[ -n "${EXPECT_NESTED+set}" ]] ||
+            fail "EXPECT_NESTED is required in app mode (set it empty for none)"
+        check_app "$target" ;;
     *) fail "unknown mode '$mode' (expected profile, app or resign-entitlements)" ;;
 esac
