@@ -6,13 +6,13 @@ import Foundation
 enum UnwritableFolder {
     static func with(_ folder: URL, _ body: () async throws -> Void) async throws {
         let fm = FileManager.default
-        let original = try XCTUnwrapPermissions(of: folder)
+        let original = try permissions(of: folder)
         try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
         defer { try? fm.setAttributes([.posixPermissions: original], ofItemAtPath: folder.path) }
         try await body()
     }
 
-    private static func XCTUnwrapPermissions(of folder: URL) throws -> NSNumber {
+    private static func permissions(of folder: URL) throws -> NSNumber {
         guard let n = try FileManager.default.attributesOfItem(atPath: folder.path)[.posixPermissions] as? NSNumber
         else { throw CocoaError(.fileReadUnknown) }
         return n

@@ -622,7 +622,11 @@ extension Document {
         // NOT the fresh-bootstrap path, whose `.md` IS the seed) and the
         // on-disk display form diverges from the op-log-derived display form,
         // snapshot the on-disk bytes forensically BEFORE the `Document` — and
-        // its autosave — exist to clobber them. Compare DISPLAY forms
+        // its autosave — exist to clobber them: unless those bytes are
+        // Maugham's own render of the state before this load's pending fold
+        // (an autosave cut between the pending mirror and the `.md` write,
+        // #143 Q1), which is no outside edit and is re-rendered below with no
+        // backup. Compare DISPLAY forms
         // (`stripAnchors` both) so an unmigrated still-anchored file whose
         // content equals op-log truth does not false-positive. Dedup against
         // the newest existing snapshot so repeated open/close of an unchanged
@@ -735,7 +739,8 @@ extension Document {
         // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
         // that reached this piece while it was closed re-derived nothing on
         // disk; its next open is where the render catches up. The "diverged"
-        // backup above stays, as evidence. Scheduled through the ordinary
+        // backup above (written unless the stored `.md` was Maugham's own render
+        // before a pending fold) stays, as evidence. Scheduled through the ordinary
         // debounce, so `performAutosave`'s guards decide, and asked last,
         // once `provenance` is stamped: a load HOLDING lines renders nothing
         // on its own account (`rendersOnItsOwnAccount`). A load that refused

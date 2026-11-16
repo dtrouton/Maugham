@@ -341,6 +341,36 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(heard.notices, [])
     }
 
+    /// **The open hold is one suspension that cancellation ends, and it is
+    /// balanced**: two editors holding a note keep it open until both are
+    /// cancelled; a hold cancelled before it ever starts raises and lowers
+    /// once each, leaving the count where it was.
+    /// Disable experiment: lower the count twice (or not at all) in
+    /// `holdResearchNoteOpen` and a step below fails.
+    func test_theOpenHoldEndsOnCancellationAndIsBalanced() async throws {
+        let (store, _) = try await openBook()
+        let door = store.researchNoteDoor
+        let first = Task { await store.holdResearchNoteOpen(itemId: "n1") }
+        let second = Task { await store.holdResearchNoteOpen(itemId: "n1") }
+        while !door.isOpen("n1") { await Task.yield() }
+        first.cancel()
+        await first.value
+        XCTAssertTrue(door.isOpen("n1"), "the second editor still holds it")
+        second.cancel()
+        await second.value
+        XCTAssertFalse(door.isOpen("n1"), "both let go: not open")
+
+        let early = Task { await store.holdResearchNoteOpen(itemId: "n2") }
+        early.cancel()
+        await early.value
+        XCTAssertFalse(door.isOpen("n2"), "raised then lowered once, even cancelled before it started")
+        let again = Task { await store.holdResearchNoteOpen(itemId: "n2") }
+        while !door.isOpen("n2") { await Task.yield() }
+        again.cancel()
+        await again.value
+        XCTAssertFalse(door.isOpen("n2"), "and the count did not go negative: one hold, one release")
+    }
+
     /// **Review Focus 4, a note known but not open**: one the writer read
     /// and has left. Nothing is on screen to reload, so nothing moves and
     /// nothing is said; the next save still keeps the outside bytes.
@@ -1282,7 +1312,7 @@ final class ResearchNoteDoorTests: XCTestCase {
             waiter.value = nil
         }
         await span.end()
-        let setAgain = store.researchNoteDoor.timerIsSet(item.id) || landed.value == true
+        let setAgain = store.researchNoteDoor.timerIsSetForTesting(item.id) || landed.value == true
         XCTAssertTrue(setAgain, "the span's end set the timer again")
         guard setAgain else { return }
         if landed.value != true {

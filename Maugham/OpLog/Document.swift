@@ -1957,11 +1957,11 @@ public final class Document {
         // `performAutosave` also bails on it, so no stray scheduler tail can
         // write the now-empty `materialize()` over the on-disk manuscript.
         //
+        if let closeWillFinish = closeWillFinishForTesting { await closeWillFinish() }
         // Drained once more, for a run a scheduler tail queued during the seal
         // above: no suspension separates the drain's last check from
         // `isClosed`, so nothing is in flight, and nothing queued later passes
         // `performAutosave`'s guard.
-        if let closeWillFinish = closeWillFinishForTesting { await closeWillFinish() }
         await drainAutosaveRuns()
         isClosed = true
 

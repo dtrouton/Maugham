@@ -96,6 +96,34 @@ final class InboxPromoteTests: XCTestCase {
         withExtendedLifetime(ds) {}
     }
 
+    /// **A store that had a `DocumentStore` and lost it (teardown) refuses**
+    /// a text promotion's raw fallback before the flip: it throws, the note's
+    /// file holds none of the text, and the entry is still in the inbox.
+    /// Disable experiment: drop the `rawNoteWriteWithNoDoor() == .allowed`
+    /// guard and the text is written raw and the entry leaves the inbox.
+    func test_anInboxPromotionOnAStoreThatLostItsDocumentStoreIsRefused() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try await seed(url, [InboxEntry(
+            id: "t8", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Fog")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "t8" })
+        store.documentStore = nil
+        XCTAssertEqual(store.rawNoteWriteWithNoDoor(), .refused)
+
+        do {
+            _ = try await inbox.promoteToResearch(entry, projectStore: store)
+            XCTFail("a promotion with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent("research/fog.md")), Data(),
+                       "the note's bytes are unchanged: still empty")
+        await inbox.refresh()
+        XCTAssertTrue(inbox.entries.contains { $0.id == "t8" }, "the entry is still in the inbox")
+        withExtendedLifetime(ds) {}
+    }
+
     /// RULING-8 (fix for M8-IN-003): the image arm converges on retry like
     /// the note arm — a picture whose bytes are already the well's most recent
     /// image is not appended twice.

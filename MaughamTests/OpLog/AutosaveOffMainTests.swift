@@ -288,6 +288,12 @@ final class AutosaveOffMainTests: XCTestCase {
         XCTAssertFalse(staleMd.contains("Typed before the cut."),
             "precondition: the .md still holds the render before the typing")
         XCTAssertTrue(conflictBackups(of: doc).isEmpty, "precondition: no backup yet")
+        // The pending file's place is `PendingBasisFoldTests.pendingFileURL`'s.
+        let pendingFile = url.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent(".maugham/pending")
+            .appendingPathComponent("\(doc.docId).\(DeviceSlug.make(from: "autosave-mac").raw).pending.jsonl")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingFile.path),
+            "precondition: the mirror landed, so a pending file is on disk before the reload")
 
         // Dropped without a close: the process died here.
         let reloaded = try await Document.load(

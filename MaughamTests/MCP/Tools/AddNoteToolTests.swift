@@ -200,6 +200,28 @@ final class AddNoteToolTests: XCTestCase {
         XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
     }
 
+    /// **A store that had a `DocumentStore` and lost it (teardown) refuses**
+    /// `add_note`'s raw fallback: it throws, and the note's file (made empty
+    /// before the question is asked) holds none of the body.
+    /// Disable experiment: drop the `rawNoteWriteWithNoDoor() == .allowed`
+    /// guard and the body is written raw.
+    func test_addNoteOnAStoreThatLostItsDocumentStoreIsRefused() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        store.documentStore = nil
+        XCTAssertEqual(store.rawNoteWriteWithNoDoor(), .refused)
+        let req = try JSONSerialization.data(withJSONObject: [
+            "project_id": ProjectIdentifier.id(for: url), "title": "Fog", "body": "The assistant's note."])
+        do {
+            _ = try await AddNoteTool.handle(paramsJSON: req, registry: reg)
+            XCTFail("add_note with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent("research/fog.md")), Data(),
+                       "the note's bytes are unchanged: still empty")
+    }
+
     // MARK: - Flush-before-body-write (tripwire 14 / finding 1.6)
 
     /// Regression test: `add_note` must flush any pending `scheduleFileSave`

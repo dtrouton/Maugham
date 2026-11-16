@@ -355,7 +355,7 @@ final class ResearchNoteDoor {
     func hasPending(_ itemId: String) -> Bool { pending[itemId] != nil }
 
     /// Whether that edit's debounce timer is set now (not spent or stopped).
-    func timerIsSet(_ itemId: String) -> Bool { pending[itemId]?.timer != nil }
+    func timerIsSetForTesting(_ itemId: String) -> Bool { pending[itemId]?.timer != nil }
 
     /// The debounce elapsed. The edit stays pending until it lands: a save
     /// stopped at the keep, at a file that will not read, or at a failed
@@ -1065,7 +1065,17 @@ extension DocumentStore {
     func holdResearchNoteOpen(itemId: String) async {
         researchNoteOpened(itemId: itemId)
         defer { researchNoteLetGo(itemId: itemId) }
-        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+        // One suspension, ended by cancellation: a stream nothing yields to
+        // or finishes except the cancellation handler. A task cancelled
+        // before it gets here runs `onCancel` at once, so the stream is
+        // finished before it is iterated and the loop ends at its first
+        // `next()`; the open is still raised and lowered once each.
+        let (never, finish) = AsyncStream<Void>.makeStream()
+        await withTaskCancellationHandler {
+            for await _ in never {}
+        } onCancel: {
+            finish.finish()
+        }
     }
 
     /// The note `itemId`'s `bytes` were read (the editor's load): a later save

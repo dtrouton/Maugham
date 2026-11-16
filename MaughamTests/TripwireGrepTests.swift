@@ -15864,6 +15864,7 @@ extension TripwireGrepTests {
     /// - `type:PromotionPerformer` × 1 — `write(_:over:at:)`: a Rewrite, a
     ///   new note's body, a line's link, an accepted offer's links.
     /// - `type:UpdateNoteTool` × 1 — the assistant's `update_note` (ADR 0034).
+    /// - `type:LetterKeep` × 1 — a kept letter's body, as the assistant's.
     /// A new caller is a new writer of note text: name it here. The census
     /// sees the `.saveResearchNote(` spelling only; a bare call from inside a
     /// `DocumentStore` extension would escape it.
@@ -15875,6 +15876,7 @@ extension TripwireGrepTests {
     static let researchNoteDoorCallers: [String: Int] = [
         "type:AddNoteTool": 1,
         "type:InboxStore": 1,
+        "type:LetterKeep": 1,
         "type:ProjectStore": 4,
         "type:PromotionPerformer": 1,
         "type:UpdateNoteTool": 1,
@@ -15912,7 +15914,7 @@ extension TripwireGrepTests {
     static let rawResearchTextWrites: [String: Int] = [
         "AddNoteTool.swift": 1,                    // no-door fallback — `add_note`'s body
         "InboxStore.swift": 1,                     // no-door fallback — a text capture's promotion
-        "LetterKeep.swift": 1,                     // create — a kept letter's body, into the note just made empty (it does not ask the door)
+        "LetterKeep.swift": 1,                     // no-door fallback — a kept letter's body
         "PromotionPerformer.swift": 1,             // no-door fallback — `write(_:toPath:of:)`
         "ProjectStore+CollectionPieces.swift": 1,  // create — a piece's new research note, empty
         "ProjectStore+Palette.swift": 1,           // no-door fallback — the palette funnel
@@ -15921,6 +15923,87 @@ extension TripwireGrepTests {
         "ProjectStore+Search.swift": 1,            // no-door fallback — Replace (also a file no item names: it has no door)
         "ProjectStore+Structure.swift": 1,         // no-door fallback — the rename's link sweep
     ]
+
+    /// **Every call of the one question** (`ProjectStore.rawNoteWriteWithNoDoor()`)
+    /// by file: each raw fallback that writes a note's text with no door asks
+    /// it first, so a store that had a `DocumentStore` and lost it refuses.
+    /// A file carrying a `// raw-research-text: no-door fallback` marker is
+    /// here with as many calls as it has markers
+    /// (`test_everyNoDoorFallbackAsksTheQuestion`).
+    static let rawNoteWriteQuestionSites: [String: Int] = [
+        "AddNoteTool.swift": 1,
+        "InboxStore.swift": 1,
+        "LetterKeep.swift": 1,
+        "ProjectStore+Palette.swift": 1,
+        "ProjectStore+ResearchMove.swift": 1,
+        "ProjectStore+Search.swift": 1,
+        "ProjectStore+Structure.swift": 1,
+        "PromotionPerformer.swift": 1,
+    ]
+    static let noDoorFallbackMarker = "raw-research-text: no-door fallback"
+
+    /// Code with its trailing `//` comment dropped; a whole-comment line is "".
+    private static func withoutItsTrailingComment(_ line: String) -> String {
+        if admissionExcludeLine(line) { return "" }
+        if let range = line.range(of: "//") { return String(line[..<range.lowerBound]) }
+        return line
+    }
+
+    /// By file under `roots`: the calls of `rawNoteWriteWithNoDoor()` (its
+    /// declaration and comments excluded), and the `no-door fallback` markers.
+    private func rawNoteWriteQuestionsFound(in roots: [URL]) throws -> (calls: [String: Int], markers: [String: Int]) {
+        var calls: [String: Int] = [:], markers: [String: Int] = [:]
+        for root in roots {
+            guard let walker = SourceTreeCache.enumerator(at: root) else { continue }
+            for case let url as URL in walker where url.pathExtension == "swift" {
+                let text = try SourceTreeCache.text(url)
+                guard text.contains("rawNoteWriteWithNoDoor") || text.contains(Self.noDoorFallbackMarker) else { continue }
+                let name = url.lastPathComponent
+                for line in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+                    if Self.withoutItsTrailingComment(line).contains("rawNoteWriteWithNoDoor()"),
+                       !line.contains("func rawNoteWriteWithNoDoor") { calls[name, default: 0] += 1 }
+                    if !Self.admissionExcludeLine(line), line.contains(Self.noDoorFallbackMarker) { markers[name, default: 0] += 1 }
+                }
+            }
+        }
+        return (calls, markers)
+    }
+
+    func test_everyNoDoorFallbackAsksTheQuestion() throws {
+        let (calls, markers) = try rawNoteWriteQuestionsFound(in: admissionRoots)
+        XCTAssertEqual(calls, Self.rawNoteWriteQuestionSites,
+            "The calls of `rawNoteWriteWithNoDoor()` moved. Every raw fallback that writes a "
+            + "note's text asks it first (a store that lost its `DocumentStore` refuses); name the "
+            + "new site in `rawNoteWriteQuestionSites`. Found: \(calls.sorted(by: { $0.key < $1.key }))")
+        XCTAssertEqual(markers, Self.rawNoteWriteQuestionSites,
+            "Each `// \(Self.noDoorFallbackMarker)` marker needs one `rawNoteWriteWithNoDoor()` call "
+            + "in its file, and each call one marker. Markers: \(markers.sorted(by: { $0.key < $1.key }))")
+    }
+
+    /// The question census fires: a planted file with a marker and no call, a
+    /// call and no marker, and a comment or the declaration naming the
+    /// question are each counted as the code is, not as the words are.
+    func test_theQuestionCensusFiresOnPlantedOffenders() throws {
+        let dir = TestTemp.root.appendingPathComponent("question-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+        func a(_ text: String, _ url: URL) throws {
+            try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
+        }
+        """.write(to: dir.appendingPathComponent("MarkerNoCall.swift"), atomically: true, encoding: .utf8)
+        try """
+        func b(_ s: ProjectStore) -> Bool {
+            // asks rawNoteWriteWithNoDoor() in a comment
+            return s.rawNoteWriteWithNoDoor() == .allowed  // rawNoteWriteWithNoDoor() again, in a comment
+        }
+        public func rawNoteWriteWithNoDoor() -> RawNoteWrite { .allowed }
+        """.write(to: dir.appendingPathComponent("CallNoMarker.swift"), atomically: true, encoding: .utf8)
+        let (calls, markers) = try rawNoteWriteQuestionsFound(in: [dir])
+        XCTAssertEqual(calls, ["CallNoMarker.swift": 1])
+        XCTAssertEqual(markers, ["MarkerNoCall.swift": 1])
+        XCTAssertNotEqual(calls, markers, "a marker without its call (and the reverse) fails the census")
+    }
 
     /// **Every other write in a file that handles Research items**, by file:
     /// a file whose code names `researchVocabulary` and has a `.write(` line

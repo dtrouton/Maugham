@@ -252,6 +252,63 @@ final class LetterKeepTests: XCTestCase {
                        "and says what happened: \(failures)")
     }
 
+    // MARK: - The door (#141 follow-up: the last raw note-body write)
+
+    /// A kept letter is the compiler persona's text, so it goes through the
+    /// note door as the assistant's: the writer's first edit of the note keeps
+    /// the letter as a version marked as written by the assistant.
+    /// Disable experiment: write the body raw with a store wired, and the kept
+    /// version's author is nil (no record says who wrote it).
+    func test_theWritersFirstEditOfAKeptLetterKeepsItMarkedAsTheAssistants() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        ds.projectStore = store
+        let kept = try await LetterKeep.keep(
+            letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+        let letterText = try body(of: kept, in: store)
+        XCTAssertFalse(letterText.isEmpty, "premise: the letter reached the file")
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: kept.id, in: url),
+                       ResearchNoteRecord(contentHash: ContentHash.of(Data(letterText.utf8)), writtenBy: .assistant))
+
+        let fileURL = url.appendingPathComponent(try XCTUnwrap(kept.path))
+        ds.researchNoteWasRead(itemId: kept.id, bytes: try Data(contentsOf: fileURL))
+        ds.researchNoteDoor.saveDelay = .seconds(3600)
+        ds.scheduleNoteSave(itemId: kept.id, text: "The writer's edit.")
+        try await ds.flushPendingSave()
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "The writer's edit.")
+        let versions = ResearchVersionStore(projectURL: url).versions(itemId: kept.id)
+        XCTAssertEqual(versions.count, 1)
+        let version = try XCTUnwrap(versions.first)
+        XCTAssertEqual(try ResearchVersionStore(projectURL: url).read(version).0, Data(letterText.utf8))
+        XCTAssertEqual(version.writtenBy, .assistant)
+    }
+
+    /// A store that had a `DocumentStore` and lost it (teardown) refuses the
+    /// raw fallback: the keep throws and the note's file stays empty.
+    /// Disable experiment: skip the `rawNoteWriteWithNoDoor()` question and the
+    /// letter is written raw.
+    func test_aKeepOnAStoreThatLostItsDocumentStoreIsRefused() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        store.documentStore = nil
+        do {
+            _ = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+            XCTFail("a keep with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        let notes = store.manifest.research.compactMap(\.path)
+        XCTAssertEqual(notes.count, 1, "premise: the note was made")
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(notes[0])), Data(),
+                       "the note's file holds none of the letter")
+    }
+
     // MARK: - The lane line
 
     /// A stage's round names the lane the way the cockpit's own line does.

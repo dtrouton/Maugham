@@ -320,15 +320,15 @@ extension ProjectStore {
 
         manifest.modified = Date()
         try await saveManifest()
-
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
-    /// the in-memory manifest names where it now is (before the save). A note or a palette card goes
-    /// through the note door (what it held is kept as a version; an editor
-    /// open on it reloads); with no `DocumentStore` the raw write. Anything
-    /// else (`ResearchTextRole` nil) is not written. It lands even when the earlier version cannot be kept
-    /// (`mustLand`); a write that fails is logged and the move stands.
+    /// the in-memory manifest names where it now is (before the save). A note
+    /// or a palette card goes through the note door (what it held is kept as
+    /// a version; an editor open on it reloads); with no `DocumentStore` the
+    /// raw write. Anything else (`ResearchTextRole` nil) is not written. It
+    /// lands even when the earlier version cannot be kept (`mustLand`); a
+    /// write that fails is logged and the move stands.
     func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
               let path = item.path else { return }
