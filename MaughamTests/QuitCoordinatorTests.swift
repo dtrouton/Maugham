@@ -282,6 +282,44 @@ final class QuitCoordinatorTests: XCTestCase {
         XCTAssertEqual(MaughamAppDelegate.answer(idle, isTestHost: false, reply: log.reply), .terminateNow)
     }
 
+    /// **A quit the app asks for itself still hears its reply** (0.46.0's
+    /// *Restart & Update* hang): asked from a main-actor task, as the update
+    /// install asks, the quit is deferred and AppKit spins a run loop inside
+    /// `terminate` until the reply. `terminate` here is AppKit's part: defer,
+    /// then spin until replied. Called straight from the task, the closers
+    /// never run and the spin ends unanswered.
+    func test_aQuitTheAppAsksForFromATaskStillHearsItsReply() async {
+        let quit = QuitCoordinator(
+            closers: { [{ await Task.yield() }] },
+            wait: { _ in try? await Task.sleep(for: .seconds(60)) })
+        let spun = expectation(description: "AppKit's nested loop ended")
+        var replied = false
+        MaughamAppDelegate.requestQuit {
+            XCTAssertEqual(quit.quitRequested { replied = true }, .later)
+            let giveUp = Date().addingTimeInterval(3)
+            while !replied && Date() < giveUp {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            }
+            spun.fulfill()
+        }
+        await fulfillment(of: [spun], timeout: 10)
+        XCTAssertTrue(replied, "the closers must run, and reply, while terminate's own run loop spins")
+    }
+
+    /// **`terminate` is called in one place**: `requestQuit`. A second call
+    /// site inside a task or a `DispatchQueue.main` block is the hang again.
+    func test_terminateIsCalledOnlyThroughRequestQuit() throws {
+        var sites: [String] = []
+        for path in try SourceTree.swiftFiles(under: "Maugham") {
+            let code = String(decoding: SourceTree.mask(try SourceTree.read(path)), as: UTF8.self)
+            let count = code.components(separatedBy: "NSApp.terminate(").count - 1
+                + code.components(separatedBy: "NSApplication.shared.terminate(").count - 1
+            if count > 0 { sites.append("\((path as NSString).lastPathComponent)×\(count)") }
+        }
+        XCTAssertEqual(sites, ["QuitCoordinator.swift×1"],
+                       "ask MaughamAppDelegate.requestQuit(): a terminate called from a task deadlocks a deferred quit")
+    }
+
     /// **One place closes the stores at quit**: the app installs the
     /// delegate and hands it the registry's closers, the delegate replies to
     /// AppKit, and the project window's own quit arm — which started a close

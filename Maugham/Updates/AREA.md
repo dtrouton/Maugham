@@ -86,7 +86,7 @@ Every update is checked **twice**: when it is staged (in-app, `stageAndVerifySyn
 The app cannot replace its own running bundle, so a detached helper does it.
 
 1. **Swift side** (`launchSwapHelper(stagedBundle:version:updatesDirectory:relaunch:…)`) refuses (returns false → Finder fallback) unless `installMode` answers in place ("Worst case" below), the running app has a well-formed team ID and bundle identifier, and the version is `X.Y.Z`. It writes the fixed `helperScript()` to `$TMPDIR/maugham-update-<uuid>.sh` and launches it detached (`/bin/bash script.sh <pid> <staged> <installed> <team> <1|0> <version> <Updates dir> <swap tool> <bundle id>` via `Process`, without waiting).
-2. **The app terminates.** The child reparents to launchd, which adopts orphans.
+2. **The app terminates** via `MaughamAppDelegate.requestQuit()`, never `NSApp.terminate` (0.46.0 hung). The child reparents to launchd, which adopts orphans.
 3. **The bash helper** runs under `set -e`, and every failure path below is an explicit `if !` so it records. Every one after the argument guard ends in `reopen`: with `$RELAUNCH` `1` it runs `open "$INSTALLED"` (the untouched old app) before `exit 1`, `|| true` so it cannot trip `set -e`. In order:
    - validates its nine arguments, the swap tool included, before the wait (exit 2; nothing touched, nothing recorded; `test_helperScript_swapToolIsValidatedBeforeAnyStep`);
    - polls `kill -0 "$PID"` until the app is gone;
