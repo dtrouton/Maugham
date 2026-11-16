@@ -324,6 +324,47 @@ final class ResearchNoteWritersTests: XCTestCase {
                        "nothing went through the door, so no open editor re-reads")
     }
 
+    /// Fewer occurrences than the ordinal clicked: the second match's
+    /// ordinal is past what the note now holds, so Replace refuses.
+    func test_replaceMatchWhoseNoteNowHoldsFewerMatchesThanItsOrdinalThrowsAndWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("fog and fog", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        try Data("fog and rain".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        do {
+            try await projectStore.replaceMatch(matches[1], with: "mist")
+            XCTFail("an ordinal past what the note holds must say so")
+        } catch ProjectStoreError.fileSystemError(let reason) {
+            XCTAssertEqual(reason, "Match range out of bounds")
+        }
+        XCTAssertEqual(try text(of: item, projectStore), "fog and rain")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+    }
+
+    /// A note whose query is gone by the time Replace All runs is skipped:
+    /// nothing is written to it and nothing is kept.
+    func test_replaceAllSkipsANoteWhoseQueryIsGone() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("The fog came in.", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).count, 1)
+        try Data("The rain came in.".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        let outcome = try await projectStore.replaceAll(in: results, with: "mist")
+
+        XCTAssertEqual(try text(of: item, projectStore), "The rain came in.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+        XCTAssertEqual(outcome.leftAlone, [], "nothing was left alone: there was nothing to replace")
+    }
+
     /// `replaceAll` returns what it left alone, not a count; the three
     /// replacements are counted in the note itself.
     func test_replaceAllReplacesWhatTheNoteHoldsNow() async throws {

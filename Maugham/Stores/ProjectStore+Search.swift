@@ -297,6 +297,9 @@ extension ProjectStore {
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: results.query, options: results.options,
                     replacement: replacement, ordinals: nil)
+                // Nothing left to replace (the query is gone since the
+                // search): the file is skipped and nothing is written.
+                guard updated != original else { continue }
                 try await writeReplacedResearchText(updated, to: target, path: path, url: url)
             }
         }
