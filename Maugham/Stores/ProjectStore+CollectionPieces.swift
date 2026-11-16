@@ -1002,7 +1002,7 @@ extension ProjectStore {
             filename = "\(slug)-\(counter).md"
             counter += 1
         }
-        try Data().write(to: researchFolderURL.appendingPathComponent(filename)) // local-path: a slug minted from the title
+        try Data().write(to: researchFolderURL.appendingPathComponent(filename)) // local-path: a slug minted from the title; raw-research-text: create
 
         let relativePath = "\(researchFolder)/\(filename)"
         let item = ResearchItem(

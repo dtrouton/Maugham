@@ -220,23 +220,30 @@ extension ProjectStore {
             return ResearchTextRole.isInsideAResearchRoot(path, structure: manifest.structure) ? .raw : nil
         }
         guard ResearchNoteDoor.takes(item, structure: manifest.structure) else { return nil }
-        return documentStore != nil ? .note(item) : .raw
+        return .note(item)
     }
 
     /// A research file's text after a replace. **A note goes through the note
     /// door** — what it held is kept as a version, and an editor open on it
     /// reloads — and the door writing nothing throws, as any other failure of
-    /// this write does (`replaceAll` stops there, as it always has). Anything
-    /// else `researchReplaceTarget` allows keeps the raw atomic write.
+    /// this write does (`replaceAll` stops there, as it always has). A file
+    /// no item names has no door and keeps the raw atomic write; so does a
+    /// note in a store never given a `DocumentStore`. A note in a store that
+    /// had one and lost it (teardown) throws rather than write raw (#141 N6).
     private func writeReplacedResearchText(_ text: String, to target: ResearchReplaceTarget,
                                            path: String, url: URL) async throws {
-        guard case .note(let note) = target, let ds = documentStore else {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            return
+        if case .note(let note) = target {
+            if let ds = documentStore {
+                guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text, from: self) else {
+                    throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
+                }
+                return
+            }
+            guard rawNoteWriteWithNoDoor() == .allowed else {
+                throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+            }
         }
-        guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text, from: self) else {
-            throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
-        }
+        try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
     }
 
     /// An edit of the note typed since the replace's flush is saved before

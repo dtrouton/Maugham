@@ -53,14 +53,7 @@ final class ResearchNoteWritersTests: XCTestCase {
     /// A novel with one chapter, "Alpha", and both stores wired both ways, as
     /// `ProjectSession.open` wires them.
     private func openBook() async throws -> (DocumentStore, ProjectStore) {
-        try "Words.\n".write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
-        let manifest = ProjectManifest(
-            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [StructureItem(id: "doc-a", title: "Alpha", type: .document, path: "manuscript/a.md")],
-            research: [])
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(to: file(ProjectManifest.fileName))
+        try writeBook()
         let store = try await DocumentStore.open(url: projectURL)
         stores.append(store)
         let doc = try await Document.load(
@@ -70,6 +63,18 @@ final class ResearchNoteWritersTests: XCTestCase {
         projectStore.documentStore = store
         store.projectStore = projectStore
         return (store, projectStore)
+    }
+
+    /// The book's files on disk: one chapter, "Alpha", and its manifest.
+    private func writeBook() throws {
+        try "Words.\n".write(to: file("manuscript/a.md"), atomically: true, encoding: .utf8)
+        let manifest = ProjectManifest(
+            type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [StructureItem(id: "doc-a", title: "Alpha", type: .document, path: "manuscript/a.md")],
+            research: [])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: file(ProjectManifest.fileName))
     }
 
     private func file(_ relative: String) -> URL { projectURL.appendingPathComponent(relative) }
@@ -616,5 +621,79 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: file("manuscript/unlisted.md"), encoding: .utf8), "The fog.")
         XCTAssertEqual(try String(contentsOf: file("research/loose.md"), encoding: .utf8), "The mist.",
                        "an unlisted file inside research/ keeps its raw write")
+    }
+
+    // MARK: - No raw write behind a door that was there (#141 N6)
+
+    /// `card` as it loads, its body now "Walk-up.".
+    private func walkUp(_ card: ResearchItem, _ projectStore: ProjectStore) throws -> PaletteCard {
+        let loaded = try XCTUnwrap(projectStore.loadPaletteCards().first { $0.researchItemId == card.id })
+        return PaletteCard(researchItemId: loaded.researchItemId, title: loaded.title, kind: loaded.kind,
+                           swatches: loaded.swatches, notes: loaded.notes,
+                           imagePaths: loaded.imagePaths, body: "Walk-up.")
+    }
+
+    /// **A store that had a `DocumentStore` and lost it (the window's
+    /// teardown) refuses the raw fallback**: the raw write keeps no version,
+    /// so taking it there would silently replace the door's write. The link
+    /// sweep (it cannot throw) writes nothing; Replace throws; the asset-ref
+    /// rewrite writes nothing. Each note's bytes are as they were.
+    func test_aStoreThatLostItsDocumentStoreRefusesTheRawNoteWrite() async throws {
+        let (_, projectStore) = try await openBook()
+        let swept = try await note("See [[Alpha]].", titled: "Swept", in: projectStore)
+        let replaced = try await note("The fog came in.", titled: "Replaced", in: projectStore)
+        let moved = try await note("![](./a_assets/1.png)", titled: "Moved", in: projectStore)
+        let card = try await projectStore.addPaletteCard(title: "Fog", kind: .other)
+        let cardBefore = try text(of: card, projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).filter { $0.documentPath == replaced.path }.count, 1,
+                       "premise: the note's match is found")
+        let before = try [swept, replaced, moved].map { try text(of: $0, projectStore) }
+
+        projectStore.documentStore = nil   // what the window's teardown leaves behind
+        XCTAssertEqual(projectStore.rawNoteWriteWithNoDoor(), .refused)
+
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+        do {
+            try await projectStore.replaceAll(in: results, with: "mist")
+            XCTFail("Replace with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        await projectStore.rewriteMovedNoteAssetRefs(itemId: moved.id, oldStem: "a", newStem: "b")
+        let edited = try walkUp(card, projectStore)
+        do {
+            try await projectStore.updatePaletteCard(edited)
+            XCTFail("the palette funnel with the door gone must refuse, not write raw")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .fileSystemError("The project is closing; the note was not written."))
+        }
+        XCTAssertEqual(try text(of: card, projectStore), cardBefore, "the card's bytes are unchanged")
+
+        let after = try [swept, replaced, moved].map { try text(of: $0, projectStore) }
+        XCTAssertEqual(after, before, "no note's bytes changed")
+        XCTAssertEqual(before, ["See [[Alpha]].", "The fog came in.", "![](./a_assets/1.png)"])
+        for item in [swept, replaced, moved] { XCTAssertTrue(versions(of: item).isEmpty) }
+    }
+
+    /// **Review Focus 5: a `ProjectStore` never given a `DocumentStore` (a
+    /// load-only context) still writes raw**, keeping nothing, as it always
+    /// has.
+    func test_aStoreNeverGivenADocumentStoreStillWritesRaw() async throws {
+        try writeBook()
+        let projectStore = try await ProjectStore.load(from: projectURL)
+        XCTAssertFalse(projectStore.hadADocumentStore)
+        XCTAssertEqual(projectStore.rawNoteWriteWithNoDoor(), .allowed)
+        let swept = try await note("See [[Alpha]].", titled: "Swept", in: projectStore)
+        let replaced = try await note("The fog came in.", titled: "Replaced", in: projectStore)
+        let moved = try await note("![](./a_assets/1.png)", titled: "Moved", in: projectStore)
+
+        await projectStore.propagateWikiLinkRename(excludeId: "doc-a", oldTitle: "Alpha", newTitle: "Omega")
+        try await projectStore.replaceAll(in: await search("fog", projectStore), with: "mist")
+        await projectStore.rewriteMovedNoteAssetRefs(itemId: moved.id, oldStem: "a", newStem: "b")
+        XCTAssertEqual(try text(of: swept, projectStore), "See [[Omega]].")
+        XCTAssertEqual(try text(of: replaced, projectStore), "The mist came in.")
+        XCTAssertEqual(try text(of: moved, projectStore), "![](./b_assets/1.png)")
+        for item in [swept, replaced, moved] { XCTAssertTrue(versions(of: item).isEmpty, "the raw write keeps nothing") }
     }
 }

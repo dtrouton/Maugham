@@ -1015,6 +1015,11 @@ struct PromotionPerformer {
         }
         guard let ds = store.documentStore else {
             if requiringTheDoor { throw PromotionFailure.noteNotSaved(title: item.title) }
+            // A store that had a DocumentStore and lost it (teardown) refuses
+            // rather than write raw (#141 N6).
+            guard store.rawNoteWriteWithNoDoor() == .allowed else {
+                throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+            }
             try await write(text, toPath: path, of: item)
             return
         }
@@ -1023,15 +1028,16 @@ struct PromotionPerformer {
         }
     }
 
-    /// Text with no `DocumentStore` (a load-only context such as a unit
-    /// test): the direct write, mirroring `ProjectStore+Palette
-    /// .paletteCoordinatedWrite`'s fallback. It keeps nothing.
+    /// Text with no `DocumentStore`, in a store never given one (a load-only
+    /// context such as a unit test; `rawNoteWriteWithNoDoor`): the direct
+    /// write, mirroring `ProjectStore+Palette.paletteCoordinatedWrite`'s
+    /// fallback. It keeps nothing.
     private func write(_ text: String, toPath path: String, of item: ResearchItem) async throws {
         // Its caller asked the role already; asked again at the write itself.
         guard ResearchTextRole.isInsideAResearchRoot(path, structure: store.manifest.structure) else {
             throw PromotionFailure.artifactIsADifferentKind(itemID: item.id, found: "outside Research")
         }
-        try text.write(to: try store.resolvedProjectPathToChange(path),
+        try text.write(to: try store.resolvedProjectPathToChange(path),  // raw-research-text: no-door fallback
                        atomically: true, encoding: .utf8)
     }
 

@@ -160,7 +160,7 @@ enum LetterKeep {
     /// isolation would otherwise ride into the parameter's function type,
     /// which Swift 6 rejects at every call site that passes it as a value.
     nonisolated static func atomicWrite(_ text: String, _ url: URL) throws {
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: create — a kept letter's body, into the note `keep` has just made empty
     }
 
     /// The whole verb, as the closure `LetterSection.onKeep` takes —

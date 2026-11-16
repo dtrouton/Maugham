@@ -74,9 +74,16 @@ public enum AddNoteTool: MCPTool {
                 itemId: created.id, text: params.body, by: .assistant, mustLand: true, from: store) else {
                 throw ProjectStoreError.researchTextNotSaved(title: created.title)
             }
-        } else if let path = created.path {
-            let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
-            try params.body.write(to: absURL, atomically: true, encoding: .utf8)
+        } else {
+            // Never given a store: the raw write. Lost it (teardown): refused,
+            // never raw (#141 N6).
+            guard store.rawNoteWriteWithNoDoor() == .allowed else {
+                throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+            }
+            if let path = created.path {
+                let absURL = try ProjectStore.resolvedProjectPathToChange(path, under: entry.url)
+                try params.body.write(to: absURL, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
+            }
         }
 
         // Project-scoped (ADR 0021): the project id that was manual payload +

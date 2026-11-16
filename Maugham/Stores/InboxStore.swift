@@ -707,10 +707,17 @@ final class InboxStore {
                     itemId: created.id, text: entry.inlineText ?? "", by: writer, from: projectStore) else {
                     throw ProjectStoreError.researchTextNotSaved(title: created.title)
                 }
-            } else if let path = created.path {
-                let dest = try projectStore.resolvedProjectPathToChange(path)
-                try (entry.inlineText ?? "").write(
-                    to: dest, atomically: true, encoding: .utf8)
+            } else {
+                // Never given a store: the raw write. Lost it (teardown):
+                // refused before the flip, never raw (#141 N6).
+                guard projectStore.rawNoteWriteWithNoDoor() == .allowed else {
+                    throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+                }
+                if let path = created.path {
+                    let dest = try projectStore.resolvedProjectPathToChange(path)
+                    try (entry.inlineText ?? "").write(  // raw-research-text: no-door fallback
+                        to: dest, atomically: true, encoding: .utf8)
+                }
             }
         case .image, .audio:
             guard let asset = assetURL(for: entry),

@@ -192,7 +192,7 @@ extension ProjectStore {
             diskCounter += 1
         }
         let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: slugs minted from the titles, under research/
-        try Data().write(to: fileURL, options: .withoutOverwriting) // a link already there (even a dangling one) refuses rather than being followed
+        try Data().write(to: fileURL, options: .withoutOverwriting) // raw-research-text: create; a link already there (even a dangling one) refuses rather than being followed
 
         // Compute relative path from project root
         let relativePath: String = {

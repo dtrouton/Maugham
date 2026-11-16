@@ -217,7 +217,21 @@ public final class ProjectStore {
     /// manifest saves route through DocumentStore.writeManifest. When nil
     /// (e.g., during initial load before DocumentStore exists), saves use
     /// the legacy direct atomic-write path.
-    public weak var documentStore: DocumentStore?
+    ///
+    /// **Assigning one is remembered** (`hadADocumentStore`): a store wired
+    /// and then released (the window's teardown, or the referent simply
+    /// going) is not a load-only context, and a Research note write must not
+    /// fall back to the raw write there (`rawNoteWriteWithNoDoor`, #141 N6).
+    /// The `didSet` fires on an assignment, not when the weak referent
+    /// deallocates; it needs only the assignment that made it non-nil.
+    public weak var documentStore: DocumentStore? {
+        didSet { if documentStore != nil { hadADocumentStore = true } }
+    }
+
+    /// True once a non-nil `documentStore` has been assigned; never reset.
+    /// Production wires one store per `ProjectStore`, once
+    /// (`ProjectSession.open`); nil after that is teardown.
+    @ObservationIgnored public private(set) var hadADocumentStore = false
 
     /// Optional reference to the `CanvasModel` this project's window is showing.
     /// Set by ProjectWindow at open time, exactly as `documentStore` above is,
@@ -866,4 +880,37 @@ public final class ProjectStore {
         return "\(base)-\(n)"
     }
 
+}
+
+// MARK: - No raw note write behind a door that was there (#141 N6)
+
+/// Whether a Research note's or palette card's text may be written raw
+/// (straight to the file, keeping no version) where no `DocumentStore` is
+/// wired to take it through the note door.
+public enum RawNoteWrite: Equatable {
+    /// This store was never given a `DocumentStore`: a load-only context
+    /// (many unit suites build one). The raw write is the only write there is.
+    case allowed
+    /// This store had a `DocumentStore` and has none now (teardown): the raw
+    /// write would silently replace the door's and keep nothing. Refused.
+    case refused
+}
+
+extension ProjectStoreError {
+    /// What a writer throws when `rawNoteWriteWithNoDoor()` is `.refused`.
+    static var noteWriteRefusedAsTheProjectCloses: ProjectStoreError {
+        .fileSystemError("The project is closing; the note was not written.")
+    }
+}
+
+extension ProjectStore {
+    /// **The one question every no-door fallback asks** before writing a
+    /// Research note's text raw: `.allowed` only when this store never had a
+    /// `DocumentStore`. A writer that may throw throws
+    /// `ProjectStoreError.noteWriteRefusedAsTheProjectCloses` on `.refused`;
+    /// one that cannot returns without writing and logs once.
+    /// `TripwireGrepTests.rawResearchTextWrites` counts the raw writes.
+    public func rawNoteWriteWithNoDoor() -> RawNoteWrite {
+        hadADocumentStore ? .refused : .allowed
+    }
 }

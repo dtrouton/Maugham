@@ -341,7 +341,12 @@ extension ProjectStore {
                         throw ProjectStoreError.fileSystemError("“\(item.title)” was not saved")
                     }
                 } else {
-                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    // Lost its store (teardown): refused, never raw (#141 N6);
+                    // the best-effort rewrite logs the throw.
+                    guard rawNoteWriteWithNoDoor() == .allowed else {
+                        throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
+                    }
+                    try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
                 }
             })
     }
