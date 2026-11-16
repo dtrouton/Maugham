@@ -103,6 +103,22 @@ final class MaughamAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// **The one way the app asks itself to quit** (0.46.0's *Restart &
+    /// Update* hang). AppKit answers `.terminateLater` by spinning a run loop
+    /// INSIDE `terminate`, and the reply comes from main-actor tasks. A run
+    /// loop nested in a main-queue block never drains the main queue, so a
+    /// `terminate` called from a main-actor task (the update install is one)
+    /// or from `DispatchQueue.main.async` waits for a reply that cannot be
+    /// made: closers and the bound alike never run. This hands the call to
+    /// the run loop itself, where the nested loop does drain the queue. ⌘Q
+    /// arrives as an event and was never affected.
+    @MainActor
+    static func requestQuit(_ terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }) {
+        RunLoop.main.perform(inModes: [.common]) {
+            MainActor.assumeIsolated { terminate() }
+        }
+    }
+
     /// What AppKit is told. A test host is never held (a gate's worker ends
     /// when XCTest says so), and no coordinator means nothing to wait for.
     @MainActor
