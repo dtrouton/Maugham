@@ -123,4 +123,25 @@ final class ProjectSearchReplaceTests: XCTestCase {
         let text = try await displayText(of: project, "c1")
         XCTAssertEqual(text, "XYZ XYZ XYZ")
     }
+
+    /// Two single Replaces in one document with no search between them: the
+    /// second click's ordinal comes from the stale results, so once the first
+    /// occurrence is gone it names the FOLLOWING one (here the third "fog").
+    /// `ResearchNoteWritersTests.test_twoSingleReplacesInOneNoteWithoutASearchBetweenThemBothLand`
+    /// pins the research arm to this same result.
+    func test_twoSingleReplacesWithoutASearchBetweenThemHitTheFollowingOccurrence() async throws {
+        let project = try await makeProject(manuscript: [
+            ("c1", "fog one fog two fog three\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let matches = await search(store, "fog").matches
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+        XCTAssertEqual(matches.count, 3)
+
+        try await store.replaceMatch(matches[0], with: "mist!!")
+        try await store.replaceMatch(matches[1], with: "mist!!")
+
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "mist!! one fog two mist!! three")
+    }
 }

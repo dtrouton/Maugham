@@ -264,6 +264,82 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "The fog came in.")
     }
 
+    // MARK: - Replace re-finds its match in the text it read (#141 N2)
+
+    /// The research matches of `results`, left to right.
+    private func researchMatches(_ results: SearchResults) -> [SearchMatch] {
+        results.matches.filter { $0.documentSource == .research }
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+    }
+
+    func test_replaceMatchAfterAnEditInsertedBeforeItReplacesTheMatch_notTheOldOffsets() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("alpha beta alpha", in: projectStore)
+        let results = await search("alpha", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("xx alpha beta alpha", of: item, store)
+
+        try await projectStore.replaceMatch(matches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "xx alpha beta Z")
+    }
+
+    /// The second click's ordinal is taken from the stale results, so once
+    /// the first "fog" is gone it names the FOLLOWING occurrence — the third
+    /// "fog" — exactly as the manuscript arm does
+    /// (`ProjectSearchReplaceTests.test_twoSingleReplacesWithoutASearchBetweenThemHitTheFollowingOccurrence`).
+    func test_twoSingleReplacesInOneNoteWithoutASearchBetweenThemBothLand() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("fog one fog two fog three", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 3)
+
+        try await projectStore.replaceMatch(matches[0], with: "mist!!")
+        try await projectStore.replaceMatch(matches[1], with: "mist!!")
+
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two mist!! three")
+    }
+
+    func test_replaceMatchWhoseQueryIsGoneFromTheNoteThrowsAndWritesNothing() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("The fog came in.", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let match = try XCTUnwrap(researchMatches(results).first)
+        try Data("The rain came in.".utf8).write(to: file(try XCTUnwrap(item.path)))
+
+        do {
+            try await projectStore.replaceMatch(match, with: "mist")
+            XCTFail("a match whose query has left the note must say so")
+        } catch ProjectStoreError.fileSystemError(let reason) {
+            XCTAssertEqual(reason, "Match range out of bounds")
+        }
+        XCTAssertEqual(try text(of: item, projectStore), "The rain came in.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing went through the door, so no open editor re-reads")
+    }
+
+    /// `replaceAll` returns what it left alone, not a count; the three
+    /// replacements are counted in the note itself.
+    func test_replaceAllReplacesWhatTheNoteHoldsNow() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("fog and fog", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).count, 2)
+        queueEdit("fog and fog and fog", of: item, store)
+
+        try await projectStore.replaceAll(in: results, with: "mist")
+
+        XCTAssertEqual(try text(of: item, projectStore), "mist and mist and mist")
+        let after = await search("mist", projectStore)
+        XCTAssertEqual(researchMatches(after).count, 3)
+    }
+
     // MARK: - Asset refs after a rename or a move (recon §6 row 6)
 
     func test_renamingANoteWithAssetsKeepsItsTextAsAVersion() async throws {

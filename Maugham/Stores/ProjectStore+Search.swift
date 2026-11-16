@@ -104,8 +104,9 @@ extension ProjectStore {
     ///
     /// Manuscript matches route through the op log: the target occurrence is
     /// identified by its ordinal within the document (from `currentSearch`),
-    /// re-found in display form, and replaced via `setFullText`. Research
-    /// matches splice into the stored bytes and write atomically.
+    /// re-found in display form, and replaced via `setFullText`. A research
+    /// match is re-found by the same ordinal in the text just read
+    /// (`replacingResearchMatches`) and written through `writeReplacedResearchText`.
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
     ) async throws {
@@ -148,16 +149,54 @@ extension ProjectStore {
             try? await documentStore?.flushPendingSave()
             await settleResearchEdits(target)
             let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
-            let ns = original as NSString
-            guard match.charRangeInDocument.location
-                    + match.charRangeInDocument.length <= ns.length else {
-                // Stale match (file changed since search). Caller re-runs search.
-                throw ProjectStoreError.fileSystemError("Match range out of bounds")
-            }
-            let updated = ns.replacingCharacters(
-                in: match.charRangeInDocument, with: replacement) as String
+            // Re-found in the text just read, by its ordinal in the search —
+            // never the search-time offsets, which an edit since may have moved.
+            let updated = try Self.replacingResearchMatches(
+                in: original,
+                query: currentSearch?.query ?? "",
+                options: currentSearch?.options ?? SearchOptions(),
+                replacement: replacement,
+                ordinals: IndexSet(integer: researchOrdinal(of: match)))
             try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
         }
+    }
+
+    /// **A clicked research match's ordinal** — its index among its
+    /// document's matches in `currentSearch`, left to right, derived as the
+    /// manuscript arm derives it.
+    private func researchOrdinal(of match: SearchMatch) -> Int {
+        let sameDoc = (currentSearch?.matches ?? [])
+            .filter { $0.documentPath == match.documentPath }
+            .sorted { $0.charRangeInDocument.location
+                < $1.charRangeInDocument.location }
+        return sameDoc.firstIndex(where: { $0.id == match.id })
+            ?? sameDoc.filter {
+                $0.charRangeInDocument.location
+                    < match.charRangeInDocument.location
+            }.count
+    }
+
+    /// **A research file's text with its matches replaced, re-found in
+    /// `stored`** — the text Replace has just read — never at the search's
+    /// offsets, which an edit made since (or an earlier Replace) may have
+    /// moved (#141 N2). `ordinals` names which occurrences, left to right;
+    /// nil replaces every match `stored` holds. An ordinal past what `stored`
+    /// holds is a stale match: it throws, and the caller writes nothing.
+    private static func replacingResearchMatches(
+        in stored: String, query: String, options: SearchOptions,
+        replacement: String, ordinals: IndexSet?
+    ) throws -> String {
+        let ranges = matchRanges(in: stored, query: query, options: options)
+        if let last = ordinals?.last, last >= ranges.count {
+            throw ProjectStoreError.fileSystemError("Match range out of bounds")
+        }
+        let targets = ordinals ?? IndexSet(integersIn: ranges.indices)
+        // Right-to-left so earlier offsets aren't shifted by later edits.
+        var ns = stored as NSString
+        for index in targets.reversed() {
+            ns = ns.replacingCharacters(in: ranges[index], with: replacement) as NSString
+        }
+        return ns as String
     }
 
     /// How Replace may write the Research file at `path`.
@@ -211,8 +250,9 @@ extension ProjectStore {
     /// Replace all matches in the given results with `replacement`.
     ///
     /// Groups by document. Manuscript documents re-find every occurrence of the
-    /// query in display form and replace them via the op log. Research notes
-    /// splice their stored-form ranges right-to-left and write atomically.
+    /// query in display form and replace them via the op log. A research file
+    /// has every match re-found in the text just read replaced
+    /// (`replacingResearchMatches`) and written through `writeReplacedResearchText`.
     ///
     /// **A manuscript document this Mac may not write is SKIPPED and named**
     /// (controller ruling AI), never replaced and never a part-way failure:
@@ -253,21 +293,11 @@ extension ProjectStore {
                 }
                 await settleResearchEdits(target)
                 let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
-                var ns = original as NSString
-                // Right-to-left so earlier offsets aren't shifted by later edits.
-                let ordered = matches.sorted {
-                    $0.charRangeInDocument.location
-                        > $1.charRangeInDocument.location
-                }
-                for match in ordered {
-                    guard match.charRangeInDocument.location
-                            + match.charRangeInDocument.length <= ns.length
-                    else { continue }
-                    ns = ns.replacingCharacters(
-                        in: match.charRangeInDocument,
-                        with: replacement) as NSString
-                }
-                try await writeReplacedResearchText(ns as String, to: target, path: path, url: url)
+                // Every match the text just read holds, not the search-time list.
+                let updated = try Self.replacingResearchMatches(
+                    in: original, query: results.query, options: results.options,
+                    replacement: replacement, ordinals: nil)
+                try await writeReplacedResearchText(updated, to: target, path: path, url: url)
             }
         }
         return ReplaceAllOutcome(leftAlone: leftAlone)
