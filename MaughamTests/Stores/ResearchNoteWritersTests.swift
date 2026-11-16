@@ -291,12 +291,14 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: item, projectStore), "xx alpha beta Z")
     }
 
-    /// The second click's ordinal is taken from the stale results, so once
-    /// the first "fog" is gone it names the FOLLOWING occurrence — the third
-    /// "fog" — exactly as the manuscript arm does
-    /// (`ProjectSearchReplaceTests.test_twoSingleReplacesWithoutASearchBetweenThemHitTheFollowingOccurrence`).
-    func test_twoSingleReplacesInOneNoteWithoutASearchBetweenThemBothLand() async throws {
-        let (_, projectStore) = try await openBook()
+    /// **A single Replace leaves the results fresh, and a stale match is
+    /// refused** — the research arm's mirror of
+    /// `ProjectSearchReplaceTests.test_aSecondReplaceOfTheSameStaleMatchIsRefused_andAFreshMatchLands`:
+    /// the same match value clicked again, or another from the old list,
+    /// says "search again" and writes nothing; the match the fresh results
+    /// list second replaces that one.
+    func test_aSecondReplaceOfTheSameStaleMatchInANoteIsRefused_andAFreshMatchLands() async throws {
+        let (store, projectStore) = try await openBook()
         let item = try await note("fog one fog two fog three", in: projectStore)
         let results = await search("fog", projectStore)
         projectStore.currentSearch = results
@@ -304,9 +306,57 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(matches.count, 3)
 
         try await projectStore.replaceMatch(matches[0], with: "mist!!")
-        try await projectStore.replaceMatch(matches[1], with: "mist!!")
+
+        let fresh = researchMatches(try XCTUnwrap(projectStore.currentSearch))
+        XCTAssertEqual(fresh.map(\.charRangeInDocument.location), [11, 19],
+                       "the results are fresh when the Replace returns")
+        XCTAssertTrue(Set(fresh.map(\.id)).isDisjoint(with: matches.map(\.id)))
+        let reloads = store.researchNoteReloadCount(itemId: item.id)
+        let kept = versions(of: item).count
+
+        for stale in [matches[0], matches[1]] {
+            do {
+                try await projectStore.replaceMatch(stale, with: "mist!!")
+                XCTFail("a match from the old results must be refused")
+            } catch ProjectStoreError.staleSearchMatch {}
+        }
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two fog three",
+                       "a refused Replace writes nothing")
+        XCTAssertEqual(versions(of: item).count, kept, "and keeps nothing")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), reloads)
+
+        try await projectStore.replaceMatch(fresh[1], with: "mist!!")
 
         XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two mist!! three")
+    }
+
+    /// **Replace clicked twice quickly on the same match** (Review Focus 5):
+    /// both presses in flight at once; one lands, the other finds the match
+    /// gone and says so — it never replaces the next occurrence.
+    func test_replaceClickedTwiceQuicklyOnTheSameNoteMatchReplacesOnce() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("fog one fog two fog three", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let first = try XCTUnwrap(researchMatches(results).first)
+
+        func press() async -> Bool {
+            do {
+                try await projectStore.replaceMatch(first, with: "mist!!")
+                return true
+            } catch ProjectStoreError.staleSearchMatch {
+                return false
+            } catch {
+                XCTFail("unexpected: \(error)")
+                return false
+            }
+        }
+        let one = Task { await press() }
+        let two = Task { await press() }
+        let landed = [await one.value, await two.value]
+
+        XCTAssertEqual(landed.filter { $0 }.count, 1, "one press lands, one is refused: \(landed)")
+        XCTAssertEqual(try text(of: item, projectStore), "mist!! one fog two fog three")
     }
 
     func test_replaceMatchWhoseQueryIsGoneFromTheNoteThrowsAndWritesNothing() async throws {
@@ -320,9 +370,7 @@ final class ResearchNoteWritersTests: XCTestCase {
         do {
             try await projectStore.replaceMatch(match, with: "mist")
             XCTFail("a match whose query has left the note must say so")
-        } catch ProjectStoreError.fileSystemError(let reason) {
-            XCTAssertEqual(reason, "Match range out of bounds")
-        }
+        } catch ProjectStoreError.staleSearchMatch {}
         XCTAssertEqual(try text(of: item, projectStore), "The rain came in.")
         XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
         XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
@@ -330,7 +378,8 @@ final class ResearchNoteWritersTests: XCTestCase {
     }
 
     /// Fewer occurrences than the ordinal clicked: the second match's
-    /// ordinal is past what the note now holds, so Replace refuses.
+    /// ordinal is past what the note now holds, so Replace refuses with
+    /// "That match has changed. Search again."
     func test_replaceMatchWhoseNoteNowHoldsFewerMatchesThanItsOrdinalThrowsAndWritesNothing() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await note("fog and fog", in: projectStore)
@@ -343,9 +392,7 @@ final class ResearchNoteWritersTests: XCTestCase {
         do {
             try await projectStore.replaceMatch(matches[1], with: "mist")
             XCTFail("an ordinal past what the note holds must say so")
-        } catch ProjectStoreError.fileSystemError(let reason) {
-            XCTAssertEqual(reason, "Match range out of bounds")
-        }
+        } catch ProjectStoreError.staleSearchMatch {}
         XCTAssertEqual(try text(of: item, projectStore), "fog and rain")
         XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
         XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,

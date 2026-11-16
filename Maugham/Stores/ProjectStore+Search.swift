@@ -10,11 +10,14 @@ extension ProjectStore {
     /// fresh bytes from disk. Manuscript freshness needs no flush: the engine
     /// reads an open doc's live `Document` state and a closed doc's op log
     /// directly (ADR 0018), never the `.md`. Results land on currentSearch
-    /// (Observable).
+    /// (Observable) — unless a search that started later has landed first
+    /// (`land`). The debounce is for typing; a Replace refreshes through
+    /// `searchNow`.
     public func performSearch(
         query: String, options: SearchOptions
     ) async {
         searchTask?.cancel()
+        latestSearchRequest = (query, options)
 
         let task = Task { [weak self] in
             // Debounce
@@ -28,21 +31,48 @@ extension ProjectStore {
             if Task.isCancelled { return }
 
             self.searchInProgress = true
+            self.searchGeneration += 1
+            let generation = self.searchGeneration
 
             let engine = ProjectSearchEngine()
             let results = await engine.search(query: query, options: options, in: self)
 
             if Task.isCancelled { return }
 
-            self.currentSearch = results
+            self.land(results, generation: generation)
             self.searchInProgress = false
         }
         searchTask = task
     }
 
+    /// **Search now, with no debounce**, and return once `currentSearch`
+    /// holds results no older than this call: its own, or those of a search
+    /// that started after it and landed first. A pending debounced search is
+    /// left to run (it is newer typing). Flushes pending research-note writes
+    /// first, as `performSearch` does.
+    public func searchNow(query: String, options: SearchOptions) async {
+        try? await documentStore?.flushPendingSave()
+        searchGeneration += 1
+        let generation = searchGeneration
+        let results = await ProjectSearchEngine().search(query: query, options: options, in: self)
+        land(results, generation: generation)
+    }
+
+    /// Results land only when newer than the last that landed: a search that
+    /// started before another one landed (or before `clearSearch`) is
+    /// dropped, so older results never overwrite newer ones.
+    private func land(_ results: SearchResults, generation: Int) {
+        guard generation > landedSearchGeneration else { return }
+        landedSearchGeneration = generation
+        currentSearch = results
+    }
+
     public func clearSearch() {
         searchTask?.cancel()
         searchTask = nil
+        // Nothing started before the close may land after it.
+        landedSearchGeneration = searchGeneration
+        latestSearchRequest = nil
         currentSearch = nil
         searchInProgress = false
     }
@@ -66,11 +96,15 @@ extension ProjectStore {
     // landed an external edit, or an earlier replace in this same loop already
     // shifted offsets). So we don't trust the snapshotted range — we RE-FIND
     // occurrences in the CURRENT `doc.displayText` (respecting the recorded
-    // `SearchOptions`) and target by ORDINAL. The ordinal is stable across any
-    // content change that doesn't add or remove query occurrences, which is the
-    // common case for a replace pass; if occurrences did change, the
-    // stale-match guard (re-find count < requested index) throws so the caller
-    // re-runs the search.
+    // `SearchOptions`) and target by ORDINAL — the clicked match's index among
+    // its document's matches in `currentSearch` (`ordinal(of:)`). A single
+    // Replace refreshes `currentSearch` before it returns (`searchNow`) and
+    // single Replaces run one at a time, so the results an ordinal is read
+    // from are never older than the last Replace; a match whose id is not in
+    // them (it came from results a Replace has since refreshed) is refused
+    // with `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
+    // occurrence. So is an ordinal past what the text just read holds (an
+    // edit since the search removed occurrences).
 
     // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
 
@@ -103,34 +137,46 @@ extension ProjectStore {
     /// Replace a single search match with the given replacement text.
     ///
     /// Manuscript matches route through the op log: the target occurrence is
-    /// identified by its ordinal within the document (from `currentSearch`),
+    /// identified by its ordinal within the document (`ordinal(of:)`),
     /// re-found in display form, and replaced via `setFullText`. A research
     /// match is re-found by the same ordinal in the text just read
     /// (`replacingResearchMatches`) and written through `writeReplacedResearchText`.
+    ///
+    /// **Single Replaces run one at a time**, each waiting for the one before
+    /// it and its refresh, and **each ends by refreshing `currentSearch`**
+    /// (`searchNow`, no debounce): a second click — even on the same match,
+    /// even while the first is in flight — is judged against fresh results,
+    /// where its stale match is gone, and throws
+    /// `ProjectStoreError.staleSearchMatch` with nothing written.
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
     ) async throws {
+        let previous = singleReplaceTail
+        let mine = Task {
+            await previous?.value
+            try await self.replaceOneMatch(match, with: replacement)
+        }
+        singleReplaceTail = Task { _ = await mine.result }
+        try await mine.value
+    }
+
+    /// One single Replace, once every earlier one has finished.
+    private func replaceOneMatch(
+        _ match: SearchMatch, with replacement: String
+    ) async throws {
+        // What the clicked match was found by — taken before any await.
+        let query = currentSearch?.query ?? ""
+        let options = currentSearch?.options ?? SearchOptions()
         switch match.documentSource {
         case .manuscript:
-            // Determine the ordinal of this match among same-document matches
-            // in the current search results (left-to-right by display-form
-            // location). This identifies WHICH display-form occurrence to hit.
-            let options = currentSearch?.options ?? SearchOptions()
-            let query = currentSearch?.query ?? ""
-            let sameDoc = (currentSearch?.matches ?? [])
-                .filter { $0.documentPath == match.documentPath }
-                .sorted { $0.charRangeInDocument.location
-                    < $1.charRangeInDocument.location }
-            let ordinal = sameDoc.firstIndex(where: { $0.id == match.id })
-                ?? sameDoc.filter {
-                    $0.charRangeInDocument.location
-                        < match.charRangeInDocument.location
-                }.count
-            // Recover the query from the search; if it's empty (no live
-            // search), fall back to nothing we can do safely → out of bounds.
+            // With no live search there is nothing we can do safely.
             guard !query.isEmpty else {
                 throw ProjectStoreError.fileSystemError(
                     "No active search query for replaceMatch")
+            }
+            // Which display-form occurrence to hit, left to right.
+            guard let ordinal = ordinal(of: match) else {
+                throw ProjectStoreError.staleSearchMatch
             }
             try await replaceInManuscript(
                 path: match.documentPath, title: match.documentTitle,
@@ -144,6 +190,9 @@ extension ProjectStore {
                 throw ProjectStoreError.fileSystemError(
                     "“\(match.documentTitle)” is not a Research note Maugham can change.")
             }
+            guard let ordinal = ordinal(of: match) else {
+                throw ProjectStoreError.staleSearchMatch
+            }
             // The editor's queued edits land first, so the bytes read below
             // are the newest and the write cannot be undone by a later save.
             try? await documentStore?.flushPendingSave()
@@ -152,28 +201,31 @@ extension ProjectStore {
             // Re-found in the text just read, by its ordinal in the search —
             // never the search-time offsets, which an edit since may have moved.
             let updated = try Self.replacingResearchMatches(
-                in: original,
-                query: currentSearch?.query ?? "",
-                options: currentSearch?.options ?? SearchOptions(),
-                replacement: replacement,
-                ordinals: IndexSet(integer: researchOrdinal(of: match)))
+                in: original, query: query, options: options,
+                replacement: replacement, ordinals: IndexSet(integer: ordinal))
             try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
+        }
+        // The results are never older than this Replace. What the field asks
+        // for now is searched (typing may have moved on); nothing, once the
+        // overlay has closed.
+        if let request = latestSearchRequest {
+            await searchNow(query: request.query, options: request.options)
+        } else if let current = currentSearch {
+            await searchNow(query: current.query, options: current.options)
         }
     }
 
-    /// **A clicked research match's ordinal** — its index among its
-    /// document's matches in `currentSearch`, left to right, derived as the
-    /// manuscript arm derives it.
-    private func researchOrdinal(of match: SearchMatch) -> Int {
-        let sameDoc = (currentSearch?.matches ?? [])
+    /// **A clicked match's ordinal** — its index among its document's
+    /// matches in `currentSearch`, left to right — for both arms; nil when
+    /// its id is not there (the results it came from have been refreshed).
+    /// Match ids are minted fresh by every search (`SearchMatch.id`, a
+    /// `UUID()`), so a match from older results never finds itself in newer
+    /// ones.
+    private func ordinal(of match: SearchMatch) -> Int? {
+        (currentSearch?.matches ?? [])
             .filter { $0.documentPath == match.documentPath }
-            .sorted { $0.charRangeInDocument.location
-                < $1.charRangeInDocument.location }
-        return sameDoc.firstIndex(where: { $0.id == match.id })
-            ?? sameDoc.filter {
-                $0.charRangeInDocument.location
-                    < match.charRangeInDocument.location
-            }.count
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+            .firstIndex { $0.id == match.id }
     }
 
     /// **A research file's text with its matches replaced, re-found in
@@ -181,14 +233,15 @@ extension ProjectStore {
     /// offsets, which an edit made since (or an earlier Replace) may have
     /// moved (#141 N2). `ordinals` names which occurrences, left to right;
     /// nil replaces every match `stored` holds. An ordinal past what `stored`
-    /// holds is a stale match: it throws, and the caller writes nothing.
+    /// holds is a stale match: it throws `.staleSearchMatch`, and the caller
+    /// writes nothing.
     private static func replacingResearchMatches(
         in stored: String, query: String, options: SearchOptions,
         replacement: String, ordinals: IndexSet?
     ) throws -> String {
         let ranges = matchRanges(in: stored, query: query, options: options)
         if let last = ordinals?.last, last >= ranges.count {
-            throw ProjectStoreError.fileSystemError("Match range out of bounds")
+            throw ProjectStoreError.staleSearchMatch
         }
         let targets = ordinals ?? IndexSet(integersIn: ranges.indices)
         // Right-to-left so earlier offsets aren't shifted by later edits.
@@ -790,7 +843,7 @@ extension ProjectStore {
 
     /// Pure-in-memory replacement step: re-find occurrences in the doc's CURRENT
     /// display form, replace the requested ordinals (or all), and commit via
-    /// `setFullText`. Throws the stale-match guard. Persistence/teardown is the
+    /// `setFullText`. Throws the stale-match guard (`.staleSearchMatch`). Persistence/teardown is the
     /// caller's responsibility (see `replaceInManuscript`).
     private func applyReplacement(
         to doc: Document,
@@ -806,13 +859,12 @@ extension ProjectStore {
             in: display, query: query, options: options)
 
         // Stale-match guard: if the live display form has fewer occurrences
-        // than the search expected to address, the file changed since the
-        // search. For a single-ordinal replace that targets a missing index,
-        // surface so the caller re-runs the search.
+        // than the search expected to address, the text changed since the
+        // search. A single-ordinal replace that targets a missing index is
+        // refused, and the writer is told to search again.
         if let indices = occurrenceIndices {
             for idx in indices where idx >= ranges.count {
-                throw ProjectStoreError.fileSystemError(
-                    "Match range out of bounds")
+                throw ProjectStoreError.staleSearchMatch
             }
         }
 

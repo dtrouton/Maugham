@@ -124,12 +124,22 @@ final class ProjectSearchReplaceTests: XCTestCase {
         XCTAssertEqual(text, "XYZ XYZ XYZ")
     }
 
-    /// Two single Replaces in one document with no search between them: the
-    /// second click's ordinal comes from the stale results, so once the first
-    /// occurrence is gone it names the FOLLOWING one (here the third "fog").
-    /// `ResearchNoteWritersTests.test_twoSingleReplacesInOneNoteWithoutASearchBetweenThemBothLand`
-    /// pins the research arm to this same result.
-    func test_twoSingleReplacesWithoutASearchBetweenThemHitTheFollowingOccurrence() async throws {
+    /// The matches `store.currentSearch` lists for `slug`, left to right.
+    private func listed(_ store: ProjectStore, _ slug: String) -> [SearchMatch] {
+        (store.currentSearch?.matches ?? [])
+            .filter { $0.documentPath == "manuscript/\(slug).md" }
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+    }
+
+    /// **A single Replace leaves the results fresh, and a stale match is
+    /// refused** (#141 follow-up): once the first Replace returns,
+    /// `currentSearch` lists what the text holds now; the SAME match value
+    /// clicked again — and any other match from the old list — finds its id
+    /// gone and says "search again", never hitting the following occurrence;
+    /// the match the fresh results list second replaces that one.
+    /// `ResearchNoteWritersTests.test_aSecondReplaceOfTheSameStaleMatchInANoteIsRefused_andAFreshMatchLands`
+    /// is the research arm's mirror.
+    func test_aSecondReplaceOfTheSameStaleMatchIsRefused_andAFreshMatchLands() async throws {
         let project = try await makeProject(manuscript: [
             ("c1", "fog one fog two fog three\n")
         ])
@@ -139,9 +149,60 @@ final class ProjectSearchReplaceTests: XCTestCase {
         XCTAssertEqual(matches.count, 3)
 
         try await store.replaceMatch(matches[0], with: "mist!!")
-        try await store.replaceMatch(matches[1], with: "mist!!")
+
+        let fresh = listed(store, "c1")
+        XCTAssertEqual(fresh.map(\.charRangeInDocument.location), [11, 19],
+                       "the results are fresh when the Replace returns")
+        XCTAssertTrue(Set(fresh.map(\.id)).isDisjoint(with: matches.map(\.id)))
+
+        for stale in [matches[0], matches[1]] {
+            do {
+                try await store.replaceMatch(stale, with: "mist!!")
+                XCTFail("a match from the old results must be refused")
+            } catch ProjectStoreError.staleSearchMatch {
+                XCTAssertEqual(ProjectStoreError.staleSearchMatch.localizedDescription,
+                               "That match has changed. Search again.")
+            }
+        }
+        let afterRefusals = try await displayText(of: project, "c1")
+        XCTAssertEqual(afterRefusals, "mist!! one fog two fog three", "a refused Replace writes nothing")
+
+        try await store.replaceMatch(fresh[1], with: "mist!!")
 
         let text = try await displayText(of: project, "c1")
         XCTAssertEqual(text, "mist!! one fog two mist!! three")
+    }
+
+    /// **Replace clicked twice quickly on the same match** (Review Focus 5):
+    /// two presses in flight at once, as two quick clicks make them. One
+    /// lands; the other finds the match gone and says so — it never
+    /// replaces the next occurrence.
+    func test_replaceClickedTwiceQuicklyOnTheSameMatchReplacesOnce() async throws {
+        let project = try await makeProject(manuscript: [
+            ("c1", "fog one fog two fog three\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let found = await search(store, "fog").matches
+        let first = try XCTUnwrap(found.min {
+            $0.charRangeInDocument.location < $1.charRangeInDocument.location })
+
+        func press() async -> Bool {
+            do {
+                try await store.replaceMatch(first, with: "mist!!")
+                return true
+            } catch ProjectStoreError.staleSearchMatch {
+                return false
+            } catch {
+                XCTFail("unexpected: \(error)")
+                return false
+            }
+        }
+        let one = Task { await press() }
+        let two = Task { await press() }
+        let landed = [await one.value, await two.value]
+
+        XCTAssertEqual(landed.filter { $0 }.count, 1, "one press lands, one is refused: \(landed)")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "mist!! one fog two fog three")
     }
 }

@@ -127,6 +127,11 @@ public enum ProjectStoreError: Error, Equatable {
     /// was when that is empty). Never thrown when both are empty: a gesture
     /// whose first item fails changed nothing, and rethrows that item's error.
     case deletedInPart(trashed: [String], removed: [String], failed: String, underlying: String)
+    /// A single Replace whose match is no longer what the text holds: its id
+    /// is not in the current results (a Replace since has refreshed them),
+    /// or its occurrence is gone from the text just read. Refused before
+    /// anything is written, never re-aimed at a guessed occurrence.
+    case staleSearchMatch
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -186,6 +191,8 @@ extension ProjectStoreError: LocalizedError {
             return "Maugham couldn’t save “\(title)”, so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
+        case .staleSearchMatch:
+            return "That match has changed. Search again."
         case .deletedInPart(let trashed, let removed, let failed, let underlying):
             func quoted(_ titles: [String]) -> String { titles.map { "“\($0)”" }.joined(separator: ", ") }
             var done: [String] = []
@@ -391,6 +398,18 @@ public final class ProjectStore {
     public internal(set) var currentSearch: SearchResults?
     public internal(set) var searchInProgress: Bool = false
     var searchTask: Task<Void, Never>?
+    /// **Which search may land** (`ProjectStore+Search.land`): each search
+    /// takes the next number as it starts reading, and lands only when it
+    /// is newer than the last one that landed, so a search that started
+    /// before a Replace's write never overwrites the fresh results after it.
+    @ObservationIgnored var searchGeneration = 0
+    @ObservationIgnored var landedSearchGeneration = 0
+    /// The query and options the search field last asked for (nil once the
+    /// overlay closes): what a Replace's own refresh searches.
+    @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
+    /// The single Replace in flight, if any: the next one waits for it (and
+    /// its refresh) so it is judged against fresh results.
+    @ObservationIgnored var singleReplaceTail: Task<Void, Never>?
 
     // MARK: - Project-scope task state (milestone-tasks)
     //
