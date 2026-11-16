@@ -654,6 +654,52 @@ extension ProjectStore {
             && !Self.hasICloudPlaceholder(for: fileURL)
     }
 
+    // MARK: - Items a verb is moving (#142 T2)
+
+    /// The Research items a verb is moving now (`withResearchItemsInFlight`).
+    var researchItemsInFlight: Set<String> { Set(researchItemsInFlightCounts.keys) }
+
+    /// **`body` moves the files of the Research items `ids` (each one's
+    /// descendants too)** — a move, a rename, a trash. Each verb wraps ONLY
+    /// the span from just before it calls the typed mover until the
+    /// in-memory manifest names where the items now are (or their rows are
+    /// gone); the manifest's save and a moved note's asset refs are outside
+    /// it. The ids leave when `body` returns or throws, and whoever waits on
+    /// one (`waitUntilNotInFlight`) is resumed then. Inside `body` the task
+    /// is marked as the one moving them (`ResearchItemsMoving.byThisTask`),
+    /// so the mover's own flush is never held on the verb it runs inside.
+    func withResearchItemsInFlight<T>(_ ids: [String], _ body: () async throws -> T) async rethrows -> T {
+        var all: [String] = []
+        for id in ids {
+            all.append(id)
+            if let item = findResearchItem(id: id, in: manifest.research) {
+                all += TreeWalk.collect(in: item.children ?? [], where: { _ in true }).map(\.id)
+            }
+        }
+        for id in all { researchItemsInFlightCounts[id, default: 0] += 1 }
+        defer {
+            for id in all {
+                let left = (researchItemsInFlightCounts[id] ?? 1) - 1
+                researchItemsInFlightCounts[id] = left > 0 ? left : nil
+            }
+            for id in Set(all) where researchItemsInFlightCounts[id] == nil {
+                for waiter in researchInFlightWaiters.removeValue(forKey: id) ?? [] { waiter.resume() }
+            }
+        }
+        return try await ResearchItemsMoving.$byThisTask.withValue(
+            ResearchItemsMoving.byThisTask.union(all)) { try await body() }
+    }
+
+    /// **Returns once no verb is moving Research item `itemId`'s file** — at
+    /// once when none is; otherwise when the last span holding it ends
+    /// (`withResearchItemsInFlight`'s exit resumes it: no polling).
+    func waitUntilNotInFlight(_ itemId: String) async {
+        guard researchItemsInFlightCounts[itemId] != nil else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            researchInFlightWaiters[itemId, default: []].append(continuation)
+        }
+    }
+
     private func trashResearchItemCore(id: String) async throws -> TrashEntry? {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -662,51 +708,57 @@ extension ProjectStore {
             of: id, in: manifest.research, parent: nil)
         let index = currentResearchIndex(of: id, parentId: parentId)
 
-        var entry: TrashEntry?
-        // A link has no file; a row naming a file outside every research root
-        // must not move that file (it is the manuscript or Maugham's own), so
-        // both are trashed as the ROW only: the entry is the record, the file
-        // stays exactly where it is, and a restore puts the row back. A row
-        // whose file is already gone has nothing to move either (RULING-63).
         try refuseTrashing(item)
-        if item.kind == .link || namesAFileOutsideResearch(item) || namesAMissingFile(item) {
-            let metadata = try JSONEncoder().encode(item)
-            entry = try await trashStore.recordManifestOnlyTrash(
-                originalRelativePath: item.path ?? "",
-                itemMetadata: metadata,
-                originalParentId: parentId,
-                originalIndex: index,
-                displayTitle: item.title,
-                subject: .researchItem)
-        } else if let path = item.path, !path.isEmpty {
-            // Trash through the typed user-content mover. It flushes the
-            // research-note debounce (and closes+unregisters any open Document)
-            // INTERNALLY before the move, so a queued `scheduleFileSave` can't
-            // land on the original path post-move and re-create the file
-            // (tripwire 14, enforce-by-construction). With no DocumentStore
-            // (load-only context) the discipline is a provable no-op.
-            let metadata = try JSONEncoder().encode(item)
-            if let ds = documentStore {
-                entry = try await ds.trash(
-                    relativePath: path,
-                    using: trashStore,
+        // From just before the trash until the row is gone, a note save that
+        // finds the file missing (moved to the trash, or already gone outside:
+        // the row-only arm) waits and then finds the note gone, rather than
+        // writing the file afresh at its old path (#142 T2).
+        return try await withResearchItemsInFlight([id]) {
+            var entry: TrashEntry?
+            // A link has no file; a row naming a file outside every research root
+            // must not move that file (it is the manuscript or Maugham's own), so
+            // both are trashed as the ROW only: the entry is the record, the file
+            // stays exactly where it is, and a restore puts the row back. A row
+            // whose file is already gone has nothing to move either (RULING-63).
+            if item.kind == .link || namesAFileOutsideResearch(item) || namesAMissingFile(item) {
+                let metadata = try JSONEncoder().encode(item)
+                entry = try await trashStore.recordManifestOnlyTrash(
+                    originalRelativePath: item.path ?? "",
                     itemMetadata: metadata,
                     originalParentId: parentId,
                     originalIndex: index,
                     displayTitle: item.title,
                     subject: .researchItem)
-            } else {
-                entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
-                    fileRelativePath: path,
-                    itemMetadata: metadata,
-                    originalParentId: parentId,
-                    originalIndex: index,
-                    displayTitle: item.title,
-                    subject: .researchItem)
+            } else if let path = item.path, !path.isEmpty {
+                // Trash through the typed user-content mover. It flushes the
+                // research-note debounce (and closes+unregisters any open Document)
+                // INTERNALLY before the move, so a queued `scheduleFileSave` can't
+                // land on the original path post-move and re-create the file
+                // (tripwire 14, enforce-by-construction). With no DocumentStore
+                // (load-only context) the discipline is a provable no-op.
+                let metadata = try JSONEncoder().encode(item)
+                if let ds = documentStore {
+                    entry = try await ds.trash(
+                        relativePath: path,
+                        using: trashStore,
+                        itemMetadata: metadata,
+                        originalParentId: parentId,
+                        originalIndex: index,
+                        displayTitle: item.title,
+                        subject: .researchItem)
+                } else {
+                    entry = try await trashStore.moveToTrash( // internal-move: no DocumentStore (no registry to race)
+                        fileRelativePath: path,
+                        itemMetadata: metadata,
+                        originalParentId: parentId,
+                        originalIndex: index,
+                        displayTitle: item.title,
+                        subject: .researchItem)
+                }
             }
+            removeResearchItem(id: id)
+            return entry
         }
-        removeResearchItem(id: id)
-        return entry
     }
 
     /// Delete a research item. File-backed items (assets, groups with folders)
@@ -878,6 +930,19 @@ extension ProjectStore {
         var newPathForRenamed: String?
         var childPathRewrites: [(String, String)] = []
         var assetRefs: (oldStem: String, newStem: String)?
+        func applyFields() {
+            mutateResearchItem(id: id) { item in
+                if let title { item.title = title }
+                if let caption { item.caption = caption }
+                if let tags { item.tags = tags }
+                if let linkURL { item.url = linkURL }
+                if let newPath = newPathForRenamed { item.path = newPath }
+            }
+            // Apply child path rewrites when a group folder was renamed.
+            for (oldPath, newPath) in childPathRewrites {
+                rewriteResearchItemPath(from: oldPath, to: newPath, in: &manifest.research)
+            }
+        }
         if let newTitle = title, newTitle != oldItem.title {
             // The second door: a rename that re-slugs a group onto the
             // reserved `research/palette` path is the same defect as
@@ -917,28 +982,25 @@ extension ProjectStore {
                     assetRefs = result.assetRefs
                 }
             }
-            if let ds = documentStore {
-                try await ds.relocateUserContent(
-                    affectedPaths: affected, perform: renameBody)
-            } else {
-                // No DocumentStore (load-only context): no registry/scheduler to
-                // race, so the discipline is a provable no-op. renameResearchPath
-                // falls back to raw moves internally when `via` is nil.
-                try await renameBody()
+            // From just before the typed mover until the in-memory manifest
+            // names the new path (the item's, and a group's descendants'), a
+            // note save that finds the old file gone waits for that instead of
+            // writing it afresh (#142 T2). The save and the asset refs are
+            // outside the span.
+            try await withResearchItemsInFlight([id]) {
+                if let ds = documentStore {
+                    try await ds.relocateUserContent(
+                        affectedPaths: affected, perform: renameBody)
+                } else {
+                    // No DocumentStore (load-only context): no registry/scheduler to
+                    // race, so the discipline is a provable no-op. renameResearchPath
+                    // falls back to raw moves internally when `via` is nil.
+                    try await renameBody()
+                }
+                applyFields()
             }
-        }
-
-        mutateResearchItem(id: id) { item in
-            if let title { item.title = title }
-            if let caption { item.caption = caption }
-            if let tags { item.tags = tags }
-            if let linkURL { item.url = linkURL }
-            if let newPath = newPathForRenamed { item.path = newPath }
-        }
-
-        // Apply child path rewrites when a group folder was renamed.
-        for (oldPath, newPath) in childPathRewrites {
-            rewriteResearchItemPath(from: oldPath, to: newPath, in: &manifest.research)
+        } else {
+            applyFields()
         }
 
         manifest.modified = Date()
@@ -1083,4 +1145,14 @@ extension ProjectStore {
             }
         }
     }
+}
+
+/// **Which Research items the CURRENT task is moving** (#142 T2): bound by
+/// `ProjectStore.withResearchItemsInFlight` around its body, and inherited by
+/// the tasks the note door starts from inside it (the mover's own flush). The
+/// door never holds that task's saves on the span it is in, and its settle
+/// never waits there for a save held on it: either would make the mover wait
+/// on itself.
+enum ResearchItemsMoving {
+    @TaskLocal static var byThisTask: Set<String> = []
 }

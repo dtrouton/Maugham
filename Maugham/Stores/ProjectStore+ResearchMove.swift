@@ -260,35 +260,41 @@ extension ProjectStore {
                 oldPath: oldPath, newPath: newPath, refRewrite: refRewrite))
         }
 
-        // ---- Phase 3: execute FS surgery through the typed mover ----
         let plan = try RenamePlan(steps: steps)
-        if !plan.steps.isEmpty {
-            guard let documentStore else {
-                throw ProjectStoreError.fileSystemError("DocumentStore not available")
-            }
-            try await documentStore.relocate(plan: plan)
+        if !plan.steps.isEmpty, documentStore == nil {
+            throw ProjectStoreError.fileSystemError("DocumentStore not available")
         }
+        // From just before the typed mover until the in-memory manifest names
+        // where the items now are, a note save that finds the old file gone
+        // waits for that instead of writing it afresh (#142 T2). The save and
+        // the asset refs are outside the span.
+        try await withResearchItemsInFlight(items.map(\.id)) {
+            // ---- Phase 3: execute FS surgery through the typed mover ----
+            if !plan.steps.isEmpty, let documentStore {
+                try await documentStore.relocate(plan: plan)
+            }
 
-        // ---- Phase 4: rewrite the manifest, one save ----
-        var updatedItems: [ResearchItem] = []
-        for (item, pending) in zip(items, pendings) {
-            var copy = item
-            if let newPath = pending.newPath, newPath != pending.oldPath {
-                copy.path = newPath
-                // A group's descendant paths rebase under the new prefix (only
-                // meaningful when the group had a prior path).
-                if let oldPath = pending.oldPath, let children = copy.children {
-                    copy.children = Self.researchRewriteChildPaths(
-                        children, oldPrefix: oldPath, newPrefix: newPath)
+            // ---- Phase 4: rewrite the manifest, one save ----
+            var updatedItems: [ResearchItem] = []
+            for (item, pending) in zip(items, pendings) {
+                var copy = item
+                if let newPath = pending.newPath, newPath != pending.oldPath {
+                    copy.path = newPath
+                    // A group's descendant paths rebase under the new prefix (only
+                    // meaningful when the group had a prior path).
+                    if let oldPath = pending.oldPath, let children = copy.children {
+                        copy.children = Self.researchRewriteChildPaths(
+                            children, oldPrefix: oldPath, newPrefix: newPath)
+                    }
                 }
+                updatedItems.append(copy)
             }
-            updatedItems.append(copy)
+            for item in items { removeResearchItem(id: item.id) }
+            var siblings = childrenOfResearch(parentId: dest.parentId)
+            let insertAt = max(0, min(destIndex ?? siblings.count, siblings.count))
+            siblings.insert(contentsOf: updatedItems, at: insertAt)
+            replaceResearchChildren(parentId: dest.parentId, with: siblings)
         }
-        for item in items { removeResearchItem(id: item.id) }
-        var siblings = childrenOfResearch(parentId: dest.parentId)
-        let insertAt = max(0, min(destIndex ?? siblings.count, siblings.count))
-        siblings.insert(contentsOf: updatedItems, at: insertAt)
-        replaceResearchChildren(parentId: dest.parentId, with: siblings)
 
         // Scope moves deliberately leave `linkedResearchIds` UNTOUCHED (user
         // feedback 2026-07-17). Because we now auto-associate on move-in

@@ -118,6 +118,8 @@ final class ResearchNoteDoor {
     var heardForTesting: (@MainActor (String) -> Void)?
     /// Awaited between `fileMayHaveChanged`'s read of the file and its resume.
     var outsideReadWillResumeForTesting: (@MainActor () async -> Void)?
+    /// Told the item id when a save begins waiting for a verb moving its note.
+    var waitsForAVerbForTesting: (@MainActor (String) -> Void)?
 
     /// Where a save came from: what the keep-failure rule asks.
     enum SaveSource: Equatable {
@@ -215,6 +217,17 @@ final class ResearchNoteDoor {
     /// How many editors show each note now (`opened` / `letGo`). Plain door
     /// state, observed by nothing.
     private var openCounts: [String: Int] = [:]
+    /// The notes whose save in flight is waiting for a verb moving them
+    /// (`write`, #142 T2). Plain door state, observed by nothing.
+    private var waitingForAVerb: Set<String> = []
+
+    /// **Whether `itemId`'s save is waiting on the verb the calling task is
+    /// running** (`ResearchItemsMoving.byThisTask`): that verb's own flush
+    /// leaves it, and the note's edit, for after the span — waiting for it
+    /// there would make the mover wait on itself. Anyone else's flush waits.
+    private func waitsOnTheCallersVerb(_ itemId: String) -> Bool {
+        waitingForAVerb.contains(itemId) && ResearchItemsMoving.byThisTask.contains(itemId)
+    }
 
     /// An editor (the note editor, the palette card editor) shows `itemId`.
     func opened(_ itemId: String) { openCounts[itemId, default: 0] += 1 }
@@ -370,7 +383,8 @@ final class ResearchNoteDoor {
     /// begins: a note still waiting its turn stays pending, so a door write
     /// meanwhile flushes it first and the editor does not reload under it.
     func flushPending(in store: DocumentStore) async {
-        while let itemId = pending.keys.min(), let entry = pending.removeValue(forKey: itemId) {
+        while let itemId = pending.keys.filter({ !waitsOnTheCallersVerb($0) }).min(),
+              let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
             _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                               source: .editorFlush, in: store)
@@ -450,12 +464,19 @@ final class ResearchNoteDoor {
     /// Never called from inside a door save (its task would wait on itself).
     func settle(_ itemId: String? = nil, in store: DocumentStore) async {
         while true {
-            if itemId.map({ pending[$0] != nil }) ?? !pending.isEmpty {
+            // A note whose save waits on the verb this task is running is
+            // left for after the span (`waitsOnTheCallersVerb`).
+            func flushable(_ id: String) -> Bool { pending[id] != nil && !waitsOnTheCallersVerb(id) }
+            if itemId.map(flushable) ?? pending.keys.contains(where: flushable) {
                 await flushPending(in: store)
                 continue
             }
             let saving: Task<Outcome, Never>?
-            if let itemId { saving = inFlight[itemId]?.task } else { saving = inFlight.values.first?.task }
+            if let itemId {
+                saving = waitsOnTheCallersVerb(itemId) ? nil : inFlight[itemId]?.task
+            } else {
+                saving = inFlight.first(where: { !waitsOnTheCallersVerb($0.key) })?.value.task
+            }
             guard let saving else { return }
             _ = await saving.value
         }
@@ -472,9 +493,19 @@ final class ResearchNoteDoor {
     /// make the door run again from its read, once (`secondRead`), so they
     /// are kept as a version first; a second change takes the save-failure
     /// arm for `source`.
+    ///
+    /// **A note a verb is moving is never written afresh at its old path**
+    /// (#142 T2, tripwire 14): a file found missing while the note is in
+    /// `ProjectStore.researchItemsInFlight` was moved (or trashed) and the
+    /// manifest does not name its new place yet. A timer's save stops, its
+    /// text pending; any other save waits for the verb's span to end and runs
+    /// again from its lookup, once (`waitedForAVerb`) — written where the note
+    /// now is, or `unreachable` when its row left. The verb's own saves (its
+    /// mover's flush, `ResearchItemsMoving.byThisTask`) are never held. A
+    /// file missing with no verb moving it is written afresh, as before.
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
                        source: SaveSource, owner: ProjectStore?, in store: DocumentStore,
-                       secondRead: Bool = false) async -> Outcome {
+                       secondRead: Bool = false, waitedForAVerb: Bool = false) async -> Outcome {
         let projectURL = store.projectURL
         let item: ResearchItem, path: String
         switch noteLookup(itemId, owner: owner, in: store) {
@@ -486,6 +517,17 @@ final class ResearchNoteDoor {
         }
 
         let prior: PriorBytes = await Task.detached { PriorBytes.read(fileURL) }.value
+        if case .missing = prior, !waitedForAVerb, !ResearchItemsMoving.byThisTask.contains(itemId),
+           let projectStore = owner ?? store.projectStore,
+           projectStore.researchItemsInFlight.contains(itemId) {
+            if source == .editorTimer { return .stoppedTextStaysPending }
+            waitingForAVerb.insert(itemId)
+            waitsForAVerbForTesting?(itemId)
+            await projectStore.waitUntilNotInFlight(itemId)
+            waitingForAVerb.remove(itemId)
+            return await write(itemId, text: text, by: writer, restoring: restoring, source: source,
+                               owner: owner, in: store, secondRead: secondRead, waitedForAVerb: true)
+        }
         let onDisk: Data?
         let expecting: FileExpectation
         switch prior {
@@ -575,7 +617,7 @@ final class ResearchNoteDoor {
             // as a version before the note is saved.
             researchNoteLog.error("\(pathNow, privacy: .public) changed after it was read; reading it again")
             return await write(itemId, text: text, by: writer, restoring: restoring, source: source,
-                               owner: owner, in: store, secondRead: true)
+                               owner: owner, in: store, secondRead: true, waitedForAVerb: waitedForAVerb)
         } catch ProjectStoreError.unsafeProjectPath(let refused, let reason) {
             store.logRefusedSave(path: refused, reason: reason)
             return unreachable(itemId, .refusedPath(item, pathNow), text: text, source: source, in: store)
