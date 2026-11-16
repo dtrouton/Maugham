@@ -28,6 +28,11 @@ final class InboxPromoteTests: XCTestCase {
         return (url, store, InboxStore(projectURL: url, deviceId: "mac"), ds)
     }
 
+    override func tearDown() async throws {
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
+        try await super.tearDown()
+    }
+
     private func seed(_ url: URL, _ entries: [InboxEntry]) async throws {
         let file = url.appendingPathComponent(".maugham/inbox/inbox.seed.jsonl")
         let s = JSONLAppendStore<InboxEntry>(fileURL: file)
@@ -54,6 +59,41 @@ final class InboxPromoteTests: XCTestCase {
         // The entry left the pane (promoted is terminal).
         XCTAssertFalse(inbox.entries.contains { $0.id == "t1" })
         withExtendedLifetime(ds) {}   // documentStore is weak; keep it alive
+    }
+
+    /// M8-IN-001 on the store-wired arm (#141 N5): the body goes through the
+    /// note door, and a door save that does not land throws BEFORE the flip —
+    /// the entry stays in the inbox, never an empty note reported as promoted.
+    /// The file is changed outside at both of the door's write attempts, so
+    /// its retry is refused too (`.notSaved`).
+    /// Disable experiments: drop the `guard case .saved … else { throw }`, or
+    /// move it after the flip, and the entry leaves the inbox.
+    func test_aDoorSaveThatDoesNotLandFailsThePromotionBeforeTheFlip() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try await seed(url, [InboxEntry(
+            id: "t9", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Fog")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "t9" })
+        let path = url.appendingPathComponent("research/fog.md")
+        var left = ["outside 1", "outside 2"]
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+
+        do {
+            _ = try await inbox.promoteToResearch(entry, projectStore: store)
+            XCTFail("a body save that does not land fails the promotion")
+        } catch ProjectStoreError.researchTextNotSaved(let title) {
+            XCTAssertEqual(title, "Fog")
+        }
+        XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
+        XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" },
+                        "premise: the note was created at the path the seam changes")
+        await inbox.refresh()
+        XCTAssertTrue(inbox.entries.contains { $0.id == "t9" }, "the entry was not flipped: it is still in the inbox")
+        withExtendedLifetime(ds) {}
     }
 
     /// RULING-8 (fix for M8-IN-003): the image arm converges on retry like

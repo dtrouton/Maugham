@@ -58,8 +58,10 @@ extension ProjectStore {
             let template = PaletteCardParser.template(title: title, kind: kind)
             try await paletteCoordinatedWrite(template, to: rel, itemId: item.id, by: .writer, typed: false)
             // The template is nobody's text: the first save over exactly
-            // these bytes keeps nothing (#141 N8). Told to the door that
-            // wrote them; the raw no-store write records nothing.
+            // these bytes keeps nothing (#141 N8). Told to `documentStore`'s
+            // door, which is the door that wrote them: this write never
+            // passes `through:`, so `paletteCoordinatedWrite` used that same
+            // store. With none, the raw write records nothing.
             documentStore?.researchCardTemplateWritten(itemId: item.id, bytes: Data(template.utf8))
         }
         return item

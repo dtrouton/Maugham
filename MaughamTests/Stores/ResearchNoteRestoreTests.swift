@@ -162,9 +162,8 @@ final class ResearchNoteRestoreTests: XCTestCase {
 
     /// A restore whose replaced text cannot be kept is not made, says it was
     /// the restored version, and leaves the note as it was.
-    /// Disable experiment: pass `restoring: nil` (not the version's name)
-    /// from the verb and the
-    /// notice names "your edits" instead.
+    /// Disable experiment: have the verb pass `restoring: nil` instead of the
+    /// version's name, and the notice names "your edits" instead.
     func test_aRestoreWhoseKeepFailsIsNotMade_andSaysItWasTheRestoredVersion() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await note(Data("One.".utf8), in: projectStore)

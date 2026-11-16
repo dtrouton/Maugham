@@ -12,6 +12,7 @@ final class AddNoteToolTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        DocumentStore.beforeCoordinatedWriteForTesting = nil
         temp = nil
         try await super.tearDown()
     }
@@ -170,6 +171,33 @@ final class AddNoteToolTests: XCTestCase {
         XCTAssertEqual(try ResearchVersionStore(projectURL: url).read(kept).0, Data(body.utf8))
         XCTAssertEqual(kept.writtenBy, .assistant)
         XCTAssertEqual(kept.replacedBy, .writer)
+    }
+
+    /// A body save through the door that does not land fails `add_note`
+    /// (it does not report a note the assistant's text never reached). The
+    /// file is changed outside at both of the door's write attempts, so its
+    /// retry is refused too (`.notSaved`).
+    /// Disable experiment: drop the `guard case .saved … else { throw }` and
+    /// `add_note` reports success.
+    func test_aBodySaveThatDoesNotLandFailsAddNote() async throws {
+        let (url, _, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let path = url.appendingPathComponent("research/fog.md")
+        var left = ["outside 1", "outside 2"]
+        DocumentStore.beforeCoordinatedWriteForTesting = {
+            guard !left.isEmpty else { return }
+            try? Data(left.removeFirst().utf8).write(to: path)
+        }
+        let req = try JSONSerialization.data(withJSONObject: [
+            "project_id": ProjectIdentifier.id(for: url), "title": "Fog", "body": "The assistant's note."])
+
+        do {
+            _ = try await AddNoteTool.handle(paramsJSON: req, registry: reg)
+            XCTFail("a body save that does not land fails add_note")
+        } catch ProjectStoreError.researchTextNotSaved(let title) {
+            XCTAssertEqual(title, "Fog")
+        }
+        XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
     }
 
     // MARK: - Flush-before-body-write (tripwire 14 / finding 1.6)

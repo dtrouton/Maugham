@@ -213,8 +213,10 @@ final class ResearchNoteDoor {
     }
 
     /// **`bytes` are the blank template a new palette card was just made
-    /// with** (`ProjectStore.addPaletteCard`, once its write has landed):
-    /// text nobody wrote, so the first save over exactly these bytes keeps
+    /// with** (`ProjectStore.addPaletteCard`, once its write has landed,
+    /// through `DocumentStore.researchCardTemplateWritten` on the project's
+    /// `documentStore` — the same door that wrote them, because that write
+    /// never passes `through:` another store): text nobody wrote, so the first save over exactly these bytes keeps
     /// nothing (#141 N8). Recorded as already kept (`lastKeptHash`) and as
     /// known; bytes on disk that differ from them — the card edited outside
     /// before its first save — are kept as any others are. Never a
