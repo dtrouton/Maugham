@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-60 rulings, 4 principles.
+63 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -626,13 +626,37 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 ### RULING-60 — O — a Research table closes the way a note does (RULING-56's family)  `RATIFIED_FROM_OPTIONS`
 
-> A Research table closes the way a note does. At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file. This inherits the notes' interim "save anyway" rule (`ResearchNoteDoor.whenTheKeepFails`); if that interim rule is later changed, tables change with it.
+> A Research table closes the way a note does. At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file. This inherits the notes' "save anyway" rule (`ResearchNoteDoor.whenTheKeepFails`), ruled under RULING-24's 2026-11-11 amendment (P3, as built); if that rule is later changed, tables change with it.
 
 *basis:* Denver, 2026-11-11, structured question (the hardening 2026-11-11 sitting): chose the recommended option. The question named a Research table's edits at window close and at quit, where today a version that cannot be kept stops the save and the last edits can be dropped.
 
-*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-C verbatim. The ruling says 'at close'; the build reads that as the notes' own split (every flush saves anyway, the debounced save still refuses), a reading that is the coordinator's call and not yet ruled by Denver (see M5-AN-080 and M5-AN-081).
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-11, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-C verbatim. The ruling says 'at close'; the build reads that as the notes' own split (every flush saves anyway, the debounced save still refuses), a reading Denver ruled as built on 2026-11-11 (RULING-24's amendment, P3). Amended 2026-11-16 (Denver: yes, amend it): wording only.
 
 *mechanism note:* `ResearchTableHost.write(_:by:restoring:source:secondRead:)` is told whether it is the debounced save (`.timer`), a flush (`.flush`: `flush()`, which `DocumentStore.flushPendingSave`, the grid's leave and `close()` all reach) or an assistant write or restore (`.direct`), and answers with a `WriteOutcome`. A flush whose version cannot be kept saves anyway and says so after the save lands. A flush that cannot save writes the held table's CSV through `Document.writeConflictBackup` (kind `unsaved`) and names the file. If that backup fails too, the notice says the edits were not saved.
+
+### RULING-61 — Y — the assistant and Research text (ADR 0034's family)  `RATIFIED_FROM_OPTIONS`
+
+> The assistant never creates a palette card. `add_note` refuses the palette group as its destination, with a sentence saying cards are the writer's; it can still add a note anywhere else in Research.
+
+*basis:* Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: `add_note` with `parent_group_id` set to the Palette group makes a card holding the assistant's text, while `update_note` refuses a card (ADR 0034).
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-D verbatim.
+
+### RULING-62 — Y — an open note or card hears an outside change (RULING-56's family)  `RATIFIED_FROM_OPTIONS`
+
+> An open note or card hears an outside change the way a table does. With nothing unsaved, the editor reloads and a notice says "Reloaded “X” — the file changed outside Maugham." With an unsaved edit, the writer's edit is saved, the outside text is kept as a version, and a notice says so and where to find it.
+
+*basis:* Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: the file changes on another device or in an external editor; today the next keystroke saves over it and nothing is said.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-E verbatim.
+
+### RULING-63 — M — a delete gesture completes as one (RULING-52's and RULING-40's family)  `RATIFIED_FROM_OPTIONS`
+
+> A row whose file is already missing can be deleted, and a delete gesture completes as one. The row is removed and recorded in the Trash as a row with no file, so the gesture completes and ⌘⌥Z undoes it as one. Any other failure partway stops, saves what was trashed, arms undo for it, and the error names what was and was not deleted (RULING-52's route).
+
+*basis:* Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: three notes selected, the second's file deleted in Finder; today the first goes to the Trash with no undo and the dead row can never be deleted.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-F verbatim.
 
 ## The enforcement gradient — how each ruling is held
 
