@@ -1347,7 +1347,8 @@
         "basis": "Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: `add_note` with `parent_group_id` set to the Palette group makes a card holding the assistant's text, while `update_note` refuses a card (ADR 0034).",
         "provenance_note": "Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-D verbatim.",
         "ruled_by": "Denver, structured question, recommended option accepted",
-        "date": "2026-11-16"
+        "date": "2026-11-16",
+        "mechanism_note": "`AddNoteTool.handle` compares `parent_group_id` with `PaletteLookup.paletteGroup(in:)` (role-first, so a renamed group is still the Palette) and throws `MCPError.invalidArgument` (\"The Palette holds the writer's cards; add_note can't create one. Add the note to another Research group.\") before anything is created. `ResearchTextRole.of(_:structure:research:)` asks the same `PaletteLookup`, so `update_note` and the centre router agree on what a card is. Only the Palette group itself is refused: a subgroup beneath it is not, and a note added there is a note. Pinned by `AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing` and `UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused`."
       },
       "RULING-62": {
         "family": "Y — an open note or card hears an outside change (RULING-56's family)",
@@ -1356,7 +1357,8 @@
         "basis": "Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: the file changes on another device or in an external editor; today the next keystroke saves over it and nothing is said.",
         "provenance_note": "Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-E verbatim.",
         "ruled_by": "Denver, structured question, recommended option accepted",
-        "date": "2026-11-16"
+        "date": "2026-11-16",
+        "mechanism_note": "`DocumentStore.researchFileMayHaveChanged(at:)` (the window's file presenter) finds the note or card with `researchNoteItem(atPath:)` and asks `ResearchNoteDoor.fileMayHaveChanged(itemId:in:)`, the note twin of `ResearchTableHost.fileMayHaveChanged()` (a twin, not shared code). It speaks only for an item an editor holds open (`holdResearchNoteOpen`, from the note editor's and the card editor's `.task(id:)`) whose bytes the door has read. With nothing pending it waits out a save in flight, reads the file, and for other bytes ends the writer's run, moves the reload signal and posts \"Reloaded “X” — the file changed outside Maugham.\" (a save, edit or read that began during the door's own read asks again). With an edit pending it leaves the edit alone: that save keeps the outside bytes as a version and posts \"“X” changed outside Maugham while you were editing it. That version is kept in its Versions; yours was saved.\" once, after it lands (the writer's own saves only; `outsideKeptForTheWriter`). Pinned by `ResearchNoteDoorTests.test_anOutsideChangeToACleanNoteReloadsItAndSaysSo` and `test_anOutsideChangeUnderAPendingEditIsKeptAsAVersion_andSaidOnce`, `ResearchNoteEditorReloadTests.test_anOutsideChangeToTheOpenNoteIsShown_andTheNextKeystrokeBuildsOnIt`, `PaletteCardEditorReloadTests.test_anOutsideChangeToTheOpenCardIsShown`."
       },
       "RULING-63": {
         "family": "M — a delete gesture completes as one (RULING-52's and RULING-40's family)",
@@ -2236,6 +2238,14 @@
       "RULING-60": {
         "mechanism": "test",
         "note": "ResearchTableVersionTests flush-arm pins (test_aFlushWhoseVersionCannotBeKeptSavesAnyway and the kept-aside arm tests) + ResearchTableGridTests leave/close pins"
+      },
+      "RULING-61": {
+        "mechanism": "test",
+        "note": "AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing + UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused + ResearchSubjectRoutingTests role-first pins"
+      },
+      "RULING-62": {
+        "mechanism": "test",
+        "note": "ResearchNoteDoorTests outside-change pins + ResearchNoteEditorReloadTests / PaletteCardEditorReloadTests reload pins"
       }
     }
   },

@@ -664,21 +664,21 @@
  {
   "claim_id": "M5-AN-080",
   "outcome": "NO_RULING_REACHES",
-  "reason": "The timer's waiting is the notes' interim rule, which RULING-24's LOWER STANDARD line permits (a save may land without its earlier version) without saying what a timed save does in the other arms; no ruling states what the debounced save does in any arm, and the assistant's write is not a close. The per-arm behaviour is the coordinator's call, not yet ruled by Denver."
+  "reason": "The timer's waiting is the notes' rule, ruled as built (Denver, 2026-11-11, P3, RULING-24's amendment: a timed autosave waits), which RULING-24's LOWER STANDARD line records without saying what a timed save does in the other arms; no ruling states what the debounced save does in any arm, and the assistant's write is not a close. The per-arm behaviour is the coordinator's call, not yet ruled by Denver."
  },
  {
   "claim_id": "M5-AN-081",
   "outcome": "COMPLIES",
   "ruling": "RULING-60",
   "clause_that_reaches_it": "At close, the edits are saved even though the previous version could not be kept. If the save itself fails, the edits are written as a backup copy under `.maugham/conflicts` and the notice names the file.",
-  "why_in_scope": "The clause's own two halves, at the close the ruling names: the store's flush at window close and quit, the grid's leave and the host's close save anyway when the version cannot be kept, and write the table's CSV as a backup named in the notice when the save fails. Only that part is reached: the reading of 'at close' as every flush (⌘S, leaving the grid, background flushes) is the coordinator's call and no ruling reaches it, and nothing in this filing credits Denver with it.",
+  "why_in_scope": "The clause's own two halves, at the close the ruling names: the store's flush at window close and quit, the grid's leave and the host's close save anyway when the version cannot be kept, and write the table's CSV as a backup named in the notice when the save fails. The reading of 'at close' as every flush (⌘S, leaving the grid, background flushes) is the notes' own split, which Denver ruled as built on 2026-11-11 (RULING-24's amendment, P3), and RULING-60 as amended 2026-11-16 says it inherits that rule; the arms where a flush cannot save are M5-AN-082's and stay the coordinator's.",
   "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-11 named window close and quit",
   "call_path": "⌘Q / window close → DocumentStore.flushPendingSave(commitOpenEdits: true) → ResearchTableHost.flush → write(source: .flush); grid leave → flush; releaseResearchTable → close() → flush",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "07f06d22 07617b08",
    "date": "2026-11-13",
-   "authorised_by": "RULING-60 — Denver 2026-11-11, structured question, recommended option accepted — for the close only; the extension to every flush is the coordinator's call, not yet ruled by Denver",
+   "authorised_by": "RULING-60 — Denver 2026-11-11, structured question, recommended option accepted — for the close; the extension to every flush is the notes' rule, ruled as built (P3, RULING-24's amendment, 2026-11-11), which RULING-60 as amended 2026-11-16 inherits",
    "pinned_by": "ResearchTableVersionTests.test_aFlushWhoseVersionCannotBeKeptSavesAnyway and test_aFlushWhoseSaveFailsKeepsTheEditsAside; ResearchTableGridTests.test_theCloseSavesAnywayWhenTheVersionCannotBeKept and test_theStoresFlushKeepsTheOpenEditInTheBackupWhenTheSaveFails",
    "note": "Filed already fixed: found in the hardening review (#138 R1), never carried a VIOLATES filing. Before the fix a version that could not be kept stopped the save at close and the table's last edits were dropped."
   }
@@ -686,7 +686,7 @@
  {
   "claim_id": "M5-AN-082",
   "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, the retry, the backup's name and contents, the notices' wording, a second flush on the way out, or background flushes; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver. PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
+  "reason": "RULING-60 reaches a close's saving anyway and its named backup (M5-AN-081) and says nothing of the arms where a flush cannot save, the staying unsaved, the retry, the backup's name and contents, the notices' wording, a second flush on the way out, or background flushes; every sentence here is the coordinator's call, hardening 2026-11-11, not yet ruled by Denver, except that a flush other than the close saves anyway too, which is the notes' rule ruled as built (P3, 2026-11-11; see M5-AN-081). PRINCIPLE-2: an enhancement is not a defect, and no clause is named that these arms break."
  },
  {
   "claim_id": "M5-AN-083",
@@ -696,7 +696,7 @@
  {
   "claim_id": "M5-AN-084",
   "outcome": "NO_RULING_REACHES",
-  "reason": "No ruling states that a save re-checks the file it read; the design spec's R3 is a design, not a ruling, and the note door's check and the retry and second-mismatch arms are the coordinator's calls, hardening 2026-11-11, not yet ruled by Denver. RULING-56 versions research text and says nothing of an outside write landing mid-save."
+  "reason": "No ruling states that a save re-checks the file it read; the design spec's R3 is a design, not a ruling, and the note door's check and the retry and second-mismatch arms are the coordinator's calls, hardening 2026-11-11, not yet ruled by Denver. RULING-56 versions research text and says nothing of an outside write landing mid-save. The notice a note's save of the writer's edit now posts for outside bytes it kept (\"while you were editing it\") is RULING-62's second case, filed at M5-AN-089, and this claim's check, retry and arms are not credited to it."
  },
  {
   "claim_id": "M5-AN-085",
@@ -714,13 +714,62 @@
   "reason": "RULING-60 names quit among the closes whose save it rules (M5-AN-081) and says nothing of how the app makes time for that save; no ruling states that a quit is deferred, for how long, or what happens at the bound. The deferral, the ten-second bound and quitting anyway are the coordinator's call, hardening 2026-11-11, not yet ruled by Denver."
  },
  {
+  "claim_id": "M5-AN-088",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-61",
+  "clause_that_reaches_it": "The assistant never creates a palette card. `add_note` refuses the palette group as its destination, with a sentence saying cards are the writer's; it can still add a note anywhere else in Research.",
+  "why_in_scope": "The clause's own two halves: add_note's destination is the palette group, found role-first, and the refusal comes before anything is created, with a sentence that the Palette holds the writer's cards; every other destination, and none, still adds a note. The ruling is about add_note's destination only: a subgroup beneath the Palette is not the palette group, and the note added there is a note, so nothing in this filing says the assistant can never write beneath the Palette.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-16 named add_note with parent_group_id set to the Palette group",
+  "call_path": "Claude Desktop ▸ add_note → AddNoteTool.handle → PaletteLookup.paletteGroup(in: manifest.research) compared with parent_group_id → invalidArgument before createResearchNote",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "42db5881",
+   "date": "2026-11-16",
+   "authorised_by": "RULING-61 — Denver 2026-11-16, structured question, recommended option accepted",
+   "pinned_by": "AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing; UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused; ResearchSubjectRoutingTests.test_aCardUnderARenamedPaletteGroupRoutesToTheCardEditor",
+   "note": "Filed already fixed: found in the 2026-11-15 sweep (#141 N1). Before the fix add_note into the Palette group made a card holding the assistant's text while update_note refused a card. The role-first predicate (a card is the palette group's direct child) that makes the refusal hold under a renamed group is the coordinator's call, not Denver's."
+  }
+ },
+ {
+  "claim_id": "M5-AN-089",
+  "outcome": "COMPLIES",
+  "ruling": "RULING-62",
+  "clause_that_reaches_it": "An open note or card hears an outside change the way a table does. With nothing unsaved, the editor reloads and a notice says \"Reloaded “X” — the file changed outside Maugham.\" With an unsaved edit, the writer's edit is saved, the outside text is kept as a version, and a notice says so and where to find it.",
+  "why_in_scope": "The clause's two cases at the state the ruling names, an OPEN note or card: nothing unsaved reloads the editor and posts the ruling's own sentence; an unsaved edit is saved, the outside bytes are kept as a version, and a notice says so and where (its Versions). Only what the ruling states is credited to it: that the unsaved-edit notice comes when that save lands, the stale-read guard, and the silence for an item no editor holds are the coordinator's calls (the ruling is about an open one) and nothing here credits Denver with them.",
+  "intent_expressed_when": "contemporaneous — Denver's answer on 2026-11-16 put the file changing on another device or in an external editor",
+  "call_path": "presenter → DocumentStore.researchFileMayHaveChanged(at:) → researchNoteItem(atPath:) → ResearchNoteDoor.fileMayHaveChanged → reload signal → the editor re-reads; an edit pending → its save keeps the outside bytes (keepThePriorVersion) and posts once",
+  "violation_or_enhancement": "violation",
+  "fix": {
+   "commit": "70fa9054 50a6b35b",
+   "date": "2026-11-16",
+   "authorised_by": "RULING-62 — Denver 2026-11-16, structured question, recommended option accepted",
+   "pinned_by": "ResearchNoteDoorTests.test_anOutsideChangeToACleanNoteReloadsItAndSaysSo and test_anOutsideChangeUnderAPendingEditIsKeptAsAVersion_andSaidOnce; ResearchNoteEditorReloadTests.test_anOutsideChangeToTheOpenNoteIsShown_andTheNextKeystrokeBuildsOnIt; PaletteCardEditorReloadTests.test_anOutsideChangeToTheOpenCardIsShown",
+   "note": "Filed already fixed: found in the 2026-11-15 sweep (#141 N3). Before the fix an open note kept its stale text and the next keystroke saved over the outside change with nothing said (the bytes were kept as a version at that save, M5-AN-070, but the writer was not told and the editor was not reloaded)."
+  }
+ },
+ {
+  "claim_id": "M5-AN-090",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "No ruling states where a Research Replace splices, what a stale match does, or what a file whose query has gone does; RULING-56 versions the text Replace writes (M5-AN-070) and is not about which text it replaces. Re-finding by ordinal as the manuscript arm does, refusing when the ordinal is gone and skipping a file whose query is gone are the coordinator's calls, hardening 2026-11-16, not Denver's."
+ },
+ {
+  "claim_id": "M5-AN-091",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-24 bounds a note's or table's versions per item per device, and RULING-56 says the writer can restore one; neither states which versions a prune spares while a restore is under way, or that a failed restore leaves its version on disk. Sparing the version being restored (the count staying at 50) is the coordinator's call, hardening 2026-11-16, not Denver's. PRINCIPLE-2: an enhancement is not a defect."
+ },
+ {
+  "claim_id": "M5-AN-092",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-24 and ADR 0034 say what the assistant's writes keep once a note exists; no ruling states whose text a note's first body is recorded as, or what a body write that does not land does to the call or to the note just created. Recording add_note's and an MCP promotion's body as the assistant's, and throwing before the inbox flip (leaving the empty note), are the coordinator's calls, hardening 2026-11-16, not Denver's."
+ },
+ {
   "_summary": {
-   "reached": 32,
-   "complies": 32,
+   "reached": 34,
+   "complies": 34,
    "violates": 0,
-   "no_ruling": 43,
-   "total": 75,
-   "coverage": "43%",
+   "no_ruling": 46,
+   "total": 80,
+   "coverage": "42%",
    "by_ruling": {
     "RULING-1": [
      "M5-AN-006"
@@ -787,6 +836,12 @@
     ],
     "RULING-60": [
      "M5-AN-081"
+    ],
+    "RULING-61": [
+     "M5-AN-088"
+    ],
+    "RULING-62": [
+     "M5-AN-089"
     ]
    },
    "reached_by_a_root_only": [

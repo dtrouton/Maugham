@@ -787,7 +787,7 @@
   "claim_id": "M3-TR-049",
   "scope": "Maugham/Stores trash verbs",
   "kind": "INVARIANT",
-  "statement": "no verb in this module removes a document's op log at .maugham/ops/<docId>.jsonl: it survives the move to trash, 'Permanently Delete', 'Empty Trash' and the 30-day sweep alike, with its contents unchanged",
+  "statement": "no verb in this module removes a document's op log at .maugham/ops/<docId>.jsonl: it survives the move to trash, 'Permanently Delete', 'Empty Trash' and the 30-day sweep alike, with its contents unchanged. The Research side differs: Permanently Delete, Empty Trash and the sweep also remove a destroyed Research item's note record and table sidecar with its versions (M3-TR-067); the op log's survival is untouched",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "TrashCharacterization.test_noTrashVerbEverRemovesADocumentsOpLog"
@@ -1051,6 +1051,22 @@
   "warrant": "HIGH",
   "intent": "INTENTIONAL — note versions plan 2, fix wave 2 round 2 (2026-11-10): rename and move refuse; trash takes the row only, so a corrupt row can always be removed",
   "reachability": "LIVE — the binder's Rename, drag-move and Delete on a Research row; Trash pane Restore / Delete; MCP move_research_item",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M3-TR-067",
+  "scope": "ProjectStore.removeResearchVersions(ofDestroyed:) / sweepResearchVersions — a destroyed Research item's derived files",
+  "kind": "POSTCONDITION",
+  "statement": "A Research item destroyed for good takes its derived files with it: Permanently Delete and Empty Trash remove, for the item's ids (a group's children too, never an id back in the manifest), this device's versions under .maugham/research-versions/<itemId>/ AND the item's note record (.maugham/research-notes/<itemId>.json) and table sidecar (.maugham/research-tables/<itemId>.json), and only those ids; an item in the Trash keeps all three (a restore needs them, and an item in the Trash counts as live to the sweep), and a restore brings its writer mark and sidecar back. The open-time orphan sweep removes an orphan's record and sidecar (neither in the manifest nor in the Trash) once the file's own modification date is older than TrashStore.expiry — these files carry no device, so the file's age rules where a version folder's newest own file does — and keeps a younger one, whose Trash entry may still be on its way from another Mac. Known edge: another device's record or sidecar for an item whose manifest add has not synced within TrashStore.expiry could be swept by the same age gate the versions use. The op log of a manuscript document is not touched (M3-TR-049). Removing them is the coordinator's call, hardening 2026-11-16 (#141 N7), not Denver's; RULING-23 permits destruction without requiring it.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Stores/ResearchVersionLifecycleTests.swift: test_permanentDeleteRemovesTheDestroyedItemsRecordAndSidecar_andASiblingsStay, test_aRestoreBringsTheMarkAndTheSidecarBack, test_emptyTrashRemovesTheirRecordsAndSidecars, test_theOpenSweepRemovesAnOldOrphansFiles_andKeepsAYoungOne; Packages/MaughamCore/Tests/MaughamCoreTests/ResearchNoteRecordTests.swift: test_removeTakesOnlyTheNamedItemsRecord_forNoteAndTable, test_sweepRemovesAnOldOrphan_keepsAYoungOne_andKeepsALiveOne"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the coordinator's call, hardening 2026-11-16, not Denver's",
+  "reachability": "LIVE — Trash ▸ Permanently Delete or Empty Trash on a Research note, card or table; the open of a project",
   "evidence": {
    "property_test": null
   }

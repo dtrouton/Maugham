@@ -678,9 +678,9 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(try versions(of: item).map(versionText), ["Before the move."])
     }
 
-    /// Controller's interim ruling on P3: an edit whose debounce elapsed is
-    /// not saved over a version that cannot be kept, and is not dropped
-    /// either — the flush still has it.
+    /// P3 (Denver, 2026-11-11: as built; RULING-24's amendment): an edit whose
+    /// debounce elapsed is not saved over a version that cannot be kept, and is
+    /// not dropped either — the flush still has it.
     func test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush() async throws {
         let (store, projectStore) = try await openBook()
         let heard = listen()

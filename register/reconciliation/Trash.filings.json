@@ -739,13 +739,18 @@
   "reason": "A figure's removal and restore (report plan 6b Task 5) rest on the plan's ruling P-3 and Denver's review ruling that a taken name refuses the restore, neither of which is a register ruling yet. RULING-4 is the nearest (recovery where the writer would look) and is not contradicted: the record comes back under its own name, or the entry stays in the Trash."
  },
  {
+  "claim_id": "M3-TR-067",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "RULING-23 says Trash destroying its contents honours the writer's intent and losing trash is not a defect; it permits the removal of a destroyed item's derived files without requiring it, and RULING-24 calls derived material unprotected without saying when it is removed. No ruling states that Permanently Delete, Empty Trash or the sweep remove an item's note record and table sidecar, the age gate on the sweep, or the cross-device edge. The removal is the coordinator's call, hardening 2026-11-16, not Denver's."
+ },
+ {
   "_summary": {
    "reached": 42,
    "complies": 42,
    "violates": 0,
-   "no_ruling": 23,
-   "total": 65,
-   "coverage": "65%",
+   "no_ruling": 24,
+   "total": 66,
+   "coverage": "64%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",

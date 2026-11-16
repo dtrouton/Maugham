@@ -18,7 +18,7 @@ public enum AddNoteTool: MCPTool {
     public static let method = "add_note"
     public static let description =
         "Create a research note (.md) under the project's research folder. " +
-        "Optionally placed in an existing group."
+        "Optionally placed in an existing group, but never the Palette: cards are the writer's."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"parent_group_id":{"type":"string"}},"required":["project_id","title","body"]}"#
 

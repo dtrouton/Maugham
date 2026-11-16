@@ -642,6 +642,8 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-D verbatim.
 
+*mechanism note:* `AddNoteTool.handle` compares `parent_group_id` with `PaletteLookup.paletteGroup(in:)` (role-first, so a renamed group is still the Palette) and throws `MCPError.invalidArgument` ("The Palette holds the writer's cards; add_note can't create one. Add the note to another Research group.") before anything is created. `ResearchTextRole.of(_:structure:research:)` asks the same `PaletteLookup`, so `update_note` and the centre router agree on what a card is. Only the Palette group itself is refused: a subgroup beneath it is not, and a note added there is a note. Pinned by `AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing` and `UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused`.
+
 ### RULING-62 — Y — an open note or card hears an outside change (RULING-56's family)  `RATIFIED_FROM_OPTIONS`
 
 > An open note or card hears an outside change the way a table does. With nothing unsaved, the editor reloads and a notice says "Reloaded “X” — the file changed outside Maugham." With an unsaved edit, the writer's edit is saved, the outside text is kept as a version, and a notice says so and where to find it.
@@ -649,6 +651,8 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 *basis:* Denver, 2026-11-16, structured question (the hardening 2026-11-16 sitting): chose the recommended option. Example put: the file changes on another device or in an external editor; today the next keystroke saves over it and nothing is said.
 
 *provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-16, a structured question, the recommended option accepted). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family letter and the wording of the basis above are the agent's; the statement is the spec's R-E verbatim.
+
+*mechanism note:* `DocumentStore.researchFileMayHaveChanged(at:)` (the window's file presenter) finds the note or card with `researchNoteItem(atPath:)` and asks `ResearchNoteDoor.fileMayHaveChanged(itemId:in:)`, the note twin of `ResearchTableHost.fileMayHaveChanged()` (a twin, not shared code). It speaks only for an item an editor holds open (`holdResearchNoteOpen`, from the note editor's and the card editor's `.task(id:)`) whose bytes the door has read. With nothing pending it waits out a save in flight, reads the file, and for other bytes ends the writer's run, moves the reload signal and posts "Reloaded “X” — the file changed outside Maugham." (a save, edit or read that began during the door's own read asks again). With an edit pending it leaves the edit alone: that save keeps the outside bytes as a version and posts "“X” changed outside Maugham while you were editing it. That version is kept in its Versions; yours was saved." once, after it lands (the writer's own saves only; `outsideKeptForTheWriter`). Pinned by `ResearchNoteDoorTests.test_anOutsideChangeToACleanNoteReloadsItAndSaysSo` and `test_anOutsideChangeUnderAPendingEditIsKeptAsAVersion_andSaidOnce`, `ResearchNoteEditorReloadTests.test_anOutsideChangeToTheOpenNoteIsShown_andTheNextKeystrokeBuildsOnIt`, `PaletteCardEditorReloadTests.test_anOutsideChangeToTheOpenCardIsShown`.
 
 ### RULING-63 — M — a delete gesture completes as one (RULING-52's and RULING-40's family)  `RATIFIED_FROM_OPTIONS`
 
@@ -712,6 +716,8 @@ promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling 
 - **RULING-58** `test` — FigureRestoreNotePlanTests (core) + FigureReturningAcceptTests, FigureAnnotationDispositionTests restore pins
 - **RULING-59** `test` — FigureAnnotationDispositionTests/FigureVisitTests guarded-accept pins; AcceptOverAppliedTextTests; SuggestionSpliceTests.test_planAccept_*
 - **RULING-60** `test` — ResearchTableVersionTests flush-arm pins (test_aFlushWhoseVersionCannotBeKeptSavesAnyway and the kept-aside arm tests) + ResearchTableGridTests leave/close pins
+- **RULING-61** `test` — AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing + UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused + ResearchSubjectRoutingTests role-first pins
+- **RULING-62** `test` — ResearchNoteDoorTests outside-change pins + ResearchNoteEditorReloadTests / PaletteCardEditorReloadTests reload pins
 
 ## Principles — how to judge, not what to decide
 

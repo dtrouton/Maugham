@@ -66,7 +66,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
-- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`) and `ResearchTextRole`, the note-or-card predicate.
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`, `fileMayHaveChanged` while `holdResearchNoteOpen`) and `ResearchTextRole.of`, the role-first note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -99,7 +99,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/translations/` | `TranslationStore` (Core); `rounds/<lang>.json` is `TranslationRoundStore`'s | translation records; the round ring |
 | .maugham/canvas.json | `CanvasStore` (Canvas) | the canvas layout |
 | `.maugham/research-tables/` | `ResearchTableSidecar` (Core) | what a Research table's CSV cannot hold; a parked picture's copy gets one too, naming its figure |
-| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table, note or card save's prior bytes (a table's with its sidecar), write-once, per device |
+| `.maugham/research-versions/<itemId>/` | `ResearchVersionStore` (Core) | each table, note or card save's prior bytes (a table's with its sidecar), write-once, per device; destroying the item removes them, its record and its sidecar |
 | `.maugham/research-notes/` | `ResearchNoteRecord` (Core) | who wrote each note's or card's text |
 | .maugham/manifest.shadow.json (+ .sha256) | `ManifestShadow` (Core) | the manifest's safety copy: a corrupt or missing manifest is restored from it (not while iCloud is still downloading it) (#92) |
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
@@ -158,13 +158,13 @@ Two things deliberately live elsewhere:
 - **User content means** a manuscript `.md`/`.fountain`, a Collection piece folder, or a research note or folder.
 - **Each entry point closes, unregisters and flushes before any file call** (`closeFlushAndUnregister`: every open `Document` at an affected path, plus `flushPendingSave()` for the research-note debounce), so a caller cannot forget either half.
 - **A bespoke move commits step by step, so choose every destination before the first step runs.**
-- **A note and its `<slug>_assets/` dedup jointly through the one helper, `researchDedupedNotePair`**: the stem must be free for the note AND for `<stem>_assets` (an orphaned assets folder makes a leaf-only dedup collide). It takes an `isTaken` predicate; the batch mover also unions its in-flight claims. A note with no assets folder dedups on the leaf alone. Never write a second copy.
+- **A note and its `<slug>_assets/` dedup jointly through the one helper, `researchDedupedNotePair`**: the stem must be free for the note AND for `<stem>_assets` (an orphaned assets folder makes a leaf-only dedup collide). It takes an `isTaken` predicate; the batch mover also unions its in-flight claims. A note with no assets folder dedups on the leaf alone.
 - **`moveResearchItems` builds ONE `RenamePlan` for the whole batch** (files, group folders with descendant path rewrites, each note's `<slug>_assets/`) and calls `relocate(plan:)` once. Validation (unknown ids, cycles, role-guarded cross-scope moves) runs before any file call and fails the whole batch. `.link` items move in the manifest only.
 - **`deleteResearchItems(ids:)` is one validation pass, one `trashResearchItemCore` per id, one manifest save.** A `.link` takes `TrashStore.recordManifestOnlyTrash` (a meta.json, no file), so a pathless item never reaches the file mover.
 - **A new mover of user content routes through one of the three entry points.** Raw moves need an `// internal-move:` marker and are allowed only for: `promotePieceToProject`'s staging moves; their inverse in `rollbackPromotionStaging`; the no-`DocumentStore` fallback branches (unit tests, and `ProjectStore.load`). A raw `removeItem` says `// raw-delete: <why>`. Scaffolding, link/manifest and scratch writes and `executeCopy` are out of scope.
 - **The staging rollback stays raw**: the close and flush already ran, and `relocateUserContent` throws and would re-enter a `DocumentStore` the promotion has closed. A compensation must not throw over the error it compensates.
-- **A failed promotion moves its staged files BACK from a record, never a re-derivation**: each staging helper returns its `PromotionStagedMove`, and `rollbackPromotionStaging` walks them in reverse. A failed move-back logs loudly and leaves the staging tree standing; one stranded path does not abort the rest; a tree already gone means the promotion completed.
-- **Palette card writes go through `paletteCoordinatedWrite(_:to:itemId:by:typed:)`**, never a raw `.write(to:)`; its no-`DocumentStore` fallback is the one raw write, marked `// palette-coordinated-write: <reason>` (`TripwireGrepTests.test_noRawWriteInPaletteStore`).
+- **A failed promotion moves its staged files BACK from a record, never a re-derivation**: each staging helper returns its `PromotionStagedMove`, and `rollbackPromotionStaging` walks them in reverse. A failed move-back logs loudly and leaves the staging tree standing; a tree already gone means the promotion completed.
+- **Palette card writes go through `paletteCoordinatedWrite(_:to:itemId:by:typed:)`**, never a raw `.write(to:)`; its fallback, only where no `DocumentStore` ever was (`rawNoteWriteWithNoDoor`), is the one raw write, marked `// palette-coordinated-write: <reason>` (`TripwireGrepTests.test_noRawWriteInPaletteStore`).
 
 ### Manifest adoption and structural verbs
 - **A manifest another device wrote is adopted, never merged.** `handleManifestChanged` passes the `ManifestEcho` guard, decodes through `decodeGuardingSchema` (a later build's manifest is archived, never adopted), and calls `ProjectStore.adoptExternalManifest`. Last writer wins.
@@ -263,12 +263,12 @@ Two things deliberately live elsewhere:
 - **A rename moves the document's title AND the composed title of every statement scoped to it** (`ArtifactIndex.statementTitle`); the old title is composed from a closure answering the OLD name.
 - **The renamed document is excluded from the document-title pair only**; the composed pairs still apply to it. A document with no scoped statements is skipped.
 - **Manuscripts and statements receive ops**; statements go through `withStatementDocument`, never a second dance.
-- **A research note or card is rewritten through the note door** after one `flushPendingSave()` (raw with no `DocumentStore`).
+- **A research note or card is rewritten through the note door** after one `flushPendingSave()` (raw only where no `DocumentStore` ever was).
 - **An empty derive is not "nothing to do"**: the manuscript loop falls through to `Document.load`; the statements loop does too when the statement's file has non-zero size (a `stat`, never a read).
 - **Not covered**: the renamed document's own composed-title rewrite can be lost to its own path-keyed reload.
 
 ### Craft intent, palette and role identity
-- **Palette cards and research notes are plain-edited** (no op log, no `¶id`), and absence is valid. Cards are research assets under `research/palette/`, parsed by Core's `PaletteCard`; the typed mover covers them.
+- **Palette cards and research notes are plain-edited** (no op log, no `¶id`), and absence is valid. Cards are direct children of the role-first palette group (`research/palette/` only where none exists), parsed by Core's `PaletteCard`; the typed mover covers them.
 - **Look up by role first, path second** (`ResearchItem.role`; Core's `PaletteConvention`/`PaletteLookup`). `ProjectStore.paletteFolderPath`/`paletteGroupTitle` alias the Core constants.
 - **A path-identified lookup heals lazily** (`healRole`/`stampRole`, fire-and-forget, idempotent; no migration). Mac only: the phone reads `PaletteLookup` without healing.
 - **Show the live title** (`paletteGroupDisplayTitle`), never the default.
@@ -414,4 +414,4 @@ Checks: `StatementOpenGateTests`, `test_theStatementOpenGateIsTakenByExactlyThes
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (the op log, `Document.load`, the person key), `Maugham/Views/AREA.md` (the panes), `Maugham/Canvas/AREA.md` (`CanvasCapture`), `Maugham/Compiler/AREA.md` (the designer loop, the pipeline), `MaughamPhone/AREA.md` (the phone's inbox writer).
 - Cross-document search (⌘⌥F): `Maugham/Views/ProjectSearchView.swift`, `ProjectWindow.applyCloseFind`. `InboxPane` is ⌘⌥B.
 - Not here: the editor (`Maugham/Editor/`), the op-log format (`Maugham/OpLog/`), UI (`Maugham/Views/`), MCP handlers (`Maugham/MCP/Tools/`), model types (`Maugham/Models/`, MaughamCore).
-- Tests worth knowing: `MaughamTests/Stores/`, the top-level `*StoreTests.swift`, `PresenterRoutingTests` (classifier round-trip, own autosave not reingested, external `.md` edit discarded, MCP annotations on a live doc synthesize no `claude_archive` ops, unhandled sidecars route nowhere), `ManifestAdoptionTests`, `RemovedElsewhereTests`, `ClosedHeldLinesTests`, `DocumentStorePostureTests`, `StructuralVerbCensusTests`, `TrashStoreTests`, `ProjectSessionRegistryTests`.
+- Tests worth knowing: `MaughamTests/Stores/`, the top-level `*StoreTests.swift`, `PresenterRoutingTests`, `ManifestAdoptionTests`, `RemovedElsewhereTests`, `ClosedHeldLinesTests`, `DocumentStorePostureTests`, `StructuralVerbCensusTests`, `TrashStoreTests`, `ProjectSessionRegistryTests`.

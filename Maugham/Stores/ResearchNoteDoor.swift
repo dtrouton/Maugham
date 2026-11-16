@@ -137,14 +137,14 @@ final class ResearchNoteDoor {
         case direct(mustLand: Bool)
     }
 
-    /// **P3 (pending Denver, asked 2026-11-10): when the bytes a save replaces
-    /// cannot be kept, is the save stopped or made anyway?** Interim ruling
-    /// (controller, Task 3), by source: a timer-fired edit is stopped and stays
-    /// pending; a flushed edit is saved anyway, with a notice (the spec's
-    /// anti-goal: no text lost because its previous version could not be
-    /// kept); anyone else's write is stopped, as tables, unless it must land
-    /// (saved anyway, with the notice). Changing it is this
-    /// one function; `ResearchNoteDoorTests.test_aKeepThatFailsStopsTheSave`,
+    /// **P3 (Denver, 2026-11-11: as built; RULING-24's amendment): when the
+    /// bytes a save replaces cannot be kept, is the save stopped or made
+    /// anyway?** By source: a timer-fired edit is stopped and stays pending; a
+    /// flushed edit is saved anyway, with a notice (the spec's anti-goal: no
+    /// text lost because its previous version could not be kept); anyone
+    /// else's write is stopped, as tables, unless it must land (saved anyway,
+    /// with the notice). RULING-60's table close inherits it. Changing it is
+    /// this one function; `ResearchNoteDoorTests.test_aKeepThatFailsStopsTheSave`,
     /// `test_aTimerSaveWhoseKeepFailsStops_andTheTextIsStillPendingForTheFlush`
     /// and `test_aFlushSavesEvenWhenTheVersionCannotBeKept_andSaysSo` change with it.
     enum WhenTheKeepFails { case stopTheSave, saveAnyway }
@@ -247,8 +247,8 @@ final class ResearchNoteDoor {
     /// with** (`ProjectStore.addPaletteCard`, once its write has landed,
     /// through `DocumentStore.researchCardTemplateWritten` on the project's
     /// `documentStore` — the same door that wrote them, because that write
-    /// never passes `through:` another store): text nobody wrote, so the first save over exactly these bytes keeps
-    /// nothing (#141 N8). Recorded as already kept (`lastKeptHash`) and as
+    /// never passes `through:` another store): text nobody wrote, so the
+    /// first save over exactly these bytes keeps nothing (#141 N8). Recorded as already kept (`lastKeptHash`) and as
     /// known; bytes on disk that differ from them — the card edited outside
     /// before its first save — are kept as any others are. Never a
     /// comparison with a re-rendered template: the title is deduped after

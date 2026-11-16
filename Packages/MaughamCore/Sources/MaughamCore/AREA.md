@@ -183,7 +183,8 @@ Rules for these files are in `Maugham/OpLog/AREA.md` → Rules ("The person key"
 - `TableCSV.swift` — a table as CSV: the clean values render, research copies that keep formulas, RFC 4180 reading with separator detection, and import with formulas resolved to ids.
 - `ResearchTableSidecar.swift` — what a Research table's CSV cannot hold, at `.maugham/research-tables/<item id>.json`: the parked figure it copies, its name, caption, header and total rows, and formats and widths by position; tolerant.
 - `ResearchNoteRecord.swift` — a Research note's current writer, at `.maugham/research-notes/<item id>.json`.
-- `ResearchVersionStore.swift` — every save of a Research table or note keeps the prior bytes and sidecar, write-once per device (tripwire 17), at `.maugham/research-versions/<item id>/`; lists every device's, prunes and sweeps only its own; `ResearchWriter`.
+- `ResearchItemFiles.swift` — the removal the note record and table sidecar share: `remove(forItems:in:)` for destroyed items, `sweepOrphans` by file age; an item in the Trash keeps both.
+- `ResearchVersionStore.swift` — every save of a Research table or note keeps the prior bytes and sidecar, write-once per device (tripwire 17), at `.maugham/research-versions/<item id>/`; lists every device's, prunes (sparing the version just made and, for a restore, the one restored) and sweeps only its own; `ResearchWriter`.
 - `FigureOp.swift` — a figure op's content on the shared envelope (`Op.figure`): the figure kind, cell, structure, settings, image and research-pin changes, and which fields each figure op kind needs.
 - `FigureRecord.swift` — one figure in the manifest's `figures` registry: its id, name, kind, path and the piece it belongs to, which `DocumentClass.resolve` reads into the figure's class.
 - `FigureDeriver.swift` — folds a figure's op stream onto its table in merged order: per-cell last writer, delete beats edit, concurrent inserts survive, the first create sets the kind, parked folds nothing until resumed; an accept carrying a cell folds as that cell set (`FigureOpPayload.foldKind`).
@@ -322,10 +323,9 @@ Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `
 Checks: the compiler for steps 2 and 3, `SchemaEvolutionToleranceTests`, and the kind-equality census.
 
 ## Pointers
-- `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files (see the first Rules bullet), and the op log's behaviour.
+- `Maugham/OpLog/AREA.md` — the Rules for this package's op log, trust, permit and person-key files, and the op log's behaviour.
 - ADR 0032 (signed op log), ADR 0015 (schema evolution), ADR 0019 (clean derived .md), ADR 0022 (grammar ledger)
-- `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share and why it lives here.
-- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51, 53–56 and 58: the tripwires the Rules above cite.
-- Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests` (this map's census), `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests` (the parser against its frozen reference), `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
+- `docs/superpowers/notes/cross-surface-contracts.md` — what both surfaces share.
+- `docs/tripwires.md` rows 8, 12, 13, 17, 19, 20, 23, 24, 35–51, 53–56 and 58: the tripwires cited above.
+- Tests: Core's own suite in `Packages/MaughamCore/Tests/MaughamCoreTests/` runs through `./scripts/test.sh core` (no scheme hosts it). Worth knowing: `DocBudgetTests`, `SchemaEvolutionToleranceTests`, `FountainTokenizerDifferentialTests`, `MarkdownBlockParserTests`, `OpLogChainTests`, `RegistryCanonicalCensusTests`, `OpLogClassifierIsolationTests`; the app-side censuses are in `MaughamTests/TripwireGrepTests.swift` and `MaughamTests/PersonKeyCensusTests.swift`.
 - Neighbouring guides: `Maugham/Publish/AREA.md` (the publish side of a block kind), `MaughamPhone/AREA.md` (the phone's consumers).
-- No history file: this guide was written in the template and nothing has been moved out of it.
