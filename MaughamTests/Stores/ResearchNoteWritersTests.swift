@@ -384,6 +384,103 @@ final class ResearchNoteWritersTests: XCTestCase {
                        "a note's Replace still keeps what it replaced")
     }
 
+    // MARK: - The check reads the text the search read (final fix wave, correction)
+
+    /// The research matches of `results` in `item`, left to right.
+    private func researchMatches(_ results: SearchResults, in item: ResearchItem) -> [SearchMatch] {
+        researchMatches(results).filter { $0.documentPath == item.path }
+    }
+
+    /// The search reads `stripAnchors(stored)`, which joins `\r\n` lines with
+    /// `\n`; the Replace still lands on the clicked occurrence in the stored
+    /// text, and every other `\r\n` is left exactly as it was.
+    func test_replaceInANoteWithWindowsLineEndingsReplacesTheClickedOccurrence() async throws {
+        let (_, projectStore) = try await openBook()
+        let stored = "Anna one.\r\nAnna two.\r\nThe end.\r\n"
+        let item = try await note(stored, in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+
+        try await projectStore.replaceMatch(matches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Anna one.\r\nZ two.\r\nThe end.\r\n")
+        XCTAssertEqual(try newestVersionText(of: item), stored, "a note's Replace still keeps what it replaced")
+    }
+
+    /// The search trims the note's leading and trailing whitespace; a Replace
+    /// on its first or its last line lands in place, the whitespace kept.
+    func test_replaceOnTheEdgeLinesOfANoteWithLeadingAndTrailingWhitespaceReplacesTheClickedOccurrence() async throws {
+        let (_, projectStore) = try await openBook()
+        let stored = "  Anna one.\nAnna two.  \n\n"
+        let first = try await note(stored, titled: "First", in: projectStore)
+        let last = try await note(stored, titled: "Last", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let firstMatches = researchMatches(results, in: try current(first, projectStore))
+        XCTAssertEqual(firstMatches.count, 2)
+
+        try await projectStore.replaceMatch(firstMatches[0], with: "Z")
+
+        XCTAssertEqual(try text(of: first, projectStore), "  Z one.\nAnna two.  \n\n")
+        let lastMatches = researchMatches(try XCTUnwrap(projectStore.currentSearch),
+                                          in: try current(last, projectStore))
+        XCTAssertEqual(lastMatches.count, 2)
+
+        try await projectStore.replaceMatch(lastMatches[1], with: "Z")
+
+        XCTAssertEqual(try text(of: last, projectStore), "  Anna one.\nZ two.  \n\n")
+    }
+
+    /// The protection still holds in a `\r\n` note: one more occurrence typed
+    /// before the clicked one is refused, nothing written.
+    func test_replaceInAWindowsLineEndingNoteStillRefusesWhenAnOccurrenceWasAdded() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Anna.\r\nAnna.\r\n", in: projectStore)
+        let results = await search("Anna", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 2)
+        queueEdit("Anna.\r\nAnna.\r\nAnna.\r\n", of: item, store)
+
+        try await assertReplaceIsRefused(matches[1], of: item, before: "Anna.\r\nAnna.\r\n",
+                                         leaving: "Anna.\r\nAnna.\r\nAnna.\r\n", projectStore, store)
+    }
+
+    /// A line shaped like a paragraph anchor is dropped from what the search
+    /// reads; when it holds the query, the stored text holds one occurrence
+    /// more than the results listed, so the Replace is refused rather than
+    /// aimed at the anchor.
+    func test_replaceInANoteHoldingAnAnchorShapedLineWithTheQueryIsRefused() async throws {
+        let (store, projectStore) = try await openBook()
+        let stored = "<!-- ¶ab12 -->\nab12 is here."
+        let item = try await note(stored, in: projectStore)
+        let results = await search("ab12", projectStore)
+        projectStore.currentSearch = results
+        let matches = researchMatches(results)
+        XCTAssertEqual(matches.count, 1, "the search does not see the anchor-shaped line")
+
+        do {
+            try await projectStore.replaceMatch(matches[0], with: "Z")
+            XCTFail("a Replace whose stored text holds an occurrence the search did not list must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        XCTAssertEqual(try text(of: item, projectStore), stored, "Replace wrote nothing")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0)
+    }
+
+    /// Replace All in a `\r\n` note (not the clicked-occurrence rule)
+    /// replaces both and keeps the line endings.
+    func test_replaceAllInAWindowsLineEndingNoteKeepsTheLineEndings() async throws {
+        let (_, projectStore) = try await openBook()
+        let item = try await note("Anna one.\r\nAnna two.\r\n", in: projectStore)
+
+        try await projectStore.replaceAll(in: await search("Anna", projectStore), with: "Z")
+
+        XCTAssertEqual(try text(of: item, projectStore), "Z one.\r\nZ two.\r\n")
+    }
+
     /// **A single Replace leaves the results fresh, and a stale match is
     /// refused** — the research arm's mirror of
     /// `ProjectSearchReplaceTests.test_aSecondReplaceOfTheSameStaleMatchIsRefused_andAFreshMatchLands`:

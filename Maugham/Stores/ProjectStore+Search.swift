@@ -279,27 +279,48 @@ extension ProjectStore {
         let count: Int
 
         /// **The one rule both arms re-find by** (final fix wave): the
-        /// clicked occurrence's range in `text` — the text about to be
-        /// changed, in the form the search read — found by the search
-        /// engine's own matcher (`ProjectSearchEngine.matchesIn`), or
-        /// `.staleSearchMatch` when `text` no longer holds what the search
-        /// showed: a different number of occurrences (one added or removed
-        /// since), or, at the ordinal, a different line (`linePreview`) or
-        /// place in it (`matchRangeInLine`) — one added and another removed.
-        /// An edit elsewhere that leaves the occurrences and the clicked line
-        /// alone still replaces it.
-        @MainActor func range(in text: String, query: String, options: SearchOptions) throws -> NSRange {
-            let found = ProjectSearchEngine.matchesIn(
-                content: text, query: query, options: options,
-                documentPath: match.documentPath, documentTitle: match.documentTitle,
-                documentSource: match.documentSource)
+        /// clicked occurrence's range in `text`, the text about to be
+        /// changed, or `.staleSearchMatch`. The checks run on `searched` —
+        /// that text in the form the search reads it (a manuscript's display
+        /// form, which is `text` itself; a note's `stripAnchors(text)`) — by
+        /// the search engine's own matcher (`ProjectSearchEngine.matchesIn`):
+        /// refused for a different number of occurrences (one added or
+        /// removed since), or, at the ordinal, a different line
+        /// (`linePreview`) or place in it (`matchRangeInLine`) — one added
+        /// and another removed. An edit elsewhere that leaves the occurrences
+        /// and the clicked line alone still replaces it.
+        ///
+        /// Where `searched` differs from `text` (a note's `\r\n` endings, its
+        /// edge whitespace, an anchor-shaped line), the same matcher runs on
+        /// `text` and the occurrence at the same ordinal is replaced — only
+        /// when the count there is the expected one too. Equal counts keep
+        /// the ordinals in step: the strip removes anchors, `\r` and the edge
+        /// whitespace, none of which holds an ordinary occurrence; an
+        /// anchor-shaped line holding the query changes the count, so that
+        /// Replace is refused.
+        @MainActor func range(
+            in text: String, searched: String, query: String, options: SearchOptions
+        ) throws -> NSRange {
+            let found = occurrences(in: searched, query: query, options: options)
             guard found.count == count else { throw ProjectStoreError.staleSearchMatch }
             let now = found[ordinal]
             guard now.linePreview == match.linePreview,
                   now.matchRangeInLine == match.matchRangeInLine else {
                 throw ProjectStoreError.staleSearchMatch
             }
-            return now.charRangeInDocument
+            guard searched != text else { return now.charRangeInDocument }
+            let inText = occurrences(in: text, query: query, options: options)
+            guard inText.count == count else { throw ProjectStoreError.staleSearchMatch }
+            return inText[ordinal].charRangeInDocument
+        }
+
+        @MainActor private func occurrences(
+            in text: String, query: String, options: SearchOptions
+        ) -> [SearchMatch] {
+            ProjectSearchEngine.matchesIn(
+                content: text, query: query, options: options,
+                documentPath: match.documentPath, documentTitle: match.documentTitle,
+                documentSource: match.documentSource)
         }
     }
 
@@ -311,16 +332,18 @@ extension ProjectStore {
     /// when `stored` no longer holds what the search showed, and the caller
     /// writes nothing); nil replaces every match `stored` holds.
     ///
-    /// The search read `MarkdownDisplayFilter.stripAnchors(stored)`; a note
-    /// carries no anchors, so that is `stored` itself, and the check runs on
-    /// the very text replaced in. A note that did carry one on the clicked
-    /// line, or one holding the query, is refused by the same check.
+    /// The search read `MarkdownDisplayFilter.stripAnchors(stored)` — which
+    /// joins `\r\n` lines with `\n` and trims the note's edge whitespace — so
+    /// the checks run on that text, and the occurrence is replaced in
+    /// `stored` (`ClickedOccurrence.range(in:searched:…)`).
     private static func replacingResearchMatches(
         in stored: String, query: String, options: SearchOptions,
         replacement: String, clicked: ClickedOccurrence?
     ) throws -> String {
-        let ranges = try clicked.map { [try $0.range(in: stored, query: query, options: options)] }
-            ?? matchRanges(in: stored, query: query, options: options)
+        let ranges = try clicked.map {
+            [try $0.range(in: stored, searched: MarkdownDisplayFilter.stripAnchors(stored),
+                          query: query, options: options)]
+        } ?? matchRanges(in: stored, query: query, options: options)
         // Right-to-left so earlier offsets aren't shifted by later edits.
         var ns = stored as NSString
         for range in ranges.reversed() {
@@ -957,8 +980,9 @@ extension ProjectStore {
         // the search read — so the ranges are valid coordinates for
         // `setFullText`.
         let display = doc.displayText
-        let ranges = try clicked.map { [try $0.range(in: display, query: query, options: options)] }
-            ?? Self.matchRanges(in: display, query: query, options: options)
+        let ranges = try clicked.map {
+            [try $0.range(in: display, searched: display, query: query, options: options)]
+        } ?? Self.matchRanges(in: display, query: query, options: options)
 
         // Apply right-to-left so earlier offsets aren't shifted by later edits.
         var ns = display as NSString
