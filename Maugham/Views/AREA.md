@@ -130,6 +130,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
 - `Maugham/Views/Review/RunWhenDocumentOpens.swift` — wait for a piece to open, then run its round.
 - `ReviewPassEditorLogic.swift` — pure array transforms behind Project Settings' Review Passes editor.
+- `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift` — To resolve's scope (from the faces), its items (notes, strains, to-dos) and the reader that reads them without a load.
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.
