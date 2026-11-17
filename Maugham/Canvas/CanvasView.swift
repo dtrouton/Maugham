@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Plan persona's centre column.
+/// The canvas — the centre while the window's subject opens it (`open == .canvas`).
 ///
 /// LAYER ORDER IS A HARD CONSTRAINT, not a preference:
 ///
@@ -173,7 +173,7 @@ struct CanvasView: View {
     /// refusal rather than as a drag that springs back saying nothing.
     var captureDrop: CanvasCaptureDrop = .unavailable
 
-    /// The window's ask for the keyboard: Plan's Tab in the binder bumps it,
+    /// The window's ask for the keyboard: the tree's Tab in the binder bumps it,
     /// and each change is served once as `CanvasKeyboardRequest.fromWindow`.
     /// A counter, never a flag the canvas writes back (tripwire 2).
     ///
@@ -565,8 +565,8 @@ struct CanvasView: View {
             mountedEditor
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Spec §8A.1: the research tree sits beside the canvas in the Plan
-        // persona, and a row dragged out of it lands here as a card.
+        // Spec §8A.1: the research tree sits beside the canvas in the left
+        // column, and a row dragged out of it lands here as a card.
         //
         // **Mounted AFTER the frame above, deliberately.** The drop `location`
         // arrives in the modified view's own space, and the modified view here is
@@ -717,8 +717,8 @@ struct CanvasView: View {
         // in `load()`'s undo hook (tripwire 57).
         .onChange(of: model.sceneRevision) { _, _ in regionTitleEditing.forgetIfTheRegionIsGone() }
         .onDisappear {
-            // Fold the live editor's text in BEFORE the write, or a persona
-            // switch mid-sentence loses the sentence.
+            // Fold the live editor's text in BEFORE the write, or leaving the
+            // canvas mid-sentence loses the sentence.
             editFocus.syncActiveEdit()
             // …and a half-typed region name, for the same reason (spec §3: a
             // click elsewhere commits; leaving the canvas is one).
@@ -967,7 +967,7 @@ struct CanvasView: View {
         wash = CanvasGroundPalette.wash(fromHex: paletteSwatchHexes())
         layoutPass.rebuildLayouts()
         // A reveal asked for while this view was not mounted — which is the
-        // ordinary case, because Show switches persona and asks in one act. Last,
+        // ordinary case, because Show opens the canvas and asks in one act. Last,
         // so it runs against the attached scene.
         if let parked = model.takePendingReveal() {
             model.onRevealRequested?(parked)

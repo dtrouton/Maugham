@@ -454,7 +454,6 @@ final class PromotionCommandTests: XCTestCase {
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
-              "Self.releasesCanvasCollapse(",
               "paletteWall.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
@@ -574,19 +573,10 @@ final class PromotionCommandTests: XCTestCase {
              + "nothing reads — it compiles, `showInspector` still goes false so "
              + "HALF the collapse still happens, and the binder never leaves. A "
              + "half-working focus key is the failure no assertion over the "
-             + "decision can see from inside. "
-             + "`Self.releasesCanvasCollapse(` is the persona handler's CALL "
-             + "SITE, and it is the site the whole ordering hazard turns on. "
-             + "The predicate is tested as a pure function and the sequence "
-             + "test hand-drives it — nothing in the tree posts "
-             + "`.maughamSetPersona`, so no test drives the emitter. Delete the "
-             + "`if` block in `PersonaModifier`'s handler and every "
-             + "`CanvasCollapseTests` assertion stays green while a writer who "
-             + "closed the inspector before collapsing lands in the next "
-             + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. The wall's persona observer that stood beside "
-             + "it went in shell p1 Task 2: the wall is the subject's `open`, so "
-             + "a subject change is the wall closing and needs no second rule. "
+             + "decision can see from inside. (The window-mode switch's release "
+             + "call site that stood here went with the modes in shell p1 Task "
+             + "6: leaving the canvas is a subject change, which "
+             + "`CanvasCollapseModifier` already observes.) "
              + "`paletteWall.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
@@ -822,17 +812,6 @@ final class PromotionCommandTests: XCTestCase {
             "the census reports the ABSENT split-view-binding token and not the "
             + "present one — with the argument gone the modifier still runs and "
             + "the binder never moves")
-        // And the persona handler's call site, falsified with a predicate that
-        // cannot exist. This is the one production site Task 13 added that has
-        // no other instrument at all: the predicate is pure and its sequence
-        // test hand-drives it, and nothing in the tree posts `.maughamSetPersona`.
-        XCTAssertEqual(
-            try missingTokens(in: Self.window,
-                              required: ["Self.releasesCanvasCollapse(",
-                                         "Self.releasesNotARealCollapse("]),
-            ["Self.releasesNotARealCollapse("],
-            "the census reports the ABSENT persona-call-site token and not the "
-            + "present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(

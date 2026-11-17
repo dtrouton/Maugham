@@ -103,7 +103,7 @@ struct PaletteWallCentre: View {
     let onClose: () -> Void
     /// The window's Lock (`WindowLock`, shell p1 Task 5), asked by the card
     /// arm below: a locked window reads a card and does not edit it — what
-    /// Review's adjudicating columns did before the personas went
+    /// the old Review mode's adjudicating columns did before the window lost its modes
     /// (shell-finish stage 3b Task 6). `ResearchSubjectCentre` asks the same
     /// answer at its own mount.
     let isLocked: Bool

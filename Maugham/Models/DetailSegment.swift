@@ -6,7 +6,6 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case annotations
     case history
     case tasks      // milestone-tasks
-    case inbox      // iphone-companion: triage captures from MaughamPhone
     case translation // translation-layer: source text + translator queries (⌘⌥L)
     // M1A spine: the writer's intent and the book's visual language are one
     // op-logged artifact (`Statement`) in two kinds. Two cases rather than one
@@ -34,18 +33,56 @@ public enum DetailSegment: String, Codable, Equatable, Sendable, CaseIterable {
     case firstReader
     case diagnostics     // m2-compiler-loop: the compiler's notes (⌘⌥D)
     case references      // m2-author-surfaces: what this piece is pinned to (⌘⌥E)
-    // publish-department: the desk (⌘⌥K) — Publish's own working pane, where
-    // the translator per language and the book designer are run from and their
-    // state is read back. Publish's only, and it leads there
-    // (`PersonaPaneRegistryTests.test_theDepartmentDeskIsPublishsAndLeadsIt`).
+    // publish-department: the desk (⌘⌥K) — where the translator per language
+    // and the book designer are run from and their state is read back. The
+    // picker offers it only while an edition is open
+    // (`DetailPaneToggle.visibleSegments`).
     case department
+}
+
+// MARK: - Order
+
+public extension DetailSegment {
+    /// **The right column's one order** (shell p1 Task 6). Every picker is this
+    /// sequence with some members left out — never a different sequence — so a
+    /// pane is always in the same place relative to its neighbours.
+    ///
+    /// Denver: *"it'll be confusing if I am always hunting for the right option
+    /// in different modes, so the order should be one set and things just
+    /// disappear or appear in it, and we have some common anchors."*
+    ///
+    /// The two loops lead — Diagnostics (the check's notes on what was just
+    /// written) and Annotations (the durable notes a review adjudicates) — then
+    /// the Department desk, which only an edition offers. Then what the writer
+    /// works WITH: Intent (what this piece is going for), the lessons ledger
+    /// (what the writer has learned; a check is briefed on it), the first
+    /// reader (who a check is read by), References (what the piece is pinned
+    /// to), Visual Language. Then what flows THROUGH: Tasks, Translation,
+    /// History. Inspector closes the row, outermost.
+    ///
+    /// `DetailSegmentOrderTests` transcribes this order once and plants a
+    /// reorder that keeps the first element; a new case must be given a place
+    /// here or that suite goes red.
+    static let pickerOrder: [DetailSegment] = [
+        .diagnostics, .annotations, .department, .intent, .lessons,
+        .firstReader, .references, .visualLanguage, .tasks, .translation,
+        .history, .inspector
+    ]
+
+    /// **Panes that are about one document** and say nothing without one.
+    /// `DetailPaneToggle.visibleSegments` leaves them out while the faces name
+    /// no document (the Book, research, a figure, a place); a ⌘⌥ key still
+    /// reaches each, because a selected segment is always carried.
+    static let needsADocument: Set<DetailSegment> = [
+        .diagnostics, .references, .translation, .history
+    ]
 }
 
 // MARK: - Presentation
 
-/// Icon and tooltip live beside the case, not inside the picker, so a persona
-/// can compose its own subset of segments (`Persona.panes`) without every
-/// picker re-declaring how a segment looks. Shortcut letters in the help text
+/// Icon and tooltip live beside the case, not inside the picker, so the picker
+/// can show any subset of `pickerOrder` without re-declaring how a segment
+/// looks. Shortcut letters in the help text
 /// are owned by the View menu in `MaughamApp.swift` — keep them in step with
 /// `docs/guide/reference.md` (guarded by `DocSyncTests`).
 public extension DetailSegment {
@@ -55,7 +92,6 @@ public extension DetailSegment {
         case .annotations: return "text.bubble"
         case .history: return "clock.arrow.circlepath"
         case .tasks: return "checklist.checked"
-        case .inbox: return "tray"
         case .translation: return "character.book.closed"
         case .intent: return "target"
         case .visualLanguage: return "photo.on.rectangle.angled"
@@ -83,7 +119,6 @@ public extension DetailSegment {
         case .annotations: return "Annotations — review Claude's comments and suggested edits (⌘⌥A)"
         case .history: return "History — read-only timeline of edits, annotations, and checkpoints (⌘⌥H)"
         case .tasks: return "Tasks — todos in this document and across the project (⌘⌥T)"
-        case .inbox: return "Inbox — triage captures from MaughamPhone (⌘⌥B)"
         case .translation: return "Translation — source text and translator queries (⌘⌥L)"
         case .intent: return "Intent — what you're going for, here or across the project (⌘⌥N)"
         case .visualLanguage: return "Visual Language — how the book looks (⌘⌥V)"

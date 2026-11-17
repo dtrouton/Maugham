@@ -47,7 +47,7 @@ extension ProjectWindow {
 }
 
 /// **What a figure subject shows** (report plan 8a Task 6), in the centre and
-/// in Plan's right column alike: a table's grid (`FigureCentreGrid`, one mount
+/// in the right column beside the canvas alike: a table's grid (`FigureCentreGrid`, one mount
 /// per figure), read-only where the window is locked (`WindowLock`) or the
 /// window's ⌘⌥⇧R is on; an image, its picture large (`FigureImageSubject`);
 /// anything else — a kind from a later build, a window with no session —

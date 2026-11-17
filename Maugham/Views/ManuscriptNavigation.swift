@@ -23,9 +23,9 @@ import MaughamCore
 /// (`.maughamNavigateToDocument`, `.maughamNavigateToParagraph`,
 /// `.maughamNavigateToScene`) and requires each receiver to call `go`.
 ///
-/// It used to decide a PERSONA (Denver's 2026-08-02 ruling, *"if I'm moving to
-/// the manuscript I'm moving to Author"*); the subject's `open` is that
-/// decision now, and there is no persona to move or remember.
+/// It used to decide a window MODE (Denver's 2026-08-02 ruling, *"if I'm moving
+/// to the manuscript I'm moving to Author"*); the subject's `open` is that
+/// decision now, and there is no mode to move or remember.
 enum ManuscriptNavigation {
 
     /// The payload key a paragraph navigation names its document by

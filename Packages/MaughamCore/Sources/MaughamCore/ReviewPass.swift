@@ -1,7 +1,7 @@
 import Foundation
 
-/// A named editing pass on the manifest's `reviewPasses` list — the Review
-/// persona's column headers on the board (M3 P1).
+/// A named editing pass on the manifest's `reviewPasses` list — the column
+/// headers on the Book's status board (M3 P1).
 ///
 /// Position is array order; there is no separate order field, so reordering
 /// is rewriting the array (Task 9's editor). `id` is stable identity: piece

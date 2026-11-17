@@ -371,8 +371,8 @@ final class CompilerOrchestrator {
     /// dispositions are briefed. The round still mints, the marker still
     /// advances, and `CompilerRun.freshEyes` records it.
     /// - Parameter kind: **which loop asked.** Undefaulted, so no call site
-    ///   files a round as a check unnoticed. Minted from the persona only in
-    ///   `CompilerRunModifier`; every other caller belongs to one loop.
+    ///   files a round as a check unnoticed. `CompilerRunModifier` takes it
+    ///   from the command; every other caller belongs to one loop.
     func runRequested(docId: String, kind: RunKind, freshEyes: Bool = false) {
         guard let environment, diagnostics != nil else { return }
         // In flight: nothing queues, but the press is answered; a silent press

@@ -24,8 +24,8 @@ struct AnnotationsPane: View {
     /// outside — and not persisted (a scope is a glance, not a home).
     @Binding var scope: AnnotationScope
     /// Travel to another piece or a figure. The window's SUBJECT write and nothing else:
-    /// Review's centre shows documents, so this navigation never moves the
-    /// persona (the ejection trap — `ManuscriptNavigation`).
+    /// the centre shows the piece, and the queue stays beside it (the ejection
+    /// trap — `ManuscriptNavigation`).
     let onTravel: (BinderSubject) -> Void
     /// Whether the tree's Figures section draws a row for a figure: a figure
     /// note's click travels only to one (report plan 8a Task 4). The window
@@ -70,8 +70,8 @@ struct AnnotationsPane: View {
     var onCompilerModelChange: (CompilerModelChoice) -> Void = { _ in }
     /// **The nudge's own verbs** (pass-order nudge gains its verbs) —
     /// `(docId, passId, state)`. The store's per-piece pass write is a closed
-    /// three-file census (`PersonaPaneRegistryTests.passStateWritingFiles`:
-    /// InspectorView, PieceInspector, ProjectWindow) and this pane is
+    /// census of named hosts (`PassStateWriterCensusTests.passStateWritingFiles`)
+    /// and this pane is
     /// deliberately not a fourth: the closure is threaded from the SAME
     /// `ProjectWindow` site that already writes the board's chip verb, so a
     /// writer who presses "Mark done" or "Skip" in the queue reaches the one
@@ -283,8 +283,8 @@ struct AnnotationsPane: View {
     // chip recording one, re-renders the queue.
     //
     // Reading pass states is all this pane's OWN code ever does with them.
-    // Writing one is a closed census of three files (`PersonaPaneRegistryTests.
-    // passStateWritingFiles`) and this file is deliberately not a fourth: the
+    // Writing one is a closed census of named hosts (`PassStateWriterCensusTests.
+    // passStateWritingFiles`) and this file is deliberately not one: the
     // nudge's Mark done / Skip buttons call `onSetPassState`, a closure the
     // host supplies, rather than the store's write verb directly — so a writer
     // CAN rule on a pass from here, but only through the one channel every
@@ -754,9 +754,8 @@ struct AnnotationsPane: View {
     }
 
     /// **What clicking a row means** — the pure rule's answer, applied.
-    /// Travelling writes the window's SUBJECT and nothing else; the persona is
-    /// never touched (`AnnotationScopeTests`, and `ManuscriptNavigation`'s
-    /// ruling behind it).
+    /// Travelling writes the window's SUBJECT and nothing else
+    /// (`AnnotationScopeTests`, and `ManuscriptNavigation`'s ruling behind it).
     private func click(docId: String, annotation: Annotation) {
         let click = AnnotationScopePolicy.click(
             rowDocId: docId, activeDocId: document?.docId, drawsFigure: drawsFigure)

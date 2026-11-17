@@ -24,7 +24,7 @@ import AppKit
 /// handle alone writes and the window alone reads into that sum.
 ///
 /// **Mounted ONCE, as the detail column's root**, so the handle and the pane
-/// keep their identities across every study, pane and persona change.
+/// keep their identities across every study, pane and subject change.
 ///
 /// `canvasModel` is a `let`, and nothing here reads its `.scene`: the region
 /// inspector resolves the selection one leaf down (tripwire 30).
@@ -53,7 +53,6 @@ struct RightColumn: View {
     let declaredWorld: DeclaredWorldStore?
 
     // The window's state this column only reads.
-    let persona: Persona
     /// The window's Lock (`WindowLock`): research and figures read, never edit.
     let isLocked: Bool
     /// The window's subject. This column is about its `faces` (the document
@@ -210,8 +209,8 @@ struct RightColumn: View {
     ///
     /// **Nothing else writes this width.** A fixed column has no geometry of its
     /// own to report (the window's measured width is never persisted), which
-    /// makes `test_aPersonaSwitchDoesNotWriteTheWidth` structurally true rather
-    /// than a debounce racing a persona change.
+    /// makes `test_aPaneSwitchDoesNotWriteTheWidth` structurally true rather
+    /// than a debounce racing a subject change.
     private func detailResizeHandle(documentStore: DocumentStore) -> some View {
         Color.clear
             .frame(width: Self.resizeHandleWidth)
@@ -247,7 +246,7 @@ struct RightColumn: View {
             segment: $detailSegment,
             selectedSubject: $selectedSubject,
             activeManuscriptItemId: Self.panesItemID(of: subject),
-            persona: persona,
+            subject: subject,
             projectURL: store.url,
             activeDocId: Self.panesDocId(of: subject),
             allDocIds: ProjectWindow.documentIds(in: store.manifest.structure),
@@ -283,9 +282,9 @@ struct RightColumn: View {
                 recordActivePass(piece, passId)
             },
             // The pass-order nudge's Mark done / Skip — the same write as the
-            // board's chip verb: `PersonaPaneRegistryTests.passStateWritingFiles`'
-            // census is file-scoped, so a call in any `AnnotationsPane` file would
-            // be a fourth writer.
+            // board's chip verb: `PassStateWriterCensusTests.passStateWritingFiles`
+            // is file-scoped, so a call in any `AnnotationsPane` file would be
+            // one more writer.
             onSetPassState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             },

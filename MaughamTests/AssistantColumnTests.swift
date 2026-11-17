@@ -80,16 +80,13 @@ final class AssistantColumnTests: XCTestCase {
     }
 
     /// **The study column is presented whatever the centre** (shell p1 Task
-    /// 4): it used to ask a persona (Author and Review only); with something
-    /// studied, the chrome up and the right column shown, it presents — the
-    /// predicate has no input that names a centre or a persona to veto with.
+    /// 4): with something studied, the chrome up and the right column
+    /// shown, it presents — the predicate has no input that names a centre to
+    /// veto with. (Its "no code line names a persona" half retired with the
+    /// personas, shell p1 Task 6; `NoPersonaCensusTests` covers every file.)
     func test_theStudyColumnIsPresentedWhateverTheCentre() {
         XCTAssertTrue(AssistantColumn.isPresented(studied: aPin(), isNoChromeOn: false,
                                                   showInspector: true))
-        let source = try? SourceTree.read("Maugham/Views/AssistantColumn.swift")
-        let code = SourceScan.codeLines(of: source ?? "").joined(separator: "\n")
-        XCTAssertFalse(code.contains("persona"),
-                       "the study column asks no persona whether to present")
     }
 
     /// Asked over the product rather than down the one path the plan named:
@@ -874,7 +871,7 @@ final class AssistantColumnTests: XCTestCase {
             segment: Binding(get: { segment }, set: { segment = $0 }),
             selectedSubject: Binding(get: { subject }, set: { subject = $0 }),
             activeManuscriptItemId: "ch-1",
-            persona: .author,
+            subject: WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
             projectURL: url,
             activeDocId: "ch-1",
             documentStore: ds) { Color.clear }

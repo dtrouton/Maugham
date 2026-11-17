@@ -457,22 +457,22 @@ final class DocSyncTests: XCTestCase {
             + "All cases: \(caseNames).")
     }
 
-    /// Self-check: a doctored right-pane.md with the "inbox" mention removed
-    /// causes the real "inbox" case name to be reported missing — proving
-    /// the check above would fire on real drift (e.g. a 9th segment added
+    /// Self-check: a doctored right-pane.md with the "tasks" mention removed
+    /// causes the real "tasks" case name to be reported missing — proving
+    /// the check above would fire on real drift (e.g. a segment added
     /// without a doc mention).
     func test_segmentMentionCheckWouldFireOnPlantedOffender() throws {
         let sourceText = try readFile("Maugham/Models/DetailSegment.swift")
         let caseNames = Self.extractEnumCaseNames(from: sourceText)
-        XCTAssertTrue(caseNames.contains("inbox"),
-            "Self-check precondition: DetailSegment should still have an `inbox` case.")
+        XCTAssertTrue(caseNames.contains("tasks"),
+            "Self-check precondition: DetailSegment should still have a `tasks` case.")
 
         let doctoredDoc = "The right column has modes: Inspector, Research, Outline, "
-            + "Tasks, Annotations, History, Palette, Translation, Intent, Lessons, "
+            + "Annotations, History, Palette, Translation, Intent, Lessons, "
             + "First Reader, Visual Language, Diagnostics, References, Department."
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
-        XCTAssertEqual(missing, ["inbox"],
-            "Self-check expected exactly the omitted \"inbox\" case to be reported missing. Got: \(missing).")
+        XCTAssertEqual(missing, ["tasks"],
+            "Self-check expected exactly the omitted \"tasks\" case to be reported missing. Got: \(missing).")
     }
 
     /// Self-check for the spelled-out alternative: a multi-word case is

@@ -120,7 +120,7 @@ enum PublishProblems {
     }
 }
 
-/// **The publish problems arm of Publish's centre column** — the list the desk's
+/// **The publish problems arm of the edition's centre** — the list the desk's
 /// Show Problems opens. It takes values and closures only: the rows were
 /// derived by the caller, Back is `onClose`, and each row's Show in Manuscript
 /// hands its piece and paragraph to `onReveal`, which the window wires to the

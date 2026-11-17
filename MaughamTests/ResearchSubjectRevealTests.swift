@@ -12,7 +12,7 @@ import MaughamCore
 /// that suite could see is whether the right column is SHOWING that inspector:
 /// its probe mounts the inspector arm directly, so it skips the one gate
 /// production has — `DetailPaneToggle` renders `inspectorContent` from its
-/// `.inspector` arm alone, and the writer may be on another pane (`.inbox`
+/// `.inspector` arm alone, and the writer may be on another pane (`.tasks`
 /// here). Every piece was right and the composition was dead.
 ///
 /// **So this suite's probe mounts the real `DetailPaneToggle`, on a pane that
@@ -66,7 +66,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
         let mount = try await host(store: store, subject: Self.canvas)
-        XCTAssertEqual(mount.probe.detailSegment, .inbox,
+        XCTAssertEqual(mount.probe.detailSegment, .tasks,
                        "precondition: the right column is on a pane that is not "
                        + "the inspector — the whole point of the case")
 
@@ -128,7 +128,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         pump(0.4)
 
         XCTAssertEqual(
-            mount.probe.detailSegment, .inbox,
+            mount.probe.detailSegment, .tasks,
             "the window's first subject is `load()`'s seed, and the pane beside "
             + "it was restored verbatim from the same UIState — a reveal there "
             + "would move the writer's last explicit pane choice every reopen")
@@ -274,7 +274,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         }
         for subject in subjects {
             var showInspector = false
-            var segment = DetailSegment.inbox
+            var segment = DetailSegment.tasks
             ProjectWindow.revealResearchColumn(
                 subject: subject, showInspector: &showInspector, detailSegment: &segment)
 
@@ -284,7 +284,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
             XCTAssertEqual(showInspector, previews,
                            "\(subject): the reveal fires exactly where the "
                            + "placement previews in the right column")
-            XCTAssertEqual(segment, previews ? .inspector : .inbox,
+            XCTAssertEqual(segment, previews ? .inspector : .tasks,
                            "\(subject): and it moves the pane in the same cases")
         }
     }
@@ -312,11 +312,11 @@ final class ResearchSubjectRevealTests: XCTestCase {
     func test_aSubjectWithNothingBesideRevealsNothing() {
         for subject in SubjectSamples.everySubject {
             var showInspector = false
-            var segment = DetailSegment.inbox
+            var segment = DetailSegment.tasks
             ProjectWindow.revealResearchColumn(
                 subject: subject, showInspector: &showInspector, detailSegment: &segment)
             XCTAssertFalse(showInspector, "\(subject.open) open, nothing beside")
-            XCTAssertEqual(segment, .inbox)
+            XCTAssertEqual(segment, .tasks)
         }
     }
 
@@ -375,14 +375,12 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let probe: ResearchRevealProbe
     }
 
-    /// The right column's pane list is still the persona's until shell p1
-    /// Task 6; Plan's holds `.inbox`, the pane that is not the inspector.
+    /// The probe starts on `.tasks`, a pane that is not the inspector.
     private func host(store: ProjectStore,
                       subject: WindowSubject?) async throws -> Mount {
-        let persona = Persona.plan
         let probe = ResearchRevealProbe()
         probe.subject = subject
-        probe.detailSegment = .inbox
+        probe.detailSegment = .tasks
         let suite = "research-subject-reveal-\(UUID().uuidString)"
         defaultsSuites.append(suite)
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
@@ -390,7 +388,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 
         let root = ResearchRevealProbeView(
             store: store, documentStore: documentStore,
-            persona: persona, probe: probe)
+            probe: probe)
             .environment(preferences)
 
         let window = TestWindow.mount(AnyView(root),
@@ -439,7 +437,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 final class ResearchRevealProbe {
     /// `nil` before the window's `load()`, as production's `subjectState` is.
     var subject: WindowSubject?
-    var detailSegment: DetailSegment = .inbox
+    var detailSegment: DetailSegment = .tasks
     var showInspector = true
     /// The tree's state — the window's since stage-3a Task 4, and this probe
     /// stands in for the window. Held here rather than inside the probe VIEW so
@@ -483,7 +481,6 @@ final class ResearchRevealProbe {
 private struct ResearchRevealProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
-    let persona: Persona
     let probe: ResearchRevealProbe
 
     /// The right column's view of the subject, as `ProjectWindow`'s
@@ -547,7 +544,7 @@ private struct ResearchRevealProbeView: View {
             segment: segment,
             selectedSubject: subject,
             activeManuscriptItemId: probe.subject?.faces.itemID,
-            persona: persona,
+            subject: probe.subject ?? .book,
             projectURL: store.url,
             activeDocId: BinderSubject.activeDocId(for: probe.subject?.faces),
             documentStore: documentStore

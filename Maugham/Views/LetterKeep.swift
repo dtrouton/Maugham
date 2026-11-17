@@ -60,7 +60,7 @@ enum LetterKeep {
     /// nothing in the guide.
     ///
     /// **Both extra spellings moved here in two loops P1 Task 8, and they are
-    /// about a STORED run rather than a strip.** Review's cockpit draws
+    /// about a STORED run rather than a strip.** the round cockpit draws
     /// neither any more: a round is a stage editor's, and the draft stage is
     /// the check loop's own derivation. What this renders is the heading of a
     /// note kept from a run that already happened — including a legacy round
@@ -148,7 +148,7 @@ enum LetterKeep {
                 "The kept letter's note has no file to write to: \(created.id)")
         }
         // **Through the note door when a store is wired**, as the assistant's:
-        // a letter is the compiler persona's text (a `CompilerRun`'s derived
+        // a letter is the compiler's text (a `CompilerRun`'s derived
         // `Letter`), so the writer's first edit of the kept note keeps it as a
         // version marked "Written by assistant". It must land: the note was
         // just made empty and nothing over it is lost. Not `.saved` throws —

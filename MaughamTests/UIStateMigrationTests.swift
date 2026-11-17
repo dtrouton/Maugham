@@ -22,14 +22,14 @@ final class UIStateMigrationTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(loaded.schemaVersion, UIState.currentSchemaVersion)
-        XCTAssertEqual(loaded.selectedSubject, .item("doc-1"))
+        XCTAssertEqual(loaded.windowSubject.open, .item("doc-1"))
         XCTAssertTrue(loaded.isNoChromeOn)
     }
 
     func test_v2JSON_roundtrips() throws {
         let original = UIState(
             schemaVersion: 2,
-            selectedSubject: .item("doc-9"),
+            windowSubject: WindowSubject(open: .item("doc-9"), faces: .item("doc-9")),
             isNoChromeOn: false,
             researchPreviewVisible: true)
         let url = TestTemp.root
@@ -39,7 +39,7 @@ final class UIStateMigrationTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertTrue(loaded.researchPreviewVisible)
-        XCTAssertEqual(loaded.selectedSubject, .item("doc-9"))
+        XCTAssertEqual(loaded.windowSubject.open, .item("doc-9"))
     }
 
     func test_unknownFutureSchema_returnsEmpty() throws {
@@ -56,7 +56,7 @@ final class UIStateMigrationTests: XCTestCase {
     }
 
     /// **The left column is not persisted at all since shell-finish stage 2b
-    /// Task 7**, so there is no default for it to have. Every persona shows the
+    /// Task 7**, so there is no default for it to have. The left column is the
     /// project's own tree; a stale `binderSegment` in a file written by an older
     /// build decodes away (`UIStateTests`).
     func test_emptyUIState_persistsNoLeftColumnChoice() throws {

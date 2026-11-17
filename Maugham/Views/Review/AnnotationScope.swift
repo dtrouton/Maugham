@@ -51,10 +51,9 @@ enum AnnotationScopePolicy {
         /// paragraph/annotation navigation, exactly as document scope does it.
         case jump
         /// The row belongs to another piece, or to a figure: take the window
-        /// there. A SUBJECT write and nothing else — Review's centre shows
-        /// documents, so this navigation must never move the persona
-        /// (`ManuscriptNavigation`, and the ejection trap the whole of M3 is
-        /// written around).
+        /// there. A SUBJECT write and nothing else — the centre shows the piece
+        /// with the queue still beside it (`ManuscriptNavigation`, and the
+        /// ejection trap the whole of M3 is written around).
         case travel(BinderSubject)
         /// A figure the tree's Figures section has no row for (parked, or a
         /// project that shows no section): nothing moves. A figure a piece

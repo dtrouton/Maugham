@@ -93,8 +93,8 @@ extension ReferenceIndexHost.Project {
 /// the window's `ReferenceIndexHost` to the open project and carries the
 /// edges that are the project's rather than the editor's — research changed,
 /// the binder changed, a closed piece's op log moved — so the index, and the
-/// `FigureListingModel` it feeds, stay current in every persona, Plan's
-/// canvas centre included. A new version reaches the editor one-way, through
+/// `FigureListingModel` it feeds, stay current whatever is open, the canvas
+/// centre included. A new version reaches the editor one-way, through
 /// `EditorControl.referenceIndexVersion`. The editor's own edges (a settle, a
 /// document switch) stay `EditorHost`'s, on the host it is handed.
 ///

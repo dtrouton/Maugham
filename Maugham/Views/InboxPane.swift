@@ -394,8 +394,8 @@ struct InboxPane: View {
         .padding(.vertical, 8)
     }
 
-    /// **Told, and told where.** The sentence names the capture and the persona
-    /// the canvas lives in, because the card itself lands clear of the writer's
+    /// **Told, and told where.** The sentence names the capture and the canvas
+    /// it went to, because the card itself lands clear of the writer's
     /// work — which on any non-empty canvas is outside their viewport.
     private func sentStrip(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -513,10 +513,9 @@ struct InboxPane: View {
         }
         .padding(.vertical, 2)
         // **An inbox row is draggable onto the canvas** (spec §8A.4's amendment):
-        // `.inbox` is one of the Plan persona's panes, so the pane can sit in the
-        // right-hand column with the canvas in the centre — the two surfaces on
-        // screen together is what makes a drag the obvious act, and the capture
-        // lands where it is dropped.
+        // wherever a canvas is on screen to drop onto (another window's, since
+        // the Inbox is a centre of its own), the capture lands where it is
+        // dropped. Send to Canvas is the way there from this window.
         //
         // **PREFIXED, unlike every other `.draggable` in the app.** `ResearchRow`
         // sends `item.id` bare and each existing drop target reads one id space;
@@ -569,8 +568,8 @@ struct InboxPane: View {
             Button("Promote to Palette Card…") { palettePicking = entry }
             // **Beside Promote to Palette, and not redundant with the drag**
             // (spec §8A.4's amendment): a drag is unreachable from the keyboard,
-            // unreachable to VoiceOver, and unavailable when the writer has the
-            // pane in another persona with no canvas on screen to drop onto.
+            // unreachable to VoiceOver, and unavailable when the Inbox is the
+            // centre with no canvas on screen to drop onto.
             Button("Send to Canvas") { sendToCanvas(entry) }
             if entry.kind == .audio {
                 Button("Edit Transcript…") { editing = entry }
@@ -649,7 +648,7 @@ struct InboxPane: View {
                 // appearance otherwise.
                 CanvasCapture.show(node, in: projectStore)
                 sentToCanvas = "Sent “\(title(for: entry))” to the canvas. "
-                    + "Open Plan (⌘1) to see it."
+                    + "Open the Canvas in the tree to see it."
             } catch { promoteError = error.localizedDescription }
         }
     }

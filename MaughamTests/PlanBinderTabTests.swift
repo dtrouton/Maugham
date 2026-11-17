@@ -309,7 +309,6 @@ final class PlanBinderTabTests: XCTestCase {
         await store.wordCountPopulationTask?.value
         ds.updateUIState {
             $0.windowSubject = SubjectSamples.opened(open)
-            $0.selectedSubject = .project
         }
         await waitOut(1.2)   // the 500ms UI-state debounce reaches disk
         return url

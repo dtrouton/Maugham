@@ -6,7 +6,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the writer meets a card that cannot be promoted; what they are given is the cause in the performer's own words rather than an empty Name field over a dead button, which is what this surface shipped before blockedReason answered for it",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -16,7 +16,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "a refusal, and the cause it names is the true one — the reference already exists as itself — rather than the empty-body sentence the fall-through would have produced about a picture",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -26,7 +26,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the same refusal one row down, and the noun is the region's own: 'There is nothing in this card to promote.' said over a region would misname what failed",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -36,7 +36,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the refusal states the real precedence rule (a line is scratch until both ends are durable) rather than reporting the empty target list as an unexplained absence",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -46,7 +46,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "two states with two causes: a card that was never promoted and one whose artifact has been deleted are given different sentences, so neither writer is told to do what they already did",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -56,7 +56,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the refusal names the real constraint — a wiki-link joins two cards of text — rather than the generic promote-both-first sentence, which is false of an item node",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -66,7 +66,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "a preview that read 'research/' for an association the router will refuse would state a destination that is not the real one; this states the real state of affairs instead",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -76,7 +76,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the refusal names the missing artifact by id and is thrown before any write, so the failure is reported as what it is",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -86,7 +86,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the refusal names what the artifact IS now and says explicitly that Maugham did not write over it — the cause, and the consequence, both true",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -96,7 +96,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "a blank name is refused with the real cause at the moment of the act",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -106,7 +106,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the second link is refused against the live file with the true cause, and the destination is left byte-identical, so the refusal describes what happened",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -116,7 +116,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "a plan with no picture refuses rather than substituting a file, and the sentence names the real cause",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -126,7 +126,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "both refusals are true, and the order chosen is the one that names the cause the writer cannot work around — a missing file kills the promotion whatever card is picked",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -136,7 +136,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the subject of the sentence follows what the writer actually selected, so the refusal does not point at a card they never chose",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -146,7 +146,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the refusal is raised where the writer can act on it instead of letting ProjectStoreError's own sentence — which names an id and describes the store — reach them",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -156,7 +156,7 @@
   "clause_that_reaches_it": "Maugham never misrepresents a failure. Unreadable is never presented as empty. A refusal names its real cause.",
   "why_in_scope": "the second half of the refusal names only a control that exists on the arm the writer is looking at; offering a Piece picker an ItemInspector does not have would be a refusal whose stated remedy is false",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -166,7 +166,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the preview is the whole basis of the writer's expectation on this surface; it can only be honest if producing it changes nothing, and it changes nothing",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -176,7 +176,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the writer forms their expectation of WHERE this is filed from this sentence, and each row states the routing that will actually be taken (pinned end-to-end for the novel-chapter row by M6-PR-069)",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -186,7 +186,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "a palette card is never routed, and the sentence promises a link only on the row that writes one — so the writer's expectation and the outcome cannot part company",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -196,7 +196,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the intent doc accumulates, and the destination says so before Commit rather than leaving 'it appends' discoverable by doing it twice",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -206,7 +206,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the confirmation is what the writer is left holding; each arm names the artifact produced, and the two arms whose destination is not a fresh artifact read the plan's own destination string rather than choosing a noun a second time",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -216,7 +216,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "a Name field on a target that names nothing is a control that does not do what it says; this row does not ask for one",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -226,7 +226,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the destination said it would add to the end of what is already there, and that is what happens — the writer's accumulated intent is never replaced by one card",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -236,7 +236,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the preview for a stale or absent association reads 'the project's craft intent', and the project's craft intent is exactly where the words land; there is no mismatch to convict",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -246,7 +246,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "a refusal that left an artifact behind would differ from what the writer understood by 'it refused'; validate-first means the refusal leaves nothing, and the row that is never routed is not blocked by an association it does not use",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -256,7 +256,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the sheet promised 'research/, linked to “Chapter 1”' and the note is filed in shared research with a link record on the chapter",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -266,7 +266,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the sheet promised the palette wall plus the link, and that is what the card gets",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -276,7 +276,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "the confirmation counts what was written rather than what was offered; 'Linked 2 notes' over nothing written would be a success report differing from the outcome",
   "intent_expressed_when": "contemporaneous — the writer read the sheet and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -286,7 +286,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "Unchanged in scope from the VIOLATES filing — the writer formed an expectation from what Maugham LABELLED. WHY_IT_VIOLATED: the mode picker read 'Rewrite \"Fog, act II\"' and the preview read 'Goes to: the existing \"Fog, act II\"', both naming the note by the title the writer chose, and committing replaced that title with the card's first line and renamed the file on disk to match. Nothing on the sheet said the name would move. (The survey's SETTLED_BY_SUB under RULING-14 was a scope error: R14 licenses the WRITER to rename what they imported, not a later promotion to rename it back.) As of the fix performResearchNote's .update arm no longer calls store.updateResearchItem at all — an update is about the body, the artifact is already named, and Promotion.plannedTitle carries the artifact's own name rather than the card's first line. ONE defect with M6-PR-039, fixed together.",
   "intent_expressed_when": "earlier, and never withdrawn — the writer renamed that note deliberately and has not asked for it to be renamed again",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → store.updateResearchItem(id:title:)",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → store.updateResearchItem(id:title:)",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
@@ -302,7 +302,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "Unchanged in scope from the VIOLATES filing — the same defect seen at the sheet. WHY_IT_VIOLATED: three strings were on screen at once and the least prominent of them — the Name field, seeded by select(_:) from the card's first line and never re-seeded when the writer picked Rewrite — is the one that won, because resolvedPlan writes editedTitle over plan.title. A control whose two labels name one artifact and whose hidden third value renames it is not unambiguous. As of the fix Promotion.plannedTitle answers off the same value and under the same guard as Promotion.destination, so the plan's title and its destination cannot drift; the sheet re-seeds editedTitle in mode's didSet, and PromotionSheetModel.namesTheArtifact withholds the Name field on a rewrite — an artifact that already has a name is not the writer's to rename here, and a field that changes nothing is the failure PromotionTarget.namesItsArtifact exists to prevent one row over. ONE defect with M6-PR-038, fixed together.",
   "intent_expressed_when": "earlier — see M6-PR-038",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
@@ -318,7 +318,7 @@
   "clause_that_reaches_it": "promoting again as New moves it, latest wins, because re-promoting IS the writer deciding what the material now relates to. No warning is owed.",
   "why_in_scope": "Ruled, not argued down by default: Denver took the bookmark reading verbatim ('I no longer see this as having that relationship, it's now this relationship'), with the revisit hook on multi-artifact mapping. The original conviction's reasoning is preserved in why_it_violated; the behaviour is unchanged and now correct BY RULING. Ratified 55da097048.",
   "intent_expressed_when": "contemporaneous for the duplicate; not at all for the detachment",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.new) → mark",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.new) → mark",
   "violation_or_enhancement": "neither",
   "ratified": {
    "ruling": "RULING-47",
@@ -333,7 +333,7 @@
   "clause_that_reaches_it": "Maugham should never surprise the writer. Controls are unambiguous and DO WHAT THEY SAY.",
   "why_in_scope": "Unchanged in scope from the VIOLATES filing — what Maugham showed was a failure and the writer's expectation from a failure message is that the act did not happen. WHY_IT_VIOLATED: 'Maugham could not read what is already in research/…' was thrown by writeOfferedLinks, which runs LAST — the note had already been created, its body written, the region marked and a contribution record stamped on every member. The failure REPORT was true; what was false is the 'nothing happened' the writer takes from it, and the performer's own contract states the rule it broke ('Validate first, write second. A refused promotion leaves nothing behind'). As of the fix PromotionPerformer.precheckOfferedLinks runs immediately after validate and before any mutation: it resolves each offer through the same writableDestination the write uses and reads the file arm through the same readBody, after the same flush — so the one fallible part of that pass that can be asked early is asked early. A destination that is GONE is still skipped rather than refused (writeOfferedLinks' documented honest skip) and a statement is appended through its op log with nothing to read back, so nothing else in the pass can throw. RULING-7 also reaches (the survey's PROMO-D5); R22 is the sharper.",
   "intent_expressed_when": "contemporaneous — the writer accepted the link offer and pressed Promote",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote → writeOfferedLinks → readBody",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote → writeOfferedLinks → readBody",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
@@ -366,7 +366,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "the craft intent is excluded from the updatable set precisely so a promotion can never replace a whole accumulated intent statement with one card — the tier's protection of what the writer has built up, enforced by the offer never being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended (the RESEARCH line became the RESEARCH TEXT line): COMPLIES unchanged. An intent statement is op-logged, not Research text, but the reasoning is the tier's — what the writer has built up is not replaced by one card — and the amended line owes research text more, not less."
  },
@@ -377,7 +377,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "the kind term is what stops a mark resolving for every updatable target; without it a research-note promotion would rename a palette card's backing file and write raw scrap text over its swatches, notes and image references — an unrecoverable loss of research — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A card's text now keeps versions through the note door, so the loss would no longer be total, but a research-note write over a card would still rename its file and replace its swatches, notes and image references with scrap text; refusing it remains what the tier owes."
  },
@@ -388,7 +388,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "reading the contribution record here would let one member of a six-card region note replace the whole note with its own text; the artifact is research, and there is no route back once its body is overwritten — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A Rewrite would now keep the note's text as a version, but replacing a six-card note with one member's text is still the act the tier keeps from happening silently."
  },
@@ -399,7 +399,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "a rewrite that is about the prose takes the prose only: the swatches, sensory notes and image paths the writer built up on that card are carried across, so the act costs exactly what it says and no research is lost beside it — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. A card Rewrite now also keeps the card's whole file as a version first (M6-PR-037), and still carries the swatches, sensory notes and images across."
  },
@@ -410,7 +410,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "stamping the picture with the card's id would offer a Rewrite of that card on the next promotion, and taking it would replace a card holding other images and swatches with one photograph; the contribution record is what keeps that offer from ever being made — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. Such a Rewrite would now keep a version first, but the record still keeps the wrong Rewrite from being offered at all."
  },
@@ -421,7 +421,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "without the flush a queued 750ms save for the destination fires after the promotion and restores the pre-promotion prose — research overwritten by Maugham's own timing, with no version to recover from — filed on the tier rather than on RULING-4 because RULING-24 explicitly scopes R4 ('R4's authored words are always recoverable now has a tier attached'), so the tier is the more specific statement of the same duty (phase 24's precedent)",
   "intent_expressed_when": "contemporaneous — the writer invoked Promote…",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither",
   "re_read": "Re-read 2026-11-11 against RULING-24 as amended: COMPLIES unchanged. Since notes (2026-11-10) and cards (2026-11-11) keep versions, the late save would itself keep the promotion's text as a version, so the loss is no longer unrecoverable; the flush is still what keeps the writer's visible text from being Maugham's timing rather than their act."
  },
@@ -432,7 +432,7 @@
   "clause_that_reaches_it": "RESEARCH TEXT — a table, a note, a palette card — is versioned: its writes, the writer's and the assistant's, keep earlier versions the writer can restore (RULING-56).",
   "why_in_scope": "The tier states what research is OWED, and since 2026-11-11 it owes research text restorable versions (RULING-24 as amended; RULING-56). A Rewrite replaces a note's or a palette card's whole text, so the version of what it replaces is the writer's one route back. As of 2026-11-11 (Denver's P1: 'drop the trash entry IF we guarantee a version is created') the Rewrite writes only through the note door, whose direct save keeps the replaced bytes — the note's file, or the card's whole file — as a version BEFORE it writes and refuses when it cannot: no version, no Rewrite, the file byte-identical, the writer told. With no DocumentStore the Rewrite refuses rather than write raw. The door's remaining no-keep paths lose nothing (the same text, a missing or empty file, bytes already kept as the newest version, and a new card's untouched blank template, which is text nobody wrote — that last is the coordinator's call, hardening 2026-11-16, not Denver's), and an unreadable file is never written. So the Trash entry the 2026-08-09 bridge kept (TrashSubject.priorVersion, RULING-48's 'bridge, not the standard') is retired; entries older builds wrote still restore. HISTORY: filed VIOLATES 2026-08-02 — a Rewrite replaced the note's body through an atomic write with no backup, no op log and no trash copy; fixed 2026-08-09 by the Trash bridge (fix below), its holes closed the same day (amendment below), and superseded by versioning on 2026-11-11 (amendment_2026_11_11).",
   "intent_expressed_when": "contemporaneous — the writer chose the Rewrite mode; but they were never told how much was in the note, and the preview shows only what will be written",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody(rewriting: true), or performPaletteCard(.update) → updatePaletteCard → paletteCoordinatedWrite → DocumentStore.saveResearchNote → ResearchNoteDoor (keep, then DocumentStore.performFileSave)",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform → performResearchNote(.update) → writeBody(rewriting: true), or performPaletteCard(.update) → updatePaletteCard → paletteCoordinatedWrite → DocumentStore.saveResearchNote → ResearchNoteDoor (keep, then DocumentStore.performFileSave)",
   "violation_or_enhancement": "violation",
   "fix": {
    "commit": "b55b055840fe797f5b4831ca1aef2085af74b29c",
@@ -463,7 +463,7 @@
   "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
   "why_in_scope": "a region's lines and layout are the spatial thinking, which is derived material this design deliberately does not carry across; the ruling's requirement is that the drop be REPORTED, and the plan declares it before Commit",
   "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -473,7 +473,7 @@
   "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
   "why_in_scope": "a rewrite cannot take the pictures, and rather than dropping them silently the plan declares the pictures discard in their place",
   "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -483,7 +483,7 @@
   "clause_that_reaches_it": "Derived or transient material — a failed transcription, a superseded render, a cache — may be dropped, but the drop must be reported.",
   "why_in_scope": "a research note is prose and has nowhere to put a photograph; the region's plan says so instead of leaving the writer to find the picture missing",
   "intent_expressed_when": "contemporaneous — the discard is shown in the preview, before the writer commits",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -493,7 +493,7 @@
   "clause_that_reaches_it": "Maugham MUST NOT accept, through any of its own entry points, content it cannot read back faithfully.",
   "why_in_scope": "RULING-1's scope names canvas promotion as one of Maugham's own entry points. The card's words are written into the note verbatim and read back identically, so nothing entering research through this door can be eaten later.",
   "intent_expressed_when": "contemporaneous",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -503,7 +503,7 @@
   "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer.",
   "why_in_scope": "the writer's question is 'what is the thing this link is going into called?', and it is answered on three surfaces — the sheet's destination line, the confirmation banner and the already-present refusal. All three read one value, resolved once by the plan against the same index the write resolves against, so a line drawn from a craft-intent card cannot be previewed as a note and confirmed as a note while the words land in a statement.",
   "intent_expressed_when": "contemporaneous",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -513,7 +513,7 @@
   "clause_that_reaches_it": "Once inside, the result is an ordinary project artifact — research item, palette note, canvas scrap — and is moved, renamed and deleted by the ordinary rules.",
   "why_in_scope": "promotion is the ingestion boundary and this is a picture crossing it: the file is COPIED, so the canvas keeps its card and research gets an ordinary asset that the research tree then moves, renames and deletes by its own rules. Handing the file over instead would make promotion the one verb here that MOVES, and there is no reverse-promote to undo it with.",
   "intent_expressed_when": "contemporaneous",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet → Promote → CanvasPromotionModifier.commit → PromotionPerformer.perform",
   "violation_or_enhancement": "neither"
  },
  {
@@ -523,7 +523,7 @@
   "clause_that_reaches_it": "Where their intent is unclear, we default SAFE.",
   "why_in_scope": "which mode the writer wants is not knowable when the sheet opens, and the safe default is the one that creates rather than overwrites; .new is first in the list so a picker rendering them in order cannot leave 'rewrite the writer's note' under the cursor. No sub-ruling states the default-safe rule, so the root is the most specific reach.",
   "intent_expressed_when": "not at all — this is the state before the writer has chosen",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -533,7 +533,7 @@
   "clause_that_reaches_it": "Where their intent is unclear, we default SAFE.",
   "why_in_scope": "a .paletteCardImage request with no card is intent Maugham cannot complete, and what it does is NON-DESTRUCTIVE: no plan at all, so Promote is disabled and the picture does not land on whichever card sorted first. Default-safe, and the root is again the only reach.",
   "intent_expressed_when": "not at all — the writer has not yet chosen a destination",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "neither"
  },
  {
@@ -614,7 +614,7 @@
   "clause_that_reaches_it": "promotion never adds a link to an artifact the note already points at, under any spelling — symmetric",
   "why_in_scope": "the duplicate-link check now compares link TARGETS through Promotion.alreadyLinks(to:in:) at all four containment sites; the plain-blocks-labelled direction the substring test missed is pinned red-then-green",
   "intent_expressed_when": "2026-08-09, GAP-P3's two-round sitting; ruling contemporaneous with conviction",
-  "call_path": "⌘1 Plan → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
+  "call_path": "the tree's Canvas row → select on the canvas → File ▸ Promote… (⌘⇧↩) → the sheet",
   "violation_or_enhancement": "violation — behaviour change owed (target-based comparison)",
   "fix": {
    "commit": "125b3fa6",
@@ -691,7 +691,7 @@
   "clause_that_reaches_it": "a rewrite removes and re-records ITS OWN artifact's fact only",
   "why_in_scope": "PromotionPerformer.record now removes this artifact's fact from departed scrap cards and APPENDS to current contributors — per-artifact on both sides. CORRECTION to the VIOLATES filing's mechanics: the old clear was already artifact-scoped; the fact-discarding site was the STAMP, which overwrote the single-valued field",
   "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
-  "call_path": "⌘1 Plan → select region → File ▸ Promote… → Rewrite → Commit",
+  "call_path": "the tree's Canvas row → select region → File ▸ Promote… → Rewrite → Commit",
   "violation_or_enhancement": "violation — behaviour change owed (per-artifact remove-then-record)",
   "fix": {
    "commit": "16ecdcbc",
@@ -708,7 +708,7 @@
   "clause_that_reaches_it": "a card whose words fed two artifacts records both; the §6.3 rewrite-guard protects EVERY artifact the card contributed to",
   "why_in_scope": "contributedToItemIDs is an ordered de-duplicated array; the stamp appends; canvas.json at schema 9 with the schema-8 singular record folding into the array on decode; the inspector renders every record and list_canvas reports the full array",
   "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
-  "call_path": "⌘1 Plan → card in two regions → promote each region → the record holds only the later",
+  "call_path": "the tree's Canvas row → card in two regions → promote each region → the record holds only the later",
   "violation_or_enhancement": "violation — schema + behaviour change owed (multi-valued record)",
   "fix": {
    "commit": "16ecdcbc",
@@ -725,7 +725,7 @@
   "clause_that_reaches_it": "a contribution record is a FACT, and Maugham holds every one",
   "why_in_scope": "the clear reaching scrap nodes only is what keeps a picture's record standing through a region rewrite — the record that survives is a true fact held, which is the ruling's own demand on the one node kind whose contribution the rewrite does not re-make",
   "intent_expressed_when": "2026-08-09, GAP-P4's two-round sitting",
-  "call_path": "⌘1 Plan → region with a picture → promote → rewrite the region",
+  "call_path": "the tree's Canvas row → region with a picture → promote → rewrite the region",
   "violation_or_enhancement": "neither"
  },
  {

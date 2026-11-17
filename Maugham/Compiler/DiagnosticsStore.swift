@@ -79,7 +79,7 @@ final class DiagnosticsStore {
     }
 
     private struct FileContent: Codable, Equatable {
-        /// **What Author's ⌘R last said about this document.** `nil` for a
+        /// **What the check's ⌘R last said about this document.** `nil` for a
         /// document only ever run against from Review — which is exactly what
         /// the Author pane should say about it: no check has been made.
         var check: Standing?
@@ -286,7 +286,7 @@ final class DiagnosticsStore {
     /// **Keyed by `(docId, kind)`, not just `docId`.** The check and the round
     /// are different readers of the same document — the ask typed in Author's
     /// header is a worry aimed at the reader who checks, and the one typed in
-    /// Review's cockpit is aimed at the editor who runs the round — and a
+    /// the round cockpit is aimed at the editor who runs the round — and a
     /// single shared sentence would mean asking the coach the same question
     /// meant for Gould. `askKey` is the one place the two are joined into a
     /// dictionary key, so nothing else here can drift into keying one kind's
@@ -493,7 +493,7 @@ final class DiagnosticsStore {
     /// left on `docId`.
     ///
     /// **`kind` is the SURFACE's, not the document's** (whole-branch review,
-    /// finding 2). Author's Diagnostics pane is the check's, so it clears the
+    /// finding 2). The Diagnostics pane is the check's, so it clears the
     /// check's count and nothing else: clearing both would mark a round's
     /// queued notes read on the strength of a pane that does not draw them,
     /// which is the same rule `replace` follows — a run clears its own
@@ -607,7 +607,7 @@ final class DiagnosticsStore {
         version += 1
     }
 
-    /// **What Author's ⌘R last said about `docId`** — the standing check
+    /// **What the check's ⌘R last said about `docId`** — the standing check
     /// (two loops P1 Task 5). What the Diagnostics pane reports on.
     func lastCheck(docId: String) -> CompilerRun? {
         byDoc[docId]?[.check]?.run
@@ -629,7 +629,7 @@ final class DiagnosticsStore {
     /// judged that last. Every other reader wants one verb's answer
     /// and asks `lastCheck` or `lastRound` by name — a surface reading
     /// "whichever ran last" is a surface that changes what it is reporting on
-    /// when the writer switches persona.
+    /// when the writer opens something else.
     ///
     /// A tie goes to the check, which is the loop the intent strip is drawn
     /// in; two runs sharing a whole second is a fixture, not a session.

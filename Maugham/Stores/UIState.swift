@@ -24,61 +24,31 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
-    /// What the window's tree names (`BinderSubject`).
-    ///
-    /// **Persisted under the keys it always used, and additively.** An item
-    /// subject still writes `selectedItemId` as a bare string, so an older build
-    /// restores it exactly as it did; the project subject writes a separate
-    /// `selectedSubjectIsProject` flag and NO `selectedItemId`, so an older build
-    /// sees no selection and falls to the first document — the same landing a
-    /// deleted item already gets. Decode reads a bare string back as `.item`.
-    /// Neither direction of the skew loses or invents a selection, which is why
-    /// the new case cost no schema bump and no migration.
-    ///
-    /// **A research subject writes a THIRD key, `selectedResearchItemId`, on the
-    /// same principle** (stage-2a Task 1): a build that has never heard of it
-    /// writes and reads neither of the other two, so it sees no selection at
-    /// all rather than misreading a research id as a structure item id. A
-    /// figure subject writes a FOURTH, `selectedFigureId` (report plan 8a), the
-    /// same way.
-    public var selectedSubject: BinderSubject?
-
     /// What the window is about (shell p1): centre, right column, beside.
-    /// Stored under its own `windowSubject` key. A file without it builds one
-    /// from the legacy `selectedSubject`, else the Book.
+    /// Stored under its own `windowSubject` key. A file without it — written
+    /// before shell p1 — builds one from the legacy selection keys
+    /// (`selectedItemId`, `selectedSubjectIsProject`, `selectedResearchItemId`,
+    /// `selectedFigureId`), else the Book. Those keys are read, never written.
     public var windowSubject: WindowSubject
 
-    /// How the Book is shown. Seeded once from the legacy `outlineLayout`
-    /// when absent (`.table` is `.outline`, `.cards` is `.cards`).
+    /// How the Book is shown. Seeded once from the legacy `outlineLayout` key
+    /// when absent (`table` is `.outline`, `cards` is `.cards`); that key is
+    /// read, never written.
     public var bookView: BookView
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
+    /// The right column's segment — one remembered for the window, whatever
+    /// the subject.
     public var detailSegment: DetailSegment
-    public var outlineLayout: OutlineLayout
     /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
     /// Per-window, persisted so the posture survives reopen. Additive in
     /// schema v3; old files default to false.
     public var isReviewModeOn: Bool
 
-    /// The window's working mode. Persisted per PROJECT, not per window —
-    /// `UIState` lives at `.maugham/ui-state.json` and two windows on the same
-    /// project share it, last-writer-wins. That is deliberate and matches
-    /// `isNoChromeOn` / `isReviewModeOn`, which have the same shape. Runtime
-    /// per-window independence comes from `ProjectWindow`'s `@State`; only the
-    /// mode a *freshly opened* window starts in is shared.
-    public var persona: Persona
-
-    /// Where each persona was last standing (`PersonaMemory`). Additive in
-    /// schema v5; older files decode it empty, and every persona then lands on
-    /// its own home the first time it is entered — which is the correct
-    /// first-run behaviour anyway, so there is nothing to migrate.
-    public var personaMemory: PersonaMemory
-
     /// The model the Diagnostics pane's gear menu spawns compiler runs
     /// against (M2 Task 8).
     ///
-    /// **No schema bump**, for `selectedSubject`'s reason one field up: this is
-    /// one additive key with a default, so a file written without it decodes to
+    /// **No schema bump**: this is one additive key with a default, so a file written without it decodes to
     /// `.standard` — the spec's default (§3.5) and `defaultModel`'s own answer —
     /// and an older build ignores a key it has never heard of. Both directions
     /// of the version skew read cleanly, which is what the constant is for.
@@ -187,7 +157,7 @@ public struct UIState: Codable, Equatable, Sendable {
     /// (`AssistantColumnTests.test_aFileStillCarryingTheDeadWidthKeyDecodes`).
 
     /// How wide the window's RIGHT column is — one width, held through every
-    /// persona and every pane switch (shell-finish stage 1, Task 1).
+    /// subject change and every pane switch (shell-finish stage 1, Task 1).
     ///
     /// **A non-optional `Double` with a default and a clamp on every way in**
     /// — rather than a
@@ -234,16 +204,12 @@ public struct UIState: Codable, Equatable, Sendable {
 
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
-        selectedSubject: BinderSubject? = nil,
         windowSubject: WindowSubject = .book,
         bookView: BookView = .outline,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
-        outlineLayout: OutlineLayout = .table,
         isReviewModeOn: Bool = false,
-        persona: Persona = .default,
-        personaMemory: PersonaMemory = .empty,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
@@ -253,16 +219,12 @@ public struct UIState: Codable, Equatable, Sendable {
         sentRecoveredOpIds: [String: Set<String>] = [:]
     ) {
         self.schemaVersion = schemaVersion
-        self.selectedSubject = selectedSubject
         self.windowSubject = windowSubject
         self.bookView = bookView
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
-        self.outlineLayout = outlineLayout
         self.isReviewModeOn = isReviewModeOn
-        self.persona = persona
-        self.personaMemory = personaMemory
         self.compilerModel = compilerModel
         self.activePassMemory = activePassMemory
         self.detailColumnWidth =
@@ -280,43 +242,23 @@ public struct UIState: Codable, Equatable, Sendable {
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
-             persona, personaMemory, compilerModel, activePassMemory,
+             compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
              acknowledgedSetAsideRecords, sentRecoveredOpIds
     }
 
-    /// Hand-written because `selectedSubject` is not stored the way it is
-    /// spelled — see that property. Everything else is written exactly as the
-    /// synthesized encoder wrote it, so no other field's on-disk shape moves.
+    /// Hand-written so the legacy keys above are decode-only: the legacy
+    /// selection keys and `outlineLayout` are read to seed `windowSubject` and
+    /// `bookView` and never written back.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(schemaVersion, forKey: .schemaVersion)
-        switch selectedSubject {
-        case .item(let id):
-            try c.encode(id, forKey: .selectedItemId)
-        case .project:
-            try c.encode(true, forKey: .selectedSubjectIsProject)
-        case .research(let id):
-            try c.encode(id, forKey: .selectedResearchItemId)
-        case .figure(let id):
-            // Its own key, so a build that predates figure subjects reads the
-            // file as "no subject" and lands on the project row — never on a
-            // structure or research row that happened to share the id.
-            try c.encode(id, forKey: .selectedFigureId)
-        case nil, .inbox, .canvas, .palette, .edition:
-            // The shell-p1 subjects have no legacy key; `windowSubject` below
-            // carries them.
-            break
-        }
         try c.encode(windowSubject, forKey: .windowSubject)
         try c.encode(bookView, forKey: .bookView)
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(detailSegment, forKey: .detailSegment)
-        try c.encode(outlineLayout, forKey: .outlineLayout)
         try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
-        try c.encode(persona, forKey: .persona)
-        try c.encode(personaMemory, forKey: .personaMemory)
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(activePassMemory, forKey: .activePassMemory)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
@@ -342,20 +284,21 @@ public struct UIState: Codable, Equatable, Sendable {
         // the project subject carries no `selectedItemId` at all, and one
         // carrying both could only come from a hand-edit — in which case the
         // explicit new key is the more specific statement of intent.
+        let legacySelection: BinderSubject?
         if (try? c.decodeIfPresent(Bool.self, forKey: .selectedSubjectIsProject)) == true {
-            self.selectedSubject = .project
+            legacySelection = .project
         } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedItemId) {
-            self.selectedSubject = .item(id)
+            legacySelection = .item(id)
         } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedResearchItemId) {
-            self.selectedSubject = .research(id)
+            legacySelection = .research(id)
         } else if let id = try c.decodeIfPresent(String.self, forKey: .selectedFigureId) {
-            self.selectedSubject = .figure(id)
+            legacySelection = .figure(id)
         } else {
-            self.selectedSubject = nil
+            legacySelection = nil
         }
         if let w = try? c.decode(WindowSubject.self, forKey: .windowSubject) {
             self.windowSubject = w
-        } else if let legacy = self.selectedSubject {
+        } else if let legacy = legacySelection {
             self.windowSubject = WindowSubject(open: legacy, faces: legacy, beside: nil)
         } else {
             self.windowSubject = .book
@@ -364,15 +307,12 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
-        self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
         if let b = try? c.decode(BookView.self, forKey: .bookView) {
             self.bookView = b
         } else {
-            self.bookView = self.outlineLayout == .cards ? .cards : .outline
+            let legacyLayout = try? c.decode(OutlineLayout.self, forKey: .outlineLayout)
+            self.bookView = legacyLayout == .cards ? .cards : .outline
         }
-        self.persona = (try? c.decode(Persona.self, forKey: .persona)) ?? .default
-        self.personaMemory =
-            (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty
         self.compilerModel =
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
         self.activePassMemory =
@@ -405,14 +345,15 @@ public struct UIState: Codable, Equatable, Sendable {
                            forKey: .sentRecoveredOpIds)) ?? [:]
         // `scrollLine` and `hasShownOpLogBootstrapNotice` were removed in
         // v0.3.1 (dead-code sweep), and `binderSegment` in shell-finish stage
-        // 2b Task 7, when the binder strip died with `BinderSegment`, and
+        // 2b Task 7, when the binder strip died with `BinderSegment`,
         // `assistantColumnWidth` on 2026-08-25, when the study column took the
-        // right column and stopped having a width of its own. A keyed
+        // right column and stopped having a width of its own, and the window's
+        // old working-mode keys in shell p1 Task 6. A keyed
         // container never asks for a key it has no case for, so every one of
         // those old values decodes away and is dropped on the next write —
         // which is what "no migration" (tripwire 11) means here. There is
-        // nothing to restore a left-column choice to: every persona's left
-        // column is the project's own tree. Cursor restore flows through
+        // nothing to restore a left-column choice to: the left column is the
+        // project's own tree. Cursor restore flows through
         // `Document.cursorLocation` (per-doc); UIState never owned scroll
         // position in any production code path.
     }

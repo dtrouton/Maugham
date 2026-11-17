@@ -3,8 +3,8 @@ import Foundation
 /// **Which loop asked for this run** — a check (Check Writing, Reread) or a
 /// round (Run Round, Fresh Eyes, the round cockpit's Run).
 ///
-/// The two verbs were once one act, and then the persona decided which one a
-/// keystroke was (two loops P1). Since shell p1 Task 5 the COMMAND names its
+/// The two verbs were once one act, and then the window's mode decided which
+/// one a keystroke was (two loops P1). Since shell p1 Task 5 the COMMAND names its
 /// kind (`RunCommand`): four File menu items, each posting its own, and every
 /// other caller of `runRequested` names its kind literally. The kind is
 /// carried on `StreamingRun` to the record, so the preview and the answer

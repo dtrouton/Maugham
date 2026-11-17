@@ -1451,58 +1451,19 @@ final class PublishPreviewCentreTests: XCTestCase {
                       "the rule asks whether an edition is open")
         XCTAssertFalse(rule.contains("selectionIsDocument("))
         XCTAssertFalse(rule.contains("TreeWalk."))
-        XCTAssertFalse(rule.contains("persona"),
-                       "…and the persona is no input to it at all")
     }
 
-    /// **No view names the Publish persona, and neither centre decider asks
-    /// one.** A persona compared by name reads identically at three sites and
-    /// drifts at the fourth; since shell p1 Task 2 the deciders ask the subject.
-    func test_theCentreRulesFilesNameNoPersona() throws {
-        let offenders = try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"])
-        XCTAssertTrue(
-            offenders.isEmpty,
-            "these files compare the persona by name: \(offenders)")
-        // The control: the scanner sees the offender it is asserting the absence
-        // of, or every line above is green over any file at all.
-        XCTAssertFalse(
-            Self.nameGates(in: "guard persona == .publish else { return nil }").isEmpty,
-            "the scanner cannot see a planted name-gate, so its silence above "
-            + "says nothing")
-
-        for decider in ["static func publishCentre(", "static func researchSubjectPlacement("] {
-            let source = try SourceTree.declaration(named: decider, under: "Maugham")
-            XCTAssertFalse(source.contains("persona"),
-                           "`\(decider)` asks the subject, never a persona")
-            XCTAssertTrue(source.contains("subject"),
-                          "premise: the scan is reading the decider")
-        }
-    }
-
-    private static func nameGateOffenders(
-        under roots: [String], base: URL = SourceTree.repoRoot
-    ) throws -> [String] {
-        try roots.flatMap { root in
-            try SourceTree.sources(under: root, base: base).flatMap { file in
-                nameGates(in: file.text).map { "\(file.path): \($0)" }
-            }
-        }
-    }
-
-    private static func nameGates(in source: String) -> [String] {
-        source
-            .components(separatedBy: .newlines)
-            .filter { $0.contains("== .publish") || $0.contains("!= .publish") }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-    }
+    // `test_theCentreRulesFilesNameNoPersona` (a `== .publish` name-gate
+    // scan and a "no decider says persona" read) retired with the personas,
+    // shell p1 Task 6: there is no persona left to compare, and
+    // `NoPersonaCensusTests` covers every production file.
 
     /// **The planted control for the reads above** (foundations plan 2): a
     /// `ProjectWindow` struct in one file, the centre's rule in an
     /// `extension ProjectWindow` in another, and the editor arm in a
     /// `CentreColumn` in a third. Both are found by symbol wherever they live,
-    /// the mount count reads every view file, and the widened
-    /// ban catches a name-gate in a sibling view outside the window.
-    func test_theLookupsFollowTheTypeAndTheBanReachesSiblingViews() throws {
+    /// and the mount count reads every view file.
+    func test_theLookupsFollowTheType() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
@@ -1511,8 +1472,8 @@ final class PublishPreviewCentreTests: XCTestCase {
             """,
             "Maugham/Views/ProjectWindow+Centre.swift": """
             extension ProjectWindow {
-                static func publishCentre(persona: Persona) -> PublishCentre? {
-                    guard persona.previewsThePublishedBook else { return nil }
+                static func publishCentre(subject: WindowSubject) -> PublishCentre? {
+                    guard case .edition = subject.open else { return nil }
                     return nil
                 }
             }
@@ -1524,16 +1485,11 @@ final class PublishPreviewCentreTests: XCTestCase {
                 }
             }
             """,
-            "Maugham/Views/Publish/SomeSiblingView.swift": """
-            struct SomeSiblingView {
-                func f(persona: Persona) -> Bool { persona == .publish }
-            }
-            """,
             "Maugham/Publish/Empty.swift": "enum Empty {}\n",
         ])
         let rule = try SourceTree.declaration(
             named: "static func publishCentre(", under: "Maugham", base: base)
-        XCTAssertTrue(rule.contains("previewsThePublishedBook"))
+        XCTAssertTrue(rule.contains("case .edition = subject.open"))
         XCTAssertFalse(rule.contains("EditorHost("), "the rule is bounded to itself")
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham", base: base)
@@ -1541,11 +1497,6 @@ final class PublishPreviewCentreTests: XCTestCase {
         XCTAssertEqual(
             try SourceTree.viewMounts(of: "PublishPreviewCentre(", base: base),
             2, "the mount count reads the window's file AND the centre column's")
-        XCTAssertEqual(
-            try Self.nameGateOffenders(under: ["Maugham/Views", "Maugham/Publish"], base: base),
-            ["Maugham/Views/Publish/SomeSiblingView.swift: "
-             + "func f(persona: Persona) -> Bool { persona == .publish }"],
-            "the widened ban sees a name-gate in a view outside the window")
     }
 
     // MARK: - Hosting

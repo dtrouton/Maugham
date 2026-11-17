@@ -2,8 +2,8 @@ import Foundation
 import MaughamCore
 
 /// The report's own English, in one place — the round narrative both
-/// personas read. Moved out of `DiagnosticsPane` (M4 P2 Task 2) so a
-/// consumer that must not depend on that view — Review's cockpit (Task 3)
+/// Diagnostics and the round cockpit read. Moved out of `DiagnosticsPane` (M4 P2 Task 2) so a
+/// consumer that must not depend on that view — the round cockpit (Task 3)
 /// — can read the same copy without a Review→DiagnosticsPane dependency.
 /// `DiagnosticsPane` is one caller among others now, not the owner.
 enum RoundNarrative {
@@ -29,7 +29,7 @@ enum RoundNarrative {
     ///
     /// `kind` defaults to `.check` for `runMessageV2`'s reason: the check is
     /// the verb that predates the split, and the one call site that is not a
-    /// check — Review's cockpit — names itself.
+    /// check — the round cockpit — names itself.
     static func checkingCopy(
         _ counts: CompilerOrchestrator.DeltaCounts, kind: RunKind = .check,
         elapsed: TimeInterval? = nil, thinkingTokens: Int? = nil
@@ -84,7 +84,7 @@ enum RoundNarrative {
     }
 
     /// **The same fact as a sentence**, for a surface with nothing to hang the
-    /// suffix on. Review's cockpit reports a round against the one before it,
+    /// suffix on. The round cockpit reports a round against the one before it,
     /// so a lane's FIRST round has no line at all — and the cost of the
     /// only round a writer has run is exactly the thing they want to know.
     /// Capital letter and full stop, because here it is the whole line.
@@ -385,10 +385,10 @@ enum RoundNarrative {
     ///
     /// **Hoisted out of `DiagnosticsPane` (2026-08-18, Denver's smoke) for the
     /// reason the rest of this file was hoisted: a second surface now says it.**
-    /// Review's cockpit collapsed `.failed` into `.idle` and drew a timed-out
+    /// The round cockpit collapsed `.failed` into `.idle` and drew a timed-out
     /// round exactly like a clean one, so two Structural and Line rounds that
     /// died at the 120s budget read as "returned nothing" — the failure was
-    /// legible only in Author's Diagnostics pane, which is not where the run was
+    /// legible only in the Diagnostics pane, which is not where the run was
     /// launched. A failure must surface where the button was pressed, and both
     /// surfaces must say it in the same words: a writer who checks the other
     /// pane to understand the first must not find a differently-worded account
@@ -518,7 +518,7 @@ enum RoundNarrative {
     /// reads it (M4 P2 Task 4).
     ///
     /// One spelling because it is now said in two places a reviewer sees in
-    /// the same minute: the empty queue's teaching in Review's cockpit, and
+    /// the same minute: the empty queue's teaching in the round cockpit, and
     /// the verb on every chip of the board. The personification is the whole
     /// point — a writer asks Gould for a copyedit, not "the compiler" for a
     /// "pass" — so the two must not drift into naming the same act two ways.

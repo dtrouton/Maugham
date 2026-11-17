@@ -146,13 +146,12 @@ final class LockTests: XCTestCase {
         "Maugham/Views/Palette/PaletteWallView.swift": 1, // the wall's card arm
     ]
 
-    /// **Every lock site asks the one answer, and no production file asks
-    /// the persona's old read-only predicates.** A site that read a persona
-    /// and now reads nothing would pass every mounted test that happens not
-    /// to visit it; this census names them.
+    /// **Every lock site asks the one answer.** A site that stopped asking
+    /// would pass every mounted test that happens not to visit it; this census
+    /// names them. (Its "no file asks the old read-only predicates" half
+    /// retired with those predicates, shell p1 Task 6 — the compiler holds it.)
     func test_everyLockSiteAsksTheOneAnswer() throws {
         var counts: [String: Int] = [:]
-        var personaReads: [String] = []
         for file in try SourceTree.swiftFiles(under: "Maugham") {
             let text = try SourceTree.read(file)
             for line in text.components(separatedBy: "\n") {
@@ -161,16 +160,9 @@ final class LockTests: XCTestCase {
                 if code.contains("WindowLock.refusesEdits(isLocked:") {
                     counts[file, default: 0] += 1
                 }
-                if (code.contains(".editsResearchInTheCentre") || code.contains(".editsFigures"))
-                    && file != "Maugham/Models/Persona.swift" {
-                    personaReads.append("\(file): \(code)")
-                }
             }
         }
         XCTAssertEqual(counts, Self.lockSites)
-        XCTAssertTrue(personaReads.isEmpty,
-                      "a production file still asks the persona what Lock answers:\n"
-                      + personaReads.joined(separator: "\n"))
     }
 
     // MARK: - The toggle
@@ -180,5 +172,18 @@ final class LockTests: XCTestCase {
         XCTAssertEqual(LockToggle.symbol(isLocked: false), "lock.open")
         XCTAssertEqual(LockToggle.help(isLocked: false), "Lock research and figures")
         XCTAssertEqual(LockToggle.help(isLocked: true), "Unlock research and figures")
+    }
+}
+
+/// **The window toolbar — the Lock's — hides under `⌘\`** (re-made from the
+/// retired persona bar's visibility tests, shell p1 Task 6): focus mode exists
+/// to remove that chrome, and nothing in this codebase hides automatically.
+final class WindowToolbarVisibilityTests: XCTestCase {
+    func test_theToolbarIsHiddenInNoChromeFocusMode() {
+        XCTAssertFalse(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: true))
+    }
+
+    func test_theToolbarIsVisibleNormally() {
+        XCTAssertTrue(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: false))
     }
 }

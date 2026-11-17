@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// **The window's Lock** (shell p1 Task 5): what the Review persona's
-/// read-only research, palette and figure surfaces became once the persona
-/// stopped deciding them.
+/// **The window's Lock** (shell p1 Task 5): what the old Review mode's
+/// read-only research, palette and figure surfaces became once no window mode
+/// decided them.
 ///
 /// Per window, never stored: every window opens unlocked (`atOpen`), and
 /// nothing in `UIState` carries it. **Lock only adds refusals.** Every site
@@ -26,7 +26,7 @@ enum WindowLock {
 }
 
 /// The toolbar's Lock: `lock` when locked, `lock.open` when not. It rides the
-/// window toolbar beside the persona bar, so `⌘\` focus mode hides it with the
+/// window toolbar, so `⌘\` focus mode hides it with the
 /// toolbar (`ProjectWindow.TopChromeModifier`).
 struct LockToggle: View {
     @Binding var isLocked: Bool

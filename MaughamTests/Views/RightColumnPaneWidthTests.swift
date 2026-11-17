@@ -182,10 +182,9 @@ final class RightColumnPaneWidthTests: XCTestCase {
         let fixture = try await makeFixture()
         var offenders: [String] = []
         for segment in DetailSegment.allCases {
-            let persona = Persona.allCases.first { $0.panes.contains(segment) } ?? .author
             for width in Self.paneWidths {
-                let (fits, measured) = Self.fits(fixture.pane(segment, persona), in: width)
-                if !fits { offenders.append("\(segment) (\(persona)) → \(measured)pt in \(width)pt") }
+                let (fits, measured) = Self.fits(fixture.pane(segment), in: width)
+                if !fits { offenders.append("\(segment) → \(measured)pt in \(width)pt") }
             }
         }
         XCTAssertEqual(offenders, [],
@@ -204,13 +203,13 @@ final class RightColumnPaneWidthTests: XCTestCase {
         let preferences: UserPreferences
 
         @MainActor
-        func pane(_ segment: DetailSegment, _ persona: Persona) -> some View {
+        func pane(_ segment: DetailSegment) -> some View {
             DetailPaneToggle(
                 store: store,
                 segment: .constant(segment),
                 selectedSubject: .constant(.item(itemId)),
                 activeManuscriptItemId: itemId,
-                persona: persona,
+                subject: WindowSubject(open: .item(itemId), faces: .item(itemId)),
                 projectURL: store.url,
                 activeDocId: docId,
                 allDocIds: [docId],

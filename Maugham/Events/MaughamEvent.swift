@@ -53,21 +53,16 @@ enum MaughamEvent {
     static let scopeKindKey = "maugham.scope.kind"
     static let scopeIdKey = "maugham.scope.id"
 
-    /// Payload key for `.maughamSetPersona`. One spelling shared by both post
-    /// sites (the View menu's ⌘1–⌘4 and the persona bar) and the receiver in
-    /// `PersonaModifier`, so a rename cannot silently make the post a no-op.
-    static let personaKey = "persona"
-
     /// Payload key for `.maughamSetDetailSegment`. One spelling shared by every
     /// `postSegment(_:)` call in `MaughamApp`'s View menu, the inspector's Intent
-    /// affordance (M1A) and `ProjectWindow`'s receiver — same reason as
-    /// `personaKey`. (`PersonaKeyspaceTests` is what holds the menu to one item
-    /// per `DetailSegment`; a number written here would be a count over a list,
-    /// and the comment this replaced said "nine".)
+    /// affordance (M1A) and `ProjectWindow`'s receiver, so a rename cannot
+    /// silently make the post a no-op. (`DetailSegmentOrderTests` is what holds
+    /// the menu to one item per `DetailSegment`; a number written here would be
+    /// a count over a list, and the comment this replaced said "nine".)
     static let detailSegmentKey = "segment"
 
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
-    /// `personaKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
+    /// `detailSegmentKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
     /// and a rename on one side must not quietly make the other read nil.
     static let canvasScrapCountKey = "scrap_count"
@@ -79,7 +74,7 @@ enum MaughamEvent {
     /// no `rawValue` by design (`BinderSubject`'s own doc comment: a site that
     /// wants a bare id has to say what the project means to it) — string-
     /// encoding it here would be inventing the very sentinel that type exists
-    /// to end. Same reason as `personaKey`: the post sites are five row views
+    /// to end. Same reason as `detailSegmentKey`: the post sites are five row views
     /// and the receiver is `TreeTravel.swift`, so a rename on either side must
     /// not silently make the post reach nobody.
     static let treeTravelSubjectKey = "subject"
@@ -93,7 +88,7 @@ enum MaughamEvent {
     static let treeTravelRowWasSelectedKey = "rowWasSelected"
 
     /// Payload key for `.maughamDocumentNotice` — the finished sentence the
-    /// window puts in front of the writer. Same reason as `personaKey`: the
+    /// window puts in front of the writer. Same reason as `detailSegmentKey`: the
     /// post sites live in `Maugham/OpLog/` and the receiver in
     /// `ProjectWindow.swift`, so a rename must not quietly make the toast read
     /// nil and show nothing, which is the very failure these notices exist to
@@ -101,7 +96,7 @@ enum MaughamEvent {
     static let noticeMessageKey = "notice_message"
 
     /// Payload key for `.maughamAnnotationsChanged` — the document whose notes
-    /// changed. Same reason as `personaKey`: the post sites are in
+    /// changed. Same reason as `detailSegmentKey`: the post sites are in
     /// `Maugham/OpLog/` and `Maugham/Stores/`, the readers are two panes and a
     /// window's count column, and a rename on one side must not silently make
     /// the other read nil.

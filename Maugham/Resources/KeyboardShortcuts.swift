@@ -9,7 +9,7 @@ import Foundation
 /// `DocSyncTests.test_paneShortcutsDocumentedInTheInAppCheatsheet` requires
 /// every ⌘⌥ shortcut in `MaughamApp.swift` to appear here, `.shift`-carrying
 /// ones included. That guard exists because Toggle Review Mode moved to ⌘⌥⇧R
-/// in the persona shell and vanished from this list and from `docs/guide/`
+/// in the shell slice of 2026-08-03 and vanished from this list and from `docs/guide/`
 /// together, with the older, narrower guard unable to see it.
 /// Everything outside that family is still hand-maintained.
 public enum KeyboardShortcuts {
@@ -77,23 +77,18 @@ public enum KeyboardShortcuts {
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),
             Entry(label: "Toggle Full-Screen Focus", shortcut: "⌘⇧F"),
             Entry(label: "Toggle Research Preview", shortcut: "⌘⇧P"),
-            // The editor posture, NOT the ⌘3 persona below — the View menu
-            // spells both "Review". `DocSyncTests
+            // The editor posture. `DocSyncTests
             // .test_paneShortcutsDocumentedInTheInAppCheatsheet` is why this
             // row cannot go missing again; it shipped absent from here AND from
-            // docs/guide/ when the persona shell moved it off ⌘⌥R.
+            // docs/guide/ when the shell slice of 2026-08-03 moved it off ⌘⌥R.
             Entry(label: "Toggle Review Mode (annotate-only)", shortcut: "⌘⌥⇧R"),
-            Entry(label: "Plan mode", shortcut: "⌘1"),
-            Entry(label: "Author mode", shortcut: "⌘2"),
-            Entry(label: "Review mode", shortcut: "⌘3"),
-            Entry(label: "Publish mode", shortcut: "⌘4"),
             Entry(label: "Inspector pane", shortcut: "⌘⌥I"),
             Entry(label: "Reveal Research section", shortcut: "⌘⌥R"),
             Entry(label: "Select project row (outline)", shortcut: "⌘⌥O"),
             Entry(label: "Annotations pane", shortcut: "⌘⌥A"),
             Entry(label: "History pane", shortcut: "⌘⌥H"),
             Entry(label: "Tasks pane", shortcut: "⌘⌥T"),
-            Entry(label: "Inbox pane", shortcut: "⌘⌥B"),
+            Entry(label: "Open the Inbox", shortcut: "⌘⌥B"),
             Entry(label: "Reveal Palette section", shortcut: "⌘⌥P"),
             Entry(label: "Translation pane", shortcut: "⌘⌥L"),
             Entry(label: "Intent pane", shortcut: "⌘⌥N"),
@@ -116,7 +111,7 @@ public enum KeyboardShortcuts {
             Entry(label: "New scrap / edit selected", shortcut: "↩"),
             Entry(label: "Move selection",          shortcut: "←↑→↓"),
             Entry(label: "Rename region",           shortcut: "↩"),
-            Entry(label: "Canvas from tree (Plan)", shortcut: "⇥"),
+            Entry(label: "Canvas from tree",        shortcut: "⇥"),
             Entry(label: "Back to tree",            shortcut: "⇧⇥"),
         ]),
         Category(category: "Help", items: [

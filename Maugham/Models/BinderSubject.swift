@@ -1,7 +1,7 @@
 import Foundation
 
-/// What the window's tree names — the single subject the persona shell works
-/// over (spec `2026-08-01-persona-shell-workflow-design.md` §3).
+/// What the window's tree names — one row of the tree, and each part of the
+/// window's `WindowSubject` (shell p1).
 ///
 /// **A typed value rather than a second magic string.** The `String?` this
 /// replaces carried three meanings at once: `nil` for no selection, a

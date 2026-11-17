@@ -3,8 +3,8 @@ import MaughamCore
 
 /// **Which manuscript tree the window's left column mounts.**
 ///
-/// "The tree" is three views, not one — the correction the persona shell's
-/// slice-1 whole-branch review made about the project row, and the one thing
+/// "The tree" is three views, not one — the correction the shell's
+/// slice-1 whole-branch review (2026-08-03) made about the project row, and the one thing
 /// that survived `BinderSegment` when the strip died (shell-finish stage 2b
 /// Task 7). `BinderView` is right for a novel or a short story; a screenplay's
 /// tree is `SceneNavigatorPane` (one `.fountain`, sluglines beneath a script
@@ -18,7 +18,7 @@ import MaughamCore
 ///
 /// It used to live on `BinderSegment` beside `documentHome(for:)`, which
 /// answered the same question about the same three shells. `documentHome` died
-/// with the strip: with one left column per persona there is no longer a segment
+/// with the strip: with one left column, the tree, there is no longer a segment
 /// for a navigation to land on, so the only surviving half of that pair is which
 /// tree to draw.
 enum TreePane: String, Equatable, Sendable, CaseIterable {

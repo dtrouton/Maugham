@@ -5,7 +5,7 @@ import MaughamCore
 ///
 /// A piece row that has research of its own unfolds to it, so the writer sees
 /// what a chapter or a piece is carrying without leaving the one left column the
-/// milestone gives every persona. The *rule* for which documents fold, and for
+/// milestone gives the window. The *rule* for which documents fold, and for
 /// what a fold contains, is not here: it is `TreeSectionDerivation.pieceFold`,
 /// pure and asked per render (tripwire 4 — a manifest walk, never disk). This
 /// view is only how those items are drawn, and it is one implementation for both

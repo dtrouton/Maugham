@@ -530,7 +530,7 @@ struct StatementEditorHost: View {
         // while the pane lives. See `reconcile`.
         .task(id: scopeKey) { await reconcile() }
         .onDisappear {
-            // Leaving the pane (a segment switch, a persona switch, window
+            // Leaving the pane (a segment switch, a subject change, window
             // close) flushes the pending typing burst. `Document.close()` is
             // idempotent, so a spurious fire costs nothing.
             //

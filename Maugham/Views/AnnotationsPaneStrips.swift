@@ -85,10 +85,10 @@ struct AnnotationsRoundCockpit: View {
                 // the tooltip behind it describes that same turn.
                 reportTiming: cockpitReportTiming(diagnostics, docId: document.docId),
                 // **The round cockpit's own button, and it is a round by
-                // construction** (two loops P1) — this surface exists only in
-                // Review. Said literally rather than minted from a persona,
-                // because the only persona it could read is the one it is
-                // already standing in.
+                // construction** (two loops P1) — this surface exists only
+                // beside the annotation queue. Said literally rather than
+                // derived from what the window shows, because the cockpit is
+                // the round's and nothing else's.
                 //
                 // **Not drawn where this Mac may not run a round on the piece**
                 // (P3c Task 6, plan ruling R4) — the piece's own drawing
@@ -257,7 +257,7 @@ struct AnnotationsRoundCockpit: View {
     }
 
     /// **The offer, decided and written by `TurnClauseOffer`** — the one
-    /// builder Author's Diagnostics pane calls too (fix round 1, Minor 4).
+    /// builder the Diagnostics pane calls too (fix round 1, Minor 4).
     /// The predicate and the ruling live there; this supplies the queue's own
     /// values and its own refusal channel.
     private func turnClauseOffer(

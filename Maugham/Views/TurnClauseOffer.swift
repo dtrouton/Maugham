@@ -4,7 +4,7 @@ import MaughamCore
 /// **The letter's *Hold every scene to a turn?* offer, decided once**
 /// (editorial letter P1 Task 9, spec §3.4).
 ///
-/// Two hosts draw the letter — Author's Diagnostics pane and Review's round
+/// Two hosts draw the letter — the Diagnostics pane and Review's round
 /// cockpit — and both must answer the same question about the same run. The
 /// decision and the write lived in each of them, near-verbatim, until fix
 /// round 1: two copies of a predicate about the writer's own declared world is

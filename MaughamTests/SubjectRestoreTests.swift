@@ -216,12 +216,12 @@ final class SubjectRestoreTests: XCTestCase {
         let url = temp.url.appendingPathComponent("ui-state.json")
 
         var state = UIState.empty
-        state.selectedSubject = .project
+        state.windowSubject = .book
         try JSONEncoder().encode(state).write(to: url)
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(
-            ProjectWindow.repairedOpen(loaded.selectedSubject,
+            ProjectWindow.repairedOpen(loaded.windowSubject.open,
                                           in: structure(), research: [], figures: [], parked: []),
             .project,
             "select the project, quit, reopen — this is that trip")
@@ -242,7 +242,7 @@ final class SubjectRestoreTests: XCTestCase {
 
         let loaded = UIState.loadOrEmpty(from: url)
         XCTAssertEqual(
-            ProjectWindow.repairedOpen(loaded.selectedSubject,
+            ProjectWindow.repairedOpen(loaded.windowSubject.open,
                                           in: structure(), research: [], figures: [], parked: []),
             .item("doc-2"))
     }
@@ -255,7 +255,7 @@ final class SubjectRestoreTests: XCTestCase {
     /// is the project, and the downgrade is therefore visible rather than silent.
     func test_anOlderBuildReadingTheProjectFileFindsNoIdToRestore() throws {
         var state = UIState.empty
-        state.selectedSubject = .project
+        state.windowSubject = .book
         let object = try JSONSerialization.jsonObject(
             with: try JSONEncoder().encode(state)) as? [String: Any]
         XCTAssertNil(object?["selectedItemId"] as? String,

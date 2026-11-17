@@ -126,15 +126,15 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// so the jump is assertable without hosting SwiftUI.
     ///
     /// **The canvas in the centre is the whole of the jump** (shell p1 Task 4;
-    /// it was the Plan persona while a persona decided the centre).
+    /// it was a window mode while a mode decided the centre).
     struct Destination: Equatable {
         /// What the centre opens: always the canvas.
         let open: BinderSubject
         let selection: CanvasSelection
         /// **A field rather than a bare `showInspector = true` in `show`**, so a
         /// test pins it. Every other navigation-to-a-pane in `ProjectWindow`
-        /// forces the column open — `PersonaModifier` on *every* persona switch,
-        /// and the detail-segment command with "ensure pane is visible" — and
+        /// forces the column open — the detail-segment command with "ensure
+        /// pane is visible" — and
         /// without it a writer who has closed the column with ⌘⌥I clicks Show and
         /// gets a camera move and a selection with nothing naming what arrived.
         ///

@@ -8,9 +8,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// The item the tree names, converted once at `ProjectWindow`'s boundary.
     /// `nil` for the project and for no selection alike.
     let activeManuscriptItemId: String?
-    /// The window's working mode. Decides which segments the picker offers —
-    /// see `visibleSegments(persona:)`.
-    let persona: Persona
+    /// The window's subject. Decides which segments the picker offers — see
+    /// `visibleSegments(subject:including:)`.
+    let subject: WindowSubject
     // History pane props — optional so callers that don't need history can omit them.
     let projectURL: URL?
     /// The non-optional document id the per-document panes take, from the same
@@ -101,8 +101,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// The queue's pass-order nudge's own verbs (pass-order nudge gains its
     /// verbs) — `(docId, passId, state)`. Threaded rather than written here
     /// for the same reason as `onSetActivePass`: `setPassState` is a closed
-    /// three-file census (`PersonaPaneRegistryTests.passStateWritingFiles`)
-    /// and a write in THIS file would be a fourth. `ProjectWindow` supplies
+    /// census of named hosts (`PassStateWriterCensusTests.passStateWritingFiles`)
+    /// and a write in THIS file would be one more. `ProjectWindow` supplies
     /// the same `store.setPassState` the board's chip menu and the two
     /// Inspector arms already call.
     var onSetPassState: (String, String, PassState?) -> Void = { _, _, _ in }
@@ -132,17 +132,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `nil` is not a close check (`MaughamEvent.isLive`).
     @State private var window: NSWindow?
 
-    /// Local transcription exists only on Apple Silicon — `InboxPane`'s answer.
-    private static var localTranscriptionAvailable: Bool {
-        InboxPane.localTranscriptionAvailable
-    }
-
     init(
         store: ProjectStore,
         segment: Binding<DetailSegment>,
         selectedSubject: Binding<BinderSubject?>,
         activeManuscriptItemId: String?,
-        persona: Persona = .default,
+        subject: WindowSubject = .book,
         projectURL: URL? = nil,
         activeDocId: String = BinderSubject.noDocumentSubject,
         allDocIds: [String] = [],
@@ -171,7 +166,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         self._segment = segment
         self._selectedSubject = selectedSubject
         self.activeManuscriptItemId = activeManuscriptItemId
-        self.persona = persona
+        self.subject = subject
         self.projectURL = projectURL
         self.activeDocId = activeDocId
         self.allDocIds = allDocIds
@@ -205,13 +200,11 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: segment) { _, newValue in
-            // `visibleSegments(including:)` always appends an out-of-persona
-            // selection now (the one refusal — `.outline` on a collection
-            // project — died with the case, stage 3a Task 6), so this snap is
-            // normally a no-op; it stays as the belt for whatever the picker
-            // cannot render.
+            // `visibleSegments(including:)` always appends a selection the
+            // subject does not offer, so this snap is normally a no-op; it
+            // stays as the belt for whatever the picker cannot render.
             let snapped = Self.snappedSelection(
-                newValue, in: pickerSegments, fallback: persona.defaultPane)
+                newValue, in: pickerSegments, fallback: .inspector)
             guard snapped == newValue else {
                 segment = snapped
                 return
@@ -219,14 +212,14 @@ struct DetailPaneToggle<Inspector: View>: View {
             persistSegment(newValue)
         }
         .task {
-            // Populate the inbox count so the unread badge is live from window
-            // open, before the writer ever visits the inbox segment. Presenter
-            // changes (.inbox arm) keep it fresh thereafter.
+            // Populate the inbox from window open, so the tree's Inbox row is
+            // drawn for a project whose captures synced in while it was shut.
+            // Presenter changes (`DocumentStore`'s `.inbox` arm) keep it fresh.
             await store.documentStore?.inboxStore.refresh()
         }
-        // MOUNT, not a persona change — snaps against the SELECTION-CARRYING
-        // list, so an out-of-persona pane the writer just asked for survives.
-        // See "Two snaps, two lists" below; this is NOT `coerceSegmentIntoView`.
+        // MOUNT — snaps against the SELECTION-CARRYING list, so a pane the
+        // writer just asked for survives even where the subject does not offer
+        // it. See `mountSelection` below.
         .onAppear {
             snapSegmentIntoPicker()
             // **A fresh mount persists what it mounted with** — fix-round 1,
@@ -249,110 +242,77 @@ struct DetailPaneToggle<Inspector: View>: View {
             // over this one in the same pass.
             persistSegment(segment)
         }
-        // Belt to `PersonaModifier`'s braces: that modifier already runs
-        // `Persona.coerce(_:)` on a persona change, but only this view knows
-        // which segment is CURRENTLY selected outside the destination's own
-        // registry.
-        .onChange(of: persona) { _, newPersona in
-            coerceSegmentIntoView(of: newPersona)
-        }
         .background(WindowAccessor(window: $window))
         .modifier(VisualLanguageProposalModifier(
             projectURL: projectURL, window: window,
             proposed: $visualLanguageProposed))
     }
 
-    // MARK: - Two snaps, two lists — do not conflate them
+    // MARK: - The mount snap
 
-    // `segment` is pulled onto a renderable pane from two places, and they
-    // consult DIFFERENT lists on purpose. Which list a coercion consults has
-    // now been wrong three times on this branch, so the split is spelled out:
-    //
-    // - `snapSegmentIntoPicker()` uses the SELECTION-CARRYING list
-    //   (`pickerSegments` = `visibleSegments(including: segment)`). It keeps
-    //   whatever is selected, because an out-of-persona segment is appended
-    //   and rendered — personas are lenses, not gates. `visibleSegments(
-    //   including:)` never refuses an append (the one exception, `.outline`
-    //   on a collection project, died with the case in stage 3a Task 6), so
-    //   this snap is now always a no-op in production; it stays as the belt.
-    //   Callers: `.onAppear` and `.onChange(of: segment)`.
-    //
-    // - `coerceSegmentIntoView(of:)` uses the persona's BARE registry list.
-    //   It deliberately DROPS an out-of-persona segment, because on a persona
-    //   change coercion is the intent.
-    //   Caller: `.onChange(of: persona)`, and only that.
-
-    /// Snap `segment` onto something the picker renders, honouring an
-    /// out-of-persona selection (it is appended, so it is in the list).
-    ///
-    /// `.onAppear` must use this rather than `coerceSegmentIntoView(of:)`:
-    /// this view mounts conditionally on `showInspector`, so a `⌘⌥`-letter
-    /// shortcut that reveals a hidden column (`showInspector = true` then
-    /// `detailSegment = seg`, `SessionAndNavigationModifier`) mounts it FRESH
-    /// with the requested segment already in place. `.onChange(of: segment)`
-    /// cannot fire — the change predates the mount — but `.onAppear` does.
-    /// Coercing here threw the requested pane away and persisted the wrong
-    /// one to `UIState` (whole-branch review, Critical 1).
-    /// **The one writer of `UIState.detailSegment`.** Two callers — the mount
-    /// and the change — because a conditional mount can arrive with a change
-    /// already applied; see `.onAppear`.
+    /// The one writer of `UIState.detailSegment` — one remembered segment for
+    /// the window, whatever the subject. Two callers — the mount and the
+    /// change — because a conditional mount can arrive with a change already
+    /// applied; see `.onAppear`.
     private func persistSegment(_ value: DetailSegment) {
         store.documentStore?.updateUIState { $0.detailSegment = value }
     }
 
+    /// Snap `segment` onto something the picker renders, honouring a selection
+    /// the subject does not offer (it is appended, so it is in the list).
+    ///
+    /// This view mounts conditionally on `showInspector`, so a `⌘⌥`-letter
+    /// shortcut that reveals a hidden column (`showInspector = true` then
+    /// `detailSegment = seg`, `SessionAndNavigationModifier`) mounts it FRESH
+    /// with the requested segment already in place. `.onChange(of: segment)`
+    /// cannot fire — the change predates the mount — but `.onAppear` does.
+    /// Snapping against the bare offered list here threw the requested pane
+    /// away and persisted the wrong one to `UIState` (whole-branch review,
+    /// Critical 1).
     private func snapSegmentIntoPicker() {
-        let snapped = Self.mountSelection(segment, persona: persona)
+        let snapped = Self.mountSelection(segment, subject: subject)
         if snapped != segment { segment = snapped }
     }
 
     /// The selection a freshly-mounted picker must carry, given the segment
-    /// already in place. Split out as a pure static so a test can pin the
-    /// LIST CHOICE — `including: current`, the selection-carrying list — and
-    /// not merely the snap. Swapping this to the bare registry list is the
-    /// Critical 1 regression, and
-    /// `DetailPaneTogglePersonaTests.test_mountSelection_keepsAnOutOfRegistrySegment`
-    /// fails when it happens.
+    /// already in place. A pure static so a test can pin the LIST CHOICE —
+    /// `including: current`, the selection-carrying list — and not merely the
+    /// snap (`DetailSegmentOrderTests.test_mountSelection_keepsAPaneTheSubjectDoesNotOffer`).
     static func mountSelection(
         _ current: DetailSegment,
-        persona: Persona
+        subject: WindowSubject
     ) -> DetailSegment {
-        let carrying = visibleSegments(persona: persona, including: current)
-        return snappedSelection(current, in: carrying, fallback: persona.defaultPane)
+        let carrying = visibleSegments(subject: subject, including: current)
+        return snappedSelection(current, in: carrying, fallback: .inspector)
     }
 
-    /// Pull `segment` onto a pane this persona registers. No-op when it
-    /// already is one, so it never fights a deliberate selection.
-    ///
-    /// Deliberately asks for the persona's OWN list (no `including:`) — the
-    /// selection-carrying list contains `segment` by construction, so passing
-    /// it here would make every coercion a no-op and an out-of-persona
-    /// selection would never be dropped on a persona switch.
-    private func coerceSegmentIntoView(of persona: Persona) {
-        let visible = Self.visibleSegments(persona: persona)
-        let coerced = Self.snappedSelection(segment, in: visible, fallback: persona.defaultPane)
-        if coerced != segment { segment = coerced }
-    }
+    // MARK: - Which segments the subject offers
 
-    // MARK: - Which segments this persona offers
-
-    /// The segments this picker shows, in order. Ordering comes from the
-    /// persona registry, not from `DetailSegment.allCases` — so adding a case
-    /// to the enum does not silently change any picker.
+    /// The segments this picker shows, in order: `DetailSegment.pickerOrder`,
+    /// less the Department desk unless an edition is open, and less the panes
+    /// about one document (`DetailSegment.needsADocument`) while the faces
+    /// name none. The order is never anything but `pickerOrder` filtered.
     ///
-    /// `selected`, when supplied and not already registered, is **appended**.
-    /// Personas are lenses, not gates: every `⌘⌥`-letter pane shortcut fires
-    /// in every persona, and `ProjectWindow` force-sets `.translation` on
-    /// entering translation review — without this the picker would render with
-    /// nothing selected while the pane below it showed the right content.
-    /// Appending (rather than inserting in registry order) keeps the persona's
-    /// own ordering stable and makes the addition read as transient.
-    /// Always appends now: the one refusal this ever had — a collection
-    /// project hiding `.outline` — died with the case (stage 3a Task 6).
+    /// `selected`, when supplied and not already offered, is **appended**:
+    /// every `⌘⌥`-letter pane shortcut fires whatever the subject, and
+    /// `ProjectWindow` force-sets `.translation` on entering translation
+    /// review — without this the picker would render with nothing selected
+    /// while the pane below it showed the right content. Appending (rather
+    /// than inserting in order) keeps the offered order stable and makes the
+    /// addition read as transient.
     static func visibleSegments(
-        persona: Persona,
+        subject: WindowSubject,
         including selected: DetailSegment? = nil
     ) -> [DetailSegment] {
-        var segments = persona.panes
+        let opensAnEdition: Bool
+        if case .edition = subject.open { opensAnEdition = true } else { opensAnEdition = false }
+        let facesADocument: Bool
+        if case .item = subject.faces { facesADocument = true } else { facesADocument = false }
+        var segments = DetailSegment.pickerOrder.filter { segment in
+            if segment == .department { return opensAnEdition }
+            if DetailSegment.needsADocument.contains(segment) { return facesADocument }
+            return true
+        }
         if let selected, !segments.contains(selected) {
             segments.append(selected)
         }
@@ -373,10 +333,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// different lists. Re-deriving here was how the literal-drift bug got
     /// back in one level up.
     ///
-    /// **Takes the badged segment rather than assuming `.inbox`** as of M2
-    /// Task 8: Diagnostics carries a badge too, and the two can be on screen
-    /// together even though no persona registers both — ⌘⌥B in Author appends
-    /// `.inbox` to a picker that already leads with `.diagnostics`.
+    /// **Takes the badged segment** (M2 Task 8): Diagnostics and Visual
+    /// Language each carry a badge, and both can be on screen together.
     static func badgeOffset(of badged: DetailSegment, in segments: [DetailSegment]) -> Int? {
         guard let index = segments.firstIndex(of: badged) else { return nil }
         return segments.count - 1 - index
@@ -384,10 +342,9 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     /// The selection the picker should carry, given a proposed one and the
     /// list the picker renders. Everything the picker can show is returned
-    /// unchanged — personas are lenses, not gates, so an out-of-persona
-    /// segment reached by shortcut stays selected (it is appended by
-    /// `visibleSegments(including:)`, which never refuses now — see that
-    /// function's doc comment). Falling back at all is the belt for a segment
+    /// unchanged, so a segment the subject does not offer, reached by
+    /// shortcut, stays selected (it is appended by `visibleSegments(including:)`,
+    /// which never refuses). Falling back at all is the belt for a segment
     /// this list genuinely does not carry.
     static func snappedSelection(
         _ proposed: DetailSegment,
@@ -397,16 +354,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         segments.contains(proposed) ? proposed : (segments.first ?? fallback)
     }
 
-    /// New (`.new`) inbox captures awaiting triage — drives the picker badge.
-    /// The unread badge is the discoverability signal for the async phone→Mac
-    /// capture loop: without it, captures that sync in while the writer is
-    /// heads-down go unnoticed in a six-segment picker.
-    private var inboxCount: Int {
-        store.documentStore?.inboxStore.entries.count ?? 0
-    }
-
     /// Notes a compiler run landed for the open document while the writer was
-    /// somewhere else — the same discoverability argument as `inboxCount`, for
+    /// somewhere else — a discoverability signal, for
     /// the one pane whose content arrives without being asked for a second
     /// time. Cleared by `DiagnosticsPane` the moment it is on screen.
     private var diagnosticsUnreadCount: Int {
@@ -418,11 +367,42 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// The one list this picker renders — segment order, badge offset and
     /// badge width all derive from it, so they cannot disagree.
     private var pickerSegments: [DetailSegment] {
-        Self.visibleSegments(persona: persona, including: segment)
+        Self.visibleSegments(subject: subject, including: segment)
+    }
+
+    /// **The picker, or the narrowest form of it that fits** (shell p1 Task
+    /// 6). Every segment the subject offers is in one row now, and a dozen
+    /// segmented icons do not fit the column's floor: the segmented control is
+    /// tried at its regular size, then small, and the column falls back to a
+    /// menu rather than cropping (`RightColumnPaneWidthTests`). The badges ride
+    /// the segmented forms only — a menu has no segment to sit over.
+    @ViewBuilder
+    private var segmentPicker: some View {
+        ViewThatFits(in: .horizontal) {
+            segmentedPicker
+            segmentedPicker.controlSize(.small)
+            Picker("Right pane", selection: $segment) {
+                ForEach(pickerSegments, id: \.self) { seg in
+                    Label(Self.title(of: seg), systemImage: seg.systemImageName)
+                        .tag(seg)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    /// A segment's name for the menu form: its help text up to the dash.
+    static func title(of segment: DetailSegment) -> String {
+        let help = segment.helpText
+        guard let dash = help.range(of: " \u{2014} ") else { return help }
+        return String(help[..<dash.lowerBound])
     }
 
     @ViewBuilder
-    private var segmentPicker: some View {
+    private var segmentedPicker: some View {
         Picker("Right pane", selection: $segment) {
             ForEach(pickerSegments, id: \.self) { seg in
                 Image(systemName: seg.systemImageName)
@@ -435,21 +415,16 @@ struct DetailPaneToggle<Inspector: View>: View {
         // Unread badges. SwiftUI's segmented Picker can't badge a segment
         // directly, so we overlay top-trailing and shift left by however many
         // equal-width segments sit to the right of the badged one in THIS
-        // persona's picker — derived from `pickerSegments` itself, never a
+        // picker — derived from `pickerSegments` itself, never a
         // literal and never a re-derivation (see `badgeOffset(of:in:)`).
         // Anchored on the bare picker (before padding) so the width the
         // GeometryReader measures divides evenly across the segments. Each is
         // hidden at zero and absent entirely where its segment is; capped at
         // 99+.
         .overlay(alignment: .topTrailing) {
-            badge(over: .inbox, count: inboxCount, tint: .red,
-                  help: "\(inboxCount) new capture\(inboxCount == 1 ? "" : "s") "
-                      + "in the inbox (\u{2318}\u{2325}B)")
-        }
-        .overlay(alignment: .topTrailing) {
-            // Accent rather than the inbox's red: these are craft notes on
-            // prose the writer chose to have checked, not something wrong.
-            // The register is the same one the pane's own copy keeps.
+            // Accent rather than red: these are craft notes on prose the
+            // writer chose to have checked, not something wrong. The register
+            // is the same one the pane's own copy keeps.
             badge(over: .diagnostics, count: diagnosticsUnreadCount, tint: .accentColor,
                   help: "\(diagnosticsUnreadCount) new "
                       + "note\(diagnosticsUnreadCount == 1 ? "" : "s") "
@@ -462,8 +437,6 @@ struct DetailPaneToggle<Inspector: View>: View {
             badge(over: .visualLanguage, count: visualLanguageProposed ? 1 : 0,
                   tint: .accentColor, help: Self.visualLanguageBadgeHelp)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
     }
 
     /// The Visual Language segment's badge tooltip (translation pipeline P5)
@@ -514,8 +487,6 @@ struct DetailPaneToggle<Inspector: View>: View {
             historyPane
         case .tasks:
             tasksPane
-        case .inbox:
-            inboxPane
         case .translation:
             translationPane
         case .intent:
@@ -655,13 +626,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     }
 
     /// **This switch is why a new right-pane surface touches this file.**
-    /// `Persona.panes`' extension-point comment says adding one is an enum case
-    /// plus a registry entry and nothing else; that is true of the picker, the
-    /// shortcut table and `ProjectWindow`, and false here — `segmentContent` is
-    /// exhaustive over `DetailSegment` with no `default`, so a new case cannot
-    /// compile without an arm. The comment has been corrected rather than the
-    /// switch loosened: a `default` here would let a segment ship registered,
-    /// reachable by shortcut, and rendering the wrong pane.
+    /// A new pane is a `DetailSegment` case, its place in `pickerOrder`, its
+    /// `⌘⌥` item in `MaughamApp`'s View menu — and an arm here:
+    /// `segmentContent` is exhaustive over `DetailSegment` with no `default`,
+    /// so a new case cannot compile without one. A `default` here would let a
+    /// segment ship reachable by shortcut and rendering the wrong pane.
     @ViewBuilder
     private func statementPane(kind: Statement.Kind) -> some View {
         if let ds = documentStore {
@@ -709,22 +678,6 @@ struct DetailPaneToggle<Inspector: View>: View {
     }
 
     @ViewBuilder
-    private var inboxPane: some View {
-        if let ds = documentStore {
-            InboxPane(store: ds.inboxStore, projectStore: store,
-                      activeDocumentId: activeManuscriptItemId,
-                      canTranscribe: Self.localTranscriptionAvailable,
-                      retranscribe: { entry in Task { await ds.retranscribe(entry) } })
-        } else {
-            ContentUnavailableView(
-                "Open a project",
-                systemImage: "tray",
-                description: Text("Captures from MaughamPhone appear here."))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder
     private var historyPane: some View {
         if let url = projectURL {
             HistoryPane(
@@ -761,10 +714,9 @@ struct DetailPaneToggle<Inspector: View>: View {
                 scope: $annotationScope,
                 onTravel: { subject in
                     // Travelling to a piece is the window's SUBJECT write and
-                    // nothing else. No persona rides along: Review's centre
-                    // shows documents, so a reviewer clicking a note about
-                    // another chapter must land there with their notes still
-                    // beside them (`ManuscriptNavigation`'s ruling, and
+                    // nothing else: the centre shows the piece, so a writer
+                    // clicking a note about another chapter lands there with
+                    // their notes still beside them (`ManuscriptNavigation`'s ruling, and
                     // `AnnotationScopeTests`' census over this closure).
                     selectedSubject = subject
                 },

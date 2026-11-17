@@ -1,7 +1,7 @@
 import SwiftUI
 import MaughamCore
 
-/// **Review's centre column: the pieces × passes board** (M3 P1, routed in
+/// **The Book's Status view: the pieces × passes board** (M3 P1, routed in
 /// Task 6 and filled in Task 7).
 ///
 /// One row per node of the manuscript (`ReviewBoardRows`, which keeps the
@@ -40,9 +40,9 @@ import MaughamCore
 /// navigation MEANS — which subject the window takes, which pass it remembers —
 /// belongs to the mount in `CentreColumn.manuscriptEditor`, and so does the
 /// `ProjectStore.setPassState` call. What the board knows is which cell was
-/// pressed. In particular nothing here writes the window's PERSONA: the board is
-/// a surface Review shows, never a thing that decides Review is showing
-/// (`ReviewBoardRoutingTests.test_theBoardsOwnFileWritesNoPersona`).
+/// pressed. In particular nothing here writes the window's subject: the board
+/// is a surface the Book's Status view shows, never a thing that decides what
+/// the window shows (`ReviewBoardRoutingTests`).
 ///
 /// **The trailing column is how much is still unanswered** (M3 P2 Task 9): one
 /// number per piece, the notes nobody has resolved yet, clickable straight into

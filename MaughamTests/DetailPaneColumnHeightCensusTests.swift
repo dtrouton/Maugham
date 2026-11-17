@@ -37,7 +37,6 @@ private struct DetailColumnCensusHarness: View {
                 selectedSubject: Binding(get: { probe.subject },
                                          set: { probe.subject = $0 }),
                 activeManuscriptItemId: probe.subject?.itemID,
-                persona: .author,
                 projectURL: store.url,
                 activeDocId: docId,
                 allDocIds: [docId],

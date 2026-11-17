@@ -304,11 +304,11 @@ Checks: the compiler (exhaustive `MarkdownBlock` and AST switches), `ElementCens
 2. `StatementLookup.swift` — add a `StatementConvention` path and a `newPath` row. That switch has a `default:`, so a missing row silently returns `nil`.
 3. Exhaustive switches on `Maugham/` (from `grep -rn 'case \.lessons'`): `Maugham/Canvas/Promotion.swift` (`kindTitle`), `Maugham/Compiler/RulingPerformer.swift` (`noun`), `Maugham/Views/ProjectWindow.swift` (`statementPane(forMark:in:)`).
 4. `if case` sites that default silently: `Maugham/Views/StatementPane.swift` (pane title) and `Maugham/Views/RulingsStratum.swift` (stratum title).
-5. If the kind gets a pane: a `DetailSegment` case in `Maugham/Models/DetailSegment.swift`, its arm in `Maugham/Views/DetailPaneToggle.swift`, a shortcut in `Maugham/MaughamApp.swift`, a place in `PersonaPaneRegistryTests.canonicalPaneOrder`, and membership in each persona's `Persona.panes` (`Maugham/Models/Persona.swift`).
+5. If the kind gets a pane: a `DetailSegment` case in `Maugham/Models/DetailSegment.swift`, its arm in `Maugham/Views/DetailPaneToggle.swift`, a shortcut in `Maugham/MaughamApp.swift`, and a place in `DetailSegment.pickerOrder` (pinned by `DetailSegmentOrderTests`).
 6. If Claude reads it: a read tool beside `Maugham/MCP/Tools/LessonsTools.swift`. `CompilerAllowlistTests.statementWriters` must still find no writer.
 7. If the writer writes it: one production file names the kind to `RulingPerformer`, guarded by a census copied from `TripwireGrepTests.test_theLessonsLedgerIsWrittenFromOneFile` or `test_theFirstReadersStatementIsWrittenFromOneFile`.
 
-Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `PersonaPaneRegistryTests` and the allowlist census.
+Checks: the compiler, `StatementTests` and `StatementLookupTests` round-trips, `DetailSegmentOrderTests` and the allowlist census.
 
 ### Add a ProjectType case
 1. `ProjectType.swift` — add the case and its snake_case raw value, add it to `allCases`, and bump `ProjectManifest.currentSchemaVersion` (ADR 0015).

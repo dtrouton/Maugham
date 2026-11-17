@@ -881,25 +881,24 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "the badge is for a run that finished where the writer was not looking")
     }
 
-    /// The badge's offset is derived for `.diagnostics` the same way it is for
-    /// `.inbox` — and the two can be on screen together, which no persona
-    /// registry produces but `⌘⌥B` in Author does (`visibleSegments` appends
-    /// the out-of-persona selection).
-    func test_badgeOffset_findsDiagnosticsAndCoexistsWithTheInboxBadge() {
-        let author = Persona.author.panes
+    /// The badge's offset is derived for `.diagnostics` from the rendered
+    /// list, so it stays on Diagnostics when a selection is appended after it.
+    func test_badgeOffset_findsDiagnosticsAndSurvivesAnAppendedSegment() {
+        let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        let shown = DetailPaneToggle<AnyView>.visibleSegments(subject: chapter)
         XCTAssertEqual(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .diagnostics, in: author),
-            author.count - 1,
-            "diagnostics leads Author, so its badge shifts the full width of the row")
-        XCTAssertNil(DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: author))
+            DetailPaneToggle<AnyView>.badgeOffset(of: .diagnostics, in: shown),
+            shown.count - 1,
+            "diagnostics leads a chapter's picker, so its badge shifts the full width of the row")
 
-        let withInboxAppended = DetailPaneToggle<AnyView>.visibleSegments(
-            persona: .author, including: .inbox)
-        XCTAssertNotNil(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .diagnostics, in: withInboxAppended))
+        let withDeskAppended = DetailPaneToggle<AnyView>.visibleSegments(
+            subject: chapter, including: .department)
         XCTAssertEqual(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .inbox, in: withInboxAppended), 0,
-            "the appended segment is last, so its badge does not shift at all")
+            DetailPaneToggle<AnyView>.badgeOffset(of: .diagnostics, in: withDeskAppended),
+            withDeskAppended.count - 1)
+        XCTAssertEqual(
+            DetailPaneToggle<AnyView>.badgeOffset(of: .department, in: withDeskAppended), 0,
+            "the appended segment is last, so a badge on it does not shift at all")
     }
 
     /// **The Visual Language segment badges too** (translation pipeline P5) —
@@ -1385,9 +1384,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(menu.contains("onOpenProjectSettings()"),
                       "\u{2026}and it opens Project Settings, which is where "
                       + "her name is typed. Got:\n\(menu)")
-        XCTAssertFalse(menu.localizedCaseInsensitiveContains("persona"),
-                       "the picker never changes the window's mode \u{2014} P1 "
-                       + "removed the door to Review. Got:\n\(menu)")
         XCTAssertFalse(menu.contains("postDetailSegment("),
                        "\u{2026}and it opens no other pane either. Got:\n\(menu)")
 
@@ -2484,11 +2480,14 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Registry wiring
 
-    func test_diagnosticsIsAuthorsFirstPane() {
-        XCTAssertEqual(Persona.author.defaultPane, .diagnostics)
-        XCTAssertFalse(Persona.plan.panes.contains(.diagnostics))
-        XCTAssertFalse(Persona.review.panes.contains(.diagnostics))
-        XCTAssertFalse(Persona.publish.panes.contains(.diagnostics))
+    /// Diagnostics leads the picker whenever a piece is open, and leaves it
+    /// when the faces name no document.
+    func test_diagnosticsLeadsAPiecesPickerAndLeavesTheBooks() {
+        let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        XCTAssertEqual(DetailPaneToggle<AnyView>.visibleSegments(subject: chapter).first,
+                       .diagnostics)
+        XCTAssertFalse(DetailPaneToggle<AnyView>.visibleSegments(subject: .book)
+                        .contains(.diagnostics))
     }
 
     // MARK: - The fates: answering is ruling (spec §5)
@@ -2993,7 +2992,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     //
     // P1 homed the compiler's continuity questions and reader reports in the
     // writer's queue, and Denver's smoke found the consequence: Author — whose
-    // persona IS the wet-ink tempo — was left with a count ("3 notes went to
+    // whole tempo is wet ink — was left with a count ("3 notes went to
     // your queue") and no surface. §7.0's correction is a live VIEW of the
     // latest run's minted notes, in the pane's own register, with one-gesture
     // dispositions. Never the queue: a list you manage is the other tempo.

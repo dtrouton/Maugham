@@ -4,14 +4,12 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **Can the writer make structure from Plan's tree?**
+/// **Can the writer make structure from the tree?**
 ///
-/// §2 says Plan is where structure is produced, and slice 2 put the manuscript
-/// tree in Plan's left column. `BinderView` carries its root context menu, its
-/// per-row menu and its empty-state buttons **attached to the view rather than
-/// gated on persona**, so mounting it in Plan ought to bring creation with
-/// it — which makes task 7 a verification task, and the verification is the
-/// deliverable. `TreePaneTests` and
+/// The tree is the window's one left column. `BinderView` carries its root
+/// context menu, its per-row menu and its empty-state buttons **attached to
+/// the view rather than gated on what the window shows**, so mounting it ought
+/// to bring creation with it — the verification is the deliverable. `TreePaneTests` and
 /// `ProjectSubjectReachabilityTests` prove the right PANE is mounted, and
 /// "the pane is there" is not "the writer can make a chapter".
 ///
@@ -30,11 +28,11 @@ import MaughamCore
 ///
 /// **A screenplay has no structure creation here and must not gain one** — a
 /// screenplay is one `.fountain` (the Phase 3d invariant) and its structure is
-/// sluglines, typed in the editor, which is not on screen in Plan.
+/// sluglines, typed in the editor.
 /// `SceneNavigatorPane`'s empty state already points at the script row for
 /// exactly this reason. That is asserted below rather than left to prose.
 @MainActor
-final class PlanTreeStructureCreationTests: XCTestCase {
+final class TreeStructureCreationTests: XCTestCase {
 
     private var temp: TempDirectory!
     private var windows: [NSWindow] = []
@@ -59,22 +57,21 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
     // MARK: - The novel and the short story
 
-    /// The whole round trip: Plan, the Structure segment, an empty binder,
+    /// The whole round trip: an empty binder,
     /// **New Document** drawn there, and its verb leaving a document in the
     /// manifest that was not there before.
-    func test_aChapterCanBeMadeFromPlansTree() async throws {
+    func test_aChapterCanBeMadeFromTheTree() async throws {
         for type in [ProjectType.novel, .shortStory] {
             let store = try await emptyProject(of: type)
             XCTAssertTrue(store.manifest.structure.isEmpty, "\(type): fixture")
 
-            let window = host(store: store, persona: .plan)
+            let window = host(store: store)
             try assertButtonDrawn("New Document", in: window, "\(type)")
             try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
 
             XCTAssertEqual(store.manifest.structure.count, 1,
-                           "\(type): New Document's verb, drawn in Plan's tree, must "
-                           + "add a document — Plan is where §2 says structure "
-                           + "is produced")
+                           "\(type): New Document's verb, drawn in the tree, must "
+                           + "add a document")
             XCTAssertEqual(store.manifest.structure.first?.type, .document)
         }
     }
@@ -82,57 +79,45 @@ final class PlanTreeStructureCreationTests: XCTestCase {
     /// And a group, because the two buttons are two different `addItem` kinds
     /// and a pane that could only make documents would still pass the test
     /// above.
-    func test_aGroupCanBeMadeFromPlansTree() async throws {
+    func test_aGroupCanBeMadeFromTheTree() async throws {
         let store = try await emptyProject(of: .novel)
-        let window = host(store: store, persona: .plan)
+        let window = host(store: store)
         try assertButtonDrawn("New Group", in: window, "novel")
         try await startAPiece(.group, in: store)
 
         XCTAssertEqual(store.manifest.structure.first?.type, .group)
     }
 
-    /// **The control: the same affordances, in the persona that always had
-    /// them.** If Author's tree could not create either, the test above would be
-    /// measuring the harness rather than Plan.
-    func test_theSameAffordancesAreThereInAuthorsBinder() async throws {
-        let store = try await emptyProject(of: .novel)
-        let window = host(store: store, persona: .author)
-        try assertButtonDrawn("New Document", in: window, "Author")
-        try await startAPiece(.document(store.manifest.type.primaryFormat), in: store)
-        XCTAssertEqual(store.manifest.structure.count, 1)
-    }
-
     // MARK: - The Collection
 
     /// A Collection's tree is `CollectionPiecesPane`, whose `+` menu is attached
-    /// to its header the same way — so it comes to Plan with the pane.
+    /// to its header the same way — so it comes with the pane.
     ///
     /// **Its items are asserted differently and deliberately.** The `+` is a
     /// SwiftUI `Menu`; its three `Button`s do not exist until the menu is opened,
     /// and its items post key-window events that `ProjectWindow` handles rather
     /// than calling the store. So what is asserted here is that the control
-    /// itself reaches Plan's tree — the piece-creation actions behind it are
+    /// itself reaches the tree — the piece-creation actions behind it are
     /// `CollectionPieceModifier`'s and are tested there.
-    func test_theCollectionsAddControlReachesPlansTree() async throws {
+    func test_theCollectionsAddControlReachesTheTree() async throws {
         let store = try await emptyProject(of: .collection)
-        let window = host(store: store, persona: .plan)
+        let window = host(store: store)
 
         let found = try axDescriptors(in: window)
         XCTAssertTrue(found.contains("Add a piece"),
-                      "the Pieces pane's + control did not reach Plan's tree. "
+                      "the Pieces pane's + control did not reach the tree. "
                       + "Found: \(found)")
     }
 
     // MARK: - The screenplay refuses, and that is the design
 
-    /// **The stop, asserted.** No creation affordance in a screenplay's tree, in
-    /// Plan or anywhere else: one `.fountain` per screenplay is the Phase 3d
-    /// invariant, and its structure is sluglines typed into an editor that Plan
-    /// does not show. A future slice that adds a "New Scene" button here has to
-    /// delete this test, which is the point.
+    /// **The stop, asserted.** No creation affordance in a screenplay's tree:
+    /// one `.fountain` per screenplay is the Phase 3d invariant, and its
+    /// structure is sluglines typed into the editor. A future slice that adds a
+    /// "New Scene" button here has to delete this test, which is the point.
     func test_aScreenplaysTreeOffersNoStructureCreationAndMustNotGainOne() async throws {
         let store = try await emptyProject(of: .screenplay)
-        let window = host(store: store, persona: .plan)
+        let window = host(store: store)
 
         let found = try axDescriptors(in: window)
         // The control: an empty tree would make every refusal below vacuous.
@@ -228,9 +213,9 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
     // MARK: - Hosting and pressing
 
-    private func host(store: ProjectStore, persona: Persona) -> NSWindow {
+    private func host(store: ProjectStore) -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(StructureCreationProbeView(store: store, persona: persona)),
+            AnyView(StructureCreationProbeView(store: store)),
             size: CGSize(width: 320, height: 600))
         windows.append(window)
         pump(0.25)
@@ -306,12 +291,10 @@ final class PlanTreeStructureCreationTests: XCTestCase {
 
 }
 
-/// The left column as `ProjectWindow.binderColumn` builds it — same shell rule,
-/// and a persona the test chooses.
+/// The left column as `ProjectWindow.binderColumn` builds it — same shell rule.
 @MainActor
 private struct StructureCreationProbeView: View {
     let store: ProjectStore
-    let persona: Persona
     @State private var subject: BinderSubject?
     @State private var renamingItemId: String?
     @State private var treeFindActive = false

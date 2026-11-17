@@ -250,9 +250,9 @@ struct CompilerRun: Codable, Equatable, Sendable {
     /// true of the round. `[]` is a finished run that matched nothing.
     var openInOtherLanesNoteIds: [String]?
 
-    /// **Which loop asked for this run** (two loops P1) — Author's ⌘R or
-    /// Review's Run round. Minted from the persona at the keystroke and
-    /// carried through the run, so the record says which verb produced it
+    /// **Which loop asked for this run** (two loops P1) — a check (⌘R) or a
+    /// round (⌃⌘R, the cockpit's Run). Named by the command at the keystroke
+    /// and carried through the run, so the record says which verb produced it
     /// rather than leaving a reader to infer one.
     ///
     /// `nil` marks a record written before this field existed, on the same

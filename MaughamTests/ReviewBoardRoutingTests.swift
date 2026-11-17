@@ -146,70 +146,10 @@ final class ReviewBoardRoutingTests: XCTestCase {
         }
     }
 
-    /// **No view names the Review persona** — `centresTheCanvas`'s own history
-    /// is the warrant: an equality reads identically at three sites and drifts
-    /// at the fourth, and that cost three separate visible defects before the
-    /// question was named.
-    ///
-    /// `Persona.swift` is deliberately outside the scan: its `case .review:` is
-    /// the predicate's own definition, which is the one place the persona is
-    /// allowed to be spelled out.
-    ///
-    /// The ban reads every file under `Maugham/Views` (foundations plan 2):
-    /// it named the window's file and the board's, and the day the window is
-    /// split a name-gate in `ProjectWindow+Centre.swift` would sit in neither.
-    func test_theBoardsFilesAskThePredicateRatherThanNamingThePersona() throws {
-        let offenders = try Self.reviewNameGateOffenders(under: "Maugham/Views")
-        XCTAssertTrue(
-            offenders.isEmpty,
-            "these views compare the persona by name: \(offenders). The board "
-            + "is the Book's Status view, asked of the subject")
-        // The control: the scanner sees the offender it is asserting the absence
-        // of, or the line above is green over any file at all.
-        XCTAssertFalse(
-            Self.reviewNameGates(in: "guard persona == .review else { return false }").isEmpty,
-            "the scanner cannot see a planted name-gate, so its silence above "
-            + "says nothing")
-        // That the window ASKS the predicate: `WiringCensusTests`.
-    }
-
-    /// Every review-name gate under `root`, file by file (`reviewNameGates`).
-    private static func reviewNameGateOffenders(
-        under root: String, base: URL = SourceTree.repoRoot
-    ) throws -> [String] {
-        try SourceTree.sources(under: root, base: base).flatMap { file in
-            reviewNameGates(in: file.text).map { "\(file.path): \($0)" }
-        }
-    }
-
-    /// **Comments stripped, and the case name read WHOLE.**
-    ///
-    /// Two ways the naive spelling (`line.contains("== .review")` over raw
-    /// lines) reads as an offender when nothing is wrong, both of them live in
-    /// `ProjectWindow.swift` today: `c.role == .reviewer` is a collaborator's
-    /// role and has nothing to do with the persona, and the rule's own doc
-    /// comment quotes the forbidden shape while explaining why it is forbidden.
-    /// A census that fires on its own explanation gets silenced, which is worse
-    /// than not having it.
-    private static func reviewNameGates(in source: String) -> [String] {
-        SourceScan.codeLines(of: source)
-            .filter { line in
-                ["== .review", "!= .review"].contains { marker in
-                    var from = line.startIndex
-                    while let found = line.range(of: marker, range: from..<line.endIndex) {
-                        let after = found.upperBound
-                        if after == line.endIndex
-                            || !(line[after].isLetter || line[after].isNumber
-                                 || line[after] == "_") {
-                            return true
-                        }
-                        from = after
-                    }
-                    return false
-                }
-            }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-    }
+    // `test_theBoardsFilesAskThePredicateRatherThanNamingThePersona` and its
+    // `== .review` name-gate scanner retired with the personas (shell p1 Task
+    // 6): there is no persona left to name, and `NoPersonaCensusTests` covers
+    // every production file.
 
     // MARK: - The status footer
 
@@ -604,10 +544,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// **The planted control for the lookups above** (foundations plan 2): a
     /// `ProjectWindow` struct in one file and the editor arm in an
     /// `extension ProjectWindow` in another. The arm is found by symbol across
-    /// the extension and bounded to itself, and the name-gate ban — widened to
-    /// every view — catches an offender planted in a sibling view that is no
-    /// part of the window at all.
-    func test_theLookupsFindTheArmAcrossAnExtensionAndTheBanReachesSiblingViews() throws {
+    /// the extension and bounded to itself.
+    func test_theLookupsFindTheArmAcrossAnExtension() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
@@ -622,40 +560,11 @@ final class ReviewBoardRoutingTests: XCTestCase {
                 private func canvasArm() -> some View { CanvasView() }
             }
             """,
-            "Maugham/Views/Review/SomeSiblingView.swift": """
-            struct SomeSiblingView {
-                func f(persona: Persona) -> Bool { persona == .review }
-            }
-            """,
         ])
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham", base: base)
         XCTAssertTrue(arm.contains("ReviewBoardPane("), "the arm is found in the extension")
         XCTAssertFalse(arm.contains("CanvasView("), "…and bounded to itself")
-
-        XCTAssertEqual(
-            try Self.reviewNameGateOffenders(under: "Maugham/Views", base: base),
-            ["Maugham/Views/Review/SomeSiblingView.swift: "
-             + "func f(persona: Persona) -> Bool { persona == .review }"],
-            "the widened ban sees a name-gate in a view outside the window")
-    }
-
-    /// **The ejection trap: nothing this task added moves the window's
-    /// persona.** The board is a surface Review shows, never a thing that
-    /// decides Review is showing — a layer that wrote the persona would fight
-    /// the picker, ⌘1–4 and `ManuscriptNavigation` for it.
-    /// `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`
-    /// is the census over the whole tree; this is the same claim about the one
-    /// new file, stated where the new file's own suite can see it.
-    func test_theBoardsOwnFileWritesNoPersona() throws {
-        let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
-        for shape in ["persona = ", "persona.wrappedValue = ", "$0.persona = "] {
-            XCTAssertFalse(source.contains(shape),
-                           "`ReviewBoardPane` writes the window's persona "
-                           + "(`\(shape)`) — the closed set of decision sites is "
-                           + "`ManuscriptNavigation`, `PersonaModifier`, "
-                           + "`CanvasClaudeArrivalModifier` and `TreeTravel`")
-        }
     }
 
     /// **What the production mount's chips are wired TO** (M3 P1 Task 8).
@@ -664,9 +573,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// probe's own — so this reads the real call's argument list, bounded to it,
     /// and checks the three facts that make a chip click the hop it is: the
     /// window's SUBJECT moves, the pass is recorded, and the ruling goes through
-    /// the store. Plus the ejection trap's other half: no persona write rides
-    /// along. `test_theBoardsOwnFileWritesNoPersona` covers the pane's file;
-    /// this covers the closures the pane is handed, which live here.
+    /// the store. Plus the ejection trap's other half: the board's closures do
+    /// not move the Book's view.
     func test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore() throws {
         let arm = try SourceTree.declaration(
             named: "func statusBoard(", under: "Maugham")
@@ -674,7 +582,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
                                  "the board's mount must still be a call with "
                                  + "arguments this scan can read")
         // Comment lines dropped before the forbidden-pattern half: the mount's
-        // own comment explains at length why the persona is NOT written there,
+        // own comment explains at length what is NOT written there,
         // and a scan that could not tell the explanation from the act would be
         // a census that fires on its own documentation.
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
@@ -694,8 +602,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
             "the window must hand the centre column its one `ActivePassMemory` "
             + "writer, `recordActivePass(forPiece:passId:)`")
         XCTAssertFalse(
-            code.contains("persona") || code.contains("bookView"),
-            "the board's own closures move the window's persona or its view. "
+            code.contains("bookView"),
+            "the board's own closures move the Book's view. "
             + "The board is a view of the Book, never a thing that decides what "
             + "the window shows")
     }
@@ -709,8 +617,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// it was, because a writer scanning where the feedback piled up is reading
     /// the whole column and must not lose it to the first number they press.
     /// So the closure writes three things (the pane's visibility, the segment,
-    /// the scope) and neither the subject nor the persona.
-    func test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona() throws {
+    /// the scope) and not the subject.
+    func test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject() throws {
         let arm = try SourceTree.declaration(
             named: "func statusBoard(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
@@ -739,11 +647,6 @@ final class ReviewBoardRoutingTests: XCTestCase {
             "the count click writes the window's SUBJECT, so pressing a number "
             + "on the board throws the board away — that is the chip's verb, "
             + "not this one")
-        XCTAssertFalse(
-            closure.contains("persona"),
-            "…and it must not write the persona either (the ejection trap, "
-            + "`TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromThe"
-            + "ClosedSetOfDecisionSites`)")
 
         // The counts themselves are VALUES, computed off the body path.
         for expected in ["openNotes: openNotesCounts",

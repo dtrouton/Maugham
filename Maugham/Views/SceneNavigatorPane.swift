@@ -15,7 +15,7 @@ import MaughamCore
 /// project row a one-way door on every screenplay with no sluglines yet: see
 /// `scriptRow`.
 ///
-/// **It carries the project row** (persona shell spec §3.3).
+/// **It carries the project row** (the 2026-08-01 shell spec, §3.3).
 /// `TreePane(for: .screenplay)` is
 /// `.sceneNavigator`, so `BinderView` — the row's other non-collection home —
 /// is never mounted for a screenplay at all: without a row here `BinderSubject.project` is
@@ -26,7 +26,7 @@ import MaughamCore
 /// into `.project` scope, gated on schema version and never on project type.
 struct SceneNavigatorPane: View {
     /// The project, for the Research and Palette sections at the foot of the
-    /// tree (stage-2a Task 4). Every persona gets one left column, so those
+    /// tree (stage-2a Task 4). The window has one left column, so those
     /// sections are furniture in all three trees — and this pane is the one that
     /// had no store of its own, because sluglines are parsed from a script it is
     /// handed. Required rather than optional on purpose: an optional would let a

@@ -205,7 +205,7 @@ extension Notification.Name {
     /// write invented for the key. Scope: .keyWindow.
     public static let maughamSelectProjectRow = Notification.Name("maugham.select.project.row")
     /// Posted by ⌘⌥R (shell-finish stage-3a Task 5). Research stopped being a
-    /// right-pane segment when shell-finish stage 2a gave every persona's tree
+    /// right-pane segment when shell-finish stage 2a gave every tree
     /// its own Research section — so the shortcut's new job is opening that
     /// section if the writer had closed it, not showing a pane. Refused while
     /// `treeFindActive` covers the column: the overlay is the tree's
@@ -215,10 +215,11 @@ extension Notification.Name {
     /// Scope: .keyWindow.
     public static let maughamRevealPaletteSection = Notification.Name("maugham.reveal.palette.section")
     public static let maughamSetDetailSegment = Notification.Name("maugham.set.detail.segment")
-    /// Scope: .keyWindow — payload ["persona": Persona.rawValue].
-    /// Only the focused project window switches; other windows keep their own
-    /// persona, which is the point of per-window modes.
-    static let maughamSetPersona = Notification.Name("maugham.set.persona")
+    /// Posted by ⌘⌥B (shell p1 Task 6): open the Inbox in the centre — the
+    /// same click on the Inbox row the tree makes, through `ClickRule`. The
+    /// Inbox stopped being a right-column pane when it became a row.
+    /// Scope: .keyWindow.
+    public static let maughamOpenInbox = Notification.Name("maugham.open.inbox")
     public static let maughamMCPNoteAdded = Notification.Name("maugham.mcp.note.added")
     public static let maughamAddLoosePiece = Notification.Name("maugham.add.loose.piece")
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")

@@ -79,7 +79,7 @@ final class CanvasCollapseTests: XCTestCase {
 
     /// And the other half of the control: on the canvas with focus mode OFF,
     /// which is every writer who has never pressed `⌘\`, nothing happens either.
-    /// This is §8A.3's "never automatic on entering the persona" — you need the
+    /// This is §8A.3's "never automatic on arriving at the canvas" — you need the
     /// binder open to drag research and captures onto the canvas.
     func test_arrivingOnTheCanvasWithoutFocusModeCollapsesNothing() {
         for showInspector in [true, false] {
@@ -303,71 +303,10 @@ final class CanvasCollapseTests: XCTestCase {
         XCTAssertNil(card, "and is cleared on the way out")
     }
 
-    // MARK: - The predicate
-
-    /// **Every persona pair, and the answer follows the two centre columns.**
-    /// Asked over the whole product rather than the one pair that motivated it:
-    /// the rule is "a live collapse over a centre that stops being the board",
-    /// and a hand-picked pair is the sampling that lets a fifth persona answer
-    /// wrong.
-    func test_thePredicateFiresExactlyWhenALiveCollapseLeavesTheBoard() {
-        for from in Persona.allCases {
-            for to in Persona.allCases {
-                let leaves = from.centresTheCanvas && !to.centresTheCanvas
-                XCTAssertEqual(
-                    PersonaModifier.releasesCanvasCollapse(
-                        fromPersona: from, toPersona: to, stash: true),
-                    leaves, "\(from) → \(to)")
-                XCTAssertEqual(
-                    PersonaModifier.releasesCanvasCollapse(
-                        fromPersona: from, toPersona: to, stash: false),
-                    leaves,
-                    "\(from) → \(to): a stashed `false` is a live collapse just "
-                    + "as much as a `true` — the flag is optionality, not the value")
-            }
-        }
-    }
-
-    /// The control on that loop: it really reaches both answers, so neither
-    /// equality above is satisfied by a predicate that returns a constant.
-    func test_thePredicateAnswersBothWaysAcrossThePersonaProduct() {
-        var fired = 0
-        var refused = 0
-        for from in Persona.allCases {
-            for to in Persona.allCases {
-                if PersonaModifier.releasesCanvasCollapse(
-                    fromPersona: from, toPersona: to, stash: true) {
-                    fired += 1
-                } else {
-                    refused += 1
-                }
-            }
-        }
-        XCTAssertGreaterThan(fired, 0, "no pair leaves the board")
-        XCTAssertGreaterThan(refused, 0, "every pair leaves the board")
-    }
-
-    func test_thePredicateIsFalseWhenTheCanvasSurvivesTheSwitch() {
-        XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(
-                fromPersona: .plan, toPersona: .plan, stash: true),
-            "⌘1 while already in Plan keeps the collapse")
-    }
-
-    func test_thePredicateIsFalseWhenNothingWasCollapsed() {
-        XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(
-                fromPersona: .plan, toPersona: .author, stash: nil),
-            "a persona switch off an UNCOLLAPSED canvas reopens nothing — the "
-            + "writer may have dragged the sidebar shut themselves")
-    }
-
-    func test_thePredicateIsFalseWhenTheWriterWasNeverOnTheBoard() {
-        XCTAssertFalse(
-            PersonaModifier.releasesCanvasCollapse(
-                fromPersona: .author, toPersona: .review, stash: true),
-            "a switch that never touched the canvas is not this rule's business")
-    }
+    // The persona-switch release predicate (`PersonaModifier
+    // .releasesCanvasCollapse`) and its five tests retired with the personas
+    // (shell p1 Task 6): leaving the canvas is a subject change, and
+    // `test_leavingTheCanvasWhileCollapsedGivesTheColumnsBack` holds that path.
 
     /// **Any subject change that takes the wall away restores what the writer
     /// had** — a tree click, a navigation, the wall's own Close: the wall is

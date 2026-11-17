@@ -34,7 +34,7 @@ enum AuthorReader: Equatable {
     /// The coach, holding her seat. Every piece is hers while it is held:
     /// the check loop does not ask which lane a piece is parked in.
     case coach(ReviewPass)
-    /// The writer's own first reader — a person they named, not a persona the
+    /// The writer's own first reader — a person they named, not a seat the
     /// app supplies. She is a `FirstReader` rather than a `ReviewPass`
     /// because she has no doctrine and no lane: she has a name and, if the
     /// writer has written one, a description of who she is.

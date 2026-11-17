@@ -328,24 +328,10 @@ final class AnnotationScopeTests: XCTestCase {
             .travel(.item("ch2")))
     }
 
-    /// **The pane's own files write no persona.** Mirrors
-    /// `ReviewBoardRoutingTests.test_theBoardsOwnFileWritesNoPersona`: the queue
-    /// is a surface Review shows, never a thing that decides Review is showing.
-    /// A reviewer clicking a note about Chapter Nine must land in Chapter Nine
-    /// with their notes still beside them.
-    func test_thePanesOwnFileWritesNoPersona() throws {
-        let source = try AnnotationsPaneSource.surfaceSource()
-        for shape in ["persona = ", "persona.wrappedValue = ", "$0.persona = "] {
-            XCTAssertFalse(source.contains(shape),
-                           "`AnnotationsPane` writes the window's persona "
-                           + "(`\(shape)`) — the closed set of decision sites is "
-                           + "`ManuscriptNavigation`, `PersonaModifier`, "
-                           + "`CanvasClaudeArrivalModifier` and `TreeTravel`")
-        }
-    }
-
-    /// And the closure the pane is HANDED, which lives in the mount: a subject
-    /// write, and no persona riding along with it.
+    /// The closure the pane is HANDED, which lives in the mount: a subject
+    /// write, and nothing riding along with it. (Its persona half — and the
+    /// pane-file "writes no persona" test beside it — retired with the
+    /// personas, shell p1 Task 6; `NoPersonaCensusTests` covers every file.)
     func test_theMountsTravelClosureWritesTheSubjectAndNothingElse() throws {
         let source = try Self.source(of: "Views/DetailPaneToggle.swift")
         let arm = try XCTUnwrap(
@@ -357,9 +343,6 @@ final class AnnotationScopeTests: XCTestCase {
                         && code.contains("selectedSubject = subject"),
                       "travelling to a piece or a figure IS the window's subject "
                       + "write — the subject the pure rule chose, unchanged")
-        XCTAssertFalse(code.contains("persona"),
-                       "the queue's travel closure moves the window's PERSONA — "
-                       + "the ejection trap the whole of M3 is written around")
     }
 
     // MARK: - The pane is wired to the rules above

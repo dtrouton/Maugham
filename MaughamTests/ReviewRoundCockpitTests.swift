@@ -201,9 +201,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let phase = ReviewRoundCockpit.phase(runState: check, docId: "ch-1")
         XCTAssertEqual(phase, .authorsCheckIsRunning)
         XCTAssertEqual(ReviewRoundCockpit.otherLoopLine(phase: phase),
-                       "Author's check is running \u{2014} Run waits until it finishes.")
+                       "A check is running \u{2014} Run waits until it finishes.")
         XCTAssertEqual(ReviewRoundCockpit.authorsCheckIsRunningLine,
-                       "Author's check is running \u{2014} Run waits until it finishes.")
+                       "A check is running \u{2014} Run waits until it finishes.")
         XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phase),
                       "Run stays refused while the window's one session is the check's")
         XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phase),
@@ -238,7 +238,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         let phaseOnB = ReviewRoundCockpit.phase(runState: checkOnA, docId: "ch-b")
         XCTAssertEqual(phaseOnB, .authorsCheckIsRunning)
         XCTAssertEqual(ReviewRoundCockpit.otherLoopLine(phase: phaseOnB),
-                       "Author's check is running \u{2014} Run waits until it finishes.")
+                       "A check is running \u{2014} Run waits until it finishes.")
         XCTAssertTrue(ReviewRoundCockpit.refusesRun(phase: phaseOnB))
         XCTAssertTrue(ReviewRoundCockpit.offersCancel(phase: phaseOnB))
 

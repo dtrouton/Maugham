@@ -247,15 +247,8 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                // ⌘1–⌘4, one item per persona in stage order, the key read off
-                // `Persona.shortcutKey` — the same key the persona bar's tooltip
-                // and accessibility label say, so the three cannot disagree.
-                ForEach(Persona.allCases, id: \.self) { persona in
-                    Button(persona.displayName) { postPersona(persona) }
-                        .keyboardShortcut(KeyEquivalent(persona.shortcutKey), modifiers: .command)
-                }
-
-                Divider()
+                // ⌘1–⌘4 are unbound (shell p1 Task 6): the window's subject
+                // decides what it shows, and there is no mode to switch to.
                 Button("Toggle Focus Mode") {
                     MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
                 }
@@ -309,7 +302,11 @@ struct MaughamApp: App {
                     .keyboardShortcut("h", modifiers: [.command, .option])
                 Button("Tasks") { postSegment(.tasks) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
-                Button("Inbox") { postSegment(.inbox) }
+                // ⌘⌥B opens the Inbox in the centre, as a click on its tree
+                // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
+                Button("Inbox") {
+                    MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
+                }
                     .keyboardShortcut("b", modifiers: [.command, .option])
                 // ⌘⌥P re-pointed (stage-3a Task 5): same story as Research,
                 // for the tree's Palette section.
@@ -491,18 +488,10 @@ struct MaughamApp: App {
     /// apart — and, since M1A gave the inspector one too, a thin call onto
     /// `MaughamEvent.postDetailSegment(_:)`, which is where the payload and the
     /// `.keyWindow` scope are spelled. Kept as a local name because
-    /// `PersonaKeyspaceTests` reads `postSegment(.<segment>)` out of this file
-    /// to prove every segment has a menu item.
+    /// `DetailSegmentOrderTests` reads `postSegment(.<segment>)` out of this
+    /// file to prove every segment has a menu item.
     private func postSegment(_ segment: DetailSegment) {
         MaughamEvent.postDetailSegment(segment)
-    }
-
-    /// Mirrors `postSegment(_:)`. `.keyWindow` scope: only the focused
-    /// project window switches, so two windows keep independent personas.
-    private func postPersona(_ persona: Persona) {
-        MaughamEvent.post(.maughamSetPersona,
-                          to: .keyWindow,
-                          payload: [MaughamEvent.personaKey: persona.rawValue])
     }
 
     @MainActor

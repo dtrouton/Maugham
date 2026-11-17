@@ -1130,7 +1130,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
     /// The three suppressed spellings are minted by the session and read by the
     /// orchestrator, so they are constants rather than two copies of a string —
-    /// the `MaughamEvent.personaKey` reasoning. A raw literal on either side is
+    /// the `MaughamEvent.detailSegmentKey` reasoning. A raw literal on either side is
     /// a rename away from a failure surface that never appears or never clears.
     func test_theSuppressedDetailsAreOneSpellingSharedByBothSides() throws {
         let session = try source(at: "Maugham/Compiler/ClaudeCLISession.swift")

@@ -659,7 +659,7 @@ struct CanvasInteraction {
     ///
     /// Extracted at Denver's ruling of 2026-08-03: *"how we decide what is in a
     /// region is the same formula as how we decide what gets selected in a
-    /// sweep."* Persona-shell §4.1 turns that into a rule with two callers —
+    /// sweep."* The shell spec's §4.1 (2026-08-01) turns that into a rule with two callers —
     /// `absorbedNodes` asks it of a card's frame, `caughtRegions` asks it of a
     /// region's — and the whole point of the ruling is that it is ONE rule.
     /// Spelled twice they are free to drift, and the drift is invisible: a sweep

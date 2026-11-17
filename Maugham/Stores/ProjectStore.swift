@@ -274,7 +274,7 @@ public final class ProjectStore {
     /// the live canvas from the sidecar and address the one that is real.
     ///
     /// **Non-nil is not the same as usable.** The model is created eagerly with
-    /// the window and is only attached while the Plan persona is on screen; ask
+    /// the window and is only attached while the canvas is open in the centre; ask
     /// `CanvasModel.isAttached`, whose doc comment spells out what a write into
     /// an unattached one costs.
     weak var liveCanvas: CanvasModel?

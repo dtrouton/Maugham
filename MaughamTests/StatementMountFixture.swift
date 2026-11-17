@@ -499,11 +499,8 @@ private struct BinderBesideThePaneProbeView: View {
                 segment: segment,
                 selectedSubject: subject,
                 activeManuscriptItemId: subjectProbe.subject?.itemID,
-                // Plan registers BOTH statement panes, so neither `.intent` nor
-                // `.visualLanguage` is an out-of-persona selection here and
-                // `snapSegmentIntoPicker` has nothing to move. (Author registers
-                // `.intent` only — `.visualLanguage` is `—` for Author.)
-                persona: .plan,
+                // Both statement panes are in every picker, so
+                // `snapSegmentIntoPicker` has nothing to move.
                 projectURL: store.url,
                 activeDocId: BinderSubject.activeDocId(for: subjectProbe.subject),
                 documentStore: documentStore

@@ -1,8 +1,8 @@
 import SwiftUI
 import MaughamCore
 
-/// **The department desk** (publish-department P4 Task 1) — Publish's own
-/// working pane, and `ReviewBoardPane`'s sibling one persona over.
+/// **The department desk** (publish-department P4 Task 1) — an edition's own
+/// working pane, and `ReviewBoardPane`'s sibling.
 ///
 /// Review got a board saying where every piece stands on every pass; Publish
 /// gets a desk saying where the book's DESIGN stands and where each language
@@ -797,7 +797,7 @@ struct DepartmentPane: View {
     /// could not reach it, VoiceOver would not announce it, and no test here
     /// could press it — SwiftUI builds a `.contextMenu`'s items only while the
     /// menu is up, so an accessibility-tree press has nothing to find (the
-    /// board's chip verbs record the same finding one persona over). So the
+    /// board's chip verbs record the same finding). So the
     /// button is the real door and the menu is the gesture a Mac writer will
     /// reach for first; they post the same call.
     ///

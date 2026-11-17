@@ -103,8 +103,8 @@ extension DiagnosticsPane {
     /// **A round is holding the window's one session** (#77 F7) — the
     /// ruling's sentence (Denver 2026-10-17, applied symmetrically by the
     /// controller to the cockpit's "Author's check is running" line; amended
-    /// 2026-11-17 by the controller, shell p1 Task 5: the personas are gone,
-    /// so the round is no longer "Review's"). `static let` for `headerCopy`'s
+    /// 2026-11-17 by the controller, shell p1 Task 5: the window has no
+    /// modes now, so the round is no longer "Review's"). `static let` for `headerCopy`'s
     /// reason: every sentence this pane says is assertable without mounting
     /// anything.
     static let roundIsRunningLine =
@@ -243,7 +243,7 @@ extension DiagnosticsPane {
             return "Last checked \(relative(run.at)) \u{00b7} \(run.deltaSummary)"
                 + RoundNarrative.readInSuffix(run.timing)
         case .running(let checking, let since, let progress):
-            // `.check`, always: this pane is Author's, and Author's ⌘R is the
+            // `.check`, always: this pane is Author's, and the check's ⌘R is the
             // check (two loops P1 Task 3). The cockpit passes `.round` at the
             // mirror of this line.
             //
@@ -256,7 +256,7 @@ extension DiagnosticsPane {
         case .nothingNew:
             return "Nothing new since the last check."
         case .failed(let failure, _):
-            // `RoundNarrative`'s, since 2026-08-18 — Review's cockpit says the
+            // `RoundNarrative`'s, since 2026-08-18 — the round cockpit says the
             // same sentence over the same death, and this pane is one caller
             // among two rather than the owner (the hoist `checkingCopy` and the
             // round lines already made).

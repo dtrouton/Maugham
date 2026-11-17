@@ -115,8 +115,8 @@ struct PieceInspector: View {
     /// gone — the writer rules on passes and the status is read off them.
     ///
     /// The write is this file's, not `PassLadder`'s: see that view's doc
-    /// comment, and `PersonaPaneRegistryTests`' `setPassState` census, which is
-    /// what the Review persona's claim on the Inspector now rests on.
+    /// comment, and `PassStateWriterCensusTests`' `setPassState` census, which
+    /// is why the Inspector stays in every picker.
     @ViewBuilder private func statusSection(piece: StructureItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Review").font(.caption).foregroundStyle(.secondary)
@@ -131,7 +131,7 @@ struct PieceInspector: View {
     /// twin, and for the same two reasons.
     ///
     /// It is still this file's write (`PassLadder`'s doc comment, and
-    /// `PersonaPaneRegistryTests`' `setPassState` census, which is by FILE and
+    /// `PassStateWriterCensusTests`' `setPassState` census, which is by FILE and
     /// so is unmoved by naming the closure). What naming it buys is a way to
     /// pin what a choice MEANS with no window in the way: on macOS 27 a
     /// `Picker(.menu)` publishes no menu, no children and no press action, so

@@ -4,7 +4,7 @@ import MaughamCore
 
 /// **A double-click on a tree row opens it in the centre** (shell p1 Task 3):
 /// `ClickRule.resolve(subject, gesture: .openInCentre, …)` and nothing else.
-/// No travel and no persona: the single click before it already did what a
+/// No travel and no mode: the single click before it already did what a
 /// click does (a piece's faces, a note beside), and the second click takes the
 /// centre. The mark below is how a double-click is READ; what it does is the
 /// click rule's.

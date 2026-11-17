@@ -38,7 +38,7 @@ struct IntentAffordanceRow: View {
     ///
     /// It used to pass `prefersProjectScope: false` — "what a fresh arrival
     /// shows", the inspector declining to guess at pane state it cannot see.
-    /// The pane has no such state as of the persona shell's slice 1: its scope
+    /// The pane has no such state as of the shell's slice 1 (2026-08-03): its scope
     /// switch is gone and the tree is the one subject-picker, so there is
     /// nothing left for this row to be out of step with.
     ///

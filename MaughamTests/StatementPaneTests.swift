@@ -25,56 +25,18 @@ final class StatementPaneTests: XCTestCase {
 
     // MARK: - The registry (spec §4.1, umbrella spec §6.3)
 
-    /// §6.3 gave Intent a cell in every persona and Visual language a cell in
-    /// Plan, Review and Publish — the shape `Persona.swift` reserved. The whole
-    /// matrix is checked by `PersonaPaneRegistryTests`; this pins the two rows
-    /// M1A consumes, so a sweep that drops one names the milestone that added
-    /// it.
-    ///
-    /// **The milestones doing the dropping, as that comment asked for.**
-    ///
-    /// **The persona shell, slice 1** (§5 of
-    /// `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, an
-    /// amendment in force to §6.3): intent left **Publish**. Publish is where a
-    /// finished book is made to look right; what the writing is going for is
-    /// read where the writing happens.
-    ///
-    /// **The right-column re-cut, 2026-08-03** (§5.0 of the same document,
-    /// which supersedes §5's per-persona lists here): intent leaves **Plan**
-    /// too, leaving Author and Review. The reason is not that Plan stopped
-    /// caring about intent — it is that **Plan AUTHORS intent**, and the thing
-    /// a persona authors belongs in its left column, while the right column is
-    /// what you glance at while authoring something else. Author and Review
-    /// consult it; Plan writes it.
-    ///
-    /// **The cost, recorded because it is real and temporary.** Intent's
-    /// left-column home in Plan is a build §5.0 deliberately parks (a
-    /// `BinderSegment` case, a centre route, and a decision about what the left
-    /// pane shows while you edit), so **until it ships intent is reachable in
-    /// Plan by ⌘⌥N only** — the pane opens, renders and stays selected, but
-    /// Plan's picker does not lead you to it and `PersonaMemory` will not keep
-    /// it across a persona switch. Denver accepted that trade explicitly.
-    ///
-    /// The assertion is not weakened to "at least one" — it names the two, so
-    /// re-adding a third is as loud as losing one.
-    func test_intentIsOfferedByAuthorAndReviewOnly() {
-        XCTAssertEqual(
-            Set(Persona.allCases.filter { $0.panes.contains(.intent) }),
-            [.author, .review])
-    }
-
-    /// §6.3 marked Visual language ● for Plan, Review and Publish and — for
-    /// Author. §5.0's re-cut leaves **Publish alone**: Plan authors the visual
-    /// language (same parked left-column build as intent above, same ⌘⌥V
-    /// escape hatch until it lands), and Review adjudicates prose rather than
-    /// how the book looks. Publish is where "how the book looks" is read, and
-    /// it is Publish's default pane.
-    func test_visualLanguageIsOfferedByPublishOnly() {
-        XCTAssertEqual(
-            Set(Persona.allCases.filter { $0.panes.contains(.visualLanguage) }),
-            [.publish],
-            "visual language is Publish's column now (§5.0); Plan authors it "
-            + "and reaches it with ⌘⌥V until its left-column home is built")
+    /// Intent and Visual Language are in every picker (shell p1 Task 6): one
+    /// order, and neither pane needs a document — Intent falls back to the
+    /// book's, Visual Language is project-scope.
+    func test_bothStatementPanesAreOfferedWhateverTheSubject() {
+        for subject in [WindowSubject.book,
+                        WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
+                        WindowSubject(open: .canvas, faces: .project),
+                        WindowSubject(open: .edition(language: "es"), faces: .project)] {
+            let shown = DetailPaneToggle<AnyView>.visibleSegments(subject: subject)
+            XCTAssertTrue(shown.contains(.intent), "\(subject)")
+            XCTAssertTrue(shown.contains(.visualLanguage), "\(subject)")
+        }
     }
 
     /// Each pane needs a `⌘⌥` letter of its own. The letters themselves are
@@ -99,7 +61,7 @@ final class StatementPaneTests: XCTestCase {
     // MARK: - Scope follows the window's subject (spec §4.3)
 
     /// **`test_theProjectsIntentIsOneClickAwayFromADocuments` was deleted here**
-    /// (persona shell, slice 1, task 7), and deliberately rather than as tidying
+    /// (shell slice 1, task 7, 2026-08-03), and deliberately rather than as tidying
     /// after a signature change.
     ///
     /// It pinned the pane's promise that *"the other one click away"* — the

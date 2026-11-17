@@ -6,7 +6,7 @@ import MaughamCore
 //
 // A Research CSV selected in the tree opens in the table figures' grid
 // (`FigureGridController` over a `ResearchTableHost`) — in the centre, or in
-// Plan's right column beside the canvas — and saves back to its file. Not a
+// the right column beside the canvas beside the canvas — and saves back to its file. Not a
 // figure: no `FigureWindows` hold, no figure line, none of the figure's own
 // commands.
 

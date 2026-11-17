@@ -1,6 +1,6 @@
 # Canvas — area guide
 
-The Plan persona's centre column: a freeform planning canvas of scraps (the writer's words on cards), item nodes (research the canvas points at, or photographs it owns), regions, lines and the promotion that turns any of them into project artifacts. The one rule from CLAUDE.md: **membership never changes on a move or resize (tripwire 31).** The canvas carries tripwires 25–33. Its words live in `canvas.md` at the project root; its arrangement in the derived, deletable .maugham/canvas.json; its owned photographs in `canvas_assets/`. The why behind every rule below, and the history of each, is in `docs/history/canvas.md`.
+The centre when `open == .canvas`: a freeform planning canvas of scraps (the writer's words on cards), item nodes (research the canvas points at, or photographs it owns), regions, lines and the promotion that turns any of them into project artifacts. The one rule from CLAUDE.md: **membership never changes on a move or resize (tripwire 31).** The canvas carries tripwires 25–33. Its words live in `canvas.md` at the project root; its arrangement in the derived, deletable .maugham/canvas.json; its owned photographs in `canvas_assets/`. The why behind every rule below, and the history of each, is in `docs/history/canvas.md`.
 
 ## Map
 
@@ -212,7 +212,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 ### Ownership, counters and undo
 - **`CanvasModel` holds the scene, text, selection, store and recorder; `CanvasView` holds only what belongs to one view of it** (camera, layouts, focus, straighten, momentum, both counters' view copies).
 - **The view's helpers are per-call structs over `$state`, built only by `CanvasView`'s computed properties, never stored by the view, never given `$sceneRevision`** (`TripwireGrepTests.test_theCanvasSurfaceHelpersAreBuiltByCanvasViewOnly`, `CanvasAccessibilityTests.test_theViewsStructuralCounterHasOneWriterAcrossTheSurface`).
-- **The canvas is mounted at exactly one site** (`CentreColumn.editorPane`'s `.canvas` arm, `canvasCentre`; `RegionBindingTests` counts `canvasCentre(`). Every "is the centre the canvas" check asks `Persona.centresTheCanvas`.
+- **The canvas is mounted at exactly one site** (`CentreColumn.editorPane`'s `.canvas` arm, `canvasCentre`; `RegionBindingTests` counts `canvasCentre(`). Every "is the centre the canvas" check asks `open == .canvas`.
 - **Three `@ObservationIgnored` hooks run model → view** (`onSceneReplacedByUndo`, `onSceneChangedExternally`, `onRevealRequested`), bound in `CanvasView.load()` and nil'd together in `detach()` (`CanvasLiveSeamTests`' assigner census). `onRevealRequested` carries a region and the model parks it until `attach()`.
 - **`CanvasModel` hosts `CanvasUndo`; never reimplement it.**
 - **Two counters**: `revision` ticks every animation frame and keys the `Canvas` redraw only; `sceneRevision` ticks on structural change and keys the accessibility tree, the lit set and the inspector's gated lists. **Nothing scene-proportional keys off `revision`** (tripwire 30; `CanvasAccessibilityTests.test_theTreeIsNotKeyedOnTheRedrawCounter`, `CanvasCompositionTests`). Read `revision` in `body`, not inside the draw closure.
@@ -278,7 +278,7 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 - **A source item node is `author: .claude`, drawn straight and untinted** — `CanvasRenderer.paper(for:)` never tints an item node; never use `author = nil` to get a colour.
 - **Every refusal comes before anything is written**: validation from the call alone, and `canvas_sidecar_unreadable` raised by the write on both routes through `CanvasStore.loadForTransientWrite()` (sidecar) or the attached model's `sidecarRefusal` — never a second `!= .refused` at a call site. Refuse rather than dedupe. The placement is synchronous (`apply` takes an `inout CanvasScene`); a caller that must await does so before the call.
 - **`list_canvas` reads the live model when attached** (`read_from: "open_canvas"`) and enforces `MCPResponseBudget` itself.
-- **The arrival banner (`CanvasClaudeArrivalModifier`) is project-scoped, says "added", and its Show writes the persona directly** (not through `PersonaModifier`), forces the inspector open, and moves the camera through `onRevealRequested` — a hook, never a `MaughamEvent`; `CanvasCamera.bring(_:toViewPoint:)` never touches zoom. `MCPBannerModel` is not reused.
+- **The arrival banner (`CanvasClaudeArrivalModifier`) is project-scoped, says "added", and its Show opens the canvas**, forces the inspector open, and moves the camera through `onRevealRequested` — a hook, never a `MaughamEvent`; `CanvasCamera.bring(_:toViewPoint:)` never touches zoom. `MCPBannerModel` is not reused.
 - **`CanvasAuthorLine` is rendered by every `*Inspector.swift` arm that can carry it, from one implementation**; the census discovers the files (`RegionBindingTests.test_everyInspectorArmRendersTheOneAuthorLine`). `forItem` never forwards to `forCard` (`test_aSourcePageDoesNotSayItWasReadFromItself`). A `store` is never read from a `body`.
 
 ### Material
@@ -291,8 +291,8 @@ Outside this folder but canvas-only: `Maugham/Views/CanvasPromotionModifier.swif
 
 ### `⌘\` gives the canvas the window
 - **The collapse is `.doubleColumn` plus `showInspector == false`, never `.detailOnly`** (which hides the canvas); `ProjectWindow.canvasCollapse` is the pure decision and carries the visibility in its payload.
-- **It watches the no-chrome flag, never the key** — one subscription, so `⌘⇧F` collapses too — and never fires automatically on entering the persona; off the canvas nothing is written.
-- **The stash is the "already collapsed" flag; persona changes release it through `PersonaModifier.releasesCanvasCollapse`**, which also hands the sidebar back. Extend that predicate; never defer a pass (tripwire 2).
+- **It watches the no-chrome flag, never the key** — one subscription, so `⌘⇧F` collapses too — and never fires automatically on arriving at the canvas; off the canvas nothing is written.
+- **The stash is the "already collapsed" flag; leaving the canvas releases it** and hands the sidebar back. Never defer a pass (tripwire 2).
 
 ### Scale and tests
 - **Supported: 2,000 nodes** (`CanvasPerformanceProbeTests.supportedNodeCount`). There is no spatial index; `nodes(intersecting:)` filters then sorts. Nothing times `CanvasRenderer.draw`. Per-frame callers use `count` or `unorderedNodes`, never `nodes`. Lines, tethers and chips are per-frame work nothing bounds; if one ever measures, add an `unorderedLines` peer (as `nodes`/`unorderedNodes`) rather than a cache, cull a tether by its segment and never its region, and never cache tethers on `sceneRevision`.
@@ -384,6 +384,6 @@ Checks: `DocSyncTests.test_theCalibrationFiguresInTheCanvasAreaFileMatchTheirCon
 - ADR 0026 (`docs/adr/0026-planning-canvas-rendering.md`): rendering, membership (§8), promotion (§9), the ADR 0018 exception. ADR 0023 for the op-log undo the canvas does not use.
 - Measurements: `docs/superpowers/notes/2026-07-25-canvas-rendering-spike.md`.
 - `docs/tripwires.md` rows 25–33.
-- Neighbouring guides: `Maugham/Stores/AREA.md` (Rules → "Statement and canvas asset wells"; `sendToCanvas` under "The inbox"), `Maugham/MCP/AREA.md` (`list_canvas`, `add_canvas_scraps`), `Maugham/Views/AREA.md` (the window, personas).
+- Neighbouring guides: `Maugham/Stores/AREA.md` (Rules → "Statement and canvas asset wells"; `sendToCanvas` under "The inbox"), `Maugham/MCP/AREA.md` (`list_canvas`, `add_canvas_scraps`), `Maugham/Views/AREA.md` (the window, its subject).
 - Tests worth knowing: `CanvasMembershipTests`, `CanvasCompositionTests`, `RegionBindingTests`, `PromotionCommandTests`, `CanvasLiveSeamTests`, `CanvasEditGateTests`, the `CanvasViewMounting*` family.
 - History, rationale and every measurement behind these rules: `docs/history/canvas.md`.

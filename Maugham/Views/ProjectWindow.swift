@@ -55,8 +55,7 @@ struct ProjectWindow: View {
     /// The inspector's visibility captured when `⌘\` gave the canvas the whole
     /// window (spec §8A.3), so leaving restores it exactly. `nil` when the
     /// canvas is not collapsed — which is also how `canvasCollapse` knows a
-    /// collapse is already in force. Owned by `CanvasCollapseModifier`, dropped
-    /// by `PersonaModifier`.
+    /// collapse is already in force. Owned by `CanvasCollapseModifier`.
     @State private var inspectorWasVisibleBeforeCanvasCollapse: Bool?
     /// The split view's own column visibility. `.automatic` until something
     /// collapses to the canvas, so a window that never uses `⌘\` on the canvas
@@ -85,7 +84,7 @@ struct ProjectWindow: View {
     @State private var researchPreviewVisible: Bool = false
     /// **Find in Project, as an overlay of the left column.** Window state
     /// rather than segment state: ⌘⌥F writes this and nothing else, so the
-    /// overlay rides through a persona switch untouched and closing it reveals
+    /// overlay rides through a subject change untouched and closing it reveals
     /// whatever column was underneath instead of navigating anywhere.
     @State private var treeFindActive: Bool = false
     /// **The tree's own state, owned by the window**: its `List` selection, its
@@ -96,19 +95,18 @@ struct ProjectWindow: View {
     /// lives in, and the tree survives the find overlay replacing the column.
     @State private var treeState = BinderTreeSectionsState()
     @State private var pendingPieceRenameId: String?
-    /// Plan's keyboard hand-off (spec §1): the binder's Tab bumps the first,
+    /// The tree's keyboard hand-off (spec §1): the binder's Tab bumps the first,
     /// which the canvas serves; the canvas's ⇧Tab bumps the second, which the
     /// binder serves. One-way counters, never flags written back (tripwire 2).
     @State private var canvasKeyboardRequest = 0
     @State private var treeKeyboardRequest = 0
     @State private var detailSegment: DetailSegment = .inspector
-    @State private var persona: Persona = .default
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
     /// beside the posture's. It does not lock the manuscript text.
     @State private var isLocked = WindowLock.atOpen
-    /// **What the Publish persona's centre column is showing** — the compiled
+    /// **What the centre shows while an edition is open** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for
     /// changing it. Window-transient: see `PublishCentreModel`.
     /// `PublishPreviewModifier` keeps its books current; `CentreRoute` decides
@@ -309,14 +307,12 @@ struct ProjectWindow: View {
         .modifier(TopChromeModifier(
             projectURL: url,
             store: store,
-            persona: persona,
             isNoChromeOn: isNoChromeOn,
-            onSelectPersona: Self.postPersona,
             isLocked: $isLocked))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
-        // the whole window, because the question is the PROJECT's and arrives in
-        // any persona, loaded or not — the modifier's own guards decide.
+        // the whole window, because the question is the PROJECT's and arrives
+        // whatever is open, loaded or not — the modifier's own guards decide.
         .modifier(AdmissionModifier(
             projectURL: url,
             projectTitle: store?.manifest.title ?? url.lastPathComponent,
@@ -418,6 +414,12 @@ struct ProjectWindow: View {
                                         structure: store?.manifest.structure ?? [],
                                         projectType: store?.manifest.type ?? .novel)
         }
+        // ⌘⌥B: a click on the Inbox row, through the click rule.
+        .onKeyWindowCommand(.maughamOpenInbox, window: window) { _ in
+            subject = ClickRule.resolve(.inbox, gesture: .click, current: subject,
+                                        structure: store?.manifest.structure ?? [],
+                                        projectType: store?.manifest.type ?? .novel)
+        }
         // ⌘⌥R's new meaning: open the tree's own Research section if the
         // writer had closed it. Refused while the find overlay covers the
         // column — the overlay is the tree's replacement, not its sibling,
@@ -456,9 +458,6 @@ struct ProjectWindow: View {
             guard let newValue else { return }
             documentStore?.updateUIState {
                 $0.windowSubject = newValue
-                // The legacy key keeps what is open, so nothing that still reads
-                // it changes (Task 6 retires it).
-                $0.selectedSubject = newValue.open
             }
             // Zero the inspector/footer metrics when what is open is not a
             // document: the EditorCoordinator only delivers `onMetricsChanged` while
@@ -523,14 +522,6 @@ struct ProjectWindow: View {
             isNoChromeOn: $isNoChromeOn,
             isReviewModeOn: $isReviewModeOn,
             applyNoChrome: { applyNoChrome() }))
-        .modifier(PersonaModifier(persona: $persona,
-                                  detailSegment: $detailSegment,
-                                  showInspector: $showInspector,
-                                  inspectorWasVisibleBeforeCanvasCollapse:
-                                    $inspectorWasVisibleBeforeCanvasCollapse,
-                                  columnVisibility: $columnVisibility,
-                                  window: window,
-                                  documentStore: documentStore))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(format: currentSyntaxHelpFormat)
         }
@@ -601,18 +592,9 @@ struct ProjectWindow: View {
         .preferredColorScheme(preferredColorScheme)
     }
 
-    /// The persona bar's post. Mirrors `MaughamApp.postPersona(_:)` — the ⌘1–⌘4
-    /// View-menu spelling — and shares its payload key via
-    /// `MaughamEvent.personaKey` so the two cannot drift. `.keyWindow` scope:
-    /// only the focused project window switches.
-    ///
-    /// A named `static func` rather than an inline closure: `body` is at the
-    /// type-checker ceiling, and `static` keeps it from capturing `self`.
-    private static func postPersona(_ next: Persona) {
-        MaughamEvent.post(.maughamSetPersona,
-                          to: .keyWindow,
-                          payload: [MaughamEvent.personaKey: next.rawValue])
-    }
+    /// Whether the window toolbar (the Lock) shows: hidden under `⌘\` focus
+    /// mode, which exists to remove that chrome.
+    static func windowToolbarIsVisible(isNoChromeOn: Bool) -> Bool { !isNoChromeOn }
 
     /// Reads the share metadata for this project off the main actor and caches
     /// it. Idempotent; safe to call repeatedly.
@@ -737,12 +719,11 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The persona bar and the Lock (`LockToggle`), the top banners (software-update, backups-paused,
-    /// settings-file-restored), and
-    /// the focused project URL, pulled off `body` for the Release type-check
-    /// ceiling.
+    /// The Lock (`LockToggle`), the top banners (software-update,
+    /// backups-paused, settings-file-restored), and the focused project URL,
+    /// pulled off `body` for the Release type-check ceiling.
     ///
-    /// The persona bar is a WINDOW TOOLBAR item, not part of the safe-area
+    /// The Lock is a WINDOW TOOLBAR item, not part of the safe-area
     /// strip: a permanently non-zero top safe-area inset outside a
     /// `NavigationSplitView` occludes the top of every column (2026-07-25
     /// smoke, defect A). The three banners keep the inset because they are
@@ -750,19 +731,17 @@ struct ProjectWindow: View {
     ///
     /// `⌘\` focus mode hides the whole window toolbar rather than swapping the
     /// item for an empty one: an empty `ToolbarItem` keeps the taller unified
-    /// titlebar, the exact chrome `⌘\` exists to remove. `PersonaBar.isVisible`
-    /// stays the single predicate.
+    /// titlebar, the exact chrome `⌘\` exists to remove.
+    /// `ProjectWindow.windowToolbarIsVisible` is the single predicate.
     private struct TopChromeModifier: ViewModifier {
         let projectURL: URL
         let store: ProjectStore?
-        let persona: Persona
         let isNoChromeOn: Bool
-        let onSelectPersona: (Persona) -> Void
-        /// The window's Lock, whose toggle sits beside the persona bar.
+        /// The window's Lock, whose toggle is the toolbar's item.
         @Binding var isLocked: Bool
 
         private var toolbarVisibility: Visibility {
-            PersonaBar.isVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
+            ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
         }
 
         func body(content: Content) -> some View {
@@ -775,9 +754,6 @@ struct ProjectWindow: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .navigation) {
-                        PersonaBar(persona: persona, onSelect: onSelectPersona)
-                    }
                     ToolbarItem(placement: .navigation) {
                         LockToggle(isLocked: $isLocked)
                     }
@@ -932,7 +908,7 @@ struct ProjectWindow: View {
                     }
                 }
                 // **⌘⌥F opens the overlay and moves nothing else.** The overlay is the
-                // left column while it is up, in every persona. Touching nothing but
+                // left column while it is up, whatever is open. Touching nothing but
                 // this flag is what keeps Denver's 2026-08-02 footer ruling true: the
                 // footer follows the DOCUMENT in the centre column, and opening find
                 // does not touch the centre column.
@@ -1225,7 +1201,7 @@ struct ProjectWindow: View {
                 // alert is mounted unconditionally, so only it can be shown by
                 // a restore that empties the trash and takes the rows with it.
                 onRestoreOutcome: { restoreOutcome = $0 },
-                // Spec §1: Plan's Tab to the canvas and ⇧Tab back.
+                // Spec §1: the tree's Tab to the canvas and ⇧Tab back.
                 canvasKeyboard: TreeCanvasKeyboard(
                     tabReachesTheCanvas: subject.open == .canvas,
                     giveTheCanvasTheKeyboard: { canvasKeyboardRequest += 1 },
@@ -1346,9 +1322,9 @@ struct ProjectWindow: View {
 
     /// The intent strip's line, or nil for no strip (M2 §6.1).
     ///
-    /// **`EditorStatusFooter`'s twin, and gated the same way**: Author only,
+    /// **`EditorStatusFooter`'s twin, and gated the same way**: a piece open,
     /// gone under ⌘\. The decision is
-    /// `IntentStrip.line(store:docId:persona:isNoChromeOn:)` so a test can ask
+    /// `IntentStrip.line(store:docId:subject:isNoChromeOn:)` so a test can ask
     /// it over the product of its inputs.
     ///
     /// Freshness: while the statement is open in a pane, its live `Document`
@@ -1375,7 +1351,7 @@ struct ProjectWindow: View {
     /// Whether the strip carries its quiet mark (M3-P3 §7).
     ///
     /// **Read beside the line and only where the line is** — inside the
-    /// `if let line` that mounts the strip, so a persona with no strip reads no
+    /// `if let line` that mounts the strip, so a subject with no strip reads no
     /// run record. The decision is `IntentDrift.mayTrailDraft`, testable over
     /// its inputs; the words are the view's own constant (ADR 0027 §1).
     ///
@@ -1734,7 +1710,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
-            persona: persona, isLocked: isLocked, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
+            isLocked: isLocked, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
             showInspector: showInspector, metrics: metrics,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,
@@ -1759,7 +1735,7 @@ struct ProjectWindow: View {
     /// trailing one: a column that renders no view does not take no room —
     /// AppKit resolves the CONTENT column on its `ideal` (720) and hands the
     /// remainder to an empty column (Denver's "blank and roughly doubled"
-    /// report, in every persona; see the CLAUDE.md Canvas row). Hence a hidden
+    /// report, whatever was open; see the CLAUDE.md Canvas row). Hence a hidden
     /// ARM declaring zero width, rather than anything in `canvasCollapse`.
     ///
     /// **One static, shared with the harness.** `DetailColumnWidthTests` mounts
@@ -1880,7 +1856,7 @@ struct ProjectWindow: View {
 
     /// Folding the decision into the window's state.
     ///
-    /// Static and `inout` so the sequence test — collapse, persona switch, come
+    /// Static and `inout` so the sequence test — collapse, subject change, come
     /// back, three SwiftUI passes — drives the SAME fold the window does. A test
     /// mirroring the fold would have gone green over the palette-stash bug.
     static func applyCanvasCollapse(_ decision: CanvasCollapse,
@@ -2231,7 +2207,7 @@ struct ProjectWindow: View {
             },
             // **A round, said literally** — the board chip arriving late belongs to
             // the round loop by construction, so it names the verb rather than
-            // re-deriving it from a persona the writer may have left.
+            // re-deriving it from whatever the window shows by then.
             run: { [compiler] docId in
                 compiler.runRequested(docId: docId, kind: .round)
             },
@@ -2418,8 +2394,8 @@ struct ProjectWindow: View {
     }
 
     /// **Show**, on the banner that says Claude added a research note: the
-    /// note becomes the window's subject, so the banner works in every
-    /// persona, Plan included. **It reveals the column too**, for
+    /// note becomes the window's subject, so the banner works whatever is
+    /// open, the canvas included. **It reveals the column too**, for
     /// `openResearchItem`'s reason: a second note arriving while the writer
     /// looks at the first leaves the subject unchanged, and a banner whose
     /// button does nothing is worse than no banner.
@@ -2523,13 +2499,14 @@ struct ProjectWindow: View {
             // when a window opens, or a reference would cover the right column
             // before the writer asked for anything.
             self.detailColumnWidth = ds.uiState.detailColumnWidth
-            // Restored VERBATIM. Coercing to the restored persona's registry would
-            // eat the writer's last explicit pane choice; `DetailPaneToggle` appends
-            // an out-of-persona selection and renders it highlighted
-            // (`visibleSegments`). A retired segment fails `UIState`'s tolerant
-            // decode and falls back to `.inspector` before this line runs.
+            // Restored VERBATIM — one remembered segment for the window.
+            // Coercing it to what the subject offers would eat the writer's last
+            // explicit pane choice; `DetailPaneToggle` appends a segment the
+            // subject does not offer and renders it highlighted
+            // (`visibleSegments`). A retired segment (`inbox` among them) fails
+            // `UIState`'s tolerant decode and falls back to `.inspector` before
+            // this line runs.
             self.detailSegment = ds.uiState.detailSegment
-            self.persona = ds.uiState.persona
             applyNoChrome()
 
             self.lease = lease

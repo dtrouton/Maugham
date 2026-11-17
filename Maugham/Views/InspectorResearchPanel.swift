@@ -11,7 +11,7 @@ struct InspectorResearchPanel: View {
     var figureTree: BinderTreeSectionsState? = nil
     /// The window refuses figure writes (`FigureActions.windowRefusesWrites`).
     var figureWritesRefused: Bool = false
-    /// The window's store, share lock and persona, for a Research table's
+    /// The window's store, share lock and Lock, for a Research table's
     /// version list (nil store shows no list; a view-only share or the
     /// window's Lock lists it with Restore off).
     var documentStore: DocumentStore? = nil

@@ -263,7 +263,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 - **`source_item_id` is the research item the words came off**, placed above them in the same region and carrying no author.
 - **`add_canvas_scraps` validates fully before writing**: a blank scrap, an unknown source id, an out-of-range or self `connect` pair, and a repeated or reversed pair (a line is undirected: `[0,1]` and `[1,0]` are one line) are each refusals.
 - **`canvas_sidecar_unreadable` refuses before any mutation** (through `CanvasStore.loadForTransientWrite()`, on both routes): a newer-build or damaged `<project>/.maugham/canvas.json` loads as an EMPTY scene, and saving that would overwrite the whole arrangement. Its hint is per reason (newer version or damaged; an attached read-only canvas refuses too) and names `list_canvas`, which flags the file with `layout_readable: false`.
-- **It writes `canvas.md` and `<project>/.maugham/canvas.json` and nothing else, through `CanvasClaudeWrite.apply`**, so the batch is one undo step whether or not the Plan persona is open.
+- **It writes `canvas.md` and `<project>/.maugham/canvas.json` and nothing else, through `CanvasClaudeWrite.apply`**, so the batch is one undo step, canvas open or not.
 
 ### Skills (SEP-2640)
 - **The skills methods are protocol methods on top of `resources/read`, not tools**: `initialize` declares `capabilities.extensions["io.modelcontextprotocol/skills"] = {}`; `skills/list` enumerates bundled skills (`name`/`description`/`uri`/`frontmatter`/`resources`, each resource with a `sha256:<hex>` digest); `skills/get` resolves **by URI** and fails with `-32602` on an unknown one; `resources/read` serves `skill://` URIs only and fails loudly on any other.

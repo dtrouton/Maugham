@@ -1,8 +1,9 @@
 import SwiftUI
 import MaughamCore
 
-/// The compiler's report on the open document — Author's own pane, reached by
-/// ⌘⌥D or by leading its picker (`Persona.author.panes`).
+/// The compiler's report on the open document — the check's own pane, reached
+/// by ⌘⌥D or by leading the picker while a piece is open
+/// (`DetailSegment.pickerOrder`).
 ///
 /// **It reads as a report about the writer's own clauses, and nothing else**
 /// (spec §5, narrowed by M4 P1): the conformance summary — every clause the
@@ -108,7 +109,7 @@ struct DiagnosticsPane: View {
     /// one now, and this is where it arrives.
     var world: DeclaredWorldStore? = nil
     /// **Who reads this piece's CHECKS** — `AuthorReader`, the resolution
-    /// Author's ⌘R uses (two loops P1 Task 2). This pane is the check loop's
+    /// the check's ⌘R uses (two loops P1 Task 2). This pane is the check loop's
     /// own surface, so it names the coach or nobody and never a stage: a
     /// chapter parked in Gould's lane on the review board is still read here
     /// by the seat, because the lane belongs to the round loop.
@@ -300,8 +301,8 @@ struct DiagnosticsPane: View {
     /// (spec §7.0, Denver's smoke correction).
     ///
     /// P1 homed the continuity questions and the reader's reports in the
-    /// writer's queue, and the smoke found the consequence: Author — whose
-    /// persona IS the wet-ink tempo — was left with a count ("3 notes went to
+    /// writer's queue, and the smoke found the consequence: the check — whose
+    /// whole tempo is wet ink — was left with a count ("3 notes went to
     /// your queue") and no surface at all. This is the surface. It is a VIEW,
     /// fetched from the annotation layer by the latest run's id: no second
     /// storage, nothing to keep in step, and **never the queue imported into
@@ -621,7 +622,7 @@ struct DiagnosticsPane: View {
                 // **Keep files a research note, and the router decides where**
                 // (`LetterKeep`, spec §3.6). This pane supplies its own values
                 // and its own refusal channel; the verb, the render and the
-                // scope are shared with Review's cockpit so the two homes
+                // scope are shared with the round cockpit so the two homes
                 // cannot file two different letters.
                 onKeep: LetterKeep.handler(
                     letter: letter, run: run, docId: docId, store: store,
@@ -637,7 +638,7 @@ struct DiagnosticsPane: View {
                 // offers are judged against and the three presses that write
                 // into it, so this pane cannot draw offers about one file and
                 // write into another — and cannot spell the write differently
-                // from Review's cockpit.
+                // from the round cockpit.
                 ledgerText: ledger.ledgerText,
                 // **A stated fact, not one inferred from the wiring.** The
                 // cold claim and the Retire button both turn on it, and a warm
@@ -817,7 +818,7 @@ struct DiagnosticsPane: View {
 
 // MARK: - The posture (P3c Task 7)
 
-/// **What a window may offer on Author's Diagnostics pane** — two questions,
+/// **What a window may offer on the Diagnostics pane** — two questions,
 /// because the pane's verbs write to two places. `document` is the checked
 /// piece's own posture (Got it / Not this settle its notes); `statement`
 /// answers for whichever statement a verb would file a ruling in (an Answer,

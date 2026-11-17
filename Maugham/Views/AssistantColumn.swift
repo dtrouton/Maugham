@@ -134,9 +134,9 @@ struct AssistantColumn: View {
     /// reference column that survived it would be the loudest thing left on
     /// screen.
     ///
-    /// **Whatever the centre** (shell p1 Task 4): the column used to ask a
-    /// persona (`studiesPinnedReferences`, Author and Review only); with no
-    /// persona, something studied is presented wherever the window is.
+    /// **Whatever the centre** (shell p1 Task 4): the column used to ask the
+    /// window's mode (`studiesPinnedReferences`, two of four only); now
+    /// something studied is presented wherever the window is.
     ///
     /// **`showInspector` is the third veto, and it is C1 arriving one input
     /// later** (2026-08-25, superseding spec §3.2's "three inputs unchanged").
@@ -483,8 +483,8 @@ struct AssistantColumnModifier: ViewModifier {
     }
 
     /// **Does this pane change end the study?** Yes whenever the pane moved.
-    /// It used to spare a pane moved by a persona switch, which hid the column
-    /// and kept the study for the way back; with no persona veto there is
+    /// It used to spare a pane moved by a mode switch, which hid the column
+    /// and kept the study for the way back; with no mode veto there is
     /// nothing to come back to, and a moved pane is the newest act.
     static func paneChangeEndsTheStudy(from old: DetailSegment, to new: DetailSegment) -> Bool {
         old != new

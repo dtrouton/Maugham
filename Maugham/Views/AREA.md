@@ -17,7 +17,6 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and the rewind sheet.
-- `PersonaModifier.swift` — the `.maughamSetPersona` handler and `applyPersonaChange`.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph` / `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
@@ -32,9 +31,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout` / `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and reaches its `claude` services through its `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
-### Personas and the shell
-- `PersonaBar.swift` — the four-persona switcher, a window-toolbar item; posts `.maughamSetPersona` exactly as ⌘1–4 do.
-- `LockToggle.swift` — the window's Lock (`WindowLock`) and its toolbar toggle.
+### The shell
+- `LockToggle.swift` — the window's Lock (`WindowLock`) and its toolbar toggle, the window toolbar's one item.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `AssistantColumn.swift` — the study column (`AssistantColumnModel.studied`, `isPresented`, `AssistantColumnModifier`).
@@ -198,9 +196,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `SettingsView.swift`, `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift`, `Maugham/Views/SettingsTabs/EditorSettingsTab.swift`, `Maugham/Views/SettingsTabs/ThemeSettingsTab.swift`, `Maugham/Views/SettingsTabs/TypographySettingsTab.swift`, `Maugham/Views/SettingsTabs/VoiceSettingsTab.swift`, `Maugham/Views/SettingsTabs/BackupSettingsTab.swift`, `Maugham/Views/SettingsTabs/AboutSettingsTab.swift` — app Settings.
 
 ### `Maugham/Models/` files routed here
-- `Persona.swift` — the four personas and their predicates (`panes`, `defaultPane`, `centresTheCanvas`, `showsManuscriptDocuments`, `previewsThePublishedBook`, `showsTheReviewBoard`, `editsResearchInTheCentre`, `editsFigures`, `showsPaletteWall`, `showsExports`, `showsIntentStrip`).
-- `DetailSegment.swift` — the right-pane modes, with icon and help text.
-- `PersonaMemory.swift` — each persona's remembered right-pane segment, in `UIState`.
+- `DetailSegment.swift` — the right-pane modes, with icon and help text; `pickerOrder`, the one order, and `needsADocument`.
 - `BinderSubject.swift` — the window's one subject: `.project`, `.item(id)`, `.research(id)`, `.figure(id)`.
 - `TreePane.swift` — which tree the left column mounts (`TreePane(for:)`).
 
@@ -234,9 +230,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A column reads values and takes verbs as closures**; `CentreColumn` owns one piece of state, the board's open-notes counts.
 - **`canvasModel` is a `let`, and nothing in the window or columns reads `.scene`** (tripwire 30): `CanvasModel` rewrites its scene on every drag frame. `RegionInspectorPane` resolves the region one leaf down.
 - **The window's stores and `claude` services are the session's**: it gives its lease back in `.onDisappear`, and `CompilerRunModifier` runs `roster.shutdownAll()`, pipeline first; a merely released session is a live, billing process.
-- **The `NavigationSplitView`'s `columnVisibility:` is written by `CanvasCollapseModifier` and `PersonaModifier` and nothing else.** `.detailOnly` hides the canvas, which is the CONTENT column.
+- **The `NavigationSplitView`'s `columnVisibility:` is written by `CanvasCollapseModifier` and nothing else.** `.detailOnly` hides the canvas, which is the CONTENT column.
 - **A hidden detail arm renders `Self.hiddenDetailColumn` (`Color.clear.navigationSplitViewColumnWidth(0)`), never no view**: an arm with no width hands the leftover to an empty detail column. ⌘⌥I's hidden case uses the same static (`DetailColumnWidthTests`).
-- **Never put permanent chrome in a top `safeAreaInset` around the `NavigationSplitView`**. The persona bar is a window-toolbar item (`TopChromeModifier`, hidden in ⌘\ focus); only the zero-height-when-idle banners live in the inset.
+- **Never put permanent chrome in a top `safeAreaInset` around the `NavigationSplitView`**. The Lock is a window-toolbar item (`TopChromeModifier`, hidden in ⌘\ focus); only the zero-height-when-idle banners live in the inset.
 - **`ProjectWindow.detailColumn` frames its content to the width it declares**: one width, bound once, from `detailColumnWidth` (the persisted wish, written only by the resize handle, clamped to `UIState.detailColumnWidthRange`, 240–480).
 
 ### The centre column
@@ -250,12 +246,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`showsStatusFooter` shows exactly where `open` is a document** (`PublishPreviewCentreTests`).
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log, never the `.fountain` (tripwire 20).
 
-### Personas
-- **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** (the centre itself is the subject's, "The centre column"): `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
-- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `PersonaModifier`, `ProjectWindow`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
-- **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2).
-- **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
-- **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
+### The subject decides, never a mode
+- **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.
+- **The right column is `DetailSegment.pickerOrder` filtered, never reordered**: the desk only with an edition open, `needsADocument` panes only while the faces name a document; a selected segment is always carried. One remembered segment in `UIState` (`DetailSegmentOrderTests`).
 - **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
 - **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
@@ -371,12 +364,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Review: the queue and the board
 - **The board and the desk take values and closures, never a store**; every verb is the MOUNT's.
-- **A chip click navigates the subject and `recordActivePass`, never the persona**; a count click opens the queue in project scope and moves neither subject nor persona (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona`).
+- **A chip click navigates the subject and `recordActivePass`**; a count click opens the queue in project scope and does not move the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
-- **The per-piece pass-state writers are the files in `PersonaPaneRegistryTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
+- **The per-piece pass-state writers are the files in `PassStateWriterCensusTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
 - **`StatusSwatch` is the one place a status becomes a colour.** `StructureItem.status` is a legacy read fallback, never written.
 - **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
@@ -431,7 +424,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **An unreadable catalog is never presented as empty**: its own notice names the file (RULING-7). The notice banner takes no hits.
 - **`PublishPreviewResolver.readablePDFs` is both the picker's rows and the drawn book**; the pick is never persisted.
 - **`PublishPreviewModifier` is the resolution's only writer.**
-- **A proposal is a VALUE read once**, cleared on any persona change *before* `PublishPreviewModifier`'s `previewsThePublishedBook` guard, so leaving Publish clears it.
+- **A proposal is a VALUE read once**, cleared on any change of `open` *before* `PublishPreviewModifier`'s edition guard, so leaving the edition clears it.
 - **The desk has no empty state**: the Design row's Run must always be reachable. A language row is `EditionStatus.LanguageRow`, the derivation `translation_status` reports.
 - **Name, Add Language and Rename are asks of one sheet**; adding a language the book has says so and stops.
 - **Every desk refusal folds into one `notice`** (`DepartmentRunTests.test_theDeskCarriesOneMessageChannelAndNotTwo`).
@@ -476,20 +469,20 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ## Recipes
 
-### Add a persona pane (a `DetailSegment`)
+### Add a right-column pane (a `DetailSegment`)
 1. `Maugham/Models/DetailSegment.swift` — add the case, its `systemImageName` and `helpText` (both exhaustive).
-2. `Maugham/Models/Persona.swift` — add it to `panes` for each persona that offers it (membership only).
-3. `MaughamTests/PersonaPaneRegistryTests.swift` — give it a place in `canonicalPaneOrder`.
+2. Same file — give it a place in `pickerOrder`; `needsADocument` if it says nothing without one.
+3. `MaughamTests/DetailSegmentOrderTests.swift` — its place in `expectedOrder`.
 4. `Maugham/Views/DetailPaneToggle.swift` — its arm in `segmentContent` (exhaustive, no `default`). Nothing changes in the picker or `ProjectWindow`.
 5. `Maugham/MaughamApp.swift` — one `Button` posting `postSegment(.<case>)` in the View menu with a free ⌘⌥ letter (never S).
 6. `docs/guide/reference.md` — the shortcut row (`DocSyncTests`), and the guide page describing the pane.
 7. If the pane can show an empty state: tripwire 15's two frames. If it shows verbs: Recipe 5.
 
-Checks: the compiler, `PersonaPaneRegistryTests`, `DetailPaneTogglePersonaTests`, `DocSyncTests`.
+Checks: the compiler, `DetailSegmentOrderTests`, `DocSyncTests`.
 
 ### Add a centre route
 1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer for `open`.
-2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named question about the window's subject (composed with `altitudeView` if it is Book-level), never a persona.
+2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named question about the window's subject (composed with `altitudeView` if it is Book-level), never a mode.
 3. `Maugham/Views/CentreColumn.swift` — draw it in `editorPane`'s switch, or for a cover in `manuscriptEditor`'s cover switch. Pass values and closures; reach no store from the surface's body.
 4. `Maugham/Views/ProjectWindow.swift` — `showsStatusFooter` if the surface hides the document.
 5. `MaughamTests/CentreRouteTests.swift` — the product assertion; `ProjectAltitudeCentreTests` if it touches the `ZStack`.
@@ -500,8 +493,8 @@ Checks: `CentreRouteTests`, `ProjectAltitudeCentreTests` (host lifetimes), `Regi
 1. `Maugham/Views/ProjectWindow.swift` — a case in `InspectorRoute` and its answer in `inspectorRoute(subject:projectType:)`, keeping the canvas check above the project-type split.
 2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch (an item beside asks its placement there and `revealResearchColumn`), handing the view `posture(id)` if it offers verbs; the column is about `subject.faces`.
 3. The view in its own file; it reads values, resolves heavy state one leaf down (never `canvasModel.scene`).
-4. If it writes pass states: join `PersonaPaneRegistryTests.passStateWritingFiles`.
-5. `MaughamTests/Canvas/CanvasRouteTests.swift` — exhaustive over persona × project type.
+4. If it writes pass states: join `PassStateWriterCensusTests.passStateWritingFiles`.
+5. `MaughamTests/Canvas/CanvasRouteTests.swift` — exhaustive over subject × project type.
 
 Checks: `CanvasRouteTests`, `ProjectSubjectReachabilityTests`.
 
@@ -509,9 +502,8 @@ Checks: `CanvasRouteTests`, `ProjectSubjectReachabilityTests`.
 1. A `ViewModifier` in its own file under `Maugham/Views/`, holding its own `@State` and taking the window's state as `Binding`s.
 2. One line on `ProjectWindow.body`.
 3. If a census reading "the window's code" must see it, add its type to `SourceTree.windowFamilyTypes` (`MaughamTests/TestSupport/SourceTree.swift`).
-4. If it writes the persona, it is a new decision site: add it to `TripwireGrepTests.personaDecisionSites` by name.
-5. Receive events through the `MaughamEvent` helpers, scope chosen at the post site; declare a new name in `Maugham/Models/MaughamNotifications.swift`.
-6. Run a local Release build (`-configuration Release`).
+4. Receive events through the `MaughamEvent` helpers, scope chosen at the post site; declare a new name in `Maugham/Models/MaughamNotifications.swift`.
+5. Run a local Release build (`-configuration Release`).
 
 ### Add a verb on a posture-gated surface
 1. Decide the offer as a pure value over a `Posture` (a static beside the view, or a `…Verbs` type) and pin it in `MaughamTests/Views/PostureSurfaceTests.swift`.
@@ -528,4 +520,4 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
-- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `PersonaPaneRegistryTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.
+- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `DetailSegmentOrderTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.

@@ -39,7 +39,7 @@ extension CompilerRunFailure {
     ///
     /// One spelling, shared by the site that mints each (`ClaudeCLISession`)
     /// and the site that reads it (`CompilerOrchestrator`, deciding whether to
-    /// put a failure on screen) — the `MaughamEvent.personaKey` reasoning. Two
+    /// put a failure on screen) — the `MaughamEvent.detailSegmentKey` reasoning. Two
     /// copies of these strings is a reword away from a red banner that appears
     /// when the writer presses Cancel, or a real death that never surfaces.
     enum Detail {

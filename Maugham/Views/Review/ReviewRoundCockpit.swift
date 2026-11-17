@@ -113,7 +113,7 @@ struct ReviewRoundCockpit: View {
     /// **The gear menu's persisted choice** — `DiagnosticsPane`'s own
     /// `compilerModel`, threaded here so Review carries the same control
     /// (editorial letter P1, Task 8). Depth is a per-PROJECT setting, not a
-    /// per-persona one: a writer who set Deep in Author must find Deep here
+    /// per-surface one: a writer who set Deep in Diagnostics must find Deep here
     /// too, and a change made from either home is the one write.
     let compilerModel: CompilerModelChoice
     /// Reaches `ProjectWindow`'s ONE handler — the same closure
@@ -175,7 +175,7 @@ struct ReviewRoundCockpit: View {
     /// exactly like a clean idle, so a round that died at the session budget is
     /// indistinguishable from one that came back with no notes. Denver read two
     /// timed-out rounds (Structural, then Line) as "returned nothing" and only
-    /// found the failure in Author's Diagnostics pane, a persona away from the
+    /// found the failure in the Diagnostics pane, a pane away from the
     /// button he pressed. A failure must surface where the run was launched.
     ///
     /// `.nothingNew` stays folded into `.idle`: it is a run that worked and had
@@ -604,7 +604,7 @@ struct ReviewRoundCockpit: View {
     /// sentence, verbatim (Denver, 2026-10-17). `static let` so it is
     /// assertable without a mount.
     static let authorsCheckIsRunningLine =
-        "Author's check is running \u{2014} Run waits until it finishes."
+        "A check is running \u{2014} Run waits until it finishes."
 
     /// The one line this strip says about the OTHER loop's run (#77 F7), or
     /// `nil`. Drawn under the strip's own status line rather than in place
@@ -810,7 +810,7 @@ struct ReviewRoundCockpit: View {
             .menuStyle(.borderlessButton)
             .help(Self.setAPassHelp)
             Spacer(minLength: 0)
-            // **The same depth control Author's Diagnostics pane carries**
+            // **The same depth control the Diagnostics pane carries**
             // (editorial letter P1, Task 8) — trailing, after the Spacer, so
             // it sits at the row's far edge the way the pane's own gear menu
             // sits at its header's far edge, rather than crowding the lane

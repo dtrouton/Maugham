@@ -29,7 +29,7 @@ enum TreeScrollTarget: Hashable {
 /// **The Research and Palette sections at the foot of every binder tree**
 /// (shell-finish stage-2a Task 4, spec §3).
 ///
-/// The milestone gives every persona ONE left column, so research and palette
+/// The milestone gives the window ONE left column, so research and palette
 /// stop being panes the writer switches to and become furniture at the foot of
 /// whichever tree the project type puts up. There are three of those hosts —
 /// `BinderView`, `CollectionPiecesPane`, `SceneNavigatorPane` — and a writer

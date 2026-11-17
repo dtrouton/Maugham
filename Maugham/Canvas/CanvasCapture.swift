@@ -286,9 +286,9 @@ enum CanvasCapture {
             return Sent(node: landing.node.id, wrappedIn: wrapped)
         }
 
-        // The Plan persona is closed — which is the command's whole point, since a
-        // drag is unreachable from the keyboard and unavailable in another
-        // persona. `CanvasClaudeWrite`'s second arm, for its reasons.
+        // The canvas is not open — which is the command's whole point, since a
+        // drag is unreachable from the keyboard and unavailable with no canvas
+        // on screen. `CanvasClaudeWrite`'s second arm, for its reasons.
         let sidecar = CanvasStore(projectRoot: projectRoot)
         let loaded = try sidecar.loadForTransientWrite()
         var scene = loaded.scene

@@ -497,8 +497,8 @@ extension ProjectStore {
     /// **The live `Document` FIRST, and never a second one on the same path.**
     /// A statement's `Document` is deliberately in no `DocumentStore` registry
     /// (spec §8, `StatementEditorHost`), so `document(forDocId:)` cannot find an
-    /// open statement — and `.intent` is a pane of the Plan persona, the persona
-    /// the canvas lives in, so the writer really can have this statement open in
+    /// open statement — and the Intent pane is offered with the canvas open in
+    /// the centre, so the writer really can have this statement open in
     /// the right column while promoting a card in the centre, or rename a
     /// chapter in the binder beside it. Two `Document`s on one path each hold
     /// their own paragraph state and their own `PendingBuffer`; whichever writes

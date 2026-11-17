@@ -381,7 +381,7 @@ extension LessonOffer {
     /// host is drawing the letter** — `TurnClauseOffer.handler`'s shape, one
     /// verb per offer instead of one.
     ///
-    /// Author's Diagnostics pane and Review's round cockpit both draw
+    /// The Diagnostics pane and the round cockpit both draw
     /// `LetterSection`, and each of them could spell three `Task { try await
     /// … }` closures of its own. Three closures × two hosts is six places to
     /// get the provenance, the date or the refusal channel subtly different,

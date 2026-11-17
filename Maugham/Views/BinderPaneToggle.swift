@@ -20,8 +20,8 @@ struct BinderPaneToggle: View {
     let treeState: BinderTreeSectionsState
     /// **Find, as an overlay of this column** (shell-finish stage 2b Task 1).
     /// `ProjectWindow.treeFindActive` — window state, not segment state, which
-    /// is why ⌘⌥F moves nothing else and why the overlay rides through a persona
-    /// switch untouched. While it is up, the search panel is the whole left
+    /// is why ⌘⌥F moves nothing else and why the overlay rides through a subject
+    /// change untouched. While it is up, the search panel is the whole left
     /// column; `ProjectSearchView.close()` is the only way down.
     @Binding var treeFindActive: Bool
     /// What a restore in the foot disclosure has to say (RULING-40/42), on its
@@ -29,7 +29,7 @@ struct BinderPaneToggle: View {
     /// for why the message cannot be shown down here. Defaulted so tests that
     /// mount this toggle without caring about the foot keep compiling.
     var onRestoreOutcome: (String) -> Void = { _ in }
-    /// Plan's Tab to the canvas and back, on its way to `BinderView` — see
+    /// The tree's Tab to the canvas and back, on its way to `BinderView` — see
     /// `TreeCanvasKeyboard`. Defaulted for `onRestoreOutcome`'s reason.
     var canvasKeyboard = TreeCanvasKeyboard()
     /// The foot disclosure's own expand/collapse flag (shell-finish stage 2b
@@ -70,7 +70,7 @@ struct BinderPaneToggle: View {
                 }
             }
             // The Exports footer: under the tree whenever publishing is
-            // initialised (shell p1 Task 3 — no persona decides it).
+            // initialised (shell p1 Task 3 — what is open does not decide it).
             if PublishStarter.isInitialized(in: store.url) {
                 Divider()
                 ExportsListView(projectURL: store.url)
@@ -79,7 +79,7 @@ struct BinderPaneToggle: View {
             // sections, below the Exports footer, below everything — present
             // only while there is something in it. This is Trash's whole home
             // now; nothing selects a Trash surface any more, so the
-            // transient-exit arm that used to live here (return to the persona's
+            // transient-exit arm that used to live here (return to the window's
             // binder home when the last item left the trash) has nothing left to
             // guard. Find's twin of that arm went the same way in stage 2b Task
             // 1, for the same reason: there is no longer a segment to be ejected

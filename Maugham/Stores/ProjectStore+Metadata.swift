@@ -17,7 +17,7 @@ extension ProjectStore {
     /// `ReviewStatus.derived` falls back to it for a project that has no pass
     /// states yet, and the promotion seam carries it. Nothing writes it, and
     /// re-adding the argument here would put a second, un-derived answer back
-    /// beside the ladder's — pinned by `PersonaPaneRegistryTests`' census.
+    /// beside the ladder's — pinned by `PassStateWriterCensusTests`.
     public func updateInspector(
         id: String,
         synopsis: String? = nil,
@@ -48,7 +48,7 @@ extension ProjectStore {
     /// Set — or clear — where one piece stands on ONE named review pass (M3 P1
     /// Task 4). The verb behind the inspector's pass ladder, and the one
     /// channel every future writer of `StructureItem.passStates` goes through
-    /// (`PersonaPaneRegistryTests`' census).
+    /// (`PassStateWriterCensusTests`).
     ///
     /// **Deliberately a verb of its own rather than a `passStates:` argument on
     /// ``updateInspector(id:synopsis:tags:wordTarget:pageTarget:links:)``.**
@@ -109,7 +109,7 @@ extension ProjectStore {
     /// a second reader of every structure item just to throw away data a
     /// re-add would want back.
     ///
-    /// Deliberately NOT a member of `PersonaPaneRegistryTests.passStateWritingFiles`
+    /// Deliberately NOT a member of `PassStateWriterCensusTests.passStateWritingFiles`
     /// — that census tracks writers of `setPassState(` (per-piece, per-pass
     /// state); this verb writes the pass LIST itself and the two never
     /// collide on the same substring.

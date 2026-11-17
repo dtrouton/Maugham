@@ -850,7 +850,7 @@ extension SourceTree {
     static let windowFamilyTypes = [
         "ProjectActiveSheet", "CheckpointFlashDecision", "CheckpointModifier",
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
-        "ContainerWidthReporter", "PersonaModifier", "ParagraphNavModifier",
+        "ContainerWidthReporter", "ParagraphNavModifier",
         "EditorControlMirror", "EditorControlMirrorModifier",
         "TranslationReviewModifier", "CanvasPromotionModifier",
         "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn", "RightColumn",

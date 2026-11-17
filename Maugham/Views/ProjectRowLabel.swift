@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The label every project row draws — the head row that names the project
-/// itself (persona shell spec §3.3).
+/// itself (the 2026-08-01 shell spec, §3.3).
 ///
 /// **One definition because there are three of them.** `BinderView`,
 /// `CollectionPiecesPane` and `SceneNavigatorPane` each carry a project row,

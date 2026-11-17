@@ -16,7 +16,7 @@ struct BinderView: View {
     /// host — a default would allocate a fresh state per body pass and lose the
     /// writer's disclosure and selection on the next render.
     let treeState: BinderTreeSectionsState
-    /// Plan's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
+    /// The tree's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
     /// Defaulted for the tree fixtures with no canvas beside them; the window's
     /// argument is censused in `PromotionCommandTests`.
     var canvasKeyboard = TreeCanvasKeyboard()
@@ -83,7 +83,7 @@ struct BinderView: View {
             }
             .listStyle(.sidebar)
             .treeRowStates(state: treeState, subject: subject)
-            // Plan's Tab hands the keyboard to the canvas; anywhere else, or
+            // The tree's Tab hands the keyboard to the canvas; anywhere else, or
             // during a rename, it is ignored and travels on as before.
             .onKeyPress(keys: [.tab], phases: .down) { press in
                 guard canvasKeyboard.tabGoesToTheCanvas(
@@ -688,7 +688,7 @@ struct TreeStructureVerbs: Equatable {
     }
 }
 
-/// Plan's Tab between the binder and the canvas (spec §1, "Getting to the
+/// The tree's Tab between the binder and the canvas (spec §1, "Getting to the
 /// canvas from the binder"), handed down by `ProjectWindow`. Both directions
 /// are one-way counters (tripwire 2): Tab here calls
 /// `giveTheCanvasTheKeyboard`, which bumps the window's request the canvas

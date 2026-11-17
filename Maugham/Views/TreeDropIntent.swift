@@ -4,7 +4,7 @@ import MaughamCore
 /// **What a drag onto the binder tree means** (shell-finish stage-2a Task 7,
 /// spec §3).
 ///
-/// The milestone gives every persona ONE left column, so the tree holds
+/// The milestone gives the window ONE left column, so the tree holds
 /// manuscript rows, a shared Research section and — since Task 6 — a research
 /// fold under each piece, all in one `List`. That makes the drag the writer's
 /// verb for scope: a note dropped on a chapter belongs to that chapter, a note

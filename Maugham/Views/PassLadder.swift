@@ -19,7 +19,7 @@ import MaughamCore
 /// happens, because the two hosts genuinely differ there: `InspectorView`
 /// keeps a 500 ms debounced draft for its text fields, and the ladder must NOT
 /// ride it (see that file's `onSet`). Keeping `onSet` at the host is also what
-/// keeps `PersonaPaneRegistryTests`' census meaningful — it names the SURFACES
+/// keeps `PassStateWriterCensusTests` meaningful — it names the SURFACES
 /// that can write a pass state, and a shared leaf writer would collapse the
 /// census to this one file and hide them.
 struct PassLadder: View {

@@ -6,14 +6,14 @@ final class UIStateTests: XCTestCase {
     func test_empty_hasExpectedDefaults() {
         let s = UIState.empty
         XCTAssertEqual(s.schemaVersion, UIState.currentSchemaVersion)
-        XCTAssertNil(s.selectedSubject)
+        XCTAssertEqual(s.windowSubject, .book)
         XCTAssertFalse(s.isNoChromeOn)
     }
 
     func test_codable_roundTrip() throws {
         let original = UIState(
             schemaVersion: 1,
-            selectedSubject: .item("doc-abc"),
+            windowSubject: WindowSubject(open: .item("doc-abc"), faces: .item("doc-abc")),
             isNoChromeOn: true)
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
@@ -48,7 +48,7 @@ final class UIStateTests: XCTestCase {
         let url = temp.url.appendingPathComponent("ui-state.json")
         let s = UIState(
             schemaVersion: UIState.currentSchemaVersion,
-            selectedSubject: .item("doc-x"),
+            windowSubject: WindowSubject(open: .item("doc-x"), faces: .item("doc-x")),
             isNoChromeOn: true)
         try JSONEncoder().encode(s).write(to: url)
         XCTAssertEqual(UIState.loadOrEmpty(from: url), s)
@@ -64,78 +64,50 @@ final class UIStateTests: XCTestCase {
         """#
         try withGhostKey.write(to: url, atomically: true, encoding: .utf8)
         let loaded = UIState.loadOrEmpty(from: url)
-        XCTAssertEqual(loaded.selectedSubject, .item("doc-x"))
+        XCTAssertEqual(loaded.windowSubject.open, .item("doc-x"))
         XCTAssertFalse(loaded.isNoChromeOn)
     }
 }
 
-final class UIStatePersonaTests: XCTestCase {
+/// The schema, and what an older file brings with it. The window-mode keys
+/// (`persona`, `personaMemory`) a build before shell p1 Task 6 wrote are
+/// unknown keys now: they decode away and are never written back.
+final class UIStateSchemaTests: XCTestCase {
     func test_currentSchemaVersion_is5() {
-        // Bumped to 5 by the per-persona column memory (2026-07-25 smoke,
-        // defect B). This is UIState's OWN constant — `ProjectManifest`'s is a
-        // different one and stays at 3.
+        // UIState's OWN constant — `ProjectManifest`'s is a different one.
         XCTAssertEqual(UIState.currentSchemaVersion, 5)
     }
 
-    func test_empty_defaultsToAuthorPersona() {
-        XCTAssertEqual(UIState.empty.persona, .author)
-    }
-
-    func test_decode_ofV3StateWithoutPersona_defaultsToAuthor() throws {
-        // A project last opened by a pre-persona build has no `persona` key.
-        // It must decode, not throw, and land on the default.
+    /// **A project saved by the build that had window modes opens on the same
+    /// piece, with nothing lost and no error** (shell p1 review focus 1).
+    func test_aFileWithTheOldModeKeysOpensOnTheSamePiece() throws {
         let json = Data("""
-        {"schemaVersion":3,"isNoChromeOn":false,"binderSegment":"manuscript",
-         "researchPreviewVisible":false,"detailSegment":"inspector",
-         "outlineLayout":"table","isReviewModeOn":false}
+        {"schemaVersion":5,"isNoChromeOn":true,"selectedItemId":"doc-1",
+         "researchPreviewVisible":false,"detailSegment":"tasks",
+         "outlineLayout":"cards","isReviewModeOn":false,"persona":"review",
+         "personaMemory":{"detail":{"author":"history","plan":"inbox"}}}
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.persona, .author)
+        XCTAssertEqual(decoded.windowSubject,
+                       WindowSubject(open: .item("doc-1"), faces: .item("doc-1")))
+        XCTAssertEqual(decoded.detailSegment, .tasks)
+        XCTAssertEqual(decoded.bookView, .cards)
+        XCTAssertTrue(decoded.isNoChromeOn)
+
+        let written = try XCTUnwrap(String(data: JSONEncoder().encode(decoded), encoding: .utf8))
+        for dead in ["\"persona\"", "personaMemory", "selectedItemId", "outlineLayout"] {
+            XCTAssertFalse(written.contains(dead), "\(dead) was written back: \(written)")
+        }
     }
 
-    func test_persona_roundTripsThroughEncoding() throws {
-        var state = UIState.empty
-        state.persona = .plan
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(UIState.self, from: data)
-        XCTAssertEqual(decoded.persona, .plan)
-    }
-
-    // MARK: - Per-persona column memory (schema v5)
-
-    func test_personaMemory_roundTripsThroughEncoding() throws {
-        var state = UIState.empty
-        state.personaMemory.record(persona: .author, detailSegment: .history)
-        state.personaMemory.record(persona: .plan, detailSegment: .inbox)
-        let data = try JSONEncoder().encode(state)
-        let decoded = try JSONDecoder().decode(UIState.self, from: data)
-        XCTAssertEqual(decoded.personaMemory, state.personaMemory)
-        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .author), .history)
-        XCTAssertEqual(decoded.personaMemory.restoredDetailSegment(for: .plan), .inbox)
-    }
-
-    func test_decode_ofV4StateWithoutPersonaMemory_isEmptyNotAFailure() throws {
-        // A project last opened by the first persona build has no
-        // `personaMemory` key. It must decode, not throw, and every persona
-        // then lands on its own default pane.
-        //
-        // **The `binderSegment` key is still in this fixture on purpose**, and
-        // it is the point of the test as much as the missing one is: a file
-        // written before shell-finish stage 2b Task 7 carries a left-column
-        // choice this build has no field for, and a keyed container never asks
-        // for a key it has no case for. No migration (tripwire 11) — the value
-        // decodes away and is dropped on the next write.
-        let json = Data("""
-        {"schemaVersion":4,"isNoChromeOn":false,"binderSegment":"research",
-         "researchPreviewVisible":false,"detailSegment":"inspector",
-         "outlineLayout":"table","isReviewModeOn":false,"persona":"plan"}
-        """.utf8)
+    /// The Inbox stopped being a right-column segment (shell p1 Task 6): a
+    /// stored `"inbox"` falls back to the Inspector rather than failing the
+    /// file.
+    func test_aStoredInboxSegmentFallsBackToTheInspector() throws {
+        let json = Data(#"{"schemaVersion":5,"detailSegment":"inbox","isNoChromeOn":true}"#.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.personaMemory, .empty)
-        XCTAssertEqual(decoded.persona, .plan)
-        XCTAssertEqual(decoded.detailSegment, .inspector,
-                       "the fields this build still has come through beside the "
-                       + "one it no longer does")
+        XCTAssertEqual(decoded.detailSegment, .inspector)
+        XCTAssertTrue(decoded.isNoChromeOn, "the rest of the file survives")
     }
 
     /// **Every legacy `binderSegment` value meets a decoder with no field for
@@ -158,9 +130,8 @@ final class UIStatePersonaTests: XCTestCase {
              "selectedItemId":"doc-1"}
             """.utf8)
             let decoded = try JSONDecoder().decode(UIState.self, from: json)
-            XCTAssertEqual(decoded.persona, .review, legacy)
             XCTAssertEqual(decoded.detailSegment, .tasks, legacy)
-            XCTAssertEqual(decoded.selectedSubject, .item("doc-1"), legacy)
+            XCTAssertEqual(decoded.windowSubject.open, .item("doc-1"), legacy)
             XCTAssertTrue(decoded.isNoChromeOn, legacy)
         }
     }
@@ -190,7 +161,7 @@ final class UIStatePersonaTests: XCTestCase {
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertEqual(decoded.activePassMemory, .empty)
-        XCTAssertEqual(decoded.persona, .author,
+        XCTAssertEqual(decoded.detailSegment, .inspector,
                        "the fields this build still has come through beside the "
                        + "one it did not carry yet")
     }
@@ -219,13 +190,13 @@ final class UIStatePersonaTests: XCTestCase {
 
     func test_loadOrEmpty_rejectsStateFromANewerSchema() throws {
         let dir = TestTemp.root
-            .appendingPathComponent("UIStatePersonaTests-\(UUID().uuidString)")
+            .appendingPathComponent("UIStateSchemaTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("ui-state.json")
-        try Data(#"{"schemaVersion":99,"persona":"plan"}"#.utf8).write(to: url)
+        try Data(#"{"schemaVersion":99,"isNoChromeOn":true}"#.utf8).write(to: url)
 
-        XCTAssertEqual(UIState.loadOrEmpty(from: url).persona, .author,
+        XCTAssertEqual(UIState.loadOrEmpty(from: url), .empty,
                        "a newer schema must fall back to .empty, not adopt its values")
     }
 
@@ -260,7 +231,7 @@ final class UIStatePersonaTests: XCTestCase {
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertNil(decoded.publishImprint)
-        XCTAssertEqual(decoded.persona, .publish,
+        XCTAssertEqual(decoded.detailSegment, .inspector,
                        "the fields this build still has come through beside the "
                        + "one it did not carry yet")
     }
@@ -309,7 +280,7 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(
             UIState.self, from: raw.data(using: .utf8)!)
         XCTAssertNil(decoded.authorReaderChoice)
-        XCTAssertEqual(decoded.selectedSubject, .item("doc-x"),
+        XCTAssertEqual(decoded.windowSubject.open, .item("doc-x"),
                        "the rest of the file must survive an unreadable choice")
         XCTAssertTrue(decoded.isNoChromeOn)
     }
@@ -324,7 +295,7 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
 
     /// **No schema bump** — the key is additive with a tolerated-missing
     /// default, so both directions of the version skew read cleanly. This is
-    /// the same claim `UIStatePersonaTests` pins for the constant itself; here
+    /// the same claim `UIStateSchemaTests` pins for the constant itself; here
     /// it is the reason this milestone did not touch it.
     func test_theChoiceCostsNoSchemaBump() {
         XCTAssertEqual(UIState.currentSchemaVersion, 5)
@@ -344,7 +315,7 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
         try JSONDecoder().decode(UIState.self, from: Data(json.utf8))
     }
 
-    func test_aLegacyStateWithPersonaAndSelectedSubjectDecodesToThatSubject() throws {
+    func test_aLegacyStateWithAModeAndASelectionDecodesToThatSubject() throws {
         let s = try decode(#"{"schemaVersion":5,"selectedItemId":"ch-1","persona":"review"}"#)
         XCTAssertEqual(s.windowSubject,
                        WindowSubject(open: .item("ch-1"), faces: .item("ch-1"), beside: nil))

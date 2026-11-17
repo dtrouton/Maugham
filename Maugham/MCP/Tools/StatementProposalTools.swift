@@ -20,7 +20,7 @@ enum StatementProposalTools {
     static func adoptWhere(_ kind: ProposableStatement) -> String {
         switch kind {
         case .editionBrief(let language):
-            return "In Maugham: Publish (⌘4) → Department desk (⌘⌥K) → the "
+            return "In Maugham: the Department desk (⌘⌥K) → the "
                 + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
                 + " row's Edition Brief. A banner offers Adopt / Discard with a diff."
         case .visualLanguage:

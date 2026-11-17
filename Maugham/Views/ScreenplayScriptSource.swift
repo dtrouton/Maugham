@@ -62,14 +62,14 @@ enum ScreenplayScriptSource {
     ///   fresher value.
     ///
     /// **A fourth condition died with the strip in Task 7**, and it is worth
-    /// recording why it was ever there. Plan's left column was four panes, and
+    /// recording why it was ever there. the left column beside the canvas was four panes, and
     /// only one of them drew `TreePane`'s answer — the Canvas tab put the old
     /// research pane there instead — so the term was `interimSegment == .tree`,
     /// spelled as the case rather than through a predicate because the obvious
     /// predicate ("is the left pane a tree") was wrong and the census caught it:
     /// the manuscript segment mounted `BinderView` unconditionally, so on a
     /// screenplay it showed a one-row novel binder and never sluglines. With one
-    /// left column per persona, a Plan screenplay's left column IS the navigator
+    /// left column, a screenplay's left column IS the navigator
     /// and the term has nothing left to exclude.
     static func needsDerivation(subject: WindowSubject,
                                 projectType: ProjectType,

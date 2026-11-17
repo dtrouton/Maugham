@@ -206,7 +206,7 @@ struct InspectorView: View {
     /// immediate and unconditional, and a `guard let store else { return }`
     /// reached after the inspector went away is a pass state the writer
     /// SELECTED and Maugham silently dropped. Nothing goes red; the row simply
-    /// reads what it read before. The window closing, the persona switching
+    /// reads what it read before. The window closing, the pane switching
     /// and the subject moving all tear this view down, and all three can land
     /// in the same turn as the click — so the task keeps the store alive until
     /// its own write has landed, and lets go after.

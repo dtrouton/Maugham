@@ -4,9 +4,9 @@ import MaughamCore
 /// **The letter on screen** — the compiler's sixth section, drawn as prose
 /// rather than a list of findings (editorial letter P1 Task 9, spec §3.5).
 ///
-/// One view, two hosts. Author's Diagnostics pane mounts it at the top of the
+/// One view, two hosts. The Diagnostics pane mounts it at the top of the
 /// report, above This check and Conformance, because the letter is what the
-/// writer reads first and the notes are the margin. Review's round cockpit
+/// writer reads first and the notes are the margin. The round cockpit
 /// mounts the identical view inside a disclosure under its own status line.
 /// A second spelling would be two letters that could disagree about what the
 /// same run said.

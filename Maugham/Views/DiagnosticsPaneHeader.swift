@@ -159,7 +159,7 @@ struct DiagnosticsPaneHeader: View {
     /// **Reads the CHECK's ask, never the round's** (two loops P1 Task 6) —
     /// this header is Author's, and a worry typed for the reader who checks
     /// must not echo back a different sentence typed for the editor who runs
-    /// the round in Review's cockpit.
+    /// the round in the round cockpit.
     private var storedAsk: String? {
         _ = diagnostics.version
         return diagnostics.ask(docId: docId, kind: .check)
@@ -256,7 +256,7 @@ struct DiagnosticsPaneHeader: View {
     }
 
     /// **Moved to `CompilerModelMenu`** (editorial letter P1, Task 8) so
-    /// Review's round cockpit can mount the identical control — one view
+    /// the round cockpit can mount the identical control — one view
     /// type, one `ForEach(CompilerModelChoice.allCases` site.
     private var gearMenu: some View {
         CompilerModelMenu(choice: compilerModel, onChange: onCompilerModelChange)

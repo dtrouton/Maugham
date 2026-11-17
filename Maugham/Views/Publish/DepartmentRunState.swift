@@ -11,7 +11,7 @@ import MaughamCore
 /// and `DepartmentPane` goes on taking values and holding no store
 /// (`DepartmentPaneTests.test_theSourceReadsNoStoreAtAll`).
 ///
-/// **`ReviewRoundCockpit`'s idiom, one persona over.** The cockpit resolves a
+/// **`ReviewRoundCockpit`'s idiom, on the desk.** The cockpit resolves a
 /// window-wide `runState` down to one document's phase with a `where runDocId ==
 /// docId`, disables its Run with the reason as help, and offers Cancel only from
 /// the arm that has something to cancel. The desk does the same three things — the
@@ -570,7 +570,7 @@ struct DepartmentRunState: Equatable {
     ///
     /// The `.run` arm delegates to `RoundNarrative.failureCopy` — the app's single
     /// switch over `CompilerRunFailure`, which the compiler's Diagnostics pane and
-    /// Review's cockpit already read — passing `.translation` so the two arms whose
+    /// the round cockpit already read — passing `.translation` so the two arms whose
     /// sentence names the work say the translator's. A second switch here would be
     /// a third account of one death, which is exactly what
     /// `ReviewRoundCockpitTests`' one-spelling census is against.

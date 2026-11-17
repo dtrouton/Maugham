@@ -9,7 +9,7 @@ extension ProjectWindow {
     /// **What the window does about a subject that names a research item**
     /// (shell-finish stage-2a Task 5, spec §4).
     ///
-    /// Task 4 gave every persona's tree a Research and a Palette section, so
+    /// Task 4 gave every tree a Research and a Palette section, so
     /// every tree can now make a research item the window's subject. This is
     /// the answer to *"and then what?"* — and it is ONE value read by BOTH
     /// columns, rather than a rule in the centre and a second one in the right
@@ -32,7 +32,7 @@ extension ProjectWindow {
     /// not the tree: a research item taking a column while nothing on screen
     /// could point the window anywhere else is a room with no door, which is the
     /// Critical stage 2a's final review found. Shell-finish stage 2b Task 7
-    /// made the tree the whole left column in every persona, so the trap is not
+    /// made the tree the whole left column, whatever is open, so the trap is not
     /// expressible and the guard went with the enum it was asked of. Its
     /// successor question is about the find OVERLAY — with the panel over the
     /// column there is no row to click — and the answer is asserted rather than
@@ -306,9 +306,9 @@ struct ResearchSubjectInspector: View {
     /// For the panel's verb toward Figures (`InspectorResearchPanel.figureTree`).
     var figureTree: BinderTreeSectionsState? = nil
     var figureWritesRefused: Bool = false
-    /// What a Research table's grid needs beside the canvas (Plan): the
-    /// window's `DocumentStore` (nil previews the table as text), the
-    /// persona's and share's answers, the typography.
+    /// What a Research table's grid needs beside the canvas: the window's
+    /// `DocumentStore` (nil previews the table as text), the Lock's and
+    /// share's answers, the typography.
     var documentStore: DocumentStore? = nil
     var readOnly: Bool = false
     var shareIsReadOnly: Bool = false

@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// **What the Publish persona's centre column is showing, and the rules for
+/// **What the centre is showing while an edition is open, and the rules for
 /// changing it.** Every write the window and `PublishPreviewModifier` make
 /// is a named method, so each rule — above all, that a design proposal and
 /// a translation round clear each other — has one home a test can reach
@@ -32,19 +32,19 @@ final class PublishCentreModel {
     /// `nil` for the book. The whole value rather than an id: the desk already
     /// read it off disk, so nothing here reads `.maugham/design/` a second time
     /// and the gate cannot disagree with the row that opened it. Cleared on any
-    /// persona change (`clearDecisions`) — a gate is a place in a decision.
+    /// change of what is open (`clearDecisions`) — a gate is a place in a decision.
     private(set) var selectedProposal: DesignProposalStore.Proposal?
 
     /// **The translation round the desk sent to the centre.** The whole value
     /// for `selectedProposal`'s reason. Drawn by `PublishCentre.translationRound`,
-    /// which outranks the gate; cleared on a persona change as the proposal is.
+    /// which outranks the gate; cleared when what is open changes, as the proposal is.
     private(set) var selectedRound: TranslationRound?
 
     /// **The publish problems the desk's Show Problems put in the centre**
     /// (report foundations plan 2, Task 8) — the diagnostics themselves, as the
     /// desk's last compile reported them. The whole value for `selectedRound`'s
     /// reason; outranks the round and the gate (R-S12) and draws over a chapter
-    /// as the round does. Cleared on a persona change.
+    /// as the round does. Cleared when what is open changes.
     private(set) var selectedProblems: [TectonicLogParser.Diagnostic]?
 
     // MARK: - The desk's Shows
@@ -97,11 +97,11 @@ final class PublishCentreModel {
         selectedProblems = problems.isEmpty ? nil : problems
     }
 
-    /// **A persona change lets both decisions go and keeps the book's pick.**
+    /// **A change of what is open lets both decisions go and keeps the book's pick.**
     /// The asymmetry is the point: the publication pick is a place in a
     /// *reading* (Denver's ruling keeps it across a walk out of Publish), while
     /// the gate and the report are places in a *decision* the writer leaves by
-    /// changing persona.
+    /// opening something else.
     func clearDecisions() {
         selectedProposal = nil
         selectedRound = nil

@@ -71,7 +71,7 @@ struct CentreColumn: View {
     let runRoundWhenPieceOpens: (_ pieceId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String) -> Posture
-    /// Plan's Tab from the binder (`CanvasView.keyboardRequest`) and the
+    /// The tree's Tab from the binder (`CanvasView.keyboardRequest`) and the
     /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`; nil where no
     /// visible binder answers it).
     let canvasKeyboardRequest: Int
@@ -391,7 +391,7 @@ struct CentreColumn: View {
             // The board's write, at the board's HOST — the same place and the
             // same shape as the pass ladder's, which lands at `InspectorView` and
             // `PieceInspector` rather than inside `PassLadder`
-            // (`PersonaPaneRegistryTests`' census).
+            // (`PassStateWriterCensusTests`).
             onSetState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             },

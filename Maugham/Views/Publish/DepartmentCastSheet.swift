@@ -171,7 +171,7 @@ struct DepartmentCastAnswer: Equatable {
 }
 
 /// The sheet itself — a headline, an explanation, one or two fields, Cancel and
-/// a default action (`TranslationQueryReplySheet`'s shape, one persona over).
+/// a default action (`TranslationQueryReplySheet`'s shape).
 ///
 /// `onConfirm` receives trimmed text and can only be reached through a state the
 /// sheet has already accepted: a blank name and an unusable tag both disable it,

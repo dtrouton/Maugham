@@ -10,12 +10,12 @@ import Foundation
 ///
 /// **Two routes, and the discriminator is `CanvasModel.isAttached`, never
 /// `liveCanvas != nil`.** The model is created eagerly with `ProjectWindow` and is
-/// only attached while the Plan persona is on screen, so a project window whose
+/// only attached while the canvas is on screen, so a project window whose
 /// writer has never opened it holds a model that is real, addressable and
-/// unusable — and a detached one's scene is the snapshot from when the persona
+/// unusable — and a detached one's scene is the snapshot from when the canvas
 /// closed, which cannot see anything the sidecar route has written since. Either
 /// way a write into one is accepted, reports real ids, and **vanishes** the next
-/// time the writer opens the Plan persona, with nothing red. `CanvasModel`'s own
+/// time the writer opens the canvas, with nothing red. `CanvasModel`'s own
 /// doc comment spells out what each of the two costs.
 ///
 /// | | attached | otherwise |

@@ -6,7 +6,7 @@ import MaughamCore
 /// (publish-department P4 Task 2); M1A spec §4.3.
 ///
 /// **Scope follows the window's subject, and this pane has no say in it.** The
-/// tree is the subject-picker (persona shell §3.3): select a chapter and Intent
+/// tree is the subject-picker (the 2026-08-01 shell spec, §3.3): select a chapter and Intent
 /// shows the chapter's, select the project row and it shows the book's. Visual
 /// language is project-scope, so it simply shows.
 ///
@@ -258,7 +258,7 @@ struct StatementPane: View {
     /// re-fires whenever any of it changes — not only when the (kind, scope)
     /// pair itself changes.
     ///
-    /// **`kind|scope` alone missed the commonest Author-persona shape**: the
+    /// **`kind|scope` alone missed the commonest drafting shape**: the
     /// writer deletes a paragraph in the open manuscript editor while the
     /// Intent pane sits beside it, and a directive anchored there must stop
     /// reading as an ordinary ruling without the pane remounting. Fixed by

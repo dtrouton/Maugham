@@ -2,7 +2,7 @@ import Foundation
 import MaughamCore
 import PDFKit
 
-/// **What the Publish persona's centre column has to show** — an answer with a
+/// **What the centre has to show while an edition is open** — an answer with a
 /// REASON attached, never a bare optional.
 ///
 /// The two non-`ready` cases degrade to the same surface (the project at

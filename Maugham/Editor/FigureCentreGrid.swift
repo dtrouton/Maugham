@@ -230,7 +230,7 @@ final class FigureCentreMount {
 }
 
 /// **The centre figure view**: a table figure's grid in the centre column (or
-/// Plan's right column), its bottom bar's number and caption from the window's
+/// the right column beside the canvas), its bottom bar's number and caption from the window's
 /// figure listing (the caption read-only, R7d-6; an unused figure shows its
 /// name and "—"), the gate asked over the figure's posture, the share and
 /// review (the window's ⌘⌥⇧R) and the window's Lock, each with its own sentence.

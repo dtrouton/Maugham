@@ -101,7 +101,7 @@ struct PaletteCardReadView: View {
 
 /// **Loads one card + its images by id, then hands them to
 /// `PaletteCardReadView`** — the load step behind this task's two new
-/// read-only mounts (Review's centre column, Review's wall). `AssistantColumn`
+/// read-only mounts (the Book's Status view, Review's wall). `AssistantColumn`
 /// has its own version of the same load (`paletteImages(of:)`) because it
 /// resolves a `PinnedReference` first and already has the `PaletteCard` in
 /// hand by the time it needs images; this host exists for the two callers that

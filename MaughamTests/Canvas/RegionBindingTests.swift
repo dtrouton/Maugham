@@ -700,7 +700,7 @@ final class RegionBindingTests: XCTestCase {
     /// says so. A future reader wanting the union — rather than the split — has
     /// this projection and belongs back on this list.
     ///
-    /// A `RegionInspector` or `Persona` entry appearing here is not the rail
+    /// A `RegionInspector` entry appearing here is not the rail
     /// returning: those are the canvas's own panes, and one calling the
     /// projection needs its own argument, not a line in this list.
     func test_theProjectionHasAProductionCaller() throws {
