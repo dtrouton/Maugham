@@ -101,6 +101,42 @@ final class PendingBasisFoldTests: XCTestCase {
             "the reopened instance's clean close leaves no pending file")
     }
 
+    /// #146 (F4), the close's EARLIER window: held before its burst flush, whose
+    /// clear (after the append's suspension) must not delete the reopened
+    /// instance's file either.
+    func test_aCloseHeldBeforeItsBurstFlushLeavesTheReopenedDocumentsPendingFileInPlace() async throws {
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+        let first = try await Document.load(
+            url: url, device: "m", session: "s1", presenter: nil)
+        let pendingURL = pendingFileURL(project: project, docId: first.docId, device: "m")
+        first.setFullText("Alpha edited.\n\nBravo.")
+        await first.autosaveScheduler.flush()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path),
+            "premise: the first instance wrote its pending file")
+        XCTAssertFalse(first.pending.isEmpty(), "premise: the first close has a burst to flush")
+
+        var second: Document?
+        var secondsBytes: Data?
+        first.closeBodyWillRun = {
+            let reopened = try? await Document.load(
+                url: url, device: "m", session: "s2", presenter: nil)
+            reopened?.setFullText("Alpha edited again.\n\nBravo.")
+            await reopened?.autosaveScheduler.flush()
+            secondsBytes = try? Data(contentsOf: pendingURL)
+            second = reopened
+        }
+        await first.close()
+
+        XCTAssertNotNil(second, "premise: the reopen loaded while the first close was held")
+        XCTAssertNotNil(secondsBytes, "premise: the reopened instance wrote its pending file")
+        XCTAssertEqual(try? Data(contentsOf: pendingURL), secondsBytes,
+            "the close's burst flush must leave the reopened document's pending file, with its bytes, in place")
+
+        await second?.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path),
+            "the reopened instance's clean close leaves no pending file")
+    }
+
     /// M9-OL-019 under compare-and-clear: a single clean close after an
     /// autosave wrote the pending file still leaves none.
     func test_aCleanCloseAfterAnAutosaveWroteThePendingFileLeavesNone() async throws {

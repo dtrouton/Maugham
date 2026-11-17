@@ -1678,8 +1678,13 @@ public final class Document {
             // promise one keystroke later, and the load has already told the
             // writer they are safe. So the buffer is forgotten and the file is
             // left: `clearInMemoryOnly` is the same reset minus the unlink.
+            //
+            // Compare-and-clear (#146): `close()` reaches this after the
+            // append's suspension, and a same-path Document reopened meanwhile
+            // may have written its own file there. A live Document's file is
+            // its own last write, so the compare removes it as before.
             if mayWriteThePendingFile {
-                try await pending.clear()
+                try await pending.clearIfUnchanged()
             } else {
                 pending.clearInMemoryOnly()
             }
