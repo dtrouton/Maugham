@@ -183,6 +183,59 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(probe.subject, .item(chapter.id))
     }
 
+    /// **The Palette row's chevron takes its own click** (shell p1 Task 3 fix
+    /// round, review M3). The row is now a selectable subject — the wall — so a
+    /// press on its chevron that also selected the row would replace the
+    /// writer's centre with the wall. A real click at the chevron must fold the
+    /// cards and leave the subject where it was; the control click on the
+    /// row's title does select it, so "nothing" is the button's doing.
+    func test_aClickOnThePaletteRowsChevronFoldsItAndSelectsNothing() async throws {
+        let store = try await novel(notes: [], cards: ["Harbour"])
+        let chapter = try XCTUnwrap(TreeWalk.first(in: store.manifest.structure,
+                                                   where: { $0.type == .document }))
+        let state = BinderTreeSectionsState()
+        let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
+        probe.subject = .item(chapter.id)
+        pump(0.2)
+        let table = try XCTUnwrap(firstTableView(in: window))
+        var all: [NSView] = []
+        collect(NSView.self, in: try XCTUnwrap(window.contentView), into: &all)
+        let mark = try XCTUnwrap(all.compactMap { $0 as? TreeTravelTargetView }
+                                    .first { $0.subject == .palette }, "no Palette row drawn")
+        let row = table.row(for: mark)
+        XCTAssertGreaterThanOrEqual(row, 0, "the Palette title sits in no row")
+        let rowRect = table.convert(table.rect(ofRow: row), to: nil)
+        let rings = all.filter { String(describing: type(of: $0)).contains("FocusRing") }
+            .map { $0.convert($0.bounds, to: nil) }
+            .filter { $0.intersects(rowRect) }
+            .sorted { $0.minX < $1.minX }
+        let chevron = try XCTUnwrap(rings.first, "the Palette row draws no chevron")
+        _ = await TestWindow.activate(window)
+
+        XCTAssertTrue(state.paletteSectionExpanded, "premise: the cards are shown")
+        clickCount(at: CGPoint(x: chevron.midX, y: chevron.midY), in: window)
+        await pumpUntil(deadline: 3) { !state.paletteSectionExpanded }
+        let foldedAfterChevron = !state.paletteSectionExpanded
+        let subjectAfterChevron = probe.subject
+
+        // The fold is the delivery's proof: a click the chevron's button took
+        // is a click AppKit delivered, so the subject read beside it means
+        // something whether or not the host is the active app.
+        if !foldedAfterChevron {
+            // Control, and the measurement: the title, away from the chevron,
+            // does select the row — so a fold that never came is the button's
+            // failure, not a click that never arrived.
+            let title = mark.convert(mark.bounds, to: nil)
+            clickCount(at: CGPoint(x: title.midX, y: title.midY), in: window)
+            await pumpUntil(deadline: 3) { probe.subject == .palette }
+            try skipIfTheClickWasNeverDelivered(
+                at: table.convert(CGPoint(x: title.midX, y: title.midY), from: nil), in: table)
+        }
+        XCTAssertTrue(foldedAfterChevron, "the chevron's click did not reach its button")
+        XCTAssertEqual(subjectAfterChevron, .item(chapter.id),
+                       "the chevron's click selected the Palette row and opened the wall")
+    }
+
     /// **Raised after the control click, on a measurement** — TreeTravelTests'
     /// discriminator: the host is not the active app AND the row under the
     /// point is not the row that ended up selected, i.e. AppKit never turned

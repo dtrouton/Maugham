@@ -331,9 +331,9 @@ final class SectionChevronTests: XCTestCase {
         let popups = views(in: mount.window).filter {
             String(describing: type(of: $0)).contains("SwiftUIPopupButton")
         }
-        try XCTSkipUnless(popups.count >= 2,
-                          "this display mounted \(popups.count) `+` menus; the "
-                          + "tree carries the Research header's and the Palette row's")
+        XCTAssertGreaterThanOrEqual(popups.count, 2,
+                                    "the tree mounted \(popups.count) `+` menus; it "
+                                    + "carries the Research header's and the Palette row's")
         for popup in popups {
             let frame = popup.convert(popup.bounds, to: content)
             for y in [frame.minY + 0.5, frame.midY, frame.maxY - 0.5] {

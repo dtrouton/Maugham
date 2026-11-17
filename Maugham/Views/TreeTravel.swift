@@ -97,7 +97,9 @@ import MaughamCore
 /// (`SceneNavigatorPane.scriptRow` — structurally a structure row in every way
 /// that matters, just named for what a screenplay's one document always is).
 /// Excluded on purpose: a slugline in `SceneNavigatorPane` is a place in the
-/// script, not a subject, and its own click already opens the script.
+/// script, not a subject. Its own click opens the script through the click
+/// rule — with the canvas or an edition open that moves only the faces, and
+/// the scroll it posts then reaches no editor.
 enum TreeTravel {
 
     /// What a double-click on the row naming `clicked` makes of the window's
@@ -109,18 +111,19 @@ enum TreeTravel {
                           structure: structure, projectType: projectType)
     }
 
-    /// **A single click on the row the tree already had selected** — the one
-    /// click its `List` writes nothing for, because the selection did not
-    /// change. Heard here so the click rule's own answer still lands: on the
-    /// row opened beside, it puts it away (controller ruling 2). On any other
-    /// already-selected row the click rule has nothing to change, and a click
-    /// on a row that was NOT selected is the `List`'s to deliver
-    /// (`BinderTreeSelection`), so this answers it with no change.
+    /// **A single click on the table's ONE selected row** — the one click its
+    /// `List` writes nothing for, because the selection did not change. Heard
+    /// here so the click rule's own answer still lands (on the row opened
+    /// beside, it puts it away — controller ruling 2). Any other click is the
+    /// `List`'s to deliver (`BinderTreeSelection`), so this answers it with no
+    /// change: a row that was not selected, and a click inside a selection of
+    /// several rows, which the table collapses and so writes — one path per
+    /// click, whatever order the two arrive in.
     static func clickOnTheSelectedRow(_ clicked: BinderSubject, rowWasSelected: Bool,
                                       current: WindowSubject,
                                       structure: [StructureItem],
                                       projectType: ProjectType) -> WindowSubject {
-        guard rowWasSelected, current.beside == clicked else { return current }
+        guard rowWasSelected else { return current }
         return ClickRule.resolve(clicked, gesture: .click, current: current,
                                  structure: structure, projectType: projectType)
     }
@@ -158,13 +161,24 @@ enum TreeTravel {
         return match
     }
 
-    /// Whether the table row drawing `target` is selected right now.
+    /// Whether the view under `pointInWindow` sits inside an `NSTableView`.
+    static func isInATable(_ pointInWindow: NSPoint, in window: NSWindow) -> Bool {
+        var view = window.contentView?.superview?.hitTest(pointInWindow)
+        while let current = view {
+            if current is NSTableView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    /// Whether the table row drawing `target` is the table's ONE selected row
+    /// right now — a click there changes no selection, so no `List` write.
     static func rowIsSelected(holding target: NSView) -> Bool {
         var view: NSView? = target.superview
         while let current = view, !(current is NSTableView) { view = current.superview }
         guard let table = view as? NSTableView else { return false }
         let row = table.row(for: target)
-        return row >= 0 && table.isRowSelected(row)
+        return row >= 0 && table.numberOfSelectedRows == 1 && table.isRowSelected(row)
     }
 
     private static func walkTargets(_ view: NSView,
@@ -284,6 +298,9 @@ final class TreeTravelClickWatcher {
     private func handle(_ event: NSEvent) {
         guard event.clickCount == 1 || event.clickCount == 2,
               let window = event.window,
+              // Only a click inside a table can be on a tree row: one hit test
+              // first, so a caret click or a canvas press walks nothing.
+              TreeTravel.isInATable(event.locationInWindow, in: window),
               let target = TreeTravel.target(at: event.locationInWindow, in: window),
               let subject = target.subject
         else { return }

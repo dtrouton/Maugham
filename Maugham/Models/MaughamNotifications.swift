@@ -88,6 +88,11 @@ extension Notification.Name {
     /// rather than staying frozen until the writer exits and re-enters. Scope:
     /// .project(id:).
     public static let maughamTranslationDidUpdate = Notification.Name("maugham.translation.did.update")
+    /// Posted by `initialize_publish_template` once the publish template is
+    /// installed, so a live window's tree draws its Editions rows (shell p1
+    /// Task 3) without waiting for a manifest change. Data event. Scope:
+    /// .project(id:).
+    public static let maughamPublishInitialized = Notification.Name("maugham.publish.initialized")
     /// Posted by the window's pipeline wiring when a round ends — data event,
     /// scope `.project(for: projectURL)`, like `maughamTranslationDidUpdate`.
     /// `userInfo["language"]`, `["document_id"]`, `["round"]` (Int).

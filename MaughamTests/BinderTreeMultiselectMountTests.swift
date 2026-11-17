@@ -166,8 +166,15 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
 
         await select(rows: [shipsRow], in: table,
                      until: { probe.subject == .research(ships.id) })
+        let shipsMark = try XCTUnwrap(mark(of: .research(ships.id), in: table))
+        XCTAssertTrue(TreeTravel.rowIsSelected(holding: shipsMark),
+                      "one row selected: a click on it is the watcher's to hear")
         await select(rows: [shipsRow, tidesRow], in: table,
                      until: { table.selectedRowIndexes.count == 2 })
+        XCTAssertFalse(TreeTravel.rowIsSelected(holding: shipsMark),
+                       "two rows selected: a click on one collapses the set, which "
+                       + "the `List` writes — the watcher must not answer it too "
+                       + "(fix round, M2)")
 
         XCTAssertEqual(table.selectedRowIndexes, IndexSet([shipsRow, tidesRow]),
                        "the table took both rows — on a single-valued binding "
@@ -361,6 +368,16 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let box = BinderSubjectProbe(subject)
         return BinderTreeVerbs(store: store, state: state,
                                subject: .tree(probeBinding(box)))
+    }
+
+    /// The label mark naming `subject` in `table`.
+    private func mark(of subject: BinderSubject, in table: NSTableView) -> TreeTravelTargetView? {
+        var stack: [NSView] = [table]
+        while let next = stack.popLast() {
+            if let found = next as? TreeTravelTargetView, found.subject == subject { return found }
+            stack.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     private func probeBinding(_ probe: BinderSubjectProbe) -> Binding<BinderSubject?> {

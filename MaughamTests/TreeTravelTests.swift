@@ -66,6 +66,10 @@ final class TreeTravelDestinationTests: XCTestCase {
                        "a row that was not selected is the `List`'s to deliver")
         XCTAssertEqual(heard(.project, selected: true, over: beside), beside,
                        "any other selected row: nothing for the click rule to change")
+        XCTAssertEqual(heard(note, selected: true, over: .book),
+                       WindowSubject(open: .project, faces: .project, beside: note),
+                       "a note still drawn selected after it was put away reopens "
+                       + "on the next click (fix round, I1)")
     }
 
     /// A piece double-clicked while the canvas is open opens the piece — the

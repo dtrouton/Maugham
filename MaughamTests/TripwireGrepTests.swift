@@ -2821,6 +2821,10 @@ final class TripwireGrepTests: XCTestCase {
         // `Button` inside a `.draggable` tree row — only a real click shows the
         // button, not the row's drag or selection, takes it (plan 8a review I2).
         "BinderTreeSectionsTests.swift test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing",
+        // A hit area: the Palette row is a selectable subject (the wall), and
+        // only a real click shows its chevron's button takes the click rather
+        // than the row's selection.
+        "BinderTreeSectionsTests.swift test_aClickOnThePaletteRowsChevronFoldsItAndSelectsNothing",
         // A hit area: a click on the row's NAME selects (stage 3b's regression,
         // invisible to a `rect.midX` click) — and, with the watcher installed,
         // stays one click: nothing opens in the centre.

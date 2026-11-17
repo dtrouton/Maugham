@@ -1362,11 +1362,16 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
             // The Editions rows: one disk read per manifest change or
             // translation write, never per row (tripwire 4).
             .task(id: EditionRowsKey(manifest: store.manifest.modified,
-                                     translations: state.translationRevision)) {
+                                     translations: state.translationRevision,
+                                     publishing: PublishStarter.isInitialized(in: store.url))) {
                 state.editionRows = TreeEditionRows.rows(store: store)
                 state.projectHasInbox = InboxStore.projectHasInbox(projectURL: store.url)
             }
             .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: nil) { _ in
+                state.translationRevision += 1
+            }
+            // Publishing initialised: the source edition's row appears.
+            .onProjectEvent(.maughamPublishInitialized, url: store.url, window: nil) { _ in
                 state.translationRevision += 1
             }
             // The deferred rename, committed when the row it names exists. Both
@@ -1441,9 +1446,14 @@ enum BinderTreeSelection {
     /// **The rows the `List` draws selected**: the rows last clicked, while
     /// the subject is still the one that click made; otherwise the window's
     /// own last-clicked row.
+    ///
+    /// An EMPTY stored set the subject still matches is a dismissal's answer
+    /// (`resolved`): the row put away is not drawn selected, and the getter's
+    /// value changes, so the table lets go of it and the next click on it is a
+    /// write the `List` delivers.
     static func shown(_ stored: Set<BinderSubject>, subject: WindowSubject,
                       clickedAt: WindowSubject?) -> Set<BinderSubject> {
-        if clickedAt == subject, !stored.isEmpty { return stored }
+        if clickedAt == subject { return stored }
         return [subject.lastClicked]
     }
 
@@ -1487,7 +1497,11 @@ enum BinderTreeSelection {
             // An untagged row (or a row this surface does not draw): nothing
             // moves, the selection included.
             guard let row = written.first else { return (stored, subject) }
-            return ([row], click(row))
+            let next = click(row)
+            // A click that put the row beside away (controller ruling 2)
+            // leaves nothing selected: the note is neither open nor beside.
+            if subject.beside == row, next.beside == nil { return ([], next) }
+            return ([row], next)
         }
         // A modifier click (or the `List` handing back what it was drawing,
         // which changes nothing).
@@ -1583,7 +1597,10 @@ enum BinderTreeSelection {
                     research: store.manifest.research,
                     figures: drawnFigureOrder(state),
                     projectType: store.manifest.type)
-                state.record(selection: next.selection, subject: next.subject)
+                // An untagged write moves nothing, the record included.
+                if next.selection != state.selection || next.subject != subject.wrappedValue {
+                    state.record(selection: next.selection, subject: next.subject)
+                }
                 subject.wrappedValue = next.subject
             })
     }

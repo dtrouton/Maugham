@@ -114,4 +114,7 @@ struct TreeEditionRows: View {
 struct EditionRowsKey: Hashable {
     let manifest: Date
     let translations: Int
+    /// Whether publishing is initialised — initialising it on an older
+    /// project stamps no manifest, and it is what brings the source row.
+    var publishing: Bool = false
 }

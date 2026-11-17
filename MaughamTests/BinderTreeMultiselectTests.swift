@@ -81,7 +81,9 @@ final class BinderTreeMultiselectTests: XCTestCase {
                                       structure: structure, projectType: .novel),
                     "a one-row write is `ClickRule.resolve(_, .click, …)` "
                     + "(subject: \(subject), row: \(written))")
-                XCTAssertEqual(out.selection, [written])
+                // The row put away from beside is left unselected (I1).
+                let dismissed = subject.beside == written
+                XCTAssertEqual(out.selection, dismissed ? [] : [written])
             }
         }
     }
@@ -94,10 +96,44 @@ final class BinderTreeMultiselectTests: XCTestCase {
 
     /// A click on the row beside, when the tree was drawing another row
     /// selected, puts it away (controller ruling 2).
+    ///
+    /// **And the row it put away is not left selected** (fix round, I1): the
+    /// tree draws nothing selected, so the table lets go of the note and the
+    /// next click on it is a write the `List` delivers — which reopens it.
     func test_aClickOnTheRowBesidePutsItAway() {
         let out = resolve(written: [.research("a")], stored: [.project],
                           subject: beside("a"))
         XCTAssertEqual(out.subject, .book)
+        XCTAssertEqual(out.selection, [])
+        let shown = BinderTreeSelection.shown(out.selection, subject: out.subject,
+                                              clickedAt: out.subject)
+        XCTAssertFalse(shown.contains(.research("a")),
+                       "the dismissed note is drawn selected, so the next click "
+                       + "on it writes nothing and is swallowed")
+        let again = BinderTreeSelection.resolved(
+            written: [.research("a")], stored: out.selection, shown: shown,
+            subject: out.subject, structure: structure, research: research,
+            figures: figures, projectType: .novel)
+        XCTAssertEqual(again.subject, beside("a"), "the next click reopens it beside")
+        XCTAssertEqual(again.selection, [.research("a")])
+    }
+
+    /// **A plain click on the anchor of a live set** is the `List`'s write
+    /// alone (the table collapses the set, so it writes): it puts the note
+    /// away, and the watcher — which only answers a click on the table's ONE
+    /// selected row — adds nothing, whatever order the two arrive in.
+    func test_aPlainClickOnTheAnchorOfASetPutsItAwayOnOnePath() {
+        let stored: Set<BinderSubject> = [.research("a"), .research("c")]
+        let out = resolve(written: [.research("a")], stored: stored, subject: beside("a"))
+        XCTAssertEqual(out.subject, .book)
+        XCTAssertEqual(out.selection, [])
+        for current in [beside("a"), out.subject] {
+            XCTAssertEqual(
+                TreeTravel.clickOnTheSelectedRow(.research("a"), rowWasSelected: false,
+                                                 current: current, structure: structure,
+                                                 projectType: .novel),
+                current, "inside a set of several rows the watcher answers nothing")
+        }
     }
 
     /// **The untagged-row refusal.** An untagged row — an empty section's

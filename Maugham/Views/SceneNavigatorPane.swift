@@ -225,7 +225,9 @@ struct SceneNavigatorPane: View {
                     projectType: store.manifest.type,
                     // This pane's own refusal: a document it draws no row for.
                     accepts: { Self.listSelection(for: $0, documentID: documentID) != nil })
-                treeState.record(selection: next.selection, subject: next.subject)
+                if next.selection != treeState.selection || next.subject != subject {
+                    treeState.record(selection: next.selection, subject: next.subject)
+                }
                 subject = next.subject
             })
     }

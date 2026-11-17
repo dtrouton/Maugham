@@ -40,6 +40,10 @@ public enum InitializePublishTemplateTool: MCPTool {
             throw MCPError.invalidArgument(
                 "publish template already initialized — pass force=true to overwrite")
         }
+        // A live window's tree lists the source edition once publishing is
+        // initialised — tell it now rather than at the next manifest change.
+        MaughamEvent.post(.maughamPublishInitialized, to: .project(for: entry.url),
+                          payload: [:])
         let response: [String: Any] = [
             "status": "initialized",
             "publish_dir": ".maugham/publish"
