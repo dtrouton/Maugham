@@ -407,6 +407,10 @@ public final class ProjectStore {
     /// The query and options the search field last asked for (nil once the
     /// overlay closes): what a Replace's own refresh searches.
     @ObservationIgnored var latestSearchRequest: (query: String, options: SearchOptions)?
+    /// The last few results that landed, newest last: what a click whose
+    /// id a refresh has since retired came from (`ProjectStore+Search
+    /// .listedMatch(for:)`, #147 R1). Emptied by `clearSearch`.
+    @ObservationIgnored var recentlyLandedSearches: [SearchResults] = []
     /// The Replace (single or Replace All) in flight, if any: the next one
     /// waits for it and its refresh, so it is judged against fresh results.
     @ObservationIgnored var replaceTail: Task<Void, Never>?

@@ -55,11 +55,11 @@ final class ProjectSearchReplaceTests: XCTestCase {
         _ store: ProjectStore, _ query: String,
         options: SearchOptions = SearchOptions()
     ) async -> SearchResults {
-        let results = await ProjectSearchEngine().search(
-            query: query, options: options, in: store)
-        // Prime currentSearch so replaceMatch can derive ordinal + query.
-        store.currentSearch = results
-        return results
+        // Prime currentSearch so replaceMatch can derive ordinal + query —
+        // the way the field does, so the store remembers the results a
+        // click comes from.
+        await store.searchNow(query: query, options: options)
+        return try! XCTUnwrap(store.currentSearch)
     }
 
     func test_replaceMatch_writesNewContentToDisk() async throws {
@@ -373,7 +373,7 @@ final class ProjectSearchReplaceTests: XCTestCase {
     /// **Review Focus 3: the fallback never picks a different occurrence.**
     /// Two matches on identical lines in one file differ only by range; the
     /// old click on the second is the second, never the first.
-    func test_theFallbackForAMatchOnARepeatedLinePicksTheOneWithTheSameRange() async throws {
+    func test_theFallbackForAMatchOnARepeatedLineInAnotherDocumentPicksTheOneWithTheSameRange() async throws {
         let project = try await makeProject(manuscript: [
             ("c1", "Anna in the hall.\n"),
             ("c2", "Anna.\nAnna.\n")
@@ -391,6 +391,34 @@ final class ProjectSearchReplaceTests: XCTestCase {
 
         let c2 = try await displayText(of: project, "c2")
         XCTAssertEqual(c2, "Anna.\nZ.", "the second occurrence was replaced, never the first")
+    }
+
+    /// **No fallback in a document a Replace has changed since the click's
+    /// results** (#147 R1 fix round 1): an earlier Replace in the same file
+    /// shifts every later range, so the old click on the third of three
+    /// identical lines would find the SECOND at its old range, and the line
+    /// check cannot tell identical lines apart. It is refused, nothing written.
+    func test_aStaleClickInADocumentAReplaceShiftedIsRefused() async throws {
+        let project = try await makeProject(manuscript: [
+            ("c1", "Anna in the hall.\nAnna.\nAnna.\nAnna.\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let matches = listedAfterSearch(await search(store, "Anna"))
+        XCTAssertEqual(matches.map(\.charRangeInDocument.location), [0, 18, 24, 30])
+        let held = matches[2]
+
+        try await store.replaceMatch(matches[0], with: "Zzzzzzzzzz")
+        let shifted = listed(store, "c1")
+        XCTAssertEqual(shifted.map(\.charRangeInDocument.location), [24, 30, 36],
+                       "the premise: a current match sits at the held match's old range, on an identical line")
+        XCTAssertEqual(shifted[0].linePreview, held.linePreview)
+
+        do {
+            try await store.replaceMatch(held, with: "Z")
+            XCTFail("a stale click in a document a Replace changed must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "Zzzzzzzzzz in the hall.\nAnna.\nAnna.\nAnna.", "a refused Replace writes nothing")
     }
 
     /// **A refusal refreshes the results** (#147 R1): a click whose id is

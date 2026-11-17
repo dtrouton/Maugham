@@ -67,7 +67,15 @@ extension ProjectStore {
         guard generation > landedSearchGeneration else { return }
         landedSearchGeneration = generation
         currentSearch = results
+        recentlyLandedSearches.append(results)
+        if recentlyLandedSearches.count > Self.landedSearchesKept {
+            recentlyLandedSearches.removeFirst()
+        }
     }
+
+    /// How many landed results `listedMatch(for:)` can trace a click back
+    /// to: a click queued behind more refreshes than this is refused.
+    static let landedSearchesKept = 8
 
     public func clearSearch() {
         searchTask?.cancel()
@@ -76,6 +84,7 @@ extension ProjectStore {
         landedSearchGeneration = searchGeneration
         latestSearchRequest = nil
         currentSearch = nil
+        recentlyLandedSearches = []
         searchInProgress = false
     }
 
@@ -105,8 +114,10 @@ extension ProjectStore {
     // from are never older than the last Replace. A match whose id is not in
     // them (it came from results a Replace has since refreshed) means the
     // one current match with its path, range and line (`listedMatch(for:)`,
-    // #147 R1) — another document's match is still clickable after a
-    // Replace; with none, or several, it is refused with
+    // #147 R1) when its document shows the same occurrences now as in the
+    // click's results — another document's match is still clickable after a
+    // Replace, one in the document the Replace changed is not; with none, or
+    // several, it is refused with
     // `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
     // occurrence. So is a text that changed since the search under the
     // ordinal (`ClickedOccurrence.range`): a different count of occurrences,
@@ -156,8 +167,9 @@ extension ProjectStore {
     /// (`searchNow`, no debounce): a second click — even on the same match,
     /// even while the first is in flight — is judged against fresh results.
     /// Its id is gone from them, so it means the fresh match with the same
-    /// path, range and line (`listedMatch(for:)`); a match whose occurrence
-    /// the first Replace changed has none, and throws
+    /// path, range and line (`listedMatch(for:)`) only in a document the
+    /// first Replace left unchanged; in the one it changed there is none,
+    /// and it throws
     /// `ProjectStoreError.staleSearchMatch` with nothing written.
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
@@ -263,20 +275,52 @@ extension ProjectStore {
     /// **The match in `currentSearch` a click means** (#147 R1): the one
     /// with its id; else — its results have been refreshed since, and match
     /// ids are minted fresh by every search (`SearchMatch.id`, a `UUID()`) —
-    /// the one current match with the same path, range and line preview.
-    /// Two occurrences on identical lines differ by range, so this never
-    /// names another occurrence; none, or several, is nil (a refusal). The
+    /// the one current match with the same path, range and line preview,
+    /// **only when its document is unchanged since the click's results**:
+    /// the results it came from (`recentlyLandedSearches`) are for the same
+    /// query and options and list the very same occurrences in that document
+    /// (`shownOccurrences`) as the current ones. A Replace (or any edit) in
+    /// the document shows there — the occurrence it changed reads a
+    /// different line, and a length change moves every later range — so a
+    /// document a Replace changed has no fallback: an identical line at the
+    /// old range is another occurrence (fix round 1). Untouched, a range
+    /// names one occurrence, so this never names another; none, or several,
+    /// or results no longer remembered, is nil (a refusal). The
     /// clicked-occurrence check (`ClickedOccurrence.range`) still runs on
     /// whichever it names.
     private func listedMatch(for match: SearchMatch) -> SearchMatch? {
-        let matches = currentSearch?.matches ?? []
-        if let same = matches.first(where: { $0.id == match.id }) { return same }
-        let candidates = matches.filter {
+        guard let current = currentSearch else { return nil }
+        if let same = current.matches.first(where: { $0.id == match.id }) { return same }
+        guard let clickedFrom = recentlyLandedSearches.last(where: { results in
+                  results.matches.contains { $0.id == match.id } }),
+              clickedFrom.query == current.query, clickedFrom.options == current.options,
+              Self.shownOccurrences(in: clickedFrom, at: match.documentPath)
+                  == Self.shownOccurrences(in: current, at: match.documentPath)
+        else { return nil }
+        let candidates = current.matches.filter {
             $0.documentPath == match.documentPath
                 && $0.charRangeInDocument == match.charRangeInDocument
                 && $0.linePreview == match.linePreview
         }
         return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    /// What `results` show of one document's occurrences, left to right,
+    /// ids aside: equal for two searches of an unchanged document.
+    private static func shownOccurrences(
+        in results: SearchResults, at path: String
+    ) -> [ShownOccurrence] {
+        results.matches
+            .filter { $0.documentPath == path }
+            .map { ShownOccurrence(range: $0.charRangeInDocument, line: $0.linePreview,
+                                   inLine: $0.matchRangeInLine) }
+            .sorted { $0.range.location < $1.range.location }
+    }
+
+    private struct ShownOccurrence: Equatable {
+        let range: NSRange
+        let line: String
+        let inLine: NSRange
     }
 
     /// **A clicked match's ordinal** — the index of the match it means
