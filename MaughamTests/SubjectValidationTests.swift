@@ -33,8 +33,8 @@ private struct SubjectValidationProbeView: View {
         Color.clear
             .modifier(SubjectValidationModifier(
                 store: harness.store, documentStore: nil,
-                selectedSubject: Binding(get: { harness.subject },
-                                         set: { harness.subject = $0 })))
+                subject: .bridging(Binding(get: { harness.subject },
+                                           set: { harness.subject = $0 }))))
     }
 }
 

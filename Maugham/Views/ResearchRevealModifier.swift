@@ -33,11 +33,21 @@ struct ResearchRevealModifier: ViewModifier {
                 // Revealing there would overwrite the writer's last explicit pane
                 // choice on every reopen with a research item beside, which is
                 // the opposite of what the restore path is careful to preserve.
-                guard previous != nil, let next else { return }
+                guard Self.isAnArrival(from: previous, to: next), let next else { return }
                 ProjectWindow.revealResearchColumn(
                     subject: next,
                     showInspector: &showInspector,
                     detailSegment: &detailSegment)
             }
+    }
+
+    /// **Only reference material ARRIVING beside reveals.** `beside` persists
+    /// across clicks (the click rule), so a change that leaves it as it was —
+    /// the faces moving to a chapter, the Book opening — is not an arrival, and
+    /// revealing on it would take the writer's chosen pane away on every click
+    /// after the first. The restore (from `nil`) is not an arrival either.
+    static func isAnArrival(from previous: WindowSubject?, to next: WindowSubject?) -> Bool {
+        guard let previous, let next else { return false }
+        return next.beside != previous.beside
     }
 }

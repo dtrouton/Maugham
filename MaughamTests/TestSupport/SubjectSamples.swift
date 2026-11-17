@@ -62,9 +62,9 @@ enum SubjectSamples {
 }
 
 /// **A window's subject held outside the view**, so a mounted test can seed
-/// it and watch what a real tree row writes into it. The tree's binding is
-/// `ProjectWindow`'s: it reads `beside ?? faces` and writes through
-/// `ClickRule` as a click, and rewriting the value it reads changes nothing.
+/// it and watch what a real tree row writes into it. The tree's binding writes
+/// through production's own `ProjectWindow.treeWrite` — the rule the window's
+/// `selectedSubject` setter applies — never a copy of it.
 @Observable
 @MainActor
 final class WindowSubjectProbe {
@@ -75,20 +75,33 @@ final class WindowSubjectProbe {
         Binding(
             get: { self.subject.beside ?? self.subject.faces },
             set: { newValue in
-                guard newValue != (self.subject.beside ?? self.subject.faces) else { return }
-                self.subject = ClickRule.resolve(
-                    newValue ?? .project, gesture: .click, current: self.subject,
+                self.subject = ProjectWindow.treeWrite(
+                    newValue, current: self.subject,
                     structure: store.manifest.structure, projectType: store.manifest.type)
             })
     }
 }
 
 extension WindowSubjectProbe {
-    /// A click on `clicked`, through `ClickRule` — what a tree row, a card or a
-    /// chip writes.
+    /// What a tree row, a card or a chip writes, through the window's own
+    /// `ProjectWindow.treeWrite`.
     func pick(_ clicked: BinderSubject, in store: ProjectStore) {
-        subject = ClickRule.resolve(clicked, gesture: .click, current: subject,
-                                    structure: store.manifest.structure,
-                                    projectType: store.manifest.type)
+        subject = ProjectWindow.treeWrite(clicked, current: subject,
+                                          structure: store.manifest.structure,
+                                          projectType: store.manifest.type)
+    }
+}
+
+extension Binding where Value == WindowSubject {
+    /// **A suite that holds only a `BinderSubject?`, seen as a window subject**
+    /// — for the suites that mount `SubjectValidationModifier` over a legacy
+    /// probe. Reads the probe's value as what is open (nil reads as the Book);
+    /// a repair writes back what is open. The modifier writes only a subject
+    /// that changed, so a nil probe the Book leaves alone stays nil.
+    @MainActor
+    static func bridging(_ legacy: Binding<BinderSubject?>) -> Binding<WindowSubject> {
+        Binding(
+            get: { legacy.wrappedValue.map(SubjectSamples.opened) ?? .book },
+            set: { legacy.wrappedValue = $0.open })
     }
 }

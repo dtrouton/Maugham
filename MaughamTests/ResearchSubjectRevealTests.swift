@@ -260,7 +260,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
             + "sections on every reopen. Holding the tree's state is what would "
             + "make that possible, so the modifier must not hold one")
         XCTAssertTrue(
-            source.contains("guard previous != nil"),
+            source.contains("guard Self.isAnArrival(from: previous, to: next)"),
             "control: the restore case this suite already pins is still the "
             + "reason the observer is the wrong place for a tree reveal")
     }
@@ -287,6 +287,26 @@ final class ResearchSubjectRevealTests: XCTestCase {
             XCTAssertEqual(segment, previews ? .inspector : .inbox,
                            "\(subject): and it moves the pane in the same cases")
         }
+    }
+
+    /// **Only an item ARRIVING beside reveals** (review Important 1).
+    /// `beside` is sticky across clicks, so a change that leaves it alone — the
+    /// faces moving to a chapter, the Book opening — must not take the
+    /// writer's chosen pane away again.
+    func test_movingTheFacesWithAnItemAlreadyBesideMovesNoPane() {
+        let besideChapter = WindowSubject(open: .item(SubjectSamples.pieceID),
+                                          faces: .item(SubjectSamples.pieceID),
+                                          beside: .research("r1"))
+        let facesMoved = ProjectWindow.treeWrite(.item("pc02"), current: besideChapter,
+                                                 structure: SubjectSamples.structure,
+                                                 projectType: .novel)
+        XCTAssertEqual(facesMoved.beside, .research("r1"), "premise: beside stays")
+        XCTAssertFalse(ResearchRevealModifier.isAnArrival(from: besideChapter, to: facesMoved))
+        XCTAssertTrue(ResearchRevealModifier.isAnArrival(
+            from: SubjectSamples.opened(.item(SubjectSamples.pieceID)), to: besideChapter),
+            "control: a note arriving beside does reveal")
+        XCTAssertFalse(ResearchRevealModifier.isAnArrival(from: nil, to: besideChapter),
+                       "the restore is not an arrival")
     }
 
     func test_aSubjectWithNothingBesideRevealsNothing() {
@@ -439,10 +459,9 @@ final class ResearchRevealProbe {
     /// `openResearchItem` and `handleShowLatestMCPNote`).
     @discardableResult
     func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
-        subject = ClickRule.resolve(.research(itemId), gesture: .click,
-                                    current: subject ?? .book,
-                                    structure: store.manifest.structure,
-                                    projectType: store.manifest.type)
+        subject = ProjectWindow.treeWrite(.research(itemId), current: subject ?? .book,
+                                          structure: store.manifest.structure,
+                                          projectType: store.manifest.type)
         let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                         research: store.manifest.research,
                                         projectType: store.manifest.type)
@@ -473,10 +492,8 @@ private struct ResearchRevealProbeView: View {
         Binding(
             get: { probe.subject.map { $0.beside ?? $0.faces } },
             set: { newValue in
-                let current = probe.subject ?? .book
-                guard newValue != (current.beside ?? current.faces) else { return }
-                probe.subject = ClickRule.resolve(
-                    newValue ?? .project, gesture: .click, current: current,
+                probe.subject = ProjectWindow.treeWrite(
+                    newValue, current: probe.subject ?? .book,
                     structure: store.manifest.structure, projectType: store.manifest.type)
             })
     }

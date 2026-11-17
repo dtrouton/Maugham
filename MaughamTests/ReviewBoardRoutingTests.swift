@@ -1096,12 +1096,12 @@ final class ReviewCentreProbeBox {
         self.bookView = bookView
     }
 
-    /// A click on `clicked`, through `ClickRule` — what a card, a row or a chip
-    /// writes.
+    /// What a card, a row or a chip writes, through the window's own
+    /// `ProjectWindow.treeWrite`.
     func pick(_ clicked: BinderSubject, in store: ProjectStore) {
-        subject = ClickRule.resolve(clicked, gesture: .click, current: subject,
-                                    structure: store.manifest.structure,
-                                    projectType: store.manifest.type)
+        subject = ProjectWindow.treeWrite(clicked, current: subject,
+                                          structure: store.manifest.structure,
+                                          projectType: store.manifest.type)
     }
 }
 

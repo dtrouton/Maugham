@@ -782,7 +782,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         var body: some View {
             Color.clear.modifier(SubjectValidationModifier(
                 store: store, documentStore: documentStore,
-                selectedSubject: Binding(get: { box.subject }, set: { box.subject = $0 })))
+                subject: .bridging(Binding(get: { box.subject }, set: { box.subject = $0 }))))
         }
     }
 

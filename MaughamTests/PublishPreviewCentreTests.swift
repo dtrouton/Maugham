@@ -1900,8 +1900,8 @@ struct PublishCentreProbeView: View {
         Binding(
             get: { box.subject.beside ?? box.subject.faces },
             set: { newValue in
-                box.subject = ClickRule.resolve(
-                    newValue ?? .project, gesture: .click, current: box.subject,
+                box.subject = ProjectWindow.treeWrite(
+                    newValue, current: box.subject,
                     structure: store.manifest.structure, projectType: store.manifest.type)
             })
     }

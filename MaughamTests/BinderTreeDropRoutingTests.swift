@@ -797,7 +797,7 @@ private struct DropRoutingProbeView: View {
             treeState: treeState)
             .modifier(SubjectValidationModifier(
                 store: store, documentStore: nil,
-                selectedSubject: Binding(get: { probe.subject },
-                                         set: { probe.subject = $0 })))
+                subject: .bridging(Binding(get: { probe.subject },
+                                           set: { probe.subject = $0 }))))
     }
 }

@@ -404,10 +404,13 @@ struct ProjectWindow: View {
         .onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in
             showInspector.toggle()
         }
-        // ⌘⌥O: the same write Escape and the canvas's own `selectTheProjectRow`
-        // closure make (spec §4.1) — a second door onto it, not a second write.
+        // ⌘⌥O: a click on the Book's row, through the click rule — it opens the
+        // Book whatever the faces are on. (Escape on the canvas is a different
+        // act: it moves only the faces and keeps the canvas.)
         .onKeyWindowCommand(.maughamSelectProjectRow, window: window) { _ in
-            selectedSubject = .project
+            subject = ClickRule.resolve(.project, gesture: .click, current: subject,
+                                        structure: store?.manifest.structure ?? [],
+                                        projectType: store?.manifest.type ?? .novel)
         }
         // ⌘⌥R's new meaning: open the tree's own Research section if the
         // writer had closed it. Refused while the find overlay covers the
@@ -460,7 +463,7 @@ struct ProjectWindow: View {
             }
         }
         .modifier(SubjectValidationModifier(store: store, documentStore: documentStore,
-                                            selectedSubject: selectedSubjectBinding))
+                                            subject: subjectBinding))
         .modifier(ReferenceIndexWiring(
             url: url, store: store, documentStore: documentStore,
             referenceIndex: referenceIndex, figureListing: figureListing,
@@ -623,7 +626,9 @@ struct ProjectWindow: View {
     /// document the editor is FOR. `nil` for the project, a group, research, or
     /// nothing, none of which has text to lock.
     private var selectedManuscriptDocId: String? {
-        guard let store, let id = activeItemID,
+        // What the EDITOR shows — `open` — never the faces, which may sit on a
+        // piece the centre does not show.
+        guard let store, let id = subject.open.itemID,
               let item = TreeWalk.find(id: id, in: store.manifest.structure),
               item.type == .document else { return nil }
         return id
@@ -1224,6 +1229,13 @@ struct ProjectWindow: View {
         }
     }
 
+    /// The wall's own Close: back to the subject it was opened over, repaired
+    /// against the project (something may have gone while the wall was up).
+    private func closePaletteWall() {
+        let back = paletteWall.closingWall(subject)
+        subject = store.map { Self.validatedSubject(back, in: $0) } ?? back
+    }
+
     /// The Palette section's "Open Wall" door, from either tree shell: the
     /// wall becomes the centre (`pressPaletteWallDoor`). Its persistence is the
     /// subject's own.
@@ -1255,7 +1267,7 @@ struct ProjectWindow: View {
             annotationScopeRequest: $annotationScopeRequest,
             metrics: $metrics,
             currentElement: $currentElement,
-            closePaletteWall: { subject = paletteWall.closingWall(subject) },
+            closePaletteWall: { closePaletteWall() },
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             runRoundWhenPieceOpens: { runRoundWhenPieceOpens(pieceId: $0) },
             posture: { postureDrawn(forDocId: $0) },
@@ -2146,12 +2158,42 @@ struct ProjectWindow: View {
     private var selectedSubject: BinderSubject? {
         get { subject.beside ?? subject.faces }
         nonmutating set {
-            guard newValue != selectedSubject else { return }
-            subject = ClickRule.resolve(newValue ?? .project, gesture: .click,
-                                        current: subject,
-                                        structure: store?.manifest.structure ?? [],
-                                        projectType: store?.manifest.type ?? .novel)
+            subject = Self.treeWrite(newValue, current: subject,
+                                     structure: store?.manifest.structure ?? [],
+                                     projectType: store?.manifest.type ?? .novel)
         }
+    }
+
+    /// **What a write to the tree's view of the subject does** — the one rule
+    /// `selectedSubject`'s setter applies, and the one a test drives. Rewriting
+    /// the value the tree already reads (`beside ?? faces`) changes nothing, so
+    /// a selection binding echoing its own value cannot move the centre;
+    /// anything else is a click (`ClickRule`).
+    static func treeWrite(_ newValue: BinderSubject?, current: WindowSubject,
+                          structure: [StructureItem],
+                          projectType: ProjectType) -> WindowSubject {
+        guard newValue != (current.beside ?? current.faces) else { return current }
+        return ClickRule.resolve(newValue ?? .project, gesture: .click, current: current,
+                                 structure: structure, projectType: projectType)
+    }
+
+    /// **The window's subject, repaired against the project** — `load()`'s
+    /// restore and `SubjectValidationModifier`'s sweep ask this one function.
+    /// Every part is checked: `open` and `faces` naming something gone become
+    /// the Book, a gone `beside` becomes nil, and nothing that still lives
+    /// moves. `parked` names figures whose stream has set them aside. The
+    /// edition languages are read off disk only when a part names an edition.
+    @MainActor
+    static func validatedSubject(_ subject: WindowSubject, in store: ProjectStore,
+                                 parked: Set<String> = []) -> WindowSubject {
+        let parts = [subject.open, subject.faces] + (subject.beside.map { [$0] } ?? [])
+        let languages = parts.contains(where: \.isEdition)
+            ? editionLanguages(manifest: store.manifest, projectURL: store.url) : []
+        return subject.validated(
+            structure: store.manifest.structure,
+            researchIDs: Set(TreeWalk.collectIds(in: store.manifest.research)),
+            figureIDs: Set((store.manifest.figures ?? []).map(\.id)).subtracting(parked),
+            editionLanguages: languages)
     }
 
     private var selectedSubjectBinding: Binding<BinderSubject?> {
@@ -2566,11 +2608,7 @@ struct ProjectWindow: View {
             // which is how `ResearchRevealModifier` tells it from an arrival.
             // A parked figure is repaired by the sweep once it has asked the
             // figure's stream (`SubjectValidationModifier`).
-            self.subjectState = ds.uiState.windowSubject.validated(
-                structure: s.manifest.structure,
-                researchIDs: Set(TreeWalk.collectIds(in: s.manifest.research)),
-                figureIDs: Set((s.manifest.figures ?? []).map(\.id)),
-                editionLanguages: Self.editionLanguages(manifest: s.manifest, projectURL: s.url))
+            self.subjectState = Self.validatedSubject(ds.uiState.windowSubject, in: s)
             self.bookView = ds.uiState.bookView
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn

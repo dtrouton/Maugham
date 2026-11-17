@@ -42,10 +42,14 @@ struct PaletteWallState: Equatable {
     }
 
     /// **The wall's Close** (Esc, the close button): the subject the wall was
-    /// opened over, else the Book. A wall left by any other subject change has
-    /// already closed by that change.
+    /// opened over, else the Book — keeping whatever was opened beside while the
+    /// wall was up. A wall left by any other subject change has already closed
+    /// by that change. The window repairs the answer against the project
+    /// (`ProjectWindow.validatedSubject`).
     func closingWall(_ subject: WindowSubject) -> WindowSubject {
         guard ProjectWindow.showsPaletteWallCentre(subject: subject) else { return subject }
-        return subjectBeforeWall ?? .book
+        var back = subjectBeforeWall ?? .book
+        back.beside = subject.beside
+        return back
     }
 }

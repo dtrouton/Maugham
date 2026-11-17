@@ -17,9 +17,14 @@ import MaughamCore
 /// the deletions no list of sites can: a cross-device op-log merge, an external
 /// edit, whatever the next mutation turns out to be.
 ///
-/// **What a dangling subject becomes is `.project`, and it is the same answer
-/// the restore gives** — `ProjectWindow.validSubject` is called here rather than
-/// re-derived. `nil` and `.project` both leave the canvas undimmed, so the
+/// **The whole window subject is repaired, by the same function the restore
+/// asks** (`ProjectWindow.validatedSubject`, shell p1): `open` and `faces`
+/// naming something gone become the Book, a gone `beside` becomes nil, and a
+/// part that still lives never moves — so a change elsewhere in the tree never
+/// takes the canvas, the Inbox or an edition out of the centre. The repair is
+/// written to the subject directly, never through the click rule, which would
+/// treat it as a click and move the centre. What a dangling part becomes is
+/// `.project`: `nil` and `.project` both leave the canvas undimmed, so the
 /// canvas cannot tell them apart; the editor, History and Tasks can, and they
 /// show the same empty state for both (`activeItemID` is nil either way). What
 /// decides it is that these are one question asked twice: deleting the selected
@@ -33,11 +38,12 @@ import MaughamCore
 /// no manifest fingerprint can see it. While the subject is a figure, the
 /// sweep also asks the stream (`DocumentStore.figureIsParked`) whenever a
 /// figure trigger moves `DocumentStore.figureRevision` — here or on another
-/// Mac — and repairs through the same `validSubject` with the answer.
+/// Mac — and repairs through the same `validatedSubject` with the answer.
 struct SubjectValidationModifier: ViewModifier {
     let store: ProjectStore?
     let documentStore: DocumentStore?
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's whole subject.
+    @Binding var subject: WindowSubject
 
     func body(content: Content) -> some View {
         content
@@ -51,29 +57,30 @@ struct SubjectValidationModifier: ViewModifier {
                 // it sets the subject, so a body pass lands in between with the
                 // store already in place — and a sweep in that window would
                 // write `.project` through `updateUIState` into the very
-                // `ds.uiState.selectedSubject` that `load()` has not read yet,
+                // `ds.uiState.windowSubject` that `load()` has not read yet,
                 // making every reopen land on the project row. `.onDisappear`
                 // is the mirror image on the way out.
                 guard oldValue != nil, newValue != nil else { return }
-                guard let store, let subject = selectedSubject else { return }
-                // A sweep REPAIRS a subject; it does not choose one. Promoting
-                // `nil` here would move a window whose writer deliberately
-                // clicked into empty space, on a delete somewhere else in the
-                // tree. Choosing is the restore's job and the writer's.
-                selectedSubject = ProjectWindow.validSubject(
-                    subject, in: store.manifest.structure,
-                    research: store.manifest.research,
-                    figures: store.manifest.figures ?? [], parked: [])
+                guard let store else { return }
+                // A sweep REPAIRS a subject; it does not choose one: a part
+                // that still lives is left exactly where the writer put it.
+                let repaired = ProjectWindow.validatedSubject(subject, in: store)
+                if repaired != subject { subject = repaired }
             }
             // Keyed only while the subject is a figure, so no other subject
             // observes the figure revision.
             .task(id: parkCheckKey) { await repairIfParked() }
     }
 
+    /// The figure any part of the subject names, if one does.
+    private var subjectFigureID: String? {
+        subject.open.figureID ?? subject.faces.figureID ?? subject.beside?.figureID
+    }
+
     /// The parked question's trigger: the figure and the revision, nil for
     /// any other subject (no task).
     private var parkCheckKey: ParkCheckKey? {
-        guard let figureId = selectedSubject?.figureID else { return nil }
+        guard let figureId = subjectFigureID else { return nil }
         return ParkCheckKey(figureId: figureId, revision: documentStore?.figureRevision)
     }
 
@@ -86,13 +93,11 @@ struct SubjectValidationModifier: ViewModifier {
     /// subject still names it, repair. An unreadable stream answers nothing
     /// (a figure that cannot be told apart is left as the writer chose it).
     private func repairIfParked() async {
-        guard let store, let documentStore, let figureId = selectedSubject?.figureID,
+        guard let store, let documentStore, let figureId = subjectFigureID,
               let parked = try? await documentStore.figureIsParked(figureId), parked,
-              !Task.isCancelled, selectedSubject == .figure(figureId) else { return }
-        selectedSubject = ProjectWindow.validSubject(
-            .figure(figureId), in: store.manifest.structure,
-            research: store.manifest.research,
-            figures: store.manifest.figures ?? [], parked: [figureId])
+              !Task.isCancelled, subjectFigureID == figureId else { return }
+        let repaired = ProjectWindow.validatedSubject(subject, in: store, parked: [figureId])
+        if repaired != subject { subject = repaired }
     }
 
     /// The trigger: the SET of structure ids UNION the set of research ids,

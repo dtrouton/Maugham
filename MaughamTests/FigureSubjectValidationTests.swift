@@ -29,8 +29,8 @@ private struct FigureSubjectProbeView: View {
         Color.clear
             .modifier(SubjectValidationModifier(
                 store: harness.store, documentStore: harness.documentStore,
-                selectedSubject: Binding(get: { harness.subject },
-                                         set: { harness.subject = $0 })))
+                subject: .bridging(Binding(get: { harness.subject },
+                                           set: { harness.subject = $0 }))))
     }
 }
 
