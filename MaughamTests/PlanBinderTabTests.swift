@@ -43,14 +43,15 @@ final class PlanBinderTabTests: XCTestCase {
     /// Tab goes to the canvas only beside one, and never during either tree's
     /// rename.
     func test_tabGoesToTheCanvasOnlyBesideOneAndNeverDuringARename() {
-        for persona in Persona.allCases {
-            let keyboard = TreeCanvasKeyboard(tabReachesTheCanvas: persona.centresTheCanvas)
+        for open in SubjectSamples.everyOpen {
+            let besideTheCanvas = open == .canvas
+            let keyboard = TreeCanvasKeyboard(tabReachesTheCanvas: besideTheCanvas)
             XCTAssertEqual(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: nil),
-                           persona.centresTheCanvas, "\(persona)")
+                           besideTheCanvas, "\(open)")
             XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: "d1", renamingInSections: nil),
-                           "\(persona): Tab left a chapter's rename")
+                           "\(open): Tab left a chapter's rename")
             XCTAssertFalse(keyboard.tabGoesToTheCanvas(modifiers: [], renamingRow: nil, renamingInSections: "r1"),
-                           "\(persona): Tab left a research row's rename")
+                           "\(open): Tab left a research row's rename")
         }
         let plan = TreeCanvasKeyboard(tabReachesTheCanvas: true)
         XCTAssertTrue(plan.tabGoesToTheCanvas(modifiers: .capsLock, renamingRow: nil, renamingInSections: nil),
@@ -181,12 +182,12 @@ final class PlanBinderTabTests: XCTestCase {
                       + String(describing: window.firstResponder))
     }
 
-    /// Author's centre is the editor: a Tab in its binder asks nothing of a
-    /// canvas. Driven in the probe, so a canvas IS beside the tree and could
-    /// have been reached; the window passes `persona.centresTheCanvas`
-    /// (censused in `PromotionCommandTests`).
-    func test_tabInTheAuthorBinderDoesNotReachTheCanvas() async throws {
-        let (window, probe) = try await probeWindow(persona: .author)
+    /// With a piece open the centre is the editor: a Tab in the binder asks
+    /// nothing of a canvas. Driven in the probe, so a canvas IS beside the tree
+    /// and could have been reached; the window passes `subject.open ==
+    /// .canvas` (censused in `PromotionCommandTests`).
+    func test_tabInTheBinderWithAPieceOpenDoesNotReachTheCanvas() async throws {
+        let (window, probe) = try await probeWindow(open: .project)
         let binder = try binderOutline(in: window)
         let canvas = try canvasView(in: window)
         XCTAssertTrue(window.makeFirstResponder(binder))
@@ -194,18 +195,18 @@ final class PlanBinderTabTests: XCTestCase {
         NSApp.sendEvent(tab(window))
         await waitOut(0.4)
 
-        XCTAssertEqual(probe.canvasAsks, 0, "Author's binder asked for the canvas")
-        XCTAssertFalse(window.firstResponder === canvas, "Tab in Author's binder reached the canvas")
+        XCTAssertEqual(probe.canvasAsks, 0, "the binder asked for a canvas that is not open")
+        XCTAssertFalse(window.firstResponder === canvas, "Tab reached a canvas that is not open")
 
-        // The control: the same probe in Plan does hand off, so the negative
-        // above is not a harness that cannot.
-        let (plan, planProbe) = try await probeWindow(persona: .plan)
+        // The control: the same probe with the canvas open does hand off, so
+        // the negative above is not a harness that cannot.
+        let (plan, planProbe) = try await probeWindow(open: .canvas)
         let planCanvas = try canvasView(in: plan)
         XCTAssertTrue(plan.makeFirstResponder(try binderOutline(in: plan)))
         NSApp.sendEvent(tab(plan))
         _ = await pumpUntil(deadline: 3) { plan.firstResponder === planCanvas }
         XCTAssertEqual(planProbe.canvasAsks, 1)
-        XCTAssertTrue(plan.firstResponder === planCanvas, "control: Plan's probe did not hand off")
+        XCTAssertTrue(plan.firstResponder === planCanvas, "control: the canvas probe did not hand off")
     }
 
     /// Tab inside a rename belongs to the rename: the field keeps the keyboard
@@ -215,7 +216,7 @@ final class PlanBinderTabTests: XCTestCase {
     /// `renamingRow: renamingItemId` / `renamingInSections:
     /// treeState.renamingItemId` census tokens in `PromotionCommandTests`.
     func test_tabDuringABinderRenameStaysInTheRename() async throws {
-        let (window, probe) = try await probeWindow(persona: .plan, researchNote: "Tides")
+        let (window, probe) = try await probeWindow(open: .canvas, researchNote: "Tides")
         let canvas = try canvasView(in: window)
         let noteId = try XCTUnwrap(probe.noteId)
         probe.treeState.renamingItemId = noteId
@@ -240,7 +241,7 @@ final class PlanBinderTabTests: XCTestCase {
     }
 
     private func planWindow<W: NSWindow>(as type: W.Type) async throws -> W {
-        let url = try await novel(chapters: 3, persona: .plan)
+        let url = try await novel(chapters: 3, open: .canvas)
         let registry = ProjectRegistry()
         let window = TestWindow.mount(
             AnyView(
@@ -261,9 +262,9 @@ final class PlanBinderTabTests: XCTestCase {
         return window
     }
 
-    private func probeWindow(persona: Persona,
+    private func probeWindow(open: BinderSubject,
                              researchNote: String? = nil) async throws -> (NSWindow, HandOffProbe) {
-        let url = try await novel(chapters: 2, persona: persona)
+        let url = try await novel(chapters: 2, open: open)
         let store = try await ProjectStore.load(from: url)
         let ds = try await DocumentStore.open(url: url)
         store.documentStore = ds
@@ -277,8 +278,8 @@ final class PlanBinderTabTests: XCTestCase {
         let root = temp.url.appendingPathComponent("canvas-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let window = TestWindow.mount(
-            AnyView(HandOffProbeView(store: store, persona: persona, probe: probe,
-                                     model: model, canvasRoot: root)),
+            AnyView(HandOffProbeView(store: store, centre: SubjectSamples.opened(open),
+                                     probe: probe, model: model, canvasRoot: root)),
             size: CGSize(width: 1000, height: 600),
             as: KeyTestWindow.self, present: .key)
         windows.append(window)
@@ -290,7 +291,9 @@ final class PlanBinderTabTests: XCTestCase {
         return (window, probe)
     }
 
-    private func novel(chapters: Int, persona: Persona) async throws -> URL {
+    /// The window opens on `open`, seeded through `UIState.windowSubject` —
+    /// the canvas is a subject, reached here before the tree has a row for it.
+    private func novel(chapters: Int, open: BinderSubject) async throws -> URL {
         let url = try await ProjectFactory.createNovelProject(
             named: "Novel-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
@@ -305,7 +308,7 @@ final class PlanBinderTabTests: XCTestCase {
         }
         await store.wordCountPopulationTask?.value
         ds.updateUIState {
-            $0.persona = persona
+            $0.windowSubject = SubjectSamples.opened(open)
             $0.selectedSubject = .project
         }
         await waitOut(1.2)   // the 500ms UI-state debounce reaches disk
@@ -395,7 +398,9 @@ private final class HandOffProbe {
 @MainActor
 private struct HandOffProbeView: View {
     let store: ProjectStore
-    let persona: Persona
+    /// The window's subject: the tree's Tab reaches the canvas only while it
+    /// is open, as `ProjectWindow` decides.
+    let centre: WindowSubject
     let probe: HandOffProbe
     let model: CanvasModel
     let canvasRoot: URL
@@ -410,9 +415,9 @@ private struct HandOffProbeView: View {
                 store: store, selectedSubject: $subject,
                 projectType: store.manifest.type, lastParsedScript: nil,
                 treeState: probe.treeState, treeFindActive: $treeFindActive,
-                persona: persona,
+                persona: .author,
                 canvasKeyboard: TreeCanvasKeyboard(
-                    tabReachesTheCanvas: persona.centresTheCanvas,
+                    tabReachesTheCanvas: centre.open == .canvas,
                     giveTheCanvasTheKeyboard: {
                         probe.canvasAsks += 1
                         canvasKeyboardRequest += 1

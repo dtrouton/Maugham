@@ -2805,10 +2805,10 @@ final class TripwireGrepTests: XCTestCase {
         "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
         // The sweep's control — without a miss it can see, the sweep asserts nothing.
         "PaletteWallDoorHitAreaTests.swift test_control_theSweepCanSeeAMiss",
-        // The real delivery path: the door's click through the real
-        // `PaletteWallModifier`, whose persona observer is what the press's
-        // token ordering exists to survive.
-        "PaletteWallDoorTests.swift test_pressingTheDoorInPlanLandsTheWriterInAuthorWithTheWallOpen",
+        // The real delivery path: the door's click through the real tree
+        // into the real `PaletteWallModifier` — the only proof the press
+        // reaches the subject and the wall's fold runs over it.
+        "PaletteWallDoorTests.swift test_pressingTheDoorOpensTheWallInPlace",
         // The real delivery path: the only proof the altitude overlay's card can
         // be reached by a mouse at all (a `Button(.plain)` in a `LazyVGrid`).
         "ProjectAltitudeCentreTests.swift test_clickingACorkboardCardOpensThatChapterInTheHostThatWasAlreadyUp",

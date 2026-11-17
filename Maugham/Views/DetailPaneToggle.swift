@@ -132,13 +132,9 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `nil` is not a close check (`MaughamEvent.isLive`).
     @State private var window: NSWindow?
 
-    /// Local transcription exists only on Apple Silicon (see DocumentStore.makeTranscriber).
+    /// Local transcription exists only on Apple Silicon — `InboxPane`'s answer.
     private static var localTranscriptionAvailable: Bool {
-        #if arch(arm64)
-        return true
-        #else
-        return false
-        #endif
+        InboxPane.localTranscriptionAvailable
     }
 
     init(

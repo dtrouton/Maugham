@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// **What the Publish persona's centre column puts over the manuscript stack**
+/// **What an edition's centre column puts over the manuscript stack**
 /// (shell-finish stage 3b Task 5, revised by Denver's rulings of 2026-08-12).
 ///
 /// One value with two arms, answered by `ProjectWindow.publishCentre`, so the
@@ -110,7 +110,7 @@ enum PublishCentreNotice: Equatable {
     }
 }
 
-/// **The centre column of the Publish persona: the book itself** (shell-finish
+/// **The centre column of an edition: the book itself** (shell-finish
 /// stage 3b Task 5, spec §4's Publish column).
 ///
 /// Denver's rulings, recorded: the compiled book is a PROJECT-level surface (a
@@ -369,7 +369,7 @@ struct PublishNoticeLine: View {
 ///   `.maughamPublicationCompleted` AFTER appending to the catalog, scoped
 ///   `.project`; received through the ADR 0021 helper, which filters to this
 ///   project and drops closed windows.
-/// - **Arriving in Publish** (`.onChange(of: persona)`) — which also covers the
+/// - **Opening an edition** (`.onChange(of: subject.open)`) — which also covers the
 ///   export a writer deleted in the Finder while they were elsewhere. That is
 ///   deliberately not a directory watcher: the staleness only matters when the
 ///   book is about to be on screen, and a watcher would be a second source of
@@ -378,7 +378,7 @@ struct PublishNoticeLine: View {
 /// **It is also where a new compile takes the writer's manual pick away**
 /// (Denver, 2026-08-12: *"a NEW compile snaps the preview back to the
 /// newest"*). The reset is keyed on the NEWEST publication changing rather than
-/// on the refresh happening, so walking out of Publish and back keeps whatever
+/// on the refresh happening, so walking out of an edition and back keeps whatever
 /// the writer was looking at — a refresh is not news, a new book is. The rule
 /// itself is `PublishCentreModel.publishSelection(after:)`; this is what calls it.
 ///
@@ -391,13 +391,13 @@ struct PublishPreviewModifier: ViewModifier {
     /// Hosting window for ADR 0021's project scope + closed-window liveness
     /// guard, the `ExportsListView` idiom.
     let window: NSWindow?
-    /// Read, never written: which persona the writer is in is their own choice,
-    /// and this only wants to know when they arrive.
-    let persona: Persona
+    /// Read, never written: this only wants to know when an edition opens in
+    /// the centre, or stops being there.
+    let subject: WindowSubject
     /// **The centre column's state, owned by the window** (foundations plan 4
     /// Task 2). This modifier is the only writer of its books
     /// (`publishSelection(after:)`, which carries the new-compile reset), and it
-    /// lets the desk's two decisions go on any persona change
+    /// lets the desk's two decisions go whenever the centre's `open` changes
     /// (`clearDecisions`) while keeping the book's pick — the asymmetry
     /// `PublishCentreModel.clearDecisions` argues. Here rather than in a
     /// modifier of its own because this is already the one place that owns the
@@ -412,11 +412,13 @@ struct PublishPreviewModifier: ViewModifier {
                             url: projectURL, window: window) { _ in
                 Task { await refresh() }
             }
-            .onChange(of: persona) { _, next in
-                // Before the arrival guard: leaving Publish is a persona change
-                // too, and it is the one that most needs the gate let go of.
+            .onChange(of: subject.open) { _, next in
+                // Before the arrival guard: leaving an edition is a change of
+                // `open` too, and it is the one that most needs the gate let go
+                // of. A click on a piece while an edition is open moves only the
+                // faces, so it lets nothing go.
                 centre.clearDecisions()
-                guard next.previewsThePublishedBook else { return }
+                guard case .edition = next else { return }
                 Task { await refresh() }
             }
             // **The gate's proposal goes stale where it sits** (the final-review

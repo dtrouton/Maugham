@@ -70,10 +70,10 @@ final class CanvasEditGateTests: XCTestCase {
         ]
         for (selection, kind) in cases {
             XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-                persona: .plan, selection: selection, nodeKind: kind, isReadOnly: false),
+                subject: SubjectSamples.opened(.canvas), selection: selection, nodeKind: kind, isReadOnly: false),
                 "control: \(selection)")
             XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-                persona: .plan, selection: selection, nodeKind: kind, isReadOnly: true),
+                subject: SubjectSamples.opened(.canvas), selection: selection, nodeKind: kind, isReadOnly: true),
                 "\(selection)")
         }
     }

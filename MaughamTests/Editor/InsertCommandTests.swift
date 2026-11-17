@@ -772,7 +772,7 @@ final class InsertCommandTests: XCTestCase {
 
     func test_theMenuIsEnabledOnlyForAWritableMarkdownManuscriptInTheEditor() {
         let author = Posture(.unrestricted)
-        let bare = CentreRoute.editor(altitude: false, cover: nil)
+        let bare = CentreRoute.editor(altitude: nil, cover: nil)
         func gate(posture: Posture? = author, format: DocumentFormat? = .markdown,
                   review: Bool = false, share: Bool = false, translation: Bool = false,
                   grid: Bool = false, route: CentreRoute? = bare) -> Bool {
@@ -810,12 +810,12 @@ final class InsertCommandTests: XCTestCase {
             .designGate(CentreRouteTests.proposal),
             .books([CentreRouteTests.book]),
             .notice(.neverCompiled),
-            .reviewBoard,
         ]
         var routes: [CentreRoute] = covers.flatMap {
-            [CentreRoute.editor(altitude: false, cover: $0), .editor(altitude: true, cover: $0)]
+            [CentreRoute.editor(altitude: nil, cover: $0), .editor(altitude: .outline, cover: $0)]
         }
-        routes += [.editor(altitude: true, cover: nil), .canvas, .paletteWall,
+        routes += BookView.allCases.map { CentreRoute.editor(altitude: $0, cover: nil) }
+        routes += [.canvas, .paletteWall, .inbox, .figure(id: "f1"),
                    .research(id: "r1"), .reference(piece: reference)]
         for route in routes {
             XCTAssertFalse(

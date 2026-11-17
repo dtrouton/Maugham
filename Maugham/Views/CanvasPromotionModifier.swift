@@ -25,9 +25,9 @@ struct CanvasPromotionModifier: ViewModifier {
     let window: NSWindow?
     let store: ProjectStore?
     let model: CanvasModel
-    /// The window's working mode — the basis of `isPromotable`, because the
-    /// board is Plan's centre column.
-    let persona: Persona
+    /// The window's subject — the basis of `isPromotable`: promotion is
+    /// offered where the canvas is the centre.
+    let subject: WindowSubject
 
     @State private var sheet: PromotionSheetModel?
     @State private var failure: String?
@@ -62,14 +62,13 @@ struct CanvasPromotionModifier: ViewModifier {
     /// writes a mark into the layout file this build refused, and the artifact
     /// would be made before the mark was refused. `PromotionPerformer` refuses
     /// the same fact at its door.
-    static func isPromotable(persona: Persona,
+    static func isPromotable(subject: WindowSubject,
                              selection: CanvasSelection?,
                              nodeKind: CanvasNodeKind?,
                              isReadOnly: Bool) -> Bool {
-        // The predicate, never a persona equality: the board is Plan's centre
-        // column, and that is the fact enablement turns on. An equality here
-        // once greyed `Promote…` out over a card the writer had selected.
-        guard persona.centresTheCanvas, !isReadOnly else { return false }
+        // The canvas as the centre is the fact enablement turns on — whatever
+        // the faces are on.
+        guard subject.open == .canvas, !isReadOnly else { return false }
         switch selection {
         case .node:
             switch nodeKind {
@@ -94,7 +93,7 @@ struct CanvasPromotionModifier: ViewModifier {
             // command that does nothing.
             .focusedSceneValue(\.canvasPromotable,
                                sheet == nil
-                               && Self.isPromotable(persona: persona,
+                               && Self.isPromotable(subject: subject,
                                                     selection: model.selection,
                                                     nodeKind: selectedNodeKind,
                                                     isReadOnly: model.isReadOnly))
@@ -140,7 +139,7 @@ struct CanvasPromotionModifier: ViewModifier {
     /// The manifest is read ONCE, here, and handed to the sheet as plain values.
     private func begin() {
         guard let store, let selection = model.selection,
-              Self.isPromotable(persona: persona, selection: selection,
+              Self.isPromotable(subject: subject, selection: selection,
                                 nodeKind: selectedNodeKind,
                                 isReadOnly: model.isReadOnly) else { return }
         let source: PromotionSource

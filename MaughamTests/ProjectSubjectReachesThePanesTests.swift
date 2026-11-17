@@ -50,7 +50,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
     func test_selectingInTheOutlineTakesTheSubjectOffTheProject() async throws {
         let store = try await novel(named: "OutlinePick")
         let probe = BinderSubjectProbe(.project)
-        let window = try await hostOutline(store: store, probe: probe, layout: .table)
+        let window = try await hostOutline(store: store, probe: probe, layout: .outline)
         let table = try XCTUnwrap(firstTableView(in: window))
         let firstDoc = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.structure, where: { $0.type == .document }))
@@ -73,7 +73,7 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
 
     private func hostOutline(store: ProjectStore,
                              probe: BinderSubjectProbe,
-                             layout: OutlineLayout) async throws -> NSWindow {
+                             layout: BookView) async throws -> NSWindow {
         let window = TestWindow.mount(
             AnyView(OutlineProbeView(store: store, probe: probe,
                                      layout: layout)),
@@ -102,14 +102,16 @@ final class ProjectSubjectReachesThePanesTests: XCTestCase {
 private struct OutlineProbeView: View {
     let store: ProjectStore
     let probe: BinderSubjectProbe
-    @State var layout: OutlineLayout
+    @State var layout: BookView
 
     var body: some View {
         ProjectAltitudePane(
             store: store,
-            layout: $layout,
+            view: layout,
+            bookView: $layout,
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
-            title: store.manifest.title)
+            title: store.manifest.title,
+            structure: store.manifest.structure) { EmptyView() }
     }
 }

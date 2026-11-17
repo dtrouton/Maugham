@@ -5,22 +5,16 @@ import MaughamCore
 @testable import Maugham
 
 /// **The centre and the right column follow a research subject** (shell-finish
-/// stage-2a Task 5, spec §4).
+/// stage-2a Task 5, spec §4; shell p1 Task 2 asks it of the window's subject).
 ///
-/// Task 4 gave every persona's tree a Research and a Palette section, so every
-/// tree can now name a research item as the window's subject. This is the other
-/// half: what the rest of the window does about it.
+/// Two rules, and they differ by the subject's place:
 ///
-/// Two rules, and they differ by column:
-///
-/// - Where the centre is **not** the canvas, the research subject takes the
-///   centre — the note, the card or the preview — and the right column inspects
-///   it. That is spec §4's Author cell.
-/// - Where the centre **is** the canvas (Plan), the canvas stays exactly where
-///   it is and the right column previews the item instead. An arm apiece was
-///   measured at the time (macOS 26.5, 2026-08-02) and costs the writer's
-///   camera, layouts and thumbnails on every selection — so a research click in
-///   Plan must not swap the centre.
+/// - A research item **beside** (a click on its row) previews in the right
+///   column and never moves the centre — the canvas stays exactly where it is
+///   (an arm apiece was measured, 2026-08-02, and costs the writer's camera,
+///   layouts and thumbnails on every selection), and the editor its document.
+/// - A research item **opened** (the explicit gesture) takes the centre — the
+///   note, the card or the preview — and the right column inspects it.
 ///
 /// **The mounted half drives the REAL tree**, one per host: a row is selected
 /// through `List(selection:)` and the assertion is about the surface that
@@ -62,90 +56,61 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     // MARK: - Where the research subject lands
 
-    /// Every persona whose centre is a document — and whose centre is not the
-    /// compiled book — hands it over.
-    ///
-    /// **It used to be asked of a (persona, segment) product**, and two of those
-    /// segments were the stage-2a final review's Critical: `.find` and `.trash`
-    /// both let a research item take the centre while their left panes wrote no
-    /// subject at all, so the item could never be dismissed. Both are window
-    /// state now rather than surfaces, and shell-finish stage 2b Task 7 took the
-    /// enum with them — so the persona is the whole question.
-    ///
-    /// **Publish left this population in stage 3b Task 5** (spec §4's "—" row):
-    /// its centre is the book, so it acts on a research subject in neither
-    /// column and the item falls through to the manuscript arm. Its own
-    /// assertion is `PublishPreviewCentreTests
-    /// .test_publishNoLongerTakesTheCentreForAResearchSubject`; the exclusion is
-    /// written as the predicate rather than as a name so a fifth persona whose
-    /// centre is a book joins it by construction.
-    func test_aResearchSubjectTakesTheCentreInEveryPersonaThatCentresADocument() {
-        for persona in Persona.allCases
-        where persona != .plan && !persona.previewsThePublishedBook {
-            XCTAssertEqual(
-                ProjectWindow.researchSubjectPlacement(
-                    persona: persona, subject: .research("r1")),
-                .takesTheCentre("r1"),
-                "\(persona) has no research surface of its own in the centre, "
-                + "so the window's subject is what that column is about")
+    /// **A research item in `open` takes the centre, whatever the faces are
+    /// on** — a double-click or the explicit control put it there.
+    func test_aResearchItemInOpenTakesTheCentre() {
+        for faces in SubjectSamples.everyOpen {
+            let subject = WindowSubject(open: .research("r1"), faces: faces)
+            XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: subject),
+                           .takesTheCentre("r1"), "faces on \(faces)")
+            XCTAssertEqual(ProjectWindow.centreRoute(
+                subject: subject, bookView: .outline, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: .nothingCompiled),
+                           .research(id: "r1"))
         }
     }
 
-    /// **Plan previews beside the board and never gives the centre away.**
-    ///
-    /// This was two tests, because Plan was two states: its Structure tab
-    /// mounted a real tree whose rows write the subject and previewed beside the
-    /// board, while its Canvas tab mounted the old research pane — which wrote
-    /// its own private selection and never the subject — so a research subject
-    /// reaching the right column THERE replaced the region, scrap, line and item
-    /// inspectors with nothing in the window able to clear it. It persisted
-    /// through `UIState` and Plan landed on that tab, so a relaunch reopened
-    /// into it. That is the 2a Critical, and Task 7 removed the state rather
-    /// than the guard: Plan has one left column, it is the tree, and the tree
-    /// gives the column back
-    /// (`ProjectSubjectReachabilityTests.test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway`).
-    func test_planPreviewsBesideTheCanvasAndNeverGivesTheBoardAway() {
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .plan, subject: .research("r1")),
-            .besideTheCanvas("r1"),
-            "Plan draws the canvas in the centre — a research click must not "
-            + "swap it out and take the writer's camera with it — and the "
-            + "tree's own rows are what give the right column back")
+    /// **A research item beside previews in the right column and never takes
+    /// the centre, whatever the centre is** — the canvas keeps its one mount
+    /// (camera, layouts, thumbnails), the editor its document.
+    func test_aResearchItemBesidePreviewsAndNeverTakesTheCentre() {
+        for open in SubjectSamples.everyOpen where open.researchID == nil {
+            let subject = WindowSubject(open: open, faces: open, beside: .research("r1"))
+            XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: subject),
+                           .besideTheCanvas("r1"), "\(open) open")
+            XCTAssertEqual(
+                ProjectWindow.centreRoute(
+                    subject: subject, bookView: .outline, projectType: .novel,
+                    structure: CentreRouteTests.structure, preview: .nothingCompiled),
+                ProjectWindow.centreRoute(
+                    subject: SubjectSamples.opened(open), bookView: .outline,
+                    projectType: .novel, structure: CentreRouteTests.structure,
+                    preview: .nothingCompiled),
+                "\(open): what is beside moves nothing in the centre")
+        }
     }
 
-    /// **The containment claim that outlived two deleted guards.**
-    ///
-    /// `keepsItsOwnResearchSelection` (deleted in stage 2b Task 6) asked whether
-    /// a centre was already about a research item; the trap guard beside it —
-    /// can the writer get back out — was strictly wider, which is the whole
-    /// warrant for deleting the narrow one, because a narrower guard nested
-    /// inside a wider one never decides a case on its own. The wide one went in
-    /// Task 7 with the enum it was asked of. What both were protecting survives:
-    /// **Plan's centre is never handed over.**
-    func test_planNeverHandsItsCentreToAResearchSubject() {
-        XCTAssertNil(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .plan, subject: .research("r1")).centreItemID,
-            "the board is Plan's centre column; a research item may sit beside "
-            + "it and never in it")
-        XCTAssertNotNil(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .author, subject: .research("r1")).centreItemID,
-            "the control: somebody does hand the centre over, or the assertion "
-            + "above is true of a function that never takes a centre at all")
+    /// **A click on a research row puts it beside**, from every centre — the
+    /// click rule's clause 2, asked rather than restated.
+    func test_aClickedResearchRowGoesBesideFromEveryCentre() {
+        for open in SubjectSamples.everyOpen where open.researchID == nil {
+            let clicked = ClickRule.resolve(.research("r1"), gesture: .click,
+                                            current: SubjectSamples.opened(open),
+                                            structure: CentreRouteTests.structure,
+                                            projectType: .novel)
+            XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: clicked).centreItemID,
+                           nil, "\(open): the centre is never handed over by a click")
+            XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: clicked)
+                .inspectedItemID, "r1")
+        }
     }
 
-    /// A subject that is not research leaves every persona's columns alone.
-    func test_aSubjectThatIsNotResearchLeavesEveryPersonaAlone() {
-        for persona in Persona.allCases {
-            for subject: BinderSubject? in [nil, .project, .item("ch-1")] {
-                XCTAssertEqual(
-                    ProjectWindow.researchSubjectPlacement(
-                        persona: persona, subject: subject),
-                    .nothingMoves,
-                    "\(persona) with \(String(describing: subject))")
-            }
+    /// A subject naming no research item in either place leaves the columns
+    /// alone.
+    func test_aSubjectWithNoResearchLeavesBothColumnsAlone() {
+        for subject in SubjectSamples.everySubject where subject.open.researchID == nil {
+            XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: subject),
+                           .nothingMoves, "\(subject.open)")
         }
     }
 
@@ -419,110 +384,51 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     }
 
     /// **And the manuscript status footer goes with them.** The footer's four
-    /// readings are all about a manuscript document; over a research note the
-    /// goal capsule is about something else and the `¶id`/element readouts are
-    /// blank. The binder segment alone used to be a complete answer — the
-    /// manuscript segment could hold nothing but a document — and stage-2a's
-    /// Task 5 is what made it incomplete.
+    /// readings are all about a manuscript document; over a research note in
+    /// the centre there is none. A note BESIDE leaves the document in the
+    /// centre, and the footer with it.
     func test_theManuscriptStatusFooterIsSilentWhenAResearchItemTookTheCentre() {
-        for persona in Self.centresThatHoldADocument {
-            XCTAssertTrue(
-                ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1"),
-                                                showsPaletteWall: false,
-                                                structure: Self.oneDocument),
-                "control: \(persona) over a manuscript document still reports")
-            XCTAssertFalse(
-                ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .research("r1"),
-                                                showsPaletteWall: false,
-                                                structure: Self.oneDocument),
-                "\(persona) with a research item in the centre has no document "
-                + "for the footer to be about")
-        }
-        // **The centre still decides FIRST**, and the subject only narrows it —
-        // this is never a second answer to what the centre column holds. Since
-        // Task 6 the first decision is the persona's, so the loop walks the
-        // personas whose centre is not a document at all.
-        for persona in Self.centresThatHoldNoDocument {
-            XCTAssertFalse(
-                ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1"),
-                                                showsPaletteWall: false,
-                                                structure: Self.oneDocument),
-                "\(persona): a document subject cannot conjure a footer over a "
-                + "centre column that is not a document")
+        let piece = SubjectSamples.opened(.item("doc1"))
+        XCTAssertTrue(ProjectWindow.showsStatusFooter(subject: piece, structure: Self.oneDocument),
+                      "control: a manuscript document in the centre still reports")
+        XCTAssertFalse(ProjectWindow.showsStatusFooter(
+            subject: SubjectSamples.opened(.research("r1")), structure: Self.oneDocument),
+                       "a research item in the centre has no document for the footer")
+        var beside = piece
+        beside.beside = .research("r1")
+        XCTAssertTrue(ProjectWindow.showsStatusFooter(subject: beside, structure: Self.oneDocument),
+                      "a note beside leaves the document — and the footer — in the centre")
+        // **The centre decides**: faces on a document cannot conjure a footer
+        // over a centre that is not one.
+        for open in SubjectSamples.everyOpen where open != .item(SubjectSamples.pieceID) {
+            XCTAssertFalse(ProjectWindow.showsStatusFooter(
+                subject: WindowSubject(open: open, faces: .item("doc1")),
+                structure: Self.oneDocument), "\(open) open")
         }
     }
 
-    /// **The wall term, since Task 8.** Tasks 6 and 7 each recorded the same
-    /// gap and left it: since stage 2b Task 5 the palette wall can take the
-    /// centre column in Author, Review and Publish
-    /// (`showsPaletteWallCentre`), and the footer's gate did not know about
-    /// it — so the goal capsule, the live session words and a stale
-    /// `¶id`/element readout sat under the wall.
-    ///
-    /// **The wall never reaches Plan's centre** (`showsPaletteWallCentre`'s own
-    /// `persona != .plan` term — Plan's centre is the board), so Plan gets its
-    /// own assertion below: the wall flag must be able to flip `true` with no
-    /// effect there, or the fact that Author/Review/Publish go silent under it
-    /// would be a coincidence about those three rather than about the wall.
+    /// **The wall term.** The palette wall is the centre while it is open, so
+    /// the goal capsule and the `¶id`/element readouts have nothing under them.
     func test_theManuscriptStatusFooterIsSilentUnderThePaletteWall() {
-        for persona in [Persona.author, .review, .publish] {
-            XCTAssertFalse(
-                ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1"),
-                                                showsPaletteWall: true,
-                                                structure: Self.oneDocument),
-                "\(persona): the wall is centred over the document — the "
-                + "footer's four readings have nothing under them to report on")
-            XCTAssertTrue(
-                ProjectWindow.showsStatusFooter(persona: persona,
-                                                subject: .item("doc1"),
-                                                showsPaletteWall: false,
-                                                structure: Self.oneDocument),
-                "control: \(persona) with the wall closed still reports")
-        }
-        XCTAssertFalse(
-            ProjectWindow.showsStatusFooter(persona: .plan, subject: .item("doc1"),
-                                            showsPaletteWall: true,
-                                            structure: Self.oneDocument),
-            "Plan never shows the footer regardless — its centre is the board, "
-            + "not a document, wall or no wall")
+        var subject = SubjectSamples.opened(.item("doc1"))
+        XCTAssertTrue(ProjectWindow.showsStatusFooter(subject: subject, structure: Self.oneDocument),
+                      "control: the wall closed, the document reports")
+        ProjectWindow.pressPaletteWallDoor(subject: &subject)
+        XCTAssertFalse(ProjectWindow.showsStatusFooter(subject: subject, structure: Self.oneDocument),
+                       "the wall is the centre — the footer's readings have nothing to report on")
     }
 
-    /// The personas whose centre column IS a manuscript document, and the ones
-    /// whose is not — each derived from the rule rather than named, so a fifth
-    /// persona joins the loop it belongs to without an edit here.
-    static let centresThatHoldADocument: [Persona] =
-        Persona.allCases.filter(\.showsManuscriptDocuments)
-    static let centresThatHoldNoDocument: [Persona] =
-        Persona.allCases.filter { !$0.showsManuscriptDocuments }
-
-    /// The structure the footer's `doc1` subject is looked up in. Since
-    /// shell-finish stage 3a Task 2 the footer resolves the subject against the
-    /// manifest — a subject that names no document draws the altitude view, and
-    /// the footer's four readings have nothing to be about — so a bare id with
-    /// no structure behind it would read as dangling and every "control: still
-    /// reports" assertion above would be inverted.
+    /// The structure the footer's `doc1` subject is looked up in: a bare id
+    /// with no structure behind it would read as dangling, and every "control:
+    /// still reports" assertion above would be inverted.
     static let oneDocument: [StructureItem] = [
         StructureItem(id: "doc1", title: "Chapter One", type: .document,
                       path: "manuscript/chapter-1.md")
     ]
 
-    /// The anti-vacuity control both loops above need: neither set is empty, so
-    /// neither loop is asserting nothing.
-    func test_theFooterExclusionIsNeitherEmptyNorEverything() {
-        XCTAssertFalse(Self.centresThatHoldNoDocument.isEmpty,
-                       "every persona holds a document — the second loop is "
-                       + "vacuous")
-        XCTAssertFalse(Self.centresThatHoldADocument.isEmpty,
-                       "no persona holds a document — the first loop is vacuous")
-    }
+    // MARK: - Mounted: the note goes beside, through each tree
 
-    // MARK: - Mounted: the note reaches the centre, through each tree
-
-    func test_aNoteSelectedInTheNovelTreeReachesTheCentreAndTheInspector() async throws {
+    func test_aNoteClickedInTheNovelTreeGoesBesideAndOpenedTakesTheCentre() async throws {
         let store = try await novel(notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
@@ -530,12 +436,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let mount = try await host(store: store, tree: .binder, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
+                     until: { mount.probe.subject.beside == .research(note.id) })
 
-        try await assertTheNoteIsInTheCentre(of: mount, note: note)
+        try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
     }
 
-    func test_aNoteSelectedInTheCollectionTreeReachesTheCentreAndTheInspector() async throws {
+    func test_aNoteClickedInTheCollectionTreeGoesBesideAndOpenedTakesTheCentre() async throws {
         let store = try await collection(pieces: ["One"], notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
@@ -543,12 +449,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let mount = try await host(store: store, tree: .collection, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
+                     until: { mount.probe.subject.beside == .research(note.id) })
 
-        try await assertTheNoteIsInTheCentre(of: mount, note: note)
+        try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
     }
 
-    func test_aNoteSelectedInTheScreenplayTreeReachesTheCentreAndTheInspector() async throws {
+    func test_aNoteClickedInTheScreenplayTreeGoesBesideAndOpenedTakesTheCentre() async throws {
         let store = try await screenplay(notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
@@ -557,30 +463,21 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // project, script, two sluglines, the Research header, then the note.
         await select(row: 5, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
+                     until: { mount.probe.subject.beside == .research(note.id) })
 
-        try await assertTheNoteIsInTheCentre(of: mount, note: note)
+        try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
     }
 
-    /// **Review reaches the same note through the same tree row — locked.**
-    /// (shell-finish stage 3b Task 6, Denver's ruling: Review adjudicates and
-    /// does not edit research from its own columns.) The routing this file
-    /// already pins is untouched — the note still reaches the centre — so this
-    /// is the one place a real tree click's result is checked against
-    /// `Persona.editsResearchInTheCentre` rather than only against
-    /// `ResearchSubjectPlacement`. `ReviewAdjudicationTests` covers the rest of
-    /// the contract (the palette card, the wall, the tree's verbs) with a
-    /// lighter direct mount; this is the click-to-lock path through production's
-    /// own tree.
-    func test_aNoteSelectedInReviewReachesTheCentreLocked() async throws {
+    /// **Review's read-only centre still locks a note opened there** (shell-
+    /// finish stage 3b Task 6) — `Persona.editsResearchInTheCentre` is the
+    /// question until Lock answers it (shell p1 Task 5).
+    func test_aNoteOpenedInReviewReachesTheCentreLocked() async throws {
         let store = try await novel(notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .binder, persona: .review)
-        let table = try XCTUnwrap(firstTableView(in: mount.window))
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
+        let mount = try await host(store: store, tree: .binder, persona: .review,
+                                   subject: SubjectSamples.opened(.research(note.id)))
 
         await pumpUntil(deadline: 5) {
             self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
@@ -588,16 +485,15 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let editor = try XCTUnwrap(
             textViews(in: mount.window).first { $0.string.contains(Self.noteText) },
             "Review must still show the note's own text — locked, not hidden")
-        XCTAssertEqual(editor.coordinator?.lockEditing, true,
-                       "the tree row's click must reach Review's lock, not just the direct mount")
+        XCTAssertEqual(editor.coordinator?.lockEditing, true)
     }
 
     // MARK: - Mounted: the palette card takes the card editor
 
     /// The lost-update precedent, on the delivery path: a card row in the tree
-    /// is a research subject like any other, and the centre must be the visual
-    /// editor rather than a text editor holding the card's source.
-    func test_aPaletteCardSelectedInTheTreeMountsTheCardEditorNotTheNoteEditor() async throws {
+    /// is research like any other, and wherever it is drawn it must be the
+    /// visual editor rather than a text editor holding the card's source.
+    func test_aPaletteCardClickedInTheTreeMountsTheCardEditorNotTheNoteEditor() async throws {
         let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
@@ -606,9 +502,9 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         // the project row, the chapters, Research (header + note), then the
         // Palette header and the card.
         await select(row: 1 + store.manifest.structure.count + 2 + 1, in: table,
-                     until: { mount.probe.subject == .research(card.id) })
+                     until: { mount.probe.subject.beside == .research(card.id) })
 
-        XCTAssertEqual(mount.probe.subject, .research(card.id), "precondition")
+        XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
         await pumpUntil(deadline: 5) { !self.segmentedControls(in: mount.window).isEmpty }
         XCTAssertFalse(
             segmentedControls(in: mount.window).isEmpty,
@@ -622,16 +518,17 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             + "for)")
     }
 
-    // MARK: - Mounted: the canvas keeps the centre in Plan
+    // MARK: - Mounted: the canvas keeps the centre
 
-    /// **A research click in Plan previews the item and leaves the board
-    /// alone.** Both halves are the assertion: the canvas is not rebuilt (its
+    /// **A research click with the canvas open previews the item and leaves the
+    /// board alone.** Both halves are the assertion: the canvas is not rebuilt (its
     /// `load()` count does not move), and the right column shows the item.
-    func test_aResearchClickInPlanPreviewsBesideACanvasThatIsNeverRebuilt() async throws {
+    func test_aResearchClickWithTheCanvasOpenPreviewsBesideACanvasThatIsNeverRebuilt() async throws {
         let store = try await novel(notes: [], cards: [])
         let pdf = try await importPDF(named: "Tide tables", into: store)
 
-        let mount = try await host(store: store, tree: .binder, persona: .plan)
+        let mount = try await host(store: store, tree: .binder, persona: .author,
+                                   subject: SubjectSamples.opened(.canvas))
         await pumpUntil(deadline: 5) { mount.canvasLoads.count >= 1 }
         let loadsBefore = mount.canvasLoads.count
         XCTAssertGreaterThan(loadsBefore, 0,
@@ -641,15 +538,15 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(pdf.id) })
-        XCTAssertEqual(mount.probe.subject, .research(pdf.id), "precondition")
+                     until: { mount.probe.subject.beside == .research(pdf.id) })
+        XCTAssertEqual(mount.probe.subject.beside, .research(pdf.id), "precondition")
+        XCTAssertEqual(mount.probe.subject.open, .canvas, "precondition: the click moved no centre")
 
         await pumpUntil(deadline: 5) { !self.pdfViews(in: mount.window).isEmpty }
         XCTAssertFalse(
             pdfViews(in: mount.window).isEmpty,
-            "the right column previews the item — otherwise a research click in "
-            + "Plan changes nothing anywhere and the tree's Research section is "
-            + "a list that does not do anything")
+            "the right column previews the item — otherwise a research click "
+            + "over the canvas changes nothing anywhere")
         XCTAssertEqual(
             mount.canvasLoads.count, loadsBefore,
             "…and the canvas was not rebuilt. A second centre-column branch "
@@ -663,8 +560,8 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             + "load at all")
     }
 
-    /// **The canvas inspector is reachable in Plan, and a research subject is
-    /// what deliberately replaces it.**
+    /// **The canvas inspector is reachable with the canvas open, and research
+    /// beside is what deliberately replaces it.**
     ///
     /// This was the 2a Critical's mounted half, and its premise was the state
     /// stage 2b Task 7 removed. Plan's Canvas tab mounted the old research pane,
@@ -686,13 +583,13 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     ///
     /// Mounted rather than reasoned about, because the claim is about a column
     /// that mounts — a replaced arm and an unrequested one are the same value.
-    func test_theCanvasInspectorIsReachableInPlanAndAResearchSubjectReplacesIt() async throws {
+    func test_theCanvasInspectorIsReachableWithTheCanvasOpenAndResearchBesideReplacesIt() async throws {
         let store = try await novel(notes: ["Ships"], cards: [])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
         let model = CanvasModel()
-        let mount = try await host(store: store, tree: .binder, persona: .plan,
-                                   subject: .project, canvasModel: model)
+        let mount = try await host(store: store, tree: .binder, persona: .author,
+                                   subject: SubjectSamples.opened(.canvas), canvasModel: model)
 
         // Seeded AFTER the mount: `CanvasView`'s `.onAppear` load replaces the
         // scene, so a region put in before it would be gone by the time the
@@ -713,11 +610,11 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         }
         XCTAssertTrue(
             textFields(in: mount.window).contains { $0.stringValue == Self.regionLabel },
-            "the selected region's own name field must be in Plan's right "
-            + "column — without it the region, scrap, line and item inspectors "
-            + "are unreachable from the one persona that draws the board")
+            "the selected region's own name field must be in the right column "
+            + "while the canvas is open — without it the region, scrap, line and "
+            + "item inspectors are unreachable")
 
-        mount.probe.subject = .research(note.id)
+        mount.probe.subject.beside = .research(note.id)
         await pumpUntil(deadline: 5) {
             !self.textFields(in: mount.window).contains {
                 $0.stringValue == Self.regionLabel
@@ -731,7 +628,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     /// **A palette card previewed beside the canvas is a CARD** (finding I3).
     ///
-    /// The right column is the writer's only view of the item in Plan, and it
+    /// The right column is the writer's only view of an item beside, and it
     /// mounted `ResearchPreview` for everything — so a card previewed as the raw
     /// markdown of its source file, which is the exact rendering
     /// `researchCentreRoute` was extracted to stop the window showing. The
@@ -740,9 +637,10 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: [], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
-        let mount = try await host(store: store, tree: .binder, persona: .plan,
-                                   subject: .research(card.id))
-        XCTAssertEqual(mount.probe.subject, .research(card.id), "precondition")
+        let mount = try await host(store: store, tree: .binder, persona: .author,
+                                   subject: WindowSubject(open: .canvas, faces: .canvas,
+                                                          beside: .research(card.id)))
+        XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
 
         await pumpUntil(deadline: 5) { !self.segmentedControls(in: mount.window).isEmpty }
         XCTAssertFalse(
@@ -754,31 +652,38 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     // MARK: - Shared mounted assertions
 
-    private func assertTheNoteIsInTheCentre(
+    /// The click put the note beside: the right column inspects it (its Title
+    /// field) and the centre holds no note editor. Then the explicit gesture
+    /// (`ClickRule`'s `.openInCentre`) opens it in the centre.
+    private func assertTheNoteIsBesideThenInTheCentre(
         of mount: Mount, note: ResearchItem,
         file: StaticString = #filePath, line: UInt = #line
     ) async throws {
-        XCTAssertEqual(mount.probe.subject, .research(note.id),
-                       "precondition: the tree wrote the subject", file: file, line: line)
-
-        await pumpUntil(deadline: 5) {
-            self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
-        }
-        let editors = textViews(in: mount.window)
-        XCTAssertTrue(
-            editors.contains { $0.string.contains(Self.noteText) },
-            "the note the tree named must be the note in the centre column — "
-            + "found \(editors.count) editor(s) holding "
-            + "\(editors.map { String($0.string.prefix(40)) })",
-            file: file, line: line)
+        XCTAssertEqual(mount.probe.subject.beside, .research(note.id),
+                       "precondition: the tree wrote the note beside", file: file, line: line)
+        XCTAssertNil(mount.probe.subject.open.researchID,
+                     "a click never hands the centre to research", file: file, line: line)
 
         await pumpUntil(deadline: 5) {
             self.textFields(in: mount.window).contains { $0.stringValue == note.title }
         }
         XCTAssertTrue(
             textFields(in: mount.window).contains { $0.stringValue == note.title },
-            "and the right column inspects it — InspectorResearchPanel's Title "
-            + "field carries the item's own title",
+            "the right column inspects it — InspectorResearchPanel's Title field "
+            + "carries the item's own title", file: file, line: line)
+
+        mount.probe.subject = ClickRule.resolve(
+            .research(note.id), gesture: .openInCentre, current: mount.probe.subject,
+            structure: [], projectType: .novel)
+        await pumpUntil(deadline: 5) {
+            self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
+        }
+        let editors = textViews(in: mount.window)
+        XCTAssertTrue(
+            editors.contains { $0.string.contains(Self.noteText) },
+            "opened, the note is the note in the centre column — found "
+            + "\(editors.count) editor(s) holding "
+            + "\(editors.map { String($0.string.prefix(40)) })",
             file: file, line: line)
     }
 
@@ -861,24 +766,23 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
     private struct Mount {
         let window: NSWindow
-        let probe: BinderSubjectProbe
+        let probe: WindowSubjectProbe
         let canvasLoads: CanvasLoadCounter
     }
 
     /// - Parameters:
-    ///   - subject: the window's subject **before the first render**, for the
-    ///     tests about a subject the writer arrives carrying — `UIState` restores
-    ///     one on launch, and a persona or segment switch keeps it. Seeded on the
-    ///     probe rather than clicked, because the point is that no click in this
-    ///     segment could have produced it.
+    ///   - subject: the window's subject **before the first render** — `UIState`
+    ///     restores one on launch. Seeded on the probe rather than clicked: the
+    ///     tree has no canvas row until shell p1 Task 3.
+    ///   - persona: answers only `editsResearchInTheCentre`, as production's
+    ///     does until Lock (Task 5).
     ///   - canvasModel: the board the centre and the region inspector share.
     ///     Given by a caller that has selected something on it.
     private func host(store: ProjectStore, tree: Tree,
                       persona: Persona,
-                      subject: BinderSubject? = nil,
+                      subject: WindowSubject = .book,
                       canvasModel: CanvasModel = CanvasModel()) async throws -> Mount {
-        let probe = BinderSubjectProbe()
-        probe.subject = subject
+        let probe = WindowSubjectProbe(subject)
         let counter = CanvasLoadCounter()
         let suite = "research-subject-routing-\(UUID().uuidString)"
         defaultsSuites.append(suite)
@@ -989,11 +893,12 @@ final class CanvasLoadCounter {
 
 /// **The three columns, wired the way `ProjectWindow` wires them.**
 ///
-/// The tree is production's own (all three hosts), the subject binding is the
-/// window's, and both other columns are chosen by the SAME
-/// `ProjectWindow.researchSubjectPlacement` value the window's `editorPane` and
-/// `inspectorPane` read. Nothing here re-spells the rule — a probe that decided
-/// for itself which column gets the item would be testing the probe.
+/// The tree is production's own (all three hosts), its binding is the window's
+/// (`WindowSubjectProbe.treeBinding`: `beside ?? faces`, written through
+/// `ClickRule`), and both other columns are chosen by the SAME
+/// `ProjectWindow.centreRoute` and `researchSubjectPlacement` the window's
+/// columns read. Nothing here re-spells the rule — a probe that decided for
+/// itself which column gets the item would be testing the probe.
 @MainActor
 private struct ResearchRoutingProbeView: View {
     let store: ProjectStore
@@ -1002,20 +907,22 @@ private struct ResearchRoutingProbeView: View {
     let persona: Persona
     let script: FountainScript?
     let documentID: String?
-    let probe: BinderSubjectProbe
+    let probe: WindowSubjectProbe
     let canvasModel: CanvasModel
     let canvasLoads: CanvasLoadCounter
 
     @State private var renaming: String?
     let treeState = BinderTreeSectionsState()
 
-    private var subject: Binding<BinderSubject?> {
-        Binding(get: { probe.subject }, set: { probe.subject = $0 })
+    private var placement: ProjectWindow.ResearchSubjectPlacement {
+        ProjectWindow.researchSubjectPlacement(subject: probe.subject)
     }
 
-    private var placement: ProjectWindow.ResearchSubjectPlacement {
-        ProjectWindow.researchSubjectPlacement(persona: persona,
-                                               subject: probe.subject)
+    private var route: CentreRoute {
+        ProjectWindow.centreRoute(subject: probe.subject, bookView: .outline,
+                                  projectType: store.manifest.type,
+                                  structure: store.manifest.structure,
+                                  preview: .nothingCompiled)
     }
 
     var body: some View {
@@ -1028,6 +935,7 @@ private struct ResearchRoutingProbeView: View {
 
     @ViewBuilder
     private var treeColumn: some View {
+        let subject = probe.treeBinding(store: store)
         switch tree {
         case .binder:
             BinderView(store: store, selectedSubject: subject,
@@ -1048,31 +956,33 @@ private struct ResearchRoutingProbeView: View {
 
     @ViewBuilder
     private var centre: some View {
-        if let id = placement.centreItemID {
+        switch route {
+        case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
                                   readOnly: !persona.editsResearchInTheCentre)
-        } else if persona.centresTheCanvas {
+        case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })
-        } else {
+        default:
             Color.clear
         }
     }
 
     /// **The right column, with production's own fallback.**
     ///
-    /// `researchOrSegment` asks the placement first and `inspectorRoute` second,
-    /// so where the canvas centres the window the region inspector is what the
-    /// column falls back to. Modelling only the research half made the probe
-    /// unable to see the failure the final review found: an inspector arm that
-    /// is REPLACED looks exactly like one that was never asked for.
+    /// `researchOrSubject` asks the placement first and `inspectorRoute` second,
+    /// so where the canvas is open the region inspector is what the column
+    /// falls back to. Modelling only the research half made the probe unable to
+    /// see the failure the final review found: an inspector arm that is
+    /// REPLACED looks exactly like one that was never asked for.
     @ViewBuilder
     private var right: some View {
         if let id = placement.inspectedItemID {
             ResearchSubjectInspector(store: store, itemID: id,
                                      showsPreview: placement.previewsInTheRightColumn)
-        } else if persona.centresTheCanvas {
+        } else if ProjectWindow.inspectorRoute(subject: probe.subject,
+                                               projectType: store.manifest.type) == .canvas {
             RegionInspectorPane(model: canvasModel, pieces: [],
                                 artifactTitle: { _ in nil }, pieceTitle: { _ in nil },
                                 onOpenResearchItem: { _ in })

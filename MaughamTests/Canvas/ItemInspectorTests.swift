@@ -398,7 +398,7 @@ final class ItemInspectorTests: XCTestCase {
             XCTAssertEqual(ItemInspector.promotes(reference), offered,
                            "the pane and §6's table must agree — \(reference)")
             XCTAssertEqual(
-                CanvasPromotionModifier.isPromotable(persona: .plan,
+                CanvasPromotionModifier.isPromotable(subject: SubjectSamples.opened(.canvas),
                                                      selection: .node(id),
                                                      nodeKind: .item(reference), isReadOnly: false),
                 offered,

@@ -90,7 +90,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         _ = try await store.addStructureItem(
             parentId: nil, title: "Chapter 3", kind: .document(.markdown))
 
-        let window = try await hostPane(store: store, layout: .table, title: "Derivation")
+        let window = try await hostPane(store: store, view: .outline, title: "Derivation")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 3)
 
         XCTAssertEqual(table.numberOfRows, 3,
@@ -120,7 +120,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         XCTAssertEqual(documentCount, 4, "premise: four documents to card up")
 
         let requestedWidth: CGFloat = 720
-        let window = try await hostPane(store: store, layout: .cards,
+        let window = try await hostPane(store: store, view: .cards,
                                         title: "Corkboard", windowWidth: requestedWidth)
         // Read the width off the window this display actually granted, per
         // the CI-display rule — a runner narrower than requested still gives
@@ -150,7 +150,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         defer { PieceWriterFixture.reset() }
         let book = try await PieceWriterFixture.oneAuthor(named: "Alone", in: temp.url)
         let window = try await hostPane(
-            store: book.store, layout: .table, title: "Alone")
+            store: book.store, view: .outline, title: "Alone")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
 
         // A fixed wait on top of the mount: this asserts that a column never
@@ -172,7 +172,7 @@ final class ProjectAltitudePaneTests: XCTestCase {
         let book = try await PieceWriterFixture.narrowed(
             named: "Shared", in: temp.url, scopedTo: { [$0.pieceIDs[0]] })
         let window = try await hostPane(
-            store: book.store, layout: .table, title: "Shared")
+            store: book.store, view: .outline, title: "Shared")
         let table = try await pumpUntilTableFound(in: window, expectingAtLeast: 1)
 
         let grew = await pumpUntil(deadline: 5) {
@@ -195,10 +195,10 @@ final class ProjectAltitudePaneTests: XCTestCase {
         return store
     }
 
-    private func hostPane(store: ProjectStore, layout: OutlineLayout, title: String,
+    private func hostPane(store: ProjectStore, view: BookView, title: String,
                           windowWidth: CGFloat = 520) async throws -> NSWindow {
         let window = TestWindow.mount(
-            AnyView(AltitudeProbeView(store: store, initialLayout: layout, title: title)),
+            AnyView(AltitudeProbeView(store: store, initialView: view, title: title)),
             size: CGSize(width: windowWidth, height: 600))
         windows.append(window)
         pump()
@@ -261,21 +261,23 @@ final class ProjectAltitudePaneTests: XCTestCase {
     }
 }
 
-/// `ProjectAltitudePane` hosted with a fixed layout choice, standing in for
-/// where the pane is mounted today — the centre column's overlay holds the
-/// layout as `@State` on `ProjectWindow`; this probe does the same at a
+/// `ProjectAltitudePane` hosted with a fixed view choice, standing in for
+/// where the pane is mounted today — the centre column's altitude layer holds
+/// the view as `@State` on `ProjectWindow`; this probe does the same at a
 /// smaller scale rather than standing up the whole window.
 @MainActor
 private struct AltitudeProbeView: View {
     let store: ProjectStore
-    @State var initialLayout: OutlineLayout
+    @State var initialView: BookView
     let title: String
 
     var body: some View {
         ProjectAltitudePane(
             store: store,
-            layout: $initialLayout,
+            view: initialView,
+            bookView: $initialView,
             selectedSubject: .constant(nil),
-            title: title)
+            title: title,
+            structure: store.manifest.structure) { EmptyView() }
     }
 }

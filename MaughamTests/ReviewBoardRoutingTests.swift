@@ -6,19 +6,17 @@ import Observation
 import MaughamCore
 @testable import Maugham
 
-/// **Review's centre column is the passes board** (M3 P1 Task 6) — and it gets
-/// there the way Publish's book does: a layer of `manuscriptEditor`'s `ZStack`,
-/// gated on a rule that composes the window's ONE document-resolution question.
+/// **The passes board is the Book's Status view** (M3 P1 Task 6; shell p1
+/// Task 2 made it a view rather than a cover) — drawn inside the altitude
+/// layer of `manuscriptEditor`'s `ZStack`, chosen by the route's `BookView`.
 ///
-/// Three things are under test and they need different instruments:
+/// Two things are under test and they need different instruments:
 ///
-/// - **The predicate.** `Persona.showsTheReviewBoard` is a fact about a persona,
-///   assertable over `Persona.allCases` with nothing mounted.
 /// - **The rule.** `ProjectWindow.reviewCentreShowsBoard` is a static over
-///   `(persona, subject, structure)`, so the whole truth table is drivable with
+///   `(subject, bookView, structure)`, so the whole truth table is drivable with
 ///   no window at all — including the row that changed nothing: a chapter
-///   subject in Review still opens the chapter.
-/// - **The shape.** The board is a LAYER, never a new `editorPane` arm, for the
+///   open is the chapter.
+/// - **The shape.** The board is inside a LAYER, never a new `editorPane` arm, for the
 ///   reason stage 3a recorded and stage 3b repeated: two ViewBuilder branches
 ///   are two view identities, and `EditorHost.onDisappear` is `doc.close()` +
 ///   `documentStore.unregister(path:)` + `loads.abandon()`. The mounted tests
@@ -63,129 +61,56 @@ final class ReviewBoardRoutingTests: XCTestCase {
         temp = nil
     }
 
-    // MARK: - The predicate
-
-    /// Exactly one persona, and it is the one whose whole job is adjudicating.
-    func test_onlyReviewShowsTheBoard() {
-        XCTAssertEqual(Persona.allCases.filter(\.showsTheReviewBoard), [.review])
-    }
-
-    /// **It is a third independent fact about the centre column, not the
-    /// leftover of the other two.**
-    ///
-    /// Author is the discriminator this app actually ships: its centre is not
-    /// the canvas and not the book either, and its project row is the corkboard
-    /// — stage 3a's altitude view, untouched by this task. A predicate written
-    /// as `!centresTheCanvas && !previewsThePublishedBook` would put the board
-    /// in Author's centre and read perfectly while doing it.
-    func test_theBoardIsNotWhateverIsLeftOverFromTheOtherTwoCentreFacts() {
-        XCTAssertFalse(Persona.author.centresTheCanvas,
-                       "premise: Author's centre is not the canvas")
-        XCTAssertFalse(Persona.author.previewsThePublishedBook,
-                       "premise: nor the compiled book")
-        XCTAssertFalse(Persona.author.showsTheReviewBoard,
-                       "…and it is still not the board — Author's project row "
-                       + "is the corkboard, which is what a complement-of-the-"
-                       + "others predicate would have taken away")
-    }
-
-    /// **And it is not `editsResearchInTheCentre`'s complement either**, though
-    /// today the two agree on all four personas — which is exactly why the
-    /// coincidence needs a test rather than a reader's good judgement.
-    ///
-    /// They are different questions about the same persona: one is *"Review
-    /// adjudicates, it doesn't edit research"* (Denver, stage 3b) and the other
-    /// is *"Review's centre column is the board"* (M3). Derive one from the
-    /// other and Review's board disappears the day a reviewer is allowed to fix
-    /// a typo in a note. The behavioural half cannot see the difference while
-    /// they agree, so the census is the source: the declaration must not read
-    /// any of its siblings.
-    func test_thePredicateIsDeclaredWithoutReadingItsSiblings() throws {
-        let source = try Self.source(of: "Models/Persona.swift")
-        let declaration = try XCTUnwrap(
-            Self.declaration(named: "var showsTheReviewBoard: Bool {", in: source),
-            "the predicate must still be a member of its own")
-
-        for sibling in ["centresTheCanvas", "previewsThePublishedBook",
-                        "editsResearchInTheCentre", "showsManuscriptDocuments"] {
-            XCTAssertFalse(
-                declaration.contains(sibling),
-                "`showsTheReviewBoard` reads `\(sibling)`, so it is a partition "
-                + "of another question rather than a fact of its own — and the "
-                + "day the two questions diverge, one of them changes silently")
-        }
-        XCTAssertTrue(declaration.contains("case .review: return true"),
-                      "premise: the scan really is reading the predicate")
-        XCTAssertFalse(declaration.contains("default:"),
-                       "exhaustive with no `default:`, so a fifth persona has "
-                       + "to say whether its centre is the board")
-    }
-
     // MARK: - The rule
 
     /// **The whole truth table, in one loop.**
     ///
-    /// | subject | Review | every other persona |
+    /// | `open` | Status | Cards / Outline |
     /// |---|---|---|
-    /// | project / group / none / dangling / research | the BOARD | unchanged |
-    /// | a document | the EDITOR — nothing over it | unchanged |
-    func test_theBoardIsProjectLevelInReviewAndNowhereElse() {
-        for persona in Persona.allCases {
-            for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
+    /// | the Book / a Part (or a dangling id) | the BOARD | not the board |
+    /// | anything else | not the board | not the board |
+    func test_theBoardIsTheStatusViewOfTheBookOrAPartAndNothingElse() {
+        for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
+            for view in BookView.allCases {
                 XCTAssertEqual(
                     ProjectWindow.reviewCentreShowsBoard(
-                        persona: persona, subject: subject,
+                        subject: SubjectSamples.opened(subject), bookView: view,
                         structure: ProjectAltitudeCentreTests.structure),
-                    persona.showsTheReviewBoard,
-                    "\(persona) with \(shape): the layer is gated on the ONE "
-                    + "spelling of \"this persona's centre is the board\"")
+                    view == .status,
+                    "\(shape) in \(view): the board is the Status view")
             }
+        }
+        for open in [BinderSubject.item("chapter-1"), .research("r1"), .figure("f1"),
+                     .canvas, .inbox, .palette, .edition(language: "es")] {
             XCTAssertFalse(
                 ProjectWindow.reviewCentreShowsBoard(
-                    persona: persona, subject: .item("chapter-1"),
+                    subject: SubjectSamples.opened(open), bookView: .status,
                     structure: ProjectAltitudeCentreTests.structure),
-                "\(persona) with a chapter: a board of chips over the chapter a "
-                + "reviewer is reading is the same defect the book's ruling "
-                + "walked back in Publish")
+                "\(open): a board of chips over a chapter (or anywhere that is "
+                + "not the Book) is the defect the book's ruling walked back")
         }
     }
 
-    /// **A research subject never reaches the board, and the rule deliberately
-    /// does not re-guard it.**
-    ///
-    /// The rule answers TRUE for `.research` — it composes `subjectShowsAltitude`,
-    /// which answers the one question it is about ("does this subject name a
-    /// manuscript document?") and no other. What keeps the note on screen is the
-    /// ARM above: `editorPane` asks `researchSubjectPlacement` first, and in
-    /// Review the item TAKES the centre (read-only, `editsResearchInTheCentre`).
-    ///
-    /// Both halves are pinned here rather than one, for the reason
-    /// `subjectShowsAltitude`'s own comment gives: a guard written into the rule
-    /// would be a second place the research routing is decided, and the one that
-    /// never runs is the one that goes quietly wrong. This is a recorded
-    /// dependency on the arm ORDER, so a task that reorders `editorPane` finds
-    /// out here instead of on a reviewer's screen.
-    func test_aResearchSubjectIsTakenByTheArmAboveAndNeverReachesTheBoard() {
-        XCTAssertNotNil(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .review, subject: .research("r1")).centreItemID,
-            "Review hands the centre column to the research item, so the "
-            + "manuscript arm — and the board with it — is never reached")
-        XCTAssertTrue(
-            ProjectWindow.reviewCentreShowsBoard(
-                persona: .review, subject: .research("r1"),
-                structure: ProjectAltitudeCentreTests.structure),
-            "…and the rule underneath still answers TRUE, unguarded: it is the "
-            + "arm above that protects the note, exactly as it protects the "
-            + "corkboard from the same subject")
+    /// **A research item open never reaches the board** — the arm above takes
+    /// it, and the rule refuses it too.
+    func test_aResearchItemOpenIsTakenByTheArmAboveAndNeverReachesTheBoard() {
+        let subject = SubjectSamples.opened(.research("r1"))
+        XCTAssertEqual(ProjectWindow.centreRoute(
+            subject: subject, bookView: .status, projectType: .novel,
+            structure: ProjectAltitudeCentreTests.structure, preview: .nothingCompiled),
+                       .research(id: "r1"))
+        XCTAssertFalse(ProjectWindow.reviewCentreShowsBoard(
+            subject: subject, bookView: .status,
+            structure: ProjectAltitudeCentreTests.structure))
     }
 
-    /// The mounted half of the pair above: in Review a research row really does
-    /// put the note in the centre column, with no board over it.
-    func test_aResearchSubjectInReviewShowsTheNoteAndNotTheBoard() async throws {
+    /// The mounted half: a research item open puts the note in the centre, with
+    /// no board over it, whatever the Book's view.
+    func test_aResearchItemOpenShowsTheNoteAndNotTheBoard() async throws {
         let store = try await novel()
         let note = try await store.addResearchTextNote(parentId: nil, title: "Ships")
-        let mount = try await host(store: store, subject: .research(note.id))
+        let mount = try await host(store: store,
+                                   subject: SubjectSamples.opened(.research(note.id)))
 
         await waitOut(0.5)
         XCTAssertNil(boardScroller(in: mount.window),
@@ -195,39 +120,33 @@ final class ReviewBoardRoutingTests: XCTestCase {
                      "…and no corkboard either, for the same reason")
     }
 
-    /// **The rule asks the document question that already exists.**
-    ///
-    /// The risk that arrives with a subject-dependent layer is a second
-    /// document-resolution rule beside `subjectShowsAltitude` — two answers free
-    /// to disagree about what a document is, with a board of chips over the
-    /// chapter a reviewer is reading as the visible cost. The census is the
-    /// source; the loop under it is the behavioural half, so this is a bridge to
-    /// a property rather than the property itself.
+    /// **The rule asks the view question that already exists** — `altitudeView`
+    /// — rather than a second document-resolution rule.
     func test_theRuleComposesTheWindowsOwnDocumentQuestion() throws {
         let rule = try SourceTree.declaration(
             named: "static func reviewCentreShowsBoard(", under: "Maugham")
-
-        // That it asks `subjectShowsAltitude` and `showsTheReviewBoard`:
-        // `WiringCensusTests`.
+        XCTAssertTrue(rule.contains("altitudeView("), "the rule asks `altitudeView`")
         XCTAssertFalse(rule.contains("selectionIsDocument("),
                        "…and not re-derived from the primitive underneath it, "
                        + "which is how the two would come to disagree")
         XCTAssertFalse(rule.contains("TreeWalk."),
                        "…nor by walking the structure a second time")
 
-        for (subject, shape) in ProjectAltitudeCentreTests.notADocument {
-            XCTAssertEqual(
-                ProjectWindow.reviewCentreShowsBoard(
-                    persona: .review, subject: subject,
-                    structure: ProjectAltitudeCentreTests.structure),
-                ProjectWindow.subjectShowsAltitude(
-                    persona: .review, subject: subject,
-                    structure: ProjectAltitudeCentreTests.structure),
-                "\(shape): the two must answer together in Review")
+        for subject in SubjectSamples.everySubject {
+            for view in BookView.allCases {
+                XCTAssertEqual(
+                    ProjectWindow.reviewCentreShowsBoard(
+                        subject: subject, bookView: view,
+                        structure: ProjectAltitudeCentreTests.structure),
+                    ProjectWindow.altitudeView(
+                        subject: subject, bookView: view,
+                        structure: ProjectAltitudeCentreTests.structure) == .status,
+                    "\(subject.open), \(view): the two must answer together")
+            }
         }
     }
 
-    /// **The persona is asked, never named** — `centresTheCanvas`'s own history
+    /// **No view names the Review persona** — `centresTheCanvas`'s own history
     /// is the warrant: an equality reads identically at three sites and drifts
     /// at the fourth, and that cost three separate visible defects before the
     /// question was named.
@@ -243,8 +162,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let offenders = try Self.reviewNameGateOffenders(under: "Maugham/Views")
         XCTAssertTrue(
             offenders.isEmpty,
-            "these views compare the persona by name: \(offenders). The one "
-            + "spelling is `Persona.showsTheReviewBoard`")
+            "these views compare the persona by name: \(offenders). The board "
+            + "is the Book's Status view, asked of the subject")
         // The control: the scanner sees the offender it is asserting the absence
         // of, or the line above is green over any file at all.
         XCTAssertFalse(
@@ -294,109 +213,83 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     // MARK: - The status footer
 
-    /// **Why the footer needs no Review clause of its own.**
-    ///
-    /// The board is a new surface over the centre column and the obvious next
-    /// move is a fifth clause in `showsStatusFooter` — a word count under a
-    /// board of chips is a claim about a document that is not on screen. It
-    /// would be a parameter that cannot change an answer: wherever
-    /// `reviewCentreShowsBoard` is true, `subjectShowsAltitude` is already true,
-    /// so the altitude clause has already refused. Asserted over the whole
-    /// product rather than argued, which is how the same question was settled
-    /// for the find overlay and for the book.
+    /// **Why the footer needs no Status clause of its own.** Wherever
+    /// `reviewCentreShowsBoard` is true, `open` names no document, so the
+    /// footer has already refused. Asserted over the whole product rather than
+    /// argued.
     func test_theBoardOnlyEverCoversAltitudeSoTheFooterNeedsNoClauseOfItsOwn() {
         var covered = 0
-        let subjects: [BinderSubject?] = [
-            nil, .project, .item("chapter-1"), .item("part-one"),
-            .item("no-such-id"), .item("pathless"), .research("r1")
-        ]
-        for persona in Persona.allCases {
-            for subject in subjects {
-                for wall in [false, true] {
-                    guard ProjectWindow.reviewCentreShowsBoard(
-                        persona: persona, subject: subject,
-                        structure: ProjectAltitudeCentreTests.structure)
-                    else { continue }
-                    covered += 1
-                    XCTAssertTrue(
-                        ProjectWindow.subjectShowsAltitude(
-                            persona: persona, subject: subject,
-                            structure: ProjectAltitudeCentreTests.structure),
-                        "\(persona)/\(String(describing: subject)): the board "
-                        + "covered something altitude does NOT cover, so the "
-                        + "footer needs a clause of its own after all")
-                    XCTAssertFalse(
-                        ProjectWindow.showsStatusFooter(
-                            persona: persona, subject: subject,
-                            showsPaletteWall: wall,
-                            structure: ProjectAltitudeCentreTests.structure),
-                        "…and the footer must be silent under it")
-                }
+        for subject in SubjectSamples.everySubject {
+            for view in BookView.allCases {
+                guard ProjectWindow.reviewCentreShowsBoard(
+                    subject: subject, bookView: view,
+                    structure: SubjectSamples.structure)
+                else { continue }
+                covered += 1
+                XCTAssertFalse(
+                    ProjectWindow.showsStatusFooter(subject: subject,
+                                                    structure: SubjectSamples.structure),
+                    "\(subject.open): the footer must be silent under the board")
             }
         }
         XCTAssertGreaterThan(covered, 0,
                              "the loop never reached a covered case, so the "
-                             + "implication above is vacuously true and says "
-                             + "nothing")
+                             + "implication above is vacuously true")
     }
 
     // MARK: - Mounted: the board takes the centre
 
-    /// **The project's own subject in Review draws the board, over the
-    /// corkboard.** Altitude is still mounted underneath — that is the layered
-    /// shape working, not a bug — so what says which one the reviewer sees is
-    /// z-order, measured the way the OS measures it.
-    func test_theProjectSubjectInReviewShowsTheBoardOverTheCorkboard() async throws {
+    /// **The Book in Status draws the board, in place of the Outline.** It is
+    /// the altitude layer's own view, so the outline is not mounted beneath it
+    /// and the middle of the column is the board.
+    func test_theBookInStatusShowsTheBoardInPlaceOfTheOutline() async throws {
         let store = try await novel()
-        let mount = try await host(store: store, subject: .project)
+        let mount = try await host(store: store, subject: .book)
 
         await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
         let board = try XCTUnwrap(
             boardScroller(in: mount.window),
-            "Review's centre column mounted no board. Views: "
+            "the Book's Status view mounted no board. Views: "
             + "\(viewNames(in: mount.window))")
-        XCTAssertNotNil(altitudeTable(in: mount.window),
-                        "premise: the project subject really does put altitude "
-                        + "in the stack, so this is a test about which layer is "
-                        + "in FRONT rather than about which one exists")
+        XCTAssertNil(altitudeTable(in: mount.window),
+                     "Status is a view of the Book, not a cover over the Outline")
         XCTAssertTrue(textViews(in: mount.window).isEmpty,
-                      "and no editor is open under either of them")
+                      "and no editor is open under it")
 
         let hit = try middleOfTheColumn(in: mount.window)
         XCTAssertTrue(hit === board || hit.isDescendant(of: board),
-                      "the middle of the column hit-tests to \(type(of: hit)) — "
-                      + "the corkboard is drawn OVER the board, which is the "
-                      + "truth table upside down")
+                      "the middle of the column hit-tests to \(type(of: hit)), "
+                      + "which is not the board")
     }
 
-    /// **A group and nothing-at-all are project level too** — the two remaining
-    /// subject shapes a reviewer reaches by clicking, driven through the mount
-    /// rather than left to the pure rule.
-    func test_aGroupAndNoSubjectAtAllInReviewAlsoShowTheBoard() async throws {
+    /// **A Part in Status shows the board too** — a Part is a small Book.
+    func test_aPartInStatusAlsoShowsTheBoard() async throws {
         let store = try await novel()
         let group = try await store.addStructureItem(
             parentId: nil, title: "Part One", kind: .group)
+        _ = try await store.addStructureItem(
+            parentId: group.id, title: "Inside The Part", kind: .document(.markdown))
 
-        for (subject, shape) in [(BinderSubject?.some(.item(group.id)), "a group"),
-                                 (nil, "no subject at all")] {
+        for (subject, shape) in [(SubjectSamples.opened(.item(group.id)), "a Part"),
+                                 (WindowSubject.book, "the Book")] {
             let mount = try await host(store: store, subject: subject)
             await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
             XCTAssertNotNil(boardScroller(in: mount.window),
-                            "\(shape) names no document, so Review's centre is "
-                            + "the board. Views: \(viewNames(in: mount.window))")
+                            "\(shape) in Status is the board. Views: "
+                            + "\(viewNames(in: mount.window))")
             XCTAssertTrue(textViews(in: mount.window).isEmpty,
                           "\(shape): and no editor is open behind it")
         }
     }
 
-    /// **A chapter subject in Review opens the chapter, exactly as today.** The
-    /// row this task deliberately did not change — a reviewer with a note to
-    /// leave needs the prose, and a board over it is the defect Denver's
-    /// 2026-08-12 ruling walked back in Publish.
-    func test_aDocumentSubjectInReviewOpensTheEditorAndNothingCoversIt() async throws {
+    /// **A chapter open is the chapter, whatever the Book's view.** A reviewer
+    /// with a note to leave needs the prose, and a board over it is the defect
+    /// Denver's 2026-08-12 ruling walked back.
+    func test_aChapterOpenIsTheEditorAndNothingCoversIt() async throws {
         let store = try await novel()
         let chapter = try Self.firstDocument(in: store)
-        let mount = try await host(store: store, subject: .item(chapter.id))
+        let mount = try await host(store: store,
+                                   subject: SubjectSamples.opened(.item(chapter.id)))
 
         await pumpUntil(deadline: 5) { !self.textViews(in: mount.window).isEmpty }
         XCTAssertFalse(textViews(in: mount.window).isEmpty,
@@ -407,22 +300,21 @@ final class ReviewBoardRoutingTests: XCTestCase {
                      "…nor the corkboard")
     }
 
-    /// **The control that makes the readings above discriminate.** Author's
-    /// project row is the corkboard and stays the corkboard, so the same window
-    /// with the same subject must mount no board at all — otherwise
-    /// `boardScroller` is finding something every persona has and every
-    /// assertion above is green over any routing at all.
-    func test_control_authorsProjectRowIsStillTheCorkboardAndMountsNoBoard() async throws {
+    /// **The control that makes the readings above discriminate.** The Book
+    /// in Outline is the outline, so the same window with the same subject must
+    /// mount no board at all — otherwise `boardScroller` is finding something
+    /// every centre column has.
+    func test_control_theBookInOutlineMountsNoBoard() async throws {
         let store = try await novel()
-        let mount = try await host(store: store, persona: .author, subject: .project)
+        let mount = try await host(store: store, subject: .book, view: .outline)
 
         await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
         XCTAssertNotNil(altitudeTable(in: mount.window),
-                        "premise: Author's project row draws altitude")
+                        "premise: the Book in Outline draws the outline")
         XCTAssertNil(boardScroller(in: mount.window),
-                     "Author mounted a board — either the gate is not asking "
-                     + "the persona, or `boardScroller` is reading a view every "
-                     + "centre column has. Views: \(viewNames(in: mount.window))")
+                     "the Outline mounted a board — either the view is not "
+                     + "asked, or `boardScroller` is reading a view every centre "
+                     + "column has. Views: \(viewNames(in: mount.window))")
     }
 
     // MARK: - Mounted: the host survives the new layer
@@ -437,7 +329,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     func test_theBoardEditorBoardRoundTripNeverTearsTheHostDown() async throws {
         let store = try await novel()
         let chapter = try Self.firstDocument(in: store)
-        let mount = try await host(store: store, subject: .project)
+        let mount = try await host(store: store, subject: .book)
 
         await pumpUntil(deadline: 5) {
             self.boardScroller(in: mount.window) != nil
@@ -453,7 +345,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         // awaited `loadDocumentIfNeeded()`. Waiting on the departure and
         // asserting the arrival makes the gap a coin flip decided by how a busy
         // worker's runloop is serviced.
-        mount.box.subject = .item(chapter.id)
+        mount.box.pick(.item(chapter.id), in: store)
         await pumpUntil(deadline: 5) {
             self.boardScroller(in: mount.window) == nil
                 && !self.textViews(in: mount.window).isEmpty
@@ -470,7 +362,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         XCTAssertEqual(mount.hostLife.appearances, 1,
                        "…and it never re-appeared on the way in")
 
-        mount.box.subject = .project
+        mount.box.pick(.project, in: store)
         await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
         XCTAssertNotNil(boardScroller(in: mount.window),
                         "and back up to the board")
@@ -485,56 +377,30 @@ final class ReviewBoardRoutingTests: XCTestCase {
                        + "with the same Document")
     }
 
-    /// **The PERSONA hop — Review's board up, ⌘4 to Publish, ⌘3 back — tears
-    /// the host down ZERO times** (the whole-branch review's seam 3: the board
-    /// layer × the publish layer in one ZStack, a trip no per-task test made
-    /// because each probe models its own persona's layer only).
-    ///
-    /// What this drives that the subject round trip above cannot: the persona
-    /// is the OTHER input to `reviewCentreShowsBoard`, and a persona write
-    /// re-runs every routing decision in the centre — `editorRoute`,
-    /// `researchSubjectPlacement`, both layer gates — in one render. The host
-    /// must ride through all of it, because ⌘3/⌘4 is a keystroke the writer
-    /// makes constantly and `.onDisappear` here is `doc.close()` +
-    /// `unregister(path:)`.
-    ///
-    /// The probe deliberately does not mount Publish's BOOK layer (its own
-    /// suite owns that probe — see the probe's doc), so what stands over
-    /// altitude in Publish here is nothing rather than the book; the layer
-    /// gates and the host's lifetime are production's own statics either way.
-    func test_aPersonaHopToPublishAndBackNeverTearsTheHostDown() async throws {
+    /// **The VIEW hop — Status, Outline, Status — tears the host down ZERO
+    /// times.** The board and the outline are two views of one layer, so
+    /// switching between them only swaps that layer's content.
+    func test_aViewHopToTheOutlineAndBackNeverTearsTheHostDown() async throws {
         let store = try await novel()
-        let mount = try await host(store: store, subject: .project)
+        let mount = try await host(store: store, subject: .book)
 
         await pumpUntil(deadline: 5) {
             self.boardScroller(in: mount.window) != nil
                 && mount.hostLife.appearances == 1
         }
-        XCTAssertNotNil(boardScroller(in: mount.window),
-                        "premise: Review at project level shows the board")
+        XCTAssertNotNil(boardScroller(in: mount.window), "premise: Status shows the board")
         XCTAssertEqual(mount.hostLife.appearances, 1, "premise: the host mounted")
-        XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: and is still up")
 
-        // ⌘4 — the persona moves; the subject stays at .project.
-        mount.box.persona = .publish
-        await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) == nil }
-        XCTAssertNil(boardScroller(in: mount.window),
-                     "the board is Review's alone — Publish at project level "
-                     + "must not keep it mounted")
-        XCTAssertNotNil(altitudeTable(in: mount.window),
-                        "premise: Publish at project level still shows altitude "
-                        + "underneath (the probe mounts no book layer)")
+        mount.box.bookView = .outline
+        await pumpUntil(deadline: 5) { self.altitudeTable(in: mount.window) != nil }
+        XCTAssertNil(boardScroller(in: mount.window), "the Outline replaced the board")
         XCTAssertEqual(mount.hostLife.disappearances, 0,
-                       "the host was torn down on ⌘4 — a persona hop must only "
-                       + "swap the layers over it, never the host")
+                       "a view switch must only swap the layer's content, never the host")
 
-        // ⌘3 — back to Review; the board returns over the same host.
-        mount.box.persona = .review
+        mount.box.bookView = .status
         await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
         XCTAssertNotNil(boardScroller(in: mount.window), "the board is back")
-        XCTAssertEqual(mount.hostLife.disappearances, 0,
-                       "the host was torn down on the way back — same ZStack, "
-                       + "same host, or ⌘3⌘4 costs a document close per keystroke")
+        XCTAssertEqual(mount.hostLife.disappearances, 0)
         XCTAssertEqual(mount.hostLife.appearances, 1,
                        "…and never re-appeared, so it is the same host with the "
                        + "same Document across the whole round trip")
@@ -547,14 +413,15 @@ final class ReviewBoardRoutingTests: XCTestCase {
     func test_control_theBoardAsItsOwnArmTearsTheHostDown() async throws {
         let store = try await novel()
         let chapter = try Self.firstDocument(in: store)
-        let mount = try await host(store: store, subject: .item(chapter.id),
+        let mount = try await host(store: store,
+                                   subject: SubjectSamples.opened(.item(chapter.id)),
                                    shape: .ownArm)
 
         await pumpUntil(deadline: 5) { mount.hostLife.appearances == 1 }
         XCTAssertEqual(mount.hostLife.appearances, 1,
                        "premise: the arm shape mounts the host on the chapter")
 
-        mount.box.subject = .project
+        mount.box.pick(.project, in: store)
         // Waits on the quantity it asserts, for the reason the layered test
         // records: `.onDisappear` is not guaranteed to have run by the render
         // that puts the board on screen, and a control that can time out early
@@ -594,7 +461,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         try XCTSkipUnless(passes.count >= 2,
                           "this project offers \(passes.count) passes, too few "
                           + "to ask the question about a second column")
-        let mount = try await host(store: store, subject: .project)
+        let mount = try await host(store: store, subject: .book)
 
         await pumpUntil(deadline: 5) {
             self.boardScroller(in: mount.window) != nil
@@ -606,13 +473,12 @@ final class ReviewBoardRoutingTests: XCTestCase {
         XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: nothing torn down yet")
 
         await click(chips[passes.count + 1], in: mount.window, until: {
-            mount.box.subject == .item(second.id)
+            mount.box.subject.open == .item(second.id)
                 && !self.textViews(in: mount.window).isEmpty
         })
 
-        XCTAssertEqual(mount.box.subject, .item(second.id),
-                       "the click must take the window's subject to the piece "
-                       + "the chip is drawn for")
+        XCTAssertEqual(mount.box.subject.open, .item(second.id),
+                       "the click must open the piece the chip is drawn for")
         XCTAssertEqual(
             documentStores.last?.uiState.activePassMemory.activePass(forPiece: second.id),
             passes[1].id,
@@ -625,9 +491,9 @@ final class ReviewBoardRoutingTests: XCTestCase {
                        + "along — a click that tore it down would be `doc.close()` "
                        + "and `loads.abandon()` on the reviewer's commonest gesture")
         XCTAssertEqual(mount.hostLife.appearances, 1)
-        XCTAssertEqual(mount.box.persona, .review,
-                       "and the board moved no persona: it is a surface Review "
-                       + "shows, not a thing that decides Review is showing")
+        XCTAssertEqual(mount.box.bookView, .status,
+                       "and the board moved no view: going back up to the Book "
+                       + "lands on Status where the reviewer left it")
     }
 
     /// **A verb's write reaches the manifest, and the board redraws on it.**
@@ -643,7 +509,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let store = try await novel()
         let chapter = try Self.firstDocument(in: store)
         let pass = try XCTUnwrap(store.manifest.effectiveReviewPasses.first)
-        let mount = try await host(store: store, subject: .project)
+        let mount = try await host(store: store, subject: .book)
         await pumpUntil(deadline: 5) { self.boardScroller(in: mount.window) != nil }
 
         let before = try axChipLabels(in: mount.window)
@@ -687,46 +553,33 @@ final class ReviewBoardRoutingTests: XCTestCase {
 
     /// **The bridge from the probe's spelling to the window's.** The mounted
     /// tests drive a probe that takes every routing decision from production's
-    /// own statics, but the SHAPE of the last arm is the probe's own and a probe
-    /// cannot vouch for it. This reads the real `manuscriptEditor`.
-    func test_theBoardIsALayerOfTheSameZStackAndNotAnArmOfItsOwn() throws {
+    /// own statics, but the SHAPE is the probe's own and a probe cannot vouch
+    /// for it. This reads the real `manuscriptEditor` and `statusBoard`.
+    func test_theBoardIsTheAltitudeLayersStatusViewAndNotAnArmOrACover() throws {
         let arm = try SourceTree.declaration(
             named: "func manuscriptEditor(", under: "Maugham")
 
-        // Still one stack with the host mounted unconditionally underneath,
-        // altitude over it, and the board in the cover switch's `.reviewBoard` arm — gated on the
-        // route rather than on a second spelling written out here (a second
-        // gate is how a board ends up over the chapter a reviewer is reading).
-        // `CentreRouteTests.test_theShapeCensusesFireOnPlantedOffenders` plants
-        // the board as a free layer beside the switch and sees it caught.
+        // Still one stack with the host mounted unconditionally underneath and
+        // altitude over it — and the board nowhere in the stack but the
+        // altitude layer's Status view, placed by `ProjectAltitudePane`.
         XCTAssertEqual(CentreRouteSource.stackFaults(in: arm), [])
+        XCTAssertTrue(arm.contains("statusBoard("),
+                      "the altitude layer hands the pane its Status view")
         let route = try CentreRouteSource.rule()
-        XCTAssertTrue(route.contains("reviewCentreShowsBoard("),
-                      "the route asks the ONE named rule for the board")
-
-        // **Which surface wins**, which the stack's text order used to say: the
-        // board over altitude (premise: altitude was offered too), and never
-        // both the board and the book (`CentreRouteTests` over the product).
-        XCTAssertTrue(ProjectWindow.subjectShowsAltitude(
-            persona: .review, subject: .project,
-            structure: ProjectAltitudeCentreTests.structure),
-            "premise: altitude is offered at Review's project level")
+        XCTAssertTrue(route.contains("altitudeView("),
+                      "the route asks the ONE named rule for the Book's view")
         XCTAssertEqual(
             ProjectWindow.centreRoute(
-                persona: .review, subject: .project, projectType: .novel,
-                structure: ProjectAltitudeCentreTests.structure,
-                showsPaletteWall: false, preview: .nothingCompiled),
-            .editor(altitude: true, cover: .reviewBoard),
-            "the board must WIN over altitude — a corkboard over the board is "
-            + "the truth table read upside down")
+                subject: .book, bookView: .status, projectType: .novel,
+                structure: ProjectAltitudeCentreTests.structure, preview: .nothingCompiled),
+            .editor(altitude: .status, cover: nil),
+            "Status is the altitude layer's view, never a cover")
 
-        // Counted as CODE across every view (foundations plan 4 Task 4): the
-        // centre lives in `CentreColumn` now, and a count over one type's text
-        // would have gone to zero there or passed over a sibling's mount.
+        // Counted as CODE across every view: one mount for the board.
         XCTAssertEqual(
             try SourceTree.viewMounts(of: "ReviewBoardPane("), 1,
-            "one mount for the board, in the centre column's cover. A second "
-            + "is a surface nobody decided to add")
+            "one mount for the board, the Book's Status view. A second is a "
+            + "surface nobody decided to add")
         XCTAssertEqual(
             try SourceTree.viewMounts(of: "manuscriptEditor("), 2,
             "the declaration and exactly ONE call — `editorPane`'s `.editor` arm")
@@ -816,7 +669,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// this covers the closures the pane is handed, which live here.
     func test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore() throws {
         let arm = try SourceTree.declaration(
-            named: "func manuscriptEditor(", under: "Maugham")
+            named: "func statusBoard(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm),
                                  "the board's mount must still be a call with "
                                  + "arguments this scan can read")
@@ -841,13 +694,10 @@ final class ReviewBoardRoutingTests: XCTestCase {
             "the window must hand the centre column its one `ActivePassMemory` "
             + "writer, `recordActivePass(forPiece:passId:)`")
         XCTAssertFalse(
-            code.contains("persona"),
-            "the board's own closures move the window's PERSONA. The board is a "
-            + "surface Review shows, never a thing that decides Review is "
-            + "showing — a layer that wrote the persona would fight the picker, "
-            + "⌘1–4 and `ManuscriptNavigation` for it "
-            + "(`TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromThe"
-            + "ClosedSetOfDecisionSites`)")
+            code.contains("persona") || code.contains("bookView"),
+            "the board's own closures move the window's persona or its view. "
+            + "The board is a view of the Book, never a thing that decides what "
+            + "the window shows")
     }
 
     /// **What the open-notes count is wired TO** (M3 P2 Task 9) — the other
@@ -862,7 +712,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// the scope) and neither the subject nor the persona.
     func test_theCountIsWiredToTheQueueAndMovesNeitherSubjectNorPersona() throws {
         let arm = try SourceTree.declaration(
-            named: "func manuscriptEditor(", under: "Maugham")
+            named: "func statusBoard(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
         let closure = try XCTUnwrap(
@@ -936,31 +786,19 @@ final class ReviewBoardRoutingTests: XCTestCase {
     }
 
     /// The control for the scan above: `argumentList(after:)` must stop at the
-    /// call's own closing paren. `ProjectAltitudePane(` is mounted in the same
-    /// arm, one layer up, and its arguments must not be visible from inside the
-    /// board's — or the scan is really reading the arm again and cannot fail.
+    /// call's own closing paren. The `.task` that recounts is chained after the
+    /// call, in the same declaration, and must not be visible from inside the
+    /// board's arguments — or the scan is really reading the whole declaration
+    /// and cannot fail.
     func test_theBoardsArgumentScanStopsAtItsOwnCall() throws {
         let arm = try SourceTree.declaration(
-            named: "func manuscriptEditor(", under: "Maugham")
+            named: "func statusBoard(", under: "Maugham")
         let call = try XCTUnwrap(Self.argumentList(after: "ReviewBoardPane(", in: arm))
 
-        XCTAssertTrue(arm.contains("ProjectAltitudePane("),
-                      "premise: the arm really does mount altitude too")
-        XCTAssertFalse(call.contains("ProjectAltitudePane("),
+        XCTAssertTrue(arm.contains("refreshOpenNotes(store:"),
+                      "premise: the declaration really does recount after the call")
+        XCTAssertFalse(call.contains("refreshOpenNotes(store:"),
                        "the board's argument scan ran past its own call")
-        XCTAssertFalse(call.contains("EditorHost("),
-                       "…and past the host underneath it")
-
-        // The other half of the scan above: its persona check runs over CODE
-        // lines only, and this is what says that filter is doing work rather
-        // than passing because nothing in the call mentions a persona at all.
-        XCTAssertTrue(call.contains("persona"),
-                      "premise: the mount's own comment explains why the click "
-                      + "moves no persona — so a scan that did not drop comments "
-                      + "would fire on that explanation")
-        XCTAssertFalse(SourceScan.codeLines(of: call).joined(separator: "\n")
-                        .contains("persona"),
-                       "…and with comments dropped, nothing is left")
     }
 
     // MARK: - Hosting
@@ -975,15 +813,15 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// routing decision below the mount comes from production's own statics, and
     /// the subject is held outside the view so a test can move it without a tree.
     private func host(store: ProjectStore,
-                      persona: Persona = .review,
-                      subject: BinderSubject? = nil,
+                      subject: WindowSubject = .book,
+                      view: BookView = .status,
                       shape: ReviewCentreProbeView.Shape = .layered)
     async throws -> Mount {
         let documentStore = try await DocumentStore.open(url: store.url)
         store.documentStore = documentStore
         documentStores.append(documentStore)
 
-        let box = ReviewCentreProbeBox(persona: persona, subject: subject)
+        let box = ReviewCentreProbeBox(subject: subject, bookView: view)
         let life = EditorHostLifeCounter()
         // `EditorHost` reads `UserPreferences` out of the environment, and a
         // missing environment value is a trap in SwiftUI's own accessor rather
@@ -1019,7 +857,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
     /// change is that the board is a scrolling surface of its own that holds
     /// neither the corkboard's table nor the writer's text.
     ///
-    /// `test_control_authorsProjectRowIsStillTheCorkboardAndMountsNoBoard` is
+    /// `test_control_theBookInOutlineMountsNoBoard` is
     /// what says this reading discriminates at all.
     private func boardScroller(in window: NSWindow) -> NSScrollView? {
         collect(NSScrollView.self, in: window).first { scroller in
@@ -1244,18 +1082,26 @@ final class ReviewBoardRoutingTests: XCTestCase {
 // MARK: - Probes
 
 /// The window state the centre column reads, held outside the view so a test can
-/// move the persona and the subject the way the window does.
+/// move the subject and the Book's view the way the window does.
 @Observable
 @MainActor
 final class ReviewCentreProbeBox {
-    var persona: Persona
-    var subject: BinderSubject?
+    var subject: WindowSubject
+    var bookView: BookView
     /// Pieces whose open-notes count was clicked (M3 P2 Task 9).
     var openedNotesFor: [String] = []
 
-    init(persona: Persona, subject: BinderSubject?) {
-        self.persona = persona
+    init(subject: WindowSubject, bookView: BookView = .status) {
         self.subject = subject
+        self.bookView = bookView
+    }
+
+    /// A click on `clicked`, through `ClickRule` — what a card, a row or a chip
+    /// writes.
+    func pick(_ clicked: BinderSubject, in store: ProjectStore) {
+        subject = ClickRule.resolve(clicked, gesture: .click, current: subject,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type)
     }
 }
 
@@ -1265,14 +1111,10 @@ final class ReviewCentreProbeBox {
 /// would be testing the probe.
 ///
 /// What it spells for itself is the SHAPE of the last arm, which is the thing
-/// under test and cannot be reached from outside `ProjectWindow`
-/// (`manuscriptEditor` is private, and it reads the window's `@State`). Hence
-/// two cases: `.layered` is what production does, and `.ownArm` is the shape
-/// this task rejected, driven by the control test so the lifetime counter is
-/// proven able to see a teardown.
-///
-/// The publish layer is deliberately not modelled: nothing here is Publish, and
-/// `PublishPreviewCentreTests` owns that layer's own probe.
+/// under test and cannot be reached from outside `ProjectWindow`. Hence two
+/// cases: `.layered` is what production does (the board as the altitude
+/// layer's Status view), and `.ownArm` is the rejected shape, driven by the
+/// control test so the lifetime counter is proven able to see a teardown.
 @MainActor
 struct ReviewCentreProbeView: View {
     enum Shape { case layered, ownArm }
@@ -1284,34 +1126,34 @@ struct ReviewCentreProbeView: View {
     let shape: Shape
     let canvasModel: CanvasModel
 
-    @State private var layout: OutlineLayout = .table
     @State private var control = EditorControl()
     @State private var referenceIndex = ReferenceIndexHost()
 
     private var subject: Binding<BinderSubject?> {
-        Binding(get: { box.subject }, set: { box.subject = $0 })
+        Binding(
+            get: { box.subject.beside ?? box.subject.faces },
+            set: { box.pick($0 ?? .project, in: store) })
+    }
+
+    private var bookView: Binding<BookView> {
+        Binding(get: { box.bookView }, set: { box.bookView = $0 })
     }
 
     var body: some View {
         centre.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The route is production's own (`ProjectWindow.centreRoute`), switched
-    /// over in production's case order. The wall is never open here; Publish
-    /// is reached only by a persona hop, with nothing compiled, so it shows
-    /// altitude and the probe models no publish cover.
     @ViewBuilder
     private var centre: some View {
         switch ProjectWindow.centreRoute(
-            persona: box.persona, subject: box.subject,
+            subject: box.subject, bookView: box.bookView,
             projectType: store.manifest.type, structure: store.manifest.structure,
-            showsPaletteWall: false, preview: .nothingCompiled) {
+            preview: .nothingCompiled) {
         case .paletteWall:
             EmptyView()
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: id, previewVisible: false,
-                                  readOnly: !box.persona.editsResearchInTheCentre)
+                                  itemID: id, previewVisible: false, readOnly: false)
         case .figure:
             EmptyView()   // the probe's subjects are never figures
         case .canvas:
@@ -1319,28 +1161,26 @@ struct ReviewCentreProbeView: View {
                        paletteSwatchHexes: { [] })
         case .reference(let piece):
             ReferencePlaceholderCard(piece: piece, onOpen: {})
-        case .editor(let showsAltitude, let cover):
-            manuscriptCentre(showsAltitude: showsAltitude, cover: cover)
+        case .editor(let altitude, _):
+            manuscriptCentre(altitude: altitude)
+        case .inbox:
+            EmptyView()
         }
     }
 
     @ViewBuilder
-    private func manuscriptCentre(showsAltitude: Bool, cover: CentreCover?) -> some View {
+    private func manuscriptCentre(altitude: BookView?) -> some View {
         switch shape {
         case .layered:
             ZStack {
                 editor
-                if showsAltitude { altitude }
-                switch cover {
-                case .reviewBoard: board
-                default: EmptyView()
-                }
+                if let altitude { self.altitude(altitude) }
             }
         case .ownArm:
-            if case .reviewBoard = cover {
-                board
-            } else if showsAltitude {
-                altitude
+            if altitude == .status {
+                board(structure: store.manifest.structure)
+            } else if let altitude {
+                self.altitude(altitude)
             } else {
                 editor
             }
@@ -1349,44 +1189,41 @@ struct ReviewCentreProbeView: View {
 
     private var editor: some View {
         EditorHost(store: store, documentStore: documentStore,
-                   selectedItemId: box.subject?.itemID, control: control,
+                   selectedItemId: box.subject.open.itemID, control: control,
                    referenceIndex: referenceIndex)
             .onAppear { hostLife.appeared() }
             .onDisappear { hostLife.disappeared() }
     }
 
-    private var altitude: some View {
-        ProjectAltitudePane(store: store, layout: $layout,
-                            selectedSubject: subject, title: store.manifest.title)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+    private func altitude(_ altitude: BookView) -> some View {
+        let scope = ProjectWindow.altitudeScope(open: box.subject.open,
+                                                structure: store.manifest.structure,
+                                                bookTitle: store.manifest.title)
+        return ProjectAltitudePane(store: store, view: altitude, bookView: bookView,
+                                   selectedSubject: subject, title: scope.title,
+                                   structure: scope.structure) {
+            board(structure: scope.structure)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     /// **Wired the way the production mount is wired** (Task 8): a chip click
-    /// writes the SUBJECT and records the pass, and a menu verb writes through
-    /// the store. The probe cannot vouch for production's own closures — those
-    /// are read off `manuscriptEditor`'s text by
+    /// opens the piece through the click rule and records the pass, and a menu
+    /// verb writes through the store. The probe cannot vouch for production's
+    /// own closures — those are read off `statusBoard`'s text by
     /// `test_theBoardsChipsAreWiredToTheWindowsSubjectAndTheStore` — but it can
-    /// carry what a click DOES through a real mounted board, which is what the
-    /// hop tests here drive.
-    ///
-    /// Production also updates its `@State` copy of `ActivePassMemory`; the
-    /// probe has no window state of its own, so the persisted half is what it
-    /// models and what the tests read back.
-    private var board: some View {
+    /// carry what a click DOES through a real mounted board.
+    private func board(structure: [StructureItem]) -> some View {
         ReviewBoardPane(
             title: store.manifest.title,
-            structure: store.manifest.structure,
+            structure: structure,
             passes: store.manifest.effectiveReviewPasses,
-            // The counts are the WINDOW's own state in production, refreshed
-            // off the body path; the probe has no window state, so it models
-            // the shape that matters here — values in, and a click that does
-            // not move the centre.
             openNotes: [:],
             unreadableDocIds: [],
             onOpenNotes: { box.openedNotesFor.append($0) },
             onNavigate: { pieceId, passId in
-                box.subject = .item(pieceId)
+                box.pick(.item(pieceId), in: store)
                 documentStore.updateUIState {
                     $0.activePassMemory.record(piece: pieceId, passId: passId)
                 }
@@ -1394,12 +1231,8 @@ struct ReviewCentreProbeView: View {
             onSetState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             },
-            // The probe models the mount's SHAPE, not its stores: the real
-            // closure records the lane, moves the subject and defers a run
-            // until the piece is open (M4 P2 Task 4). Here the subject write
-            // is the part this suite is about.
             onRunRound: { pieceId, passId in
-                box.subject = .item(pieceId)
+                box.pick(.item(pieceId), in: store)
                 documentStore.updateUIState {
                     $0.activePassMemory.record(piece: pieceId, passId: passId)
                 }

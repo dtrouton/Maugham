@@ -17,23 +17,14 @@ extension ProjectWindow {
     ///
     /// The two columns differ, and the difference is the whole type:
     ///
-    /// - `takesTheCentre` — the item is the centre column, and the right column
-    ///   inspects it. Author and Review, whose left column is the manuscript
-    ///   home and nothing else.
-    /// - `besideTheCanvas` — Plan. The canvas STAYS MOUNTED
-    ///   (`Persona.centresTheCanvas`) and the right column previews the
-    ///   item instead. `CanvasTreeSegmentMountTests` measured what a second
-    ///   centre-column branch costs: the camera back to origin at zoom 1, every
-    ///   scrap layout re-measured, the thumbnail cache emptied — on every
-    ///   research click.
-    /// - `nothingMoves` — neither column has anything to do about it. Two
-    ///   populations reach it: a subject that is not research at all, and — as
-    ///   of shell-finish stage 3b Task 5 — a research subject in **Publish**,
-    ///   which is spec §4's "—" row. Publish has no rendering for a note or a
-    ///   card, and the centre it does have is the compiled book; so the subject
-    ///   falls through to the manuscript arm, which shows the book if there is
-    ///   one and the project at altitude if there is not ("Review/Publish
-    ///   degrade gracefully… the centre never renders nothing").
+    /// - `takesTheCentre` — the item is the subject's `open`: the centre column
+    ///   shows it, and the right column inspects it.
+    /// - `besideTheCanvas` — the item is the subject's `beside` (a click): the
+    ///   centre is left alone and the right column previews the item. Whatever
+    ///   the centre is — the canvas STAYS MOUNTED; `CanvasTreeSegmentMountTests`
+    ///   measured what a second centre-column branch costs (the camera back to
+    ///   origin, every scrap layout re-measured, the thumbnail cache emptied).
+    /// - `nothingMoves` — the subject names no research item in either place.
     ///
     /// A third case, `.segmentStands`, guarded against a left column that was
     /// not the tree: a research item taking a column while nothing on screen
@@ -85,73 +76,41 @@ extension ProjectWindow {
     /// spelled inside a `@ViewBuilder` where no test could be exhaustive over
     /// it.
     ///
-    /// **Two guards stood in front of this and both are gone**, each in the task
-    /// that made it unable to decide anything.
-    ///
-    /// `keepsItsOwnResearchSelection` went in stage 2b Task 6 — it asked whether
-    /// the centre was already about a research item, and the trap guard beside
-    /// it was strictly wider, so it never decided a case the other did not
-    /// decide the same way.
-    ///
-    /// The trap guard itself went in Task 7 with the enum it was asked of: it
-    /// refused every left column that was not the tree, and every left column is
-    /// the tree now. See `ResearchSubjectPlacement` for the successor question —
-    /// the find overlay — and why the answer is asserted rather than made a term
-    /// here.
-    static func researchSubjectPlacement(
-        persona: Persona, subject: BinderSubject?
-    ) -> ResearchSubjectPlacement {
-        guard let id = subject?.researchID else { return .nothingMoves }
-        // **Publish acts on it in neither column** (stage 3b Task 5, spec §4's
-        // "—" row). Asked FIRST because the two questions below it are both
-        // about which column takes the item, and Publish's answer is that
-        // neither does: its centre is the book, and a note previewed beside a
-        // book is a reference view Publish does not have. Asked through
-        // `previewsThePublishedBook` rather than by name — the ONE spelling.
-        guard !persona.previewsThePublishedBook else { return .nothingMoves }
-        // **The persona decides which column.** Plan keeps the board in the
-        // centre and previews beside it; everyone else hands the centre over.
-        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
+    /// **Asked of the subject's two places.** A research item in `open` (a
+    /// double-click, the explicit control) takes the centre; one in `beside`
+    /// (a click) previews in the right column whatever the centre is — the
+    /// canvas keeps its one mount, the editor its document. `open` wins when
+    /// both name one: the right column inspects what the centre shows.
+    static func researchSubjectPlacement(subject: WindowSubject) -> ResearchSubjectPlacement {
+        if let id = subject.open.researchID { return .takesTheCentre(id) }
+        if let id = subject.beside?.researchID { return .besideTheCanvas(id) }
+        return .nothingMoves
     }
 
     /// **Showing the column the placement chose** (stage 2b final review's
-    /// Critical) — for a research item or a figure alike: a figure beside the
-    /// canvas (`figureSubjectPlacement`) reveals the same column.
+    /// Critical) — for a research item or a figure alike.
     ///
-    /// `besideTheCanvas` says the right column previews the item (or figure). It does not
-    /// make that column VISIBLE, and in Plan it is not: `Persona.panes` opens
-    /// Plan on `.inbox`, and `ResearchSubjectInspector` is mounted by
-    /// `DetailPaneToggle`'s `.inspector` arm alone. So every correct piece of
-    /// the routing — the tree writes the subject, the placement sends it beside
-    /// the board, the right column knows what to draw — composed into a research
-    /// row that put nothing anywhere: the board does not dim, the pane does not
-    /// change, and the writer's click is silently nothing. Three tasks' choices,
-    /// each right on its own.
+    /// `besideTheCanvas` says the right column previews the item. It does not
+    /// make that column VISIBLE: `ResearchSubjectInspector` is mounted by
+    /// `DetailPaneToggle`'s `.inspector` arm alone. Without this a research row
+    /// would write a subject that reaches no surface at all.
     ///
     /// **What it does NOT do is decide anything about the columns.** Where the
-    /// centre takes the item (Author, Review) — and where nothing moves at all
-    /// (Publish, whose centre is the book) — this writes nothing, so a writer's
-    /// pane choice in those personas is never moved by a research click; the
-    /// guard is the placement's own answer, asked rather than a second
-    /// `centresTheCanvas` test. The Publish half of that list read "the centre
-    /// takes the item" for a slice after stage 3b Task 5 made it `.nothingMoves`
-    /// — the right conclusion (nothing is written) from a false premise.
+    /// centre takes the item this writes nothing, so a writer's pane choice is
+    /// never moved by an item they can already see; the guard is the
+    /// placement's own answer, asked rather than restated.
     ///
     /// `inout` and static so the whole rule is drivable without a window, and so
     /// the three sites that reveal — the subject observer
-    /// (`ResearchRevealModifier`, which a figure subject inherits) and the two forced entries (`openResearchItem`,
+    /// (`ResearchRevealModifier`) and the two forced entries (`openResearchItem`,
     /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
     /// means.
-    static func revealResearchColumn(persona: Persona,
-                                     subject: BinderSubject?,
+    static func revealResearchColumn(subject: WindowSubject,
                                      showInspector: inout Bool,
                                      detailSegment: inout DetailSegment) {
-        // A figure beside the canvas reveals the same column
-        // (`figureSubjectPlacement`, report plan 8a Task 5).
-        guard researchSubjectPlacement(persona: persona, subject: subject)
-            .previewsInTheRightColumn
-            || figureSubjectPlacement(persona: persona, subject: subject)
-                .besideFigureID != nil else { return }
+        guard researchSubjectPlacement(subject: subject).previewsInTheRightColumn
+            || figureSubjectPlacement(subject: subject).besideFigureID != nil
+        else { return }
         showInspector = true
         detailSegment = .inspector
     }

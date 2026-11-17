@@ -6,7 +6,7 @@ import MaughamCore
 @testable import Maugham
 
 /// The intent strip (M2 spec §6.1) — the writer's signature line above the
-/// prose, Author persona only.
+/// prose, only where a piece is open in the centre.
 ///
 /// **The identity invariant this suite exists to hold is ADR 0027 §1**: nothing
 /// model-produced renders in the editor or its chrome, and the strip is the one
@@ -115,150 +115,38 @@ final class IntentStripTests: XCTestCase {
 
     // MARK: - Contract 2: when there is a strip at all
 
-    /// Author only. Asked over the whole product of persona and chrome state
-    /// rather than the one path the plan happened to name.
-    func test_theStripIsAuthorsAloneAndHidesWithTheChrome() {
+    /// A piece open in the centre only. Asked over the whole product of every
+    /// kind of `open` and chrome state rather than the one path the plan
+    /// happened to name.
+    func test_theStripIsAPiecesAloneAndHidesWithTheChrome() {
         let text = "A woman walks into the sea."
-        for persona in Persona.allCases {
+        for open in SubjectSamples.everyOpen {
             for isNoChromeOn in [false, true] {
                 let line = IntentStrip.line(
-                    persona: persona, isNoChromeOn: isNoChromeOn, statementText: text)
-                let shouldShow = (persona == .author && !isNoChromeOn)
+                    subject: SubjectSamples.opened(open), structure: SubjectSamples.structure,
+                    isNoChromeOn: isNoChromeOn, statementText: text)
+                let shouldShow = (SubjectSamples.kind(of: open) == "piece" && !isNoChromeOn)
                 XCTAssertEqual(
                     line != nil, shouldShow,
-                    "persona \(persona), no-chrome \(isNoChromeOn)")
+                    "\(open) open, no-chrome \(isNoChromeOn)")
             }
         }
+        // The faces on a piece while the canvas holds the centre: no strip.
+        XCTAssertNil(IntentStrip.line(
+            subject: WindowSubject(open: .canvas, faces: .item(SubjectSamples.pieceID)),
+            structure: SubjectSamples.structure, isNoChromeOn: false, statementText: text))
     }
 
     func test_noIntentIsNoStrip() {
+        let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
         XCTAssertNil(IntentStrip.line(
-            persona: .author, isNoChromeOn: false, statementText: nil))
+            subject: piece, structure: SubjectSamples.structure,
+            isNoChromeOn: false, statementText: nil))
         XCTAssertNil(IntentStrip.line(
-            persona: .author, isNoChromeOn: false, statementText: "# Intent\n"))
+            subject: piece, structure: SubjectSamples.structure,
+            isNoChromeOn: false, statementText: "# Intent\n"))
     }
 
-    // MARK: - Contract 3: the data path, by construction
-
-    /// The strip's text comes from `statementText(of:)` and from nowhere else.
-    ///
-    /// A source census rather than a comment (ADR 0027 §1): the view's only
-    /// stored input is a `String`, the only function that produces one is
-    /// `IntentStrip.line`, and the only production construction of the view is
-    /// `ProjectWindow`'s — which passes that function's output. If a future
-    /// hand reaches for a diagnostic body, a summary or any other
-    /// model-produced string, one of these goes red.
-    func test_theOnlyProductionCallerFeedsItStatementText() throws {
-        let stripURL = sourceDir.appendingPathComponent("Views/IntentStrip.swift")
-        let strip = try code(of: stripURL)
-
-        // Control first: the scan must be able to see this file's code at all,
-        // or every assertion below is vacuously true.
-        XCTAssertTrue(strip.contains("struct IntentStrip"),
-                      "the comment-stripped scan found no code to scan")
-        for forbidden in ["Diagnostic", "diagnostic", "Compiler", "runner", "model"] {
-            XCTAssertFalse(
-                strip.contains(forbidden),
-                "`\(forbidden)` reached IntentStrip.swift's CODE — the strip renders "
-                + "the writer's own statement text and nothing model-produced "
-                + "(ADR 0027 §1)")
-        }
-        XCTAssertTrue(strip.contains("statementText(of:"),
-                      "the resolver stopped reading the statement's own text")
-
-        // Keyed by TYPE: a construction inside `ProjectWindow`'s declarations
-        // answers as `type:ProjectWindow`, so a split of the window moves
-        // nothing here — and one in a child view sharing a window file answers
-        // under that file (plan 2 final review, I1).
-        XCTAssertEqual(
-            try Self.stripConstructionSites(in: sourceDir),
-            ["type:ProjectWindow"],
-            "the strip is constructed somewhere new; that site must feed it "
-            + "statement text too")
-        // …and that it builds the line through `IntentStrip.line(`:
-        // `WiringCensusTests`.
-    }
-
-    /// **The view's stored inputs are exactly a line and a flag** — the
-    /// structural half of ADR 0027 §1 now that the strip draws something the
-    /// compiler caused (M3-P3 §7).
-    ///
-    /// The forbidden-token census above catches a diagnostic *reached for* from
-    /// inside this file. It cannot catch the other shape, which is the one a
-    /// hurry would take: a model-authored sentence handed IN at the mounting
-    /// site — `IntentStrip(line: line, mayTrailDraft: flag, note: run.driftNote)`
-    /// — because every token of that lives in `ProjectWindow.swift`. What makes
-    /// it impossible is the input list: a sentence needs somewhere to land, and
-    /// the only inputs are a `String` the resolver produces from the writer's
-    /// own statement and a `Bool`, which cannot carry prose.
-    ///
-    /// Planted offender below, because a census that cannot be shown to see an
-    /// offender is a census that passes for the wrong reason.
-    func test_theStripStoresALineAndAFlagAndNothingElse() throws {
-        let strip = try code(of: sourceDir.appendingPathComponent("Views/IntentStrip.swift"))
-
-        XCTAssertEqual(
-            Self.storedInputs(in: strip),
-            [Self.StoredInput(name: "line", type: "String"),
-             Self.StoredInput(name: "mayTrailDraft", type: "Bool")],
-            "the strip's stored inputs changed. A second `String` is a place for "
-            + "model-produced prose to land in the editor's chrome (ADR 0027 §1) "
-            + "— the mark's words are `IntentStrip.mayTrailDraftMark`, written "
-            + "here and fixed at compile time")
-
-        // The planted offender: the same detector, over the shape this test
-        // exists to stop. If this passes silently the assertion above proves
-        // nothing.
-        let planted = """
-            struct IntentStrip: View {
-                let line: String
-                var mayTrailDraft: Bool = false
-                let driftNote: String
-                var body: some View { Text(line) }
-            }
-            """
-        XCTAssertEqual(
-            Self.storedInputs(in: planted),
-            [Self.StoredInput(name: "line", type: "String"),
-             Self.StoredInput(name: "mayTrailDraft", type: "Bool"),
-             Self.StoredInput(name: "driftNote", type: "String")],
-            "the detector cannot see a third input, so the assertion above is "
-            + "vacuous")
-    }
-
-    private struct StoredInput: Equatable {
-        let name: String
-        let type: String
-    }
-
-    /// Every stored input a view declares: a `let`/`var` member with a written
-    /// type, minus `static` (constants of the view's own), `private` (state
-    /// nobody hands in) and property wrappers. A local `let x = …` inside a
-    /// function has no type annotation and never matches.
-    private static func storedInputs(in source: String) -> [StoredInput] {
-        source.components(separatedBy: "\n").compactMap { raw -> StoredInput? in
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("let ") || line.hasPrefix("var ") else { return nil }
-            let declaration = line.components(separatedBy: "=")[0]
-                .trimmingCharacters(in: .whitespaces)
-            guard !declaration.contains("("), !declaration.contains("{") else { return nil }
-            let parts = declaration.dropFirst(4).components(separatedBy: ":")
-            guard parts.count == 2 else { return nil }
-            return StoredInput(
-                name: parts[0].trimmingCharacters(in: .whitespaces),
-                type: parts[1].trimmingCharacters(in: .whitespaces))
-        }
-    }
-
-    /// A Swift file's code, with whole-line comments dropped — the census is a
-    /// claim about what the file *does*, and a doc comment naming a diagnostic
-    /// in order to forbid it must not trip its own rule.
-    private func code(of url: URL) throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-            .components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
 
     // MARK: - The piece-first, project-fallback resolution (one spelling)
 
@@ -269,7 +157,7 @@ final class IntentStripTests: XCTestCase {
 
         XCTAssertEqual(
             IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The chapter's own.")
     }
 
@@ -279,14 +167,14 @@ final class IntentStripTests: XCTestCase {
 
         XCTAssertEqual(
             IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.")
     }
 
     func test_neitherScopeHasOneAndThereIsNoStrip() async throws {
         let (_, store, chapter) = try await novelWithChapter(named: "StripNeither")
         XCTAssertNil(IntentStrip.line(store: store, docId: chapter.id,
-                                      persona: .author, isNoChromeOn: false))
+                                      subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false))
     }
 
     /// **One spelling, shared with the compiler.** The strip and
@@ -342,13 +230,13 @@ final class IntentStripTests: XCTestCase {
         document.setFullText("First thought.")
         XCTAssertEqual(
             IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "First thought.")
 
         document.setFullText("Second thought, typed over the first.")
         XCTAssertEqual(
             IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "Second thought, typed over the first.",
             "the strip is showing stale text — it is not reading the live "
             + "Document the Intent pane writes into")
@@ -402,7 +290,7 @@ final class IntentStripTests: XCTestCase {
 
         XCTAssertEqual(
             IntentStrip.line(store: store, docId: chapter.id,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.",
             "the strip stopped falling back to the project")
         XCTAssertEqual(

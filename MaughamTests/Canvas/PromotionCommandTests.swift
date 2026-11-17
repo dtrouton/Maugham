@@ -12,23 +12,28 @@ import SwiftUI
 final class PromotionCommandTests: XCTestCase {
 
     private let a = CanvasNodeID("a")
+    /// The canvas open — with the faces on a piece, which changes nothing.
+    private static let canvas = WindowSubject(open: .canvas,
+                                              faces: .item(SubjectSamples.pieceID))
+    /// A piece open: the editor is the centre and no canvas selection is on screen.
+    private static let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
 
     // MARK: - Enablement
 
     func test_theCommandIsOfferedOnlyOnTheCanvasWithSomethingSelected() {
         let model = CanvasModel()
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .plan,
+            subject: Self.canvas,
             selection: model.selection, nodeKind: nil, isReadOnly: false))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan,
+            subject: Self.canvas,
             selection: .node(a), nodeKind: .scrap, isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .author,
+            subject: Self.piece,
             selection: .node(a), nodeKind: .scrap, isReadOnly: false),
             "the manuscript editor has no canvas selection to promote")
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .author,
+            subject: Self.piece,
             selection: .region(CanvasRegionID("r")), nodeKind: nil, isReadOnly: false))
     }
 
@@ -42,12 +47,12 @@ final class PromotionCommandTests: XCTestCase {
     /// selection case.
     func test_aReferencedItemNodeIsNotPromotableBecauseItAlreadyExistsAsItself() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a), nodeKind: .scrap, isReadOnly: false))
+            subject: Self.canvas, selection: .node(a), nodeKind: .scrap, isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a),
+            subject: Self.canvas, selection: .node(a),
             nodeKind: .item(.project(id: "r-9")), isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a), nodeKind: nil, isReadOnly: false),
+            subject: Self.canvas, selection: .node(a), nodeKind: nil, isReadOnly: false),
             "a selection naming a node the scene no longer holds resolves to no "
             + "kind, and an enabled command with nothing behind it is the "
             + "condition the flag exists to prevent")
@@ -60,24 +65,24 @@ final class PromotionCommandTests: XCTestCase {
     /// the same argument the refusal above does.
     func test_anOwnedItemNodeIsPromotable() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan, selection: .node(a),
+            subject: Self.canvas, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png")), isReadOnly: false))
         XCTAssertFalse(CanvasPromotionModifier.isPromotable(
-            persona: .author, selection: .node(a),
+            subject: Self.piece, selection: .node(a),
             nodeKind: .item(.owned(path: "canvas_assets/image-20260730-121314.png")), isReadOnly: false),
             "the control: the centre-column guard still runs first — this is "
-            + "not an escape hatch past it. Author's centre is the editor, and "
-            + "a canvas selection there names something not on screen")
+            + "not an escape hatch past it. With a piece open the centre is the "
+            + "editor, and a canvas selection names something not on screen")
     }
 
     /// A region and a line carry no node kind, so the kind term must not reach
     /// them — passing nil for a region is the ordinary case, not a defect.
     func test_theNodeKindTermDoesNotReachARegionOrALine() {
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan,
+            subject: Self.canvas,
             selection: .region(CanvasRegionID("r")), nodeKind: nil, isReadOnly: false))
         XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-            persona: .plan,
+            subject: Self.canvas,
             selection: .line(CanvasLineID("l")), nodeKind: nil, isReadOnly: false))
     }
 
@@ -95,7 +100,7 @@ final class PromotionCommandTests: XCTestCase {
         for selection: CanvasSelection in [.node(a), .region(CanvasRegionID("r")),
                                            .line(CanvasLineID("l"))] {
             XCTAssertTrue(CanvasPromotionModifier.isPromotable(
-                persona: .plan,
+                subject: Self.canvas,
                 selection: selection, nodeKind: .scrap, isReadOnly: false),
                 "\(selection)")
         }
@@ -444,13 +449,12 @@ final class PromotionCommandTests: XCTestCase {
               ".modifier(CanvasClaudeArrivalModifier(",
               "subject: CanvasSubject.resolve(",
               "pieceTitles: ProjectWindow.canvasPieceTitles(in: store)",
-              "selectTheProjectRow: { selectedSubject = .project }",
+              "selectTheProjectRow: {",
               "assetIngest: CanvasAssetIngest(",
               "captureDrop: CanvasCaptureDrop(",
               ".modifier(CanvasCollapseModifier(",
               "NavigationSplitView(columnVisibility: $columnVisibility)",
               "Self.releasesCanvasCollapse(",
-              "paletteWall.closePaletteWallOnPersonaChange(",
               "paletteWall.applyPaletteWallChange("],
              // **Numbered by what each token IS, never by its position in the
              // array above** (1C-d Task 12a, review Important 1). This read
@@ -580,23 +584,9 @@ final class PromotionCommandTests: XCTestCase {
              + "`CanvasCollapseTests` assertion stays green while a writer who "
              + "closed the inspector before collapsing lands in the next "
              + "persona with it closed, which is the exact defect the predicate "
-             + "exists to prevent. **`paletteWall.closePaletteWallOnPersonaChange(` "
-             + "is the same hazard on the WALL, and it had the identical gap "
-             + "until the 1C-d whole-branch review (M3)** — Task 13 measured "
-             + "the hazard on the collapse's predicate and censused that one, "
-             + "and left the sibling it was copied from uncovered. It was "
-             + "`Self.clearsPaletteWallStash(`, inside `PersonaModifier`'s "
-             + "handler, until stage 2b's final review (I3): that call could "
-             + "only ever run for the ⌘1–⌘4 path, while two other writers move "
-             + "the persona without touching that handler, so the rule became "
-             + "an `.onChange(of: persona)` observer in `PaletteWallModifier` "
-             + "and this token names the observer's call. Delete it and every "
-             + "test over the fold stays green while a writer who switches "
-             + "persona with the wall open lands with the inspector CLOSED — "
-             + "`PaletteWallModifier`'s exit arm restores the stashed "
-             + "visibility over the switch's unconditional `showInspector = "
-             + "true` — and, one surface further, carries the wall itself into "
-             + "the persona they never opened it in. "
+             + "exists to prevent. The wall's persona observer that stood beside "
+             + "it went in shell p1 Task 2: the wall is the subject's `open`, so "
+             + "a subject change is the wall closing and needs no second rule. "
              + "`paletteWall.applyPaletteWallChange(` is the wall's own "
              + "fold, and it is that shape one surface over: the fold is a "
              + "static with its own tests, so deleting the single line that "
@@ -610,7 +600,7 @@ final class PromotionCommandTests: XCTestCase {
               "returnKeyboardToTree: returnKeyboardToTree",
               "Self.binderTakesTheKeyboardBack(",
               "? { treeKeyboardRequest += 1 } : nil",
-              "tabReachesTheCanvas: persona.centresTheCanvas",
+              "tabReachesTheCanvas: subject.open == .canvas",
               "giveTheCanvasTheKeyboard: { canvasKeyboardRequest += 1 }",
               "treeKeyboardRequest: treeKeyboardRequest"],
              "the keyboard hand-off between the binder and the canvas. "
@@ -843,17 +833,6 @@ final class PromotionCommandTests: XCTestCase {
             ["Self.releasesNotARealCollapse("],
             "the census reports the ABSENT persona-call-site token and not the "
             + "present one")
-        // And the wall's half of the same hazard, which had the identical gap
-        // until the 1C-d whole-branch review. It left `PersonaModifier` in stage
-        // 2b's final review (I3) — one observer of the persona covers every
-        // writer of it — so the token names the observer's call.
-        XCTAssertEqual(
-            try missingTokens(in: Self.window,
-                              required: ["paletteWall.closePaletteWallOnPersonaChange(",
-                                         "paletteWall.closesNothingReal("]),
-            ["paletteWall.closesNothingReal("],
-            "the census reports the ABSENT palette-stash-call-site token and not "
-            + "the present one")
         // And the wall's fold, the same shape one surface over: a static with
         // its own tests, called from exactly one line.
         XCTAssertEqual(

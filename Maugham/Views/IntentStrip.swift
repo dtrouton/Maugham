@@ -140,15 +140,23 @@ struct IntentStrip: View {
     /// text: a line to draw, or nothing to mount.
     ///
     /// Pure and asked over the product of its inputs rather than the one path
-    /// the plan named. Author alone, because the strip is a writing surface's
-    /// running head and the other three personas are not writing; and it goes
-    /// with the chrome under ⌘\, because a writer who asked for nothing but
-    /// their prose asked for that too.
+    /// the plan named. Only where the subject's `open` is a piece, because the
+    /// strip is a writing surface's running head and nothing else in the centre
+    /// is being written; and it goes with the chrome under ⌘\, because a writer
+    /// who asked for nothing but their prose asked for that too.
     static func line(
-        persona: Persona, isNoChromeOn: Bool, statementText: String?
+        subject: WindowSubject, structure: [StructureItem],
+        isNoChromeOn: Bool, statementText: String?
     ) -> String? {
-        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
+        guard shows(subject: subject, structure: structure), !isNoChromeOn else { return nil }
         return line(from: statementText)
+    }
+
+    /// Whether the window shows a strip at all: its `open` is a piece — a
+    /// document the editor is showing, never the Book, a Part, the canvas or
+    /// an edition, whatever the faces are on.
+    static func shows(subject: WindowSubject, structure: [StructureItem]) -> Bool {
+        ProjectWindow.selectionIsDocument(subject.open, in: structure)
     }
 
     /// The same decision, resolved against a project: the intent that applies
@@ -176,13 +184,14 @@ struct IntentStrip: View {
     /// roadmap's left-open list; do not write "the strip observes the
     /// statement" without the open-in-a-pane clause.
     ///
-    /// The gates are checked first so a persona with no strip reads no
+    /// The gates are checked first so a window with no strip reads no
     /// statement at all.
     @MainActor
     static func line(
-        store: ProjectStore, docId: String, persona: Persona, isNoChromeOn: Bool
+        store: ProjectStore, docId: String, subject: WindowSubject, isNoChromeOn: Bool
     ) -> String? {
-        guard persona.showsIntentStrip, !isNoChromeOn else { return nil }
+        guard shows(subject: subject, structure: store.manifest.structure),
+              !isNoChromeOn else { return nil }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }
         // **The ESSAY stratum, not the whole statement** (declared-world Task
         // 6). `line(from:)` walks blocks and takes the first paragraph, list

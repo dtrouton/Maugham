@@ -1196,7 +1196,8 @@ final class StatementPaneStrataTests: XCTestCase {
                                        kind: .intent, forScope: scope, store: fixture.store, world: nil)
         XCTAssertNil(
             IntentStrip.line(store: fixture.store, docId: fixture.documentItemId,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(fixture.documentItemId)),
+                             isNoChromeOn: false),
             "the running head quoted a ruling")
 
         // The writer's own first sentence, and now there is a line.
@@ -1206,7 +1207,8 @@ final class StatementPaneStrataTests: XCTestCase {
         }
         XCTAssertEqual(
             IntentStrip.line(store: fixture.store, docId: fixture.documentItemId,
-                             persona: .author, isNoChromeOn: false),
+                             subject: SubjectSamples.opened(.item(fixture.documentItemId)),
+                             isNoChromeOn: false),
             "A woman who hears everything.")
     }
 

@@ -9,9 +9,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The window family
 - `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`, `pressPaletteWallDoor`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute` and `CentreCover`, and `ProjectWindow.centreRoute(…)`: what the centre column shows, as one exhaustive value (tripwires 6, 27, 30).
-- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + altitude + one cover), the board's open-notes counts (tripwires 2, 6, 30).
+- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + the Book's view + one cover), `statusBoard` (the board's one mount) and its open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
-- `PaletteWallState.swift` — the wall's window state as one value (`showsWall`, `travelPending`, the inspector stash) with its three folds as mutating methods.
+- `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
@@ -237,19 +237,19 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`ProjectWindow.detailColumn` frames its content to the width it declares**: one width, bound once, from `detailColumnWidth` (the persisted wish, written only by the resize handle, clamped to `UIState.detailColumnWidthRange`, 240–480).
 
 ### The centre column
-- **`centreRoute` answers once, as a value, and `CentreColumn` renders it with one `switch` per level — never by layer order** (`CentreRouteTests`, over the whole product: the board and Publish's surface are never both offered).
-- **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the third branch, its one mount (tripwires 27, 30; `RegionBindingTests` counts it).
-- **Every altitude or cover change happens inside `.editor(altitude:cover:)`, never as a new branch**: a branch is a view identity, and a second one would run `EditorHost`'s `.onDisappear` on every project ↔ chapter hop (tripwire 6).
-- **In `CentreColumn.manuscriptEditor`'s `ZStack`, `EditorHost` is first and always present, altitude second whenever the subject names no document, then at most ONE cover chosen by `centreRoute`.** Count layers in `ProjectAltitudeCentreTests`' arm scans.
-- **Altitude shows where `ProjectWindow.subjectShowsAltitude(persona:subject:structure:)` is true**: no subject resolving to one document, in a persona whose centre is the editor.
-- **Publish's surfaces and Review's board compose `subjectShowsAltitude`, never a second document-resolution rule**: a chapter subject in Publish or Review shows the editor.
-- **Problems outrank a round, which outranks a proposal, which outranks the book** (`publishCentre`); the desk's Shows clear each other, so the centre holds one.
-- **`showsStatusFooter` refuses under altitude, the palette wall and a research subject in the centre** (`PublishPreviewCentreTests`).
-- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed, so the mounted editor always wins. It derives from the op log, never the `.fountain` (tripwire 20) (`ScreenplayScriptSourceTests`).
+- **`centreRoute` answers once, from the window's `subject: WindowSubject`, as a value; `CentreColumn` renders it with one `switch` per level, never by layer order** (`CentreRouteTests`, every `open` × `BookView` × publish state).
+- **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the fourth branch, its one mount (tripwires 27, 30; `RegionBindingTests`); `.inbox` is last.
+- **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline and Status are its associated `BookView`.
+- **`manuscriptEditor`'s `ZStack`: `EditorHost` first and always present, the Book's view second whenever `open` names no document, then at most ONE cover.** Count layers in `ProjectAltitudeCentreTests`' arm scans.
+- **The Book's view is `altitudeView`'s answer**: the Book, a Part (its own chapters, `altitudeScope`) or an edition (never Status there). Status is a view, never a cover; the board's one mount is `statusBoard`.
+- **Every cover is an edition's** (`publishCentre`, whatever the faces are on): problems, then a round, a proposal, the book.
+- **A click on a piece while the canvas or an edition is the centre moves the faces, never `open`** (`ClickRule`).
+- **`showsStatusFooter` shows exactly where `open` is a document** (`PublishPreviewCentreTests`).
+- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log, never the `.fountain` (tripwire 20).
 
 ### Personas
-- **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — the centre question is `centresTheCanvas` / `showsManuscriptDocuments`, the wall `showsPaletteWall`, Exports `showsExports`, Publish `previewsThePublishedBook`, Review's read-only centre `editsResearchInTheCentre`: `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
-- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`'s `pressPaletteWallDoor`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
+- **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — Exports `showsExports`, Review's read-only centre `editsResearchInTheCentre` (the centre itself is the subject's, "The centre column"): `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
+- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`, `CanvasClaudeArrivalModifier`, `TreeTravel`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
 - **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2).
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
@@ -289,20 +289,19 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Research subjects and the palette wall
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway`.
-- **Where the centre is the canvas, a research subject never swaps the centre out**; it previews in the right column. Elsewhere it takes the centre.
+- **A research item `beside` (a click) previews in the right column and never moves the centre; one `open` (the explicit gesture) takes the centre** (`researchSubjectPlacement`, `ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
 - **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject previews there; `load()`'s restore does not force the pane.
-- **A figure subject asks `figureSubjectPlacement`, in both columns** (`FigureSubjectPlacementTests`): Author and Review give it the centre, Plan puts it beside the canvas, Publish moves nothing.
+- **A figure subject asks `figureSubjectPlacement`, in both columns** (`FigureSubjectPlacementTests`): a figure `open` takes the centre, one `beside` shows in the right column.
 - **The Figures section is the middle path**: drawn only while the project holds a non-parked figure; a piece's count filters it, its header chip clears it.
 - **The tree's cards come from its own `FigureCardCache`**, never the editor's.
 - **A drag onto Figures or Research is classified by `TreeDropIntent`, never in the row.** Research onto Figures is `useInDocument`, unasked; a figure onto Research or a group asks once (`PendingFigureSend`) and cannot be undone. Figures take no figure-on-figure drop.
 - **A legacy row is listed, never selected**: *Move into Figures* dry-runs the line, makes the figure, then `retargetFigureLine`s it; a parked copy named otherwise than the line's label is refused.
 - **The figure listing lives at window level** (`ReferenceIndexHost`, `FigureListingModel` in `ProjectWindow`), so rows need no mounted editor.
-- **The palette wall never draws over Plan's board** (`showsPaletteWallCentre`).
-- **Any persona change closes the wall, from any writer** (`PaletteWallState.closePaletteWallOnPersonaChange`, in `PaletteWallModifier`).
-- **In Plan the Open Wall door travels**: `pressPaletteWallDoor` arms `travelPending`, writes the persona, opens nothing, writes no subject; `PaletteWallModifier` consumes it AFTER `closePaletteWallOnPersonaChange`.
-- **The door's tooltip and its press ask one spelling, `paletteWallDoorTravels`** (`PaletteWallDoorTests`, driven with real mouse events).
+- **The palette wall is the subject's `open == .palette`, asked only through `showsPaletteWallCentre`** (`PaletteWallDoorTests.test_thePaletteIsComparedOnlyInTheOneQuestion`).
+- **Any subject change that takes `open` off the palette closes the wall and restores the inspector** (`PaletteWallState.applyPaletteWallChange`, in `PaletteWallModifier`); the wall's own Close returns to the subject it was opened over (`closingWall`).
+- **The Open Wall door opens the wall where the writer is** (`pressPaletteWallDoor` sets `open`, leaves the faces); nothing travels.
 
 ### Layout and sizing
 - **A pane's growing content is a reason to compress or scroll THAT pane, never to raise the window's minimum height** (`ProjectWindow.windowHeightFloor`, 540): `TreeScrollStabilityTests.test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`. `.doesNotRaiseTheWindowFloor()` measures the first subview only.
@@ -486,8 +485,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 Checks: the compiler, `PersonaPaneRegistryTests`, `DetailPaneTogglePersonaTests`, `DocSyncTests`.
 
 ### Add a centre route
-1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer that is `besideTheCanvas` in Plan.
-2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named predicate (a `Persona` predicate, composed with `subjectShowsAltitude` if it is project-level), never a persona name.
+1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer for `open`.
+2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named question about the window's subject (composed with `altitudeView` if it is Book-level), never a persona.
 3. `Maugham/Views/CentreColumn.swift` — draw it in `editorPane`'s switch, or for a cover in `manuscriptEditor`'s cover switch. Pass values and closures; reach no store from the surface's body.
 4. `Maugham/Views/ProjectWindow.swift` — `showsStatusFooter` if the surface hides the document.
 5. `MaughamTests/CentreRouteTests.swift` — the product assertion; `ProjectAltitudeCentreTests` if it touches the `ZStack`.
@@ -495,8 +494,8 @@ Checks: the compiler, `PersonaPaneRegistryTests`, `DetailPaneTogglePersonaTests`
 Checks: `CentreRouteTests`, `ProjectAltitudeCentreTests` (host lifetimes), `RegionBindingTests` (one canvas, one `EditorHost(`).
 
 ### Add a right-column inspector
-1. `Maugham/Views/ProjectWindow.swift` — a case in `InspectorRoute` and its answer in `inspectorRoute(persona:projectType:)`, keeping the canvas check above the project-type split.
-2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch (a Plan subject beside the canvas asks its placement there and `revealResearchColumn`), handing the view `posture(id)` if it offers verbs.
+1. `Maugham/Views/ProjectWindow.swift` — a case in `InspectorRoute` and its answer in `inspectorRoute(subject:projectType:)`, keeping the canvas check above the project-type split.
+2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch (an item beside asks its placement there and `revealResearchColumn`), handing the view `posture(id)` if it offers verbs; the column is about `subject.faces`.
 3. The view in its own file; it reads values, resolves heavy state one leaf down (never `canvasModel.scene`).
 4. If it writes pass states: join `PersonaPaneRegistryTests.passStateWritingFiles`.
 5. `MaughamTests/Canvas/CanvasRouteTests.swift` — exhaustive over persona × project type.

@@ -39,55 +39,50 @@ final class ScreenplayScriptSourceTests: XCTestCase {
         let already = FountainTokenizer().parse(Self.twoScenes)
         XCTAssertFalse(
             ScreenplayScriptSource.needsDerivation(
-                persona: .plan, projectType: .screenplay, existing: already),
+                subject: SubjectSamples.opened(.canvas), projectType: .screenplay,
+                existing: already),
             "an editor's parse must never be overwritten by an op-log derive — "
             + "that is two producers of one value disagreeing, which is the "
             + "shape tripwire 6 exists for")
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                persona: .plan, projectType: .screenplay, existing: nil),
-            "control: with nothing produced, Plan's tree must derive")
+                subject: SubjectSamples.opened(.canvas), projectType: .screenplay,
+                existing: nil),
+            "control: with nothing produced and the canvas open, the tree must derive")
     }
 
-    /// **Exactly one (persona, project type) pair derives, and the census says
-    /// which** — asked over every one rather than the one the fix was written
-    /// against, because that is how the original defect got in: a new member of
-    /// a set nobody re-enumerated.
+    /// **Exactly one (subject, project type) pair derives, and the census says
+    /// which** — asked over every kind of `open` and every project type rather
+    /// than the one the fix was written against, because that is how the
+    /// original defect got in: a new member of a set nobody re-enumerated.
     ///
-    /// Author is the interesting NO. It shows the same navigator, but it mounts
-    /// `EditorHost` beside it, so the coordinator posts within a frame — a
-    /// derive there would be a duplicate op-log decode racing a fresher value.
+    /// A piece in the centre is the interesting NO. It shows the same navigator,
+    /// but it mounts `EditorHost` beside it, so the coordinator posts within a
+    /// frame — a derive there would be a duplicate op-log decode racing a
+    /// fresher value. The faces moving to a piece while the canvas is open
+    /// changes nothing: no editor is mounted.
     ///
-    /// **This census caught the Task 6 re-base widening twice, which is why the
-    /// list is a list and not a count.** That re-base had to replace
-    /// `showsSceneNavigator(for:) && centresTheCanvas` — an intersection of two
-    /// SEGMENT predicates — with something a persona could express, and a
-    /// persona could not tell Plan's structure tab from its canvas tab. Both
-    /// attempts showed up here as extra rows: `plan×canvas×screenplay` (that tab
-    /// mounted the old research pane, so there was no navigator to feed) and
-    /// `plan×manuscript×screenplay` (the manuscript segment mounted `BinderView`
-    /// unconditionally — a one-row novel binder, never sluglines). Each would
-    /// have been an op-log decode and a Fountain parse that no surface reads.
-    ///
-    /// **The segment dimension is gone as of Task 7 and the answer did not
-    /// move**, which is the whole claim of the kill: Plan's left column IS the
-    /// tree now, so the case the interim term used to name is the only case
-    /// there is.
+    /// **This census caught a widening twice, which is why the list is a list
+    /// and not a count.**
     func test_onlySluglineSurfacesWithNoEditorBehindThemDerive() throws {
         var derives: [String] = []
-        for persona in Persona.allCases {
+        for open in SubjectSamples.everyOpen {
             for type in ProjectType.allCases {
                 guard ScreenplayScriptSource.needsDerivation(
-                    persona: persona, projectType: type, existing: nil)
+                    subject: SubjectSamples.opened(open), projectType: type, existing: nil)
                 else { continue }
-                derives.append("\(persona.rawValue)×\(type.rawValue)")
+                derives.append("\(SubjectSamples.kind(of: open))×\(type.rawValue)")
             }
         }
-        XCTAssertEqual(derives, ["plan×screenplay"],
-                       "Plan on a screenplay is the one window state that lists "
-                       + "sluglines with no editor behind it. Anything else here "
-                       + "is either an op-log decode nobody reads or a race with "
-                       + "the editor's own parse")
+        XCTAssertEqual(derives, ["canvas×screenplay"],
+                       "the canvas on a screenplay is the one window state that "
+                       + "lists sluglines with no editor behind it. Anything else "
+                       + "here is either an op-log decode nobody reads or a race "
+                       + "with the editor's own parse")
+        XCTAssertTrue(ScreenplayScriptSource.needsDerivation(
+            subject: WindowSubject(open: .canvas, faces: .item(SubjectSamples.pieceID)),
+            projectType: .screenplay, existing: nil),
+                      "the faces on a piece mount no editor while the canvas is open")
     }
 
     /// The project-type half of the rule above, over every type — so a future

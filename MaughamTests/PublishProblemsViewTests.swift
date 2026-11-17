@@ -150,31 +150,31 @@ final class PublishProblemsViewTests: XCTestCase {
 
     // MARK: - The arm's place in the centre (R-S12)
 
-    func test_problemsOutrankTheRoundAndTheGateAndDrawOverAChapter() {
+    func test_problemsOutrankTheRoundAndTheGateWhateverTheFacesAreOn() {
         let round = PublishCentreModelTests.round()
         let proposal = PublishCentreModelTests.proposal()
-        for subject: BinderSubject? in [nil, .project, .item("chapter-1")] {
+        for faces: BinderSubject in [.edition(language: "es"), .project, .item("chapter-1")] {
             XCTAssertEqual(
                 ProjectWindow.publishCentre(
-                    persona: .publish, subject: subject,
-                    structure: CentreRouteTests.structure,
+                    subject: WindowSubject(open: .edition(language: "es"), faces: faces),
                     preview: .nothingCompiled, proposal: proposal, round: round,
                     problems: Self.problems),
-                .problems(Self.problems), "\(String(describing: subject))")
+                .problems(Self.problems), "faces on \(faces)")
         }
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .author, subject: nil, structure: CentreRouteTests.structure,
-            preview: .nothingCompiled, problems: Self.problems),
-            "the persona guard applies to every arm")
+            subject: .book, preview: .nothingCompiled, problems: Self.problems),
+            "the edition guard applies to every arm")
         XCTAssertEqual(
             ProjectWindow.centreRoute(
-                persona: .publish, subject: .item("chapter-1"), projectType: .novel,
-                structure: CentreRouteTests.structure, showsPaletteWall: false,
+                subject: WindowSubject(open: .edition(language: "es"),
+                                       faces: .item("chapter-1")),
+                bookView: .outline, projectType: .novel,
+                structure: CentreRouteTests.structure,
                 preview: .nothingCompiled, problems: Self.problems),
-            .editor(altitude: false, cover: .publishProblems(Self.problems)))
+            .editor(altitude: .outline, cover: .publishProblems(Self.problems)))
     }
 
-    func test_showProblemsClearsTheOtherShowsAndBackOrAPersonaChangeClearsIt() {
+    func test_showProblemsClearsTheOtherShowsAndBackOrLeavingTheEditionClearsIt() {
         let model = PublishCentreModel()
         model.show(round: PublishCentreModelTests.round())
         model.show(problems: Self.problems)
@@ -191,7 +191,7 @@ final class PublishProblemsViewTests: XCTestCase {
 
         model.show(problems: Self.problems)
         model.clearDecisions()
-        XCTAssertNil(model.selectedProblems, "a persona change clears it")
+        XCTAssertNil(model.selectedProblems, "leaving the edition clears it")
     }
 
     /// I3: a recompile's problems reach the list only while it is showing.

@@ -219,7 +219,8 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
 
         XCTAssertTrue(
             ScreenplayScriptSource.needsDerivation(
-                persona: .plan, projectType: .screenplay, existing: nil),
+                subject: SubjectSamples.opened(.canvas), projectType: .screenplay,
+                existing: nil),
             "Plan with no parse yet is exactly the state that has to derive one")
         let derived = try XCTUnwrap(
             ScreenplayScriptSource.derive(store: store),
@@ -280,10 +281,12 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
     /// away.
     func test_publishHoldsNoResearchSubjectAndItsTreeCanStillWriteTheSubjectAway() async throws {
         let stuck = BinderSubject.research("r1")
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(persona: .publish, subject: stuck),
-            .nothingMoves,
-            "premise: Publish takes neither column for a research subject")
+        XCTAssertNil(
+            ProjectWindow.researchSubjectPlacement(
+                subject: WindowSubject(open: .edition(language: "es"),
+                                       faces: .edition(language: "es"), beside: stuck))
+                .centreItemID,
+            "premise: research beside an edition takes no centre")
 
         let store = try await project(of: .novel)
         let (window, probe) = try await host(

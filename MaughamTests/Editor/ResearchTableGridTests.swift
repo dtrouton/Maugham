@@ -1048,13 +1048,14 @@ final class ResearchTableGridTests: XCTestCase {
         XCTAssertTrue(c.host is ResearchTableHost)
     }
 
-    /// **Plan's right column shows the same grid** beside the canvas
+    /// **The right column shows the same grid** for a table beside the canvas
     /// (`ResearchSubjectInspector`'s preview, through the same route).
     func test_planPreviewsTheTableInTheSameGridBesideTheCanvas() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
-        let placement = ProjectWindow.researchSubjectPlacement(persona: .plan, subject: .research(item.id))
-        XCTAssertTrue(placement.previewsInTheRightColumn, "precondition: Plan previews beside the canvas")
+        let placement = ProjectWindow.researchSubjectPlacement(
+            subject: WindowSubject(open: .canvas, faces: .canvas, beside: .research(item.id)))
+        XCTAssertTrue(placement.previewsInTheRightColumn, "precondition: a table beside previews in the right column")
         let window = TestWindow.mount(
             ResearchSubjectInspector(store: projectStore, itemID: item.id,
                                      showsPreview: placement.previewsInTheRightColumn,

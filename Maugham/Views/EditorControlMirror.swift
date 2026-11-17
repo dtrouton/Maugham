@@ -49,7 +49,7 @@ enum EditorControlMirror {
 /// a disabled item is what the writer sees, the membrane is what holds.
 enum InsertMenuGate {
     /// True only when all of these hold:
-    /// - the centre shows the bare editor — `.editor(altitude: false, cover: nil)`.
+    /// - the centre shows the bare editor — `.editor(altitude: nil, cover: nil)`.
     ///   Altitude, the canvas, a research subject, a Collection reference and
     ///   every cover (Publish's problems and translation round draw over a
     ///   chapter too) hide the text the insert would land in;
@@ -64,7 +64,7 @@ enum InsertMenuGate {
                           manualReview: Bool, shareIsReadOnly: Bool,
                           isTranslationReview: Bool, gridHoldsTheKeys: Bool,
                           route: CentreRoute?) -> Bool {
-        guard !gridHoldsTheKeys, case .editor(altitude: false, cover: nil)? = route,
+        guard !gridHoldsTheKeys, case .editor(altitude: nil, cover: nil)? = route,
               let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
             && !manualReview && !isTranslationReview

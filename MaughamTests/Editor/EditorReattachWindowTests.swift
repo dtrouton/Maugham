@@ -45,7 +45,7 @@ final class EditorReattachWindowTests: XCTestCase {
             .write(to: file, atomically: true, encoding: .utf8)
         let doc = try await Document.load(url: file, device: "test", session: "s", presenter: nil)
         await doc.close()
-        ds.updateUIState { $0.selectedSubject = .item(chapter.id) }
+        ds.updateUIState { $0.windowSubject = SubjectSamples.opened(.item(chapter.id)) }
         await ds.close()
         return url
     }

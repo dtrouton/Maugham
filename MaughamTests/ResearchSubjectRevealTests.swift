@@ -4,19 +4,19 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **A research subject in Plan reaches a column the writer can see** —
-/// shell-finish stage 2b's final-review Critical.
+/// **Research opened beside reaches a column the writer can see** —
+/// shell-finish stage 2b's final-review Critical, asked of the window's subject.
 ///
-/// `ResearchSubjectRoutingTests` proves the placement sends a research subject
-/// beside the canvas and that `ResearchSubjectInspector` draws it there. What no
-/// test in that suite could see is whether the right column is SHOWING that
-/// inspector: its probe mounts the inspector arm directly, so it skips the one
-/// gate production has — `DetailPaneToggle` renders `inspectorContent` from its
-/// `.inspector` arm alone, and `Persona.plan.defaultPane` is `.inbox`. Every
-/// piece was right and the composition was dead.
+/// `ResearchSubjectRoutingTests` proves the placement sends a research item
+/// beside and that `ResearchSubjectInspector` draws it there. What no test in
+/// that suite could see is whether the right column is SHOWING that inspector:
+/// its probe mounts the inspector arm directly, so it skips the one gate
+/// production has — `DetailPaneToggle` renders `inspectorContent` from its
+/// `.inspector` arm alone, and the writer may be on another pane (`.inbox`
+/// here). Every piece was right and the composition was dead.
 ///
-/// **So this suite's probe mounts the real `DetailPaneToggle`, on Plan's own
-/// default pane, and the real `ResearchRevealModifier`.** The only thing it
+/// **So this suite's probe mounts the real `DetailPaneToggle`, on a pane that
+/// is not the inspector, and the real `ResearchRevealModifier`.** The only thing it
 /// supplies is the window's inspector closure, and it builds that from
 /// `ProjectWindow.researchSubjectPlacement` rather than deciding for itself —
 /// the same discipline `ResearchRoutingProbeView` keeps one file over.
@@ -53,53 +53,52 @@ final class ResearchSubjectRevealTests: XCTestCase {
 
     // MARK: - The delivery path
 
-    /// **The Critical, on the path the writer takes.** A row in Plan's tree,
-    /// clicked through `List(selection:)`, with the right column where Plan
-    /// actually opens it.
+    /// **The Critical, on the path the writer takes.** A row in the tree,
+    /// clicked through `List(selection:)` while the canvas is open, with the
+    /// right column on another pane.
     ///
     /// The assertion is the item's own content on screen — the title field
     /// `InspectorResearchPanel` mounts — rather than the segment value, because
     /// a segment that moved to a column nobody rendered is exactly the failure
     /// this suite exists to catch.
-    func test_aResearchRowInPlansTreeReachesTheColumnThatShowsIt() async throws {
+    func test_aResearchRowClickedOverTheCanvasReachesTheColumnThatShowsIt() async throws {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let mount = try await host(store: store, subject: Self.canvas)
         XCTAssertEqual(mount.probe.detailSegment, .inbox,
-                       "precondition: Plan opens on its own default pane, which "
-                       + "is not the inspector — the whole point of the case")
+                       "precondition: the right column is on a pane that is not "
+                       + "the inspector — the whole point of the case")
 
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // the project row, the chapters, the Research header, then the note.
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
-        XCTAssertEqual(mount.probe.subject, .research(note.id),
-                       "precondition: the tree wrote the window's subject")
+                     until: { mount.probe.subject?.beside == .research(note.id) })
+        XCTAssertEqual(mount.probe.subject?.beside, .research(note.id),
+                       "precondition: the tree opened the note beside")
 
         await pumpUntil(deadline: 5) {
             self.textFields(in: mount.window).contains { $0.stringValue == note.title }
         }
         XCTAssertTrue(
             textFields(in: mount.window).contains { $0.stringValue == note.title },
-            "clicking a research row in Plan's tree must put that item somewhere "
-            + "the writer can see it. The canvas keeps the centre, so the right "
-            + "column is the only place left — and it is showing Inbox unless the "
-            + "arriving subject reveals it")
+            "clicking a research row must put that item somewhere the writer "
+            + "can see it. The canvas keeps the centre, so the right column is "
+            + "the only place left — and it is showing Inbox unless the arriving "
+            + "subject reveals it")
         XCTAssertEqual(mount.probe.detailSegment, .inspector,
                        "and the pane it revealed is the one that renders the "
                        + "research inspector")
     }
 
     /// **Claude's `Show`, which is a subject write and not a click.** Same
-    /// column, same gate: the banner in Plan is the persona a writer is most
-    /// likely to be in when Claude adds research.
+    /// column, same gate.
     func test_aResearchSubjectArrivingWithoutAClickRevealsTheColumnToo() async throws {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .plan, subject: .project)
-        mount.probe.subject = .research(note.id)
+        let mount = try await host(store: store, subject: Self.canvas)
+        mount.probe.subject?.beside = .research(note.id)
 
         await pumpUntil(deadline: 5) {
             self.textFields(in: mount.window).contains { $0.stringValue == note.title }
@@ -117,15 +116,15 @@ final class ResearchSubjectRevealTests: XCTestCase {
     /// the writer's last explicit pane choice on every reopen.
     ///
     /// Driven as the load path drives it — the FIRST write the window's subject
-    /// ever takes, from no subject at all, which is the one write
-    /// `ProjectWindow.validSubject` guarantees can be told apart (it always
-    /// answers, so nothing else arrives from `nil`).
+    /// ever takes, from no subject at all (`ProjectWindow.subjectState` is `nil`
+    /// until `load()`), which is the one write that can be told apart.
     func test_aRestoredResearchSubjectDoesNotTakeTheWritersPane() async throws {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .plan, subject: nil)
-        mount.probe.subject = .research(note.id)
+        let mount = try await host(store: store, subject: nil)
+        mount.probe.subject = WindowSubject(open: .canvas, faces: .canvas,
+                                            beside: .research(note.id))
         pump(0.4)
 
         XCTAssertEqual(
@@ -135,21 +134,21 @@ final class ResearchSubjectRevealTests: XCTestCase {
             + "would move the writer's last explicit pane choice every reopen")
     }
 
-    /// **The control**: the same arrival where the centre takes the item writes
-    /// nothing at all. Author's research subject is the centre column, so a
-    /// reveal there would move a writer's pane for no reason.
-    func test_anArrivalInAPersonaWhoseCentreTakesTheItemMovesNoPane() async throws {
+    /// **The control**: the same item opened in the centre writes nothing at
+    /// all — the centre shows it, so a reveal would move a writer's pane for no
+    /// reason.
+    func test_anItemOpenedInTheCentreMovesNoPane() async throws {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .author, subject: .project)
+        let mount = try await host(store: store, subject: .book)
         let before = mount.probe.detailSegment
-        mount.probe.subject = .research(note.id)
+        mount.probe.subject = SubjectSamples.opened(.research(note.id))
         pump(0.4)
 
         XCTAssertEqual(mount.probe.detailSegment, before,
-                       "in Author the centre column shows the item, so the right "
-                       + "column has nothing it must reveal")
+                       "the centre column shows the item, so the right column has "
+                       + "nothing it must reveal")
     }
 
     // MARK: - The tree opens far enough to draw the row (stage-3a Task 4)
@@ -167,7 +166,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let store = try await novel(notes: ["Ships", "Tides"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let mount = try await host(store: store, subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         let open = table.numberOfRows
 
@@ -206,7 +205,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let note = try await store.addResearchTextNote(
             parentId: inner.id, title: "Harbour")
 
-        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let mount = try await host(store: store, subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         let closed = table.numberOfRows
 
@@ -229,18 +228,18 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let store = try await novel(notes: ["Ships"])
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
-        let mount = try await host(store: store, persona: .plan, subject: .project)
+        let mount = try await host(store: store, subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + store.manifest.structure.count + 1, in: table,
-                     until: { mount.probe.subject == .research(note.id) })
-        XCTAssertEqual(mount.probe.subject, .research(note.id),
-                       "precondition: the note is the window's subject")
+                     until: { mount.probe.subject?.beside == .research(note.id) })
+        XCTAssertEqual(mount.probe.subject?.beside, .research(note.id),
+                       "precondition: the note is beside")
         let pane = mount.probe.detailSegment
 
         mount.probe.treeState.researchSectionExpanded = false
         pump(0.4)
 
-        XCTAssertEqual(mount.probe.subject, .research(note.id),
+        XCTAssertEqual(mount.probe.subject?.beside, .research(note.id),
                        "collapsing a section takes the selected row off screen; "
                        + "it must not take the window's subject with it")
         XCTAssertEqual(mount.probe.detailSegment, pane,
@@ -261,7 +260,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
             + "sections on every reopen. Holding the tree's state is what would "
             + "make that possible, so the modifier must not hold one")
         XCTAssertTrue(
-            source.contains("guard previous != nil else { return }"),
+            source.contains("guard previous != nil"),
             "control: the restore case this suite already pins is still the "
             + "reason the observer is the wrong place for a tree reveal")
     }
@@ -269,31 +268,34 @@ final class ResearchSubjectRevealTests: XCTestCase {
     // MARK: - The rule itself
 
     func test_theRevealIsThePlacementsOwnAnswer_askedNotRespelled() {
-        for persona in Persona.allCases {
-            var showInspector = false
-            var segment = persona.defaultPane
-            ProjectWindow.revealResearchColumn(
-                persona: persona, subject: .research("r1"),
-                showInspector: &showInspector, detailSegment: &segment)
-
-            let previews = ProjectWindow.researchSubjectPlacement(
-                persona: persona, subject: .research("r1")).previewsInTheRightColumn
-            XCTAssertEqual(showInspector, previews,
-                           "\(persona): the reveal fires exactly where the "
-                           + "placement previews in the right column")
-            XCTAssertEqual(segment, previews ? .inspector : persona.defaultPane,
-                           "\(persona): and it moves the pane in the same cases")
+        var subjects = SubjectSamples.everySubject
+        subjects += SubjectSamples.everyOpen.map {
+            WindowSubject(open: $0, faces: $0, beside: .research("r1"))
         }
-    }
-
-    func test_aSubjectThatIsNotResearchRevealsNothing() {
-        for subject in [BinderSubject.project, .item("doc-1")] {
+        for subject in subjects {
             var showInspector = false
             var segment = DetailSegment.inbox
             ProjectWindow.revealResearchColumn(
-                persona: .plan, subject: subject,
-                showInspector: &showInspector, detailSegment: &segment)
-            XCTAssertFalse(showInspector, "\(subject) is not a research subject")
+                subject: subject, showInspector: &showInspector, detailSegment: &segment)
+
+            let previews = ProjectWindow.researchSubjectPlacement(subject: subject)
+                .previewsInTheRightColumn
+                || ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID != nil
+            XCTAssertEqual(showInspector, previews,
+                           "\(subject): the reveal fires exactly where the "
+                           + "placement previews in the right column")
+            XCTAssertEqual(segment, previews ? .inspector : .inbox,
+                           "\(subject): and it moves the pane in the same cases")
+        }
+    }
+
+    func test_aSubjectWithNothingBesideRevealsNothing() {
+        for subject in SubjectSamples.everySubject {
+            var showInspector = false
+            var segment = DetailSegment.inbox
+            ProjectWindow.revealResearchColumn(
+                subject: subject, showInspector: &showInspector, detailSegment: &segment)
+            XCTAssertFalse(showInspector, "\(subject.open) open, nothing beside")
             XCTAssertEqual(segment, .inbox)
         }
     }
@@ -305,12 +307,16 @@ final class ResearchSubjectRevealTests: XCTestCase {
         var showInspector = false
         var segment = DetailSegment.inspector
         ProjectWindow.revealResearchColumn(
-            persona: .plan, subject: .research("r1"),
+            subject: WindowSubject(open: .canvas, faces: .canvas, beside: .research("r1")),
             showInspector: &showInspector, detailSegment: &segment)
         XCTAssertTrue(showInspector,
                       "the pane was already the inspector; what was missing was "
                       + "the column being visible at all")
     }
+
+    /// The canvas open, the faces on the Book — the subject these mounted
+    /// cases start from.
+    private static let canvas = SubjectSamples.opened(.canvas)
 
     // MARK: - Reading the source
 
@@ -349,11 +355,14 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let probe: ResearchRevealProbe
     }
 
-    private func host(store: ProjectStore, persona: Persona,
-                      subject: BinderSubject?) async throws -> Mount {
+    /// The right column's pane list is still the persona's until shell p1
+    /// Task 6; Plan's holds `.inbox`, the pane that is not the inspector.
+    private func host(store: ProjectStore,
+                      subject: WindowSubject?) async throws -> Mount {
+        let persona = Persona.plan
         let probe = ResearchRevealProbe()
         probe.subject = subject
-        probe.detailSegment = persona.defaultPane
+        probe.detailSegment = .inbox
         let suite = "research-subject-reveal-\(UUID().uuidString)"
         defaultsSuites.append(suite)
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
@@ -408,7 +417,8 @@ final class ResearchSubjectRevealTests: XCTestCase {
 @Observable
 @MainActor
 final class ResearchRevealProbe {
-    var subject: BinderSubject?
+    /// `nil` before the window's `load()`, as production's `subjectState` is.
+    var subject: WindowSubject?
     var detailSegment: DetailSegment = .inbox
     var showInspector = true
     /// The tree's state — the window's since stage-3a Task 4, and this probe
@@ -429,7 +439,10 @@ final class ResearchRevealProbe {
     /// `openResearchItem` and `handleShowLatestMCPNote`).
     @discardableResult
     func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
-        subject = .research(itemId)
+        subject = ClickRule.resolve(.research(itemId), gesture: .click,
+                                    current: subject ?? .book,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type)
         let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                         research: store.manifest.research,
                                         projectType: store.manifest.type)
@@ -440,10 +453,10 @@ final class ResearchRevealProbe {
     init() {}
 }
 
-/// **Plan's three columns, with production's own gate in the right one.**
+/// **Three columns, with production's own gate in the right one.**
 ///
 /// `BinderView` is the real tree, `DetailPaneToggle` the real right column —
-/// mounted on the persona's own default pane, which is the gate the routing
+/// mounted on a pane that is not the inspector, which is the gate the routing
 /// suite's probe skips — and `ResearchRevealModifier` the real rule under test.
 /// The inspector closure is this view's only construction, and it asks
 /// `ProjectWindow.researchSubjectPlacement` rather than deciding anything.
@@ -454,8 +467,18 @@ private struct ResearchRevealProbeView: View {
     let persona: Persona
     let probe: ResearchRevealProbe
 
+    /// The tree's binding, as `ProjectWindow`'s: `beside ?? faces`, written
+    /// through `ClickRule`.
     private var subject: Binding<BinderSubject?> {
-        Binding(get: { probe.subject }, set: { probe.subject = $0 })
+        Binding(
+            get: { probe.subject.map { $0.beside ?? $0.faces } },
+            set: { newValue in
+                let current = probe.subject ?? .book
+                guard newValue != (current.beside ?? current.faces) else { return }
+                probe.subject = ClickRule.resolve(
+                    newValue ?? .project, gesture: .click, current: current,
+                    structure: store.manifest.structure, projectType: store.manifest.type)
+            })
     }
 
     private var segment: Binding<DetailSegment> {
@@ -467,8 +490,7 @@ private struct ResearchRevealProbeView: View {
     }
 
     private var placement: ProjectWindow.ResearchSubjectPlacement {
-        ProjectWindow.researchSubjectPlacement(persona: persona,
-                                               subject: probe.subject)
+        ProjectWindow.researchSubjectPlacement(subject: probe.subject ?? .book)
     }
 
     var body: some View {
@@ -484,8 +506,7 @@ private struct ResearchRevealProbeView: View {
                 right.frame(width: 340)
             }
         }
-        .modifier(ResearchRevealModifier(persona: persona,
-                                         selectedSubject: subject,
+        .modifier(ResearchRevealModifier(subject: probe.subject,
                                          showInspector: showInspector,
                                          detailSegment: segment))
     }
@@ -506,10 +527,10 @@ private struct ResearchRevealProbeView: View {
             store: store,
             segment: segment,
             selectedSubject: subject,
-            activeManuscriptItemId: probe.subject?.itemID,
+            activeManuscriptItemId: probe.subject?.faces.itemID,
             persona: persona,
             projectURL: store.url,
-            activeDocId: BinderSubject.activeDocId(for: probe.subject),
+            activeDocId: BinderSubject.activeDocId(for: probe.subject?.faces),
             documentStore: documentStore
         ) {
             if let id = placement.inspectedItemID {

@@ -161,6 +161,8 @@ struct BinderPaneToggle: View {
     /// actually does (`ProjectWindow.pressPaletteWallDoor`) and a door whose
     /// label and behaviour came from two spellings is a door that can lie.
     private var paletteWallTravels: Bool {
-        ProjectWindow.paletteWallDoorTravels(persona: persona)
+        // The door opens the wall here, as the centre; it never travels
+        // (`ProjectWindow.pressPaletteWallDoor`). Task 3 retires the parameter.
+        false
     }
 }

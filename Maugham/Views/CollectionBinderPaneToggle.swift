@@ -96,6 +96,8 @@ struct CollectionBinderPaneToggle: View {
     /// The wall's own door — see `BinderPaneToggle`'s twin, whose doc comment
     /// carries the whole reasoning.
     private var paletteWallTravels: Bool {
-        ProjectWindow.paletteWallDoorTravels(persona: persona)
+        // The door opens the wall here, as the centre; it never travels
+        // (`ProjectWindow.pressPaletteWallDoor`). Task 3 retires the parameter.
+        false
     }
 }

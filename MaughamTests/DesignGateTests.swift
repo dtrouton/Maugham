@@ -82,9 +82,7 @@ final class DesignGateTests: XCTestCase {
         ] {
             XCTAssertEqual(
                 ProjectWindow.publishCentre(
-                    persona: .publish, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
-                    preview: preview, proposal: proposal),
+                    subject: Self.edition, preview: preview, proposal: proposal),
                 .designProposal(proposal),
                 "with a proposal selected the gate has the column whatever the "
                 + "catalog says (\(preview)) — the writer asked for the proposal")
@@ -103,27 +101,26 @@ final class DesignGateTests: XCTestCase {
         let round = TranslationRound(number: 1, language: "es", docId: "doc-1", startedAt: Date())
         XCTAssertEqual(
             ProjectWindow.publishCentre(
-                persona: .publish, subject: nil, structure: ProjectAltitudeCentreTests.structure,
+                subject: Self.edition,
                 preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
                 proposal: Self.proposal(), round: round),
             .translationRound(round))
-        // **A round draws over a chapter too** (2026-09-02, Denver's ruling): a
-        // round is about one chapter, and Show pressed with that chapter
-        // selected used to draw nothing until the writer moved to the project
-        // row. The book and the design gate stay project-level.
+        // **A round draws with its chapter in the faces** (2026-09-02, Denver's
+        // ruling): a round is about one chapter, and a click on that chapter
+        // while the edition is open moves only the faces.
+        let facesOnTheChapter = WindowSubject(open: .edition(language: "es"),
+                                              faces: .item("chapter-1"))
         XCTAssertEqual(ProjectWindow.publishCentre(
-            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: nil, round: round),
+            subject: facesOnTheChapter, preview: .nothingCompiled, proposal: nil, round: round),
             .translationRound(round),
-            "Show on a round must draw with the round's own chapter selected")
+            "Show on a round must draw with the round's own chapter in the faces")
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .publish, subject: .item("chapter-1"), structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: Self.proposal(), round: nil),
-            "the design gate is still project-level: a chapter in Publish is the editor")
+            subject: SubjectSamples.opened(.item("chapter-1")),
+            preview: .nothingCompiled, proposal: Self.proposal(), round: round),
+            "a chapter OPEN is the editor: nothing of an edition's covers it")
         XCTAssertNil(ProjectWindow.publishCentre(
-            persona: .author, subject: nil, structure: ProjectAltitudeCentreTests.structure,
-            preview: .nothingCompiled, proposal: nil, round: round),
-            "the report is Publish's")
+            subject: .book, preview: .nothingCompiled, proposal: nil, round: round),
+            "the report is an edition's")
     }
 
     /// …and **deselecting gives the book back**, untouched. The gate is a
@@ -140,10 +137,8 @@ final class DesignGateTests: XCTestCase {
         ]
         for (preview, expected) in table {
             XCTAssertEqual(
-                ProjectWindow.publishCentre(
-                    persona: .publish, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
-                    preview: preview, proposal: nil),
+                ProjectWindow.publishCentre(subject: Self.edition, preview: preview,
+                                            proposal: nil),
                 expected,
                 "with nothing selected the column is exactly what it was before "
                 + "the gate existed")
@@ -156,29 +151,30 @@ final class DesignGateTests: XCTestCase {
     /// answered its own subject rule would be a second answer free to disagree,
     /// and the disagreement would be a proposal drawn over the chapter a writer
     /// is fixing.
-    func test_aChapterSubjectOpensTheEditorEvenWithAProposalSelected() {
+    func test_aChapterOpenIsTheEditorEvenWithAProposalSelected() {
         XCTAssertNil(
             ProjectWindow.publishCentre(
-                persona: .publish, subject: .item("chapter-1"),
-                structure: ProjectAltitudeCentreTests.structure,
+                subject: SubjectSamples.opened(.item("chapter-1")),
                 preview: .ready(newestFirst: [PublishPreviewCentreTests.aBook]),
                 proposal: Self.proposal()),
-            "a chapter in Publish is the editor, proposal or no proposal")
+            "a chapter open is the editor, proposal or no proposal")
     }
 
-    /// **The gate is Publish's, like the book it stands in front of.** A
-    /// proposal selected before a persona switch must not follow the writer into
-    /// Author's centre column.
-    func test_onlyPublishHasAGate() {
-        for persona in Persona.allCases where !persona.previewsThePublishedBook {
+    /// **The gate is an edition's, like the book it stands in front of.** A
+    /// proposal selected while an edition was open must not follow the writer
+    /// into any other centre.
+    func test_onlyAnEditionHasAGate() {
+        for open in SubjectSamples.everyOpen where !open.isEdition {
             XCTAssertNil(
                 ProjectWindow.publishCentre(
-                    persona: persona, subject: nil,
-                    structure: ProjectAltitudeCentreTests.structure,
+                    subject: SubjectSamples.opened(open),
                     preview: .nothingCompiled, proposal: Self.proposal()),
-                "\(persona) has no gate — the department's centre is Publish's")
+                "\(open) has no gate — the gate is an edition's")
         }
     }
+
+    /// The edition the routing cases open.
+    static let edition = SubjectSamples.opened(.edition(language: "es"))
 
     // MARK: - The sample panel (no window)
 

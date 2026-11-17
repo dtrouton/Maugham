@@ -4,8 +4,9 @@ import AppKit
 
 /// **The window's centre column**: the switch over
 /// `ProjectWindow.centreRoute(…)` and every surface it mounts — the palette
-/// wall, a research subject, the canvas, a Collection's reference
-/// placeholder, and the manuscript editor with altitude and one cover over it.
+/// wall, a research subject, a figure, the canvas, a Collection's reference
+/// placeholder, the manuscript editor with the Book's view and one cover over
+/// it, and the Inbox.
 /// It owns exactly one piece of state: the review board's open-notes counts,
 /// which nothing outside this column reads.
 ///
@@ -14,7 +15,7 @@ import AppKit
 /// that drifts from the first), each value it only READS arrives as a value,
 /// and each of the window's verbs arrives as a closure — so the one writer of
 /// `ActivePassMemory` and the one round deferral stay `ProjectWindow`'s. The
-/// persona, the column visibility and the subject stay owned by the window.
+/// subject, the column visibility and the Book's view stay owned by the window.
 ///
 /// **Mounted ONCE**, as the content column's root (`ProjectWindow
 /// .contentColumn`), so `EditorHost` and the canvas keep their identities
@@ -43,15 +44,19 @@ struct CentreColumn: View {
     let declaredWorld: DeclaredWorldStore?
     let window: NSWindow?
 
-    // The route's inputs this column only reads.
+    // Inputs this column only reads. `persona` answers only the read-only
+    // questions (`editsResearchInTheCentre`, `editsFigures`) until Lock does.
     let persona: Persona
     let researchPreviewVisible: Bool
 
     // The window's state this column writes — bindings, never copies.
+    /// The window's subject: the route's one input about what is open.
+    @Binding var subject: WindowSubject
+    /// The tree's view of the subject (`beside ?? faces`), written through the
+    /// click rule — what a row, a card or a chip writes.
     @Binding var selectedSubject: BinderSubject?
-    @Binding var showsPaletteWall: Bool
+    @Binding var bookView: BookView
     @Binding var selectedPaletteCardId: String?
-    @Binding var outlineLayout: OutlineLayout
     @Binding var showInspector: Bool
     @Binding var detailSegment: DetailSegment
     @Binding var annotationScopeRequest: AnnotationScope
@@ -59,6 +64,8 @@ struct CentreColumn: View {
     @Binding var currentElement: String?
 
     // The window's verbs.
+    /// The wall's own Close — `PaletteWallState.closingWall`, the window's.
+    let closePaletteWall: () -> Void
     /// `ProjectWindow.recordActivePass(forPiece:passId:)` — the ONE writer of
     /// `UIState.activePassMemory`, which the run reads to sign its notes.
     let recordActivePass: (_ piece: String, _ passId: String) -> Void
@@ -95,31 +102,30 @@ struct CentreColumn: View {
     /// board gives it a second identity and SwiftUI tears the first down when
     /// the condition moves: camera back to origin, layouts re-measured,
     /// thumbnails emptied, `canvas.md` re-read (measured, 2026-08-02). That is
-    /// why research answers `.besideTheCanvas` in Plan rather than taking the
-    /// centre, and why the mount is censused in `RegionBindingTests`.
+    /// why a click on research or a piece while the canvas is open moves the
+    /// subject's `beside` or `faces` and never its `open`, and why the mount is
+    /// censused in `RegionBindingTests`.
     @ViewBuilder
     private func editorPane(
         store: ProjectStore, documentStore: DocumentStore
     ) -> some View {
         // **One exhaustive answer, one switch.** `centreRoute` composes every
-        // decision: the palette wall above everything (`PaletteWallModifier`
-        // closes it on a subject change; this is the belt to its braces), a
-        // research subject that takes the centre (never in Plan, so the board
-        // keeps its identity), the canvas, the Collection reference, then the
-        // editor with altitude and one cover. The canvas is the third branch and
-        // its only mount.
-        switch ProjectWindow.centreRoute(persona: persona,
-                                         subject: selectedSubject,
+        // decision from the subject: the palette wall, a research item or a
+        // figure in `open`, the canvas, the Collection reference, the editor
+        // with the Book's view and one cover, then the Inbox. The canvas is the
+        // fourth branch and its only mount; the Inbox is last so adding it moved
+        // no branch.
+        switch ProjectWindow.centreRoute(subject: subject,
+                                         bookView: bookView,
                                          projectType: store.manifest.type,
                                          structure: store.manifest.structure,
-                                         showsPaletteWall: showsPaletteWall,
                                          preview: publishCentre.preview,
                                          proposal: publishCentre.selectedProposal,
                                          round: publishCentre.selectedRound,
                                          problems: publishCentre.selectedProblems) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: { showsPaletteWall = false }, persona: persona)
+                              onClose: closePaletteWall, persona: persona)
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
@@ -141,6 +147,13 @@ struct CentreColumn: View {
         case .editor(let altitude, let cover):
             manuscriptEditor(store: store, documentStore: documentStore,
                              altitude: altitude, cover: cover)
+        case .inbox:
+            // The captures, as the centre. The fast "Promote to Research for
+            // [title]" path targets the piece the faces are on.
+            InboxPane(store: documentStore.inboxStore, projectStore: store,
+                      activeDocumentId: subject.faces.itemID,
+                      canTranscribe: InboxPane.localTranscriptionAvailable,
+                      retranscribe: { entry in Task { await documentStore.retranscribe(entry) } })
         }
     }
 
@@ -156,13 +169,13 @@ struct CentreColumn: View {
     }
 
     /// **The manuscript editor, and the one surface drawn over it.** The editor
-    /// mounts on whatever document the tree names (a screenplay's `.fountain`
-    /// included), with `CentreRoute`'s layers over it: the project at altitude,
-    /// then one cover — Publish's no-book notice, Review's passes board, or one
-    /// of Publish's surfaces (round report, design gate, compiled book).
+    /// mounts on whatever document the subject's `open` names (a screenplay's
+    /// `.fountain` included), with `CentreRoute`'s layers over it: the Book (or
+    /// a Part) in its view — Cards, Outline or Status — then one cover, an
+    /// edition's (no-book notice, round report, problems, design gate, book).
     ///
     /// **The host is the ZStack's FIRST child and present whatever covers it**
-    /// (tripwire 6), and altitude is the SECOND, present whenever the subject
+    /// (tripwire 6), and altitude is the SECOND, present whenever `open`
     /// names no document. `centreRoute` names the cover; this body draws it with
     /// ONE switch. Neither may become a branch of `editorPane`: two ViewBuilder
     /// branches are two view identities, so every project ↔ chapter hop would
@@ -176,13 +189,15 @@ struct CentreColumn: View {
     /// underneath them.
     private func manuscriptEditor(
         store: ProjectStore, documentStore: DocumentStore,
-        altitude: Bool, cover: CentreCover?
+        altitude: BookView?, cover: CentreCover?
     ) -> some View {
         ZStack {
             EditorHost(
                 store: store,
                 documentStore: documentStore,
-                selectedItemId: selectedSubject?.itemID,
+                // What is OPEN, never what the faces are on: under an edition
+                // the faces may sit on a piece the centre does not show.
+                selectedItemId: subject.open.itemID,
                 onMetricsChanged: { metrics = $0 },
                 onElementChanged: { currentElement = $0 },
                 wikiLinkResolver: { title in
@@ -215,17 +230,26 @@ struct CentreColumn: View {
                         in: store.manifest.effectiveReviewPasses)
                 }
             )
-            // **The project at altitude** — opaque, because the host's "Select a
+            // **The Book in its view** — opaque, because the host's "Select a
             // document." placeholder is still mounted underneath. Its own layer,
             // ALWAYS at this position whatever covers it, so a cover coming or
             // going never remounts it: `OutlineTable` holds the writers it read
-            // from the registry, its scroll position and its column widths.
-            if altitude {
+            // from the registry, its scroll position and its column widths. Which
+            // view (Cards, Outline, Status) is the route's associated value.
+            if let altitude {
+                let scope = ProjectWindow.altitudeScope(
+                    open: subject.open, structure: store.manifest.structure,
+                    bookTitle: store.manifest.title)
                 ProjectAltitudePane(
                     store: store,
-                    layout: $outlineLayout,
+                    view: altitude,
+                    bookView: $bookView,
                     selectedSubject: $selectedSubject,
-                    title: store.manifest.title)
+                    title: scope.title,
+                    structure: scope.structure,
+                    offersStatus: subject.open.isEdition == false) {
+                    statusBoard(store: store, structure: scope.structure)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
             }
@@ -234,84 +258,14 @@ struct CentreColumn: View {
             // switch, never a branch of `editorPane`, for the identity reason
             // above.
             switch cover {
-            // In Publish with no book, the notice says WHICH kind of nothing it
-            // is (Denver's 2026-08-12 rulings 2 and 3), standing over the
-            // corkboard — it takes no clicks — rather than replacing it.
+            // An edition with no book: the notice says WHICH kind of nothing it
+            // is (Denver's 2026-08-12 rulings 2 and 3), standing over the Book's
+            // view — it takes no clicks — rather than replacing it.
             case .notice(let notice):
                 PublishCentreNoticeBanner(notice: notice)
-            // **Review's passes board** — the project level of Review, over
-            // altitude. A chapter subject reaches neither:
-            // `reviewCentreShowsBoard` composes `subjectShowsAltitude`.
-            case .reviewBoard:
-                // Values, not the store (tripwire 4): the board reads
-                // `manifest` here, at the one mount, and nothing on its body
-                // path can reach a document or the disk.
-                ReviewBoardPane(
-                    title: store.manifest.title,
-                    structure: store.manifest.structure,
-                    passes: store.manifest.effectiveReviewPasses,
-                    // Values again: a walk over every document, computed in
-                    // `refreshOpenNotes` and merely READ here.
-                    openNotes: openNotesCounts,
-                    unreadableDocIds: openNotesUnreadable,
-                    // **A count click widens the QUEUE and moves nothing else.**
-                    // The right column goes to the notes, in project scope, pointed
-                    // at the piece; the subject and persona are not written here
-                    // (the ejection trap). The chip click is the one that travels,
-                    // because opening a chapter is what a chip MEANS.
-                    onOpenNotes: { pieceId in
-                        showInspector = true
-                        detailSegment = .annotations
-                        annotationScopeRequest = .project(focusPiece: pieceId)
-                    },
-                    // **A chip click is a SUBJECT write and nothing else.** Moving
-                    // the persona here would be the board deciding which persona is
-                    // showing — the ejection trap `TripwireGrepTests`' persona-
-                    // decision census names. Opening the chapter drops the subject
-                    // below `reviewCentreShowsBoard`, uncovering the host that was
-                    // mounted underneath all along; no arm is torn down.
-                    onNavigate: { pieceId, passId in
-                        selectedSubject = .item(pieceId)
-                        recordActivePass(pieceId, passId)
-                    },
-                    // The board's write, at the board's HOST — the same place
-                    // and the same shape as the pass ladder's, which lands at
-                    // `InspectorView` and `PieceInspector` rather than inside
-                    // `PassLadder` (`PersonaPaneRegistryTests`' census).
-                    onSetState: { pieceId, passId, state in
-                        Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
-                    },
-                    // **A chip's round is three acts, and the third one waits.** The
-                    // lane is recorded through the window's ONE `ActivePassMemory`
-                    // writer (the run reads it to sign and file its notes), then the
-                    // subject travels, as `onNavigate` does. Then it WAITS:
-                    // `runRequested` refuses in silence while the document is not
-                    // open, and the open is async (`RunWhenDocumentOpens`' doc).
-                    onRunRound: { pieceId, passId in
-                        recordActivePass(pieceId, passId)
-                        selectedSubject = .item(pieceId)
-                        runRoundWhenPieceOpens(pieceId)
-                    },
-                    // **Each chip asks its own piece**: the drawing door, per row,
-                    // so a demotion re-renders the board with no reopen.
-                    posture: posture)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    // The counts are read HERE and never in the board's body:
-                    // one project-wide walk when the board appears, and one per
-                    // announced annotation change. `.task` is cancelled and
-                    // re-run on identity, so a board uncovered by a subject hop
-                    // recounts on arrival.
-                    .task { refreshOpenNotes(store: store) }
-                    .onProjectEvent(.maughamAnnotationsChanged,
-                                    url: store.url, window: window) { _ in
-                        refreshOpenNotes(store: store)
-                    }
-            // **Publish's surfaces**, in `publishCentre`'s order: the publish
-            // problems and the round report (which alone also draw over a
-            // chapter), the design gate, the compiled book. The gate and the
-            // book are project-level by construction — `publishCentre`
-            // composes `subjectShowsAltitude`.
+            // **An edition's surfaces**, in `publishCentre`'s order: the publish
+            // problems, the round report, the design gate, the compiled book —
+            // each only while `open` is an edition.
             case .publishProblems(let problems):
                 PublishProblemsView(
                     rows: PublishProblems.rows(
@@ -391,6 +345,71 @@ struct CentreColumn: View {
         }
     }
 
+    /// **The Book's Status view: the passes board** — over the Book's pieces,
+    /// or a Part's own. Its one mount; `ProjectAltitudePane` places it.
+    @ViewBuilder
+    private func statusBoard(store: ProjectStore, structure: [StructureItem]) -> some View {
+        // Values, not the store (tripwire 4): the board reads `manifest` here,
+        // at the one mount, and nothing on its body path can reach a document
+        // or the disk.
+        ReviewBoardPane(
+            title: store.manifest.title,
+            structure: structure,
+            passes: store.manifest.effectiveReviewPasses,
+            // Values again: a walk over every document, computed in
+            // `refreshOpenNotes` and merely READ here.
+            openNotes: openNotesCounts,
+            unreadableDocIds: openNotesUnreadable,
+            // **A count click widens the QUEUE and moves nothing else.** The
+            // right column goes to the notes, in project scope, pointed at the
+            // piece; the subject is not written here. The chip click is the one
+            // that travels, because opening a chapter is what a chip MEANS.
+            onOpenNotes: { pieceId in
+                showInspector = true
+                detailSegment = .annotations
+                annotationScopeRequest = .project(focusPiece: pieceId)
+            },
+            // **A chip click is a SUBJECT write and nothing else**, through the
+            // click rule: a piece clicked while the Book is open opens it, which
+            // takes `open` off the Book and uncovers the host that was mounted
+            // underneath all along; no arm is torn down.
+            onNavigate: { pieceId, passId in
+                selectedSubject = .item(pieceId)
+                recordActivePass(pieceId, passId)
+            },
+            // The board's write, at the board's HOST — the same place and the
+            // same shape as the pass ladder's, which lands at `InspectorView` and
+            // `PieceInspector` rather than inside `PassLadder`
+            // (`PersonaPaneRegistryTests`' census).
+            onSetState: { pieceId, passId, state in
+                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
+            },
+            // **A chip's round is three acts, and the third one waits.** The lane
+            // is recorded through the window's ONE `ActivePassMemory` writer (the
+            // run reads it to sign and file its notes), then the subject travels,
+            // as `onNavigate` does. Then it WAITS: `runRequested` refuses in
+            // silence while the document is not open, and the open is async
+            // (`RunWhenDocumentOpens`' doc).
+            onRunRound: { pieceId, passId in
+                recordActivePass(pieceId, passId)
+                selectedSubject = .item(pieceId)
+                runRoundWhenPieceOpens(pieceId)
+            },
+            // **Each chip asks its own piece**: the drawing door, per row, so a
+            // demotion re-renders the board with no reopen.
+            posture: posture)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The counts are read HERE and never in the board's body: one
+            // project-wide walk when the board appears, and one per announced
+            // annotation change. `.task` is cancelled and re-run on identity, so
+            // a board uncovered by a view switch recounts on arrival.
+            .task { refreshOpenNotes(store: store) }
+            .onProjectEvent(.maughamAnnotationsChanged,
+                            url: store.url, window: window) { _ in
+                refreshOpenNotes(store: store)
+            }
+    }
+
     /// **The gate's four verbs, wired to this window.** Closures rather than a
     /// store handed down (`DepartmentPane`'s rule): the gate reads no disk on a
     /// body path (tripwire 4), and each reaches something the window owns — the
@@ -460,6 +479,8 @@ struct CentreColumn: View {
                    // research id from a deleted one) needs the manifest, which the
                    // canvas does not hold — and this body re-evaluates per manifest
                    // change, the canvas's per drag frame.
+                   // The faces (or what is opened beside): a click on a piece moves
+                   // the faces while the canvas keeps the centre.
                    subject: CanvasSubject.resolve(selectedSubject,
                                                   in: store.manifest.structure,
                                                   research: store.manifest.research),
@@ -469,7 +490,12 @@ struct CentreColumn: View {
                    // UI state, the tree's highlight and the canvas's subject agree by
                    // construction. The canvas gets the ANSWER (`CanvasSubject`) and
                    // never the question.
-                   selectTheProjectRow: { selectedSubject = .project },
+                   // Not through the click rule, which would open the Book over
+                   // the canvas: the faces go to the Book and the canvas stays.
+                   selectTheProjectRow: {
+                       subject.faces = .project
+                       subject.beside = nil
+                   },
                    itemIndex: ProjectWindow.canvasItemIndex(in: store),
                    // Spec §4.2: on a dimmed board a region bound to another document
                    // draws that document's name. Resolved HERE for `itemIndex`'s

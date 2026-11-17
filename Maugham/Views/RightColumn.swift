@@ -54,6 +54,9 @@ struct RightColumn: View {
 
     // The window's state this column only reads.
     let persona: Persona
+    /// The window's subject. This column is about its `faces` (the document
+    /// the panes follow) and shows what is opened `beside`.
+    let subject: WindowSubject
     let isNoChromeOn: Bool
     let showInspector: Bool
     let metrics: EditorMetrics
@@ -229,10 +232,10 @@ struct RightColumn: View {
             store: store,
             segment: $detailSegment,
             selectedSubject: $selectedSubject,
-            activeManuscriptItemId: selectedSubject?.itemID,
+            activeManuscriptItemId: subject.faces.itemID,
             persona: persona,
             projectURL: store.url,
-            activeDocId: BinderSubject.activeDocId(for: selectedSubject),
+            activeDocId: BinderSubject.activeDocId(for: subject.faces),
             allDocIds: ProjectWindow.documentIds(in: store.manifest.structure),
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
@@ -301,14 +304,14 @@ struct RightColumn: View {
 
     /// **The right column's outermost question: is the window about a figure
     /// (its inspector, `figureSubject`) or a research item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
-    /// in Plan the canvas keeps the centre, so a research click that did not
+    /// wherever the canvas keeps the centre, a research click that did not
     /// reach this column would change nothing anywhere. `inspectorRoute` and
     /// `canvasCollapse` are left alone: the ⌘\ collapse must not answer
     /// differently because a row is selected.
     ///
     /// **Being the outermost question is not being on screen.** This closure is
     /// `DetailPaneToggle`'s `inspectorContent`, rendered only by its
-    /// `.inspector` arm, and Plan opens on `.inbox`. The reveal is a rule of its
+    /// `.inspector` arm, and the writer may be on another pane. The reveal is a rule of its
     /// own (`ResearchRevealModifier` / `ProjectWindow.revealResearchColumn`): a
     /// `@ViewBuilder` cannot move the segment it is rendered under.
     ///
@@ -316,9 +319,9 @@ struct RightColumn: View {
     /// already the heaviest expression in this file.
     @ViewBuilder
     private func researchOrSubject(store: ProjectStore) -> some View {
-        let placement = ProjectWindow.researchSubjectPlacement(
-            persona: persona, subject: selectedSubject)
-        if let figureID = selectedSubject?.figureID {
+        let placement = ProjectWindow.researchSubjectPlacement(subject: subject)
+        let figurePlacement = ProjectWindow.figureSubjectPlacement(subject: subject)
+        if let figureID = figurePlacement.centreFigureID ?? figurePlacement.besideFigureID {
             figureSubject(figureID, store: store)
         } else if let id = placement.inspectedItemID {
             ResearchSubjectInspector(
@@ -329,7 +332,7 @@ struct RightColumn: View {
                 shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
                 window: window, presence: figureGridPresence)
         } else {
-            switch ProjectWindow.inspectorRoute(persona: persona,
+            switch ProjectWindow.inspectorRoute(subject: subject,
                                                 projectType: store.manifest.type) {
             case .canvas:
                 canvasInspector(store: store)
@@ -338,19 +341,18 @@ struct RightColumn: View {
             case .document:
                 InspectorView(
                     store: store,
-                    selectedItemId: selectedSubject?.itemID,
+                    selectedItemId: subject.faces.itemID,
                     metrics: metrics,
                     onOpenProjectSettings: openProjectSettings,
-                    posture: posture(selectedSubject?.itemID))
+                    posture: posture(subject.faces.itemID))
             }
         }
     }
 
-    /// **A figure subject's arm** (report plan 8a Task 7): its inspector, in
-    /// every persona. In Plan, where the canvas keeps the centre, the figure
-    /// itself stays where Task 6 put it — above, in this column — with its
-    /// inspector beneath, each taking half; elsewhere the figure is the
-    /// centre's (or, in Publish, nowhere) and the inspector has the column.
+    /// **A figure subject's arm** (report plan 8a Task 7): its inspector. A
+    /// figure opened beside shows itself above, in this column, with its
+    /// inspector beneath, each taking half; a figure in the centre leaves the
+    /// inspector the column.
     @ViewBuilder
     private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
         let inspector = FigureInspector(
@@ -362,7 +364,7 @@ struct RightColumn: View {
                 detailSegment = .annotations
             })
             .id(figureID)
-        if ProjectWindow.figureSubjectPlacement(persona: persona, subject: selectedSubject).besideFigureID != nil {
+        if ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID != nil {
             VStack(spacing: 0) {
                 FigureSubjectSurface(
                     figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
@@ -379,7 +381,7 @@ struct RightColumn: View {
 
     @ViewBuilder
     private func collectionInspector(store: ProjectStore) -> some View {
-        if let id = selectedSubject?.itemID,
+        if let id = subject.faces.itemID,
            let piece = store.manifest.structure.first(where: { $0.id == id }) {
             switch piece.pieceKind {
             case .reference:

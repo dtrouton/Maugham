@@ -40,7 +40,7 @@ enum ScreenplayScriptSource {
     /// Whether the window must derive the script itself.
     ///
     /// Three conditions, and each one is load-bearing. The census over the whole
-    /// `(persona, project type)` product —
+    /// `(subject, project type)` product —
     /// `ScreenplayScriptSourceTests.test_onlySluglineSurfacesWithNoEditorBehindThemDerive`
     /// — is what holds them to exactly one derive, and it has now caught a
     /// widening twice.
@@ -54,10 +54,10 @@ enum ScreenplayScriptSource {
     ///   one would be an op-log decode nobody reads. **This is where
     ///   `BinderSegment.showsSceneNavigator(for:)` went** (stage 2b Task 6): it
     ///   asked the segment a question only the project type could answer.
-    /// - the persona centres the canvas — which is what says *there is no editor
-    ///   here to produce it*. Author shows the same navigator but mounts
-    ///   `EditorHost` beside it, so the coordinator posts within a frame and a
-    ///   derivation there would be duplicate work racing a fresher value.
+    /// - the subject's `open` is the canvas — which is what says *there is no
+    ///   editor here to produce it*. A piece in the centre mounts `EditorHost`
+    ///   beside the same navigator, so the coordinator posts within a frame and
+    ///   a derivation there would be duplicate work racing a fresher value.
     ///
     /// **A fourth condition died with the strip in Task 7**, and it is worth
     /// recording why it was ever there. Plan's left column was four panes, and
@@ -69,12 +69,12 @@ enum ScreenplayScriptSource {
     /// screenplay it showed a one-row novel binder and never sluglines. With one
     /// left column per persona, a Plan screenplay's left column IS the navigator
     /// and the term has nothing left to exclude.
-    static func needsDerivation(persona: Persona,
+    static func needsDerivation(subject: WindowSubject,
                                 projectType: ProjectType,
                                 existing: FountainScript?) -> Bool {
         existing == nil
             && TreePane(for: projectType) == .sceneNavigator
-            && persona.centresTheCanvas
+            && subject.open == .canvas
     }
 
     /// The project's one script, parsed — or `nil` when the project has no

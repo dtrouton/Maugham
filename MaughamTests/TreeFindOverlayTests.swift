@@ -111,9 +111,8 @@ final class TreeFindOverlayTests: XCTestCase {
     /// Denver's 2026-08-02 ruling — running `⌘⌥F` must not silently remove the
     /// goal capsule, the session words and the `¶id`/element readout — used to
     /// be carried by `BinderSegment.showsManuscriptStatusFooter`'s `.find` arm.
-    /// It holds by construction now: the gate's inputs are the persona, the
-    /// subject and (since Task 8) the palette wall, and opening the overlay
-    /// writes none of them. (The predicate the `.find` arm lived on was deleted
+    /// It holds by construction now: the gate's one input is the window's
+    /// subject, and opening the overlay writes none of it. (The predicate the `.find` arm lived on was deleted
     /// in stage 2b Task 6 and the gate re-based onto the persona; the segment
     /// left the gate's inputs entirely in Task 7; Task 8 added the wall term
     /// and the overlay does not touch that either. This assertion is what says
@@ -139,14 +138,14 @@ final class TreeFindOverlayTests: XCTestCase {
             let window = host(box, FindOverlayProbeView(
                 store: store, box: box, persona: persona))
             let before = ProjectWindow.showsStatusFooter(
-                persona: persona, subject: box.subject, showsPaletteWall: false,
+                subject: SubjectSamples.opened(box.subject ?? .project),
                 structure: structure)
 
             box.treeFindActive = true
             await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
             let after = ProjectWindow.showsStatusFooter(
-                persona: persona, subject: box.subject, showsPaletteWall: false,
+                subject: SubjectSamples.opened(box.subject ?? .project),
                 structure: structure)
             XCTAssertEqual(before, after,
                            "\(persona): opening find changed the footer's "
@@ -154,11 +153,10 @@ final class TreeFindOverlayTests: XCTestCase {
                            + "column is judged by")
         }
         XCTAssertTrue(
-            ProjectWindow.showsStatusFooter(persona: .author, subject: subject,
-                                            showsPaletteWall: false,
+            ProjectWindow.showsStatusFooter(subject: SubjectSamples.opened(subject),
                                             structure: structure),
-            "premise: the case the ruling is about — a writer in Author with a "
-            + "document in the centre — has a footer to lose in the first place")
+            "premise: the case the ruling is about — a document in the centre — "
+            + "has a footer to lose in the first place")
     }
 
     // MARK: - Closing: one route, reached twice
@@ -299,20 +297,26 @@ final class TreeFindOverlayTests: XCTestCase {
     /// note beside the board like every other research selection.
     func test_theResearchSubjectFromAMatchReachesAColumn() throws {
         let subject = BinderSubject.research("res-note")
+        for open in [BinderSubject.item(SubjectSamples.pieceID), .canvas] {
+            let clicked = ClickRule.resolve(subject, gesture: .click,
+                                            current: SubjectSamples.opened(open),
+                                            structure: SubjectSamples.structure,
+                                            projectType: .novel)
+            XCTAssertEqual(
+                ProjectWindow.researchSubjectPlacement(subject: clicked),
+                .besideTheCanvas("res-note"),
+                "\(open) open: the note the writer just found previews beside — "
+                + "the whole of the gap was that it took nothing")
+        }
+        let opened = ClickRule.resolve(subject, gesture: .openInCentre,
+                                       current: .book, structure: SubjectSamples.structure,
+                                       projectType: .novel)
+        XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: opened),
+                       .takesTheCentre("res-note"),
+                       "opened, it takes the centre")
         XCTAssertEqual(
             ProjectWindow.researchSubjectPlacement(
-                persona: .author, subject: subject),
-            .takesTheCentre("res-note"),
-            "in Author the note the writer just found must take the centre — "
-            + "the whole of the gap was that it took nothing")
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .plan, subject: subject),
-            .besideTheCanvas("res-note"),
-            "in Plan the canvas stays mounted and the right column previews it")
-        XCTAssertEqual(
-            ProjectWindow.researchSubjectPlacement(
-                persona: .author, subject: .item("ch-1")),
+                subject: SubjectSamples.opened(.item("ch-1"))),
             .nothingMoves,
             "the control: a subject that names no research item moves neither "
             + "column, or every answer above is the same answer")

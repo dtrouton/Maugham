@@ -24,6 +24,17 @@ struct InboxPane: View {
     /// Re-arm + kick transcription for an entry (DocumentStore.retranscribe).
     let retranscribe: (InboxEntry) -> Void
 
+    /// Local transcription exists only on Apple Silicon (see
+    /// DocumentStore.makeTranscriber) — one answer for both mounts, the right
+    /// column's pane and the centre's.
+    static var localTranscriptionAvailable: Bool {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     @State private var editing: InboxEntry?
     /// How many set-aside CAPTURES this device has not yet told the writer
     /// about, **under each reason they were set aside for** (P3b Task 8's C1),

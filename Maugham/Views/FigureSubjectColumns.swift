@@ -11,13 +11,12 @@ extension ProjectWindow {
     /// by BOTH columns for the same reason: one value, so the centre and the
     /// right column cannot disagree about whether the subject is in force.
     ///
-    /// - `takesTheCentre` — Author and Review: the figure is the centre
-    ///   column (Review's read-only comes with the grid, Task 6).
-    /// - `besideTheCanvas` — Plan: the canvas STAYS MOUNTED (one mount,
-    ///   tripwires 27/30) and the right column shows the figure, revealed by
-    ///   `revealResearchColumn`, so the click is never silently nothing.
-    /// - `nothingMoves` — Publish, whose centre is the book, and every subject
-    ///   that is not a figure.
+    /// - `takesTheCentre` — the figure is the subject's `open`: the centre
+    ///   column shows it.
+    /// - `besideTheCanvas` — the figure is the subject's `beside`: the right
+    ///   column shows it, revealed by `revealResearchColumn`, and the centre
+    ///   (the canvas's one mount included) is left alone.
+    /// - `nothingMoves` — no figure in either place.
     enum FigureSubjectPlacement: Equatable {
         case takesTheCentre(String)
         case besideTheCanvas(String)
@@ -36,14 +35,14 @@ extension ProjectWindow {
         }
     }
 
-    /// Pure and exhaustive over its inputs, asked through the same two persona
-    /// predicates `researchSubjectPlacement` asks — no persona name.
-    static func figureSubjectPlacement(
-        persona: Persona, subject: BinderSubject?
-    ) -> FigureSubjectPlacement {
-        guard let id = subject?.figureID else { return .nothingMoves }
-        guard !persona.previewsThePublishedBook else { return .nothingMoves }
-        return persona.centresTheCanvas ? .besideTheCanvas(id) : .takesTheCentre(id)
+    /// Pure and exhaustive over its inputs, asked of the subject's two places
+    /// as `researchSubjectPlacement` asks: a figure in `open` takes the centre
+    /// (a figure is manuscript content), one in `beside` shows in the right
+    /// column.
+    static func figureSubjectPlacement(subject: WindowSubject) -> FigureSubjectPlacement {
+        if let id = subject.open.figureID { return .takesTheCentre(id) }
+        if let id = subject.beside?.figureID { return .besideTheCanvas(id) }
+        return .nothingMoves
     }
 }
 
