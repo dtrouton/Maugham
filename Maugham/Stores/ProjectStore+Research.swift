@@ -145,22 +145,10 @@ extension ProjectStore {
         parentId: String?,
         title: String = "Untitled Note"
     ) async throws -> ResearchItem {
-        // Determine target folder: research/, or research/<group-slug>/
-        let researchRoot = url.appendingPathComponent("research")
+        let folderPath = try newNoteFolder(parentId: parentId)
+        let parentFolder = try resolvedProjectPathToChange(folderPath, isDirectory: true)
         try FileManager.default.createDirectory(
-            at: researchRoot, withIntermediateDirectories: true)
-
-        let parentFolder: URL
-        if let parentId,
-           let parent = findResearchItem(id: parentId, in: manifest.research),
-           parent.type == .group {
-            let groupSlug = Slugifier.slug(from:parent.title)
-            parentFolder = researchRoot.appendingPathComponent(groupSlug) // local-path: a slug of the group's title
-            try FileManager.default.createDirectory(
-                at: parentFolder, withIntermediateDirectories: true)
-        } else {
-            parentFolder = researchRoot
-        }
+            at: parentFolder, withIntermediateDirectories: true)
 
         // Dedup title against existing siblings (numeric suffix)
         let siblings: [ResearchItem]
@@ -187,20 +175,14 @@ extension ProjectStore {
         // `attributesOfItem`, not `fileExists`: a dangling link at the slug is
         // taken, not vacant (fileExists follows it and answers false).
         while (try? FileManager.default.attributesOfItem(
-            atPath: parentFolder.appendingPathComponent(finalFilename).path)) != nil { // local-path: slugs minted from the titles, under research/
+            atPath: parentFolder.appendingPathComponent(finalFilename).path)) != nil { // local-path: a slug minted from the title, in the folder resolved through SafeRelativePath above
             finalFilename = "\(slug)-\(diskCounter).md"
             diskCounter += 1
         }
-        let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: slugs minted from the titles, under research/
+        let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: a slug minted from the title, in the folder resolved through SafeRelativePath above
         try Data().write(to: fileURL, options: .withoutOverwriting) // raw-research-text: create; a link already there (even a dangling one) refuses rather than being followed
 
-        // Compute relative path from project root
-        let relativePath: String = {
-            if parentFolder.path == researchRoot.path {
-                return "research/\(finalFilename)"
-            }
-            return "research/\(parentFolder.lastPathComponent)/\(finalFilename)"
-        }()
+        let relativePath = "\(folderPath)/\(finalFilename)"
 
         let item = ResearchItem(
             id: Self.newId(prefix: "res"),
@@ -219,6 +201,28 @@ extension ProjectStore {
         manifest.modified = Date()
         try await saveManifest()
         return item
+    }
+
+    /// **The folder a new note in `parentId` lands in** (#148 D4): the
+    /// group's own recorded folder (`path`), which a rename (deduped beside
+    /// a namesake) and a move keep current — never one re-derived from its
+    /// title, and never one read off its children, whose paths say where
+    /// each child is. A group row recording no folder falls back to
+    /// `research/<title slug>`; no parent, or one that is not a group, is
+    /// the top of `research/`. A group whose folder is outside every
+    /// research root (a synced manifest naming the manuscript) is refused
+    /// as a move into it is, before anything is made.
+    private func newNoteFolder(parentId: String?) throws -> String {
+        guard let parentId,
+              let parent = findResearchItem(id: parentId, in: manifest.research),
+              parent.type == .group else { return "research" }
+        guard let recorded = parent.path, !recorded.isEmpty else {
+            return "research/\(Slugifier.slug(from: parent.title))"
+        }
+        guard ResearchTextRole.isInsideAResearchRoot(recorded, structure: manifest.structure) else {
+            throw ProjectStoreError.outsideResearch(title: parent.title)
+        }
+        return recorded
     }
 
     // MARK: - New Table (report plan 8b Task 8, D8b-2)

@@ -1563,4 +1563,29 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertFalse(try versions(of: item).map(versionText).contains("The assistant's change."),
                        "T0's text was never written anywhere")
     }
+
+    // MARK: - A destroyed note takes its files with it (#148 D4; N7's production path)
+
+    /// The record and versions a real save made — not files planted by the
+    /// test — go when the note is destroyed for good: deleted to the Trash,
+    /// they stay; Permanently Delete removes them (M3-TR-067).
+    func test_aNoteSavedThroughTheDoorThenDestroyedLeavesNoRecordOrVersions() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+        try read(item, store, projectStore)
+        let saved = await store.saveResearchNote(itemId: item.id, text: "The assistant's.", by: .assistant)
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        let record = try ResearchNoteRecord.fileURL(forItem: item.id, in: projectURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "premise: the save wrote its record")
+        XCTAssertEqual(try ResearchNoteRecord.read(forItem: item.id, in: projectURL)?.writtenBy, .assistant)
+        XCTAssertEqual(versions(of: item).count, 1, "premise: the save kept a version")
+
+        try await projectStore.deleteResearchItems(ids: [item.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "an item in the Trash keeps its record")
+        XCTAssertEqual(versions(of: item).count, 1, "and its versions")
+        try await projectStore.permanentlyDeleteTrashEntry(id: try XCTUnwrap(projectStore.trashEntries.first?.id))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: record.path), "the record is gone")
+        XCTAssertTrue(versions(of: item).isEmpty, "the versions are gone")
+    }
 }
