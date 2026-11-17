@@ -90,7 +90,7 @@ final class ResolveBoardCountTests: XCTestCase {
         try await store.withFigureHost(owned.id) { try await $0.archiveAnnotation(id: settled.opId) }
 
         let board = projectStore.openNotesSummaries()
-        let read = ResolveReader.read(scope: .piece(docId: "doc-a"), store: projectStore,
+        let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: projectStore,
                                       documentStore: store, diagnostics: nil)
         let notes = read.items.filter { if case .note = $0 { return true } else { return false } }
 

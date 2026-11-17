@@ -35,10 +35,17 @@ enum ResolveReader {
     /// whole-book or shared-Research figure, or one the registry no longer
     /// holds) shows at Book scope and its own scope only. The Book's own to-dos
     /// come only where `includesBookLevel`.
+    ///
+    /// A figure owned by a piece the scope does not hold is dropped, at Book
+    /// scope too: a reference piece's figure, or one whose owner id is stale,
+    /// shows only at its own figure scope (the board counts it on that row).
+    ///
+    /// `figureOwners` has no default on purpose: an omitted map would make
+    /// every owned figure look whole-book, a wrong count and no error.
     static func snapshot(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
                          tasks: [WriterTask], findings: [String: [Diagnostic]],
                          paragraphText: [String: String],
-                         figureOwners: [String: String?] = [:]) -> ResolveSnapshot {
+                         figureOwners: [String: String?]) -> ResolveSnapshot {
         let docIds = scope.docIds
         guard !docIds.isEmpty || scope.includesBookLevel else { return .empty }
         let inScope = Set(docIds)
@@ -90,50 +97,84 @@ enum ResolveReader {
     }
 
     /// One read of `scope`: the two project walks (each cached whole by the
-    /// store), each document's paragraphs read once to judge the strains'
-    /// anchors, then `snapshot`. A document whose paragraphs will not read is
-    /// named unreadable, and its anchored strains — which cannot be judged —
-    /// are dropped with it.
+    /// store), the sidecar's live strains, then `snapshot`. Wired to the
+    /// stores; the decisions are `gather`'s.
     @MainActor
     static func read(scope: ResolveScope, store: ProjectStore,
                      documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
-        let docIds = scope.docIds
-        guard !docIds.isEmpty || scope.includesBookLevel else { return .empty }
-        let annotations = store.listAnnotationsAcrossProject()
-        let tasks = store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open]))
+        guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+        let live: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in
+            { docId, currentText in diagnostics.live(docId: docId, currentText: currentText) }
+        }
+        return gather(
+            scope: scope,
+            annotations: store.listAnnotationsAcrossProject(),
+            tasks: store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open])),
+            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            liveFindings: live,
+            paragraphs: { docId in
+                try currentParagraphState(documentId: docId, store: store,
+                                          documentStore: documentStore, projectURL: store.url).paragraphs
+            })
+    }
 
+    /// **The read's decisions, with its two sources injected** (the seam
+    /// `ResolveReaderTests` counts reads through).
+    ///
+    /// Paragraph text is read — once per document — only where something
+    /// needs it: the `.piece` scope's own document (group titles, the
+    /// letter), and a document whose sidecar holds an ANCHORED strain, whose
+    /// liveness is judged against its paragraph's text. A first `live` call
+    /// with a text source that answers nothing finds out which: `live` asks
+    /// for text only for an anchored strain. A Book of sixty pieces with no
+    /// anchored strain reads no text at all.
+    ///
+    /// A document whose text will not read is named unreadable (RULING-54),
+    /// and its anchored strains — which cannot be judged — are dropped; its
+    /// unanchored strains, notes and to-dos still list.
+    ///
+    /// - Parameters:
+    ///   - liveFindings: `DiagnosticsStore.live(docId:currentText:)`, or nil
+    ///     when there is no diagnostics store (no strains at all).
+    ///   - paragraphs: a document's `[paragraphId: text]`; throws when it
+    ///     will not read.
+    @MainActor
+    static func gather(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
+                       tasks: [WriterTask], figureOwners: [String: String?],
+                       liveFindings: ((String, (String) -> String?) -> [Diagnostic])?,
+                       paragraphs: (String) throws -> [String: String]) -> ResolveSnapshot {
         var texts: [String: [String: String]] = [:]
         var unreadable: [String] = []
-        let needsText: Bool = {
-            if case .piece = scope { return true }
-            return diagnostics != nil
-        }()
-        if needsText {
-            for docId in docIds where !DocumentClass.isFigureDocId(docId) {
-                do {
-                    texts[docId] = try currentParagraphState(
-                        documentId: docId, store: store,
-                        documentStore: documentStore, projectURL: store.url).paragraphs
-                } catch {
-                    unreadable.append(docId)
-                }
-            }
-        }
-
-        var findings: [String: [Diagnostic]] = [:]
-        if let diagnostics {
-            for docId in docIds where !DocumentClass.isFigureDocId(docId) {
-                let paragraphs = texts[docId] ?? [:]
-                findings[docId] = diagnostics.live(docId: docId) { paragraphs[$0] }
+        func text(of docId: String) -> [String: String]? {
+            if let read = texts[docId] { return read }
+            guard !unreadable.contains(docId) else { return nil }
+            do {
+                let read = try paragraphs(docId)
+                texts[docId] = read
+                return read
+            } catch {
+                unreadable.append(docId)
+                return nil
             }
         }
 
         var paragraphText: [String: String] = [:]
-        if case .piece(let docId, _) = scope { paragraphText = texts[docId] ?? [:] }
+        if case .piece(let docId, _) = scope { paragraphText = text(of: docId) ?? [:] }
+
+        var findings: [String: [Diagnostic]] = [:]
+        if let liveFindings {
+            for docId in scope.docIds where !DocumentClass.isFigureDocId(docId) {
+                var anchored = false
+                let unjudged = liveFindings(docId) { _ in anchored = true; return nil }
+                guard anchored else { findings[docId] = unjudged; continue }
+                let current = text(of: docId) ?? [:]
+                findings[docId] = liveFindings(docId) { current[$0] }
+            }
+        }
 
         let read = snapshot(scope: scope, annotations: annotations, tasks: tasks,
                             findings: findings, paragraphText: paragraphText,
-                            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))
+                            figureOwners: figureOwners)
         let named = read.unreadableDocIds + unreadable.filter { !read.unreadableDocIds.contains($0) }
         return ResolveSnapshot(items: read.items, sequences: read.sequences,
                                paragraphText: read.paragraphText, unreadableDocIds: named)

@@ -20,7 +20,7 @@ final class ResolveScopeTests: XCTestCase {
 
     func test_aDocumentIsAPieceAndAGroupItsDocuments() {
         XCTAssertEqual(ResolveScope.of(.item("doc-c"), structure: structure, projectType: .collection),
-                       .piece(docId: "doc-c"))
+                       .piece(docId: "doc-c", includesBookLevel: false))
         XCTAssertEqual(ResolveScope.of(.item("grp-1"), structure: structure, projectType: .collection),
                        .pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: false))
         XCTAssertEqual(ResolveScope.of(.project, structure: structure, projectType: .collection),

@@ -59,13 +59,13 @@ final class ResolveReaderTests: XCTestCase {
             tasks: [todo("t-a", on: "doc-a"), todo("t-c", on: "doc-c"),
                     todo("t-book", on: ProjectStore.projectTasksDocId), todo("t-none", on: nil)],
             findings: ["doc-a": [strain("s-a", on: "doc-a")], "doc-c": [strain("s-c", on: "doc-c")]],
-            paragraphText: ["aa11": "Two opens."])
+            paragraphText: ["aa11": "Two opens."], figureOwners: [:])
     }
 
     // MARK: - Scopes
 
     func test_aPieceScopeHoldsThatPiecesOpenNotesTodosAndFindings() {
-        let read = everything(scope: .piece(docId: "doc-a"))
+        let read = everything(scope: .piece(docId: "doc-a", includesBookLevel: false))
         XCTAssertEqual(ids(read), ["note:doc-a/n-a", "todo:doc-a/t-a", "finding:doc-a/s-a"])
         XCTAssertEqual(read.paragraphText, ["aa11": "Two opens."], "a piece carries its paragraphs")
         XCTAssertEqual(read.sequences, ["doc-a": ["aa11"]])
@@ -92,7 +92,7 @@ final class ResolveReaderTests: XCTestCase {
         let read = everything(scope: .figure(id: figure))
         XCTAssertEqual(ids(read), ["note:\(figure)/n-f"])
         // A figure's notes come at Book and figure scope only — never a piece's.
-        XCTAssertFalse(ids(everything(scope: .piece(docId: "doc-a"))).contains("note:\(figure)/n-f"))
+        XCTAssertFalse(ids(everything(scope: .piece(docId: "doc-a", includesBookLevel: false))).contains("note:\(figure)/n-f"))
         XCTAssertFalse(ids(everything(scope: part)).contains("note:\(figure)/n-f"))
     }
 
@@ -116,9 +116,9 @@ final class ResolveReaderTests: XCTestCase {
                                    note("n-shared", on: shared, pid: nil), note("n-b", on: "doc-b")]),
                 tasks: [], findings: [:], paragraphText: [:], figureOwners: owners).items.map(\.id)
         }
-        XCTAssertEqual(read(.piece(docId: "doc-a")), ["note:doc-a/n-a", "note:\(owned)/n-own"],
+        XCTAssertEqual(read(.piece(docId: "doc-a", includesBookLevel: false)), ["note:doc-a/n-a", "note:\(owned)/n-own"],
                        "the piece's paragraph notes, then its figure's")
-        XCTAssertEqual(read(.piece(docId: "doc-b")), ["note:doc-b/n-b"])
+        XCTAssertEqual(read(.piece(docId: "doc-b", includesBookLevel: false)), ["note:doc-b/n-b"])
         XCTAssertEqual(Set(read(part)), ["note:doc-a/n-a", "note:doc-b/n-b", "note:\(owned)/n-own"])
         XCTAssertEqual(Set(read(book)), ["note:doc-a/n-a", "note:doc-b/n-b",
                                          "note:\(owned)/n-own", "note:\(shared)/n-shared"])
@@ -132,7 +132,7 @@ final class ResolveReaderTests: XCTestCase {
             FigureRecord(id: "fig-bbbb2222", name: "cash", kind: .table, piece: "doc-a", path: "figures/cash.csv"),
         ])
         let read = ResolveReader.snapshot(
-            scope: .piece(docId: "doc-a"), annotations: walk([], unreadable: ["fig-bbbb2222"]),
+            scope: .piece(docId: "doc-a", includesBookLevel: false), annotations: walk([], unreadable: ["fig-bbbb2222"]),
             tasks: [], findings: [:], paragraphText: [:], figureOwners: owners)
         XCTAssertEqual(read.unreadableDocIds, ["fig-bbbb2222"])
     }
@@ -146,13 +146,13 @@ final class ResolveReaderTests: XCTestCase {
             scope: scope, annotations: walk([note("n-s", on: "doc-s")]),
             tasks: [todo("t-s", on: "doc-s"), todo("t-book", on: ProjectStore.projectTasksDocId),
                     todo("t-none", on: nil)],
-            findings: [:], paragraphText: ["aa11": "INT. DOCK - NIGHT"])
+            findings: [:], paragraphText: ["aa11": "INT. DOCK - NIGHT"], figureOwners: [:])
         XCTAssertEqual(ids(read), ["note:doc-s/n-s", "todo:doc-s/t-s",
                                    "todo:\(ProjectStore.projectTasksDocId)/t-book",
                                    "todo:\(ProjectStore.projectTasksDocId)/t-none"])
         XCTAssertEqual(read.paragraphText, ["aa11": "INT. DOCK - NIGHT"], "still read as the script")
         // CONTROL: a plain piece holds no Book-level to-dos.
-        XCTAssertFalse(ids(everything(scope: .piece(docId: "doc-a")))
+        XCTAssertFalse(ids(everything(scope: .piece(docId: "doc-a", includesBookLevel: false)))
             .contains("todo:\(ProjectStore.projectTasksDocId)/t-book"))
     }
 
@@ -161,7 +161,7 @@ final class ResolveReaderTests: XCTestCase {
             scope: .elsewhere(docId: "doc-r"),
             annotations: walk([note("n-r", on: "doc-r")]),
             tasks: [todo("t-r", on: "doc-r")], findings: ["doc-r": [strain("s-r", on: "doc-r")]],
-            paragraphText: [:])
+            paragraphText: [:], figureOwners: [:])
         XCTAssertEqual(read, .empty)
     }
 
@@ -169,9 +169,9 @@ final class ResolveReaderTests: XCTestCase {
 
     func test_aCheckMintedNoteAppearsOnceAsANote() {
         let read = ResolveReader.snapshot(
-            scope: .piece(docId: "doc-a"),
+            scope: .piece(docId: "doc-a", includesBookLevel: false),
             annotations: walk([note("q-1", on: "doc-a", runId: "run-1")]),
-            tasks: [], findings: [:], paragraphText: [:])
+            tasks: [], findings: [:], paragraphText: [:], figureOwners: [:])
         XCTAssertEqual(read.items.count, 1)
         guard case .note(let n) = read.items.first else { return XCTFail("a check's question is a note") }
         XCTAssertEqual(n.annotation.compilerRunId, "run-1")
@@ -179,10 +179,10 @@ final class ResolveReaderTests: XCTestCase {
 
     func test_onlyASidecarStrainIsReplacedByTheNextCheck() {
         let read = ResolveReader.snapshot(
-            scope: .piece(docId: "doc-a"),
+            scope: .piece(docId: "doc-a", includesBookLevel: false),
             annotations: walk([note("q-1", on: "doc-a", runId: "run-1")]),
             tasks: [todo("t-a", on: "doc-a")],
-            findings: ["doc-a": [strain("s-a", on: "doc-a")]], paragraphText: [:])
+            findings: ["doc-a": [strain("s-a", on: "doc-a")]], paragraphText: [:], figureOwners: [:])
         let replaced = read.items.filter(\.isReplacedByTheNextCheck).map(\.id)
         XCTAssertEqual(replaced, ["finding:doc-a/s-a"])
         XCTAssertEqual(read.items.count, 3)
@@ -191,19 +191,19 @@ final class ResolveReaderTests: XCTestCase {
     func test_settledNotesAndDoneTodosAreNotItems() {
         let settled: [AnnotationStatus] = [.accepted, .rejected, .archived, .stetted]
         let read = ResolveReader.snapshot(
-            scope: .piece(docId: "doc-a"),
+            scope: .piece(docId: "doc-a", includesBookLevel: false),
             annotations: walk(settled.map { note("n-\($0.rawValue)", on: "doc-a", status: $0) }
                               + [note("n-open", on: "doc-a")]),
             tasks: [todo("t-done", on: "doc-a", status: .done),
                     todo("t-archived", on: "doc-a", status: .archived), todo("t-open", on: "doc-a")],
-            findings: [:], paragraphText: [:])
+            findings: [:], paragraphText: [:], figureOwners: [:])
         XCTAssertEqual(ids(read), ["note:doc-a/n-open", "todo:doc-a/t-open"])
     }
 
     func test_anUnreadablePieceIsNamedNotEmpty() {
         let read = ResolveReader.snapshot(
             scope: part, annotations: walk([note("n-a", on: "doc-a")], unreadable: ["doc-b", "doc-z"]),
-            tasks: [], findings: [:], paragraphText: [:])
+            tasks: [], findings: [:], paragraphText: [:], figureOwners: [:])
         XCTAssertEqual(read.unreadableDocIds, ["doc-b"], "named, and only the scope's own")
         XCTAssertEqual(ids(read), ["note:doc-a/n-a"], "one unreadable piece costs the others nothing")
     }
@@ -277,7 +277,7 @@ final class ResolveReaderTests: XCTestCase {
         let f = try await makeFixture()
         XCTAssertNil(f.ds.document(forDocId: "doc-a"), "premise: the piece is closed")
 
-        let read = ResolveReader.read(scope: .piece(docId: "doc-a"), store: f.store,
+        let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: f.store,
                                       documentStore: f.ds, diagnostics: nil)
 
         let notes = read.items.compactMap { if case .note(let n) = $0 { return n.annotation.body } else { return nil } }
@@ -297,13 +297,87 @@ final class ResolveReaderTests: XCTestCase {
                strain("s-stale", on: "doc-a", pid: "bb22", text: "Two opened, once.")],
               on: "doc-a", in: f)
 
-        let read = ResolveReader.read(scope: .piece(docId: "doc-a"), store: f.store,
+        let read = ResolveReader.read(scope: .piece(docId: "doc-a", includesBookLevel: false), store: f.store,
                                       documentStore: f.ds, diagnostics: f.diagnostics)
 
         let findings = read.items.filter(\.isReplacedByTheNextCheck).map(\.id)
         XCTAssertEqual(findings, ["finding:doc-a/s-live"],
                        "a strain survives only while its paragraph still says what it quoted")
         XCTAssertNil(f.ds.document(forDocId: "doc-a"))
+    }
+
+    // MARK: - Which documents' text is read (the `gather` seam)
+
+    /// `DiagnosticsStore.live`'s rule over a hand-held sidecar: an
+    /// unanchored strain survives, an anchored one while its text matches.
+    private func live(_ sidecar: [String: [Diagnostic]]) -> (String, (String) -> String?) -> [Diagnostic] {
+        { docId, currentText in
+            (sidecar[docId] ?? []).filter { d in
+                guard let anchor = d.anchor else { return true }
+                return currentText(anchor.paragraphId) == anchor.anchorText
+            }
+        }
+    }
+
+    private func gather(_ scope: ResolveScope, sidecar: [String: [Diagnostic]]?,
+                        reads: inout [String]) -> ResolveSnapshot {
+        var log: [String] = []
+        let result = ResolveReader.gather(
+            scope: scope, annotations: walk([]), tasks: [], figureOwners: [:],
+            liveFindings: sidecar.map(live),
+            paragraphs: { docId in log.append(docId); return ["aa11": "Two opens."] })
+        reads = log
+        return result
+    }
+
+    func test_aBookWithNoAnchoredStrainReadsNoParagraphText() {
+        let sixty = (1...60).map { "doc-\($0)" }
+        let book = ResolveScope.pieces(docIds: sixty, includesBookLevel: true)
+        var reads: [String] = []
+
+        _ = gather(book, sidecar: [:], reads: &reads)
+        XCTAssertEqual(reads, [], "a diagnostics store with no strain reads no text")
+
+        let unanchored = Diagnostic(id: "s-u", docId: "doc-7", anchor: nil, body: "u", category: nil,
+                                    runId: "run-1", kind: .conformanceStrain)
+        let read = gather(book, sidecar: ["doc-7": [unanchored]], reads: &reads)
+        XCTAssertEqual(reads, [], "an unanchored strain needs no text to be judged")
+        XCTAssertEqual(read.items.map(\.id), ["finding:doc-7/s-u"])
+
+        _ = gather(book, sidecar: nil, reads: &reads)
+        XCTAssertEqual(reads, [], "no diagnostics store, no text")
+    }
+
+    func test_onlyADocumentWithAnAnchoredStrainHasItsTextRead() {
+        let part = ResolveScope.pieces(docIds: ["doc-a", "doc-b", "doc-c"], includesBookLevel: false)
+        var reads: [String] = []
+        let read = gather(part, sidecar: [
+            "doc-b": [strain("s-live", on: "doc-b"), strain("s-stale", on: "doc-b", text: "Gone.")],
+        ], reads: &reads)
+        XCTAssertEqual(reads, ["doc-b"], "one read, of the one document whose strain must be judged")
+        XCTAssertEqual(read.items.map(\.id), ["finding:doc-b/s-live"])
+    }
+
+    func test_aPieceReadsItsOwnTextOnce() {
+        var reads: [String] = []
+        let read = gather(.piece(docId: "doc-a", includesBookLevel: false),
+                          sidecar: ["doc-a": [strain("s-a", on: "doc-a")]], reads: &reads)
+        XCTAssertEqual(reads, ["doc-a"], "the piece's text serves its titles and its strains, read once")
+        XCTAssertEqual(read.paragraphText, ["aa11": "Two opens."])
+        XCTAssertEqual(read.items.map(\.id), ["finding:doc-a/s-a"])
+    }
+
+    func test_aDocumentWhoseTextWillNotReadIsNamedAndItsAnchoredStrainsDropped() {
+        struct Unreadable: Error {}
+        let unanchored = Diagnostic(id: "s-u", docId: "doc-b", anchor: nil, body: "u", category: nil,
+                                    runId: "run-1", kind: .conformanceStrain)
+        let read = ResolveReader.gather(
+            scope: .pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: false),
+            annotations: walk([note("n-b", on: "doc-b")]), tasks: [], figureOwners: [:],
+            liveFindings: live(["doc-b": [strain("s-b", on: "doc-b"), unanchored]]),
+            paragraphs: { _ in throw Unreadable() })
+        XCTAssertEqual(read.unreadableDocIds, ["doc-b"])
+        XCTAssertEqual(Set(read.items.map(\.id)), ["note:doc-b/n-b", "finding:doc-b/s-u"])
     }
 
     // MARK: - Census

@@ -75,7 +75,7 @@ final class ResolveGroupingTests: XCTestCase {
         ], sequences: ["doc-a": ["aa11", "bb22", "cc33", "dd44"]],
            text: ["aa11": "First line. <!--t-aaaaaa-->", "bb22": "Second.", "cc33": "Third.", "dd44": "Quiet."])
 
-        let result = groups(read, .piece(docId: "doc-a"))
+        let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false))
 
         XCTAssertEqual(result.map(\.key), [
             .wholePiece(docId: "doc-a"),
@@ -100,7 +100,7 @@ final class ResolveGroupingTests: XCTestCase {
             note("n-whole", pid: nil),
         ], sequences: ["doc-a": ["aa11"]], text: ["aa11": "Here."])
 
-        let result = groups(read, .piece(docId: "doc-a"))
+        let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false))
         XCTAssertEqual(result.map(\.key), [
             .wholePiece(docId: "doc-a"),
             .paragraph(docId: "doc-a", paragraphId: "aa11"),
@@ -112,7 +112,7 @@ final class ResolveGroupingTests: XCTestCase {
                        "a deleted paragraph's note is never filed under Whole chapter")
 
         // A screenplay: still at the end of its piece, after every scene.
-        let scenes = groups(read, .piece(docId: "doc-a"),
+        let scenes = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                             sceneIndex: ["aa11": 0], sceneTitles: ["INT. HALL - DAY"])
         XCTAssertEqual(scenes.map(\.key), [
             .wholePiece(docId: "doc-a"), .scene(docId: "doc-a", index: 0), .removed(docId: "doc-a"),
@@ -174,7 +174,7 @@ final class ResolveGroupingTests: XCTestCase {
         let piece = groups(snapshot([note("n-own", on: owned, pid: nil), note("n-a", pid: "aa11"),
                                      note("n-gone", pid: "zz99")],
                                     sequences: ["doc-a": ["aa11"]], text: ["aa11": "Here."]),
-                           .piece(docId: "doc-a"), figureNames: names)
+                           .piece(docId: "doc-a", includesBookLevel: false), figureNames: names)
         XCTAssertEqual(piece.map(\.key), [
             .paragraph(docId: "doc-a", paragraphId: "aa11"), .removed(docId: "doc-a"), .figure(id: owned),
         ])
@@ -199,7 +199,7 @@ final class ResolveGroupingTests: XCTestCase {
            text: ["aa11": "INT. KITCHEN - DAY", "bb22": "Larry sits.",
                   "cc33": "EXT. ROOF - NIGHT", "dd44": "He climbs."])
 
-        let result = groups(read, .piece(docId: "doc-a"),
+        let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                             sceneIndex: ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1],
                             sceneTitles: ["INT. KITCHEN - DAY", "EXT. ROOF - NIGHT"])
         XCTAssertEqual(result.map(\.key), [
@@ -218,7 +218,7 @@ final class ResolveGroupingTests: XCTestCase {
         ], sequences: ["doc-a": ["aa11", "bb22", "cc33"]],
            text: ["aa11": "FADE IN:", "bb22": "Rain.", "cc33": "INT. HALL - DAY"])
 
-        let result = groups(read, .piece(docId: "doc-a"),
+        let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                             sceneIndex: ["cc33": 0], sceneTitles: ["INT. HALL - DAY"])
         XCTAssertEqual(result.map(\.key), [
             .beforeFirstScene(docId: "doc-a"), .scene(docId: "doc-a", index: 0),

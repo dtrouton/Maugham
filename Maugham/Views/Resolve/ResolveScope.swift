@@ -7,7 +7,7 @@ enum ResolveScope: Hashable {
     /// One manuscript document. `includesBookLevel` is true for a
     /// screenplay's Book only: grouped as its one script, it still holds the
     /// Book's own to-dos.
-    case piece(docId: String, includesBookLevel: Bool = false)
+    case piece(docId: String, includesBookLevel: Bool)
     /// The Book (`includesBookLevel: true` — the Book's own to-dos and every
     /// figure's notes come too) or a Part (false), its documents in
     /// manuscript order. Reference pieces are never among them.
@@ -39,7 +39,7 @@ enum ResolveScope: Hashable {
             guard let item = TreeWalk.find(id: id, in: structure) else { return .outside }
             switch item.type {
             case .document:
-                return isReference(item) ? .elsewhere(docId: id) : .piece(docId: id)
+                return isReference(item) ? .elsewhere(docId: id) : .piece(docId: id, includesBookLevel: false)
             case .group:
                 return .pieces(docIds: documents(in: item.children ?? []), includesBookLevel: false)
             }
