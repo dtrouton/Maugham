@@ -5,6 +5,7 @@
 #   ./scripts/test.sh full     # core package + full Mac scheme (pre-merge/tag gate)
 #   ./scripts/test.sh phone    # the iOS simulator run (slow; CI runs it on every push)
 #   ./scripts/test.sh core     # MaughamCore's package tests alone, behind the same lock
+#   (each gate first deletes old logs in $TMPDIR: all but the 5 newest `full` result bundles and the 10 newest core logs)
 #   ./scripts/test.sh only Foo Bar   # just those MaughamTests classes, behind the same lock
 #                                    # (a name containing / passes through: MaughamTests/Foo/test_bar)
 #
@@ -117,6 +118,24 @@ acquire_gate_lock() {
   trap 'rm -rf "$GATE_LOCK"' EXIT
 }
 acquire_gate_lock
+
+# ---- old logs ----------------------------------------------------------------
+# Every `full` keeps a ~220 MB result bundle and every core leg a log, and
+# nothing removed them: 24 bundles were 5.3 GB on 2026-11-17. Keep the newest
+# few (the flake you are chasing is recent); the rest go at the start of each
+# gate, under the lock, so no other gate is writing one.
+prune_old_logs() {
+  local dir="${TMPDIR:-/tmp}" keep="$1" pattern="$2" old
+  # Names are fixed patterns with a timestamp or mktemp suffix: no spaces.
+  # shellcheck disable=SC2012
+  ls -dt "${dir%/}"/$pattern 2>/dev/null | tail -n +"$((keep + 1))" | while IFS= read -r old; do
+    rm -rf "$old" "$old.tests.json"
+  done
+}
+if [[ "${MAUGHAM_TEST_DRY_RUN:-}" != 1 ]]; then
+  prune_old_logs 5 'maugham-full-*.xcresult'
+  prune_old_logs 10 'maugham-core.*'
+fi
 
 # ---- stale-project guard -----------------------------------------------------
 # The project is generated from globs, so a new test file with no ./gen.sh runs 0
