@@ -115,7 +115,7 @@ final class ResolveGroupingTests: XCTestCase {
         let scenes = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                             sceneIndex: ["aa11": 0], sceneTitles: ["INT. HALL - DAY"])
         XCTAssertEqual(scenes.map(\.key), [
-            .wholePiece(docId: "doc-a"), .scene(docId: "doc-a", index: 0), .removed(docId: "doc-a"),
+            .wholePiece(docId: "doc-a"), .scene(docId: "doc-a", headingParagraphId: "aa11"), .removed(docId: "doc-a"),
         ])
 
         // A Book: inside the piece's group, after its paragraphs.
@@ -153,7 +153,7 @@ final class ResolveGroupingTests: XCTestCase {
                                      sequences: ["doc-a": ["aa11"]], text: ["aa11": "INT. HALL - DAY"]),
                             .piece(docId: "doc-a", includesBookLevel: true),
                             sceneIndex: ["aa11": 0], sceneTitles: ["INT. HALL - DAY"])
-        XCTAssertEqual(script.map(\.key), [.bookLevel, .scene(docId: "doc-a", index: 0)])
+        XCTAssertEqual(script.map(\.key), [.bookLevel, .scene(docId: "doc-a", headingParagraphId: "aa11")])
     }
 
     func test_figureNotesFollowThePiecesAtBookScope() {
@@ -203,7 +203,8 @@ final class ResolveGroupingTests: XCTestCase {
                             sceneIndex: ["aa11": 0, "bb22": 0, "cc33": 1, "dd44": 1],
                             sceneTitles: ["INT. KITCHEN - DAY", "EXT. ROOF - NIGHT"])
         XCTAssertEqual(result.map(\.key), [
-            .wholePiece(docId: "doc-a"), .scene(docId: "doc-a", index: 0), .scene(docId: "doc-a", index: 1),
+            .wholePiece(docId: "doc-a"), .scene(docId: "doc-a", headingParagraphId: "aa11"),
+            .scene(docId: "doc-a", headingParagraphId: "cc33"),
         ])
         XCTAssertEqual(result.map(\.title), ["Whole script", "INT. KITCHEN - DAY", "EXT. ROOF - NIGHT"])
         XCTAssertEqual(itemIds(result[1]), ["note:doc-a/n-kitchen", "todo:doc-a/t-sit"])
@@ -221,11 +222,70 @@ final class ResolveGroupingTests: XCTestCase {
         let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
                             sceneIndex: ["cc33": 0], sceneTitles: ["INT. HALL - DAY"])
         XCTAssertEqual(result.map(\.key), [
-            .beforeFirstScene(docId: "doc-a"), .scene(docId: "doc-a", index: 0),
+            .beforeFirstScene(docId: "doc-a"), .scene(docId: "doc-a", headingParagraphId: "cc33"),
         ])
         XCTAssertEqual(result.first?.title, "Before the first scene")
         XCTAssertEqual(itemIds(result[0]), ["note:doc-a/n-open-1", "note:doc-a/n-open-2"],
                        "one group for everything before the first slugline, in sequence order")
+    }
+
+    /// A scene's key is its slugline's paragraph, not its position: a scene
+    /// inserted above leaves the key of every scene below where it was.
+    func test_aSceneKeepsItsKeyWhenASceneIsInsertedAbove() {
+        let text = ["aa11": "INT. KITCHEN - DAY", "bb22": "Larry sits.",
+                    "ee55": "EXT. YARD - DAWN", "ff66": "Birds."]
+        let before = groups(snapshot([note("n-sit", pid: "bb22")],
+                                     sequences: ["doc-a": ["aa11", "bb22"]], text: text),
+                            .piece(docId: "doc-a", includesBookLevel: false),
+                            sceneIndex: ["aa11": 0, "bb22": 0], sceneTitles: ["INT. KITCHEN - DAY"])
+        let after = groups(snapshot([note("n-sit", pid: "bb22"), note("n-birds", pid: "ff66")],
+                                    sequences: ["doc-a": ["ee55", "ff66", "aa11", "bb22"]], text: text),
+                           .piece(docId: "doc-a", includesBookLevel: false),
+                           sceneIndex: ["ee55": 0, "ff66": 0, "aa11": 1, "bb22": 1],
+                           sceneTitles: ["EXT. YARD - DAWN", "INT. KITCHEN - DAY"])
+        let kitchen = ResolveGroup.Key.scene(docId: "doc-a", headingParagraphId: "aa11")
+        XCTAssertEqual(before.map(\.key), [kitchen])
+        XCTAssertEqual(after.map(\.key), [.scene(docId: "doc-a", headingParagraphId: "ee55"), kitchen],
+                       "the kitchen is now scene 1, and its key has not moved")
+        XCTAssertEqual(after.last?.title, "INT. KITCHEN - DAY")
+        XCTAssertEqual(itemIds(after.last!), ["note:doc-a/n-sit"])
+    }
+
+    // MARK: - A piece whose order did not read
+
+    /// No sequence: nothing is judged removed and nothing is placed by guess.
+    /// Its anchored items list in one Position unknown group after Whole
+    /// chapter — in prose and in a screenplay alike, never under "Before the
+    /// first scene" nor under an empty heading.
+    func test_aPieceWhoseOrderDidNotReadListsItsNotesUnderPositionUnknown() {
+        let read = snapshot([
+            note("n-bb", pid: "bb22"),
+            todo("t-aa", pid: "aa11"),
+            note("n-whole", pid: nil),
+            finding("f-aa", pid: "aa11"),
+        ])  // no sequence, no text
+
+        for sceneIndex in [nil, ["aa11": 0]] as [[String: Int]?] {
+            let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false),
+                                sceneIndex: sceneIndex, sceneTitles: ["INT. HALL - DAY"])
+            XCTAssertEqual(result.map(\.key), [.wholePiece(docId: "doc-a"), .unplaced(docId: "doc-a")],
+                           "screenplay: \(sceneIndex != nil)")
+            XCTAssertEqual(result.last?.title, "Position unknown")
+            XCTAssertEqual(itemIds(result.last!), ["note:doc-a/n-bb", "finding:doc-a/f-aa", "todo:doc-a/t-aa"])
+        }
+
+        // A Book: inside the piece's group, nothing dropped.
+        let book = groups(read, .pieces(docIds: ["doc-a"], includesBookLevel: true))
+        XCTAssertEqual(book.map(\.key), [.piece(docId: "doc-a")])
+        XCTAssertEqual(book[0].items.count, 4)
+    }
+
+    /// A paragraph heading is never empty: no text reads as a placeholder.
+    func test_aParagraphWithNoTextToShowIsTitledByAPlaceholder() {
+        let result = groups(snapshot([note("n-aa", pid: "aa11"), note("n-bb", pid: "bb22")],
+                                     sequences: ["doc-a": ["aa11", "bb22"]], text: ["bb22": "  "]),
+                            .piece(docId: "doc-a", includesBookLevel: false))
+        XCTAssertEqual(result.map(\.title), ["Text unavailable", "Empty paragraph"])
     }
 
     // MARK: - Nothing to group
