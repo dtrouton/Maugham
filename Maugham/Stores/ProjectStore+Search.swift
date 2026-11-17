@@ -102,12 +102,15 @@ extension ProjectStore {
     // its document's matches in `currentSearch` (`ordinal(of:)`). A single
     // Replace refreshes `currentSearch` before it returns (`searchNow`) and
     // single Replaces run one at a time, so the results an ordinal is read
-    // from are never older than the last Replace; a match whose id is not in
-    // them (it came from results a Replace has since refreshed) is refused
-    // with `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
+    // from are never older than the last Replace. A match whose id is not in
+    // them (it came from results a Replace has since refreshed) means the
+    // one current match with its path, range and line (`listedMatch(for:)`,
+    // #147 R1) — another document's match is still clickable after a
+    // Replace; with none, or several, it is refused with
+    // `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
     // occurrence. So is a text that changed since the search under the
     // ordinal (`ClickedOccurrence.range`): a different count of occurrences,
-    // or a different line at the ordinal.
+    // or a different line at the ordinal. Every refusal refreshes the results.
 
     // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
 
@@ -149,8 +152,10 @@ extension ProjectStore {
     /// Replace All), each waiting for the one before it and its refresh, and
     /// **each ends by refreshing `currentSearch`**
     /// (`searchNow`, no debounce): a second click — even on the same match,
-    /// even while the first is in flight — is judged against fresh results,
-    /// where its stale match is gone, and throws
+    /// even while the first is in flight — is judged against fresh results.
+    /// Its id is gone from them, so it means the fresh match with the same
+    /// path, range and line (`listedMatch(for:)`); a match whose occurrence
+    /// the first Replace changed has none, and throws
     /// `ProjectStoreError.staleSearchMatch` with nothing written.
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
@@ -218,6 +223,9 @@ extension ProjectStore {
         // Which occurrence to hit, and what the search showed of it — taken
         // before any await.
         guard let clicked = clickedOccurrence(match) else {
+            // The results the click came from are gone and nothing in the
+            // current ones is its occurrence: show what the text holds now.
+            await refreshAfterReplace()
             throw ProjectStoreError.staleSearchMatch
         }
         do {
@@ -249,21 +257,39 @@ extension ProjectStore {
         await refreshAfterReplace()
     }
 
-    /// **A clicked match's ordinal** — its index among its document's
-    /// matches in `currentSearch`, left to right — for both arms; nil when
-    /// its id is not there (the results it came from have been refreshed).
-    /// Match ids are minted fresh by every search (`SearchMatch.id`, a
-    /// `UUID()`), so a match from older results never finds itself in newer
-    /// ones.
+    /// **The match in `currentSearch` a click means** (#147 R1): the one
+    /// with its id; else — its results have been refreshed since, and match
+    /// ids are minted fresh by every search (`SearchMatch.id`, a `UUID()`) —
+    /// the one current match with the same path, range and line preview.
+    /// Two occurrences on identical lines differ by range, so this never
+    /// names another occurrence; none, or several, is nil (a refusal). The
+    /// clicked-occurrence check (`ClickedOccurrence.range`) still runs on
+    /// whichever it names.
+    private func listedMatch(for match: SearchMatch) -> SearchMatch? {
+        let matches = currentSearch?.matches ?? []
+        if let same = matches.first(where: { $0.id == match.id }) { return same }
+        let candidates = matches.filter {
+            $0.documentPath == match.documentPath
+                && $0.charRangeInDocument == match.charRangeInDocument
+                && $0.linePreview == match.linePreview
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    /// **A clicked match's ordinal** — the index of the match it means
+    /// (`listedMatch(for:)`) among its document's matches in
+    /// `currentSearch`, left to right — for both arms; nil when it means
+    /// none.
     private func ordinal(of match: SearchMatch) -> Int? {
-        (currentSearch?.matches ?? [])
+        guard let listed = listedMatch(for: match) else { return nil }
+        return (currentSearch?.matches ?? [])
             .filter { $0.documentPath == match.documentPath }
             .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
-            .firstIndex { $0.id == match.id }
+            .firstIndex { $0.id == listed.id }
     }
 
     /// The clicked match as a single Replace will check it, from
-    /// `currentSearch`; nil when its id is not there (`ordinal(of:)`).
+    /// `currentSearch`; nil when it means no match there (`ordinal(of:)`).
     private func clickedOccurrence(_ match: SearchMatch) -> ClickedOccurrence? {
         guard let ordinal = ordinal(of: match) else { return nil }
         let count = (currentSearch?.matches ?? []).filter { $0.documentPath == match.documentPath }.count

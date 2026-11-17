@@ -340,6 +340,85 @@ final class ProjectSearchReplaceTests: XCTestCase {
         XCTAssertEqual(text, "Tommy met Tommy.")
     }
 
+    // MARK: - A click from before a refresh finds its match (#147 R1)
+
+    /// **A Replace in one document leaves another document's matches
+    /// clickable** (#147 R1): every Replace refreshes the results and mints
+    /// new ids, but a match still shown for an untouched document is the
+    /// same occurrence — same path, range and line — so it is replaced,
+    /// not refused with "That match has changed".
+    func test_aMatchInAnotherDocumentStillHeldAfterAReplaceIsReplaced() async throws {
+        let project = try await makeProject(manuscript: [
+            ("c1", "fog in the hall\n"),
+            ("c2", "the fog lifts\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let matches = await search(store, "fog").matches
+        let inC1 = try XCTUnwrap(matches.first { $0.documentPath == "manuscript/c1.md" })
+        let inC2 = try XCTUnwrap(matches.first { $0.documentPath == "manuscript/c2.md" })
+
+        try await store.replaceMatch(inC1, with: "mist")
+        XCTAssertFalse((store.currentSearch?.matches ?? []).contains { $0.id == inC2.id },
+                       "the premise: the Replace refreshed the results, so c2's old id is gone")
+
+        try await store.replaceMatch(inC2, with: "mist")
+
+        let c1 = try await displayText(of: project, "c1")
+        let c2 = try await displayText(of: project, "c2")
+        XCTAssertEqual(c1, "mist in the hall")
+        XCTAssertEqual(c2, "the mist lifts")
+        XCTAssertEqual(store.currentSearch?.matches.count, 0, "the results are fresh")
+    }
+
+    /// **Review Focus 3: the fallback never picks a different occurrence.**
+    /// Two matches on identical lines in one file differ only by range; the
+    /// old click on the second is the second, never the first.
+    func test_theFallbackForAMatchOnARepeatedLinePicksTheOneWithTheSameRange() async throws {
+        let project = try await makeProject(manuscript: [
+            ("c1", "Anna in the hall.\n"),
+            ("c2", "Anna.\nAnna.\n")
+        ])
+        let store = try await ProjectStore.load(from: project)
+        let matches = await search(store, "Anna").matches
+        let inC1 = try XCTUnwrap(matches.first { $0.documentPath == "manuscript/c1.md" })
+        let inC2 = matches.filter { $0.documentPath == "manuscript/c2.md" }
+            .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
+        XCTAssertEqual(inC2.count, 2)
+        XCTAssertEqual(inC2[0].linePreview, inC2[1].linePreview, "the premise: identical lines")
+
+        try await store.replaceMatch(inC1, with: "Z")
+        try await store.replaceMatch(inC2[1], with: "Z")
+
+        let c2 = try await displayText(of: project, "c2")
+        XCTAssertEqual(c2, "Anna.\nZ.", "the second occurrence was replaced, never the first")
+    }
+
+    /// **A refusal refreshes the results** (#147 R1): a click whose id is
+    /// gone and whose occurrence has moved is refused, and the results it
+    /// leaves are freshly searched — the same refresh a Replace runs.
+    func test_aRefusedStaleClickRefreshesTheResults() async throws {
+        let project = try await makeProject(manuscript: [("c1", "fog one\n")])
+        let store = try await ProjectStore.load(from: project)
+        let found = await search(store, "fog").matches
+        let old = try XCTUnwrap(found.first)
+        try await edit(project, "c1", to: "Prologue.\nfog one")
+        // The results the window shows were searched again since the click's
+        // results (typing's search): the old id is gone, the occurrence moved.
+        _ = await search(store, "fog")
+        let shownBefore = Set((store.currentSearch?.matches ?? []).map(\.id))
+
+        do {
+            try await store.replaceMatch(old, with: "Z")
+            XCTFail("a click whose occurrence moved must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+
+        let shownAfter = Set((store.currentSearch?.matches ?? []).map(\.id))
+        XCTAssertEqual(shownAfter.count, 1)
+        XCTAssertTrue(shownAfter.isDisjoint(with: shownBefore), "the refusal refreshed the results")
+        let text = try await displayText(of: project, "c1")
+        XCTAssertEqual(text, "Prologue.\nfog one", "a refused Replace writes nothing")
+    }
+
     // MARK: - Which search lands (fix round 1)
 
     /// **An older, slower search that finishes after a newer one is
