@@ -686,8 +686,9 @@ final class ResearchNoteWritersTests: XCTestCase {
     }
 
     /// Replace All skips (does not abort on) a note changed outside after
-    /// its read: that note is left as it was and named with the notes Replace
-    /// All leaves alone, and every other note is still replaced.
+    /// its read: that note is left as it was and named in its own list
+    /// (`changedSinceRead`, never with the documents this Mac may not
+    /// change), and every other note is still replaced.
     func test_replaceAllSkipsANoteChangedOutsideAfterItsRead_andReplacesTheRest() async throws {
         let (store, projectStore) = try await openBook()
         let changed = try await note("The fog came in.", titled: "Changed", in: projectStore)
@@ -701,7 +702,26 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(try text(of: changed, projectStore), "The fog came in. From outside.")
         XCTAssertTrue(versions(of: changed).isEmpty, "nothing was written over it, so nothing was kept")
         XCTAssertEqual(try text(of: other, projectStore), "The mist stayed.", "the rest is replaced")
-        XCTAssertEqual(outcome.leftAlone, ["Changed"], "counted with the notes Replace All leaves alone")
+        XCTAssertEqual(outcome.changedSinceRead, ["Changed"], "named as changed while Replace was running")
+        XCTAssertEqual(outcome.leftAlone, [], "not named as a document this Mac may not change")
+        XCTAssertEqual(outcome.notice,
+                       "Left as it was — “Changed” changed while Replace was running. Search again.")
+    }
+
+    /// The sentence for notes changed while Replace All ran: its own reason,
+    /// one note or several, beside the left-alone sentence when both apply.
+    func test_theChangedSinceReadSentenceSaysWhyForOneNoteOrSeveral() {
+        XCTAssertNil(ProjectStore.changedSinceReadSentence([]))
+        XCTAssertEqual(ProjectStore.changedSinceReadSentence(["Fog"]),
+                       "Left as it was — “Fog” changed while Replace was running. Search again.")
+        XCTAssertEqual(ProjectStore.changedSinceReadSentence(["Fog", "Rain"]),
+                       "Left as they were — “Fog” and “Rain” changed while Replace was running. Search again.")
+        XCTAssertEqual(ProjectStore.changedSinceReadSentence(["Fog", "Rain", "Snow"]),
+                       "Left as they were — “Fog”, “Rain”, “Snow” changed while Replace was running. Search again.")
+        XCTAssertNil(ProjectStore.ReplaceAllOutcome(leftAlone: []).notice)
+        XCTAssertEqual(ProjectStore.ReplaceAllOutcome(leftAlone: ["Alpha"], changedSinceRead: ["Fog"]).notice,
+                       ProjectStore.leftAloneSentence(["Alpha"])! + " "
+                       + ProjectStore.changedSinceReadSentence(["Fog"])!)
     }
 
     // MARK: - Asset refs after a rename or a move (recon §6 row 6)

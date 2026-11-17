@@ -271,7 +271,7 @@ struct ProjectSearchView: View {
             // The store refreshes the results itself before it returns.
             let outcome = try await store.replaceAll(in: r, with: replacement)
             // What was left is SAID (ruling AI), never a silent partial pass.
-            leftAloneNotice = ProjectStore.leftAloneSentence(outcome.leftAlone)
+            leftAloneNotice = outcome.notice
         } catch {
             pendingError = error.localizedDescription
         }

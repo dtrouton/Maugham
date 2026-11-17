@@ -138,12 +138,25 @@ extension ProjectStore {
         }
     }
 
-    /// What `replaceAll` did not do: the documents it left alone, by title —
-    /// manuscript documents this Mac may not write (ruling AI), Research
-    /// files Maugham may not change, and notes changed since their read
-    /// (#147 R2).
+    /// What `replaceAll` did not do, by title: `leftAlone` — the manuscript
+    /// documents this Mac may not write (ruling AI) and Research files
+    /// Maugham may not change; `changedSinceRead` — the notes that changed
+    /// between Replace All's read of them and the door's write (#147 R2).
     public struct ReplaceAllOutcome: Equatable, Sendable {
         public let leftAlone: [String]
+        public let changedSinceRead: [String]
+
+        public init(leftAlone: [String], changedSinceRead: [String] = []) {
+            self.leftAlone = leftAlone
+            self.changedSinceRead = changedSinceRead
+        }
+
+        /// What the writer is told, each list with its own reason; nil — nothing.
+        public var notice: String? {
+            let sentences = [ProjectStore.leftAloneSentence(leftAlone),
+                             ProjectStore.changedSinceReadSentence(changedSinceRead)].compactMap { $0 }
+            return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        }
     }
 
     /// The one sentence naming the pieces a replace left alone.
@@ -151,6 +164,18 @@ extension ProjectStore {
         guard !titles.isEmpty else { return nil }
         return "Left as it was — this Mac may not change the text of "
             + titles.joined(separator: ", ") + "."
+    }
+
+    /// The one sentence naming the notes Replace All left because they
+    /// changed while it ran (#147 R2).
+    nonisolated static func changedSinceReadSentence(_ titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        let quoted = titles.map { "“\($0)”" }
+        if quoted.count == 1 {
+            return "Left as it was — \(quoted[0]) changed while Replace was running. Search again."
+        }
+        let named = quoted.count == 2 ? quoted.joined(separator: " and ") : quoted.joined(separator: ", ")
+        return "Left as they were — \(named) changed while Replace was running. Search again."
     }
 
     /// Replace a single search match with the given replacement text.
@@ -283,7 +308,10 @@ extension ProjectStore {
     /// the document shows there — the occurrence it changed reads a
     /// different line, and a length change moves every later range — so a
     /// document a Replace changed has no fallback: an identical line at the
-    /// old range is another occurrence (fix round 1). Untouched, a range
+    /// old range is another occurrence (fix round 1). Not always: on a line
+    /// longer than the ~120-character preview, a replacement that starts
+    /// with the query can leave that occurrence's preview unchanged, so the
+    /// change does not show there. Untouched, a range
     /// names one occurrence, so this never names another; none, or several,
     /// or results no longer remembered, is nil (a refusal). The
     /// clicked-occurrence check (`ClickedOccurrence.range`) still runs on
@@ -465,7 +493,7 @@ extension ProjectStore {
     /// reloads — **as compare-and-swap** (#147 R2): the door is handed
     /// `readHash`, the hash of the bytes `text` was made from, and a note
     /// changed since writes nothing and throws `staleSearchMatch` (Replace All
-    /// skips that note and names it). The door writing nothing for any
+    /// skips that note and names it in `changedSinceRead`). The door writing nothing for any
     /// other reason throws, as any other failure of this write does
     /// (`replaceAll` stops there, as it always has). A file
     /// no item names has no door and keeps the raw atomic write; so does a
@@ -507,8 +535,9 @@ extension ProjectStore {
     /// **A manuscript document this Mac may not write is SKIPPED and named**
     /// (controller ruling AI), never replaced and never a part-way failure:
     /// the rest of the book is replaced, and the outcome lists what was left.
-    /// So is a Research note changed between Replace All's read of it and
-    /// the door's write (#147 R2): nothing is written to it.
+    /// A Research note changed between Replace All's read of it and the
+    /// door's write is skipped too (#147 R2): nothing is written to it, and
+    /// it is named in the outcome's `changedSinceRead`, with its own reason.
     ///
     /// **It takes its turn with the single Replaces** (`takingTheReplaceTurn`)
     /// **and ends by refreshing `currentSearch`** — on a throw too, since a
@@ -537,6 +566,7 @@ extension ProjectStore {
     ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         var leftAlone: [String] = []
+        var changedSinceRead: [String] = []
         // Once for the whole replace: the editor's queued note edits land
         // before any research file below is read.
         if results.matches.contains(where: { $0.documentSource == .research }) {
@@ -579,12 +609,12 @@ extension ProjectStore {
                                                         readHash: readHash)
                 } catch ProjectStoreError.staleSearchMatch {
                     // Changed since the read just above (#147 R2): nothing
-                    // was written; left as it was, and named.
-                    leftAlone.append(matches[0].documentTitle)
+                    // was written; left as it was, and named for that.
+                    changedSinceRead.append(matches[0].documentTitle)
                 }
             }
         }
-        return ReplaceAllOutcome(leftAlone: leftAlone)
+        return ReplaceAllOutcome(leftAlone: leftAlone, changedSinceRead: changedSinceRead)
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op

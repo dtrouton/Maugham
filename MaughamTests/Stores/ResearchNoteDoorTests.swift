@@ -636,7 +636,9 @@ final class ResearchNoteDoorTests: XCTestCase {
 
     /// Bytes landing after the door's own read are found by the coordinated
     /// write; the door's retry reads them, and they fail the caller's
-    /// expectation: they stand, and are not kept.
+    /// expectation: they stand, and are not kept. The first pass had already
+    /// kept the bytes the caller read (a direct save always keeps what it
+    /// replaces), so that version remains though nothing was written.
     func test_aChangeLandingAfterTheDoorsReadFailsTheCallersExpectationOnTheRetry() async throws {
         let (store, projectStore) = try await openBook()
         let heard = listen()
@@ -648,8 +650,8 @@ final class ResearchNoteDoorTests: XCTestCase {
 
         XCTAssertEqual(saved, .changedSinceTheCallerRead)
         XCTAssertEqual(try text(of: item, projectStore), "From outside.")
-        XCTAssertFalse(try versions(of: item).map(versionText).contains("From outside."),
-                       "the outside bytes were not kept: nothing was written over them")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Before."],
+                       "the first pass's version of the bytes read remains; the outside bytes were not kept")
         XCTAssertEqual(heard.notices, [])
     }
 
