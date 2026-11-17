@@ -651,6 +651,123 @@ final class TripwireGrepTests: XCTestCase {
             + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - Every bespoke mover caller says whether it moves Research (#145)
+
+    /// What a caller of `relocateUserContent` moves, as the note door needs
+    /// to know it: a verb that moves Research files enters
+    /// `ProjectStore.withResearchItemsInFlight` around its mover call (#142
+    /// T2's span), so a note save landing mid-move takes the door's "being
+    /// moved" route and is never written afresh at the old path; any other
+    /// caller says why no Research file is under what it moves.
+    enum MoverSpan: Equatable {
+        case entersSpan
+        case holdsNoResearch(String)
+    }
+
+    /// **Every production function in `Maugham/Stores` that calls
+    /// `relocateUserContent(`**, keyed `"<file>: <function>"` (the innermost
+    /// enclosing `func`). A new caller is unlisted and fails; an
+    /// `entersSpan` entry whose body does not call
+    /// `withResearchItemsInFlight(` fails. #145 found the piece reorder and
+    /// rename moving `pieces/…/research/` outside the span.
+    static let userContentMoverCallers: [String: MoverSpan] = [
+        "ProjectStore+CollectionPieces.swift: movePiece": .entersSpan,
+        "ProjectStore+CollectionPieces.swift: renamePiece": .entersSpan,
+        "ProjectStore+Research.swift: updateResearchItem": .entersSpan,
+        "ProjectStore+Structure.swift: renameStructureItem": .holdsNoResearch(
+            "moves one manuscript file or group folder; a piece's .md moves alone, never its folder, "
+            + "so no research root is under it"),
+        "DocumentStore+Figures.swift: moveFigureFile": .holdsNoResearch(
+            "moves a figure's file inside figures/, which is no research root"),
+    ]
+
+    /// The functions under `dir` calling `relocateUserContent(`, each with
+    /// whether its body calls `withResearchItemsInFlight(`. A function is
+    /// found by brace depth from its `func` line over code with string
+    /// literals and line comments removed; a call is credited to the
+    /// innermost function around it.
+    static func userContentMoverCallerScan(in dir: URL) throws -> [String: Bool] {
+        func code(_ line: String) -> String {
+            line.replacingOccurrences(of: #""[^"]*""#, with: "\"\"", options: .regularExpression)
+                .components(separatedBy: "//").first ?? ""
+        }
+        let declaration = try NSRegularExpression(pattern: #"\bfunc\s+(\w+)"#)
+        var found: [String: Bool] = [:]
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasSuffix(".swift") }
+        for name in files {
+            let lines = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
+                .components(separatedBy: "\n").map(code)
+            var functions: [(name: String, start: Int, end: Int)] = []
+            for (i, line) in lines.enumerated() {
+                guard let match = declaration.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                      let range = Range(match.range(at: 1), in: line) else { continue }
+                var depth = 0, started = false, j = i
+                while j < lines.count {
+                    depth += lines[j].filter { $0 == "{" }.count - lines[j].filter { $0 == "}" }.count
+                    if lines[j].contains("{") { started = true }
+                    if started && depth <= 0 { break }
+                    j += 1
+                }
+                functions.append((String(line[range]), i, min(j, lines.count - 1)))
+            }
+            for (i, line) in lines.enumerated()
+            where line.contains("relocateUserContent(") && !line.contains("func ") {
+                guard let owner = functions.filter({ $0.start < i && i <= $0.end }).max(by: { $0.start < $1.start })
+                else { found["\(name): <top level>"] = false; continue }
+                let enters = lines[owner.start...owner.end].contains { $0.contains("withResearchItemsInFlight(") }
+                found["\(name): \(owner.name)"] = enters
+            }
+        }
+        return found
+    }
+
+    func test_everyBespokeMoverCallerSaysWhetherItMovesResearch() throws {
+        let found = try Self.userContentMoverCallerScan(in: sourceDir.appendingPathComponent("Stores"))
+        XCTAssertEqual(Set(found.keys), Set(Self.userContentMoverCallers.keys),
+            "The production callers of `relocateUserContent` moved. Classify each new one in "
+            + "`userContentMoverCallers`: `.entersSpan` if it can move a Research file (wrap its mover "
+            + "call in `withResearchItemsInFlight`), else `.holdsNoResearch(\"<why>\")`. Found: "
+            + "\(found.keys.sorted())")
+        let notEntering = Self.userContentMoverCallers
+            .filter { $0.value == .entersSpan && found[$0.key] == false }.keys.sorted()
+        XCTAssertEqual(notEntering, [],
+            "These are listed as entering the in-flight span but never call `withResearchItemsInFlight(`")
+    }
+
+    /// The control: a planted caller outside the span, one inside it, and a
+    /// comment naming the mover are told apart, and a nested helper's call
+    /// is credited to the helper.
+    func test_theBespokeMoverCensusSeesAPlantedCaller() throws {
+        let dir = TestTemp.root.appendingPathComponent("mover-census-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try """
+        extension ProjectStore {
+            // relocateUserContent( in a comment is not a call
+            func movePlanted() async throws {
+                try await ds.relocateUserContent(affectedPaths: []) { }
+            }
+            func spannedPlanted() async throws {
+                try await withResearchItemsInFlight(ids) {
+                    try await ds.relocateUserContent(affectedPaths: []) { }
+                }
+            }
+            func outerPlanted() async throws {
+                func innerPlanted() async throws {
+                    try await ds.relocateUserContent(affectedPaths: []) { }
+                }
+                try await withResearchItemsInFlight(ids) { try await innerPlanted() }
+            }
+        }
+        """.write(to: dir.appendingPathComponent("ProjectStore+Planted.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.userContentMoverCallerScan(in: dir), [
+            "ProjectStore+Planted.swift: movePlanted": false,
+            "ProjectStore+Planted.swift: spannedPlanted": true,
+            "ProjectStore+Planted.swift: innerPlanted": false,
+        ])
+    }
+
     // MARK: - No `.skipsHiddenFiles` in a production scan
 
     /// Recurrence-tripper: `.skipsHiddenFiles` honours the BSD `hidden` FLAG
