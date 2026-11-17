@@ -176,11 +176,13 @@ final class AddNoteToolTests: XCTestCase {
     /// A body save through the door that does not land fails `add_note`
     /// (it does not report a note the assistant's text never reached). The
     /// file is changed outside at both of the door's write attempts, so its
-    /// retry is refused too (`.notSaved`).
+    /// retry is refused too (`.notSaved`). The new file then holds bytes it
+    /// did not write, so it is not the empty note: it is left, and named
+    /// (#148 D1).
     /// Disable experiment: drop the `guard case .saved … else { throw }` and
     /// `add_note` reports success.
     func test_aBodySaveThatDoesNotLandFailsAddNote() async throws {
-        let (url, _, ds, reg) = try await makeProjectWithDocumentStore()
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
         defer { Task { await ds.close() } }
         let path = url.appendingPathComponent("research/fog.md")
         var left = ["outside 1", "outside 2"]
@@ -194,10 +196,117 @@ final class AddNoteToolTests: XCTestCase {
         do {
             _ = try await AddNoteTool.handle(paramsJSON: req, registry: reg)
             XCTFail("a body save that does not land fails add_note")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was left in Research because its file changed outside Maugham.")
+        }
+        XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
+        XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" },
+                        "a note holding bytes this call did not write is not taken back")
+        XCTAssertEqual(try String(contentsOf: path, encoding: .utf8), "outside 2")
+        let note = try XCTUnwrap(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" })
+        let versions = ResearchVersionStore(projectURL: url).versions(itemId: note.id)
+        XCTAssertEqual(try versions.map { try ResearchVersionStore(projectURL: url).read($0).0 },
+                       [Data("outside 1".utf8)], "the version the door kept survives")
+        XCTAssertNil(store.lastDeletion)
+    }
+
+    // MARK: - A refused body save takes its empty note back (#148 D1)
+
+    /// Every file under `research/`, relative, sorted.
+    private func researchFiles(_ url: URL) -> [String] {
+        let root = url.appendingPathComponent("research")
+        return ((try? FileManager.default.subpathsOfDirectory(atPath: root.path)) ?? []).sorted()
+    }
+
+    /// Entry folders in the project's Trash.
+    private func trashFolders(_ url: URL) -> [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent(".trash").path)) ?? []
+        return names.filter { !$0.hasPrefix(".") }
+    }
+
+    private func addFog(_ url: URL, _ reg: ProjectRegistry) async throws -> Data {
+        try await AddNoteTool.handle(paramsJSON: try JSONSerialization.data(withJSONObject: [
+            "project_id": ProjectIdentifier.id(for: url), "title": "Fog", "body": "The assistant's note."]),
+            registry: reg)
+    }
+
+    /// The body save fails with the new note's file still empty: `add_note`
+    /// throws the door's refusal, and the row and file it made are gone —
+    /// with no Trash entry and ⌘⌥Z unarmed (the writer never made it).
+    /// Disable experiment: throw `researchTextNotSaved` without
+    /// `takeBackUnsavedNewNote` and the row and `fog.md` stay.
+    func test_aRefusedBodySaveLeavesNoNewNoteBehind() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let rowsBefore = TreeWalk.collectIds(in: store.manifest.research)
+        let filesBefore = researchFiles(url)
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: true)
+        defer { refusal.end() }
+
+        do {
+            _ = try await addFog(url, reg)
+            XCTFail("a body save that does not land fails add_note")
         } catch ProjectStoreError.researchTextNotSaved(let title) {
             XCTAssertEqual(title, "Fog")
         }
-        XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertEqual(TreeWalk.collectIds(in: store.manifest.research), rowsBefore, "no new row")
+        XCTAssertEqual(researchFiles(url), filesBefore, "no new file")
+        XCTAssertEqual(trashFolders(url), [], "no Trash entry")
+        XCTAssertTrue(store.trashEntries.isEmpty)
+        XCTAssertNil(store.lastDeletion, "⌘⌥Z is not armed by a note the writer never made")
+        let onDisk = try await ProjectStore.load(from: url)
+        XCTAssertEqual(TreeWalk.collectIds(in: onDisk.manifest.research), rowsBefore,
+                       "the saved manifest has no row for it either")
+    }
+
+    /// Review Focus 4: a note the writer already had under the same title is
+    /// untouched — its row, its file and its bytes. Only the note this call
+    /// made (minted beside it) is taken back.
+    func test_aRefusedBodySaveLeavesANoteThatAlreadyExistedAlone() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let first = try JSONDecoder().decode(AddNoteTool.Result.self, from: try await addFog(url, reg))
+        let firstBytes = try Data(contentsOf: url.appendingPathComponent(first.path))
+        let rowsBefore = TreeWalk.collectIds(in: store.manifest.research)
+        let filesBefore = researchFiles(url)
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: true)
+        defer { refusal.end() }
+
+        do {
+            _ = try await addFog(url, reg)
+            XCTFail("a body save that does not land fails add_note")
+        } catch ProjectStoreError.researchTextNotSaved {}
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertEqual(TreeWalk.collectIds(in: store.manifest.research), rowsBefore)
+        XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.id == first.id })
+        XCTAssertEqual(researchFiles(url), filesBefore)
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(first.path)), firstBytes,
+                       "the note the writer had keeps its text")
+    }
+
+    /// A cleanup that itself fails (the folder still read-only, so the empty
+    /// file cannot leave it) throws the door's refusal with what was left
+    /// named; the row and file stay, and nothing is in the Trash.
+    func test_aCleanupThatFailsSaysTheEmptyNoteWasLeft() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: false)
+        defer { refusal.end() }
+
+        do {
+            _ = try await addFog(url, reg)
+            XCTFail("a body save that does not land fails add_note")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was left in Research.")
+        }
+        refusal.end()
+        let left = try XCTUnwrap(TreeWalk.first(in: store.manifest.research) { $0.title == "Fog" },
+                                 "the note the cleanup could not take is still listed")
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathComponent(try XCTUnwrap(left.path))), Data())
+        XCTAssertEqual(trashFolders(url), [])
     }
 
     /// **A store that had a `DocumentStore` and lost it (teardown) refuses**

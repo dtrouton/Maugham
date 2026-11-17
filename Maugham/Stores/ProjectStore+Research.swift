@@ -827,6 +827,68 @@ extension ProjectStore {
         armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(titles))
     }
 
+    /// **A note this call has just created, whose body the door refused,
+    /// taken back** (#148 D1): `add_note`, an inbox promotion and a kept
+    /// letter create the note empty and then save its body; when that save
+    /// does not land, the error they throw is this function's answer. The
+    /// row and file are `created`'s alone (its id is fresh, its file was
+    /// minted beside any note of the same title, never over it), so a note
+    /// the writer already had is never touched. They leave through the
+    /// ordinary delete path, trashed by id and then permanently deleted:
+    /// no Trash entry is left and ⌘⌥Z is not armed — the writer never made
+    /// this note. A file that holds bytes is not the empty note this call
+    /// made (something wrote it meanwhile) and is left, as is anything a
+    /// failed cleanup could not take: the refusal then says what was left.
+    func takeBackUnsavedNewNote(_ created: ResearchItem, refusal: Error) async -> Error {
+        do {
+            if let path = created.path, !path.isEmpty {
+                let fileURL = try resolvedProjectPathToChange(path)
+                // Gone is nothing to lose; a size that will not read is not
+                // empty (RULING-7), and the catch below says it was left.
+                let size = FileManager.default.fileExists(atPath: fileURL.path)
+                    ? try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int : 0
+                guard size == 0 else {
+                    return ProjectStoreError.fileSystemError(Self.saying(refusal,
+                        "; the note “\(created.title)” was left in Research because its file changed outside Maugham."))
+                }
+            }
+            try await discardUnsavedNewNote(id: created.id)
+            return refusal
+        } catch {
+            projectStoreLog.error(
+                "The empty note \(created.id, privacy: .public) was not taken back: \(error.localizedDescription, privacy: .public)")
+            return ProjectStoreError.fileSystemError(Self.saying(refusal,
+                "; the empty note “\(created.title)” was left in Research."))
+        }
+    }
+
+    /// `refusal`'s sentence, its full stop replaced by `tail`.
+    private static func saying(_ refusal: Error, _ tail: String) -> String {
+        var said = refusal.localizedDescription
+        if said.hasSuffix(".") { said.removeLast() }
+        return said + tail
+    }
+
+    /// The row taken through `trashResearchItemCore`, the manifest saved,
+    /// and the entry permanently deleted (`permanentlyDeleteTrashEntry`).
+    /// The link a kept letter's create made to its chapter (`.sharedPlusLink`)
+    /// goes with it; nothing else could name a fresh id.
+    private func discardUnsavedNewNote(id: String) async throws {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        let linking = TreeWalk.collect(in: manifest.structure) { $0.linkedResearchIds?.contains(id) == true }
+        for document in linking {
+            try await unlinkResearch(researchId: id, fromDocumentId: document.id)
+        }
+        let entry = try await trashResearchItemCore(id: id)
+        manifest.modified = Date()
+        try await saveManifest()
+        if let entry {
+            try await permanentlyDeleteTrashEntry(id: entry.id)
+        } else {
+            trashEntries = (try? await trashStore.list()) ?? trashEntries
+        }
+    }
+
     /// ⌘⌥Z's name for a gesture over `titles`: the one title, or "N items".
     private static func deletionLabel(_ titles: [String]) -> String {
         titles.count == 1 ? (titles.first ?? "") : "\(titles.count) items"

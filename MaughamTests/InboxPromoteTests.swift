@@ -85,14 +85,54 @@ final class InboxPromoteTests: XCTestCase {
         do {
             _ = try await inbox.promoteToResearch(entry, projectStore: store)
             XCTFail("a body save that does not land fails the promotion")
-        } catch ProjectStoreError.researchTextNotSaved(let title) {
-            XCTAssertEqual(title, "Fog")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was left in Research because its file changed outside Maugham.")
         }
         XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
         XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" },
-                        "premise: the note was created at the path the seam changes")
+                        "the note holds bytes the promotion did not write, so it is left (#148 D1)")
         await inbox.refresh()
         XCTAssertTrue(inbox.entries.contains { $0.id == "t9" }, "the entry was not flipped: it is still in the inbox")
+        withExtendedLifetime(ds) {}
+    }
+
+    /// #148 D1: the body save fails with the new note's file still empty —
+    /// the promotion throws, the empty note it made is taken back (no row,
+    /// no file, no Trash entry), the entry stays in the inbox, and a retry
+    /// makes exactly ONE note, at the title's own path (not a second "Fog").
+    /// Disable experiment: throw `researchTextNotSaved` without
+    /// `takeBackUnsavedNewNote` and the retry makes a second note.
+    func test_aRefusedBodySaveLeavesNoNoteAndARetryMakesOne() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try await seed(url, [InboxEntry(
+            id: "t7", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Fog")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "t7" })
+        let rowsBefore = TreeWalk.collectIds(in: store.manifest.research)
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: true)
+        defer { refusal.end() }
+
+        do {
+            _ = try await inbox.promoteToResearch(entry, projectStore: store)
+            XCTFail("a body save that does not land fails the promotion")
+        } catch ProjectStoreError.researchTextNotSaved(let title) {
+            XCTAssertEqual(title, "Fog")
+        }
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertEqual(TreeWalk.collectIds(in: store.manifest.research), rowsBefore, "no new row")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathComponent("research/fog.md").path))
+        XCTAssertTrue(store.trashEntries.isEmpty, "no Trash entry")
+        await inbox.refresh()
+        let still = try XCTUnwrap(inbox.entries.first { $0.id == "t7" }, "the entry was not flipped")
+
+        refusal.end()
+        let created = try await inbox.promoteToResearch(still, projectStore: store)
+        let fogs = TreeWalk.collect(in: store.manifest.research) { $0.title.hasPrefix("Fog") }
+        XCTAssertEqual(fogs.map(\.id), [created.id], "the retry made one note")
+        XCTAssertEqual(created.path, "research/fog.md")
+        XCTAssertEqual(try String(contentsOf: url.appendingPathComponent("research/fog.md"), encoding: .utf8), "Fog")
         withExtendedLifetime(ds) {}
     }
 
