@@ -327,8 +327,29 @@ extension ProjectStore {
         }
 
         manifest.modified = Date()
-        try await saveManifest()
-        return RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .moved)
+        return try await saveManifest(saying: RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .moved))
+    }
+
+    /// **The manifest save that ends a Research rename or move**, returning
+    /// `outcome`. A save that throws after picture links were left
+    /// (`assetRefsLeftIn`) throws `manifestUnwritable` naming both — the save
+    /// failure's own detail, then the links (#148 D2, RULING-52) — the shape
+    /// `settleDeletedInPart` gives its save failure; one with nothing left
+    /// throws the save's own error unchanged.
+    func saveManifest(saying outcome: RenameOutcome) async throws -> RenameOutcome {
+        do {
+            try await saveManifest()
+        } catch {
+            guard let refs = outcome.assetRefsAfterAFailedSave else { throw error }
+            let saveFailure: String
+            if case .manifestUnwritable(let detail)? = error as? ProjectStoreError {
+                saveFailure = detail
+            } else {
+                saveFailure = error.localizedDescription
+            }
+            throw ProjectStoreError.manifestUnwritable("\(saveFailure). \(refs)")
+        }
+        return outcome
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once

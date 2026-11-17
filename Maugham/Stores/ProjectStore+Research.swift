@@ -1155,8 +1155,7 @@ extension ProjectStore {
         }
 
         manifest.modified = Date()
-        try await saveManifest()
-        return RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .renamed)
+        return try await saveManifest(saying: RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .renamed))
     }
 
     /// Rename the backing file or folder when a research item's title changes.

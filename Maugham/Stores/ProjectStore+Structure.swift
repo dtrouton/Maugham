@@ -460,13 +460,30 @@ extension ProjectStore {
         }
 
         private var assetRefsSentence: String? {
-            guard let only = assetRefsLeftIn.first else { return nil }
+            guard !assetRefsLeftIn.isEmpty else { return nil }
             let verb = act == .renamed ? "Renamed" : "Moved"
-            if assetRefsLeftIn.count == 1 {
-                return "\(verb) “\(only)”, but the picture links in “\(only)” could not be updated."
-            }
-            let names = assetRefsLeftIn.map { "“\($0)”" }.joined(separator: ", ")
-            return "\(verb) \(names), but the picture links in \(assetRefsLeftIn.count) notes could not be updated."
+            return "\(verb) \(Self.prose(assetRefsLeftIn)), but the picture links in "
+                + (assetRefsLeftIn.count == 1 ? Self.prose(assetRefsLeftIn) : "\(assetRefsLeftIn.count) notes")
+                + " could not be updated."
+        }
+
+        /// The stale picture links said on their own, for when the manifest
+        /// save after the rewrite throws and its error replaces this outcome
+        /// (RULING-52: what failed AND what it left). No "Renamed …, but":
+        /// the verb did not land cleanly. Nil when nothing was left.
+        var assetRefsAfterAFailedSave: String? {
+            guard !assetRefsLeftIn.isEmpty else { return nil }
+            let which = assetRefsLeftIn.count == 1
+                ? Self.prose(assetRefsLeftIn)
+                : "\(assetRefsLeftIn.count) notes, \(Self.prose(assetRefsLeftIn)),"
+            return "The picture links in \(which) could not be updated."
+        }
+
+        /// Titles as prose: “A”; “A” and “B”; “A”, “B” and “C”.
+        private static func prose(_ titles: [String]) -> String {
+            let quoted = titles.map { "“\($0)”" }
+            guard let last = quoted.last, quoted.count > 1 else { return quoted.first ?? "" }
+            return quoted.dropLast().joined(separator: ", ") + " and " + last
         }
     }
 
