@@ -191,6 +191,10 @@ final class UpdateScheduleTests: XCTestCase {
     }
     func test_U1_installing_skips() async throws {
         let (r, c) = try rig()
+        // The test host wires no real installer: this call once reached the
+        // app's, which could not install and showed the test's temp folder in
+        // Finder, taking focus, on every gate (2026-11-13 to 2026-11-17).
+        XCTAssertNil(UpdateChecker.performInstall, "a test host must never wire the real install")
         await c.installNow(bundleURL: r.bundle, version: "0.2.0")
         XCTAssertEqual(c.state, .installing(version: "0.2.0"))
         await assertSkips(c, r)
