@@ -836,30 +836,61 @@ extension ProjectStore {
     /// the writer already had is never touched. They leave through the
     /// ordinary delete path, trashed by id and then permanently deleted:
     /// no Trash entry is left and ⌘⌥Z is not armed — the writer never made
-    /// this note. A file that holds bytes is not the empty note this call
-    /// made (something wrote it meanwhile) and is left, as is anything a
-    /// failed cleanup could not take: the refusal then says what was left.
+    /// this note.
+    ///
+    /// **Bytes this call did not write are never destroyed** (the
+    /// coordinator's call, Task 6 fix round 1): the file is sized before the
+    /// trash, and the trashed file again before the permanent delete. Bytes
+    /// found (written outside Maugham meanwhile), or a size that cannot be
+    /// read, stop there, and the refusal says where the note is: left in
+    /// Research, or in the Trash. A cleanup that fails says the same.
     func takeBackUnsavedNewNote(_ created: ResearchItem, refusal: Error) async -> Error {
+        let title = created.title
+        func said(_ tail: String) -> Error {
+            ProjectStoreError.fileSystemError(Self.saying(refusal, tail + "."))
+        }
         do {
             if let path = created.path, !path.isEmpty {
-                let fileURL = try resolvedProjectPathToChange(path)
-                // Gone is nothing to lose; a size that will not read is not
-                // empty (RULING-7), and the catch below says it was left.
-                let size = FileManager.default.fileExists(atPath: fileURL.path)
-                    ? try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int : 0
-                guard size == 0 else {
-                    return ProjectStoreError.fileSystemError(Self.saying(refusal,
-                        "; the note “\(created.title)” was left in Research because its file changed outside Maugham."))
+                switch Self.noteFileContent(at: try resolvedProjectPathToChange(path)) {
+                case .emptyOrGone: break
+                case .holdsBytes:
+                    return said("; the note “\(title)” was left in Research because its file changed outside Maugham")
+                case .cannotTell:
+                    return said("; the note “\(title)” was left in Research")
                 }
             }
-            try await discardUnsavedNewNote(id: created.id)
-            return refusal
+            Self.beforeTakingBackTheNoteForTesting?()
+            switch try await discardUnsavedNewNote(id: created.id) {
+            case .emptyOrGone: return refusal
+            case .holdsBytes:
+                return said("; the note “\(title)” was moved to the Trash because its file changed outside Maugham")
+            case .cannotTell:
+                return said("; the note “\(title)” was moved to the Trash")
+            }
         } catch {
             projectStoreLog.error(
                 "The empty note \(created.id, privacy: .public) was not taken back: \(error.localizedDescription, privacy: .public)")
-            return ProjectStoreError.fileSystemError(Self.saying(refusal,
-                "; the empty note “\(created.title)” was left in Research."))
+            return findResearchItem(id: created.id, in: manifest.research) != nil
+                ? said("; the empty note “\(title)” was left in Research")
+                : said("; the empty note “\(title)” was moved to the Trash")
         }
+    }
+
+    /// Test seam: runs after the note's file was found empty, before it is
+    /// trashed. Nil in production.
+    static var beforeTakingBackTheNoteForTesting: (() -> Void)?
+
+    /// What a note's file holds, as far as a size can say.
+    enum NoteFileContent { case emptyOrGone, holdsBytes, cannotTell }
+
+    /// Gone is nothing to lose; a size that will not read is not empty
+    /// (RULING-7) and not known to hold bytes either.
+    private static func noteFileContent(at fileURL: URL) -> NoteFileContent {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .emptyOrGone }
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? Int else {
+            return .cannotTell
+        }
+        return size == 0 ? .emptyOrGone : .holdsBytes
     }
 
     /// `refusal`'s sentence, its full stop replaced by `tail`.
@@ -870,23 +901,38 @@ extension ProjectStore {
     }
 
     /// The row taken through `trashResearchItemCore`, the manifest saved,
-    /// and the entry permanently deleted (`permanentlyDeleteTrashEntry`).
-    /// The link a kept letter's create made to its chapter (`.sharedPlusLink`)
-    /// goes with it; nothing else could name a fresh id.
-    private func discardUnsavedNewNote(id: String) async throws {
+    /// and the entry permanently deleted (`permanentlyDeleteTrashEntry`)
+    /// only when the trashed file is still empty — otherwise the entry stays
+    /// in the Trash and what was found is returned. The link a kept letter's
+    /// create made to its chapter (`.sharedPlusLink`) goes after the trash,
+    /// best-effort, so a note the trash could not take keeps its link;
+    /// nothing else could name a fresh id.
+    private func discardUnsavedNewNote(id: String) async throws -> NoteFileContent {
         beginStructuralVerb(); defer { endStructuralVerb() }
+        let entry = try await trashResearchItemCore(id: id)
         let linking = TreeWalk.collect(in: manifest.structure) { $0.linkedResearchIds?.contains(id) == true }
         for document in linking {
-            try await unlinkResearch(researchId: id, fromDocumentId: document.id)
+            try? await unlinkResearch(researchId: id, fromDocumentId: document.id)
         }
-        let entry = try await trashResearchItemCore(id: id)
         manifest.modified = Date()
         try await saveManifest()
-        if let entry {
-            try await permanentlyDeleteTrashEntry(id: entry.id)
-        } else {
+        guard let entry else {
             trashEntries = (try? await trashStore.list()) ?? trashEntries
+            return .emptyOrGone
         }
+        var trashed = NoteFileContent.emptyOrGone
+        if entry.carriesFile {
+            let folder = trashStore.trashRoot.appendingPathComponent(
+                try SafeRelativePath.requirePlainFileName(entry.id))
+            trashed = Self.noteFileContent(at: folder.appendingPathComponent(
+                try SafeRelativePath.requirePlainFileName((entry.originalRelativePath as NSString).lastPathComponent)))
+        }
+        guard trashed == .emptyOrGone else {
+            trashEntries = (try? await trashStore.list()) ?? trashEntries
+            return trashed
+        }
+        try await permanentlyDeleteTrashEntry(id: entry.id)
+        return .emptyOrGone
     }
 
     /// ⌘⌥Z's name for a gesture over `titles`: the one title, or "N items".

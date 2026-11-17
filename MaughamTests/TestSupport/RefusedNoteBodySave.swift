@@ -15,6 +15,9 @@ final class RefusedNoteBodySave {
     private let folder: URL
     private var token: NSObjectProtocol?
     private(set) var refused = false
+    /// Runs once the door has refused (after the folder is writable again,
+    /// with `cleanupCanRun`), before the caller's cleanup starts.
+    var onRefused: (() -> Void)?
 
     init(in folder: URL, cleanupCanRun: Bool) {
         self.folder = folder
@@ -27,15 +30,20 @@ final class RefusedNoteBodySave {
         ) { [weak self, folder] note in
             guard let said = note.userInfo?[MaughamEvent.noticeMessageKey] as? String,
                   said.hasPrefix("Couldn’t save") else { return }
-            MainActor.assumeIsolated { self?.refused = true }
             if cleanupCanRun {
                 try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+            }
+            MainActor.assumeIsolated {
+                self?.refused = true
+                self?.onRefused?()
             }
         }
     }
 
     func end() {
         DocumentStore.beforeCoordinatedWriteForTesting = nil
+        ProjectStore.beforeTakingBackTheNoteForTesting = nil
+        onRefused = nil
         if let token { NotificationCenter.default.removeObserver(token) }
         token = nil
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)

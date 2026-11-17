@@ -309,6 +309,68 @@ final class AddNoteToolTests: XCTestCase {
         XCTAssertEqual(trashFolders(url), [])
     }
 
+    /// Bytes landing in the note's file after it was found empty, before the
+    /// trash, are moved to the Trash with it and never permanently deleted:
+    /// the trashed file is sized again, and the entry stays (fix round 1).
+    /// Disable experiment: drop the trashed-file check and the entry, with
+    /// its bytes, is permanently deleted.
+    func test_bytesThatLandAfterTheEmptyCheckStayInTheTrash() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let rowsBefore = TreeWalk.collectIds(in: store.manifest.research)
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: true)
+        defer { refusal.end() }
+        let note = url.appendingPathComponent("research/fog.md")
+        ProjectStore.beforeTakingBackTheNoteForTesting = {
+            try? Data("written outside".utf8).write(to: note)
+        }
+
+        do {
+            _ = try await addFog(url, reg)
+            XCTFail("a body save that does not land fails add_note")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was moved to the Trash because its file changed outside Maugham.")
+        }
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertEqual(TreeWalk.collectIds(in: store.manifest.research), rowsBefore, "its row went to the Trash")
+        let entries = trashFolders(url)
+        XCTAssertEqual(entries.count, 1, "the Trash entry stays")
+        let trashed = url.appendingPathComponent(".trash/\(try XCTUnwrap(entries.first))/fog.md")
+        XCTAssertEqual(try String(contentsOf: trashed, encoding: .utf8), "written outside",
+                       "the outside bytes are in the Trash, not destroyed")
+        XCTAssertEqual(store.trashEntries.count, 1)
+    }
+
+    /// A permanent delete that fails, after the trash took the row and file,
+    /// says the empty note was moved to the Trash — not left in Research.
+    func test_aPermanentDeleteThatFailsSaysTheEmptyNoteWasMovedToTheTrash() async throws {
+        let (url, store, ds, reg) = try await makeProjectWithDocumentStore()
+        defer { Task { await ds.close() } }
+        let trash = url.appendingPathComponent(".trash")
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: trash.path) }
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: true)
+        defer { refusal.end() }
+        // The cleanup's manifest save comes after the trash and before the
+        // permanent delete: the Trash folder turns read-only there.
+        refusal.onRefused = { [weak ds] in
+            ds?.writeManifestWillWrite = { [weak ds] in
+                ds?.writeManifestWillWrite = nil
+                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: trash.path)
+            }
+        }
+
+        do {
+            _ = try await addFog(url, reg)
+            XCTFail("a body save that does not land fails add_note")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was moved to the Trash.")
+        }
+        XCTAssertNil(TreeWalk.first(in: store.manifest.research) { $0.title == "Fog" }, "its row is gone")
+        XCTAssertEqual(trashFolders(url).count, 1, "its entry is still in the Trash")
+    }
+
     /// **A store that had a `DocumentStore` and lost it (teardown) refuses**
     /// `add_note`'s raw fallback: it throws, and the note's file (made empty
     /// before the question is asked) holds none of the body.

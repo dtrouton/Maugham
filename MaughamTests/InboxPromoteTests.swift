@@ -136,6 +136,32 @@ final class InboxPromoteTests: XCTestCase {
         withExtendedLifetime(ds) {}
     }
 
+    /// A cleanup that itself fails (the folder still read-only) names the
+    /// empty note it left; the entry stays in the inbox.
+    func test_aCleanupThatFailsSaysTheEmptyNoteWasLeft() async throws {
+        let (url, store, inbox, ds) = try await openProject()
+        try await seed(url, [InboxEntry(
+            id: "t6", createdAt: Date(timeIntervalSince1970: 100),
+            deviceId: "phone", kind: .text, inlineText: "Fog")])
+        await inbox.refresh()
+        let entry = try XCTUnwrap(inbox.entries.first { $0.id == "t6" })
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: false)
+        defer { refusal.end() }
+
+        do {
+            _ = try await inbox.promoteToResearch(entry, projectStore: store)
+            XCTFail("a body save that does not land fails the promotion")
+        } catch {
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was left in Research.")
+        }
+        refusal.end()
+        XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" })
+        await inbox.refresh()
+        XCTAssertTrue(inbox.entries.contains { $0.id == "t6" })
+        withExtendedLifetime(ds) {}
+    }
+
     /// **A store that had a `DocumentStore` and lost it (teardown) refuses**
     /// a text promotion's raw fallback before the flip: it throws, the note's
     /// file holds none of the text, and the entry is still in the inbox.
