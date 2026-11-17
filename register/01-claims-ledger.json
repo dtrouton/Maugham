@@ -1369,6 +1369,16 @@
         "ruled_by": "Denver, structured question, recommended option accepted",
         "date": "2026-11-16",
         "mechanism_note": "`ProjectStore.deleteResearchItems` asks every refusal of every item first (all or nothing), then trashes one `trashResearchItemCore` per id. A non-link row whose file is gone (`namesAMissingFile`: `NSFileReadNoSuchFileError` or POSIX `ENOENT` only, with no `.<name>.icloud` placeholder beside it) is recorded through `TrashStore.recordManifestOnlyTrash` as the row alone (carriesFile false), so the gesture completes and ⌘⌥Z restores the row; an unreadable folder, an unreachable volume or a placeholder takes the ordinary move, which fails and is reported. A throw from the first item rethrows that item's error, saves nothing and leaves the armed undo as it was. A later throw goes through `settleDeletedInPart`: it saves the manifest without the rows already taken, refreshes the Trash list, arms ⌘⌥Z with exactly the entries that landed (clearing it when none did, as a clean delete that makes no entry does) and throws `ProjectStoreError.deletedInPart(trashed:removed:failed:underlying:)`: “Moved 2 to the Trash (“A”, “B”), then “C” could not be deleted: <reason>. ⌘⌥Z puts the 2 back.” (“puts it back.” for one; a row removed with no entry is named apart: “Moved 1 to the Trash (“A”) and removed “B”, then …”; no ⌘⌥Z clause when nothing is undoable); if that save throws, `manifestUnwritable` carries its reason and the sentence. `TrashStore.moveToTrash` takes back the entry folder it minted when its path guard or move throws, and ⌘⌥Z reads every entry of the gesture first, refusing the whole gesture with `TrashError.alreadyInProject` if one clashes with the tree or with another entry. What is the coordinator's, not Denver's: the sentence's wording and the 'N items' label, the arm-or-clear rule, that 'missing' means only a true no-such-file error, the entry-folder cleanup and the duplicate-id refusal. Pinned by `ResearchMoverOutsideResearchTests` (`test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne`, `test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne`, `test_aRowWhoseFileIsStillComingDownFromICloudIsNotTakenAsMissing`, `test_aNoteWhoseFolderCannotBeReadIsNotTakenAsMissing`, `test_aBatchDeleteThatFailsPartwaySavesWhatItTrashed_armsIt_andNamesBothHalves`, `test_aBatchDeleteWhoseFirstItemFailsChangesNothing_andThrowsItsOwnError`, `test_aPartwayFailureNamesARowRemovedWithNoEntryApart_andCountsOnlyWhatUndoRestores`, `test_aPartwayFailureWithNoEntryClearsTheEarlierUndo_asACleanDeleteDoes`, `test_aRestoreOfAnItemAlreadyInTheProjectIsRefused`, `test_anUndoWhoseSecondEntryClashesRestoresNothing_andWorksOnceTheClashIsGone`) and `TrashCharacterization`'s moveToTrash tests."
+      },
+      "RULING-64": {
+        "family": "filesystem responsibility (RULING-9's family)",
+        "verdict": "RATIFIED_FROM_OPTIONS",
+        "statement": "A stale .md Maugham itself left is not an outside edit. When a document is opened and its .md is exactly Maugham's own text from just before a save that was interrupted, no \"diverged\" copy is filed in .maugham/conflicts. Any other mismatch is still backed up.",
+        "basis": "Denver, 2026-11-17, options put in conversation with pros and cons: A keep as built in 0.47.0 (recommended), B always back up as before, C widen A to the remaining interrupted-save cases. Denver chose A. Reasons put for A: the conflicts folder then holds only what might be a real outside edit; it fits RULING-9; the exact-match test loses nothing, since that text is already in the history.",
+        "provenance_note": "Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-17, in conversation, the single reply \"A\"). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family (RULING-9's) is the agent's placing. Option C (widening to the burst variant and to a .md older than the pre-fold state) was put and NOT chosen: those cases still file a backup, and widening them is issue #146's question, not settled here.",
+        "ruled_by": "Denver, in conversation, recommended option accepted",
+        "date": "2026-11-17",
+        "mechanism_note": "`Document.load` compares the stored .md (anchors stripped) with the render of the derived state; on a mismatch it also compares it with the render of the state before a pending fold this load performed (`opsBeforeFold`) and, when equal, files no 'diverged' backup. The re-render is scheduled either way. Claim M9-OL-018 carries the residuals."
       }
     },
     "schema_note": "`warrant` = how well evidenced a claim is. `verdict` = whether the behaviour is WANTED. They are independent: a HIGH-warrant claim can be a DEFECT (well-proven wrong behaviour), and a LOW-warrant claim can be RATIFIED. The Phase 10 regeneration reproduced a defect faithfully because this field did not exist.",
@@ -2251,6 +2261,10 @@
       "RULING-63": {
         "mechanism": "test",
         "note": "ResearchMoverOutsideResearchTests missing-row, partway-failure and restore-refusal pins + TrashCharacterization moveToTrash no-folder pins"
+      },
+      "RULING-64": {
+        "mechanism": "test",
+        "note": "AutosaveOffMainTests.test_anAutosaveCutBetweenTheMirrorAndTheWriteLeavesNoDivergedBackup + LoadDivergenceSnapshotTests.test_anOutsideEditBesideAPendingFileIsStillBackedUpOnce"
       }
     }
   },

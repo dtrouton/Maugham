@@ -125,7 +125,7 @@ public enum TestQuitTool: MCPTool {
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NSApp.terminate(nil)
+            MaughamAppDelegate.requestQuit()
         }
         return try JSONEncoder().encode(Result(terminating: true))
     }

@@ -150,6 +150,9 @@ public enum UpdateInstaller {
 
     /// The status file's name inside the Updates folder.
     static let installStatusFileName = "install-status"
+    /// A waiting helper's lock, a directory `install-lock-<app pid>` in the
+    /// Updates folder: one helper per running app.
+    static let installLockPrefix = "install-lock-"
 
     /// Shell script run **detached** after the app quits. Fixed text: every
     /// path, the pid, the team, the version and the bundle identifier arrive as ARGUMENTS
@@ -236,6 +239,14 @@ public enum UpdateInstaller {
             // the untouched old one after any failure — so the writer is never
             // left with no Maugham running. Its own failure changes nothing.
             #"reopen() { if [ "$RELAUNCH" = 1 ]; then "\#(tools.open)" "$INSTALLED" || true; fi; }"#,
+            // One helper per running app. Two that wait on the same pid
+            // both swap: the second puts the old app back and nothing is
+            // recorded, or one deletes the other's half-made copy and a good
+            // download is recorded as refused (0.46.0 to 0.47.0). mkdir is
+            // atomic; the loser leaves. A mkdir that fails for any other
+            // reason installs without the lock rather than not at all.
+            #"LOCK="$UPDATES/\#(installLockPrefix)$PID""#,
+            #"if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT; elif [ -d "$LOCK" ]; then exit 0; fi"#,
             "# Wait for the running Maugham to fully exit.",
             #"while kill -0 "$PID" 2>/dev/null; do sleep 0.2; done"#,
             "# Copy the new bundle to a same-volume sibling (.inflight).",

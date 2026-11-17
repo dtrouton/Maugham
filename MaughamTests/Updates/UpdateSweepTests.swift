@@ -57,13 +57,16 @@ final class UpdateSweepTests: XCTestCase {
                    "Maugham-0.43.0.zip.download", "Maugham-0.41.0.dmg.download", "staged-0.43.0",
                    "install-status", ".DS_Store", "Maugham-junk.zip", "readme.txt"]
         for n in all { try make(n, dir: n.hasPrefix("staged-")) }
+        // A lock a killed helper left: kept while the app is up (a helper may
+        // hold it), removed at launch.
+        try fm.createDirectory(at: dir.appendingPathComponent("install-lock-4242"), withIntermediateDirectories: true)
         func remaining() throws -> Set<String> { Set(try fm.contentsOfDirectory(atPath: dir.path)) }
 
         // Post-stage: keep 0.43.0; downloads untouched.
         UpdateSweep.sweep(in: dir, keeping: "0.43.0", runningVersion: "0.42.0", includingDownloads: false)
         XCTAssertEqual(try remaining(), ["Maugham-0.43.0.zip", "Maugham-0.43.0.zip.download",
                                          "Maugham-0.41.0.dmg.download", "staged-0.43.0", "install-status",
-                                         ".DS_Store", "Maugham-junk.zip", "readme.txt"])
+                                         ".DS_Store", "Maugham-junk.zip", "readme.txt", "install-lock-4242"])
         // Launch: nothing pending, running 0.42.0.
         UpdateSweep.sweep(in: dir, keeping: nil, runningVersion: "0.42.0", includingDownloads: true)
         XCTAssertEqual(try remaining(), ["Maugham-0.43.0.zip", "Maugham-0.43.0.zip.download", "staged-0.43.0",
