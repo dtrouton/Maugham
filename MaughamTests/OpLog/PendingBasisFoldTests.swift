@@ -137,6 +137,48 @@ final class PendingBasisFoldTests: XCTestCase {
             "the reopened instance's clean close leaves no pending file")
     }
 
+    /// An undecodable pending file the load quarantined is this instance's to
+    /// clear: the close removes it, so the next load neither quarantines it a
+    /// second time nor tells the writer again (#146 fix round 2).
+    func test_aQuarantinedPendingFileIsClearedByTheCloseAndNotReportedTwice() async throws {
+        for typesOneCharacter in [false, true] {
+            let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+            let docId: String
+            do {
+                let doc = try await Document.load(
+                    url: url, device: "m", session: "s1", presenter: nil)
+                docId = doc.docId
+                await doc.close()
+            }
+            let pendingURL = pendingFileURL(project: project, docId: docId, device: "m")
+            try FileManager.default.createDirectory(
+                at: pendingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "NOT JSON — torn pending state".write(to: pendingURL, atomically: true, encoding: .utf8)
+            let quarantineDir = project
+                .appendingPathComponent(".maugham/conflicts/quarantine", isDirectory: true)
+            func records() -> Int {
+                ((try? FileManager.default.contentsOfDirectory(atPath: quarantineDir.path)) ?? []).count
+            }
+
+            let doc = try await Document.load(
+                url: url, device: "m", session: "s2", presenter: nil)
+            XCTAssertNotNil(doc.unrecoveredPendingFailure, "premise: the load reported the torn file")
+            XCTAssertEqual(records(), 1, "premise: the load quarantined the torn bytes")
+            if typesOneCharacter { doc.setFullText("Alpha!\n\nBravo.") }
+            await doc.close()
+            XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path),
+                "typed: \(typesOneCharacter) — the close clears the quarantined file")
+
+            let reopened = try await Document.load(
+                url: url, device: "m", session: "s3", presenter: nil)
+            XCTAssertNil(reopened.unrecoveredPendingFailure,
+                "typed: \(typesOneCharacter) — the writer is not told a second time")
+            XCTAssertEqual(records(), 1,
+                "typed: \(typesOneCharacter) — no second quarantine record")
+            await reopened.close()
+        }
+    }
+
     /// M9-OL-019 under compare-and-clear: a single clean close after an
     /// autosave wrote the pending file still leaves none.
     func test_aCleanCloseAfterAnAutosaveWroteThePendingFileLeavesNone() async throws {

@@ -177,6 +177,10 @@ public final class PendingBuffer {
                 name: url.lastPathComponent,
                 reason: error.localizedDescription, raw: nil)
         }
+        // Read, so this instance's to clear, decodable or not: an undecodable
+        // file is quarantined by the load, and a close that left it would
+        // report it again at the next load.
+        lastKnownBytes = data
         let state: DiskState
         do { state = try JSONDecoder().decode(DiskState.self, from: data) }
         catch {
@@ -187,7 +191,6 @@ public final class PendingBuffer {
         }
         seq = state.sequence
         basisOpId = state.basis
-        lastKnownBytes = data
         for change in state.changes { buffer[change.paragraphId] = change }
         return .loaded
     }
