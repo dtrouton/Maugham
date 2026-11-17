@@ -347,7 +347,7 @@ extension ProjectStore {
             } else {
                 saveFailure = error.localizedDescription
             }
-            throw ProjectStoreError.manifestUnwritable("\(saveFailure). \(refs)")
+            throw ProjectStoreError.manifestUnwritable(Self.saveFailure(saveFailure, thenSaying: refs))
         }
         return outcome
     }

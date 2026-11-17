@@ -262,6 +262,43 @@ final class PieceVerbSpanTests: XCTestCase {
         XCTAssertEqual(copiesOfTheNote(named: leaf), [newPath])
     }
 
+    // MARK: - A new note taken back mid-move (final review, finding 1)
+
+    /// `add_note`'s body save refused because a piece rename has its new note
+    /// in flight, folder already moved: the take-back trashes nothing — the
+    /// file read as missing at its old path would trash the ROW only and
+    /// orphan the empty `.md` that travelled with the folder. The row stays,
+    /// its file is where the manifest says once the rename ends, and the
+    /// error says the note was left in Research.
+    func test_aNewNoteWhoseSaveIsRefusedMidMoveIsLeftInResearch_notOrphaned() async throws {
+        let (store, projectStore, alpha, _, _) = try await collection()
+        let fresh = try await projectStore.addPieceResearchNote(pieceId: alpha.id, title: "Fresh")
+        let oldPath = try XCTUnwrap(fresh.path)
+        let leaf = (oldPath as NSString).lastPathComponent
+
+        let held = await hold(parkAfter: { _, _ in true }) {
+            try await projectStore.renamePiece(pieceId: alpha.id, newTitle: "Omega")
+        }
+        XCTAssertFalse(exists(oldPath), "premise: the folder has moved")
+        XCTAssertTrue(projectStore.researchItemsInFlight.contains(fresh.id), "premise: the note is in flight")
+
+        let saved = await store.saveResearchNote(
+            itemId: fresh.id, text: "The assistant's body.", by: .assistant, mustLand: true, from: projectStore)
+        XCTAssertEqual(saved, .notSaved, "premise: the door refuses the save mid-move")
+        let error = await projectStore.takeBackUnsavedNewNote(
+            fresh, refusal: ProjectStoreError.researchTextNotSaved(title: fresh.title))
+
+        await held.release()
+        XCTAssertNil(held.error, "the rename completes")
+        XCTAssertEqual(error.localizedDescription,
+                       "Maugham couldn’t save “Fresh”; the note “Fresh” was left in Research.")
+        let newPath = try pathNow(fresh, projectStore)
+        XCTAssertTrue(newPath.contains("omega"), newPath)
+        XCTAssertTrue(exists(newPath), "the note's file is at its manifest path")
+        XCTAssertEqual(copiesOfTheNote(named: leaf), [newPath], "no orphan, no second copy")
+        XCTAssertTrue(projectStore.trashEntries.isEmpty, "nothing was trashed")
+    }
+
     // MARK: - Trash
 
     /// A piece's Delete moves only its manuscript file to the Trash: its

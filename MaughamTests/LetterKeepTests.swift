@@ -336,7 +336,7 @@ final class LetterKeepTests: XCTestCase {
         } catch {
             title = try XCTUnwrap(store.manifest.research.first?.title, "premise: the note was left")
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “\(title)”, so it is as it was; the empty note “\(title)” was left in Research.")
+                "Maugham couldn’t save “\(title)”; the empty note “\(title)” was left in Research.")
         }
         refusal.end()
         let left = try XCTUnwrap(store.manifest.research.first)

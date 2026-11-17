@@ -1017,6 +1017,21 @@ final class ResearchMoveTests: XCTestCase {
         await ds.close()
     }
 
+    /// A save failure's detail joins the next sentence with one full stop,
+    /// whether or not the system's text already ends in one (final review,
+    /// finding 4) — the join both `saveManifest(saying:)` and
+    /// `settleDeletedInPart` make.
+    func test_aSaveFailureDetailJoinsTheNextSentenceWithOneFullStop() {
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full.", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full. \n", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("The disk is full", thenSaying: "Next."),
+                       "The disk is full. Next.")
+        XCTAssertEqual(ProjectStore.saveFailure("Wait...", thenSaying: "Next."),
+                       "Wait... Next.", "only a single trailing full stop is taken")
+    }
+
     /// The several-notes form of the save-failure sentence.
     func test_theSaveFailureSentenceForSeveralNotes() {
         let outcome = ProjectStore.RenameOutcome(assetRefsLeftIn: ["Sarah", "Ines"], act: .moved)

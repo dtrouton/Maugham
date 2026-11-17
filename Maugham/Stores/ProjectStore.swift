@@ -139,6 +139,13 @@ public enum ProjectStoreError: Error, Equatable {
 /// Foundation fallback "(Maugham.ProjectStoreError error N)". `fileSystemError`
 /// carries an already-composed message, so it renders its payload verbatim.
 extension ProjectStoreError: LocalizedError {
+    /// The lead of `researchTextNotSaved`'s sentence, without the “so it is
+    /// as it was” that follows it there: a new note's take-back says what
+    /// happened to the note instead (`takeBackUnsavedNewNote`).
+    static func couldNotSave(_ title: String) -> String {
+        "Maugham couldn’t save “\(title)”"
+    }
+
     public var errorDescription: String? {
         switch self {
         case .manifestNotFound:
@@ -188,7 +195,7 @@ extension ProjectStoreError: LocalizedError {
         case .outsideResearch(let title):
             return "“\(title)” isn’t inside Research, so Maugham didn’t write it."
         case .researchTextNotSaved(let title):
-            return "Maugham couldn’t save “\(title)”, so it is as it was."
+            return Self.couldNotSave(title) + ", so it is as it was."
         case .profileFromNewerBuild:
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         case .staleSearchMatch:

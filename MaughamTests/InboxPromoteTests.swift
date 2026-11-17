@@ -87,7 +87,7 @@ final class InboxPromoteTests: XCTestCase {
             XCTFail("a body save that does not land fails the promotion")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was left in Research because its file changed outside Maugham.")
+                "Maugham couldn’t save “Fog”; the note “Fog” was left in Research because its file changed outside Maugham.")
         }
         XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
         XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" },
@@ -153,7 +153,7 @@ final class InboxPromoteTests: XCTestCase {
             XCTFail("a body save that does not land fails the promotion")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was left in Research.")
+                "Maugham couldn’t save “Fog”; the empty note “Fog” was left in Research.")
         }
         refusal.end()
         XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" })

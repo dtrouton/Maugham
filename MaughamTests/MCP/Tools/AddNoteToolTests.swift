@@ -198,7 +198,7 @@ final class AddNoteToolTests: XCTestCase {
             XCTFail("a body save that does not land fails add_note")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was left in Research because its file changed outside Maugham.")
+                "Maugham couldn’t save “Fog”; the note “Fog” was left in Research because its file changed outside Maugham.")
         }
         XCTAssertTrue(left.isEmpty, "premise: both write attempts were changed under the door")
         XCTAssertNotNil(TreeWalk.first(in: store.manifest.research) { $0.path == "research/fog.md" },
@@ -300,7 +300,7 @@ final class AddNoteToolTests: XCTestCase {
             XCTFail("a body save that does not land fails add_note")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was left in Research.")
+                "Maugham couldn’t save “Fog”; the empty note “Fog” was left in Research.")
         }
         refusal.end()
         let left = try XCTUnwrap(TreeWalk.first(in: store.manifest.research) { $0.title == "Fog" },
@@ -330,7 +330,7 @@ final class AddNoteToolTests: XCTestCase {
             XCTFail("a body save that does not land fails add_note")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the note “Fog” was moved to the Trash because its file changed outside Maugham.")
+                "Maugham couldn’t save “Fog”; the note “Fog” was moved to the Trash because its file changed outside Maugham.")
         }
         XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
         XCTAssertEqual(TreeWalk.collectIds(in: store.manifest.research), rowsBefore, "its row went to the Trash")
@@ -365,7 +365,7 @@ final class AddNoteToolTests: XCTestCase {
             XCTFail("a body save that does not land fails add_note")
         } catch {
             XCTAssertEqual(error.localizedDescription,
-                "Maugham couldn’t save “Fog”, so it is as it was; the empty note “Fog” was moved to the Trash.")
+                "Maugham couldn’t save “Fog”; the empty note “Fog” was moved to the Trash.")
         }
         XCTAssertNil(TreeWalk.first(in: store.manifest.research) { $0.title == "Fog" }, "its row is gone")
         XCTAssertEqual(trashFolders(url).count, 1, "its entry is still in the Trash")

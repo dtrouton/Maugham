@@ -850,10 +850,18 @@ extension ProjectStore {
     /// found (written outside Maugham meanwhile), or a size that cannot be
     /// read, stop there, and the refusal says where the note is: left in
     /// Research, or in the Trash. A cleanup that fails says the same.
+    ///
+    /// **A note a verb is moving is left alone** (final review, finding 1):
+    /// mid-move its file is not at `created.path` (it travels with its
+    /// folder), so a trash would take the row only and orphan the file.
+    /// The note stays in Research, row and file together.
     func takeBackUnsavedNewNote(_ created: ResearchItem, refusal: Error) async -> Error {
         let title = created.title
         func said(_ tail: String) -> Error {
             ProjectStoreError.fileSystemError(Self.saying(refusal, tail + "."))
+        }
+        guard !researchItemsInFlight.contains(created.id) else {
+            return said("; the note “\(title)” was left in Research")
         }
         do {
             if let path = created.path, !path.isEmpty {
@@ -899,8 +907,14 @@ extension ProjectStore {
         return size == 0 ? .emptyOrGone : .holdsBytes
     }
 
-    /// `refusal`'s sentence, its full stop replaced by `tail`.
+    /// `refusal`'s sentence with `tail` in place of what it says next: a
+    /// `researchTextNotSaved` keeps only its lead (“Maugham couldn’t save
+    /// “X””) — its “so it is as it was” would contradict a tail saying where
+    /// the note went; any other refusal loses only its full stop.
     private static func saying(_ refusal: Error, _ tail: String) -> String {
+        if case .researchTextNotSaved(let title)? = refusal as? ProjectStoreError {
+            return ProjectStoreError.couldNotSave(title) + tail
+        }
         var said = refusal.localizedDescription
         if said.hasSuffix(".") { said.removeLast() }
         return said + tail
@@ -973,7 +987,20 @@ extension ProjectStore {
         } else {
             saveFailure = saveError.localizedDescription
         }
-        return ProjectStoreError.manifestUnwritable("\(saveFailure). \(partial.errorDescription ?? "")")
+        return ProjectStoreError.manifestUnwritable(
+            Self.saveFailure(saveFailure, thenSaying: partial.errorDescription ?? ""))
+    }
+
+    /// **A save failure's detail, then the next sentence**, joined by one
+    /// full stop: the system's text often ends in its own, which the join
+    /// would double, so a single trailing "." (and trailing whitespace) is
+    /// taken off first. The join `saveManifest(saying:)` and
+    /// `settleDeletedInPart` make.
+    static func saveFailure(_ detail: String, thenSaying next: String) -> String {
+        var lead = Substring(detail)
+        while lead.last?.isWhitespace == true { lead.removeLast() }
+        if lead.last == "." { lead.removeLast() }
+        return "\(lead). \(next)"
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree
