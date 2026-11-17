@@ -76,7 +76,8 @@ struct BinderView: View {
                 // Research, Palette, Editions). The project row stays row zero.
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
-                    state: treeState, store: store, subject: subject))
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
                 outline(items: store.manifest.structure)
                 BinderTreeSections(store: store, state: treeState,
                                    subject: $subject)
@@ -401,7 +402,7 @@ struct BinderView: View {
     /// asked and never re-derived.
     ///
     /// Not `private`: `.contextMenu`'s `NSMenu` is built on right-click and
-    /// unreachable from a headless test (`PlanTreeStructureCreationTests`'
+    /// unreachable from a headless test (`TreeStructureCreationTests`'
     /// own note on this SDK), so `ResearchLinkPickerTests` asserts the
     /// boundary at this predicate directly rather than trying to press a menu
     /// item that does not exist until a real click builds one.
@@ -436,7 +437,7 @@ struct BinderView: View {
 
     /// **New Document / New Group's verb, windowless** — what every creation
     /// button and menu item in the tree runs, pinned without a press
-    /// (tripwire 33, `PlanTreeStructureCreationTests`): a document or group
+    /// (tripwire 33, `TreeStructureCreationTests`): a document or group
     /// inside `parent` when it is a group, beside it otherwise, at the root
     /// for `nil`. The view's own `addItem` adds the rename and the selection.
     static func addItem(parent: StructureItem?, kind: StructureItemKind,

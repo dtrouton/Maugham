@@ -242,6 +242,14 @@ struct DetailPaneToggle<Inspector: View>: View {
             // over this one in the same pass.
             persistSegment(segment)
         }
+        // Leaving an edition takes the Department desk with it (controller
+        // ruling, shell p1 Task 6 fix): the desk is not offered off an
+        // edition, so it must not stay showing. One-way — the subject writes
+        // the segment, never the reverse (tripwire 2).
+        .onChange(of: subject) { old, new in
+            let next = Self.segmentAfterSubjectChange(segment, from: old, to: new)
+            if next != segment { segment = next }
+        }
         .background(WindowAccessor(window: $window))
         .modifier(VisualLanguageProposalModifier(
             projectURL: projectURL, window: window,
@@ -284,6 +292,21 @@ struct DetailPaneToggle<Inspector: View>: View {
     ) -> DetailSegment {
         let carrying = visibleSegments(subject: subject, including: current)
         return snappedSelection(current, in: carrying, fallback: .inspector)
+    }
+
+    /// **The segment a subject change leaves the picker on.** Leaving an
+    /// edition while the Department desk is selected lands on the first segment
+    /// the new subject offers; every other selection is carried unchanged — a
+    /// pane the writer asked for by ⌘⌥ key is theirs until they move it.
+    static func segmentAfterSubjectChange(
+        _ segment: DetailSegment,
+        from old: WindowSubject,
+        to new: WindowSubject
+    ) -> DetailSegment {
+        guard segment == .department,
+              case .edition = old.open else { return segment }
+        if case .edition = new.open { return segment }
+        return visibleSegments(subject: new).first ?? .inspector
     }
 
     // MARK: - Which segments the subject offers

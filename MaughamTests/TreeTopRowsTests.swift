@@ -75,6 +75,55 @@ final class TreeTopRowsTests: XCTestCase {
         XCTAssertTrue(TreeTopRows.hasInbox(state: state, store: store, subject: .book))
     }
 
+    // MARK: - The Inbox row's dot
+
+    /// **The Inbox row carries one dot while a capture awaits triage, none at
+    /// zero, and it clears when the capture is dealt with** — the signal the
+    /// deleted picker badge gave, over the same `entries` it counted.
+    func test_theInboxDotShowsWhileACaptureWaitsAndClearsWhenItIsDealtWith() async throws {
+        XCTAssertFalse(TreeTopRows.hasNewCaptures(inbox: nil), "no inbox, no dot")
+
+        let root = TestTemp.root.appendingPathComponent("inbox-dot-\(UUID().uuidString)")
+        let dir = root.appendingPathComponent(".maugham/inbox")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let inbox = InboxStore(projectURL: root, deviceId: "mac")
+        await inbox.refresh()
+        XCTAssertTrue(inbox.entries.isEmpty, "premise: nothing waiting")
+        XCTAssertFalse(TreeTopRows.hasNewCaptures(inbox: inbox), "hidden at zero")
+
+        func entry(_ status: InboxEntry.Status, at seconds: TimeInterval) -> InboxEntry {
+            InboxEntry(id: "c1", createdAt: Date(timeIntervalSince1970: seconds),
+                       deviceId: "phone", kind: .text, inlineText: "a thought",
+                       transcript: nil, transcriptionState: .none, status: status)
+        }
+        let phone = JSONLAppendStore<InboxEntry>(
+            fileURL: dir.appendingPathComponent("inbox.phone.jsonl"))
+        try await phone.append(entry(.new, at: 100))
+        await inbox.refresh()
+        XCTAssertEqual(inbox.entries.count, 1, "premise: the old badge would read 1")
+        XCTAssertTrue(TreeTopRows.hasNewCaptures(inbox: inbox), "shown while one waits")
+
+        let mac = JSONLAppendStore<InboxEntry>(
+            fileURL: dir.appendingPathComponent("inbox.mac.jsonl"))
+        try await mac.append(entry(.promoted, at: 200))
+        await inbox.refresh()
+        XCTAssertTrue(inbox.entries.isEmpty, "premise: the old badge would clear")
+        XCTAssertFalse(TreeTopRows.hasNewCaptures(inbox: inbox), "cleared once dealt with")
+    }
+
+    /// The dot is a dot, said to VoiceOver, and every tree host hands it in.
+    func test_theDotIsLabelledAndEveryHostHandsItIn() throws {
+        XCTAssertEqual(TreeTopRows.newCapturesLabel, "New captures")
+        let rows = try code("Maugham/Views/TreeTopRows.swift")
+        XCTAssertTrue(rows.contains(".accessibilityLabel(Self.newCapturesLabel)"))
+        XCTAssertTrue(rows.contains("Circle()"), "one dot")
+        for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift",
+                     "Maugham/Views/SceneNavigatorPane.swift"] {
+            XCTAssertTrue(try code(host).contains("hasNewCaptures: TreeTopRows.hasNewCaptures(store: store)"),
+                          "\(host) hands the Inbox row its dot")
+        }
+    }
+
     // MARK: - The click and the two states
 
     /// **A click on a research row opens it beside**, through the tree's own

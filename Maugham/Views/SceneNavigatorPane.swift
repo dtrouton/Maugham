@@ -77,7 +77,8 @@ struct SceneNavigatorPane: View {
                 // and Canvas, the script and its sluglines, then the sections.
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
-                    state: treeState, store: store, subject: subject))
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
                 scriptRow
                 ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
                     // Inset under the two header rows above: a slugline is a

@@ -403,7 +403,7 @@ struct ReviewBoardPane: View {
 /// **Exposed, and a value type, because `.contextMenu` is headless-unreachable.**
 /// SwiftUI builds that `NSMenu` on the right-click itself, so a test can neither
 /// see the items nor press one (`BinderView.linkResearchVerb`'s discipline, and
-/// `PlanTreeStructureCreationTests`' note on this SDK). The menu's whole truth
+/// `TreeStructureCreationTests`' note on this SDK). The menu's whole truth
 /// table therefore lives in `chipMenuItems(for:passId:current:)`, which
 /// `ReviewBoardPaneTests` drives directly: the alternative is a menu asserted
 /// nowhere, which is how a verb that writes the wrong cell ships green.

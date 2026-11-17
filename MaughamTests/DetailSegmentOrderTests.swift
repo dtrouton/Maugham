@@ -146,6 +146,37 @@ final class DetailSegmentOrderTests: XCTestCase {
         }
     }
 
+    // MARK: - Leaving an edition
+
+    /// **Leaving an edition while the desk is selected lands on the first
+    /// segment the new subject offers** (controller ruling, shell p1 Task 6
+    /// fix); staying on an edition, or any other selection, is carried.
+    func test_leavingAnEditionTakesTheDeskWithIt() {
+        let es = WindowSubject(open: .edition(language: "es"), faces: .project)
+        let fr = WindowSubject(open: .edition(language: "fr"), faces: .project)
+        for to in [WindowSubject.book, Self.chapter, Self.canvas] {
+            let landed = Toggle.segmentAfterSubjectChange(.department, from: es, to: to)
+            XCTAssertEqual(landed, Toggle.visibleSegments(subject: to).first, "\(to)")
+            XCTAssertNotEqual(landed, .department)
+        }
+        XCTAssertEqual(Toggle.segmentAfterSubjectChange(.department, from: es, to: fr),
+                       .department, "edition to edition keeps the desk")
+        XCTAssertEqual(Toggle.segmentAfterSubjectChange(.tasks, from: es, to: .book),
+                       .tasks, "any other selection is carried")
+        XCTAssertEqual(Toggle.segmentAfterSubjectChange(.department, from: .book, to: Self.chapter),
+                       .department,
+                       "a desk reached by ⌘⌥K off an edition is the writer's own ask")
+    }
+
+    /// The menu form's names are the help text up to the dash.
+    func test_theMenuFormNamesEachSegment() {
+        XCTAssertEqual(Toggle.title(of: .diagnostics), "Diagnostics")
+        XCTAssertEqual(Toggle.title(of: .lessons), "What I've learned")
+        for segment in DetailSegment.allCases {
+            XCTAssertFalse(Toggle.title(of: segment).contains("\u{2014}"), "\(segment)")
+        }
+    }
+
     // MARK: - Badges
 
     /// The badge is drawn `shift` segment-widths left of the trailing edge, so

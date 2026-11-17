@@ -226,14 +226,14 @@ final class CanvasClaudeBannerTests: XCTestCase {
             .subject(from: onCanvas), onCanvas)
     }
 
-    /// Show writes the window's SUBJECT through the destination, and no
-    /// persona — read from the source, since `show` is a private method.
-    func test_showWritesTheSubjectAndNoPersona() throws {
+    /// Show writes the window's SUBJECT through the destination — read from
+    /// the source, since `show` is a private method. (Its "no line says
+    /// persona" half retired with the personas, shell p1 Task 6;
+    /// `NoPersonaCensusTests` covers every production file.)
+    func test_showWritesTheSubjectThroughTheDestination() throws {
         let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
             at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
         XCTAssertTrue(text.contains("to.subject(from: subject)"))
-        XCTAssertFalse(text.contains("persona"),
-                       "Claude's arrival decides the centre by the subject now")
     }
 
     /// **And the camera moves, or Show shows nothing.**

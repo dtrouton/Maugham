@@ -33,21 +33,52 @@ final class NoPersonaCensusTests: XCTestCase {
     }
 
     func test_noProductionSourceNamesAPersona() throws {
+        let offenders = try Self.offenders()
+        XCTAssertEqual(offenders, [],
+                       "production source still names a persona:\n"
+                       + offenders.joined(separator: "\n"))
+    }
+
+    /// The census itself: every Swift file under `roots`, read from `base`,
+    /// each offending line as `path:line: text`. The planted control below
+    /// runs this same function over a planted tree.
+    static func offenders(base: URL = SourceTree.repoRoot) throws -> [String] {
         var offenders: [String] = []
-        for root in Self.roots {
-            for path in try SourceTree.swiftFiles(under: root)
-            where !Self.allowList.contains(path) {
-                let text = try SourceTree.read(path)
+        for root in roots {
+            for path in try SourceTree.swiftFiles(under: root, base: base)
+            where !allowList.contains(path) {
+                let text = try SourceTree.read(path, base: base)
                 for (index, line) in text.components(separatedBy: "\n").enumerated()
-                where Self.namesAPersona(line) {
+                where namesAPersona(line) {
                     offenders.append("\(path):\(index + 1): "
                                      + line.trimmingCharacters(in: .whitespaces))
                 }
             }
         }
-        XCTAssertEqual(offenders, [],
-                       "production source still names a persona:\n"
-                       + offenders.joined(separator: "\n"))
+        return offenders.sorted()
+    }
+
+    /// **The planted control, end to end**: a tree with an offender under
+    /// each root, a doc-comment offender, and a clean file. The walk must
+    /// reach both roots and report exactly the offending lines — so a green
+    /// census above is a walk that ran, not only a regex that matches.
+    func test_theCensusWalkCatchesPlantedFilesUnderBothRoots() throws {
+        let base = try SourceTree.plantedTree([
+            "Maugham/Views/RogueBar.swift": """
+            struct RogueBar {
+                let persona: Int
+            }
+            """,
+            "Maugham/Models/Clean.swift": "/// A deeply personalised PDF.\nenum Clean {}\n",
+            "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift": """
+            /// Plan's Persona decides.
+            enum Rogue {}
+            """,
+        ])
+        XCTAssertEqual(try Self.offenders(base: base), [
+            "Maugham/Views/RogueBar.swift:2: let persona: Int",
+            "Packages/MaughamCore/Sources/MaughamCore/Rogue.swift:1: /// Plan's Persona decides.",
+        ])
     }
 
     /// The census reads real files: it found Swift under both roots.
@@ -60,7 +91,7 @@ final class NoPersonaCensusTests: XCTestCase {
 
     /// The planted offenders: each spelling the census exists for must be caught,
     /// and the words that merely contain the letters must not.
-    func test_theCensusCatchesAPlantedOffender() {
+    func test_thePatternCatchesEverySpellingAndNoInnocentWord() {
         for planted in ["@State private var persona: Persona = .default",
                         "/// Plan's persona centres the canvas.",
                         "static let personaKey = \"persona\"",

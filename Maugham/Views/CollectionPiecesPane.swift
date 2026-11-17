@@ -86,7 +86,8 @@ struct CollectionPiecesPane: View {
                 // and Canvas, the pieces, then the sections.
                 projectRow
                 TreeTopRows(hasInbox: TreeTopRows.hasInbox(
-                    state: treeState, store: store, subject: subject))
+                    state: treeState, store: store, subject: subject),
+                            hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
                 ForEach(store.manifest.structure) { piece in
                     pieceEntry(for: piece)
                 }

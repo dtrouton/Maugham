@@ -15,7 +15,7 @@ import MaughamCore
 /// `BinderTreeSections`' own reason for splitting the two).
 ///
 /// A `.contextMenu`'s `NSMenu` is built on right-click and is not reachable
-/// from a headless test (`PlanTreeStructureCreationTests`'s own note on this
+/// from a headless test (`TreeStructureCreationTests`'s own note on this
 /// SDK), so the boundary — which rows offer the verb — is asked of
 /// `BinderView.linkResearchVerb(for:)` directly rather than by trying to open
 /// a menu that a real click alone would build. What a mounted window CAN

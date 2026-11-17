@@ -173,7 +173,7 @@ final class WiringCensusTests: XCTestCase {
         Entry("type:BinderView", .inOrder,
               [#"await addItem( parent: nil, kind: .document(store.manifest.type.primaryFormat)) } } label: { Label("New Document", systemImage: "doc.badge.plus")"#,
                #"Task { await addItem(parent: nil, kind: .group) } } label: { Label("New Group", systemImage: "folder.badge.plus")"#],
-              why: "the empty state's own New Document / New Group buttons (each action spanned to its label, so the root context menu's identical calls cannot stand in) run the binder's creation verb, which PlanTreeStructureCreationTests pins windowlessly (#120, tripwire 33); a dropped action draws buttons that make nothing"),
+              why: "the empty state's own New Document / New Group buttons (each action spanned to its label, so the root context menu's identical calls cannot stand in) run the binder's creation verb, which TreeStructureCreationTests pins windowlessly (#120, tripwire 33); a dropped action draws buttons that make nothing"),
         Entry("type:BinderView", .anyOrder,
               ["try await Self.addItem(parent: parent, kind: kind, in: store)"],
               why: "every creation button and menu item reaches the static verb the tests pin"),
