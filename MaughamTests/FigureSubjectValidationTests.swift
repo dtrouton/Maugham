@@ -35,7 +35,7 @@ private struct FigureSubjectProbeView: View {
 }
 
 /// **A figure subject repairs to the project row when its figure is gone or
-/// parked** (report plan 8a Task 3): `ProjectWindow.validSubject` over the
+/// parked** (report plan 8a Task 3): `ProjectWindow.validatedSubject` over the
 /// registry, and `SubjectValidationModifier` asking the stream, since parking
 /// lives in the figure's stream and no manifest fingerprint can see it.
 @MainActor
@@ -78,26 +78,26 @@ final class FigureSubjectValidationTests: XCTestCase {
 
     func test_aListedFigureIsAValidSubject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.figure(cash.id), in: [], research: [],
+            ProjectWindow.repairedOpen(.figure(cash.id), in: [], research: [],
                                        figures: [cash], parked: []),
             .figure(cash.id))
     }
 
     func test_aFigureTheRegistryNoLongerListsRepairsToTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.figure(cash.id), in: [], research: [],
+            ProjectWindow.repairedOpen(.figure(cash.id), in: [], research: [],
                                        figures: [], parked: []),
             .project)
     }
 
     func test_aParkedFigureRepairsToTheProject() {
         XCTAssertEqual(
-            ProjectWindow.validSubject(.figure(cash.id), in: [], research: [],
+            ProjectWindow.repairedOpen(.figure(cash.id), in: [], research: [],
                                        figures: [cash], parked: [cash.id]),
             .project)
         // Control: another figure parked leaves this one standing.
         XCTAssertEqual(
-            ProjectWindow.validSubject(.figure(cash.id), in: [], research: [],
+            ProjectWindow.repairedOpen(.figure(cash.id), in: [], research: [],
                                        figures: [cash], parked: ["fig-99999999"]),
             .figure(cash.id))
     }

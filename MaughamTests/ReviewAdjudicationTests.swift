@@ -285,7 +285,7 @@ final class ReviewAdjudicationTests: XCTestCase {
         let state = BinderTreeSectionsState()
         var subject: BinderSubject? = .research(note.id)
         let binding = Binding(get: { subject }, set: { subject = $0 })
-        let verbs = BinderTreeVerbs(store: store, state: state, selectedSubject: binding)
+        let verbs = BinderTreeVerbs(store: store, state: state, subject: .tree(binding))
 
         verbs.bundle.rename(note.id, "Tides")
 

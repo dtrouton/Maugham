@@ -166,7 +166,7 @@ final class InboxStore {
          identities: LocalIdentities = .current,
          cache: RegistryCache? = nil) {
         self.projectURL = projectURL
-        self.inboxDir = projectURL.appendingPathComponent(".maugham/inbox")
+        self.inboxDir = Self.inboxDir(projectURL: projectURL)
         self.deviceId = deviceId
         self.identity = identity
         self.identities = identities
@@ -449,6 +449,10 @@ final class InboxStore {
     }
 
     private func manifestURLs() -> [URL] {
+        Self.manifestURLs(in: inboxDir)
+    }
+
+    private nonisolated static func manifestURLs(in inboxDir: URL) -> [URL] {
         let all = (try? FileManager.default.contentsOfDirectory(
             at: inboxDir, includingPropertiesForKeys: nil)) ?? []
         return all.filter { url in
@@ -456,6 +460,17 @@ final class InboxStore {
             return n == "inbox.jsonl"
                 || (n.hasPrefix("inbox.") && n.hasSuffix(".jsonl"))
         }
+    }
+
+    /// **Whether this project has an inbox** — a capture manifest from any
+    /// device under `.maugham/inbox/` (shell p1 Task 3: the tree's Inbox row
+    /// shows only then). A directory listing, so the tree caches it.
+    nonisolated static func projectHasInbox(projectURL: URL) -> Bool {
+        !manifestURLs(in: inboxDir(projectURL: projectURL)).isEmpty
+    }
+
+    private nonisolated static func inboxDir(projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(".maugham/inbox")
     }
 
     // MARK: - Mutations (append a new row to this Mac's own stream)

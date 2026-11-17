@@ -823,13 +823,12 @@ private struct PassSwapColumnProbe: View {
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             BinderPaneToggle(
                 store: store,
-                selectedSubject: Binding(get: { current },
-                                         set: { probe.subject = $0 }),
+                subject: .tree(Binding(get: { current },
+                                         set: { probe.subject = $0 })),
                 projectType: store.manifest.type,
                 lastParsedScript: nil,
                 treeState: treeState,
-                treeFindActive: $findActive,
-                persona: .review)
+                treeFindActive: $findActive)
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {
@@ -866,13 +865,12 @@ private struct TreeScrollProbeView: View {
         return NavigationSplitView(columnVisibility: $columnVisibility) {
             BinderPaneToggle(
                 store: store,
-                selectedSubject: Binding(get: { current },
-                                         set: { probe.subject = $0 }),
+                subject: .tree(Binding(get: { current },
+                                         set: { probe.subject = $0 })),
                 projectType: store.manifest.type,
                 lastParsedScript: nil,
                 treeState: treeState,
-                treeFindActive: $findActive,
-                persona: .review)
+                treeFindActive: $findActive)
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.binderColumnFloor, ideal: 240)
         } content: {

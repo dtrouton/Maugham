@@ -285,12 +285,11 @@ private struct FindMatchScrollProbeView: View {
     var body: some View {
         BinderPaneToggle(
             store: store,
-            selectedSubject: subject,
+            subject: .tree(subject),
             projectType: store.manifest.type,
             lastParsedScript: nil,
             treeState: box.treeState,
-            treeFindActive: treeFindActive,
-            persona: .author)
+            treeFindActive: treeFindActive)
         .onKeyWindowCommand(.maughamCloseFind, window: box.window) { _ in
             ProjectWindow.applyCloseFind(treeFindActive: &box.treeFindActive,
                                          store: store)

@@ -47,7 +47,7 @@ enum TreeScrollTarget: Hashable {
 /// **Mounting takes two touchpoints, and the second is not optional.** The rows
 /// go inside the host's `List`; the presentations they need — the Add Link
 /// sheet, the error alert, the palette-card load, the deferred rename commit —
-/// go OUTSIDE it via `.binderTreeSections(store:state:selectedSubject:)`, which
+/// go OUTSIDE it via `.binderTreeSections(store:state:subject:)`, which
 /// is where the deleted `CollectionResearchPane` put the same two modifiers, for
 /// the same reason: a sheet attached to a row inside a lazy list is presented from a view
 /// the list may unmount. Forgetting the modifier is a live defect that no row
@@ -55,29 +55,10 @@ enum TreeScrollTarget: Hashable {
 struct BinderTreeSections: View {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
-    @Binding var selectedSubject: BinderSubject?
-    /// Whether pressing the Palette header's "Open Wall" door TRAVELS — true in
-    /// Plan alone, where the centre column is the board and the wall has no
-    /// column to take (shell-finish stage 3b Task 4, Denver's ruling of
-    /// 2026-08-12). It changes nothing here but the tooltip: the door is live in
-    /// every persona, and what a press *does* is the window's decision
-    /// (`ProjectWindow.pressPaletteWallDoor`), not this view's. The caller
-    /// derives it from `ProjectWindow.paletteWallDoorTravels(persona:)` so the
-    /// sentence the writer reads and the action they get cannot disagree.
-    ///
-    /// **It replaced `canOpenPaletteWall`**, which disabled the door in Plan with
-    /// a tooltip explaining why — stage 2b Task 5's placeholder for the decision
-    /// this task made.
-    ///
-    /// Defaulted to the ordinary case so the mounted-tree fixtures across
-    /// `BinderPieceFoldTests`, `BinderTreeSectionsTests`,
-    /// `BinderTreeMultiselectMountTests` and `BinderTreeDropRoutingTests` — none
-    /// of which are about the wall's door — keep compiling unchanged.
-    var paletteWallTravels: Bool = false
-    /// Presses the wall's door — `ProjectWindow.openPaletteWall()`, which either
-    /// opens the wall here or travels to Author with it (stage 3b Task 4).
-    /// Defaulted for the same reason `paletteWallTravels` is.
-    var onOpenPaletteWall: () -> Void = {}
+    /// The window's subject. A row selects through the tree's `List`
+    /// (`BinderTreeSelection`, the click rule); a verb that makes something
+    /// points the window at it through `ClickRule.navigate`.
+    @Binding var subject: WindowSubject
 
     var body: some View {
         // Between the manuscript the host drew and Research (spec §7), and
@@ -85,6 +66,9 @@ struct BinderTreeSections: View {
         figuresSection
         researchSection
         paletteSection
+        // Last, after the Palette (shell p1 Task 3): one row per language,
+        // the source first — `TreeEditionRows`.
+        TreeEditionRows(rows: state.editionRows)
     }
 
     // MARK: - Research
@@ -179,34 +163,43 @@ struct BinderTreeSections: View {
 
     // MARK: - Palette
 
-    /// Palette rows are FLAT and carry no tree of their own: a card is a
-    /// research `.document` under `research/palette/`, and the group holding
-    /// them is the section. They are tagged `.research(card.id)` because
-    /// `PaletteCard.id` **is** the research item's id — a `.paletteCard` subject
-    /// case would be a second name for one id (plan constraint).
+    /// **The Palette, as a row** (shell p1 Task 3): the row is the wall —
+    /// selecting it makes the Palette the subject, and `open == .palette` is
+    /// the wall in the centre (`showsPaletteWallCentre`). It replaced the
+    /// header's "Open Wall" door. The cards fold beneath it.
+    ///
+    /// Palette cards are FLAT and carry no tree of their own: a card is a
+    /// research `.document` under `research/palette/`. They are tagged
+    /// `.research(card.id)` because `PaletteCard.id` **is** the research item's
+    /// id — a `.paletteCard` subject case would be a second name for one id.
     ///
     /// The cards come from `state.cards`, loaded once per manifest change by
-    /// `.binderTreeSections(store:state:selectedSubject:)` — tripwire 4: a row
-    /// that reads its own card off disk turns a binder click into N file reads.
+    /// `.binderTreeSections(store:state:subject:)` — tripwire 4: a row that
+    /// reads its own card off disk turns a binder click into N file reads.
+    ///
+    /// **A `Section` with no header**, so the Palette stands apart from the
+    /// Research section above it; the row is its first row.
     private var paletteSection: some View {
-        // Its twin above carries why this is a plain `Section` reading the flag.
         Section {
+            paletteRow
+                // **The row's own scroll identity** — what ⌘⌥P's
+                // `scrollRequest = .paletteHeader` targets.
+                .id(TreeScrollTarget.paletteHeader)
             if state.paletteSectionExpanded {
                 if state.cards.isEmpty {
                     // The palette's placeholder refuses: a card is MADE (the
-                    // header's `+` menu), never dragged into being, and the
-                    // section's rows are not drop targets either.
+                    // row's `+` menu), never dragged into being.
                     placeholder("No cards yet.", onDrop: { ids in
                         refuseDrop("palette placeholder", payload: ids.first,
                                    reason: .notAResearchTarget)
                     }, onExternalDrop: { _ in
-                        // A card is MADE, from the header's `+` menu — and that
-                        // goes for a Finder file too: a dropped image is
-                        // research, and a card is a written thing with an image
-                        // on it.
+                        // A card is MADE, from the `+` menu — and that goes
+                        // for a Finder file too: a dropped image is research,
+                        // and a card is a written thing with an image on it.
                         refuseDrop("palette placeholder", payload: nil,
                                    reason: .notAResearchTarget)
                     })
+                    .padding(.leading, ProjectRowLabel.childIndent)
                 } else {
                     ForEach(state.cards) { card in
                         Label(card.title,
@@ -216,6 +209,7 @@ struct BinderTreeSections: View {
                             // mark rather than a gesture — see TreeTravel.swift
                             // and BinderRow's twin.
                             .treeTravelOnDoubleClick(.research(card.id))
+                            .padding(.leading, ProjectRowLabel.childIndent)
                             .tag(BinderSubject.research(card.id))
                             // **The same value as the tag** (Task 8) — a card
                             // is drawn once, flat, so its scroll identity is
@@ -240,11 +234,6 @@ struct BinderTreeSections: View {
                     }
                 }
             }
-        } header: {
-            paletteSectionHeader
-                // **The header's own scroll identity** (Task 8), the
-                // Research header's twin — see its comment.
-                .id(TreeScrollTarget.paletteHeader)
         }
     }
 
@@ -285,35 +274,22 @@ struct BinderTreeSections: View {
         }
     }
 
-    /// The Palette section's own header: its live title, its `+` creation
-    /// menu, and — since stage 2b Task 5 — the wall's own door. `.palette`
-    /// dies with the strip in Task 7; this button is what survives it, so a
-    /// writer can still reach the wall of images once the segment picker that
-    /// used to carry it is gone.
+    /// **The Palette row**: its chevron (the cards' fold), its live title,
+    /// its `+` creation menu. A row and a `.tag`, like the project row —
+    /// selecting it is the click rule's `.palette`, and the wall opens in the
+    /// centre (tripwire 9: no gesture, the `List` selects it).
     ///
-    /// **A button of its own rather than folded into the `+` menu**, per the
-    /// task's contract: opening the wall is not a creation verb, and burying
-    /// it inside "New Swatch / New Photo / New Note" would read as one more
-    /// kind of card rather than a door to all of them. Mirrored onto the
-    /// header's own context menu for the writer who right-clicks instead of
-    /// hunting for the icon — `sectionHeader`'s shape, one arm wider.
-    ///
-    /// **Live in every persona, and in Plan it travels** (stage 3b Task 4,
-    /// Denver's 2026-08-12 ruling). It was DISABLED in Plan with a tooltip
-    /// explaining why — stage 2b Task 5's honest placeholder while the answer
-    /// was undecided. The refusal it stood on has not moved: `showsPaletteWall
-    /// Centre` still will not draw the wall over Plan's board. What moved is
-    /// what the writer gets instead of a dead door — the wall opens in Author,
-    /// and the press takes them there.
-    private var paletteSectionHeader: some View {
+    /// "Open Wall" stays on its context menu, for the writer who right-clicks:
+    /// it makes the same click a selection makes.
+    private var paletteRow: some View {
         HStack {
             // Its twin in `sectionHeader` carries why the chevron leads (D1).
             HStack(spacing: 2) {
                 sectionChevron(store.paletteGroupDisplayTitle, section: .palette)
                 Text(store.paletteGroupDisplayTitle)
+                    .treeTravelOnDoubleClick(.palette)
             }
             Spacer()
-            openWallButton
             SwiftUI.Menu(content: paletteCreationMenu) {
                 Image(systemName: "plus.circle")
             }
@@ -322,9 +298,14 @@ struct BinderTreeSections: View {
             .fixedSize()
         }
         .contentShape(Rectangle())
+        .tag(BinderSubject.palette)
         .contextMenu {
-            Button(paletteWallTravels ? "Open Wall in Author" : "Open Wall",
-                   action: onOpenPaletteWall)
+            Button("Open Wall") {
+                subject = ClickRule.resolve(
+                    .palette, gesture: .click, current: subject,
+                    structure: store.manifest.structure,
+                    projectType: store.manifest.type)
+            }
             Divider()
             paletteCreationMenu()
         }
@@ -337,56 +318,6 @@ struct BinderTreeSections: View {
         }
     }
 
-    /// **The target is the frame, not the glyph** (Denver's smoke, 2026-08-10).
-    ///
-    /// A bare `Image` inside a `Button(.plain)` hit-tests the box it draws in and
-    /// nothing more. Measured on this SDK with real mouse events through a
-    /// mounted tree: the live region was **13×10pt in the middle of a 19pt header
-    /// row**, so a click on the icon's own top or bottom edge did nothing at all
-    /// — not the door, and not the section's own disclosure either; the header's
-    /// `.contentShape(Rectangle())` swallowed it. The writer's reading was that
-    /// only the icon's top half worked.
-    ///
-    /// **Not a regression from stage-3a's `isExpanded:` conversion**, which is
-    /// where it was first looked for: a plain `Section` header carrying the
-    /// identical button measures the identical 10pt band
-    /// (`PaletteWallDoorHitAreaTests`' control). The door had always been this
-    /// small; the conversion only changed what was around it. (Both `Section`s
-    /// have since gone back to plain for an unrelated reason — see
-    /// `sectionChevron` — so that control now compares production's own shape
-    /// against the one it replaced, and its finding is unchanged either way.)
-    ///
-    /// **21×15 is the `+` menu's own size**, read off the mounted window rather
-    /// than chosen: `SwiftUI.Menu` mounts a real `SwiftUIPopupButton` `NSView`
-    /// that is live across its whole frame, which is why the `+` beside this
-    /// button never had the defect. Matching it makes the row's two accessories
-    /// one size, and leaves the header's height exactly where it was.
-    ///
-    /// It is a match rather than a ceiling, and the difference was measured: the
-    /// 19pt header row absorbs a 19pt child without moving, and only grows at
-    /// around 30. So there is real headroom here if the door ever wants more —
-    /// what there is no headroom for is the two accessories disagreeing, since
-    /// they sit a few points apart on one row in every tree in the app.
-    ///
-    /// `.contentShape` is the half that does the work: without it the frame is
-    /// layout only and the glyph is still all that answers a click.
-    private var openWallButton: some View {
-        Button(action: onOpenPaletteWall) {
-            Image(systemName: "rectangle.grid.2x2")
-                .frame(width: 21, height: 15)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // **No `.disabled` any more** (stage 3b Task 4): the door is live in
-        // every persona, and the tooltip says where it opens rather than why it
-        // won't. Plan's centre is still the board — the wall opens in Author and
-        // the press takes the writer there.
-        .help(paletteWallTravels
-              ? "Open the Palette wall — it opens in Author, since Plan's "
-                + "centre column is the canvas."
-              : "Open the Palette wall")
-        .accessibilityLabel("Open Wall")
-    }
 
     // MARK: - Shared row shapes
 
@@ -465,7 +396,7 @@ struct BinderTreeSections: View {
     ///
     /// The frame and content shape are the door's own lesson one control over —
     /// a bare `Image` in a `Button(.plain)` hit-tests the box it draws in and
-    /// nothing more. See `openWallButton`.
+    /// nothing more (the old wall door's measured lesson).
     ///
     /// **The button's action is `BinderTreeSectionsState.toggleExpansion(of:)`
     /// and nothing else** (v0.41 release fix): which flag a header's triangle
@@ -545,7 +476,7 @@ struct BinderTreeSections: View {
     /// and reaching into a `View` for them would make every fold look like a
     /// fourth section host to `TripwireGrepTests`' pairing census.
     var verbs: BinderTreeVerbs {
-        BinderTreeVerbs(store: store, state: state, selectedSubject: $selectedSubject)
+        BinderTreeVerbs(store: store, state: state, subject: $subject)
     }
 
     /// The one `ResearchTreeActions` bundle in the app's binder trees.
@@ -638,12 +569,12 @@ struct BinderTreeSections: View {
     static func addLink(
         title: String, url: String, parentId: String?,
         store: ProjectStore, state: BinderTreeSectionsState,
-        selectedSubject: Binding<BinderSubject?>
+        subject: Binding<WindowSubject>
     ) async {
         do {
             let link = try await store.addResearchLink(
                 parentId: parentId, title: title, url: url)
-            selectedSubject.wrappedValue = .research(link.id)
+            subject.navigate(to: .research(link.id), in: store)
         } catch {
             state.pendingError = error.localizedDescription
         }
@@ -698,7 +629,7 @@ struct AddFilePanelConfiguration: Equatable {
 struct BinderTreeVerbs {
     let store: ProjectStore
     let state: BinderTreeSectionsState
-    @Binding var selectedSubject: BinderSubject?
+    @Binding var subject: WindowSubject
 
     var bundle: ResearchTreeActions {
         ResearchTreeActions(
@@ -794,8 +725,8 @@ struct BinderTreeVerbs {
     func actingIds(forRow rowId: String) -> [String] {
         BinderTreeSelection.actingResearchIds(
             forRow: rowId,
-            selection: BinderTreeSelection.shown(state.selection,
-                                                 subject: selectedSubject),
+            selection: BinderTreeSelection.batch(state.selection, subject: subject,
+                                                 clickedAt: state.subjectAtLastClick),
             research: store.manifest.research)
     }
 
@@ -864,7 +795,7 @@ struct BinderTreeVerbs {
         Task { @MainActor in
             do {
                 let item = try await work()
-                selectedSubject = .research(item.id)
+                $subject.navigate(to: .research(item.id), in: store)
                 state.pendingRenameId = item.id
             } catch {
                 state.pendingError = error.localizedDescription
@@ -938,6 +869,15 @@ final class BinderTreeSectionsState {
     var linkPickerDocumentId: String?
     /// Palette cards, parsed from disk once per manifest change (tripwire 4).
     var cards: [PaletteCard] = []
+    /// **The Editions rows** (shell p1 Task 3), read off disk once per
+    /// manifest change or translation write (tripwire 4) — `TreeEditionRows`.
+    var editionRows: [TreeEditionRows.Row] = []
+    /// Bumped by each translation write this project hears; half of the
+    /// Editions rows' load key.
+    var translationRevision = 0
+    /// Whether the project has a capture manifest — the Inbox row's cached
+    /// half (`TreeTopRows.hasInbox`), read with the Editions rows.
+    var projectHasInbox = false
     /// **The tree's `List` selection** (stage-2b Task 3) — every row of it, not
     /// just the sections': the whole tree is one `List`, and one selection is
     /// what a `List` has.
@@ -953,6 +893,16 @@ final class BinderTreeSectionsState {
     /// The window's subject is DERIVED from this and never stored twice — see
     /// `BinderTreeSelection`.
     var selection: Set<BinderSubject> = []
+    /// The window subject the tree's last click produced: while the subject
+    /// is still this, `selection` is what the `List` draws
+    /// (`BinderTreeSelection.shown`).
+    var subjectAtLastClick: WindowSubject?
+
+    /// What a write through the tree's `List` leaves behind.
+    func record(selection: Set<BinderSubject>, subject: WindowSubject) {
+        self.selection = selection
+        subjectAtLastClick = subject
+    }
 
     /// **Whether the Research section is open** (stage-3a Task 4), and its
     /// Palette twin below it.
@@ -1300,9 +1250,9 @@ extension View {
     /// like every other creation verb here (fix round 1).
     func binderTreeSections(store: ProjectStore,
                             state: BinderTreeSectionsState,
-                            selectedSubject: Binding<BinderSubject?>) -> some View {
+                            subject: Binding<WindowSubject>) -> some View {
         modifier(BinderTreeSectionsPresentations(
-            store: store, state: state, selectedSubject: selectedSubject))
+            store: store, state: state, subject: subject))
     }
 
     /// **Wires a tree host's `ScrollViewReader` proxy to `state`'s one-shot
@@ -1334,7 +1284,7 @@ extension View {
 private struct BinderTreeSectionsPresentations: ViewModifier {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
-    @Binding var selectedSubject: BinderSubject?
+    @Binding var subject: WindowSubject
 
     func body(content: Content) -> some View {
         content
@@ -1359,7 +1309,7 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                             await BinderTreeSections.addLink(
                                 title: title, url: url, parentId: parentId,
                                 store: store, state: state,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
                         }
                     },
                     onCancel: { state.showingAddLinkSheet = false })
@@ -1385,7 +1335,7 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                         store: store, documentId: documentId,
                         perform: BinderTreeVerbs(
                             store: store, state: state,
-                            selectedSubject: $selectedSubject).perform)
+                            subject: $subject).perform)
                 }
             }
             // **⌘V lands in shared research** (stage-2b Task 4) — the table is
@@ -1396,7 +1346,7 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
             // wiring is the shape that drifts, and this modifier is what all
             // three trees already attach.
             .onPasteCommand(of: ResearchPasteImporter.acceptedTypeIdentifiers) { items in
-                guard TreePasteRouting.acceptsPaste(subject: selectedSubject) else {
+                guard TreePasteRouting.acceptsPaste(subject: subject.lastClicked) else {
                     return
                 }
                 Task { @MainActor in
@@ -1408,6 +1358,16 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
             // One load per manifest change, never per row (tripwire 4).
             .task(id: store.manifest.modified) {
                 state.cards = store.loadPaletteCards()
+            }
+            // The Editions rows: one disk read per manifest change or
+            // translation write, never per row (tripwire 4).
+            .task(id: EditionRowsKey(manifest: store.manifest.modified,
+                                     translations: state.translationRevision)) {
+                state.editionRows = TreeEditionRows.rows(store: store)
+                state.projectHasInbox = InboxStore.projectHasInbox(projectURL: store.url)
+            }
+            .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: nil) { _ in
+                state.translationRevision += 1
             }
             // The deferred rename, committed when the row it names exists. Both
             // triggers are needed and either alone is incomplete: the manifest
@@ -1426,110 +1386,128 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
 
 // MARK: - Selection
 
-/// What a binder tree's `List` selection means for the window's subject.
+/// What a binder tree's `List` selection means for the window's subject
+/// (shell p1 Task 3).
 ///
-/// **One rule, three trees.** Every tree now holds untagged rows — the empty
-/// sections' placeholders — and an untagged row does not decline to be
-/// selected: it is selected and the `List` writes `nil` through the binding
-/// (measured on `BinderView`'s old empty-state message row, macOS 26.5). A
-/// `nil` subject blanks the centre column, so without this a writer clicking
-/// "No research yet." would lose the editor.
+/// **A plain click is `ClickRule.resolve(_, .click, …)` and nothing else.** So
+/// a click on a piece while the canvas is open moves the faces, and a click on
+/// a note opens it beside.
 ///
-/// `SceneNavigatorPane` already reached this conclusion for its untagged
-/// slugline rows and has a projection of its own; it calls this for the case
-/// the two share rather than spelling it a second time.
+/// **The `List`'s own selection is the row the writer last clicked** — and it
+/// has to be, measured on macOS 26 (shell p1 Task 3): after a click the table
+/// keeps the clicked row selected unless the binding's value CHANGES, so a
+/// getter answering "what is open" left the clicked row filled and the open
+/// row bare whenever the click rule kept the centre (a note beside, a piece
+/// over the canvas). So the tree holds the clicked rows (`state.selection`)
+/// for exactly as long as the subject is the one that click produced
+/// (`state.subjectAtLastClick`); any other change of subject — a navigation,
+/// a double-click, a restore, a dismissal — shows the row last clicked in the
+/// window's terms (`WindowSubject.lastClicked`). The open row, when it is not
+/// that row, is drawn with the open mark; the faces and what is beside, when
+/// neither, with the outline (`TreeRowStateMark`).
+///
+/// **Untagged rows write nothing.** The empty sections' placeholders carry no
+/// tag; an untagged row is selected anyway and the `List` writes an empty set
+/// (measured on `BinderView`'s old empty-state message row, macOS 26.5). That
+/// write moves nothing, so a writer clicking "No research yet." keeps the
+/// editor.
+///
+/// **A research multi-selection is the one set** (stage-2b Task 3): the tree
+/// carries the batch verbs the old research panes held, anchored on what is
+/// beside. Structure has no plural verbs, so a modifier click on anything
+/// else is a click on that row.
+///
+/// **There is no sweep here, deliberately.** A deleted note leaves its id in
+/// the stored set; the two places the set is read for meaning — `ordered` and
+/// `actingResearchIds` — walk the live manifest, so a ghost cannot come out
+/// of either. `SubjectValidationModifier` is the one rule about dead ids.
 enum BinderTreeSelection {
 
-    /// The subject after the `List` writes `written`. Anything the tree tags is
-    /// a subject; a `nil` leaves the subject exactly where it was.
-    static func subject(_ current: BinderSubject?,
-                        whenListWrites written: BinderSubject?) -> BinderSubject? {
-        switch written {
-        case .project, .item, .research, .figure, .inbox, .canvas, .palette, .edition: return written
-        case .none: return current
-        }
+    /// Whether `stored` is a live research multi-selection: more than one row,
+    /// anchored on what is opened beside.
+    static func isBatch(_ stored: Set<BinderSubject>, subject: WindowSubject) -> Bool {
+        guard stored.count > 1, let beside = subject.beside else { return false }
+        return stored.contains(beside)
     }
 
-    // MARK: - More than one row (stage-2b Task 3)
+    /// The live multi-selection the `List` is drawing, or empty — what a
+    /// research row's plural verbs may act on.
+    static func batch(_ stored: Set<BinderSubject>, subject: WindowSubject,
+                      clickedAt: WindowSubject?) -> Set<BinderSubject> {
+        let drawn = shown(stored, subject: subject, clickedAt: clickedAt)
+        return isBatch(drawn, subject: subject) ? drawn : []
+    }
 
-    /// **The tree selects a SET, and the window's subject is derived from it.**
-    ///
-    /// Stage 2b Task 7 deleted `ResearchView` and `CollectionResearchPane`,
-    /// which were the only surfaces in the app that could act on more than one
-    /// note at a time — a "Delete 3 Items", a multi "Move to ▸", a batch drag. Those
-    /// capabilities do not survive their panes unless the tree learns them, and
-    /// the tree cannot learn them while its `List` selects one value.
-    ///
-    /// **The subject is derived, never a second state.** There is no flag and no
-    /// `.onChange` reconciling the two (tripwire 2 — a flag-based loop guard
-    /// between two mirrors of the same thing leaked in exactly this shape in
-    /// Phase 3d): `shown` projects the stored set through the subject on the way
-    /// out, `resolved` derives the subject from the set on the way in, and both
-    /// are pure.
-    ///
-    /// **A write of one row never reaches the anchor rule.** `resolved` sends it
-    /// straight to `subject(_:whenListWrites:)` — the function stage 2a shipped,
-    /// unchanged — so single-click behaviour is what it was, structurally rather
-    /// than by argument, and 2a's mounted selection tests are this task's
-    /// regression net without a line changed in them.
-    ///
-    /// **There is no sweep here, deliberately.** A deleted note leaves its id in
-    /// the stored set, and nothing needs to chase it: the two places the set is
-    /// *read for meaning* — `ordered` and `actingResearchIds` — are built by
-    /// walking the live manifest, so a ghost cannot come out of either. A stale
-    /// id highlights no row (the `List` draws none for it) and reaches no plural
-    /// store verb. A second sweep beside `SubjectValidationModifier`'s would be
-    /// a second rule about what a dead id means, and the two would be free to
-    /// disagree.
-    static func shown(_ stored: Set<BinderSubject>,
-                      subject: BinderSubject?) -> Set<BinderSubject> {
-        guard let subject else { return [] }
-        // A subject the set does not hold arrived from somewhere other than a
-        // click — a creation, a restore, a navigation from another column — and
-        // it collapses the tree onto itself.
-        return stored.contains(subject) ? stored : [subject]
+    /// **The rows the `List` draws selected**: the rows last clicked, while
+    /// the subject is still the one that click made; otherwise the window's
+    /// own last-clicked row.
+    static func shown(_ stored: Set<BinderSubject>, subject: WindowSubject,
+                      clickedAt: WindowSubject?) -> Set<BinderSubject> {
+        if clickedAt == subject, !stored.isEmpty { return stored }
+        return [subject.lastClicked]
+    }
+
+    /// **The open row's mark**: what is open, when the `List` is not already
+    /// drawing it selected.
+    static func openMark(shown: Set<BinderSubject>, subject: WindowSubject) -> BinderSubject? {
+        shown.contains(subject.open) ? nil : subject.open
+    }
+
+    /// **The rows drawn outlined**: the faces and what is beside, when the
+    /// `List` draws neither selected and neither is what is open.
+    static func outlined(shown: Set<BinderSubject>,
+                         subject: WindowSubject) -> Set<BinderSubject> {
+        Set([subject.faces] + (subject.beside.map { [$0] } ?? []))
+            .subtracting(shown).subtracting([subject.open])
     }
 
     /// The selection and the subject after the `List` writes `written`.
     ///
-    /// - Parameter single: the surface's own one-row rule. It defaults to this
-    ///   type's, and `SceneNavigatorPane` passes its own — that pane refuses an
-    ///   item it draws no row for, which is the one thing about its list the
-    ///   other two trees do not have. Handing the rule in keeps the count-of-one
-    ///   case each surface's own and the anchor case shared, rather than forking
-    ///   the whole projection.
+    /// - Parameter shown: what the `List` was drawing selected (`shown`).
+    /// - Parameter accepts: whether this surface draws a row for a subject.
+    ///   `SceneNavigatorPane` refuses an item that is not its script; the
+    ///   other trees draw everything they tag.
     static func resolved(
         written: Set<BinderSubject>,
         stored: Set<BinderSubject>,
-        subject: BinderSubject?,
+        shown shownNow: Set<BinderSubject>,
+        subject: WindowSubject,
         structure: [StructureItem],
         research: [ResearchItem],
         figures: [String],
-        single: (BinderSubject?, BinderSubject?) -> BinderSubject? = {
-            BinderTreeSelection.subject($0, whenListWrites: $1)
+        projectType: ProjectType,
+        accepts: (BinderSubject) -> Bool = { _ in true }
+    ) -> (selection: Set<BinderSubject>, subject: WindowSubject) {
+        let written = written.filter(accepts)
+        func click(_ row: BinderSubject) -> WindowSubject {
+            ClickRule.resolve(row, gesture: .click, current: subject,
+                              structure: structure, projectType: projectType)
         }
-    ) -> (selection: Set<BinderSubject>, subject: BinderSubject?) {
         guard written.count > 1 else {
-            let next = single(subject, written.first)
-            // ACCEPTED — the surface's rule gave back the row that was written,
-            // so the tree holds that row and nothing else: a plain click
-            // replaces a selection, it does not add to one.
-            if let next, next == written.first { return ([next], next) }
-            // REFUSED — an untagged placeholder's empty write, or a document
-            // this surface draws no row for. Nothing moves, and that includes
-            // the selection: emptying it would take the writer's whole
-            // multi-selection away on a click at "No research yet."
-            return (stored, next)
+            // An untagged row (or a row this surface does not draw): nothing
+            // moves, the selection included.
+            guard let row = written.first else { return (stored, subject) }
+            return ([row], click(row))
         }
-        // The anchor survives a set it is still in, so ⌘-clicking a second note
-        // does not move the editor off the first.
-        if let anchor = subject, written.contains(anchor) { return (written, anchor) }
-        // Otherwise the first of what is left, in the order the TREE draws —
-        // never `Set.first`, which is whatever hashing yields today.
-        return (written,
-                ordered(written, structure: structure, research: research,
-                        figures: figures).first
-                    ?? subject)
+        // A modifier click (or the `List` handing back what it was drawing,
+        // which changes nothing).
+        guard written != shownNow else { return (stored, subject) }
+        if written.allSatisfy({ $0.researchID != nil }) {
+            // The anchor survives a set it is still in.
+            if let beside = subject.beside, written.contains(beside) {
+                return (written, subject)
+            }
+            // Otherwise the first of the set, in the order the tree draws it —
+            // never `Set.first` — goes beside.
+            guard let first = ordered(written, structure: structure,
+                                      research: research, figures: figures).first
+            else { return (stored, subject) }
+            return (written, click(first))
+        }
+        // Not research: the one row the modifier click added is clicked alone.
+        let added = written.subtracting(shownNow)
+        if added.count == 1, let row = added.first { return ([row], click(row)) }
+        return (stored, subject)
     }
 
     /// A selection in the order the tree draws it: the project row, then the
@@ -1589,20 +1567,37 @@ enum BinderTreeSelection {
     /// all their own. `SceneNavigatorPane` builds its own out of the same parts
     /// — see its `listSelection`.
     @MainActor
-    static func binding(subject: Binding<BinderSubject?>,
+    static func binding(subject: Binding<WindowSubject>,
                         state: BinderTreeSectionsState,
                         store: ProjectStore) -> Binding<Set<BinderSubject>> {
         Binding(
-            get: { shown(state.selection, subject: subject.wrappedValue) },
+            get: { shown(state.selection, subject: subject.wrappedValue,
+                         clickedAt: state.subjectAtLastClick) },
             set: { written in
                 let next = resolved(
                     written: written, stored: state.selection,
+                    shown: shown(state.selection, subject: subject.wrappedValue,
+                                 clickedAt: state.subjectAtLastClick),
                     subject: subject.wrappedValue,
                     structure: store.manifest.structure,
                     research: store.manifest.research,
-                    figures: drawnFigureOrder(state))
-                state.selection = next.selection
+                    figures: drawnFigureOrder(state),
+                    projectType: store.manifest.type)
+                state.record(selection: next.selection, subject: next.subject)
                 subject.wrappedValue = next.subject
             })
+    }
+}
+
+extension Binding where Value == WindowSubject {
+    /// **A verb pointing the window at what it touched** — a creation selecting
+    /// what it made, a link, a navigation: `ClickRule.navigate`, over this
+    /// store's structure.
+    @MainActor
+    func navigate(to target: BinderSubject, in store: ProjectStore) {
+        let next = ClickRule.navigate(to: target, current: wrappedValue,
+                                      structure: store.manifest.structure,
+                                      projectType: store.manifest.type)
+        if next != wrappedValue { wrappedValue = next }
     }
 }

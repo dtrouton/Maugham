@@ -80,7 +80,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
                                   "the project row is selected, so the Intent pane "
                                   + "must be showing the book's intent")
 
-        await made.selectBinderRow(1, in: window, until: {
+        await made.selectBinderRow(1 + TreeFurniture.topRows, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
@@ -113,7 +113,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         let made = seeded.fixture
         let window = await made.hostTheBinderBesideThePane(subject: nil)
 
-        await made.selectBinderRow(1, in: window, until: {
+        await made.selectBinderRow(1 + TreeFurniture.topRows, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(seeded.chapterItemId)
         })
         XCTAssertEqual(made.subjectProbe.subject, .item(seeded.chapterItemId),
@@ -156,7 +156,7 @@ final class StatementPaneSelectionDeliveryTests: XCTestCase {
         // stage-2a Task 4 is no longer the last row of the list: the Research
         // and Palette sections sit below it. Counted from the structure rather
         // than from the table's end so a future section cannot move it again.
-        let groupRow = 1 + made.store.manifest.structure.count - 1
+        let groupRow = 1 + TreeFurniture.topRows + made.store.manifest.structure.count - 1
         await made.selectBinderRow(groupRow, in: window, until: {
             made.subjectProbe.subject == BinderSubject.item(group.id)
         })

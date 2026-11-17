@@ -75,7 +75,7 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
                        + "the editor")
 
         let actions = BinderTreeVerbs(store: store, state: state,
-                                      selectedSubject: probeBinding(probe)).bundle
+                                      subject: .tree(probeBinding(probe))).bundle
         XCTAssertEqual(actions.selectionForRow(tides.id), [ships.id, tides.id],
                        "the acting set is both notes in tree order — this is the "
                        + "value `ResearchTreeNode` titles \"Delete 2 Items\" from "
@@ -108,7 +108,7 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
                      until: { self.state.selection.count == 2 })
 
         let actions = BinderTreeVerbs(store: store, state: state,
-                                      selectedSubject: probeBinding(probe)).bundle
+                                      subject: .tree(probeBinding(probe))).bundle
         XCTAssertEqual(actions.selectionForRow(moon.id), [moon.id],
                        "a right-click on an unselected row is about that row")
     }
@@ -188,7 +188,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let tides = try XCTUnwrap(research(named: "Tides", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id), .research(tides.id)]
+        state.record(selection: [.research(ships.id), .research(tides.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         let accepted = verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id,
@@ -215,7 +217,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id)]
+        state.record(selection: [.research(ships.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -235,8 +239,10 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let store = try await collection(pieces: ["One"], notes: ["Ships", "Tides"])
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let piece = try XCTUnwrap(store.manifest.structure.first)
-        state.selection = [.research(ships.id), .research(
-            try XCTUnwrap(research(named: "Tides", in: store)).id), .item(piece.id)]
+        state.record(selection: [.research(ships.id), .research(
+            try XCTUnwrap(research(named: "Tides", in: store)).id), .item(piece.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -261,7 +267,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let inside = try await store.createResearchNote(
             scope: .document(piece.id), title: "Tides")
-        state.selection = [.research(ships.id), .research(inside.id)]
+        state.record(selection: [.research(ships.id), .research(inside.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(ships.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(ships.id)).routePieceRowDrop(
             draggedId: ships.id, documentId: piece.id, structureReorder: {}))
@@ -286,7 +294,9 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
         let a = try await store.createResearchNote(scope: .document(piece.id), title: "A")
         let b = try await store.createResearchNote(scope: .document(piece.id), title: "B")
         let c = try await store.createResearchNote(scope: .document(piece.id), title: "C")
-        state.selection = [.research(a.id), .research(b.id)]
+        state.record(selection: [.research(a.id), .research(b.id)],
+                     subject: WindowSubject(open: .project, faces: .project,
+                                            beside: .research(a.id)))
 
         XCTAssertTrue(verbs(store, subject: .research(a.id)).routeResearchRowDrop(
             draggedId: a.id, position: .bottom,
@@ -350,7 +360,7 @@ final class BinderTreeMultiselectMountTests: XCTestCase {
     private func verbs(_ store: ProjectStore, subject: BinderSubject?) -> BinderTreeVerbs {
         let box = BinderSubjectProbe(subject)
         return BinderTreeVerbs(store: store, state: state,
-                               selectedSubject: probeBinding(box))
+                               subject: .tree(probeBinding(box)))
     }
 
     private func probeBinding(_ probe: BinderSubjectProbe) -> Binding<BinderSubject?> {
@@ -482,13 +492,14 @@ private struct SectionsOnlyProbeView: View {
     let state: BinderTreeSectionsState
 
     var body: some View {
-        let subject = Binding(get: { probe.subject }, set: { probe.subject = $0 })
+        let subject = Binding<WindowSubject>.tree(
+            Binding(get: { probe.subject }, set: { probe.subject = $0 }))
         List(selection: BinderTreeSelection.binding(
                 subject: subject, state: state, store: store)) {
-            BinderTreeSections(store: store, state: state, selectedSubject: subject)
+            BinderTreeSections(store: store, state: state, subject: subject)
         }
         .listStyle(.sidebar)
-        .binderTreeSections(store: store, state: state, selectedSubject: subject)
+        .binderTreeSections(store: store, state: state, subject: subject)
     }
 }
 
@@ -501,8 +512,8 @@ private struct MultiselectBinderProbeView: View {
 
     var body: some View {
         BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -517,8 +528,8 @@ private struct MultiselectCollectionProbeView: View {
     var body: some View {
         CollectionPiecesPane(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
     }
@@ -536,8 +547,8 @@ private struct MultiselectNavigatorProbeView: View {
             store: store,
             script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nLarry sits.\n"),
             projectTitle: store.manifest.title,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             documentID: documentID,
             treeState: treeState,
             onSelect: { _ in })

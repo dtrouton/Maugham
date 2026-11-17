@@ -679,7 +679,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         // a census that fires on its own documentation.
         let code = SourceScan.codeLines(of: call).joined(separator: "\n")
 
-        for expected in ["onNavigate:", "selectedSubject = .item(",
+        for expected in ["onNavigate:", "navigate(to: .item(",
                          "recordActivePass(", "onSetState:",
                          "store.setPassState("] {
             XCTAssertTrue(code.contains(expected),
@@ -731,10 +731,11 @@ final class ReviewBoardRoutingTests: XCTestCase {
         // The control for the two refusals below: the mount's OTHER closure
         // does write the subject, one argument away, so a scan that ran past
         // its own braces would find it and this test could not fail.
-        XCTAssertTrue(code.contains("selectedSubject = .item("),
+        XCTAssertTrue(code.contains("navigate(to: .item("),
                       "premise: the chip's closure, in the same call, travels")
         XCTAssertFalse(
-            closure.contains("selectedSubject"),
+            closure.contains("selectedSubject") || closure.contains("navigate(")
+                || closure.contains("subject ="),
             "the count click writes the window's SUBJECT, so pressing a number "
             + "on the board throws the board away — that is the chip's verb, "
             + "not this one")
@@ -1097,9 +1098,9 @@ final class ReviewCentreProbeBox {
     }
 
     /// What a card, a row or a chip writes, through the window's own
-    /// `ProjectWindow.treeWrite`.
+    /// `ClickRule.navigate`.
     func pick(_ clicked: BinderSubject, in store: ProjectStore) {
-        subject = ProjectWindow.treeWrite(clicked, current: subject,
+        subject = ClickRule.navigate(to: clicked, current: subject,
                                           structure: store.manifest.structure,
                                           projectType: store.manifest.type)
     }

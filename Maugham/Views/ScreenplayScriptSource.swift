@@ -54,10 +54,12 @@ enum ScreenplayScriptSource {
     ///   one would be an op-log decode nobody reads. **This is where
     ///   `BinderSegment.showsSceneNavigator(for:)` went** (stage 2b Task 6): it
     ///   asked the segment a question only the project type could answer.
-    /// - the subject's `open` is the canvas — which is what says *there is no
-    ///   editor here to produce it*. A piece in the centre mounts `EditorHost`
-    ///   beside the same navigator, so the coordinator posts within a frame and
-    ///   a derivation there would be duplicate work racing a fresher value.
+    /// - the subject's `open` is the canvas or the Inbox — which is what says
+    ///   *there is no editor here to produce it* (the Inbox route tears
+    ///   `EditorHost` down; shell p1 Task 3). A piece in the centre mounts
+    ///   `EditorHost` beside the same navigator, so the coordinator posts within
+    ///   a frame and a derivation there would be duplicate work racing a
+    ///   fresher value.
     ///
     /// **A fourth condition died with the strip in Task 7**, and it is worth
     /// recording why it was ever there. Plan's left column was four panes, and
@@ -74,7 +76,7 @@ enum ScreenplayScriptSource {
                                 existing: FountainScript?) -> Bool {
         existing == nil
             && TreePane(for: projectType) == .sceneNavigator
-            && subject.open == .canvas
+            && (subject.open == .canvas || subject.open == .inbox)
     }
 
     /// The project's one script, parsed — or `nil` when the project has no

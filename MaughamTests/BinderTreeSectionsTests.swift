@@ -53,7 +53,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let chapters = store.manifest.structure.count
         XCTAssertEqual(
             table.numberOfRows,
-            1 + chapters + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + chapters + (1 + 2) + (TreeFurniture.paletteHead + 1)
+                + TreeFurniture.editions,
             "the project row, the chapters, then a Research section (header + "
             + "two notes) and a Palette section (header + one card)")
     }
@@ -66,7 +67,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + (1 + 2)
+                + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
             "the project row, the pieces, then both sections")
     }
 
@@ -77,7 +79,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + 1 + 2 + (1 + 2) + (1 + 1),
+            1 + TreeFurniture.topRows + 1 + 2 + (1 + 2) + (TreeFurniture.paletteHead + 1)
+                + TreeFurniture.editions,
             "the project row, the script row, the two sluglines, then both sections")
     }
 
@@ -105,11 +108,12 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
 
         let chapters = store.manifest.structure.count
-        XCTAssertEqual(table.numberOfRows, 1 + chapters + (1 + 2) + (1 + 2) + (1 + 1),
+        XCTAssertEqual(table.numberOfRows, 1 + TreeFurniture.topRows + chapters + (1 + 2) + (1 + 2)
+                       + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
                        "the project row, the chapters, the Figures section (header + two "
                        + "figures), then Research and Palette")
 
-        await select(row: 1 + chapters + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + chapters + 1, in: table,
                      until: { probe.subject == .figure("fig-0a1b2c3d") })
         XCTAssertEqual(probe.subject, .figure("fig-0a1b2c3d"),
                        "the first figure row is the Figures section's first row")
@@ -139,7 +143,8 @@ final class BinderTreeSectionsTests: XCTestCase {
                               referencedFrom: [], pieceOfLine: chapter.id)])
         let (window, probe) = try await hostBinder(store: store, treeState: state, key: true)
         let table = try XCTUnwrap(firstTableView(in: window))
-        let rowIndex = 1 + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
+        let rowIndex = TreeFurniture.firstManuscriptRow
+            + (store.manifest.structure.firstIndex { $0.id == chapter.id } ?? 0)
         let rowRect = table.convert(table.rect(ofRow: rowIndex), to: nil)
         // The count is the row's one control: SwiftUI mounts a focus-ring view
         // for a `Button(.plain)` (as for the section chevrons), which is where
@@ -236,7 +241,8 @@ final class BinderTreeSectionsTests: XCTestCase {
                                                      treeState: plantedFigures())
         let table = try XCTUnwrap(firstTableView(in: window))
 
-        XCTAssertEqual(table.numberOfRows, 1 + 1 + 2 + (1 + 2) + (1 + 1),
+        XCTAssertEqual(table.numberOfRows, 1 + TreeFurniture.topRows + 1 + 2 + (1 + 2)
+                       + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
                        "the screenplay tree is what it was: no Figures section")
     }
 
@@ -254,7 +260,8 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 1) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + (1 + 1)
+                + (TreeFurniture.paletteHead + 1) + TreeFurniture.editions,
             "Research must hold the ONE note and not the palette group beside it")
     }
 
@@ -266,7 +273,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        let row = 1 + store.manifest.structure.count + 1
+        let row = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         await select(row: row, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id),
@@ -279,7 +286,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        let row = 1 + store.manifest.structure.count + 1
+        let row = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         await select(row: row, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id))
@@ -291,8 +298,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: window))
         let note = try XCTUnwrap(researchNote(named: "Ships", in: store))
 
-        // project, script, two sluglines, Research header, then the note.
-        await select(row: 5, in: table, until: { probe.subject == .research(note.id) })
+        // project, Canvas, script, two sluglines, Research header, then the note.
+        await select(row: 5 + TreeFurniture.topRows, in: table, until: { probe.subject == .research(note.id) })
 
         XCTAssertEqual(probe.subject, .research(note.id),
                        "the navigator's projection has to let a research write "
@@ -309,7 +316,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let (novelWindow, novelProbe) = try await hostBinder(store: novelStore)
         let novelTable = try XCTUnwrap(firstTableView(in: novelWindow))
         let novelCard = try XCTUnwrap(novelStore.loadPaletteCards().first)
-        let novelRow = 1 + novelStore.manifest.structure.count + 2 + 1
+        let novelRow = 1 + TreeFurniture.topRows + novelStore.manifest.structure.count + 2
+            + TreeFurniture.paletteHead
         await select(row: novelRow, in: novelTable,
                      until: { novelProbe.subject == .research(novelCard.id) })
         XCTAssertEqual(novelProbe.subject, .research(novelCard.id), "novel tree")
@@ -319,7 +327,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         let (collectionWindow, collectionProbe) = try await hostCollection(store: collectionStore)
         let collectionTable = try XCTUnwrap(firstTableView(in: collectionWindow))
         let collectionCard = try XCTUnwrap(collectionStore.loadPaletteCards().first)
-        let collectionRow = 1 + collectionStore.manifest.structure.count + 2 + 1
+        let collectionRow = 1 + TreeFurniture.topRows + collectionStore.manifest.structure.count + 2
+            + TreeFurniture.paletteHead
         await select(row: collectionRow, in: collectionTable,
                      until: { collectionProbe.subject == .research(collectionCard.id) })
         XCTAssertEqual(collectionProbe.subject, .research(collectionCard.id), "collection tree")
@@ -329,7 +338,7 @@ final class BinderTreeSectionsTests: XCTestCase {
             store: screenplayStore, script: Self.twoScenes)
         let screenplayTable = try XCTUnwrap(firstTableView(in: screenplayWindow))
         let screenplayCard = try XCTUnwrap(screenplayStore.loadPaletteCards().first)
-        await select(row: 7, in: screenplayTable,
+        await select(row: 6 + TreeFurniture.topRows + TreeFurniture.paletteHead, in: screenplayTable,
                      until: { screenplayProbe.subject == .research(screenplayCard.id) })
         XCTAssertEqual(screenplayProbe.subject, .research(screenplayCard.id), "screenplay tree")
     }
@@ -361,7 +370,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         let state = BinderTreeSectionsState()
         BinderTreeSections(store: store, state: state,
-                           selectedSubject: .constant(nil))
+                           subject: .constant(.book))
             .actions.delete(card.id)
         await pumpUntil(deadline: 5) { store.paletteCardItems().count == 1 }
 
@@ -385,7 +394,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let before = table.numberOfRows
 
         BinderTreeSections(store: store, state: BinderTreeSectionsState(),
-                           selectedSubject: .constant(nil))
+                           subject: .constant(.book))
             .actions.duplicate(card.id)
         await pumpUntil(deadline: 5) { store.paletteCardItems().count == 2 }
 
@@ -475,7 +484,7 @@ final class BinderTreeSectionsTests: XCTestCase {
 
         XCTAssertEqual(
             table.numberOfRows,
-            1 + store.manifest.structure.count + (1 + 1) + (1 + 1),
+            1 + TreeFurniture.topRows + store.manifest.structure.count + TreeFurniture.emptySections,
             "each empty section is its header plus one placeholder row")
     }
 
@@ -494,7 +503,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         XCTAssertEqual(probe.subject, .project, "precondition")
 
         // The Research section's placeholder: header, then the row.
-        let placeholder = 1 + store.manifest.structure.count + 1
+        let placeholder = 1 + TreeFurniture.topRows + store.manifest.structure.count + 1
         // fixed window: asserting an absence — the subject must still be there
         // after the placeholder's write has had its full chance to arrive.
         await select(row: placeholder, in: table)
@@ -542,8 +551,8 @@ final class BinderTreeSectionsTests: XCTestCase {
         await BinderTreeSections.addLink(
             title: "Tide tables", url: "https://example.invalid/tides",
             parentId: nil, store: store, state: state,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }))
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })))
 
         let link = try XCTUnwrap(
             TreeWalk.first(in: store.manifest.research,
@@ -582,7 +591,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let sections = BinderTreeSections(
             store: store,
             state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertFalse(
             sections.actions.internalDrop("some-other-id", .middle, target),
@@ -612,7 +621,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let script = try XCTUnwrap(TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document }))
         let verbs = BinderTreeVerbs(store: store, state: BinderTreeSectionsState(),
-                                    selectedSubject: .constant(nil))
+                                    subject: .constant(.book))
 
         XCTAssertFalse(
             verbs.routeExternalDrop(providers: [], position: .middle,
@@ -640,7 +649,7 @@ final class BinderTreeSectionsTests: XCTestCase {
         let sections = BinderTreeSections(
             store: store,
             state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertTrue(
             sections.actions.internalDrop(dragged.id, .middle, target),
@@ -1048,8 +1057,8 @@ private struct BinderSectionsProbeView: View {
 
     var body: some View {
         BinderView(store: store,
-                   selectedSubject: Binding(get: { probe.subject },
-                                            set: { probe.subject = $0 }),
+                   subject: .tree(Binding(get: { probe.subject },
+                                            set: { probe.subject = $0 })),
                    treeState: treeState)
     }
 }
@@ -1064,8 +1073,8 @@ private struct CollectionSectionsProbeView: View {
     var body: some View {
         CollectionPiecesPane(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
     }
@@ -1084,8 +1093,8 @@ private struct NavigatorSectionsProbeView: View {
             store: store,
             script: script,
             projectTitle: store.manifest.title,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             documentID: documentID,
             treeState: treeState,
             onSelect: { _ in })

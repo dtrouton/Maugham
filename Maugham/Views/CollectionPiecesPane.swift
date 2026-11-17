@@ -5,16 +5,12 @@ import MaughamCore
 /// inline rename support, and a right-click context menu.
 struct CollectionPiecesPane: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject — see `BinderView.subject`.
+    @Binding var subject: WindowSubject
     @Binding var renamingItemId: String?
     /// The sections' state, owned by the window — see `BinderView.treeState`,
     /// whose doc comment carries the reasoning (stage-3a Task 4).
     let treeState: BinderTreeSectionsState
-    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
-    /// do not care about the wall's door.
-    var paletteWallTravels: Bool = false
-    var onOpenPaletteWall: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,24 +81,26 @@ struct CollectionPiecesPane: View {
         // `BinderView.body`'s twin comment; the reasoning is not restated here.
         ScrollViewReader { proxy in
             List(selection: BinderTreeSelection.binding(
-                    subject: $selectedSubject, state: treeState, store: store)) {
+                    subject: $subject, state: treeState, store: store)) {
+                // `TreeRowSlot`'s order, `BinderView`'s twin: the Book, Inbox
+                // and Canvas, the pieces, then the sections.
                 projectRow
+                TreeTopRows(hasInbox: TreeTopRows.hasInbox(
+                    state: treeState, store: store, subject: subject))
                 ForEach(store.manifest.structure) { piece in
                     pieceEntry(for: piece)
                 }
-                // Below the pieces — furniture at the foot of the column, with
-                // the project row still row zero.
                 BinderTreeSections(store: store, state: treeState,
-                                   selectedSubject: $selectedSubject,
-                                   paletteWallTravels: paletteWallTravels,
-                                   onOpenPaletteWall: onOpenPaletteWall)
+                                   subject: $subject)
             }
             .listStyle(.sidebar)
-            .overlay {
+            .treeRowStates(state: treeState, subject: subject)
+            // At the column's foot, `BinderView`'s reason (shell p1 Task 3).
+            .overlay(alignment: .bottom) {
                 if store.manifest.structure.isEmpty { emptyState }
             }
             .binderTreeSections(store: store, state: treeState,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()
@@ -249,7 +247,7 @@ struct CollectionPiecesPane: View {
             // only open a flag it can reach.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: piece.id)) {
                 BinderPieceFold(store: store, state: treeState,
-                                selectedSubject: $selectedSubject,
+                                subject: $subject,
                                 documentId: piece.id, fold: fold)
             } label: {
                 pieceRow(for: piece)
@@ -277,6 +275,9 @@ struct CollectionPiecesPane: View {
             Text(Self.emptyDescription(mayStartAPiece: mayStartAPiece))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A box of its own at the column's foot, so the tree's rows above it
+        // stay clear (shell p1 Task 3).
+        .frame(height: 200)
     }
 
     /// **What the empty state tells her she can do** (P3c, controller ruling
@@ -297,7 +298,7 @@ struct CollectionPiecesPane: View {
     /// section and every fold, so the three cannot disagree about scope.
     private var treeVerbs: BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: treeState,
-                        selectedSubject: $selectedSubject)
+                        subject: $subject)
     }
 
     private func handleDrop(

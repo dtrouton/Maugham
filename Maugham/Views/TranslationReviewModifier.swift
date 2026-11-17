@@ -18,11 +18,11 @@ struct TranslationReviewModifier: ViewModifier {
     /// From `ProjectWindow`'s boundary (`BinderSubject.activeDocId`), so this
     /// modifier sees the same value the right-hand panes do.
     let activeDocId: String
-    /// The window's one subject-picker, written when a reveal names a chapter
-    /// that is not the open one. The round report the row was clicked in is
-    /// dismissed explicitly by its own `onReveal`
+    /// Points the window at a chapter when a reveal names one that is not the
+    /// open one (`ClickRule.navigate`). The round report the row was clicked
+    /// in is dismissed explicitly by its own `onReveal`
     /// (`PublishCentreModel.clearRound`), since it draws over a chapter too.
-    @Binding var selectedSubject: BinderSubject?
+    let navigate: (BinderSubject) -> Void
     /// For the pending reveal's one question: has that chapter's `Document`
     /// registered yet? The enter-review post reaches an `EditorCoordinator` that
     /// does not exist until it has.
@@ -75,7 +75,7 @@ struct TranslationReviewModifier: ViewModifier {
                     startReveal(reveal, waitingForDocument: false)
                 case .afterSelecting(let subject):
                     pendingReveal = reveal
-                    selectedSubject = subject
+                    navigate(subject)
                 }
             }
             // The chosen language belongs to the doc that was active when it was

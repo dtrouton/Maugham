@@ -83,14 +83,14 @@ final class ResearchNewTableTests: XCTestCase {
     private func verbs(_ store: ProjectStore, _ state: BinderTreeSectionsState,
                        _ subject: Subject) -> BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: state,
-                        selectedSubject: Binding(get: { subject.value }, set: { subject.value = $0 }))
+                        subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })))
     }
 
     private func fold(for documentId: String, _ store: ProjectStore, _ state: BinderTreeSectionsState,
                       _ subject: Subject) -> BinderPieceFold {
         BinderPieceFold(
             store: store, state: state,
-            selectedSubject: Binding(get: { subject.value }, set: { subject.value = $0 }),
+            subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })),
             documentId: documentId,
             fold: TreeSectionDerivation.pieceFold(
                 forDocumentId: documentId, structure: store.manifest.structure,

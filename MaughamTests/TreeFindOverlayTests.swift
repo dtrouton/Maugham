@@ -51,8 +51,8 @@ final class FindOverlayBox {
 ///
 /// **The salvaged contract**, re-homed here from
 /// `BinderSegmentPickerMountTests`' AX reachability class: the command reaches
-/// find's content in a persona whose picker was not in the hierarchy at all. It
-/// is asserted in every persona here rather than in Author alone.
+/// find's content with no picker in the hierarchy at all. Since shell p1 Task 3
+/// the tree takes no persona, so it is asserted over every project type.
 @MainActor
 final class TreeFindOverlayTests: XCTestCase {
 
@@ -71,39 +71,34 @@ final class TreeFindOverlayTests: XCTestCase {
         temp = nil
     }
 
-    // MARK: - Opening: every persona, and the strip never mediates it
+    // MARK: - Opening: every project type, and the strip never mediates it
 
     /// **The salvaged contract, widened.** `⌘⌥F` never touched the picker,
     /// clicked a segment or consulted `visibleSegments` — and now there is no
-    /// segment for it to select either. Mounted in every persona of every
-    /// project type: the field appears, and the segmented control that was there
-    /// (in Plan) or was not (in Author, whose list is one element long) is gone
-    /// while the overlay is up, because the overlay is the whole column.
-    func test_theCommandReachesFindsContentInEveryPersonaWithNoStripInvolved() async throws {
+    /// segment for it to select either. Mounted in every project type: the
+    /// field appears, and no segmented control is under the overlay, because
+    /// the overlay is the whole column.
+    func test_theCommandReachesFindsContentInEveryProjectTypeWithNoStripInvolved() async throws {
         for type in ProjectType.allCases where type != .unknown {
             let store = try await project(of: type)
-            for persona in Persona.allCases {
-                let box = FindOverlayBox(treeFindActive: false)
-                let window = host(box, FindOverlayProbeView(
-                    store: store, box: box, persona: persona))
-                XCTAssertNil(queryField(in: window),
-                             "\(persona)/\(type) premise: find is not open yet")
+            let box = FindOverlayBox(treeFindActive: false)
+            let window = host(box, FindOverlayProbeView(store: store, box: box))
+            XCTAssertNil(queryField(in: window),
+                         "\(type) premise: find is not open yet")
 
-                // Exactly what the real `.maughamFindInProject` handler does:
-                // one write, to the window's own state, with no persona,
-                // segment or picker consulted.
-                box.treeFindActive = true
-                await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
+            // Exactly what the real `.maughamFindInProject` handler does:
+            // one write, to the window's own state, with no segment or picker
+            // consulted.
+            box.treeFindActive = true
+            await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
-                XCTAssertNotNil(queryField(in: window),
-                                "\(persona)/\(type): the Find command did not "
-                                + "reach its content")
-                XCTAssertNil(segmentedControl(in: window),
-                             "\(persona)/\(type): a segmented control is in "
-                             + "the hierarchy under the overlay — the overlay "
-                             + "replaces the whole column, and since Task 7 "
-                             + "there is no strip for it to be replacing")
-            }
+            XCTAssertNotNil(queryField(in: window),
+                            "\(type): the Find command did not reach its content")
+            XCTAssertNil(segmentedControl(in: window),
+                         "\(type): a segmented control is in the hierarchy under "
+                         + "the overlay — the overlay replaces the whole column, "
+                         + "and since Task 7 there is no strip for it to be "
+                         + "replacing")
         }
     }
 
@@ -132,26 +127,22 @@ final class TreeFindOverlayTests: XCTestCase {
             TreeWalk.first(in: structure, where: { $0.type == .document }),
             "fixture precondition: a novel opens with a chapter")
         let subject = BinderSubject.item(document.id)
-        for persona in Persona.allCases {
-            let box = FindOverlayBox(treeFindActive: false)
-            box.subject = subject
-            let window = host(box, FindOverlayProbeView(
-                store: store, box: box, persona: persona))
-            let before = ProjectWindow.showsStatusFooter(
-                subject: SubjectSamples.opened(box.subject ?? .project),
-                structure: structure)
+        let box = FindOverlayBox(treeFindActive: false)
+        box.subject = subject
+        let window = host(box, FindOverlayProbeView(store: store, box: box))
+        let before = ProjectWindow.showsStatusFooter(
+            subject: SubjectSamples.opened(box.subject ?? .project),
+            structure: structure)
 
-            box.treeFindActive = true
-            await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
+        box.treeFindActive = true
+        await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
 
-            let after = ProjectWindow.showsStatusFooter(
-                subject: SubjectSamples.opened(box.subject ?? .project),
-                structure: structure)
-            XCTAssertEqual(before, after,
-                           "\(persona): opening find changed the footer's "
-                           + "answer, so it moved one of the inputs the centre "
-                           + "column is judged by")
-        }
+        let after = ProjectWindow.showsStatusFooter(
+            subject: SubjectSamples.opened(box.subject ?? .project),
+            structure: structure)
+        XCTAssertEqual(before, after,
+                       "opening find changed the footer's answer, so it moved one "
+                       + "of the inputs the centre column is judged by")
         XCTAssertTrue(
             ProjectWindow.showsStatusFooter(subject: SubjectSamples.opened(subject),
                                             structure: structure),
@@ -169,7 +160,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// want of an assistive client.
     func test_theOverlaysOneExitClosesItAndClearsTheResultsTogether() async throws {
         let store = try await project(of: .novel)
-        let (box, window) = try await openOverlay(on: store, persona: .author)
+        let (box, window) = try await openOverlay(on: store)
         store.currentSearch = SearchResults(
             query: "loud", options: SearchOptions(), matches: [Self.researchMatch])
 
@@ -203,7 +194,7 @@ final class TreeFindOverlayTests: XCTestCase {
     /// second press, pin the second press — do not delete the first assertion.
     func test_aRealEscapeAtTheFocusedQueryFieldClosesTheOverlay() async throws {
         let store = try await project(of: .novel)
-        let (box, window) = try await openOverlay(on: store, persona: .author)
+        let (box, window) = try await openOverlay(on: store)
 
         let field = try XCTUnwrap(queryField(in: window))
         window.makeFirstResponder(field)
@@ -226,25 +217,20 @@ final class TreeFindOverlayTests: XCTestCase {
 
     // MARK: - It is window state, not segment state
 
-    /// A writer mid-search who switches persona keeps their search. The old
-    /// `.find` segment rode through `applyPersonaChange` on a transient
-    /// whitelist; the overlay is not in that pipeline at all, and this is what
-    /// says so out loud — the pure change is applied exactly as `PersonaModifier`
-    /// applies it, and the overlay is still up on the other side.
-    func test_theOverlaySurvivesAPersonaSwitch() async throws {
+    /// **A writer mid-search keeps their search whatever the window turns
+    /// to** (shell p1 Task 3; it was a persona switch until the tree stopped
+    /// taking one). The overlay is window state and the subject is not its
+    /// input: the window's subject moving to the canvas leaves it up.
+    func test_theOverlaySurvivesTheSubjectMoving() async throws {
         let store = try await project(of: .novel)
-        let (box, window) = try await openOverlay(on: store, persona: .plan)
+        let (box, window) = try await openOverlay(on: store)
 
-        _ = PersonaModifier.applyPersonaChange(
-            to: .author, from: .plan,
-            currentSegment: .inspector,
-            memory: .empty)
+        box.subject = .canvas
         await waitOut(0.4)
 
         XCTAssertTrue(box.treeFindActive,
-                      "the persona switch closed the overlay — find is window "
-                      + "state, and a writer mid-search must not be ejected "
-                      + "from it by ⌘2")
+                      "the subject moving closed the overlay — find is window "
+                      + "state, and a writer mid-search must not be ejected from it")
         XCTAssertNotNil(queryField(in: window),
                         "the flag survived but the panel did not")
     }
@@ -391,12 +377,10 @@ final class TreeFindOverlayTests: XCTestCase {
 
     /// Mounts the real binder shell with the overlay already up, and waits for
     /// the panel to actually be in the hierarchy before handing it back.
-    private func openOverlay(on store: ProjectStore,
-                             persona: Persona) async throws
+    private func openOverlay(on store: ProjectStore) async throws
     -> (FindOverlayBox, NSWindow) {
         let box = FindOverlayBox(treeFindActive: true)
-        let window = host(box, FindOverlayProbeView(store: store, box: box,
-                                                    persona: persona))
+        let window = host(box, FindOverlayProbeView(store: store, box: box))
         await pumpUntil(deadline: 5) { self.queryField(in: window) != nil }
         XCTAssertNotNil(queryField(in: window), "premise: the overlay is up")
         return (box, window)
@@ -500,7 +484,6 @@ final class TreeFindOverlayTests: XCTestCase {
 private struct FindOverlayProbeView: View {
     let store: ProjectStore
     let box: FindOverlayBox
-    let persona: Persona
     @State private var renamingItemId: String?
 
     private var treeFindActive: Binding<Bool> {
@@ -519,20 +502,18 @@ private struct FindOverlayProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeState: treeState,
-                    treeFindActive: treeFindActive,
-                    persona: persona)
+                    treeFindActive: treeFindActive)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     treeFindActive: treeFindActive,
                     renamingItemId: $renamingItemId,
-                    treeState: treeState,
-                    persona: persona)
+                    treeState: treeState)
             }
         }
         .onKeyWindowCommand(.maughamCloseFind, window: box.window) { _ in

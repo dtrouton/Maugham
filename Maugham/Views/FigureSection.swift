@@ -294,7 +294,7 @@ extension BinderTreeSections {
                     // Research (spec §4.4), tagged and selecting nothing.
                     ForEach(state.drawnLegacyFigureRows) { row in
                         LegacyFigureRow(row: row, actions: figureVerbs.legacyActions(
-                            for: row, select: { selectedSubject = $0 }))
+                            for: row, select: { $subject.navigate(to: $0, in: store) }))
                     }
                 }
             } header: {

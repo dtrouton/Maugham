@@ -478,7 +478,7 @@ struct ProjectWindow: View {
             url: url,
             window: window,
             sessionLog: $sessionLog,
-            selectedSubject: selectedSubjectBinding,
+            navigate: { navigate(to: $0) },
             treeFindActive: $treeFindActive,
             pendingPieceRenameId: $pendingPieceRenameId,
             showingTidyAllConfirmation: $showingTidyAllConfirmation,
@@ -504,15 +504,13 @@ struct ProjectWindow: View {
                                        persona: $persona,
                                        detailSegment: $detailSegment,
                                        documentStore: documentStore))
-        // Denver's travel rule: a double-click on any tree row in Plan takes the
-        // writer to Author, on that row's subject. The rule is in
-        // `TreeTravel.swift`; THIS LINE is what makes it reachable (this body has
-        // no expression budget — the Release type-check ceiling).
+        // A double-click on a tree row opens it in the centre — the click
+        // rule's `.openInCentre` (`TreeTravel.swift`); THIS LINE is what makes
+        // it reachable (this body has no expression budget — the Release
+        // type-check ceiling).
         .modifier(TreeTravelModifier(window: window,
-                                     persona: $persona,
-                                     detailSegment: $detailSegment,
-                                     selectedSubject: selectedSubjectBinding,
-                                     documentStore: documentStore))
+                                     subject: subjectBinding,
+                                     store: store))
         .modifier(FocusPostureModifier(
             window: window,
             documentStore: documentStore,
@@ -551,7 +549,7 @@ struct ProjectWindow: View {
             window: window,
             projectURL: url,
             activeDocId: activeDocId,
-            selectedSubject: selectedSubjectBinding,
+            navigate: { navigate(to: $0) },
             documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(
@@ -820,7 +818,9 @@ struct ProjectWindow: View {
         let url: URL
         let window: NSWindow?
         @Binding var sessionLog: SessionLog
-        @Binding var selectedSubject: BinderSubject?
+        /// Points the window at a thing from outside the tree
+        /// (`ClickRule.navigate`).
+        let navigate: (BinderSubject) -> Void
         @Binding var treeFindActive: Bool
         @Binding var pendingPieceRenameId: String?
         @Binding var showingTidyAllConfirmation: Bool
@@ -890,7 +890,7 @@ struct ProjectWindow: View {
                             persona: $persona,
                             detailSegment: $detailSegment,
                             documentStore: documentStore)
-                        selectedSubject = .item(id)
+                        navigate(.item(id))
                     }
                 }
                 .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
@@ -965,7 +965,7 @@ struct ProjectWindow: View {
                           let match = note.userInfo?["match"] as? SearchMatch,
                           let subject = ProjectWindow.matchSubject(match, in: store)
                     else { return }
-                    selectedSubject = subject
+                    navigate(subject)
                     treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
                         for: subject, store: store, treeState: treeState)
                 }
@@ -980,7 +980,7 @@ struct ProjectWindow: View {
                 .modifier(CollectionPieceModifier(
                     store: store,
                     window: window,
-                    selectedSubject: $selectedSubject,
+                    navigate: navigate,
                     pendingPieceRenameId: $pendingPieceRenameId))
                 .alert("Renumber every chapter and scene?",
                        isPresented: $showingTidyAllConfirmation
@@ -1019,7 +1019,8 @@ struct ProjectWindow: View {
         /// screenplay" adds it to the front project only. The collection-type
         /// and membership checks below are action preconditions, not scope guards.
         let window: NSWindow?
-        @Binding var selectedSubject: BinderSubject?
+        /// Points the window at the piece a command made.
+        let navigate: (BinderSubject) -> Void
         @Binding var pendingPieceRenameId: String?
         /// What a promotion has to say: what of the book's figures did not
         /// carry whole, or why it failed. Nil when there is nothing to say.
@@ -1045,7 +1046,7 @@ struct ProjectWindow: View {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Piece", format: .markdown)
                         if let piece {
-                            selectedSubject = .item(piece.id)
+                            navigate(.item(piece.id))
                             pendingPieceRenameId = piece.id
                         }
                     }
@@ -1057,7 +1058,7 @@ struct ProjectWindow: View {
                         let piece = try? await store.addLoosePiece(
                             title: "Untitled Screenplay", format: .fountain)
                         if let piece {
-                            selectedSubject = .item(piece.id)
+                            navigate(.item(piece.id))
                             pendingPieceRenameId = piece.id
                         }
                     }
@@ -1075,7 +1076,7 @@ struct ProjectWindow: View {
                             guard response == .OK, let target = panel.url else { return }
                             Task {
                                 let piece = try? await store.addProjectReference(targetURL: target)
-                                if let piece { selectedSubject = .item(piece.id) }
+                                if let piece { navigate(.item(piece.id)) }
                             }
                         }
                     }
@@ -1197,24 +1198,20 @@ struct ProjectWindow: View {
         case .collection:
             CollectionBinderPaneToggle(
                 store: store,
-                selectedSubject: selectedSubjectBinding,
+                subject: subjectBinding,
                 treeFindActive: $treeFindActive,
                 renamingItemId: $pendingPieceRenameId,
                 treeState: treeState,
-                persona: persona,
-                onOpenPaletteWall: { openPaletteWall() },
                 onRestoreOutcome: { restoreOutcome = $0 }
             )
         case .standard:
             BinderPaneToggle(
                 store: store,
-                selectedSubject: selectedSubjectBinding,
+                subject: subjectBinding,
                 projectType: store.manifest.type,
                 lastParsedScript: lastParsedScript,
                 treeState: treeState,
                 treeFindActive: $treeFindActive,
-                persona: persona,
-                onOpenPaletteWall: { openPaletteWall() },
                 // **One sink for both restore paths.** ⌘⌥Z and the
                 // disclosure's own Restore say the same kind of thing
                 // (RULING-40's refusal, RULING-42's shortfall), and only this
@@ -1236,13 +1233,6 @@ struct ProjectWindow: View {
         subject = store.map { Self.validatedSubject(back, in: $0) } ?? back
     }
 
-    /// The Palette section's "Open Wall" door, from either tree shell: the
-    /// wall becomes the centre (`pressPaletteWallDoor`). Its persistence is the
-    /// subject's own.
-    private func openPaletteWall() {
-        Self.pressPaletteWallDoor(subject: &subject)
-    }
-
     @ViewBuilder
     private func contentColumn(
         store: ProjectStore, documentStore: DocumentStore
@@ -1259,7 +1249,6 @@ struct ProjectWindow: View {
             declaredWorld: declaredWorld, window: window,
             persona: persona, researchPreviewVisible: researchPreviewVisible,
             subject: subjectBinding,
-            selectedSubject: selectedSubjectBinding,
             bookView: $bookView,
             selectedPaletteCardId: $selectedPaletteCardId,
             showInspector: $showInspector,
@@ -1342,7 +1331,7 @@ struct ProjectWindow: View {
             .modifier(AssistantColumnModifier(
                 window: window, isNoChromeOn: isNoChromeOn, persona: persona,
                 activeDocId: activeDocId, detailSegment: detailSegment,
-                selectedSubject: selectedSubject, showInspector: $showInspector,
+                selectedSubject: subject.lastClicked, showInspector: $showInspector,
                 assistant: assistant))
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
@@ -1742,7 +1731,7 @@ struct ProjectWindow: View {
             showInspector: showInspector, metrics: metrics,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,
-            selectedSubject: selectedSubjectBinding,
+            selectedSubject: facesNavigation,
             detailSegment: $detailSegment,
             annotationScopeRequest: $annotationScopeRequest,
             compilerModel: $compilerModel,
@@ -1795,13 +1784,6 @@ struct ProjectWindow: View {
         // belongs to the column that draws the board.
         if subject.open == .canvas { return .canvas }
         return projectType.holdsPieces ? .collectionPiece : .document
-    }
-
-    /// **Pressing the wall's door** opens the wall here, as the centre: the
-    /// subject's `open` becomes `.palette`, and what the faces are about stays.
-    /// Nothing travels; there is nowhere to travel to.
-    static func pressPaletteWallDoor(subject: inout WindowSubject) {
-        subject.open = .palette
     }
 
     /// Whether the palette wall takes the centre column: the subject's `open`
@@ -2009,7 +1991,7 @@ struct ProjectWindow: View {
     /// changes nothing, so no observer fires. The two reveals are idempotent
     /// together — same function, same question.
     private func openResearchItem(_ itemId: String) {
-        selectedSubject = .research(itemId)
+        navigate(to: .research(itemId))
         if let store,
            let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
                                             research: store.manifest.research,
@@ -2149,32 +2131,21 @@ struct ProjectWindow: View {
         Binding(get: { subject }, set: { subject = $0 })
     }
 
-    /// **The tree's view of the subject** — what is opened beside, else what
-    /// the faces are on — for every consumer that still speaks one
-    /// `BinderSubject` (the tree, the board's chips, navigation). A write goes
-    /// through `ClickRule` as a click; rewriting the value it already reads
-    /// changes nothing, so a selection binding echoing its own value cannot
-    /// move the centre.
-    private var selectedSubject: BinderSubject? {
-        get { subject.beside ?? subject.faces }
-        nonmutating set {
-            subject = Self.treeWrite(newValue, current: subject,
-                                     structure: store?.manifest.structure ?? [],
-                                     projectType: store?.manifest.type ?? .novel)
-        }
+    /// **Going to a thing from outside the tree** — a link, a find result,
+    /// Claude's Show, a command that made a piece: `ClickRule.navigate`, which
+    /// leaves a thing already beside or in the faces where it is.
+    private func navigate(to target: BinderSubject?) {
+        let next = ClickRule.navigate(to: target, current: subject,
+                                      structure: store?.manifest.structure ?? [],
+                                      projectType: store?.manifest.type ?? .novel)
+        if next != subject { subject = next }
     }
 
-    /// **What a write to the tree's view of the subject does** — the one rule
-    /// `selectedSubject`'s setter applies, and the one a test drives. Rewriting
-    /// the value the tree already reads (`beside ?? faces`) changes nothing, so
-    /// a selection binding echoing its own value cannot move the centre;
-    /// anything else is a click (`ClickRule`).
-    static func treeWrite(_ newValue: BinderSubject?, current: WindowSubject,
-                          structure: [StructureItem],
-                          projectType: ProjectType) -> WindowSubject {
-        guard newValue != (current.beside ?? current.faces) else { return current }
-        return ClickRule.resolve(newValue ?? .project, gesture: .click, current: current,
-                                 structure: structure, projectType: projectType)
+    /// **The right column's view of the subject**: the faces, written through
+    /// `navigate` — what its panes travel with (a note's piece, a figure's
+    /// use) and what they read as "the subject".
+    private var facesNavigation: Binding<BinderSubject?> {
+        Binding(get: { subject.faces }, set: { navigate(to: $0) })
     }
 
     /// **The window's subject, repaired against the project** — `load()`'s
@@ -2182,22 +2153,35 @@ struct ProjectWindow: View {
     /// Every part is checked: `open` and `faces` naming something gone become
     /// the Book, a gone `beside` becomes nil, and nothing that still lives
     /// moves. `parked` names figures whose stream has set them aside. The
-    /// edition languages are read off disk only when a part names an edition.
+    /// edition languages (`TreeEditionRows.languages`, the tree's own rows) are
+    /// read off disk only when a part names an edition.
+    ///
+    /// **The Book is valid precisely because it is in no structure**, and a
+    /// gone subject never lands on "the first document" — Denver's ruling: the
+    /// canvas's dim must only ever be entered by a click.
     @MainActor
     static func validatedSubject(_ subject: WindowSubject, in store: ProjectStore,
                                  parked: Set<String> = []) -> WindowSubject {
         let parts = [subject.open, subject.faces] + (subject.beside.map { [$0] } ?? [])
         let languages = parts.contains(where: \.isEdition)
-            ? editionLanguages(manifest: store.manifest, projectURL: store.url) : []
-        return subject.validated(
-            structure: store.manifest.structure,
-            researchIDs: Set(TreeWalk.collectIds(in: store.manifest.research)),
-            figureIDs: Set((store.manifest.figures ?? []).map(\.id)).subtracting(parked),
-            editionLanguages: languages)
+            ? Set(TreeEditionRows.languages(store: store)) : []
+        return validatedSubject(subject, structure: store.manifest.structure,
+                                research: store.manifest.research,
+                                figures: store.manifest.figures ?? [],
+                                parked: parked, editionLanguages: languages)
     }
 
-    private var selectedSubjectBinding: Binding<BinderSubject?> {
-        Binding(get: { selectedSubject }, set: { selectedSubject = $0 })
+    /// The same repair over plain values — `WindowSubject.validated`, with a
+    /// parked figure counted as gone. Pure, so a test asks it directly.
+    static func validatedSubject(_ subject: WindowSubject, structure: [StructureItem],
+                                 research: [ResearchItem], figures: [FigureRecord],
+                                 parked: Set<String>,
+                                 editionLanguages: Set<String>) -> WindowSubject {
+        subject.validated(
+            structure: structure,
+            researchIDs: Set(TreeWalk.collectIds(in: research)),
+            figureIDs: Set(figures.map(\.id)).subtracting(parked),
+            editionLanguages: editionLanguages)
     }
 
     /// Remember that `piece` was last looked at through `passId` —
@@ -2241,99 +2225,6 @@ struct ProjectWindow: View {
             // the deferral's whole bound, and capturing `self` would hold the window's
             // stores with it. See `compilerFlash`.
             onTimedOut: { [flash = compilerFlash] in flash.show(.pieceWouldNotOpen) })
-    }
-
-    /// Whether the window's subject still names something, and what it becomes
-    /// when it does not.
-    ///
-    /// **One containment question, asked at two moments**: where a freshly
-    /// opened window lands given `ui-state.json`, and on every structure change
-    /// (`SubjectValidationModifier`). A second spelling would be free to
-    /// disagree about the two easy-to-get-wrong cases — `.project`, and a group
-    /// taking its children with it ("is the subject still in the structure?",
-    /// not "is it the row I deleted?").
-    ///
-    /// **`.project` is valid precisely because it is in no structure.** A bare
-    /// `TreeWalk.contains` fails it and lands the window somewhere *plausible* —
-    /// the failure mode nobody reports.
-    ///
-    /// The four answers are the whole contract:
-    ///
-    /// | on disk | answer |
-    /// |---|---|
-    /// | the project flag | `.project` |
-    /// | a bare id still in the structure | that item, unchanged |
-    /// | a bare id naming a deleted item | `.project` |
-    /// | nothing at all | `.project` |
-    ///
-    /// **Never "the first document"** — Denver's ruling: *the dim must only ever
-    /// be entered by a click*. A document subject FILTERS the canvas, so a
-    /// restored chapter nobody chose would open Plan onto a dimmed board and
-    /// the next sweep would bind a region to it. The accepted trade: a fresh
-    /// window in Author opens with no document in the editor.
-    ///
-    /// Never absent: `.project` is available even for a structure with no
-    /// document. A pure function because this is a silent routing decision and
-    /// `load()` is unreachable from a test.
-    ///
-    /// **The `nil` row is the restore's answer, not the sweep's.** The sweep
-    /// REPAIRS a subject and does not choose one, so a writer who deselected is
-    /// left alone; that guard lives at the sweep's call site
-    /// (`SubjectValidationModifier`).
-    ///
-    /// **A figure** is valid while the registry lists it and it is not parked
-    /// in Research (report plan 8a): a removed figure and one sent to Research
-    /// both leave the Figures section, so a subject naming either repairs to
-    /// `.project`. `parked` is what the caller KNOWS is parked — parking lives
-    /// in the figure's stream, not the record, so the restore and the sweep
-    /// pass `[]` and `SubjectValidationModifier` asks the stream and calls
-    /// again with the answer.
-    static func validSubject(_ subject: BinderSubject?,
-                             in structure: [StructureItem],
-                             research: [ResearchItem],
-                             figures: [FigureRecord],
-                             parked: Set<String>) -> BinderSubject {
-        switch subject {
-        case .project:
-            return .project
-        case .item(let id) where TreeWalk.contains(id: id, in: structure):
-            return .item(id)
-        case .item, nil:
-            return .project
-        case .research(let id) where TreeWalk.contains(id: id, in: research):
-            return .research(id)
-        case .research:
-            return .project
-        case .figure(let id) where !parked.contains(id) && figures.contains(where: { $0.id == id }):
-            return .figure(id)
-        case .figure, .inbox, .canvas, .palette, .edition:
-            // Shell-p1 subjects are not a legacy selection; repair to the project.
-            return .project
-        }
-    }
-
-    /// **Every edition language this book has**, for validating a restored
-    /// subject: the translation files of every document, and the languages a
-    /// production role or an edition brief names — `TranslatorsNote.editions`'s
-    /// union, over the whole book. Lowercased. The source language is not yet
-    /// an edition here: nothing names it until the tree's edition rows do.
-    static func editionLanguages(manifest: ProjectManifest, projectURL: URL) -> Set<String> {
-        var languages = Set<String>()
-        for docId in documentIds(in: manifest.structure) {
-            for language in TranslationStore.languages(forDocId: docId, in: projectURL) {
-                languages.insert(language.lowercased())
-            }
-        }
-        for role in manifest.productionRoles {
-            switch role.role {
-            case .translator(let l), .reader(let l), .collator(let l): languages.insert(l.lowercased())
-            case .designer, .unknown: break
-            }
-        }
-        for statement in manifest.statements {
-            if case .editionBrief(let l) = statement.kind { languages.insert(l.lowercased()) }
-        }
-        return languages
     }
 
     /// Whether the window's subject resolves to a manuscript document (the
@@ -2520,7 +2411,7 @@ struct ProjectWindow: View {
     /// button does nothing is worse than no banner.
     private func handleShowLatestMCPNote() {
         guard let id = flashes.mcpBanner.latestId else { return }
-        selectedSubject = .research(id)
+        navigate(to: .research(id))
         // The tree opens far enough to draw the note's row — `openResearchItem`
         // carries why this is a call here and not an observer of the subject.
         if let store,

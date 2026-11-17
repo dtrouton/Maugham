@@ -74,9 +74,11 @@ final class ScreenplayScriptSourceTests: XCTestCase {
                 derives.append("\(SubjectSamples.kind(of: open))×\(type.rawValue)")
             }
         }
-        XCTAssertEqual(derives, ["canvas×screenplay"],
-                       "the canvas on a screenplay is the one window state that "
-                       + "lists sluglines with no editor behind it. Anything else "
+        XCTAssertEqual(Set(derives), ["inbox×screenplay", "canvas×screenplay"],
+                       "the canvas and the Inbox on a screenplay are the two "
+                       + "window states that list sluglines with no editor behind "
+                       + "them (the Inbox route tears `EditorHost` down, shell p1 "
+                       + "Task 3). Anything else "
                        + "here is either an op-log decode nobody reads or a race "
                        + "with the editor's own parse")
         XCTAssertTrue(ScreenplayScriptSource.needsDerivation(

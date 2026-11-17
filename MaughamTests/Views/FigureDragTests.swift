@@ -112,7 +112,7 @@ final class FigureDragTests: XCTestCase {
     }
 
     private func verbs(_ store: ProjectStore, _ state: BinderTreeSectionsState) -> BinderTreeVerbs {
-        BinderTreeVerbs(store: store, state: state, selectedSubject: .constant(nil))
+        BinderTreeVerbs(store: store, state: state, subject: .constant(.book))
     }
 
     private func isParked(_ figureId: String) async throws -> Bool {
@@ -231,7 +231,7 @@ final class FigureDragTests: XCTestCase {
         let copy = try XCTUnwrap(store.manifest.research.first)
         XCTAssertNil(store.researchHomePiece(ofItemId: copy.id), "shared Research")
         XCTAssertEqual(
-            ProjectWindow.validSubject(.figure(cash.id), in: store.manifest.structure,
+            ProjectWindow.repairedOpen(.figure(cash.id), in: store.manifest.structure,
                                        research: store.manifest.research,
                                        figures: store.manifest.figures ?? [], parked: [cash.id]),
             .project, "the window's figure subject repairs")

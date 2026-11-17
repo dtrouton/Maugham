@@ -62,33 +62,45 @@ enum SubjectSamples {
 }
 
 /// **A window's subject held outside the view**, so a mounted test can seed
-/// it and watch what a real tree row writes into it. The tree's binding writes
-/// through production's own `ProjectWindow.treeWrite` — the rule the window's
-/// `selectedSubject` setter applies — never a copy of it.
+/// it and watch what a real tree row writes into it. `binding` is what a tree
+/// takes; `treeBinding` is the faces-or-beside view a non-tree surface (a
+/// card, a chip, a pane) writes through production's `ClickRule.navigate`.
 @Observable
 @MainActor
 final class WindowSubjectProbe {
     var subject: WindowSubject
     init(_ subject: WindowSubject = .book) { self.subject = subject }
 
+    /// The window subject itself — what every tree takes.
+    var binding: Binding<WindowSubject> {
+        Binding(get: { self.subject }, set: { self.subject = $0 })
+    }
+
     func treeBinding(store: ProjectStore) -> Binding<BinderSubject?> {
         Binding(
-            get: { self.subject.beside ?? self.subject.faces },
+            get: { self.subject.lastClicked },
             set: { newValue in
-                self.subject = ProjectWindow.treeWrite(
-                    newValue, current: self.subject,
+                self.subject = ClickRule.navigate(
+                    to: newValue, current: self.subject,
                     structure: store.manifest.structure, projectType: store.manifest.type)
             })
     }
 }
 
 extension WindowSubjectProbe {
-    /// What a tree row, a card or a chip writes, through the window's own
-    /// `ProjectWindow.treeWrite`.
+    /// What a card, a chip or a navigation writes: production's
+    /// `ClickRule.navigate`.
     func pick(_ clicked: BinderSubject, in store: ProjectStore) {
-        subject = ProjectWindow.treeWrite(clicked, current: subject,
-                                          structure: store.manifest.structure,
-                                          projectType: store.manifest.type)
+        subject = ClickRule.navigate(to: clicked, current: subject,
+                                     structure: store.manifest.structure,
+                                     projectType: store.manifest.type)
+    }
+
+    /// What a tree row's single click writes: `ClickRule.resolve(_, .click, …)`.
+    func selectRow(_ clicked: BinderSubject, in store: ProjectStore) {
+        subject = ClickRule.resolve(clicked, gesture: .click, current: subject,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type)
     }
 }
 
@@ -103,5 +115,47 @@ extension Binding where Value == WindowSubject {
         Binding(
             get: { legacy.wrappedValue.map(SubjectSamples.opened) ?? .book },
             set: { legacy.wrappedValue = $0.open })
+    }
+}
+
+extension Binding where Value == WindowSubject {
+    /// **A tree fixture that holds only a `BinderSubject?`**, seen as the
+    /// window's subject — for the mounted tree suites whose subject is not the
+    /// point (drops, folds, verbs). A research value reads as opened beside
+    /// the Book, anything else as open; a write keeps the row the writer last
+    /// clicked (`WindowSubject.lastClicked`).
+    ///
+    /// **`nil` — nothing chosen yet — reads as the canvas open**, so no row
+    /// the suites drive starts out drawn selected: the tree draws the row last
+    /// clicked, and a click on a row already selected writes nothing through a
+    /// `List` (`BinderTreeSelection`'s doc). From there the first click on any
+    /// row, the Book's included, is a write the probe sees.
+    @MainActor
+    static func tree(_ legacy: Binding<BinderSubject?>) -> Binding<WindowSubject> {
+        Binding(
+            get: {
+                switch legacy.wrappedValue {
+                case .research(let id):
+                    return WindowSubject(open: .project, faces: .project,
+                                         beside: .research(id))
+                case let other:
+                    return SubjectSamples.opened(other ?? .canvas)
+                }
+            },
+            set: { legacy.wrappedValue = $0.lastClicked })
+    }
+}
+
+extension ProjectWindow {
+    /// **What a restored or swept subject opens on** — production's
+    /// `validatedSubject` over a window opened on `subject` (nil is the Book),
+    /// read as what is open. The legacy single-subject suites ask the repair
+    /// through this.
+    static func repairedOpen(_ subject: BinderSubject?, in structure: [StructureItem],
+                             research: [ResearchItem], figures: [FigureRecord],
+                             parked: Set<String>) -> BinderSubject {
+        validatedSubject(subject.map(SubjectSamples.opened) ?? .book,
+                         structure: structure, research: research, figures: figures,
+                         parked: parked, editionLanguages: []).open
     }
 }

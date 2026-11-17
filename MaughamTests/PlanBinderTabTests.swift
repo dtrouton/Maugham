@@ -412,10 +412,9 @@ private struct HandOffProbeView: View {
     var body: some View {
         HStack(spacing: 0) {
             BinderPaneToggle(
-                store: store, selectedSubject: $subject,
+                store: store, subject: .tree($subject),
                 projectType: store.manifest.type, lastParsedScript: nil,
                 treeState: probe.treeState, treeFindActive: $treeFindActive,
-                persona: .author,
                 canvasKeyboard: TreeCanvasKeyboard(
                     tabReachesTheCanvas: centre.open == .canvas,
                     giveTheCanvasTheKeyboard: {

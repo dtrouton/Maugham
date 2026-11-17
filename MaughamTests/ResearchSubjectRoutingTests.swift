@@ -413,7 +413,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         var subject = SubjectSamples.opened(.item("doc1"))
         XCTAssertTrue(ProjectWindow.showsStatusFooter(subject: subject, structure: Self.oneDocument),
                       "control: the wall closed, the document reports")
-        ProjectWindow.pressPaletteWallDoor(subject: &subject)
+        subject = ClickRule.resolve(.palette, gesture: .click, current: subject, structure: SubjectSamples.structure, projectType: .novel)
         XCTAssertFalse(ProjectWindow.showsStatusFooter(subject: subject, structure: Self.oneDocument),
                        "the wall is the centre — the footer's readings have nothing to report on")
     }
@@ -435,7 +435,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
         let mount = try await host(store: store, tree: .binder, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
 
         try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
@@ -448,7 +448,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
 
         let mount = try await host(store: store, tree: .collection, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
 
         try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
@@ -462,7 +462,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let mount = try await host(store: store, tree: .navigator, persona: .author)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // project, script, two sluglines, the Research header, then the note.
-        await select(row: 5, in: table,
+        await select(row: 5 + TreeFurniture.topRows, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
 
         try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
@@ -501,7 +501,8 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // the project row, the chapters, Research (header + note), then the
         // Palette header and the card.
-        await select(row: 1 + store.manifest.structure.count + 2 + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 2
+                            + TreeFurniture.paletteHead, in: table,
                      until: { mount.probe.subject.beside == .research(card.id) })
 
         XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
@@ -537,7 +538,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                                         "precondition: the board is mounted")
 
         let table = try XCTUnwrap(firstTableView(in: mount.window))
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject.beside == .research(pdf.id) })
         XCTAssertEqual(mount.probe.subject.beside, .research(pdf.id), "precondition")
         XCTAssertEqual(mount.probe.subject.open, .canvas, "precondition: the click moved no centre")
@@ -935,19 +936,19 @@ private struct ResearchRoutingProbeView: View {
 
     @ViewBuilder
     private var treeColumn: some View {
-        let subject = probe.treeBinding(store: store)
+        let subject = probe.binding
         switch tree {
         case .binder:
-            BinderView(store: store, selectedSubject: subject,
+            BinderView(store: store, subject: subject,
                        treeState: treeState)
         case .collection:
-            CollectionPiecesPane(store: store, selectedSubject: subject,
+            CollectionPiecesPane(store: store, subject: subject,
                                  renamingItemId: $renaming,
                                  treeState: treeState)
         case .navigator:
             SceneNavigatorPane(store: store, script: script,
                                projectTitle: store.manifest.title,
-                               selectedSubject: subject,
+                               subject: subject,
                                documentID: documentID,
                                treeState: treeState,
                                onSelect: { _ in })

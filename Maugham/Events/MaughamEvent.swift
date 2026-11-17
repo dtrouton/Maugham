@@ -84,6 +84,14 @@ enum MaughamEvent {
     /// not silently make the post reach nobody.
     static let treeTravelSubjectKey = "subject"
 
+    /// Payload keys for `.maughamTreeTravel`'s gesture (shell p1 Task 3): the
+    /// click count (`Int`, 1 or 2), and whether the row was already the tree's
+    /// selected row when the click arrived (`Bool`) — a click on the row
+    /// already selected writes nothing through the `List`, so the receiver is
+    /// the only place it is heard.
+    static let treeTravelClickCountKey = "clickCount"
+    static let treeTravelRowWasSelectedKey = "rowWasSelected"
+
     /// Payload key for `.maughamDocumentNotice` — the finished sentence the
     /// window puts in front of the writer. Same reason as `personaKey`: the
     /// post sites live in `Maugham/OpLog/` and the receiver in

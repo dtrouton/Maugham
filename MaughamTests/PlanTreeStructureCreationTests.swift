@@ -323,20 +323,18 @@ private struct StructureCreationProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    selectedSubject: $subject,
+                    subject: .tree($subject),
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeState: treeState,
-                    treeFindActive: $treeFindActive,
-                    persona: persona)
+                    treeFindActive: $treeFindActive)
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    selectedSubject: $subject,
+                    subject: .tree($subject),
                     treeFindActive: $treeFindActive,
                     renamingItemId: $renamingItemId,
-                    treeState: treeState,
-                    persona: persona)
+                    treeState: treeState)
             }
         }
     }

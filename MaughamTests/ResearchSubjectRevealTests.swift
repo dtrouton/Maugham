@@ -72,7 +72,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // the project row, the chapters, the Research header, then the note.
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject?.beside == .research(note.id) })
         XCTAssertEqual(mount.probe.subject?.beside, .research(note.id),
                        "precondition: the tree opened the note beside")
@@ -230,7 +230,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 
         let mount = try await host(store: store, subject: Self.canvas)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
-        await select(row: 1 + store.manifest.structure.count + 1, in: table,
+        await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject?.beside == .research(note.id) })
         XCTAssertEqual(mount.probe.subject?.beside, .research(note.id),
                        "precondition: the note is beside")
@@ -297,7 +297,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let besideChapter = WindowSubject(open: .item(SubjectSamples.pieceID),
                                           faces: .item(SubjectSamples.pieceID),
                                           beside: .research("r1"))
-        let facesMoved = ProjectWindow.treeWrite(.item("pc02"), current: besideChapter,
+        let facesMoved = ClickRule.navigate(to: .item("pc02"), current: besideChapter,
                                                  structure: SubjectSamples.structure,
                                                  projectType: .novel)
         XCTAssertEqual(facesMoved.beside, .research("r1"), "premise: beside stays")
@@ -459,7 +459,7 @@ final class ResearchRevealProbe {
     /// `openResearchItem` and `handleShowLatestMCPNote`).
     @discardableResult
     func show(_ itemId: String, in store: ProjectStore) -> BinderSubject? {
-        subject = ProjectWindow.treeWrite(.research(itemId), current: subject ?? .book,
+        subject = ClickRule.navigate(to: .research(itemId), current: subject ?? .book,
                                           structure: store.manifest.structure,
                                           projectType: store.manifest.type)
         let revealed = treeState.reveal(itemId, structure: store.manifest.structure,
@@ -486,13 +486,13 @@ private struct ResearchRevealProbeView: View {
     let persona: Persona
     let probe: ResearchRevealProbe
 
-    /// The tree's binding, as `ProjectWindow`'s: `beside ?? faces`, written
-    /// through `ClickRule`.
+    /// The right column's view of the subject, as `ProjectWindow`'s
+    /// `facesNavigation`: the faces, written through `ClickRule.navigate`.
     private var subject: Binding<BinderSubject?> {
         Binding(
-            get: { probe.subject.map { $0.beside ?? $0.faces } },
+            get: { probe.subject?.faces },
             set: { newValue in
-                probe.subject = ProjectWindow.treeWrite(
+                probe.subject = ClickRule.navigate(to: 
                     newValue, current: probe.subject ?? .book,
                     structure: store.manifest.structure, projectType: store.manifest.type)
             })
@@ -512,7 +512,9 @@ private struct ResearchRevealProbeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store, selectedSubject: subject,
+            BinderView(store: store,
+                       subject: Binding(get: { probe.subject ?? .book },
+                                        set: { probe.subject = $0 }),
                        treeState: probe.treeState)
                 .frame(width: 280)
             centre.frame(maxWidth: .infinity, maxHeight: .infinity)

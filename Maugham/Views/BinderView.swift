@@ -3,7 +3,10 @@ import MaughamCore
 
 struct BinderView: View {
     @Bindable var store: ProjectStore
-    @Binding var selectedSubject: BinderSubject?
+    /// The window's subject (shell p1 Task 3). The `List` selects through
+    /// `BinderTreeSelection` — a click is the click rule; a verb that makes a
+    /// row points the window at it through `ClickRule.navigate`.
+    @Binding var subject: WindowSubject
     /// **The Research and Palette sections' state, owned by the WINDOW**
     /// (stage-3a Task 4). It was `@State` here until the sections learned to be
     /// opened and closed: `ProjectWindow.openResearchItem` and its Show twin
@@ -13,11 +16,6 @@ struct BinderView: View {
     /// host — a default would allocate a fresh state per body pass and lose the
     /// writer's disclosure and selection on the next render.
     let treeState: BinderTreeSectionsState
-    /// Threaded to `BinderTreeSections`' Palette header — see its own doc
-    /// comment (stage 3b Task 4). Defaulted for the mounted-tree fixtures that
-    /// do not care about the wall's door.
-    var paletteWallTravels: Bool = false
-    var onOpenPaletteWall: () -> Void = {}
     /// Plan's Tab to the canvas and ⇧Tab back — see `TreeCanvasKeyboard`.
     /// Defaulted for the tree fixtures with no canvas beside them; the window's
     /// argument is censused in `PromotionCommandTests`.
@@ -72,18 +70,19 @@ struct BinderView: View {
         // already in the tree it addresses.
         ScrollViewReader { proxy in
             List(selection: BinderTreeSelection.binding(
-                    subject: $selectedSubject, state: treeState, store: store)) {
+                    subject: $subject, state: treeState, store: store)) {
+                // The rows in `TreeRowSlot`'s order: the Book, Inbox and
+                // Canvas, the manuscript, then the sections (Figures,
+                // Research, Palette, Editions). The project row stays row zero.
                 projectRow
+                TreeTopRows(hasInbox: TreeTopRows.hasInbox(
+                    state: treeState, store: store, subject: subject))
                 outline(items: store.manifest.structure)
-                // Below everything the tree already had — the sections are
-                // furniture at the foot of the column, and the project row
-                // stays row zero.
                 BinderTreeSections(store: store, state: treeState,
-                                   selectedSubject: $selectedSubject,
-                                   paletteWallTravels: paletteWallTravels,
-                                   onOpenPaletteWall: onOpenPaletteWall)
+                                   subject: $subject)
             }
             .listStyle(.sidebar)
+            .treeRowStates(state: treeState, subject: subject)
             // Plan's Tab hands the keyboard to the canvas; anywhere else, or
             // during a rename, it is ignored and travels on as before.
             .onKeyPress(keys: [.tab], phases: .down) { press in
@@ -99,11 +98,15 @@ struct BinderView: View {
             .onChange(of: canvasKeyboard.treeKeyboardRequest) { _, _ in
                 listHoldsTheKeyboard = true
             }
-            .overlay {
+            // At the column's foot, its own height (shell p1 Task 3): the
+            // tree's rows — the Book, Canvas, the sections, the Editions — fill
+            // its head, and a centred full-height overlay's buttons sat over
+            // one of them.
+            .overlay(alignment: .bottom) {
                 if store.manifest.structure.isEmpty { emptyState }
             }
             .binderTreeSections(store: store, state: treeState,
-                                selectedSubject: $selectedSubject)
+                                subject: $subject)
             // Root context menu — attached at the binder level so it's
             // available even when the structure is empty (right-clicking
             // a row gives the per-row menu instead, no overlap).
@@ -255,7 +258,7 @@ struct BinderView: View {
             // flag the window cannot reach is a fold the reveal cannot open.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: item.id)) {
                 BinderPieceFold(store: store, state: treeState,
-                                selectedSubject: $selectedSubject,
+                                subject: $subject,
                                 documentId: item.id, fold: fold)
             } label: {
                 row(for: item)
@@ -418,14 +421,14 @@ struct BinderView: View {
     /// it is a handful of closures over the store, and nothing in it is state.
     private var treeVerbs: BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: treeState,
-                        selectedSubject: $selectedSubject)
+                        subject: $subject)
     }
 
     private func addItem(parent: StructureItem?, kind: StructureItemKind) async {
         do {
             let item = try await Self.addItem(parent: parent, kind: kind, in: store)
             renamingItemId = item.id  // immediately go to rename mode
-            selectedSubject = .item(item.id)
+            $subject.navigate(to: .item(item.id), in: store)
         } catch {
             pendingError = error.localizedDescription
         }
@@ -495,7 +498,7 @@ struct BinderView: View {
             }
         }
         .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
     private func rename(id: String, to newTitle: String) async {
@@ -507,7 +510,7 @@ struct BinderView: View {
         }
     }
 
-    /// **No subject repair here.** It used to clear `selectedSubject` when the
+    /// **No subject repair here.** It used to clear the subject when the
     /// deleted id WAS the subject, which is the right answer for a document and
     /// the wrong one for a group — `TreeWalk.remove` takes the group's children
     /// with it, and the selected child's id is not the group's, so the subject
@@ -556,7 +559,7 @@ struct BinderView: View {
         do {
             let copy = try await store.duplicateStructureItem(id: id)
             renamingItemId = copy.id  // immediately offer rename
-            selectedSubject = .item(copy.id)
+            $subject.navigate(to: .item(copy.id), in: store)
         } catch {
             pendingError = error.localizedDescription
         }
@@ -694,7 +697,8 @@ struct TreeStructureVerbs: Equatable {
 ///
 /// The default is the tree with no canvas beside it: Tab stays AppKit's.
 struct TreeCanvasKeyboard {
-    /// `Persona.centresTheCanvas` — whether there is a canvas to hand to.
+    /// Whether the canvas is open in the centre — whether there is a canvas
+    /// to hand to.
     var tabReachesTheCanvas = false
     var giveTheCanvasTheKeyboard: () -> Void = {}
     var treeKeyboardRequest = 0

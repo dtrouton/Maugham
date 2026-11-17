@@ -19,6 +19,10 @@ public struct WindowSubject: Equatable, Codable, Sendable {
 
     public static let book = WindowSubject(open: .project, faces: .project, beside: nil)
 
+    /// The row the writer last clicked: what is opened beside, else what the
+    /// faces are on. The tree draws it outlined when it is not what is open.
+    public var lastClicked: BinderSubject { beside ?? faces }
+
     /// Any part naming something that no longer exists becomes the Book (open,
     /// faces) or nil (beside).
     public func validated(structure: [StructureItem], researchIDs: Set<String>,

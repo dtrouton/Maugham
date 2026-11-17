@@ -940,7 +940,7 @@ final class ReviewBoardPaneTests: XCTestCase {
             try CentreRouteSource.windowArgument("runRoundWhenPieceOpens")?
                 .contains("runRoundWhenPieceOpens(pieceId:") == true,
             "\u{2026}and its one bounded deferral, the helper read below")
-        XCTAssertTrue(after.contains("selectedSubject = .item(pieceId)"),
+        XCTAssertTrue(after.contains("navigate(to: .item(pieceId), store: store)"),
                       "\u{2026}and the writer travels to the piece being checked")
         XCTAssertTrue(after.contains("runRoundWhenPieceOpens("),
                       "\u{2026}and the run goes through the bounded deferral")

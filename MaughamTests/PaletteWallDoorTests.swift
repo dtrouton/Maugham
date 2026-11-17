@@ -4,14 +4,14 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **The palette wall keeps a door** (shell-finish stage-2b Task 5; shell p1
-/// Task 2 made the wall a subject).
+/// **The palette wall is the Palette row** (shell-finish stage-2b Task 5; shell
+/// p1 Task 2 made the wall a subject, Task 3 made the door a row).
 ///
 /// The wall is open exactly while the window's subject has `open == .palette`
-/// (`ProjectWindow.showsPaletteWallCentre`). The Palette tree section's "Open
-/// Wall" door sets that (`ProjectWindow.pressPaletteWallDoor`), nothing
-/// travels, and any subject change that takes `open` elsewhere closes it — the
-/// stash and the Close rule are `PaletteWallState`'s.
+/// (`ProjectWindow.showsPaletteWallCentre`). Selecting the tree's Palette row
+/// sets that through the click rule, nothing travels, and any subject change
+/// that takes `open` elsewhere closes it — the stash and the Close rule are
+/// `PaletteWallState`'s.
 @MainActor
 final class PaletteWallDoorTests: XCTestCase {
 
@@ -47,21 +47,38 @@ final class PaletteWallDoorTests: XCTestCase {
             subject: WindowSubject(open: .item(SubjectSamples.pieceID), faces: .palette)))
     }
 
-    // MARK: - The door's press
+    // MARK: - The Palette row
 
-    /// **The door opens the wall where the writer is**: `open` becomes the
-    /// palette and the faces stay on what they were about. Nothing travels.
-    func test_pressingTheDoorOpensTheWallAndLeavesTheFaces() {
+    /// **Selecting the Palette row opens the wall where the writer is**: the
+    /// click rule makes the palette what is open, from every centre. Nothing
+    /// travels.
+    func test_thePaletteRowOpensTheWall() {
         for open in SubjectSamples.everyOpen where open != .palette {
-            var subject = WindowSubject(open: open, faces: .item(SubjectSamples.pieceID))
-            ProjectWindow.pressPaletteWallDoor(subject: &subject)
+            let before = WindowSubject(open: open, faces: .item(SubjectSamples.pieceID))
+            let subject = ClickRule.resolve(.palette, gesture: .click, current: before,
+                                            structure: SubjectSamples.structure,
+                                            projectType: .novel)
             XCTAssertEqual(subject.open, .palette, "from \(open)")
-            XCTAssertEqual(subject.faces, .item(SubjectSamples.pieceID),
-                           "from \(open): the faces stay")
             XCTAssertTrue(ProjectWindow.showsPaletteWallCentre(subject: subject))
             XCTAssertFalse(ProjectWindow.showsStatusFooter(
                 subject: subject, structure: SubjectSamples.structure),
                            "the manuscript footer is silent under the wall")
+        }
+    }
+
+    /// The row is a row: every tree's Palette row carries the `.palette` tag
+    /// the `List` selects, and no tree carries a door any more.
+    func test_thePaletteRowIsTaggedAndTheDoorIsGone() throws {
+        let sections = Self.codeOnly(try String(
+            contentsOf: SourceTree.repoRoot.appendingPathComponent(
+                "Maugham/Views/BinderTreeSections.swift"), encoding: .utf8))
+        XCTAssertTrue(sections.contains(".tag(BinderSubject.palette)"),
+                      "the Palette row selects through the tree's `List`")
+        for gone in ["openWallButton", "onOpenPaletteWall", "paletteWallTravels",
+                     "pressPaletteWallDoor"] {
+            let hits = try SourceTree.sources(under: "Maugham", base: SourceTree.repoRoot)
+                .filter { Self.codeOnly($0.text).contains(gone) }.map { $0.path }
+            XCTAssertEqual(hits, [], "the door's \(gone) survives in \(hits)")
         }
     }
 
@@ -213,7 +230,7 @@ final class PaletteWallDoorTests: XCTestCase {
         box.showInspector = true
         _ = hostWallModifier(box: box)
 
-        ProjectWindow.pressPaletteWallDoor(subject: &box.subject)
+        box.subject = Self.wall
         await pumpUntil(deadline: 5) { !box.showInspector }
         XCTAssertFalse(box.showInspector, "the open arm hides the right column")
         XCTAssertEqual(box.wall.inspectorWasVisibleBefore, true)
@@ -227,37 +244,21 @@ final class PaletteWallDoorTests: XCTestCase {
         XCTAssertNil(box.wall.inspectorWasVisibleBefore)
     }
 
-    /// **The whole door, end to end**: the real "Open Wall" button in a real
-    /// tree, whose closure is `ProjectWindow.pressPaletteWallDoor` (the same
-    /// function `ProjectWindow.openPaletteWall` calls), over the real
+    /// **The whole row, end to end**: the Palette row of a real tree selected,
+    /// through the tree's `List` selection and the click rule, into the real
     /// `PaletteWallModifier`.
-    func test_pressingTheDoorOpensTheWallInPlace() async throws {
+    func test_selectingThePaletteRowOpensTheWallInPlace() async throws {
         let store = try await novel()
         let box = WallBox()
         box.subject = SubjectSamples.opened(.canvas)
         let window = try await hostDoorProbe(store: store, box: box)
 
-        try clickTheDoor(in: window)
+        try selectThePaletteRow(in: window)
         await pumpUntil(deadline: 5) { box.subject.open == .palette }
 
-        XCTAssertEqual(box.subject.open, .palette, "the door did not open the wall")
-        XCTAssertEqual(box.subject.faces, .canvas, "the faces stay where they were")
+        XCTAssertEqual(box.subject.open, .palette, "the row did not open the wall")
         await pumpUntil(deadline: 5) { !box.showInspector }
-        XCTAssertFalse(box.showInspector, "the open arm did not run over the press")
-    }
-
-    /// **The window's own wiring**: both tree shells' `onOpenPaletteWall`
-    /// closures must reach the door's press rather than writing the subject
-    /// themselves.
-    func test_bothTreeShellsReachTheDoor() throws {
-        let presses = try Self.openPaletteWallPresses()
-        XCTAssertEqual(presses.count, 2,
-                       "the two tree shells (standard + Collection) are the "
-                       + "door's only mount sites — found \(presses)")
-        for line in presses {
-            XCTAssertTrue(line.contains("openPaletteWall()"),
-                          "a tree shell opens the wall directly: \(line)")
-        }
+        XCTAssertFalse(box.showInspector, "the open arm did not run over the click")
     }
 
     /// Every `== .palette`/`!= .palette` code line under `root`, as "path: line",
@@ -274,28 +275,14 @@ final class PaletteWallDoorTests: XCTestCase {
         }
     }
 
-    /// The window's `onOpenPaletteWall:` code lines, read by TYPE — every file
-    /// under `Maugham/` declaring `ProjectWindow`.
-    private static func openPaletteWallPresses(base: URL = SourceTree.repoRoot) throws -> [Substring] {
-        codeOnly(try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"], base: base))
-            .split(separator: "\n")
-            .filter { $0.contains("onOpenPaletteWall:") }
-    }
-
-    /// **The planted control for the reads above** (foundations plan 2): a
-    /// `ProjectWindow` struct in one file and an `extension ProjectWindow` in
-    /// another. The press count reads both files, and the widened ban catches
-    /// an offender in a sibling view outside the window.
-    func test_theReadsFollowTheTypeAndTheBansReachSiblingViews() throws {
+    /// **The planted control for the comparison census** (foundations plan
+    /// 2): the widened ban catches an offender in a sibling view outside the
+    /// window.
+    func test_theBanReachesSiblingViews() throws {
         let base = try SourceTree.plantedTree([
             "Maugham/Views/ProjectWindow.swift": """
             struct ProjectWindow: View {
-                var body: some View { Tree(onOpenPaletteWall: { openPaletteWall() }) }
-            }
-            """,
-            "Maugham/Views/ProjectWindow+Wall.swift": """
-            extension ProjectWindow {
-                var other: some View { CollectionTree(onOpenPaletteWall: { openPaletteWall() }) }
+                var body: some View { Tree() }
             }
             """,
             "Maugham/Views/SomeSiblingView.swift": """
@@ -304,17 +291,14 @@ final class PaletteWallDoorTests: XCTestCase {
             }
             """,
         ])
-        XCTAssertEqual(try Self.openPaletteWallPresses(base: base).count, 2,
-                       "the press count reads both of the window's files")
         XCTAssertEqual(try Self.dotPaletteComparisons(under: "Maugham/Views", base: base),
                        ["Maugham/Views/SomeSiblingView.swift: func f() -> Bool { subject.open == .palette }"])
     }
 
     private static let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
     private static var wall: WindowSubject {
-        var subject = piece
-        ProjectWindow.pressPaletteWallDoor(subject: &subject)
-        return subject
+        ClickRule.resolve(.palette, gesture: .click, current: piece,
+                          structure: SubjectSamples.structure, projectType: .novel)
     }
 
     /// Source with `//` and `///` lines dropped — the shape
@@ -417,55 +401,21 @@ final class PaletteWallDoorTests: XCTestCase {
         for sub in view.subviews { collect(type, in: sub, into: &out) }
     }
 
-    /// **A real mouse click on the door**, because an accessibility press
-    /// skips in any process no assistive client attaches to — which is
-    /// every process this suite has ever run in.
-    ///
-    /// It also subsumes the enablement claim: a disabled
-    /// `Button` swallows a click, so a press that reaches its action proves the
-    /// door is live in the persona it was pressed in.
-    ///
-    /// **Finding the door**: `PaletteWallDoorHitAreaTests.doorGeometry`'s
-    /// structural discriminator, in miniature — the Palette header is the one
-    /// carrying TWO buttons (its chevron and the door) where Research carries a
-    /// chevron alone, and within it the door is the TRAILING one — the chevron
-    /// leads the title since D1 (2026-09-19). Identifying it by position in the
-    /// window instead is what silently measured the Research chevron when the
-    /// chevrons landed.
-    private func clickTheDoor(in window: NSWindow) throws {
-        let content = try XCTUnwrap(window.contentView)
-        let headers = allViews(in: content).filter {
-            String(describing: type(of: $0)).contains("ListTableHeaderView")
-        }
-        let ringsByHeader = headers.map { header in
-            allViews(in: header)
-                .filter { String(describing: type(of: $0)).contains("FocusRing") }
-                .sorted { $0.convert($0.bounds, to: content).minX
-                          < $1.convert($1.bounds, to: content).minX }
-        }
-        guard let palette = ringsByHeader.filter({ $0.count >= 2 })
-                .max(by: { $0.count < $1.count }),
-              let ring = palette.last
+    /// **The Palette row selected through the tree's own table**, found by
+    /// the mark every tree label carries (`TreeTravelTargetView`, whose subject
+    /// is the row's own) — never by position, which moves whenever the tree's
+    /// furniture grows. `selectRowIndexes` reaches the `List`'s selection
+    /// binding exactly as a click does.
+    private func selectThePaletteRow(in window: NSWindow) throws {
+        let table = try XCTUnwrap(firstTableView(in: window))
+        guard let mark = allViews(in: table)
+                .compactMap({ $0 as? TreeTravelTargetView })
+                .first(where: { $0.subject == .palette }),
+              case let row = table.row(for: mark), row >= 0
         else {
-            throw XCTSkip(
-                "this display mounted \(headers.count) section headers carrying "
-                + "\(ringsByHeader.map(\.count)) buttons — no Palette header "
-                + "with a door beside its chevron to click")
+            throw XCTSkip("this display mounted no Palette row")
         }
-        let icon = ring.convert(ring.bounds, to: content)
-        try XCTSkipUnless(icon.height > 1 && icon.width > 1,
-                          "this display mounted a door of \(icon.size)")
-        let inWindow = content.convert(CGPoint(x: icon.midX, y: icon.midY), to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            if let event = NSEvent.mouseEvent(
-                with: type, location: inWindow, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil,
-                eventNumber: 0, clickCount: 1,
-                pressure: type == .leftMouseDown ? 1 : 0) {
-                window.sendEvent(event)
-            }
-        }
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         pump(0.05)
     }
 
@@ -476,9 +426,9 @@ final class PaletteWallDoorTests: XCTestCase {
 
 // MARK: - Probes
 
-/// The door and the wall's observer over one box, wired the way `ProjectWindow`
-/// wires them: the press comes from production
-/// (`ProjectWindow.pressPaletteWallDoor`), and the modifier is the real one.
+/// The tree and the wall's observer over one box, wired the way `ProjectWindow`
+/// wires them: the tree writes the window subject through its own `List`
+/// selection, and the modifier is the real one.
 @MainActor
 private struct DoorProbeView: View {
     let store: ProjectStore
@@ -488,11 +438,8 @@ private struct DoorProbeView: View {
     var body: some View {
         BinderView(
             store: store,
-            selectedSubject: Binding(get: { box.subject.beside ?? box.subject.faces },
-                                     set: { _ in }),
-            treeState: treeState,
-            paletteWallTravels: false,
-            onOpenPaletteWall: { ProjectWindow.pressPaletteWallDoor(subject: &box.subject) })
+            subject: Binding(get: { box.subject }, set: { box.subject = $0 }),
+            treeState: treeState)
         .modifier(ProjectWindow.PaletteWallModifier(
             paletteWall: Binding(get: { box.wall }, set: { box.wall = $0 }),
             showInspector: Binding(get: { box.showInspector },

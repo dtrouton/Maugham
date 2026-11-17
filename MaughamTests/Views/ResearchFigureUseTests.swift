@@ -104,7 +104,7 @@ final class ResearchFigureUseTests: XCTestCase {
     }
 
     private func menu(_ store: ProjectStore, _ state: BinderTreeSectionsState) -> ResearchTreeActions {
-        BinderTreeVerbs(store: store, state: state, selectedSubject: .constant(nil)).bundle
+        BinderTreeVerbs(store: store, state: state, subject: .constant(.book)).bundle
     }
 
     // MARK: - Use in Document

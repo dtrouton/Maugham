@@ -96,7 +96,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         // document it carries, and this is the assertion that it carries it.
         let actions = BinderPieceFold(
             store: store, state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil),
+            subject: .constant(.book),
             documentId: chapter.id, fold: fold).actions
         let accepted = actions.internalDrop(ships.id, .middle, tides)
 
@@ -122,7 +122,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let sections = BinderTreeSections(
             store: store, state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertTrue(sections.actions.internalDrop(ships.id, .top, tides))
 
@@ -265,7 +265,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let sections = BinderTreeSections(
             store: store, state: BinderTreeSectionsState(),
-            selectedSubject: .constant(nil))
+            subject: .constant(.book))
 
         XCTAssertFalse(verbs(store).routePieceRowDrop(
             draggedId: "canvas-node-1", documentId: chapter.id,
@@ -360,7 +360,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
 
         let actions = BinderPieceFold(
             store: store, state: state(for: store),
-            selectedSubject: .constant(nil),
+            subject: .constant(.book),
             documentId: chapter.id, fold: fold).actions
         XCTAssertTrue(actions.externalDrop([provider(for: file)], .bottom, ships))
 
@@ -380,7 +380,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let sections = BinderTreeSections(
-            store: store, state: state(for: store), selectedSubject: .constant(nil))
+            store: store, state: state(for: store), subject: .constant(.book))
         let file = try makeFile(named: "charts.md", contents: "# Charts")
 
         XCTAssertTrue(sections.actions.externalDrop(
@@ -398,7 +398,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let group = try await store.addResearchItem(
             parentId: nil, title: "World", kind: nil)
         let sections = BinderTreeSections(
-            store: store, state: state(for: store), selectedSubject: .constant(nil))
+            store: store, state: state(for: store), subject: .constant(.book))
         let file = try makeFile(named: "maps.md", contents: "# Maps")
 
         XCTAssertTrue(sections.actions.externalDrop(
@@ -672,13 +672,13 @@ final class BinderTreeDropRoutingTests: XCTestCase {
     /// a mystery about why nothing happened.
     private func verbs(_ store: ProjectStore) -> BinderTreeVerbs {
         BinderTreeVerbs(store: store, state: state(for: store),
-                        selectedSubject: .constant(nil))
+                        subject: .constant(.book))
     }
 
     /// The section over the same state, so `settle` sees a store refusal.
     private func sections(_ store: ProjectStore) -> BinderTreeSections {
         BinderTreeSections(store: store, state: state(for: store),
-                           selectedSubject: .constant(nil))
+                           subject: .constant(.book))
     }
 
     private func state(for store: ProjectStore) -> BinderTreeSectionsState {
@@ -791,8 +791,8 @@ private struct DropRoutingProbeView: View {
     var body: some View {
         CollectionPiecesPane(
             store: store,
-            selectedSubject: Binding(get: { probe.subject },
-                                     set: { probe.subject = $0 }),
+            subject: .tree(Binding(get: { probe.subject },
+                                     set: { probe.subject = $0 })),
             renamingItemId: $renaming,
             treeState: treeState)
             .modifier(SubjectValidationModifier(

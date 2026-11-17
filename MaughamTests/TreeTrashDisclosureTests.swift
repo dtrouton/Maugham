@@ -613,20 +613,18 @@ private struct BinderToggleTrashProbeView: View {
             case .standard:
                 BinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     projectType: store.manifest.type,
                     lastParsedScript: nil,
                     treeState: treeState,
-                    treeFindActive: .constant(false),
-                    persona: persona)
+                    treeFindActive: .constant(false))
             case .collection:
                 CollectionBinderPaneToggle(
                     store: store,
-                    selectedSubject: subject,
+                    subject: .tree(subject),
                     treeFindActive: .constant(false),
                     renamingItemId: $renamingItemId,
-                    treeState: treeState,
-                    persona: persona)
+                    treeState: treeState)
             }
         }
         .onKeyWindowCommand(.maughamRestoreLastDeleted, window: box.window) { _ in

@@ -72,6 +72,41 @@ final class ClickRuleTests: XCTestCase {
         }
     }
 
+    /// **A click on the row already beside puts it away** (shell p1 Task 3,
+    /// controller ruling 2) — the tree's own dismissal; open and faces stay.
+    func test_aClickOnTheRowAlreadyBesideDismissesIt() {
+        for current in [ws(.item("ch-1"), .item("ch-1"), beside: .research("r-1")),
+                        ws(.canvas, .item("ch-2"), beside: .research("r-1"))] {
+            let r = resolve(.research("r-1"), .click, from: current)
+            XCTAssertEqual(r, ws(current.open, current.faces, beside: nil))
+        }
+        // Control: a different note replaces it rather than dismissing.
+        XCTAssertEqual(
+            resolve(.research("r-2"), .click,
+                    from: ws(.item("ch-1"), .item("ch-1"), beside: .research("r-1"))).beside,
+            .research("r-2"))
+    }
+
+    /// **Going to a thing from outside the tree** never puts away what is
+    /// beside: a link or a Show naming the note already beside, or the piece
+    /// already in the faces, changes nothing; anything else is a click.
+    func test_navigateIsAClickThatNeverDismisses() {
+        let besideNote = ws(.item("ch-1"), .item("ch-1"), beside: .research("r-1"))
+        XCTAssertEqual(ClickRule.navigate(to: .research("r-1"), current: besideNote,
+                                          structure: structure, projectType: .novel),
+                       besideNote)
+        let canvas = ws(.canvas, .item("ch-1"))
+        XCTAssertEqual(ClickRule.navigate(to: .item("ch-1"), current: canvas,
+                                          structure: structure, projectType: .novel),
+                       canvas)
+        XCTAssertEqual(ClickRule.navigate(to: .item("ch-2"), current: canvas,
+                                          structure: structure, projectType: .novel),
+                       resolve(.item("ch-2"), .click, from: canvas))
+        XCTAssertEqual(ClickRule.navigate(to: nil, current: canvas,
+                                          structure: structure, projectType: .novel),
+                       .book, "nil is the Book")
+    }
+
     func test_aFigureOpensAndFaces() {
         XCTAssertEqual(resolve(.figure("f-1"), .click, from: ws(.canvas, .project)),
                        ws(.figure("f-1"), .figure("f-1")))

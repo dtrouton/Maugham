@@ -263,7 +263,7 @@ final class CanvasCollapseTests: XCTestCase {
             var window = WindowState(showInspector: priorInspector)
             let piece = SubjectSamples.opened(.item(SubjectSamples.pieceID))
             var wall = piece
-            ProjectWindow.pressPaletteWallDoor(subject: &wall)
+            wall = ClickRule.resolve(.palette, gesture: .click, current: wall, structure: SubjectSamples.structure, projectType: .novel)
             window.foldPalette(from: piece, to: wall)
             let canvas = SubjectSamples.opened(.canvas)
             window.foldPalette(from: wall, to: canvas)
@@ -283,7 +283,7 @@ final class CanvasCollapseTests: XCTestCase {
         var card: String? = "card-1"
         let before = SubjectSamples.opened(.item(SubjectSamples.pieceID))
         var open = before
-        ProjectWindow.pressPaletteWallDoor(subject: &open)
+        open = ClickRule.resolve(.palette, gesture: .click, current: open, structure: SubjectSamples.structure, projectType: .novel)
         wall.applyPaletteWallChange(
             from: before, to: open, showInspector: &showInspector,
             selectedPaletteCardId: &card)
@@ -380,7 +380,7 @@ final class CanvasCollapseTests: XCTestCase {
             var wall = PaletteWallState()
             let before = SubjectSamples.opened(.project)
             var open = before
-            ProjectWindow.pressPaletteWallDoor(subject: &open)
+            open = ClickRule.resolve(.palette, gesture: .click, current: open, structure: SubjectSamples.structure, projectType: .novel)
             showInspector = true
             wall.applyPaletteWallChange(from: before, to: open,
                                         showInspector: &showInspector,

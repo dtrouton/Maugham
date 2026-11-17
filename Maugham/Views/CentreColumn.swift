@@ -52,9 +52,6 @@ struct CentreColumn: View {
     // The window's state this column writes — bindings, never copies.
     /// The window's subject: the route's one input about what is open.
     @Binding var subject: WindowSubject
-    /// The tree's view of the subject (`beside ?? faces`), written through the
-    /// click rule — what a row, a card or a chip writes.
-    @Binding var selectedSubject: BinderSubject?
     @Binding var bookView: BookView
     @Binding var selectedPaletteCardId: String?
     @Binding var showInspector: Bool
@@ -157,6 +154,20 @@ struct CentreColumn: View {
         }
     }
 
+    /// **A card, a row or a chip pointing the window at a piece**:
+    /// `ClickRule.navigate`, so a piece clicked while the Book is open opens it.
+    private func navigate(to target: BinderSubject?, store: ProjectStore) {
+        let next = ClickRule.navigate(to: target, current: subject,
+                                      structure: store.manifest.structure,
+                                      projectType: store.manifest.type)
+        if next != subject { subject = next }
+    }
+
+    /// The Book's views' selection: the faces, written through `navigate`.
+    private func facesNavigation(store: ProjectStore) -> Binding<BinderSubject?> {
+        Binding(get: { subject.faces }, set: { navigate(to: $0, store: store) })
+    }
+
     private func openReferenceInWindow(piece: StructureItem, store: ProjectStore) {
         let resolution = store.resolveReference(piece)
         let url: URL
@@ -244,7 +255,7 @@ struct CentreColumn: View {
                     store: store,
                     view: altitude,
                     bookView: $bookView,
-                    selectedSubject: $selectedSubject,
+                    selectedSubject: facesNavigation(store: store),
                     title: scope.title,
                     structure: scope.structure,
                     offersStatus: subject.open.isEdition == false) {
@@ -283,8 +294,8 @@ struct CentreColumn: View {
                         switch PublishProblems.reveal(row) {
                         case .paragraph(let reveal):
                             TranslationReveal.post(reveal)
-                        case .piece(let subject):
-                            selectedSubject = subject
+                        case .piece(let piece):
+                            navigate(to: piece, store: store)
                         }
                     })
             case .translationRound(let round):
@@ -374,7 +385,7 @@ struct CentreColumn: View {
             // takes `open` off the Book and uncovers the host that was mounted
             // underneath all along; no arm is torn down.
             onNavigate: { pieceId, passId in
-                selectedSubject = .item(pieceId)
+                navigate(to: .item(pieceId), store: store)
                 recordActivePass(pieceId, passId)
             },
             // The board's write, at the board's HOST — the same place and the
@@ -392,7 +403,7 @@ struct CentreColumn: View {
             // (`RunWhenDocumentOpens`' doc).
             onRunRound: { pieceId, passId in
                 recordActivePass(pieceId, passId)
-                selectedSubject = .item(pieceId)
+                navigate(to: .item(pieceId), store: store)
                 runRoundWhenPieceOpens(pieceId)
             },
             // **Each chip asks its own piece**: the drawing door, per row, so a
@@ -481,7 +492,7 @@ struct CentreColumn: View {
                    // change, the canvas's per drag frame.
                    // The faces (or what is opened beside): a click on a piece moves
                    // the faces while the canvas keeps the centre.
-                   subject: CanvasSubject.resolve(selectedSubject,
+                   subject: CanvasSubject.resolve(subject.lastClicked,
                                                   in: store.manifest.structure,
                                                   research: store.manifest.research),
                    // Spec §4.1: Escape is the keyboard spelling of the project row, so

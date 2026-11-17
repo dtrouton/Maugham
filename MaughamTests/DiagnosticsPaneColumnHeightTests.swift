@@ -29,8 +29,8 @@ private struct ThreeColumnHarness<Detail: View>: View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             CollectionPiecesPane(
                 store: store,
-                selectedSubject: Binding(get: { probe.subject },
-                                         set: { probe.subject = $0 }),
+                subject: .tree(Binding(get: { probe.subject },
+                                         set: { probe.subject = $0 })),
                 renamingItemId: $renaming,
                 treeState: treeState)
                 .navigationSplitViewColumnWidth(

@@ -27,7 +27,7 @@ import MaughamCore
 struct BinderPieceFold: View {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
-    @Binding var selectedSubject: BinderSubject?
+    @Binding var subject: WindowSubject
     /// The document this fold hangs under — and the *scope* a note made from a
     /// row in it belongs to. See `actions`.
     let documentId: String
@@ -146,7 +146,7 @@ struct BinderPieceFold: View {
     }
 
     private var verbs: BinderTreeVerbs {
-        BinderTreeVerbs(store: store, state: state, selectedSubject: $selectedSubject)
+        BinderTreeVerbs(store: store, state: state, subject: $subject)
     }
 
     private func findParentId(of childId: String) -> String? {

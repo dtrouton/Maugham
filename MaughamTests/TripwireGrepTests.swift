@@ -2800,15 +2800,6 @@ final class TripwireGrepTests: XCTestCase {
         // the seam every other canvas test drives takes the flag by hand — the
         // 1C-a shape. Sent synchronously, pumped once; nothing polls.
         "CanvasViewMountingRegionTests.swift test_aShiftDragBetweenTwoCardsReachesTheSceneThroughTheRealEventPath",
-        // A hit area: the door's live band swept down (and across) the icon.
-        // SwiftUI hit-tests inside one hosting view, so no `hitTest` can see it.
-        "PaletteWallDoorHitAreaTests.swift test_theWholeOpenWallIconOpensTheWall",
-        // The sweep's control — without a miss it can see, the sweep asserts nothing.
-        "PaletteWallDoorHitAreaTests.swift test_control_theSweepCanSeeAMiss",
-        // The real delivery path: the door's click through the real tree
-        // into the real `PaletteWallModifier` — the only proof the press
-        // reaches the subject and the wall's fold runs over it.
-        "PaletteWallDoorTests.swift test_pressingTheDoorOpensTheWallInPlace",
         // The real delivery path: the only proof the altitude overlay's card can
         // be reached by a mouse at all (a `Button(.plain)` in a `LazyVGrid`).
         "ProjectAltitudeCentreTests.swift test_clickingACorkboardCardOpensThatChapterInTheHostThatWasAlreadyUp",
@@ -2832,11 +2823,11 @@ final class TripwireGrepTests: XCTestCase {
         "BinderTreeSectionsTests.swift test_aClickOnAPieceRowsFigureCountFiltersAndSelectsNothing",
         // A hit area: a click on the row's NAME selects (stage 3b's regression,
         // invisible to a `rect.midX` click) — and, with the watcher installed,
-        // stays one click: the persona does not move.
+        // stays one click: nothing opens in the centre.
         "TreeTravelTests.swift test_aSingleClickOnTheRowsNameSelectsIt",
-        // The real delivery path: the travel is an `NSEvent` local monitor
+        // The real delivery path: the double-click is an `NSEvent` local monitor
         // reading `clickCount == 2`, which only `NSApp`'s own dispatch runs.
-        "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameTravelsToAuthor",
+        "TreeTravelTests.swift test_aDoubleClickOnTheRowsNameOpensItInTheCentre",
     ]
 
     /// Every `File.swift test_name` under `dir` whose body synthesises a mouse
@@ -8291,7 +8282,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `ProjectWindow.swift` beside the window, so it is named by its own type.
     static let personaDecisionSites: Set<String> = [
         "ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
-        "type:ProjectWindow", "type:PersonaModifier", "TreeTravel.swift",
+        "type:ProjectWindow", "type:PersonaModifier",
     ]
 
     /// Every persona write under `dir`, folded into `personaDecisionSites`'
