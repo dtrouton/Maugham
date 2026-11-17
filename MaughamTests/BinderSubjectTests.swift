@@ -290,4 +290,13 @@ final class BinderSubjectTests: XCTestCase {
             .map(\.name)
             .sorted()
     }
+
+    func test_theFourNewCasesNameNoDocumentResearchOrFigure() {
+        for s in [BinderSubject.inbox, .canvas, .palette, .edition(language: "es")] {
+            XCTAssertNil(s.itemID)
+            XCTAssertNil(s.researchID)
+            XCTAssertNil(s.figureID)
+            XCTAssertEqual(BinderSubject.activeDocId(for: s), BinderSubject.noDocumentSubject)
+        }
+    }
 }

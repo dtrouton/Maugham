@@ -337,4 +337,39 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
             String(data: JSONEncoder().encode(UIState.empty), encoding: .utf8))
         XCTAssertFalse(json.contains("authorReaderChoice"), json)
     }
+
+    // MARK: - The window's subject (shell p1 task 1)
+
+    private func decode(_ json: String) throws -> UIState {
+        try JSONDecoder().decode(UIState.self, from: Data(json.utf8))
+    }
+
+    func test_aLegacyStateWithPersonaAndSelectedSubjectDecodesToThatSubject() throws {
+        let s = try decode(#"{"schemaVersion":5,"selectedItemId":"ch-1","persona":"review"}"#)
+        XCTAssertEqual(s.windowSubject,
+                       WindowSubject(open: .item("ch-1"), faces: .item("ch-1"), beside: nil))
+    }
+
+    func test_aLegacyStateWithNoSubjectDecodesToTheBook() throws {
+        let s = try decode(#"{"schemaVersion":5,"persona":"author"}"#)
+        XCTAssertEqual(s.windowSubject, .book)
+    }
+
+    func test_windowSubjectRoundTrips() throws {
+        var s = UIState.empty
+        s.windowSubject = WindowSubject(open: .canvas, faces: .item("ch-1"),
+                                        beside: .research("r-1"))
+        s.bookView = .status
+        let back = try JSONDecoder().decode(UIState.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.windowSubject, s.windowSubject)
+        XCTAssertEqual(back.bookView, .status)
+        XCTAssertEqual(back, s)
+    }
+
+    func test_legacyOutlineLayoutSeedsTheBookView() throws {
+        XCTAssertEqual(try decode(#"{"schemaVersion":5,"outlineLayout":"table"}"#).bookView,
+                       .outline)
+        XCTAssertEqual(try decode(#"{"schemaVersion":5,"outlineLayout":"cards"}"#).bookView,
+                       .cards)
+    }
 }

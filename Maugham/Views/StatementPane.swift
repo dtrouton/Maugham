@@ -90,8 +90,9 @@ struct StatementPane: View {
             // Permanent, not interim: unlike `validSubject`, there is no
             // research-tree validation this could grow into.
             return .project
-        case .figure:
-            // A figure carries no craft intent either, for the same reason.
+        case .figure, .inbox, .canvas, .palette, .edition:
+            // A figure (and the shell-p1 subjects) carries no craft intent
+            // either, for the same reason.
             return .project
         }
     }

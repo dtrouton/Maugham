@@ -166,7 +166,7 @@ enum TreePasteRouting {
         case .research, .project: return true
         // A figure is the book's, not Research's: a paste while one is chosen
         // is no more a note the writer asked for than one over a chapter.
-        case .item, .figure, .none: return false
+        case .item, .figure, .inbox, .canvas, .palette, .edition, .none: return false
         }
     }
 }

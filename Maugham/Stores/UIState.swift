@@ -42,6 +42,15 @@ public struct UIState: Codable, Equatable, Sendable {
     /// figure subject writes a FOURTH, `selectedFigureId` (report plan 8a), the
     /// same way.
     public var selectedSubject: BinderSubject?
+
+    /// What the window is about (shell p1): centre, right column, beside.
+    /// Stored under its own `windowSubject` key. A file without it builds one
+    /// from the legacy `selectedSubject`, else the Book.
+    public var windowSubject: WindowSubject
+
+    /// How the Book is shown. Seeded once from the legacy `outlineLayout`
+    /// when absent (`.table` is `.outline`, `.cards` is `.cards`).
+    public var bookView: BookView
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
     public var detailSegment: DetailSegment
@@ -226,6 +235,8 @@ public struct UIState: Codable, Equatable, Sendable {
     public init(
         schemaVersion: Int = UIState.currentSchemaVersion,
         selectedSubject: BinderSubject? = nil,
+        windowSubject: WindowSubject = .book,
+        bookView: BookView = .outline,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .inspector,
@@ -243,6 +254,8 @@ public struct UIState: Codable, Equatable, Sendable {
     ) {
         self.schemaVersion = schemaVersion
         self.selectedSubject = selectedSubject
+        self.windowSubject = windowSubject
+        self.bookView = bookView
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
@@ -263,7 +276,7 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, selectedItemId, selectedSubjectIsProject,
+        case schemaVersion, windowSubject, bookView, selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
@@ -290,9 +303,13 @@ public struct UIState: Codable, Equatable, Sendable {
             // file as "no subject" and lands on the project row — never on a
             // structure or research row that happened to share the id.
             try c.encode(id, forKey: .selectedFigureId)
-        case nil:
+        case nil, .inbox, .canvas, .palette, .edition:
+            // The shell-p1 subjects have no legacy key; `windowSubject` below
+            // carries them.
             break
         }
+        try c.encode(windowSubject, forKey: .windowSubject)
+        try c.encode(bookView, forKey: .bookView)
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(detailSegment, forKey: .detailSegment)
@@ -336,11 +353,23 @@ public struct UIState: Codable, Equatable, Sendable {
         } else {
             self.selectedSubject = nil
         }
+        if let w = try? c.decode(WindowSubject.self, forKey: .windowSubject) {
+            self.windowSubject = w
+        } else if let legacy = self.selectedSubject {
+            self.windowSubject = WindowSubject(open: legacy, faces: legacy, beside: nil)
+        } else {
+            self.windowSubject = .book
+        }
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
         self.outlineLayout = (try? c.decode(OutlineLayout.self, forKey: .outlineLayout)) ?? .table
+        if let b = try? c.decode(BookView.self, forKey: .bookView) {
+            self.bookView = b
+        } else {
+            self.bookView = self.outlineLayout == .cards ? .cards : .outline
+        }
         self.persona = (try? c.decode(Persona.self, forKey: .persona)) ?? .default
         self.personaMemory =
             (try? c.decode(PersonaMemory.self, forKey: .personaMemory)) ?? .empty

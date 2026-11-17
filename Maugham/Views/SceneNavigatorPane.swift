@@ -261,7 +261,8 @@ struct SceneNavigatorPane: View {
         // A figure passes through for the research case's reason: the
         // sections at this list's foot are where a figure row would be.
         case .figure(let id): return .figure(id)
-        case .none: return nil
+        // Shell-p1 subjects have no row in this list: highlight nothing.
+        case .inbox, .canvas, .palette, .edition, .none: return nil
         }
     }
 
@@ -280,7 +281,7 @@ struct SceneNavigatorPane: View {
         switch written {
         case .item(let id):
             return id == documentID ? .item(id) : current
-        case .project, .research, .figure, .none:
+        case .project, .research, .figure, .inbox, .canvas, .palette, .edition, .none:
             return BinderTreeSelection.subject(current, whenListWrites: written)
         }
     }
@@ -322,7 +323,7 @@ struct SceneNavigatorPane: View {
         case .item: return current
         // A figure subject is reclaimed with the research one: no editor is
         // mounted under it either, so the scene post would reach nothing.
-        case .project, .research, .figure, .none:
+        case .project, .research, .figure, .inbox, .canvas, .palette, .edition, .none:
             return documentID.map(BinderSubject.item) ?? current
         }
     }

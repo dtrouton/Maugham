@@ -17,7 +17,7 @@ import Foundation
 /// a site that wants a bare id has to say, where it asks, what the project
 /// means to it. `itemID` and `activeDocId(for:)` are those two answers and are
 /// the only way out of the type.
-public enum BinderSubject: Hashable, Sendable {
+public enum BinderSubject: Hashable, Sendable, Codable {
 
     /// The project itself — the subject `StatementPane`'s `[chapter | Project]`
     /// switch existed to reach because the tree could not say it.
@@ -64,6 +64,22 @@ public enum BinderSubject: Hashable, Sendable {
     /// `.project` (`ProjectWindow.validSubject`).
     case figure(String)
 
+    /// The Inbox — a place the window can be about (shell p1). Names no
+    /// document, research item or figure.
+    case inbox
+
+    /// The canvas, as a subject (shell p1). Names no document, research item
+    /// or figure.
+    case canvas
+
+    /// The palette, as a subject (shell p1). Names no document, research item
+    /// or figure.
+    case palette
+
+    /// One edition of the book, by language — the source language is an
+    /// edition too (shell p1). Names no document, research item or figure.
+    case edition(language: String)
+
     /// The structure-item id this subject names, or `nil` when it names the
     /// project or a research item.
     ///
@@ -74,7 +90,7 @@ public enum BinderSubject: Hashable, Sendable {
         switch self {
         case .project: return nil
         case .item(let id): return id
-        case .research, .figure: return nil
+        case .research, .figure, .inbox, .canvas, .palette, .edition: return nil
         }
     }
 
@@ -82,7 +98,7 @@ public enum BinderSubject: Hashable, Sendable {
     /// project or a structure item. The mirror of `itemID`.
     public var researchID: String? {
         switch self {
-        case .project, .item, .figure: return nil
+        case .project, .item, .figure, .inbox, .canvas, .palette, .edition: return nil
         case .research(let id): return id
         }
     }
@@ -91,7 +107,7 @@ public enum BinderSubject: Hashable, Sendable {
     /// case. The mirror of `itemID` and `researchID`.
     public var figureID: String? {
         switch self {
-        case .project, .item, .research: return nil
+        case .project, .item, .research, .inbox, .canvas, .palette, .edition: return nil
         case .figure(let id): return id
         }
     }
@@ -133,5 +149,48 @@ public enum BinderSubject: Hashable, Sendable {
     /// against the manifest, exactly as it was.
     public static func activeDocId(for subject: BinderSubject?) -> String {
         subject?.itemID ?? noDocumentSubject
+    }
+
+    // MARK: - Codable (the window's subject, shell p1)
+
+    private enum CodingKeys: String, CodingKey { case kind, id, language }
+
+    /// `{"kind": "...", "id"/"language": "..."}`. Only `WindowSubject` writes
+    /// this; `UIState.selectedSubject` keeps its own four-key encoding.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .project: try c.encode("project", forKey: .kind)
+        case .item(let id):
+            try c.encode("item", forKey: .kind); try c.encode(id, forKey: .id)
+        case .research(let id):
+            try c.encode("research", forKey: .kind); try c.encode(id, forKey: .id)
+        case .figure(let id):
+            try c.encode("figure", forKey: .kind); try c.encode(id, forKey: .id)
+        case .inbox: try c.encode("inbox", forKey: .kind)
+        case .canvas: try c.encode("canvas", forKey: .kind)
+        case .palette: try c.encode("palette", forKey: .kind)
+        case .edition(let language):
+            try c.encode("edition", forKey: .kind)
+            try c.encode(language, forKey: .language)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        switch try c.decode(String.self, forKey: .kind) {
+        case "project": self = .project
+        case "item": self = .item(try c.decode(String.self, forKey: .id))
+        case "research": self = .research(try c.decode(String.self, forKey: .id))
+        case "figure": self = .figure(try c.decode(String.self, forKey: .id))
+        case "inbox": self = .inbox
+        case "canvas": self = .canvas
+        case "palette": self = .palette
+        case "edition": self = .edition(language: try c.decode(String.self, forKey: .language))
+        case let other:
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind, in: c,
+                debugDescription: "unknown subject kind \(other)")
+        }
     }
 }

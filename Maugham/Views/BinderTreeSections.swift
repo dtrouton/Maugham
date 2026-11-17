@@ -1445,7 +1445,7 @@ enum BinderTreeSelection {
     static func subject(_ current: BinderSubject?,
                         whenListWrites written: BinderSubject?) -> BinderSubject? {
         switch written {
-        case .project, .item, .research, .figure: return written
+        case .project, .item, .research, .figure, .inbox, .canvas, .palette, .edition: return written
         case .none: return current
         }
     }

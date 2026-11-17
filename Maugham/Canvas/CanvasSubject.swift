@@ -125,7 +125,8 @@ enum CanvasSubject: Hashable {
                         in structure: [StructureItem],
                         research: [ResearchItem]) -> CanvasSubject {
         switch subject {
-        case nil, .project:
+        case nil, .project, .inbox, .canvas, .palette, .edition:
+            // The shell-p1 subjects name no piece or card: the whole board.
             return .wholeProject
         case .figure:
             // A figure lights no card — it has none on the board — and names

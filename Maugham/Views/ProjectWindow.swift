@@ -1603,7 +1603,7 @@ struct ProjectWindow: View {
                                     research: store.manifest.research,
                                     projectType: store.manifest.type)
                 .map(TreeScrollTarget.row)
-        case .item, .project:
+        case .item, .project, .inbox, .canvas, .palette, .edition:
             return .row(subject)
         case .figure:
             // `matchSubject` makes no figure subject (a search matches text,
@@ -2332,7 +2332,8 @@ struct ProjectWindow: View {
             return .project
         case .figure(let id) where !parked.contains(id) && figures.contains(where: { $0.id == id }):
             return .figure(id)
-        case .figure:
+        case .figure, .inbox, .canvas, .palette, .edition:
+            // Shell-p1 subjects are not a legacy selection; repair to the project.
             return .project
         }
     }
