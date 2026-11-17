@@ -141,3 +141,18 @@ Reference shape: `git show 4218bcdc` (a stale branch; port the idea, write the t
 - [ ] Release notes: one line per fix a writer can notice (F1, F3, F5, F7, F8, F9's folder), grouped as 0.47.0's are; Known issues carries over only what is still true (check each 0.47.0 known issue against the built code).
 - [ ] Sweep sibling docs for now-false claims (CLAUDE.md default workflow item 10).
 - [ ] `./scripts/test.sh full`. Commit.
+
+### Task 10: A piece reorder or rename carries the paths of nested Research items (found by Task 2)
+
+**Why:** `movePiece` and `renamePiece` rewrite the `path` of top-level `manifest.research` items under the piece's `research/` prefix, but not of a Research group's `children`. After a reorder or rename, a note inside a group under that piece still names the old folder. Predates this branch; found by Task 2's implementer and confirmed by its reviewer (not yet reproduced by a test).
+
+**Files:**
+- Modify: `Maugham/Stores/ProjectStore+CollectionPieces.swift` (`movePiece` step 4, `renamePiece`'s research rewrite)
+- Modify: `MaughamTests/TripwireGrepTests.swift` (the Task 2 census also classifies the `documentStore.relocate(plan:)` callers in `ProjectStore+Structure.swift`)
+- Test: `MaughamTests/Stores/PieceVerbSpanTests.swift` or a sibling
+
+- [ ] Test (red first): a collection with two loose pieces; under piece 1's research, a group holding a note (file on disk) and a nested group holding a second note. Reorder the pieces; then rename piece 1. After each: every Research item's `path` under the piece (at any depth) starts with the piece's NEW research prefix, each file exists at its manifest path, and the note opens through `ResearchNoteDoor` with its text. If the first test is green before any change (nesting under a piece cannot be built through the production verbs), stop and report that with the evidence instead of changing code.
+- [ ] Rewrite recursively. Structure groups already have `rewriteChildPaths` (`ProjectStore+Structure.swift`); use the same shape for Research (one shared helper, not a second copy of the loop in each verb).
+- [ ] Census: add the `relocate(plan:)` callers to the Task 2 named array with their classification.
+- [ ] Add a claim for the rule beside the Stores/Trash claims that describe piece reorder and rename, with its filing if a ruling reaches it (RULING-52's family is nearest; say NO_RULING_REACHES if none does), recompute, START-HERE counts.
+- [ ] Gates. Commit.
