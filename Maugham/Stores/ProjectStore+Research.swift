@@ -431,10 +431,12 @@ extension ProjectStore {
 
     /// Move a research item. Sibling reorder is manifest-only; cross-group
     /// drag physically moves the file (asset) or folder (group) on disk and
-    /// rewrites descendant paths.
+    /// rewrites descendant paths. Returns what the move left (as
+    /// `moveResearchItems`).
+    @discardableResult
     public func moveResearchItem(
         id: String, toParentId: String?, atIndex destIndex: Int
-    ) async throws {
+    ) async throws -> RenameOutcome {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -442,7 +444,7 @@ extension ProjectStore {
 
         // No-op detection.
         let oldIndex = currentResearchIndex(of: id, parentId: oldParentId)
-        if oldParentId == toParentId, oldIndex == destIndex { return }
+        if oldParentId == toParentId, oldIndex == destIndex { return RenameOutcome(act: .moved) }
 
         // Same-parent reorder → manifest-only.
         if oldParentId == toParentId {
@@ -456,14 +458,14 @@ extension ProjectStore {
             replaceResearchChildren(parentId: toParentId, with: siblings)
             manifest.modified = Date()
             try await saveManifest()
-            return
+            return RenameOutcome(act: .moved)
         }
 
         // Cross-group: delegate to the batch scope-aware mover (one
         // RenamePlan incl. the note's sibling _assets/ folder, manifest
         // rewrite, single save).
         let target: ResearchMoveTarget = toParentId.map { .group($0) } ?? .sharedRoot
-        try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
+        return try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
     }
 
     func findResearchParentId(
@@ -1042,13 +1044,16 @@ extension ProjectStore {
     /// When `title` changes AND the item has a path whose slug matches the old
     /// title slug, the underlying file (for assets) or folder (for groups) is
     /// renamed on disk to match the new slug before the manifest is updated.
+    /// Returns what the rename left: a note whose picture links could not be
+    /// rewritten is named (`RenameOutcome.assetRefsLeftIn`, #148 D2).
+    @discardableResult
     public func updateResearchItem(
         id: String,
         title: String? = nil,
         caption: String? = nil,
         tags: [String]? = nil,
         url linkURL: String? = nil
-    ) async throws {
+    ) async throws -> RenameOutcome {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let oldItem = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -1137,13 +1142,17 @@ extension ProjectStore {
         // names where it now is (the note door asks the item's path at the
         // write) and BEFORE the save, so a save that throws cannot leave them
         // naming a folder that is gone (#142 T3). Outside the in-flight span.
-        if let assetRefs {
-            await rewriteMovedNoteAssetRefs(
-                itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem)
+        // A rewrite that fails is named in the outcome (#148 D2): the rename
+        // stands, and the writer is told its picture links were left.
+        var assetRefsLeftIn: [String] = []
+        if let assetRefs, let left = await rewriteMovedNoteAssetRefs(
+            itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem) {
+            assetRefsLeftIn.append(left)
         }
 
         manifest.modified = Date()
         try await saveManifest()
+        return RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .renamed)
     }
 
     /// Rename the backing file or folder when a research item's title changes.

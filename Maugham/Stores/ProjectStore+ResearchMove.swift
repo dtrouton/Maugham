@@ -113,10 +113,13 @@ extension ProjectStore {
     /// invalid id moves nothing. One RenamePlan through the typed mover, one
     /// manifest save. `destIndex` is the insertion index within the
     /// destination sibling list (group children, or the top-level
-    /// `manifest.research` array); nil appends.
+    /// `manifest.research` array); nil appends. Returns what the move left:
+    /// the notes whose picture links could not be rewritten
+    /// (`RenameOutcome.assetRefsLeftIn`, #148 D2).
+    @discardableResult
     public func moveResearchItems(
         ids: [String], to target: ResearchMoveTarget, atIndex destIndex: Int? = nil
-    ) async throws {
+    ) async throws -> RenameOutcome {
         beginStructuralVerb(); defer { endStructuralVerb() }
         let dest = try resolveResearchMoveTarget(target)
         // A destination folder outside every research root (a synced
@@ -313,13 +316,19 @@ extension ProjectStore {
         // this runs BEFORE the save so a save that throws cannot leave the
         // refs naming a folder that is gone (#142 T3). Outside the in-flight
         // span, so the rewrite's own save is an ordinary one.
+        // A rewrite that fails is named in the outcome (#148 D2): the move
+        // stands, and the writer is told which notes' picture links it left.
+        var assetRefsLeftIn: [String] = []
         for (item, pending) in zip(items, pendings) {
             guard let (oldStem, newStem) = pending.refRewrite else { continue }
-            await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem)
+            if let left = await rewriteMovedNoteAssetRefs(itemId: item.id, oldStem: oldStem, newStem: newStem) {
+                assetRefsLeftIn.append(left)
+            }
         }
 
         manifest.modified = Date()
         try await saveManifest()
+        return RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .moved)
     }
 
     /// **A moved or renamed note's `./<old>_assets/` refs, rewritten** once
@@ -329,19 +338,28 @@ extension ProjectStore {
     /// raw write. Anything else (`ResearchTextRole` nil) is not written. It
     /// lands even when the earlier version cannot be kept (`mustLand`); a
     /// write that fails is logged and the move stands.
-    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async {
+    ///
+    /// **Returns the note's title when its refs were left stale** (the file
+    /// would not resolve, read or write), so the verb's outcome names it
+    /// (`RenameOutcome.assetRefsLeftIn`, #148 D2, RULING-52); nil when they
+    /// were rewritten, needed nothing, or the item is not a note.
+    @discardableResult
+    func rewriteMovedNoteAssetRefs(itemId: String, oldStem: String, newStem: String) async -> String? {
         guard let item = findResearchItem(id: itemId, in: manifest.research),
-              let path = item.path else { return }
+              let path = item.path else { return nil }
         // Only a note or a palette card inside a research root is rewritten:
         // a synced manifest's `.document` naming any other file is left alone.
         guard ResearchTextRole.of(item, structure: manifest.structure, research: manifest.research) != nil else {
             projectStoreLog.error(
                 "Asset refs: \(path, privacy: .public) is not inside a research root, not rewritten")
-            return
+            return nil
         }
-        guard let noteURL = try? resolvedProjectPathToChange(path) else { return }
+        guard let noteURL = try? resolvedProjectPathToChange(path) else {
+            projectStoreLog.error("Asset refs: \(path, privacy: .public) is refused by the project, not rewritten")
+            return item.title
+        }
         await documentStore?.settleResearchNoteEdits(itemId: itemId)
-        await Self.rewriteAssetRefsBestEffort(
+        let leftStale = await Self.rewriteAssetRefsBestEffort(
             oldStem: oldStem, newStem: newStem, noteURL: noteURL,
             write: { [self] text, url in
                 if let ds = documentStore {
@@ -361,6 +379,7 @@ extension ProjectStore {
                     try text.write(to: url, atomically: true, encoding: .utf8)  // raw-research-text: no-door fallback
                 }
             })
+        return leftStale ? item.title : nil
     }
 
     /// Dedup a note leaf JOINTLY with its sibling `<stem>_assets` folder: the
@@ -392,23 +411,32 @@ extension ProjectStore {
         return UUID().uuidString
     }
 
-    /// Cosmetic post-move fix — MUST NOT abort the move. `relocate` has
-    /// already committed the FS state when this runs, so a failure here is
-    /// logged and swallowed to keep the manifest rewrite (Phase 4) alive
-    /// (2026-07-19 sweep W1). The non-throwing signature is deliberate.
+    /// Post-move fix — MUST NOT abort the move. `relocate` has already
+    /// committed the FS state when this runs, so a failure here is logged and
+    /// never thrown, to keep the manifest rewrite (Phase 4) alive (2026-07-19
+    /// sweep W1). The non-throwing signature is deliberate; the failure is
+    /// RETURNED (true: the refs were left stale) so the verb can say it
+    /// (#148 D2).
+    @discardableResult
     static func rewriteAssetRefsBestEffort(
         oldStem: String, newStem: String, noteURL: URL,
         write: (String, URL) async throws -> Void
-    ) async {
-        guard let content = try? String(contentsOf: noteURL, encoding: .utf8) else { return }  // adr-0018-ok: research-note read, not manuscript
+    ) async -> Bool {
+        guard let content = try? String(contentsOf: noteURL, encoding: .utf8) else {  // adr-0018-ok: research-note read, not manuscript
+            NSLog("moveResearchItems: asset-ref rewrite could not read %@ — refs stale, move intact",
+                  noteURL.lastPathComponent)
+            return true
+        }
         let rewritten = content.replacingOccurrences(
             of: "./\(oldStem)_assets/", with: "./\(newStem)_assets/")
-        guard rewritten != content else { return }
+        guard rewritten != content else { return false }
         do {
             try await write(rewritten, noteURL)
+            return false
         } catch {
             NSLog("moveResearchItems: asset-ref rewrite failed for %@ — refs stale, move intact: %@",
                   noteURL.lastPathComponent, "\(error)")
+            return true
         }
     }
 }

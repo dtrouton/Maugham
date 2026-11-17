@@ -423,19 +423,50 @@ extension ProjectStore {
         return RenameOutcome(linksLeftIn: [])
     }
 
-    /// What a rename could not do (controller ruling AH).
+    /// What a rename — or a Research move — could not do (controller ruling
+    /// AH; RULING-52: the verb stands, and says what it left).
     public struct RenameOutcome: Equatable {
+        /// Which verb the sentence names.
+        public enum Act: Equatable { case renamed, moved }
+
         /// Titles of the pieces (and statements) whose `[[old title]]` links
         /// were left, because this Mac may not write their text.
         public let linksLeftIn: [String]
+        /// Titles of the Research notes whose `./<old>_assets/` picture links
+        /// could not be rewritten after the note was renamed or moved
+        /// (`rewriteMovedNoteAssetRefs`, #148 D2): they point at a folder
+        /// that is gone.
+        public let assetRefsLeftIn: [String]
+        public let act: Act
 
-        /// The sentence the tree says, or nil when every link was rewritten.
+        public init(linksLeftIn: [String] = [], assetRefsLeftIn: [String] = [], act: Act = .renamed) {
+            self.linksLeftIn = linksLeftIn
+            self.assetRefsLeftIn = assetRefsLeftIn
+            self.act = act
+        }
+
+        /// The sentence the tree says, or nil when everything was rewritten.
         public var sentence: String? {
+            let said = [linksSentence, assetRefsSentence].compactMap { $0 }
+            return said.isEmpty ? nil : said.joined(separator: " ")
+        }
+
+        private var linksSentence: String? {
             guard !linksLeftIn.isEmpty else { return nil }
             return "Links to the old title were left in "
                 + linksLeftIn.joined(separator: ", ")
                 + " — this Mac may not change their text, so those links no "
                 + "longer point anywhere until someone who may fixes them."
+        }
+
+        private var assetRefsSentence: String? {
+            guard let only = assetRefsLeftIn.first else { return nil }
+            let verb = act == .renamed ? "Renamed" : "Moved"
+            if assetRefsLeftIn.count == 1 {
+                return "\(verb) “\(only)”, but the picture links in “\(only)” could not be updated."
+            }
+            let names = assetRefsLeftIn.map { "“\($0)”" }.joined(separator: ", ")
+            return "\(verb) \(names), but the picture links in \(assetRefsLeftIn.count) notes could not be updated."
         }
     }
 
