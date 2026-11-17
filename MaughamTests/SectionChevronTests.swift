@@ -320,6 +320,36 @@ final class SectionChevronTests: XCTestCase {
                       + "door's bug")
     }
 
+    /// **The `+` menus are live across their whole frame** — carried over from
+    /// the wall door's suite when the door became the Palette row (shell p1
+    /// Task 3). A `SwiftUI.Menu` mounts a real `SwiftUIPopupButton` whose
+    /// frame hit-tests edge to edge; asserted at the `NSView` level for the
+    /// Research header's menu and the Palette row's.
+    func test_theSectionPlusMenusAreLiveAcrossTheirWholeFrame() async throws {
+        let mount = try await mountTree()
+        let content = try XCTUnwrap(mount.window.contentView)
+        let popups = views(in: mount.window).filter {
+            String(describing: type(of: $0)).contains("SwiftUIPopupButton")
+        }
+        try XCTSkipUnless(popups.count >= 2,
+                          "this display mounted \(popups.count) `+` menus; the "
+                          + "tree carries the Research header's and the Palette row's")
+        for popup in popups {
+            let frame = popup.convert(popup.bounds, to: content)
+            for y in [frame.minY + 0.5, frame.midY, frame.maxY - 0.5] {
+                // `hitTest(_:)` takes the receiver's superview's coordinates.
+                let point = content.superview.map {
+                    $0.convert(CGPoint(x: frame.midX, y: y), from: content)
+                } ?? CGPoint(x: frame.midX, y: y)
+                let hit = content.hitTest(point)
+                XCTAssertTrue(
+                    hit === popup || hit?.isDescendant(of: popup) == true,
+                    "y=\(y) of the `+` menu's own \(frame) hit-tests to "
+                    + "\(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+            }
+        }
+    }
+
     /// **The chevron did not cost the header its height**: every drawn
     /// header stays the height the row can hold, or the sections at the foot
     /// of every tree stop lining up.
