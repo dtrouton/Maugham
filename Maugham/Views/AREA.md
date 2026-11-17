@@ -516,8 +516,8 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 
 ## Pointers
 - `docs/history/views.md` — the old guide, word for word: every rule's why and where it came from.
-- ADR 0005 as amended by ADR 0025 (personas); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0031; ADR 0032 (posture and register surfaces).
+- ADR 0035 (the subject, not the persona; supersedes in part 0005, 0025, 0031); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0032 (posture and register surfaces).
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
-- Specs: `docs/superpowers/specs/2026-08-01-persona-shell-workflow-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
+- Specs: `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
 - Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `DetailSegmentOrderTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.

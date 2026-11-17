@@ -1,5 +1,7 @@
 # ADR 0031 — The persona is an input to the run: two verbs over one substrate
 
+> **Superseded in part by [ADR 0035](0035-the-subject-not-the-persona.md) (2026-11-17):** the persona no longer decides the run; the four File menu commands name their kind. The two verbs over one substrate stand.
+
 **Date:** 2026-09-05 · **Status:** Accepted · **Milestone:** two-loops-p1-the-two-verbs (branch `claude/two-loops-p1-2026-09-05`)
 
 ## Context

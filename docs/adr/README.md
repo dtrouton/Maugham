@@ -46,7 +46,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0022](0022-commonmark-fountain-ledger.md) | CommonMark + Fountain grammar ledger | Implemented | 2026-07-06 |
 | [0023](0023-unified-oplog-backed-undo.md) | Unified op-log-backed ⌘Z undo: compensating ops on one native stack | Accepted | 2026-07-10 |
 | [0024](0024-translation-layer.md) | Translation layer: a second Claude-parallel data plane | Accepted | 2026-07-22 |
-| [0025](0025-persona-shell.md) | Persona shell: four optional lenses over one project (Plan/Author/Review/Publish) | Accepted | 2026-07-25 |
+| [0025](0025-persona-shell.md) | Persona shell: four optional lenses over one project (Plan/Author/Review/Publish) | Superseded in part by [0035](0035-the-subject-not-the-persona.md) | 2026-07-25 |
 | [0026](0026-planning-canvas-rendering.md) | Planning canvas: a drawn surface with one mounted editor | Accepted | 2026-07-26 |
 | [0027](0027-the-compiler-and-the-editor-boundary.md) | The compiler and the editor boundary: output location is identity, invocation locality is a position | Accepted | 2026-08-05 |
 | [0028](0028-maugham-goes-outbound.md) | Maugham goes outbound: spawning `claude -p`, and what still holds when it does | Accepted | 2026-08-05 |
@@ -56,6 +56,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0032](0032-the-signed-op-log.md) | The signed op log: provenance for every op, the device before the person (builds on [0012](0012-per-device-jsonl-partitioning.md) and [0016](0016-op-log-growth-without-compaction.md), amending neither's decision) | Accepted (P1 built) | 2026-09-07 |
 | [0033](0033-report-elements-in-manuscripts.md) | Report elements in manuscripts: tables, footnotes, figures, citations, cross-references and section labels are IN (partly supersedes [0022](0022-commonmark-fountain-ledger.md)) | Accepted | 2026-10-19 |
 | [0034](0034-the-assistant-may-rewrite-a-research-note.md) | The assistant may rewrite a Research note: `update_note`, through the note door, versioned and marked (extends [0004](0004-mcp-foundation-scope.md)) | Accepted | 2026-11-10 |
+| [0035](0035-the-subject-not-the-persona.md) | The subject, not the persona: the tree decides what the window shows (supersedes in part [0005](0005-right-pane-mode-swap.md), [0025](0025-persona-shell.md), [0031](0031-the-persona-is-an-input-to-the-run.md)) | Accepted | 2026-11-17 |
 
 ## How to write a new ADR
 

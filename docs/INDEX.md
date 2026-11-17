@@ -38,10 +38,10 @@ Each directory with an `AREA.md` asks you to read it before editing anything the
 - [`Maugham/Stores/AREA.md`](../Maugham/Stores/AREA.md) — project and document stores, the project session that owns them, the typed mover, the `.maugham/` layout.
 - [`Maugham/Editor/AREA.md`](../Maugham/Editor/AREA.md) — the editor coordinator and its fragile binding contract.
 - [`Maugham/Publish/AREA.md`](../Maugham/Publish/AREA.md) — PDF and EPUB publishing, the department desk, imprints and editions.
-- [`Maugham/Canvas/AREA.md`](../Maugham/Canvas/AREA.md) — the Plan persona's canvas.
+- [`Maugham/Canvas/AREA.md`](../Maugham/Canvas/AREA.md) — the planning canvas.
 - [`Maugham/Compiler/AREA.md`](../Maugham/Compiler/AREA.md) — checks, rounds, the editorial letter, the translation pipeline.
 - [`Maugham/MCP/AREA.md`](../Maugham/MCP/AREA.md) — the MCP server and its tool catalogue.
-- [`Maugham/Views/AREA.md`](../Maugham/Views/AREA.md) — the window, personas, the binder tree, posture surfaces.
+- [`Maugham/Views/AREA.md`](../Maugham/Views/AREA.md) — the window, the window subject, the binder tree, posture surfaces.
 - [`Maugham/Updates/AREA.md`](../Maugham/Updates/AREA.md) — the in-place updater.
 - [`MaughamPhone/AREA.md`](../MaughamPhone/AREA.md) — the iPhone companion: storage seams, capture, reading, annotations, tripwires, releases.
 
