@@ -393,13 +393,13 @@ struct ReviewRoundCockpit: View {
         // is non-optional on purpose), so this arm is its own hand-written
         // sentence rather than a call through it with a placeholder editor.
         // **And it asks for the pass first** (two loops P1 Task 8): with none
-        // set the keystroke is refused, so "Run a round (⌘R)" over an
+        // set the keystroke is refused, so "Run a round (⌃⌘R)" over an
         // unassigned piece taught a loop the writer cannot yet enter.
         guard let editorName else {
             return "Claude proposes; you dispose. Set a pass and run its "
-                + "editor\u{2019}s round (\u{2318}R), or ask Claude in Claude Desktop."
+                + "editor\u{2019}s round (\(RunCommand.runRound.keyLabel)), or ask Claude in Claude Desktop."
         }
-        let round = "\(RoundNarrative.runRoundTitle(editorName: editorName)) (\u{2318}R)"
+        let round = "\(RoundNarrative.runRoundTitle(editorName: editorName)) (\(RunCommand.runRound.keyLabel))"
         return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
     }
 
@@ -473,7 +473,7 @@ struct ReviewRoundCockpit: View {
         guard let pass else { return noEditorReason }
         let offer = RoundNarrative.runRoundTitle(
             editorName: pass.effectiveEditorName)
-        return "\(offer) \(next) (\u{2318}R)"
+        return "\(offer) \(next) (\(RunCommand.runRound.keyLabel))"
     }
 
     /// **The tooltip behind the idle line** — `RoundNarrative`'s one
@@ -485,7 +485,7 @@ struct ReviewRoundCockpit: View {
     }
 
     static let freshEyesHelp =
-        "Read the whole piece cold (\u{2318}\u{21e7}R) \u{2014} the warm session is "
+        "Read the whole piece cold (\(RunCommand.freshEyes.keyLabel)) \u{2014} the warm session is "
         + "retired and this round is briefed on no prior findings."
 
     /// One tooltip for both states, because it asks the question the control

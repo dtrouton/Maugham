@@ -79,6 +79,18 @@ enum RunCommand: CaseIterable, Equatable, Sendable {
         }
     }
 
+    /// The key as the writer reads it in a sentence (a tooltip, a teaching
+    /// line), in the menu bar's own order — the one spelling copy names a
+    /// command's key by, so a sentence cannot teach the wrong chord.
+    var keyLabel: String {
+        switch self {
+        case .checkWriting: return "\u{2318}R"
+        case .reread: return "\u{21e7}\u{2318}R"
+        case .runRound: return "\u{2303}\u{2318}R"
+        case .freshEyes: return "\u{2303}\u{21e7}\u{2318}R"
+        }
+    }
+
     /// The key-window event the menu item posts and `CompilerRunModifier`
     /// answers. One event per command: four promises, and a receiver that
     /// read a flag out of a payload could deliver the expensive one by accident.

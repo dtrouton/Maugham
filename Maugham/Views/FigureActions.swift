@@ -53,8 +53,16 @@ struct FigureActions {
     /// The posture's one door and the window's own refusal: Send to
     /// Research, Rename and Import are offered only when this answers true.
     func mayEdit(_ figureId: String) -> Bool {
-        guard !windowRefusesWrites() else { return false }
-        return store.documentStore?.posture(forDocId: figureId).allows(.editFigure) ?? false
+        Self.mayEdit(windowRefusesWrites: windowRefusesWrites(),
+                     posture: store.documentStore?.posture(forDocId: figureId))
+    }
+
+    /// The same answer, pure: the window's refusal (the share, ⌘⌥⇧R, the
+    /// Lock) AND the posture's door — neither can stand in for the other, and
+    /// no posture (no session) refuses.
+    static func mayEdit(windowRefusesWrites: Bool, posture: Posture?) -> Bool {
+        guard !windowRefusesWrites else { return false }
+        return posture?.allows(.editFigure) ?? false
     }
 
     /// The piece holding the figure's line, else the piece it was made in.

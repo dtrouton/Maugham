@@ -100,13 +100,15 @@ extension DiagnosticsPane {
         }
     }
 
-    /// **Review's round is holding the window's one session** (#77 F7) — the
-    /// ruling's sentence, verbatim (Denver 2026-10-17, applied symmetrically by
-    /// the controller to the cockpit's "Author's check is running" line).
-    /// `static let` for `headerCopy`'s reason: every sentence this pane says
-    /// is assertable without mounting anything.
-    static let reviewsRoundIsRunningLine =
-        "Review's round is running \u{2014} \u{2318}R waits until it finishes."
+    /// **A round is holding the window's one session** (#77 F7) — the
+    /// ruling's sentence (Denver 2026-10-17, applied symmetrically by the
+    /// controller to the cockpit's "Author's check is running" line; amended
+    /// 2026-11-17 by the controller, shell p1 Task 5: the personas are gone,
+    /// so the round is no longer "Review's"). `static let` for `headerCopy`'s
+    /// reason: every sentence this pane says is assertable without mounting
+    /// anything.
+    static let roundIsRunningLine =
+        "A round is running \u{2014} \u{2318}R waits until it finishes."
 
     /// **The one line this pane says about a run that is not its own here** —
     /// `nil` unless a ROUND is running, on ANY document (#77 F7 review
@@ -130,7 +132,7 @@ extension DiagnosticsPane {
     ) -> String? {
         switch runState {
         case .running(_, .round, _):
-            return reviewsRoundIsRunningLine
+            return roundIsRunningLine
         case .running(let runDocId, .check, _) where runDocId != docId:
             return RoundNarrative.runElsewhereLine(kind: .check, title: titleOf(runDocId))
         default:

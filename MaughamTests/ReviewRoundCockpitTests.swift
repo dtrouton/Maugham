@@ -440,7 +440,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// longer the one the persona is built around.
     func test_theEmptyQueueNamesBothWaysItFills() {
         let withPass = ReviewRoundCockpit.emptyQueueTeaching(editorName: "Gould")
-        XCTAssertTrue(withPass.contains("Run Gould\u{2019}s round (\u{2318}R)"),
+        XCTAssertTrue(withPass.contains("Run Gould\u{2019}s round (\u{2303}\u{2318}R)"),
                       "the round is the first way, and it is named for the "
                       + "editor who reads it \u{2014} got: \(withPass)")
         XCTAssertTrue(withPass.contains("Claude Desktop"),
@@ -450,7 +450,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
         XCTAssertEqual(
             withoutPass,
             "Claude proposes; you dispose. Set a pass and run its "
-            + "editor\u{2019}s round (\u{2318}R), or ask Claude in Claude Desktop.",
+            + "editor\u{2019}s round (\u{2303}\u{2318}R), or ask Claude in Claude Desktop.",
             "with no pass set there is no editor to name AND no round to run "
             + "(two loops P1 Task 8) \u{2014} so the teaching asks for the pass "
             + "first rather than offering a keystroke the piece would refuse")
@@ -488,7 +488,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
         let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
         let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains { $0.contains("\u{2318}R") },
+        XCTAssertTrue(labels.contains { $0.contains(RunCommand.runRound.keyLabel) },
                       "the keystroke is still named \u{2014} got \(labels)")
         XCTAssertFalse(
             labels.contains { $0.contains(
@@ -533,7 +533,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
         let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
         let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains { $0.contains("\u{2318}R") },
+        XCTAssertTrue(labels.contains { $0.contains(RunCommand.runRound.keyLabel) },
                       "the keystroke is still named \u{2014} got \(labels)")
         XCTAssertFalse(labels.contains { $0.contains("Le Guin") },
                        "and nobody is. Got \(labels)")
@@ -573,16 +573,39 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// (M4 P2 Task 4's review): three hand-built spellings of "Run X's round"
     /// across two files is how one act comes to be worded three ways, and
     /// nothing asserted this string at all before the consolidation.
+    /// **The cockpit names the Run Round key, never ⌘R** (shell p1 Task 5 fix):
+    /// ⌘R is always Check Writing now, so a cockpit sentence teaching ⌘R for
+    /// a round sends the writer to a check filed in no lane. Every sentence
+    /// that names the cockpit's keys reads them from `RunCommand.keyLabel`.
+    func test_theCockpitNamesTheRunRoundKeys() {
+        XCTAssertEqual(RunCommand.runRound.keyLabel, "\u{2303}\u{2318}R")
+        XCTAssertEqual(RunCommand.freshEyes.keyLabel, "\u{2303}\u{21e7}\u{2318}R")
+        let sentences = [
+            ReviewRoundCockpit.emptyQueueTeaching(editorName: "Gould"),
+            ReviewRoundCockpit.emptyQueueTeaching(editorName: nil),
+            ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
+        ]
+        for sentence in sentences {
+            XCTAssertTrue(sentence.contains("(\(RunCommand.runRound.keyLabel))"), sentence)
+            XCTAssertFalse(sentence.contains("(\(RunCommand.checkWriting.keyLabel))"),
+                           "never ⌘R, Check Writing's key: \(sentence)")
+        }
+        XCTAssertTrue(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.freshEyes.keyLabel))"),
+                      ReviewRoundCockpit.freshEyesHelp)
+        XCTAssertFalse(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.reread.keyLabel))"),
+                       "never ⇧⌘R, Reread's key")
+    }
+
     func test_theRunTooltipNamesTheOfferAndTheRoundItWouldProduce() {
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
-                       "Run Gould\u{2019}s round 3 (\u{2318}R)")
+                       "Run Gould\u{2019}s round 3 (\u{2303}\u{2318}R)")
         XCTAssertTrue(
             ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2)
                 .hasPrefix(RoundNarrative.runRoundTitle(editorName: "Gould")),
             "\u{2026}through the one spelling the empty state and the board "
             + "chip's verb read")
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: nil),
-                       "Run Gould\u{2019}s round 1 (\u{2318}R)",
+                       "Run Gould\u{2019}s round 1 (\u{2303}\u{2318}R)",
                        "the first round is 1, not 0")
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: nil, round: nil),
                        ReviewRoundCockpit.noEditorReason,

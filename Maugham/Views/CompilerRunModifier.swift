@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MaughamCore
 
 /// **The run keys' delivery path, and every way the session has to die.**
 ///
@@ -42,6 +43,8 @@ struct CompilerRunModifier: ViewModifier {
     /// The window's subject: what a run reads is `request`'s answer from it,
     /// not this modifier's.
     let subject: WindowSubject
+    /// The book's structure, so a Part on the faces is not taken for a piece.
+    let structure: [StructureItem]
     /// `UserPreferences.mcpEnabled` — the one toggle that governs outbound as
     /// well as inbound (spec §3.5). Passed as a value so `.onChange` sees it;
     /// the session enforces the toggle again on every send, and this is what
@@ -62,17 +65,24 @@ struct CompilerRunModifier: ViewModifier {
     /// open piece, else none — and with none the run is a no-op, as it is with
     /// no window in front. So a run with the Canvas, an edition or the Inbox
     /// open reads the piece the right column faces, and never the open thing.
-    static func runDocId(for subject: WindowSubject) -> String? {
-        subject.faces.itemID ?? subject.open.itemID
+    /// A Part is not a piece (`ClickRule.isPiece`): a Part on the faces falls
+    /// through to the open piece.
+    static func runDocId(for subject: WindowSubject, structure: [StructureItem]) -> String? {
+        func piece(_ s: BinderSubject) -> String? {
+            guard let id = s.itemID, ClickRule.isPiece(id, in: structure) else { return nil }
+            return id
+        }
+        return piece(subject.faces) ?? piece(subject.open)
     }
 
-    static func request(_ command: RunCommand, subject: WindowSubject) -> RunKeyRequest? {
-        guard let docId = runDocId(for: subject) else { return nil }
+    static func request(_ command: RunCommand, subject: WindowSubject,
+                        structure: [StructureItem]) -> RunKeyRequest? {
+        guard let docId = runDocId(for: subject, structure: structure) else { return nil }
         return RunKeyRequest(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)
     }
 
     private func send(_ command: RunCommand) {
-        guard let request = Self.request(command, subject: subject) else { return }
+        guard let request = Self.request(command, subject: subject, structure: structure) else { return }
         roster.compiler.runRequested(
             docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
     }

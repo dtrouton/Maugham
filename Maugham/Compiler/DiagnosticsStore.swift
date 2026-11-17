@@ -17,8 +17,8 @@ import MaughamCore
 /// verb** — there is never more than one check's worth and one round's worth
 /// of notes live per document.
 ///
-/// **Two standing slots, one per `RunKind`** (two loops P1 Task 5). Author's
-/// ⌘R and Review's Run round are two verbs against the same document, with
+/// **Two standing slots, one per `RunKind`** (two loops P1 Task 5). Check
+/// Writing (⌘R) and Run Round (⌃⌘R) are two verbs against the same document, with
 /// separate readers and separate briefings; while this file held one standing
 /// run they also shared one shelf, so a check landed on top of the round the
 /// cockpit was showing and a round took the marker and the notes Author's
@@ -533,8 +533,8 @@ final class DiagnosticsStore {
     /// beside the note. Liveness depends only on the anchor, so changing a
     /// non-anchor ref's paragraph does not dismiss the note.
     ///
-    /// **The CHECK slot's notes** (two loops P1 Task 5). These are Author's
-    /// rows, and Author's ⌘R is the check. A round's conformance strains are
+    /// **The CHECK slot's notes** (two loops P1 Task 5). These are the
+    /// Diagnostics pane's rows, and ⌘R (Check Writing) is the check. A round's conformance strains are
     /// stored in the round slot and drawn nowhere in P1 — a deliberate carry:
     /// the round's findings reach the writer as annotations in the queue, and
     /// giving its strains a surface is a later task, not something to smuggle

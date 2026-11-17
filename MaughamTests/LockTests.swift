@@ -64,12 +64,27 @@ final class LockTests: XCTestCase {
 
     // MARK: - Lock only adds
 
-    /// **A view-only share and ⌘⌥⇧R still refuse with Lock off** — the
-    /// window's own refusals beside the Lock are untouched. (The posture's
-    /// door — another author's piece — is asked beside it in
-    /// `FigureActions.mayEdit`, with Lock off: `FigureInspectorTests`'
-    /// `test_theWritingActionsAreHiddenWhenThePostureOrTheShareForbids`.)
+    /// **A posture that refuses still refuses with Lock off** — a yield to
+    /// the piece's own writer and a posture still settling each refuse a
+    /// figure write through `FigureActions.mayEdit`'s posture door with the
+    /// window's own refusal (the Lock included) off; the writer's own hand
+    /// is the control. And a view-only share and ⌘⌥⇧R still refuse with Lock
+    /// off. (Another author's piece, through a real store:
+    /// `FigureInspectorTests.test_theWritingActionsAreHiddenWhenThePostureOrTheShareForbids`.)
     func test_postureRefusalHoldsWithLockOff() {
+        let unlocked = FigureActions.windowRefusesWrites(control: EditorControl(), isLocked: false)
+        XCTAssertFalse(unlocked, "premise: the window refuses nothing of its own")
+        let yielding = Posture(.unrestricted, yieldingTo: "Sam")
+        XCTAssertFalse(yielding.allows(.editFigure), "premise: a yield refuses a figure write")
+        XCTAssertFalse(FigureActions.mayEdit(windowRefusesWrites: unlocked, posture: yielding),
+                       "a yielding posture refuses with Lock off")
+        XCTAssertFalse(FigureActions.mayEdit(windowRefusesWrites: unlocked, posture: .settling),
+                       "a posture still settling refuses with Lock off")
+        XCTAssertFalse(FigureActions.mayEdit(windowRefusesWrites: unlocked, posture: nil),
+                       "no posture at all (no session) refuses")
+        XCTAssertTrue(FigureActions.mayEdit(windowRefusesWrites: unlocked, posture: .author),
+                      "control: the writer's own hand with Lock off edits")
+
         let share = EditorControl()
         share.shareIsReadOnly = true
         XCTAssertTrue(FigureActions.windowRefusesWrites(control: share, isLocked: false),
@@ -86,6 +101,18 @@ final class LockTests: XCTestCase {
     /// combination of the share and ⌘⌥⇧R, locking can only turn a permit into
     /// a refusal, never the reverse.
     func test_lockNeverPermitsWhatPostureRefuses() {
+        // The posture's door: over a refusing and a permitting posture,
+        // locking never turns a refusal into a permit.
+        for posture in [Posture.author, .settling, Posture(.unrestricted, yieldingTo: "Sam")] {
+            let off = FigureActions.mayEdit(
+                windowRefusesWrites: FigureActions.windowRefusesWrites(control: EditorControl(), isLocked: false),
+                posture: posture)
+            let on = FigureActions.mayEdit(
+                windowRefusesWrites: FigureActions.windowRefusesWrites(control: EditorControl(), isLocked: true),
+                posture: posture)
+            XCTAssertFalse(on, "locked never edits a figure (\(posture))")
+            XCTAssertFalse(on && !off, "Lock permitted what the posture refused (\(posture))")
+        }
         for share in [false, true] {
             for manualReview in [false, true] {
                 let control = EditorControl()

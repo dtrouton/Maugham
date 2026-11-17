@@ -49,9 +49,9 @@ extension Notification.Name {
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
     /// Scope: .keyWindow — ⌘R, Check Writing (`RunCommand.checkWriting`).
     /// The compiler's warm trigger: the key window asks its
-    /// `CompilerOrchestrator` to check the piece its subject names. A command, not a data event — a background window running
-    /// against its own document would spend a real API call on prose nobody is
-    /// looking at.
+    /// `CompilerOrchestrator` to check the piece its subject names. A command,
+    /// not a data event — a background window running against its own
+    /// document would spend a real API call on prose nobody is looking at.
     public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
     /// Scope: .keyWindow — ⇧⌘R, Reread (`RunCommand.reread`).
     /// The same check read cold: the

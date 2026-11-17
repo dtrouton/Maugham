@@ -62,7 +62,7 @@ final class WiringCensusTests: XCTestCase {
                ".onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in send(.reread) }",
                ".onKeyWindowCommand(.maughamRunRound, window: window) { _ in send(.runRound) }",
                ".onKeyWindowCommand(.maughamFreshEyesRound, window: window) { _ in send(.freshEyes) }",
-               "guard let request = Self.request(command, subject: subject) else { return }",
+               "guard let request = Self.request(command, subject: subject, structure: structure) else { return }",
                "roster.compiler.runRequested( docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)"],
               why: "each event hands its own command's request (CompilerRunCommandTests pins what `request` answers) to the compiler; a swapped arm files ⌘R as a round, and a literal kind or a dropped flag files Fresh Eyes as an ordinary check"),
         Entry(window, .anyOrder,

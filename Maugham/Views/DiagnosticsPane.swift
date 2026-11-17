@@ -208,7 +208,7 @@ struct DiagnosticsPane: View {
     }
 
     /// **The standing CHECK** (two loops P1 Task 5). This pane reports on
-    /// Author's ⌘R; a round finishing in Review must not change what it says
+    /// ⌘R's check; a round finishing must not change what it says
     /// the writer last checked, which is what one shared slot made it do.
     private var lastRun: CompilerRun? {
         _ = diagnostics.version

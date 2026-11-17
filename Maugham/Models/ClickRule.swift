@@ -57,8 +57,8 @@ public enum ClickRule {
     }
 
     /// A piece is a document; a Part is a group. An id not in the structure is
-    /// treated as a piece.
-    private static func isPiece(_ id: String, in structure: [StructureItem]) -> Bool {
+    /// treated as a piece. Also what a run asks (`CompilerRunModifier.runDocId`).
+    static func isPiece(_ id: String, in structure: [StructureItem]) -> Bool {
         TreeWalk.find(id: id, in: structure)?.type != .group
     }
 }

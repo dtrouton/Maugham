@@ -371,6 +371,7 @@ struct ProjectWindow: View {
         .modifier(CompilerRunModifier(roster: roster,
                                       window: window,
                                       subject: subject,
+                                      structure: store?.manifest.structure ?? [],
                                       mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()

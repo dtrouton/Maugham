@@ -638,9 +638,9 @@ final class CompilerRunCommandTests: XCTestCase {
     /// `WiringCensusTests`' entries for `CompilerRunModifier` and `RunButtons`.
     func test_commandRAlwaysRequestsACheck() {
         for subject in Self.subjectsFacingThePiece(docId) {
-            XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject),
+            XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject, structure: []),
                            .init(docId: docId, kind: .check, freshEyes: false), "\(subject)")
-            XCTAssertEqual(CompilerRunModifier.request(.reread, subject: subject),
+            XCTAssertEqual(CompilerRunModifier.request(.reread, subject: subject, structure: []),
                            .init(docId: docId, kind: .check, freshEyes: true), "\(subject)")
         }
     }
@@ -649,9 +649,9 @@ final class CompilerRunCommandTests: XCTestCase {
     /// wherever the writer stands.
     func test_runRoundAlwaysRequestsARound() {
         for subject in Self.subjectsFacingThePiece(docId) {
-            XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject),
+            XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject, structure: []),
                            .init(docId: docId, kind: .round, freshEyes: false), "\(subject)")
-            XCTAssertEqual(CompilerRunModifier.request(.freshEyes, subject: subject),
+            XCTAssertEqual(CompilerRunModifier.request(.freshEyes, subject: subject, structure: []),
                            .init(docId: docId, kind: .round, freshEyes: true), "\(subject)")
         }
     }
@@ -664,7 +664,7 @@ final class CompilerRunCommandTests: XCTestCase {
             for faces in [BinderSubject.project, .canvas, .research("r1"), .figure("f1")] {
                 let subject = WindowSubject(open: open, faces: faces)
                 for command in RunCommand.allCases {
-                    XCTAssertNil(CompilerRunModifier.request(command, subject: subject),
+                    XCTAssertNil(CompilerRunModifier.request(command, subject: subject, structure: []),
                                  "\(command) with \(open) open facing \(faces)")
                 }
             }
@@ -675,16 +675,34 @@ final class CompilerRunCommandTests: XCTestCase {
     /// — never the canvas, and a check stays a check.
     func test_aRunWithTheCanvasOpenRunsOnTheFacesPiece() {
         let subject = WindowSubject(open: .canvas, faces: .item(docId))
-        XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject),
+        XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject, structure: []),
                        .init(docId: docId, kind: .check, freshEyes: false))
-        XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject),
+        XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject, structure: []),
                        .init(docId: docId, kind: .round, freshEyes: false))
         // The faces win over an open piece; an open piece answers when the
         // faces name none.
         XCTAssertEqual(CompilerRunModifier.runDocId(
-            for: WindowSubject(open: .item("OPEN"), faces: .item(docId))), docId)
+            for: WindowSubject(open: .item("OPEN"), faces: .item(docId)), structure: []), docId)
         XCTAssertEqual(CompilerRunModifier.runDocId(
-            for: WindowSubject(open: .item(docId), faces: .project)), docId)
+            for: WindowSubject(open: .item(docId), faces: .project), structure: []), docId)
+    }
+
+    /// **A Part on the faces is not a piece**: the run falls through to the
+    /// open piece, and with no open piece it is a no-op — a group id never
+    /// reaches the compiler.
+    func test_aPartOnTheFacesFallsThroughToTheOpenPiece() {
+        let structure = [StructureItem(id: "part", title: "Part I", type: .group, children: [
+            StructureItem(id: docId, title: "Chapter", type: .document)])]
+        XCTAssertEqual(CompilerRunModifier.request(
+            .checkWriting, subject: WindowSubject(open: .item(docId), faces: .item("part")),
+            structure: structure),
+            .init(docId: docId, kind: .check, freshEyes: false))
+        XCTAssertNil(CompilerRunModifier.request(
+            .runRound, subject: WindowSubject(open: .canvas, faces: .item("part")),
+            structure: structure), "a Part and no open piece: no run")
+        XCTAssertEqual(CompilerRunModifier.runDocId(
+            for: WindowSubject(open: .project, faces: .item(docId)), structure: structure), docId,
+            "control: a document on the faces is the piece")
     }
 
     /// Every shape of subject a writer can stand in with `piece` on the faces.

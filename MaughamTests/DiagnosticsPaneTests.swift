@@ -280,7 +280,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// symmetric half of Denver's ruling). The header keeps its own state —
     /// the last check — and says one line about the round holding the
     /// window's one session.
-    func test_theDiagnosticsHeaderSaysReviewsRoundIsRunning() {
+    func test_theDiagnosticsHeaderSaysARoundIsRunning() {
         let run = makeRun()
         let round = CompilerOrchestrator.RunState.running(
             docId: "d1", kind: .round, checking: counts(new: 9, revised: 0))
@@ -289,12 +289,12 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(state, .clean(lastRun: run),
                        "a round's run must not read as this pane's check")
         XCTAssertEqual(DiagnosticsPane.otherLoopLine(runState: round, docId: "d1"),
-                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
-        XCTAssertEqual(DiagnosticsPane.reviewsRoundIsRunningLine,
-                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
+                       "A round is running \u{2014} \u{2318}R waits until it finishes.")
+        XCTAssertEqual(DiagnosticsPane.roundIsRunningLine,
+                       "A round is running \u{2014} \u{2318}R waits until it finishes.")
         XCTAssertTrue(DiagnosticsPane.offersCancel(
             state: state, otherLoopLine: DiagnosticsPane.otherLoopLine(runState: round, docId: "d1")),
-            "the writer may stop Review's round from here (#77 F7 review ruling)")
+            "the writer may stop the round from here (#77 F7 review ruling)")
         XCTAssertFalse(DiagnosticsPane.offersCancel(state: state, otherLoopLine: nil),
                        "control: a header with no run in flight offers no Cancel")
         XCTAssertTrue(DiagnosticsPane.offersCancel(
@@ -309,11 +309,11 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// **The other loop's line is WINDOW-wide** (#77 F7 review ruling): the
     /// session is the window's, so ⌘R on this document is refused while a
     /// round reads another one. The pane's OWN check still matches by document.
-    func test_theHeaderNamesReviewsRoundOnAnyDocument() {
+    func test_theHeaderNamesARoundOnAnyDocument() {
         let roundOnA = CompilerOrchestrator.RunState.running(
             docId: "doc-a", kind: .round, checking: counts(new: 3, revised: 0))
         XCTAssertEqual(DiagnosticsPane.otherLoopLine(runState: roundOnA, docId: "doc-b"),
-                       "Review's round is running \u{2014} \u{2318}R waits until it finishes.")
+                       "A round is running \u{2014} \u{2318}R waits until it finishes.")
         let run = makeRun()
         let checkOnA = CompilerOrchestrator.RunState.running(
             docId: "doc-a", kind: .check, checking: counts(new: 3, revised: 0))

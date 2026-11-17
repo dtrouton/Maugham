@@ -3,8 +3,8 @@ import MaughamCore
 
 extension ProjectManifest {
 
-    /// **Who reads a ROUND** — Review's Run button, and Review's ⌘R (two
-    /// loops P1, spec §2). The stage the writer put this piece in, or nobody
+    /// **Who reads a ROUND** — the round cockpit's Run button, and Run Round
+    /// (⌃⌘R) / Fresh Eyes (two loops P1, spec §2; `RunCommand`). The stage the writer put this piece in, or nobody
     /// at all.
     ///
     /// `nil` does not mean "fall back to somebody". It means **no round is
