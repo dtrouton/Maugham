@@ -108,7 +108,7 @@ struct MaughamApp: App {
                     // swap helper (install location went unwritable, the swap
                     // tool went missing, etc.) — the app was already tearing down, so
                     // the Finder-reveal fallback was deferred to this launch.
-                    if let pendingReveal = PendingUpdateReveal.consumePending() {
+                    if !TestHost.isActive, let pendingReveal = PendingUpdateReveal.consumePending() {
                         NSWorkspace.shared.activateFileViewerSelecting([pendingReveal])
                     }
                     Self.registerTools(router: mcpRouter, registry: mcpRegistry)
@@ -125,16 +125,19 @@ struct MaughamApp: App {
                     // Wire the real install side-effect: swap the running bundle
                     // via the detached helper and quit (relaunch reopens it); fall
                     // back to revealing the download in Finder if not writable.
-                    UpdateChecker.performInstall = { bundleURL, version, relaunch in
+                    // Never in a test host: a test that reaches `installNow`
+                    // would quit the worker, or show its temp folder in Finder
+                    // and take the writer's focus on every gate.
+                    if !TestHost.isActive { UpdateChecker.performInstall = { bundleURL, version, relaunch in
                         if bundleURL.pathExtension == "app",
                            UpdateInstaller.launchSwapHelper(
                                stagedBundle: bundleURL, version: version,
                                updatesDirectory: UpdateChecker.updatesDirectory, relaunch: relaunch) {
-                            NSApp.terminate(nil)  // the quit coordinator closes the stores; the helper waits for exit, then swaps
+                            MaughamAppDelegate.requestQuit()  // never terminate from this task; the quit coordinator closes the stores, the helper waits for exit, then swaps
                         } else {
                             NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
                         }
-                    }
+                    } }
                     // The last install's helper may have left a line saying it
                     // was refused or failed (#67 Task 5): read and remove it, and
                     // let the update banner say so once. Before the poll starts,

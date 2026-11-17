@@ -172,8 +172,13 @@
  },
  {
   "claim_id": "M9-OL-018",
-  "outcome": "NO_RULING_REACHES",
-  "reason": "RULING-9 is the nearest ('what a writer does to their project outside Maugham is their risk; what Maugham does on their behalf is Maugham's'): a stale .md the load itself left behind is Maugham's own output, not something the writer did outside. But RULING-9 says nothing of when an outside edit is snapshotted, so it does not state this claim's rule. That Maugham's own stale render is not an outside edit is the coordinator's call, hardening 2026-11-16, not Denver's; if it is genuinely a product decision it is unruled and Denver's to take. ADR 0019 F4 is the design."
+  "outcome": "COMPLIES",
+  "ruling": "RULING-64",
+  "clause_that_reaches_it": "A stale .md Maugham itself left is not an outside edit",
+  "why_in_scope": "The claim is the ruling's case itself: a .md equal to Maugham's own render from before the fold this load performed gets no 'diverged' backup, and any other mismatch is backed up as before. Previously filed NO_RULING_REACHES (RULING-9 nearest, not stating the rule) as the coordinator's call; Denver ruled it on 2026-11-17, choosing to keep it as built.",
+  "intent_expressed_when": "after the fact — built 2026-11-16 (0.47.0) as the coordinator's call, ruled 2026-11-17",
+  "call_path": "Document.load, on opening any manuscript document",
+  "violation_or_enhancement": "neither — the behaviour predates the ruling and matches it"
  },
  {
   "claim_id": "M9-OL-019",
@@ -182,12 +187,12 @@
  },
  {
   "_summary": {
-   "reached": 17,
-   "complies": 17,
+   "reached": 18,
+   "complies": 18,
    "violates": 0,
-   "no_ruling": 2,
+   "no_ruling": 1,
    "total": 19,
-   "coverage": "89%",
+   "coverage": "95%",
    "by_ruling": {
     "RULING-52": [
      "M9-OL-004",
@@ -205,6 +210,9 @@
      "M9-OL-013",
      "M9-OL-015",
      "M9-OL-016"
+    ],
+    "RULING-64": [
+     "M9-OL-018"
     ],
     "RULING-7": [
      "M9-OL-002",

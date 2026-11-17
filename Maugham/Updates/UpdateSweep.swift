@@ -68,6 +68,13 @@ enum UpdateSweep {
         guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return [] }
         var doomed = staleUpdateArtifacts(in: names, keeping: version, runningVersion: runningVersion)
         if !includingDownloads { doomed.removeAll { $0.hasSuffix(".download") } }
+        // A lock a killed helper left would stop a later app with the same
+        // pid from ever installing. Only at launch, when no helper waits on
+        // this pid yet; a helper still finishing for the last app is keyed
+        // to that app's pid and loses nothing.
+        if includingDownloads {
+            doomed += names.filter { $0.hasPrefix(UpdateInstaller.installLockPrefix) }
+        }
         for name in doomed {
             try? fm.removeItem(at: directory.appendingPathComponent(name))
         }
