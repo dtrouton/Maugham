@@ -52,6 +52,12 @@ public enum SetPublishConfigTool: MCPTool {
         guard let patchObj = outer?["patch"] else {
             throw MCPError.invalidArgument("patch required")
         }
+        // RFC 7396 needs an object at the top level. `JSONSerialization.data`
+        // raises an uncatchable NSInvalidArgumentException (killing the whole
+        // server) for a scalar, null or array, so refuse before it.
+        guard patchObj is [String: Any] else {
+            throw MCPError.invalidArgument("patch must be a JSON object (RFC 7396 merge patch); a scalar, null, or array is not a valid patch")
+        }
         let entry = try resolveProject(projectID, in: registry)
         let patchData = try JSONSerialization.data(withJSONObject: patchObj, options: [])
         let cfgStore = PublishConfigStore(projectURL: entry.url)
