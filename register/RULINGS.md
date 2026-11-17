@@ -3,7 +3,7 @@
 **GENERATED from `register/01-claims-ledger.json` (`_meta.rulings`). Do not hand-edit.**
 Regenerate with `python3 register/scripts/23-generate-rulings.py` after any ruling change.
 
-63 rulings, 4 principles.
+64 rulings, 4 principles.
 
 Every ruling carries its **BASIS** — the reason it was made. The basis is load-bearing:
 applying a ruling to a new case means re-checking the basis, not pattern-matching the
@@ -664,6 +664,16 @@ This is the line between R11 and R18, which was previously undrawn — I had bee
 
 *mechanism note:* `ProjectStore.deleteResearchItems` asks every refusal of every item first (all or nothing), then trashes one `trashResearchItemCore` per id. A non-link row whose file is gone (`namesAMissingFile`: `NSFileReadNoSuchFileError` or POSIX `ENOENT` only, with no `.<name>.icloud` placeholder beside it) is recorded through `TrashStore.recordManifestOnlyTrash` as the row alone (carriesFile false), so the gesture completes and ⌘⌥Z restores the row; an unreadable folder, an unreachable volume or a placeholder takes the ordinary move, which fails and is reported. A throw from the first item rethrows that item's error, saves nothing and leaves the armed undo as it was. A later throw goes through `settleDeletedInPart`: it saves the manifest without the rows already taken, refreshes the Trash list, arms ⌘⌥Z with exactly the entries that landed (clearing it when none did, as a clean delete that makes no entry does) and throws `ProjectStoreError.deletedInPart(trashed:removed:failed:underlying:)`: “Moved 2 to the Trash (“A”, “B”), then “C” could not be deleted: <reason>. ⌘⌥Z puts the 2 back.” (“puts it back.” for one; a row removed with no entry is named apart: “Moved 1 to the Trash (“A”) and removed “B”, then …”; no ⌘⌥Z clause when nothing is undoable); if that save throws, `manifestUnwritable` carries its reason and the sentence. `TrashStore.moveToTrash` takes back the entry folder it minted when its path guard or move throws, and ⌘⌥Z reads every entry of the gesture first, refusing the whole gesture with `TrashError.alreadyInProject` if one clashes with the tree or with another entry. What is the coordinator's, not Denver's: the sentence's wording and the 'N items' label, the arm-or-clear rule, that 'missing' means only a true no-such-file error, the entry-folder cleanup and the duplicate-id refusal. Pinned by `ResearchMoverOutsideResearchTests` (`test_aBatchDeleteWhoseSecondFileIsMissingDeletesAllThree_andUndoesAsOne`, `test_aMissingRowAlone_andABatchWhoseFilesAreAllMissing_deleteAndUndoAsOne`, `test_aRowWhoseFileIsStillComingDownFromICloudIsNotTakenAsMissing`, `test_aNoteWhoseFolderCannotBeReadIsNotTakenAsMissing`, `test_aBatchDeleteThatFailsPartwaySavesWhatItTrashed_armsIt_andNamesBothHalves`, `test_aBatchDeleteWhoseFirstItemFailsChangesNothing_andThrowsItsOwnError`, `test_aPartwayFailureNamesARowRemovedWithNoEntryApart_andCountsOnlyWhatUndoRestores`, `test_aPartwayFailureWithNoEntryClearsTheEarlierUndo_asACleanDeleteDoes`, `test_aRestoreOfAnItemAlreadyInTheProjectIsRefused`, `test_anUndoWhoseSecondEntryClashesRestoresNothing_andWorksOnceTheClashIsGone`) and `TrashCharacterization`'s moveToTrash tests.
 
+### RULING-64 — filesystem responsibility (RULING-9's family)  `RATIFIED_FROM_OPTIONS`
+
+> A stale .md Maugham itself left is not an outside edit. When a document is opened and its .md is exactly Maugham's own text from just before a save that was interrupted, no "diverged" copy is filed in .maugham/conflicts. Any other mismatch is still backed up.
+
+*basis:* Denver, 2026-11-17, options put in conversation with pros and cons: A keep as built in 0.47.0 (recommended), B always back up as before, C widen A to the remaining interrupted-save cases. Denver chose A. Reasons put for A: the conflicts folder then holds only what might be a real outside edit; it fits RULING-9; the exact-match test loses nothing, since that text is already in the history.
+
+*provenance note:* Ratified from a recommended option: the option text and its rationale are the agent's, ratified by Denver (2026-11-17, in conversation, the single reply "A"). That is RULING-25's weaker basis, not the interview era's verbatim one; weigh it accordingly on a novel case. The family (RULING-9's) is the agent's placing. Option C (widening to the burst variant and to a .md older than the pre-fold state) was put and NOT chosen: those cases still file a backup, and widening them is issue #146's question, not settled here.
+
+*mechanism note:* `Document.load` compares the stored .md (anchors stripped) with the render of the derived state; on a mismatch it also compares it with the render of the state before a pending fold this load performed (`opsBeforeFold`) and, when equal, files no 'diverged' backup. The re-render is scheduled either way. Claim M9-OL-018 carries the residuals.
+
 ## The enforcement gradient — how each ruling is held
 
 prose → test → tripwire → type → model. A prose-only ruling with LIVE reach is a
@@ -721,6 +731,7 @@ promotion candidate. (Source: `_meta.enforcement`; metadata, outside the ruling 
 - **RULING-61** `test` — AddNoteToolTests.test_addNoteIntoThePaletteGroupIsRefused_andCreatesNothing + UpdateNoteToolTests.test_aCardUnderARenamedPaletteGroupIsStillRefused + ResearchSubjectRoutingTests role-first pins
 - **RULING-62** `test` — ResearchNoteDoorTests outside-change pins + ResearchNoteEditorReloadTests / PaletteCardEditorReloadTests reload pins
 - **RULING-63** `test` — ResearchMoverOutsideResearchTests missing-row, partway-failure and restore-refusal pins + TrashCharacterization moveToTrash no-folder pins
+- **RULING-64** `test` — AutosaveOffMainTests.test_anAutosaveCutBetweenTheMirrorAndTheWriteLeavesNoDivergedBackup + LoadDivergenceSnapshotTests.test_anOutsideEditBesideAPendingFileIsStillBackedUpOnce
 
 ## Principles — how to judge, not what to decide
 
