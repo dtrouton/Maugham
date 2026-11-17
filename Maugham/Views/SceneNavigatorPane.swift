@@ -276,23 +276,20 @@ struct SceneNavigatorPane: View {
     /// not know better than the window which document is open, and re-writing the
     /// same value on every scene click would churn the editor's reload triggers.
     ///
-    /// **Known edge, stated rather than hidden:** on the click that restores the
-    /// document, the editor is mounting for the first time, so the
-    /// `maughamNavigateToScene` post that follows reaches no coordinator and the
-    /// scroll is lost — the writer lands in the script, at wherever it was, not
-    /// at that slugline. A second click gets it. It is not fixed here with a
-    /// delayed re-post: that would jump a writer BACK to scene A if they clicked
-    /// A then B quickly, which is worse than a first click that under-delivers.
-    /// Fixing it properly means the coordinator holding a pending navigation
-    /// across its own mount, which is an editor change, not a binder one.
+    /// **The first click lands on the slugline too** (shell p1 Task 4b): on the
+    /// click that restores the document the editor is mounting for the first
+    /// time, so the `maughamNavigateToScene` post that follows reaches no
+    /// coordinator; the window's receiver holds the line instead
+    /// (`EditorControl.pendingPlace`) and the editor lands it when the script
+    /// loads. Never a delayed re-post: that would jump a writer BACK to scene A
+    /// if they clicked A then B quickly — the held place is last-act-wins.
     ///
     /// **A research subject is reclaimed, exactly like the project** (stage-2a
     /// Task 4's ruling; Task 1 deferred it to the task that gave this pane
     /// research rows, which is this one). The two are the same case in the only
-    /// way that matters here: neither has an editor in the centre column, so the
-    /// `maughamNavigateToScene` post that follows this call reaches no
-    /// coordinator and the writer's click on a slugline does nothing they can
-    /// see. `.item` is left alone for the opposite reason — an editor IS
+    /// way that matters here: neither has an editor in the centre column, so
+    /// without the script restored the writer's click on a slugline would do
+    /// nothing they can see. `.item` is left alone for the opposite reason — an editor IS
     /// mounted, and re-writing the same value would churn its reload triggers.
     ///
     /// **Over what is open** (shell p1 Task 3): a script already open is left

@@ -98,6 +98,36 @@ final class EditorControl {
     /// path — never per keystroke.
     var figureCardVersion: Int = 0
 
+    /// **A place waiting for its document** (shell p1 Task 4b): the one
+    /// pending "go to a paragraph" (or a slugline's line) whose piece the
+    /// mounted editor does not have yet. The first click from the canvas, an
+    /// edition or another piece opens the piece; the editor that then mounts
+    /// on it lands here.
+    ///
+    /// Last act wins: the window's paragraph receiver (`ParagraphNavModifier`,
+    /// asking `ManuscriptNavigation.holdsThePlace`) writes it, replacing any
+    /// unconsumed one. The next manuscript load takes it, whatever its
+    /// document (`EditorCoordinator.landPendingPlace(from:)`, called from
+    /// `EditorSurface.makeNSView`): it lands only when it names that document
+    /// and a paragraph the document has, and is dropped otherwise — never
+    /// landed on a different document.
+    ///
+    /// `@ObservationIgnored` on purpose: a request, not control state, so no
+    /// observer (the coordinator's `applyControl` chain, a SwiftUI body) ever
+    /// re-runs when it is written or taken (D1, tripwire 6).
+    @ObservationIgnored var pendingPlace: PendingPlace? = nil
+
+    /// A place in one document: a paragraph (with an optional UTF-16 offset
+    /// into it, `MaughamEvent.paragraphOffsetKey`) or a slugline's line.
+    struct PendingPlace: Equatable {
+        enum Target: Equatable {
+            case paragraph(id: String, offset: Int?)
+            case line(location: Int)
+        }
+        let docId: String
+        let target: Target
+    }
+
     /// The ordered translation-freshness entries (each carrying its own block
     /// text), plus the resolved orphan records for the same derivation — a
     /// translation whose paragraph no longer exists in the manuscript (Task 5).

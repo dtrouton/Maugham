@@ -71,6 +71,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// when the user revisits a previously-open document.
     var initialCursorLocation: Int?
 
+    /// The id of the document this editor shows (`ParagraphProviders.documentId`,
+    /// `EditorHost`'s alone; fixed for the mount). A pending place lands only
+    /// on it (`landPendingPlace(from:)`), and a paragraph navigation naming
+    /// another document is left to that document's editor. Nil on every
+    /// other surface.
+    var documentId: String?
+
     /// Fired on every selection change with the new caret location, so the
     /// host can persist per-document cursor positions.
     var onCursorChanged: ((Int) -> Void)?
@@ -849,31 +856,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] note in
             guard let self,
                   let pid = note.userInfo?["paragraph_id"] as? String,
-                  let textView = self.textView,
-                  let provider = self.paragraphRangeProvider,
-                  let range = provider(pid) else { return }
-            let length = (textView.string as NSString).length
-            guard range.location >= 0,
-                  range.location + range.length <= length else { return }
-            // Position a cursor (length 0) at paragraph start rather
-            // than selecting the whole paragraph. Selecting the entire
-            // range was disorienting when navigating from the Tasks
-            // pane — the writer's "jump to this task" became "select
-            // the whole containing paragraph including unrelated
-            // text." A future refinement could thread an
-            // intra-paragraph offset through the notification to land
-            // exactly on the task line; for now, paragraph start is
-            // close enough and avoids the surprising selection.
-            //
-            // An offset (`MaughamEvent.paragraphOffsetKey`: a figure's Used-in
-            // link naming a line inside a paragraph of several) moves the
-            // caret that far into the paragraph, never past its end.
-            let offset = (note.userInfo?[MaughamEvent.paragraphOffsetKey] as? Int).map { max(0, min($0, range.length)) } ?? 0
-            let cursor = NSRange(location: range.location + offset, length: 0)
-            self.forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
-            textView.setSelectedRange(cursor)
-            textView.scrollRangeToVisible(range)
-            textView.window?.makeFirstResponder(textView)
+                  let textView = self.textView else { return }
+            // A navigation naming another document is that document's: the
+            // window opens it, and the editor that loads it lands the place
+            // (`EditorControl.pendingPlace`). Never this document's paragraph
+            // that happens to share the id.
+            if let named = note.userInfo?[ManuscriptNavigation.docIdKey] as? String,
+               let mine = self.documentId, named != mine { return }
+            self.landOnParagraph(
+                pid, offset: note.userInfo?[MaughamEvent.paragraphOffsetKey] as? Int,
+                in: textView)
         }
         // Key-window scoped via the helper (ADR 0021) — the former inline
         // `textView.window?.isKeyWindow` guard is deleted; the `.keyWindow`

@@ -17,20 +17,18 @@ struct ParagraphNavModifier: ViewModifier {
     /// The project's structure, read at post time to tell a piece on the faces
     /// from a Part.
     let structure: () -> [StructureItem]
+    /// The window's editor control: where a place whose piece the editor does
+    /// not have yet is held until that piece loads (`EditorControl.pendingPlace`).
+    let editorControl: EditorControl
     @Environment(\.openWindow) private var openWindow
 
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamNavigateToParagraph, window: window) { note in
                 // The editor's own receiver (`EditorCoordinator`) scrolls to the
-                // paragraph; this one puts its piece in the centre.
-                ManuscriptNavigation.go(
-                    to: ManuscriptNavigation.destination(
-                        toDocument: ManuscriptNavigation.paragraphDocId(
-                            payload: note.userInfo, current: subject,
-                            structure: structure()),
-                        current: subject),
-                    subject: $subject)
+                // paragraph when it has the piece; this one puts the piece in
+                // the centre, and holds the place for the editor that loads it.
+                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject)
             }
             // **The screenplay's own navigation.** A slugline click posts this from
             // `SceneNavigatorPane`'s `onSelect` after that pane has put the script
@@ -39,18 +37,12 @@ struct ParagraphNavModifier: ViewModifier {
             // in the script.
             //
             // **Two receivers, one poster, different jobs**: this one opens the
-            // script, the coordinator's scrolls to the slugline. Deliberately NOT a
-            // re-post once the editor mounts — see
-            // `SceneNavigatorPane.subject(_:whenNavigatingTo:)` for the first-click
-            // edge and why a delayed re-post would be worse.
+            // script, the coordinator's scrolls to the slugline. When the script
+            // was not open the slugline's line is held, never re-posted, and the
+            // editor that loads the script lands it (`EditorControl.pendingPlace`):
+            // a later click replaces it, so a quick A-then-B lands on B.
             .onKeyWindowCommand(.maughamNavigateToScene, window: window) { note in
-                ManuscriptNavigation.go(
-                    to: ManuscriptNavigation.destination(
-                        toDocument: ManuscriptNavigation.paragraphDocId(
-                            payload: note.userInfo, current: subject,
-                            structure: structure()),
-                        current: subject),
-                    subject: $subject)
+                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject)
             }
             // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
             // window receives it; `openWindow(id:)` for a singleton Window is
@@ -59,5 +51,20 @@ struct ParagraphNavModifier: ViewModifier {
             .onGlobalEvent(.maughamShowHelp) { _ in
                 openWindow(id: "help")
             }
+    }
+
+    /// Where the navigation takes the window — the place's piece open — with
+    /// the place held for the editor when that editor does not have the piece
+    /// yet, written BEFORE the subject so it is there whenever the load lands.
+    private func holdingThePlace(_ note: Notification) -> WindowSubject {
+        let docId = ManuscriptNavigation.paragraphDocId(
+            payload: note.userInfo, current: subject, structure: structure())
+        let next = ManuscriptNavigation.destination(toDocument: docId, current: subject)
+        if ManuscriptNavigation.holdsThePlace(docId: docId, current: subject, next: next,
+                                              pending: editorControl.pendingPlace),
+           let place = ManuscriptNavigation.place(docId: docId, payload: note.userInfo) {
+            editorControl.pendingPlace = place
+        }
+        return next
     }
 }

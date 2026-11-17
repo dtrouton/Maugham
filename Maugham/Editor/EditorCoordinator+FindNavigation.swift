@@ -50,7 +50,8 @@ extension EditorCoordinator {
         textView.scrollRangeToVisible(range)
     }
 
-    func navigateToLine(at location: Int, in textView: NSTextView) {
+    @discardableResult
+    func navigateToLine(at location: Int, in textView: NSTextView) -> NSRange {
         forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
         let storage = textView.textStorage
         let length = (storage?.string as NSString?)?.length ?? 0
@@ -59,6 +60,73 @@ extension EditorCoordinator {
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         textView.window?.makeFirstResponder(textView)
+        return range
+    }
+
+    /// **Going to a paragraph** (`.maughamNavigateToParagraph`, and a pending
+    /// place landing): a caret (length 0) at the paragraph's start, the
+    /// paragraph scrolled into view, the text focused. Returns the range
+    /// scrolled to, or nil — and nothing moves — when this document has no
+    /// such paragraph.
+    ///
+    /// A caret rather than the whole paragraph selected: selecting it was
+    /// disorienting from the Tasks pane — "jump to this task" became "select
+    /// the whole containing paragraph including unrelated text."
+    ///
+    /// An offset (`MaughamEvent.paragraphOffsetKey`: a figure's Used-in link
+    /// naming a line inside a paragraph of several) moves the caret that far
+    /// into the paragraph, never past its end.
+    @discardableResult
+    func landOnParagraph(_ paragraphId: String, offset: Int?, in textView: NSTextView) -> NSRange? {
+        guard let provider = paragraphRangeProvider,
+              let range = provider(paragraphId) else { return nil }
+        let length = (textView.string as NSString).length
+        guard range.location >= 0,
+              range.location + range.length <= length else { return nil }
+        let into = offset.map { max(0, min($0, range.length)) } ?? 0
+        let cursor = NSRange(location: range.location + into, length: 0)
+        forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
+        textView.setSelectedRange(cursor)
+        textView.scrollRangeToVisible(range)
+        textView.window?.makeFirstResponder(textView)
+        return range
+    }
+
+    /// **A place the window was asked to go to before this editor had its
+    /// document** (`EditorControl.pendingPlace`, shell p1 Task 4b), taken once
+    /// the document has loaded — `EditorSurface.makeNSView`, which runs once
+    /// per document because the surface is keyed `.id(path)`.
+    ///
+    /// Every manuscript load takes the slot, whatever it names: it lands
+    /// exactly as the synchronous navigation does when it names THIS document
+    /// and a place in it, and is dropped otherwise (a document that never
+    /// loaded, a paragraph that is not here) — it never lands on a different
+    /// document. A second editor in the window (a statement pane) and any
+    /// surface with no document id leave it alone; they have their own
+    /// `EditorControl` besides.
+    ///
+    /// At mount the text view is not yet in a window, so the scroll and the
+    /// focus are repeated on the next main-queue turn, as `attach(to:)` does
+    /// for a restored caret (and after it, so the place wins).
+    func landPendingPlace(from control: EditorControl) {
+        guard respondsToWindowCommands, let documentId,
+              let place = control.pendingPlace else { return }
+        control.pendingPlace = nil
+        guard place.docId == documentId, let textView else { return }
+        let landed: NSRange?
+        switch place.target {
+        case .paragraph(let id, let offset):
+            landed = landOnParagraph(id, offset: offset, in: textView)
+        case .line(let location):
+            guard location >= 0, location <= (textView.string as NSString).length else { return }
+            landed = navigateToLine(at: location, in: textView)
+        }
+        guard let landed, textView.window == nil else { return }
+        DispatchQueue.main.async { [weak textView] in
+            guard let textView else { return }
+            textView.scrollRangeToVisible(landed)
+            textView.window?.makeFirstResponder(textView)
+        }
     }
 
     /// SPIKE (collab review): the selection's bounding rect in TEXT-VIEW

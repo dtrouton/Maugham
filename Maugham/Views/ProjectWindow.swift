@@ -502,7 +502,8 @@ struct ProjectWindow: View {
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
-                                       structure: { store?.manifest.structure ?? [] }))
+                                       structure: { store?.manifest.structure ?? [] },
+                                       editorControl: editorControl))
         // A double-click on a tree row opens it in the centre — the click
         // rule's `.openInCentre` (`TreeTravel.swift`); THIS LINE is what makes
         // it reachable (this body has no expression budget — the Release

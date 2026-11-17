@@ -75,6 +75,37 @@ enum ManuscriptNavigation {
                                   structure: structure, projectType: projectType)
     }
 
+    /// **Whether the window holds this place for the editor to land on once
+    /// its document has loaded** (`EditorControl.pendingPlace`, shell p1 Task
+    /// 4b).
+    ///
+    /// Yes when going there changes the open document — no editor has that
+    /// document yet, so the editor's own receiver cannot land it now — and
+    /// when a place in the same document is already waiting (its load has not
+    /// finished; the later request replaces it). Otherwise the editor already
+    /// shows the document and lands it at once, and nothing is held: a held
+    /// place would land again on the next reload of the same document.
+    static func holdsThePlace(docId: String?, current: WindowSubject,
+                              next: WindowSubject,
+                              pending: EditorControl.PendingPlace?) -> Bool {
+        guard let docId else { return false }
+        return next.open != current.open || pending?.docId == docId
+    }
+
+    /// **The place a navigation names**: a paragraph (with its offset) or a
+    /// slugline's line, from the payload; nil when it names neither.
+    static func place(docId: String?, payload: [AnyHashable: Any]?) -> EditorControl.PendingPlace? {
+        guard let docId else { return nil }
+        if let pid = payload?["paragraph_id"] as? String {
+            return .init(docId: docId, target: .paragraph(
+                id: pid, offset: payload?[MaughamEvent.paragraphOffsetKey] as? Int))
+        }
+        if let location = payload?["lineLocation"] as? Int {
+            return .init(docId: docId, target: .line(location: location))
+        }
+        return nil
+    }
+
     /// The one place a navigation is applied to a window: the subject, written
     /// only when it changed.
     ///

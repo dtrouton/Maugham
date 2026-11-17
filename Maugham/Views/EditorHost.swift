@@ -824,6 +824,8 @@ struct EditorHost: View {
                 // window's screenplay re-parse can't relayout this editor or
                 // clobber its scene navigator (Channel A, ADR 0017 addendum).
                 scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
+                // Where a pending place may land (`EditorControl.pendingPlace`).
+                documentId: doc.docId,
                 paragraphRangeProvider: { paragraphId in
                     doc.displayRange(forParagraphId: paragraphId)
                 },

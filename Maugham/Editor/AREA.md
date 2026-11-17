@@ -10,7 +10,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorSurface.swift` — the `NSViewRepresentable` around the text view, the SwiftUI-side boundary: `EditorSurfaceConfiguration` (with `isSecondEditorInItsWindow`), `reconcileTextBuffer`, the one `applyExternalText` call, and `MaughamTextView` (the `NSTextView` subclass: caret clamp, paste, checkbox click, private undo manager, column inset). Tripwires 6, 7.
 - `EditorCoordinator.swift` — the `NSTextViewDelegate`, the area's central nervous system: `shouldChangeTextIn` (the membrane), `textDidChange`, the key-window observers, `detach()`, `applyExternalText`, `observeControl`/`applyControl`. Tripwires 2, 3, 6, 7.
 - `EditorCoordinator+Typography.swift` — `retokenizeAndStyle`, the deferred and live windowed restyles, `applyAppearance`, `effectiveAppearanceDidChange`, `applyFocusDim`, typewriter centring, metrics delivery, `postScriptDidUpdate`, checkbox and wiki-link hit-testing.
-- `EditorCoordinator+FindNavigation.swift` — line and annotation navigation, and the selection toolbar's placement.
+- `EditorCoordinator+FindNavigation.swift` — line, paragraph, annotation and pending-place (`EditorControl.pendingPlace`) navigation, and the selection toolbar's placement.
 - `EditorCoordinator+TabCycle.swift` — screenplay Tab / Shift-Tab element cycling.
 - `EditorCoordinator+Insert.swift` — `applyCommandEdit` (Route A for commands) and the Insert menu's receivers.
 - `FigureVisitUndo.swift` — a folded grid visit as one window step (`undoVisit`/`redoVisit`); removed when the visit wrote nothing or cannot be undone.

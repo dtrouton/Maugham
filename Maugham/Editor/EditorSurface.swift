@@ -63,6 +63,12 @@ struct EditorSurfaceConfiguration {
         /// to their own window (Channel A). Passed by manuscript hosts
         /// (EditorHost); nil for research notes, which never post scripts.
         var scriptOriginProjectId: String? = nil
+        /// The id of the document this surface shows — `EditorHost` alone
+        /// passes it (a surface is keyed `.id(path)`, so it is fixed for the
+        /// mount). The coordinator lands a pending place only on this
+        /// document (`EditorControl.pendingPlace`); nil (a research note, a
+        /// statement) lands none.
+        var documentId: String? = nil
         /// When set, the text view's paste(_:) routes pasteboard images to this
         /// handler instead of pasting them as text. Used for research notes to
         /// save images to a sibling _assets/ folder and insert a Markdown ref.
@@ -290,6 +296,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
+        coordinator.documentId = pp.documentId
         coordinator.respondsToWindowCommands = !configuration.isSecondEditorInItsWindow
         coordinator.answersInsertCommands = configuration.answersInsertCommands
         if configuration.answersInsertCommands { coordinator.registerReferencePickers() }
@@ -411,6 +418,11 @@ struct EditorSurface: NSViewRepresentable {
         // from here on; the per-prop pushes below remain during the parallel
         // migration (ADR 0017) and are removed in later tasks.
         context.coordinator.observeControl(configuration.control)
+        // A document has just loaded into this editor (the surface is keyed
+        // `.id(path)`, so this is its first text): a place the window was
+        // asked to go to before it was here lands now, or is dropped
+        // (`EditorControl.pendingPlace`, shell p1 Task 4b).
+        context.coordinator.landPendingPlace(from: configuration.control)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && configuration.presentation.showElementGutter {
             textView.installGutter(coordinator: context.coordinator)

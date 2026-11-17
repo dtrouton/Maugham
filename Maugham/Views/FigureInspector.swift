@@ -128,11 +128,12 @@ enum FigureUseTravel {
     /// **The travel, posted**: the reveal (the window selects the piece and,
     /// once its document is up, navigates to the paragraph at the line's
     /// offset — `TranslationReveal.perform`), then the same navigation at
-    /// once — which, from a persona whose centre shows no manuscript (Plan),
-    /// takes the window to Author first (`ManuscriptNavigation`), so the
-    /// reveal has an editor to land in; with no editor on that piece yet it
-    /// moves no caret. A piece alone is a subject write. `post` is
-    /// production's `MaughamEvent.post(_:to: .keyWindow, payload:)`.
+    /// once, which opens the piece in the centre whatever the centre was
+    /// (`ManuscriptNavigation`). An editor already on the piece lands it at
+    /// once; otherwise the window holds the place and the editor lands it when
+    /// the piece loads (`EditorControl.pendingPlace`). A piece alone is a
+    /// subject write. `post` is production's
+    /// `MaughamEvent.post(_:to: .keyWindow, payload:)`.
     @MainActor
     static func perform(_ destination: Destination, select: (BinderSubject) -> Void,
                         post: (Notification.Name, [String: Any]) -> Void) {
