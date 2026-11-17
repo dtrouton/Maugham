@@ -1463,6 +1463,10 @@ struct EditorHost: View {
             // so unbinds a document that loaded perfectly well and leaves the
             // editor on "Loading…" for a file that is open.
             guard loads.isCurrent(generation) else { return }
+            // A place the window held for this piece is dropped: no editor will
+            // land it, and it must not land on a later open
+            // (`EditorControl.pendingPlace`).
+            control.dropPendingPlace(naming: item.id)
             document = nil
             recoveryBannerModel = nil
             loadedItemId = item.id

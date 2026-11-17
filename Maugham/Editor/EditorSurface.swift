@@ -419,10 +419,10 @@ struct EditorSurface: NSViewRepresentable {
         // migration (ADR 0017) and are removed in later tasks.
         context.coordinator.observeControl(configuration.control)
         // A document has just loaded into this editor (the surface is keyed
-        // `.id(path)`, so this is its first text): a place the window was
-        // asked to go to before it was here lands now, or is dropped
-        // (`EditorControl.pendingPlace`, shell p1 Task 4b).
-        context.coordinator.landPendingPlace(from: configuration.control)
+        // `.id(path)`, so this is its first text): the window learns which,
+        // and a place it was asked to go to before the editor had it lands
+        // now, or is dropped (`EditorControl.pendingPlace`, shell p1 Task 4b).
+        context.coordinator.documentDidMount(control: configuration.control)
         textView.coordinator = context.coordinator
         if mode is ScreenplayMode && configuration.presentation.showElementGutter {
             textView.installGutter(coordinator: context.coordinator)

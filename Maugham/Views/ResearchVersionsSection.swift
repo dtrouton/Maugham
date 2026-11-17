@@ -28,9 +28,9 @@ enum ResearchVersionsModel {
     /// Why Restore is off, nil when it is on: a view-only share first, then
     /// the window's Lock (whose grid reads the table and refuses its edits) — the grid's
     /// own reasons and sentences (`FigureGridGate.Reason`).
-    static func restoreRefusal(shareIsReadOnly: Bool, reviewing: Bool) -> FigureGridGate.Reason? {
+    static func restoreRefusal(shareIsReadOnly: Bool, isLocked: Bool) -> FigureGridGate.Reason? {
         if shareIsReadOnly { return .viewOnlyShare }
-        if reviewing { return .reviewMode }
+        if isLocked { return .locked }
         return nil
     }
 
@@ -106,8 +106,8 @@ struct ResearchVersionsSection: View {
     var kind: ResearchVersionPayload = .table
     /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
     var noun: String = "table"
-    /// The persona reads Research without changing it (Review).
-    var reviewing: Bool = false
+    /// The window's Lock: Research is read, not changed.
+    var isLocked: Bool = false
 
     /// Nil until the first listing lands.
     @State private var rows: [ResearchVersionsModel.Row]?
@@ -115,7 +115,7 @@ struct ResearchVersionsSection: View {
     @State private var isRestoring = false
 
     var body: some View {
-        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly, reviewing: reviewing)
+        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly, isLocked: isLocked)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Versions").font(.headline)

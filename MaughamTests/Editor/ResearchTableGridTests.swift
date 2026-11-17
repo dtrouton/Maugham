@@ -412,7 +412,7 @@ final class ResearchTableGridTests: XCTestCase {
     // MARK: - Read-only
 
     /// **A locked window reads the table, never edits it**: the grid opens
-    /// read-only (with the grid's review reason) and typing writes nothing.
+    /// read-only (with the Lock's own reason) and typing writes nothing.
     /// (The Lock is this window's gate; the host is shared with any other
     /// window's grid.)
     func test_aLockedWindowOpensTheTableReadOnly() async throws {
@@ -422,7 +422,7 @@ final class ResearchTableGridTests: XCTestCase {
         let mount = await mount(item, store, projectStore, readOnly: WindowLock.refusesEdits(isLocked: true))
         let c = try XCTUnwrap(mount.controller)
         let host = try XCTUnwrap(mount.host)
-        XCTAssertEqual(c.mode, .readOnly(.reviewMode))
+        XCTAssertEqual(c.mode, .readOnly(.locked))
 
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "typing wrote nothing")

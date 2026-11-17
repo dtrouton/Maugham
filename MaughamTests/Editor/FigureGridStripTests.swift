@@ -304,6 +304,26 @@ final class FigureGridStripTests: XCTestCase {
     }
 
     /// **An answer after the fold is said, its typed reason with it** (fix round M4).
+    /// **The window's Lock answers like review mode, in its own words**:
+    /// Got it and Reject stay offered, Accept is off and, asked, writes
+    /// nothing and says "Unlock the window to accept…".
+    func test_underTheLockAcceptSaysUnlockTheWindow() async throws {
+        let (store, c, host) = try await openGrid()
+        let b2 = key(host, "B2")
+        let suggestion = try await suggest(number(9), at: b2, store: store, host: host)
+        await landed(c)
+        c.setAccess(.readOnly(.locked), captionMayEdit: false)
+        c.handle(.click(b2, extend: false))
+        XCTAssertEqual(c.stripPlan.entries.first?.actions,
+                       [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: true)])
+        XCTAssertEqual(c.strip.reasonLabel.stringValue,
+                       "Unlock the window to accept \u{2014} it writes the cell.")
+        c.stripAccept(suggestion)
+        await landed(c)
+        XCTAssertNil(host.state.table[b2], "Accept writes nothing under the Lock")
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridStrip.Plan.lockedAccept)
+    }
+
     func test_anAnswerAfterTheFoldIsSaidWithItsReason() async throws {
         let (store, c, host) = try await openGrid()
         let id = try await comment(on: key(host, "A2"), store: store, host: host)

@@ -130,9 +130,10 @@ enum FigureUseTravel {
     /// offset — `TranslationReveal.perform`), then the same navigation at
     /// once, which opens the piece in the centre whatever the centre was
     /// (`ManuscriptNavigation`). An editor already on the piece lands it at
-    /// once; otherwise the window holds the place and the editor lands it when
-    /// the piece loads (`EditorControl.pendingPlace`). A piece alone is a
-    /// subject write. `post` is production's
+    /// once; otherwise the window holds the place for the editor that loads
+    /// the piece (`EditorControl.pendingPlace`), and the reveal's own
+    /// navigation lands it too — either way, the same paragraph. A piece alone
+    /// is a subject write. `post` is production's
     /// `MaughamEvent.post(_:to: .keyWindow, payload:)`.
     @MainActor
     static func perform(_ destination: Destination, select: (BinderSubject) -> Void,

@@ -1163,6 +1163,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         problemTooltips?.removeAll(from: textView)
         closeCompletion()
         disarmCompletionObservers()
+        // The window's manuscript editor no longer has this document — unless
+        // the next surface has already recorded its own (`editorDidDetach`
+        // clears only this coordinator's record).
+        control?.editorDidDetach(self)
         // Explicit liveness contract (ADR 0021): drop the scoped-event tokens on
         // teardown so a coordinator SwiftUI hasn't yet released stops receiving
         // deliveries. `receiverContext` also returns nil once `isDetached`, so

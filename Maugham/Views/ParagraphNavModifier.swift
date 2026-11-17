@@ -37,10 +37,11 @@ struct ParagraphNavModifier: ViewModifier {
             // in the script.
             //
             // **Two receivers, one poster, different jobs**: this one opens the
-            // script, the coordinator's scrolls to the slugline. When the script
-            // was not open the slugline's line is held, never re-posted, and the
-            // editor that loads the script lands it (`EditorControl.pendingPlace`):
-            // a later click replaces it, so a quick A-then-B lands on B.
+            // script, the coordinator's scrolls to the slugline. When the editor
+            // does not have the script loaded the slugline's line is held, never
+            // re-posted, and the editor that loads the script lands it
+            // (`EditorControl.pendingPlace`): a later click replaces it, so a
+            // quick A-then-B lands on B.
             .onKeyWindowCommand(.maughamNavigateToScene, window: window) { note in
                 ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject)
             }
@@ -51,20 +52,17 @@ struct ParagraphNavModifier: ViewModifier {
             .onGlobalEvent(.maughamShowHelp) { _ in
                 openWindow(id: "help")
             }
+            // A place still waiting for a piece the window has left is
+            // dropped: its load was abandoned (`EditorControl.pendingPlace`).
+            .onChange(of: subject.open) { _, open in
+                ManuscriptNavigation.openChanged(to: open, control: editorControl)
+            }
     }
 
-    /// Where the navigation takes the window — the place's piece open — with
-    /// the place held for the editor when that editor does not have the piece
-    /// yet, written BEFORE the subject so it is there whenever the load lands.
+    /// Where the navigation takes the window, the place held for the editor
+    /// when it does not have the piece yet (`ManuscriptNavigation.holdingThePlace`).
     private func holdingThePlace(_ note: Notification) -> WindowSubject {
-        let docId = ManuscriptNavigation.paragraphDocId(
-            payload: note.userInfo, current: subject, structure: structure())
-        let next = ManuscriptNavigation.destination(toDocument: docId, current: subject)
-        if ManuscriptNavigation.holdsThePlace(docId: docId, current: subject, next: next,
-                                              pending: editorControl.pendingPlace),
-           let place = ManuscriptNavigation.place(docId: docId, payload: note.userInfo) {
-            editorControl.pendingPlace = place
-        }
-        return next
+        ManuscriptNavigation.holdingThePlace(payload: note.userInfo, current: subject,
+                                             structure: structure(), control: editorControl)
     }
 }

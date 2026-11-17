@@ -75,21 +75,51 @@ enum ManuscriptNavigation {
                                   structure: structure, projectType: projectType)
     }
 
-    /// **Whether the window holds this place for the editor to land on once
-    /// its document has loaded** (`EditorControl.pendingPlace`, shell p1 Task
-    /// 4b).
+    /// **A go-to-paragraph or slugline, applied to the window**: where it
+    /// takes the subject (the place's piece open), having held the place on
+    /// `control` when the window's manuscript editor does not have that piece
+    /// loaded (`EditorControl.pendingPlace`, shell p1 Task 4b). The window's
+    /// receivers (`ParagraphNavModifier`) call this and then `go`.
     ///
-    /// Yes when going there changes the open document — no editor has that
-    /// document yet, so the editor's own receiver cannot land it now — and
-    /// when a place in the same document is already waiting (its load has not
-    /// finished; the later request replaces it). Otherwise the editor already
-    /// shows the document and lands it at once, and nothing is held: a held
-    /// place would land again on the next reload of the same document.
-    static func holdsThePlace(docId: String?, current: WindowSubject,
-                              next: WindowSubject,
-                              pending: EditorControl.PendingPlace?) -> Bool {
-        guard let docId else { return false }
-        return next.open != current.open || pending?.docId == docId
+    /// Asked of the editor, not of the subject: a poster may already have
+    /// written `open` itself before posting (the scene navigator over the
+    /// Book, a research item, a figure, the Inbox or the palette; a figure's
+    /// Used-in reveal), so "open did not change" does not mean "the editor
+    /// has it". The place is written before the subject so it is there
+    /// whenever the load lands.
+    @MainActor
+    static func holdingThePlace(payload: [AnyHashable: Any]?, current: WindowSubject,
+                                structure: [StructureItem],
+                                control: EditorControl) -> WindowSubject {
+        let docId = paragraphDocId(payload: payload, current: current, structure: structure)
+        let next = destination(toDocument: docId, current: current)
+        if holdsThePlace(docId: docId, structure: structure,
+                         mounted: control.mountedDocumentId),
+           let place = place(docId: docId, payload: payload) {
+            control.pendingPlace = place
+        }
+        return next
+    }
+
+    /// **Whether the window holds a place for the editor to land on once its
+    /// document has loaded**: when it names a document piece the window's
+    /// manuscript editor does not have. When the editor has it, its own
+    /// receiver lands the place at once and nothing is held — a held place
+    /// would land again on the next reload. A non-document id (a Part, a
+    /// stale id) loads no editor, so nothing is held for it.
+    static func holdsThePlace(docId: String?, structure: [StructureItem], mounted: String?) -> Bool {
+        guard let docId, TreeWalk.find(id: docId, in: structure)?.type == .document else { return false }
+        return mounted != docId
+    }
+
+    /// **The window's `open` changed** (`ParagraphNavModifier`'s
+    /// `.onChange(of: subject.open)`): a waiting place whose document is no
+    /// longer open is dropped — its load was abandoned, and it must not land
+    /// on a later, ordinary open of that piece.
+    @MainActor
+    static func openChanged(to open: BinderSubject, control: EditorControl) {
+        guard let pending = control.pendingPlace, open != .item(pending.docId) else { return }
+        control.pendingPlace = nil
     }
 
     /// **The place a navigation names**: a paragraph (with its offset) or a

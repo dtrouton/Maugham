@@ -6,9 +6,10 @@ import XCTest
 final class FigureGridGateTests: XCTestCase {
 
     private func mode(mayEdit: Bool = true, parked: Bool = false, closed: Bool = false, share: Bool = false,
-                      review: Bool = false, translation: Bool = false) -> FigureGridGate.Mode {
+                      review: Bool = false, locked: Bool = false, translation: Bool = false) -> FigureGridGate.Mode {
         FigureGridGate.mode(figureMayEdit: mayEdit, parked: parked, hostClosed: closed,
-                            shareIsReadOnly: share, isReviewMode: review, isTranslationReview: translation)
+                            shareIsReadOnly: share, isReviewMode: review, isLocked: locked,
+                            isTranslationReview: translation)
     }
 
     func test_everyRow() {
@@ -19,6 +20,21 @@ final class FigureGridGateTests: XCTestCase {
         XCTAssertEqual(mode(mayEdit: false), .readOnly(.notYours), "the figure's posture refuses")
         XCTAssertEqual(mode(share: true), .readOnly(.viewOnlyShare), "a read-only share is read-only")
         XCTAssertEqual(mode(review: true), .readOnly(.reviewMode), "review mode expands read-only")
+        XCTAssertEqual(mode(locked: true), .readOnly(.locked), "the window's Lock expands read-only")
+    }
+
+    /// **The Lock says the window is locked**, never that the writer is
+    /// reviewing — in the grid's refusal and in the notes strip's Accept line.
+    func test_theLockHasItsOwnWords() {
+        XCTAssertEqual(FigureGridGate.Reason.locked.sentence,
+                       "The window is locked \u{2014} the table can be read, not changed.")
+        XCTAssertEqual(FigureGridStrip.Plan.acceptRefusal(for: .locked),
+                       "Unlock the window to accept \u{2014} it writes the cell.")
+        XCTAssertEqual(FigureGridStrip.Plan.acceptRefusal(for: .reviewMode),
+                       "Turn off review mode to accept \u{2014} it writes the cell.")
+        XCTAssertNil(FigureGridStrip.Plan.acceptRefusal(for: .viewOnlyShare))
+        XCTAssertEqual(mode(review: true, locked: true), .readOnly(.reviewMode), "the explicit ⌘⌥⇧R is said first")
+        XCTAssertEqual(mode(share: true, locked: true), .readOnly(.viewOnlyShare))
     }
 
     /// First match wins: translation review over everything, then the
@@ -35,7 +51,7 @@ final class FigureGridGateTests: XCTestCase {
 
     func test_eachReasonHasItsSentence_parkedIsTheHostsOwn() {
         XCTAssertEqual(FigureGridGate.Reason.parked.sentence, "This table is in Research.")
-        let sentences = [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare, .reviewMode].map(\.sentence)
+        let sentences = [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare, .reviewMode, .locked].map(\.sentence)
         XCTAssertEqual(Set(sentences).count, sentences.count, "each reason says something of its own")
         XCTAssertNil(FigureGridGate.Mode.editable.readOnlyReason)
         XCTAssertEqual(FigureGridGate.Mode.readOnly(.notYours).readOnlyReason, .notYours)

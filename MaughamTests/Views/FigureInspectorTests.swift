@@ -346,7 +346,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: summary.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller, "the centre's grid opened")
@@ -397,7 +397,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         XCTAssertNil(centre.grid?.controller, "premise: the hold is taken, the visit still opening")
 
@@ -442,7 +442,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller)
@@ -805,7 +805,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: (row.number, row.caption), piece: docId, typography: .defaults,
-            isReviewMode: false, shareIsReadOnly: false)
+            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let box = SubjectBox(.figure(figure.id))

@@ -99,7 +99,8 @@ struct FigureSubjectSurface: View {
                     figureId: figureID, store: store, documentStore: documentStore,
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
-                    isReviewMode: control.isManualReviewMode || WindowLock.refusesEdits(isLocked: isLocked),
+                    isReviewMode: control.isManualReviewMode,
+                    isLocked: WindowLock.refusesEdits(isLocked: isLocked),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)
             }

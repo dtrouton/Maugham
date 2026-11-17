@@ -92,25 +92,34 @@ extension EditorCoordinator {
         return range
     }
 
-    /// **A place the window was asked to go to before this editor had its
-    /// document** (`EditorControl.pendingPlace`, shell p1 Task 4b), taken once
-    /// the document has loaded — `EditorSurface.makeNSView`, which runs once
-    /// per document because the surface is keyed `.id(path)`.
-    ///
-    /// Every manuscript load takes the slot, whatever it names: it lands
-    /// exactly as the synchronous navigation does when it names THIS document
-    /// and a place in it, and is dropped otherwise (a document that never
-    /// loaded, a paragraph that is not here) — it never lands on a different
-    /// document. A second editor in the window (a statement pane) and any
-    /// surface with no document id leave it alone; they have their own
-    /// `EditorControl` besides.
+    /// **A document has just loaded into this editor** (`EditorSurface
+    /// .makeNSView`, which runs once per document because the surface is
+    /// keyed `.id(path)`): the window learns which document its manuscript
+    /// editor has (`EditorControl.mountedDocumentId`), and a place it was
+    /// asked to go to before the editor had it lands (`landPendingPlace`).
+    /// A second editor in the window (a statement pane) and any surface with
+    /// no document id do neither; they have their own `EditorControl`
+    /// besides.
+    func documentDidMount(control: EditorControl) {
+        guard respondsToWindowCommands, let documentId else { return }
+        control.editorDidMount(self, documentId: documentId)
+        landPendingPlace(from: control)
+    }
+
+    /// **The window's pending place, taken** (`EditorControl.pendingPlace`,
+    /// shell p1 Task 4b). Every manuscript load takes the slot, whatever it
+    /// names: it lands exactly as the synchronous navigation does when it
+    /// names THIS document and a place in it, and is dropped otherwise (a
+    /// paragraph that is not here, a line past the end) — it never lands on
+    /// a different document.
     ///
     /// At mount the text view is not yet in a window, so the scroll and the
     /// focus are repeated on the next main-queue turn, as `attach(to:)` does
-    /// for a restored caret (and after it, so the place wins).
-    func landPendingPlace(from control: EditorControl) {
-        guard respondsToWindowCommands, let documentId,
-              let place = control.pendingPlace else { return }
+    /// for a restored caret (and after it, so the place wins). The range is
+    /// clamped to the text as it is then, which a translation surface may
+    /// have replaced.
+    private func landPendingPlace(from control: EditorControl) {
+        guard let documentId, let place = control.pendingPlace else { return }
         control.pendingPlace = nil
         guard place.docId == documentId, let textView else { return }
         let landed: NSRange?
@@ -124,7 +133,10 @@ extension EditorCoordinator {
         guard let landed, textView.window == nil else { return }
         DispatchQueue.main.async { [weak textView] in
             guard let textView else { return }
-            textView.scrollRangeToVisible(landed)
+            let length = (textView.string as NSString).length
+            let start = min(landed.location, length)
+            textView.scrollRangeToVisible(
+                NSRange(location: start, length: min(landed.length, length - start)))
             textView.window?.makeFirstResponder(textView)
         }
     }

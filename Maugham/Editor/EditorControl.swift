@@ -105,17 +105,53 @@ final class EditorControl {
     /// on it lands here.
     ///
     /// Last act wins: the window's paragraph receiver (`ParagraphNavModifier`,
-    /// asking `ManuscriptNavigation.holdsThePlace`) writes it, replacing any
-    /// unconsumed one. The next manuscript load takes it, whatever its
-    /// document (`EditorCoordinator.landPendingPlace(from:)`, called from
+    /// through `ManuscriptNavigation.holdingThePlace`) writes it whenever the
+    /// mounted manuscript editor is not on the place's document
+    /// (`mountedDocumentId`), replacing any unconsumed one. The next
+    /// manuscript load takes it, whatever its document
+    /// (`EditorCoordinator.documentDidMount(control:)`, called from
     /// `EditorSurface.makeNSView`): it lands only when it names that document
     /// and a paragraph the document has, and is dropped otherwise — never
-    /// landed on a different document.
+    /// landed on a different document. It is also dropped when the window's
+    /// `open` stops naming its document before the load
+    /// (`ManuscriptNavigation.openChanged`) and when the load is refused
+    /// (`dropPendingPlace(naming:)`, `EditorHost`), so a place nothing took
+    /// never lands on a later, ordinary open of the piece.
     ///
     /// `@ObservationIgnored` on purpose: a request, not control state, so no
     /// observer (the coordinator's `applyControl` chain, a SwiftUI body) ever
     /// re-runs when it is written or taken (D1, tripwire 6).
     @ObservationIgnored var pendingPlace: PendingPlace? = nil
+
+    /// **The document the window's manuscript editor has loaded**, nil when
+    /// none is mounted. Recorded by that editor's coordinator alone, at its
+    /// mount and its detach (`EditorCoordinator.documentDidMount(control:)`,
+    /// `detach()`); read only by `ManuscriptNavigation.holdingThePlace` to
+    /// decide whether a place must wait for a load. `@ObservationIgnored`: a
+    /// fact the coordinator records, never control state anything observes.
+    @ObservationIgnored private(set) var mountedDocumentId: String? = nil
+    /// Which editor recorded it: a detach clears only its own record, so an
+    /// old surface dismantled after its successor mounted (a `.id(path)`
+    /// swap, a rename) never erases the successor's.
+    @ObservationIgnored private var mountedEditor: ObjectIdentifier? = nil
+
+    func editorDidMount(_ editor: AnyObject, documentId: String) {
+        mountedEditor = ObjectIdentifier(editor)
+        mountedDocumentId = documentId
+    }
+
+    func editorDidDetach(_ editor: AnyObject) {
+        guard mountedEditor == ObjectIdentifier(editor) else { return }
+        mountedEditor = nil
+        mountedDocumentId = nil
+    }
+
+    /// **A load of `docId` was refused** (a waiting piece, a recovery
+    /// refusal): a place waiting for it is dropped, so it never lands on a
+    /// later open. A place for any other document is left alone.
+    func dropPendingPlace(naming docId: String) {
+        if pendingPlace?.docId == docId { pendingPlace = nil }
+    }
 
     /// A place in one document: a paragraph (with an optional UTF-16 offset
     /// into it, `MaughamEvent.paragraphOffsetKey`) or a slugline's line.

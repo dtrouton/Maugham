@@ -37,7 +37,7 @@ final class ResearchVersionsModelTests: XCTestCase {
     /// **A view-only share lists the versions with Restore off, and says why**
     /// (final review M2): the reason is the grid's own.
     func test_aViewOnlyShareListsButRestoresNothing() {
-        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, reviewing: false)
+        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, isLocked: false)
         XCTAssertEqual(refusal, .viewOnlyShare)
         let rows = ResearchVersionsModel.rows(from: [version("a", at: 1, by: .writer)], refusal: refusal)
         XCTAssertEqual(rows.count, 1, "the version is listed")
@@ -46,19 +46,19 @@ final class ResearchVersionsModelTests: XCTestCase {
         XCTAssertEqual(refusal?.sentence, "This share is view-only, so the table can’t be changed.")
     }
 
-    /// **Review reads the table; its Restore is off, with the review reason.**
-    /// Disable experiment: answer nil for `reviewing` in `restoreRefusal`, and
-    /// Review restores.
-    func test_reviewListsButRestoresNothing() {
-        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, reviewing: true)
-        XCTAssertEqual(refusal, .reviewMode)
+    /// **A locked window reads the table; its Restore is off, with the Lock's
+    /// reason.** Disable experiment: answer nil for `isLocked` in
+    /// `restoreRefusal`, and a locked window restores.
+    func test_aLockedWindowListsButRestoresNothing() {
+        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, isLocked: true)
+        XCTAssertEqual(refusal, .locked)
         let rows = ResearchVersionsModel.rows(from: [version("a", at: 1, by: .writer)], refusal: refusal)
         XCTAssertFalse(rows[0].canRestore)
         XCTAssertNil(ResearchVersionsModel.previous(in: rows))
-        XCTAssertEqual(refusal?.sentence, "You’re reviewing — the table can be read, not changed.")
-        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, reviewing: true), .viewOnlyShare,
+        XCTAssertEqual(refusal?.sentence, "The window is locked — the table can be read, not changed.")
+        XCTAssertEqual(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: true, isLocked: true), .viewOnlyShare,
                        "a view-only share is said first")
-        XCTAssertNil(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, reviewing: false))
+        XCTAssertNil(ResearchVersionsModel.restoreRefusal(shareIsReadOnly: false, isLocked: false))
     }
 
     /// **Nothing flashes while the first listing loads** (final review M1):
@@ -112,6 +112,8 @@ final class ResearchVersionsModelTests: XCTestCase {
                        "You’re reviewing — the note can be read, not changed.")
         XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence,
                        "You’re reviewing — the table can be read, not changed.")
+        XCTAssertEqual(FigureGridGate.Reason.locked.sentence(noun: "note"),
+                       "The window is locked — the note can be read, not changed.")
         XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare, noun: "note").errorDescription,
                        "This share is view-only, so the note can’t be changed.")
         XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare).errorDescription,

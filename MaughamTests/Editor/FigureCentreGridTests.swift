@@ -555,15 +555,14 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - Read-only reasons
 
-    /// A locked window opens read-only (with the grid's review reason —
-    /// `FigureGridGate` has no Lock reason of its own); the window's ⌘⌥⇧R
-    /// flips an open grid; a view-only share is read-only.
+    /// A locked window opens read-only and says the window is locked; the
+    /// window's ⌘⌥⇧R flips an open grid; a view-only share is read-only.
     func test_theLockAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
         let windows = FigureWindows()
         let review = try centre(m, windows: windows, isLocked: true)
         let r = try await mounted(review)
-        XCTAssertEqual(r.mode, .readOnly(.reviewMode))
+        XCTAssertEqual(r.mode, .readOnly(.locked))
         XCTAssertFalse(r.bars.nameField.isEditable)
         review.box.figureId = nil
         let released = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[r.figureId] == nil }

@@ -524,6 +524,9 @@ final class FigureWindowGrid {
         var typography: TypographySettings
         var isReviewMode: @MainActor () -> Bool
         var shareIsReadOnly: @MainActor () -> Bool
+        /// The window's Lock (`WindowLock`): the centre's grid asks its
+        /// window's; a figure window has none.
+        var isLocked: @MainActor () -> Bool = { false }
         /// The grid takes the keys when it mounts (a window); the centre
         /// leaves them where the writer has them (the tree).
         var takesTheKeysAtMount = true
@@ -781,6 +784,7 @@ final class FigureWindowGrid {
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
             isReviewMode: frame?.isReviewMode() ?? false,
+            isLocked: frame?.isLocked() ?? false,
             isTranslationReview: false)
         // `.noExpand` is translation review's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }

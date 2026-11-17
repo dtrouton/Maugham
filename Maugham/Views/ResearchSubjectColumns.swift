@@ -328,13 +328,13 @@ struct ResearchSubjectInspector: View {
                     InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           reviewing: readOnly)
+                                           isLocked: readOnly)
                 }
             } else {
                 InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           reviewing: readOnly)
+                                           isLocked: readOnly)
             }
         } else {
             ContentUnavailableView(

@@ -153,13 +153,13 @@ extension FigureGridController {
 
     /// **Whether the gate lets the strip answer** (fix round ruling I1): a
     /// read-only grid answers nothing, with its reason — except the window's
-    /// review mode, where Got it and Reject (no cell moves) are the posture's
+    /// review mode or Lock, where Got it and Reject (no cell moves) are the posture's
     /// to decide and only Accept (it writes the cell) is refused, saying so.
     private func mayAnswer(writesTheCell: Bool) -> Bool {
         guard let reason = mode.readOnlyReason else { return true }
-        if reason == .reviewMode {
+        if let refusal = FigureGridStrip.Plan.acceptRefusal(for: reason) {
             guard writesTheCell else { return true }
-            bars.showReason(FigureGridStrip.Plan.reviewModeAccept)
+            bars.showReason(refusal)
             return false
         }
         answer(reason)

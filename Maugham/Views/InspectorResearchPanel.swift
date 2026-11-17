@@ -12,11 +12,11 @@ struct InspectorResearchPanel: View {
     /// The window refuses figure writes (`FigureActions.windowRefusesWrites`).
     var figureWritesRefused: Bool = false
     /// The window's store, share lock and persona, for a Research table's
-    /// version list (nil store shows no list; a view-only share or Review
-    /// lists it with Restore off).
+    /// version list (nil store shows no list; a view-only share or the
+    /// window's Lock lists it with Restore off).
     var documentStore: DocumentStore? = nil
     var shareIsReadOnly: Bool = false
-    var reviewing: Bool = false
+    var isLocked: Bool = false
 
     /// What the verb toward Figures last said (a refusal, the cells kept as
     /// text); cleared when the item changes or the verb flips.
@@ -85,7 +85,7 @@ struct InspectorResearchPanel: View {
                                             kind: versionsKind,
                                             noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure,
                                                                              research: store.manifest.research),
-                                            reviewing: reviewing)
+                                            isLocked: isLocked)
                         .id(item.id)
                 }
                 if item.type != .group {

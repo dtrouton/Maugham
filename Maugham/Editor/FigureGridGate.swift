@@ -9,7 +9,8 @@ import MaughamCore
 /// FIGURE's drawing posture asked of the window's one door
 /// (`DocumentStore.posture(forDocId:)`, `.allows(.editFigure)`), never a rung
 /// (tripwires 47, 51); `parked` and `hostClosed` are the visit's host; the
-/// modes are the editor's own flags. Asked at expand, when the visit mounts,
+/// modes are the editor's own flags; `isLocked` is the window's Lock, which
+/// the centre's grid and the Research table grid pass (`WindowLock`). Asked at expand, when the visit mounts,
 /// whenever the figure's drawn posture changes (the controller observes the
 /// door: a trust change, *Edit Anyway*), at every `figureCardVersion` edge,
 /// when a mode flag flips, and after a write the host refused.
@@ -51,6 +52,10 @@ enum FigureGridGate {
         /// The window's explicit review mode (⌘⌥⇧R) — never the review
         /// forced where the text is not hers (R7c-6).
         case reviewMode
+        /// The window's Lock (`WindowLock`, the toolbar's padlock): research
+        /// and figures are read, not changed. Answered like review mode in the
+        /// notes strip — Got it and Reject stay the posture's, Accept is off.
+        case locked
 
         /// The line the read-only grid answers typing with.
         var sentence: String { sentence(noun: "table") }
@@ -63,18 +68,20 @@ enum FigureGridGate {
             case .notYours: return "This table isn’t yours to change — you can read it."
             case .viewOnlyShare: return "This share is view-only, so the \(noun) can’t be changed."
             case .reviewMode: return "You’re reviewing — the \(noun) can be read, not changed."
+            case .locked: return "The window is locked — the \(noun) can be read, not changed."
             }
         }
     }
 
     static func mode(figureMayEdit: Bool, parked: Bool, hostClosed: Bool, shareIsReadOnly: Bool,
-                     isReviewMode: Bool, isTranslationReview: Bool) -> Mode {
+                     isReviewMode: Bool, isLocked: Bool = false, isTranslationReview: Bool) -> Mode {
         if isTranslationReview { return .noExpand }
         if parked { return .readOnly(.parked) }
         if hostClosed { return .readOnly(.closed) }
         if !figureMayEdit { return .readOnly(.notYours) }
         if shareIsReadOnly { return .readOnly(.viewOnlyShare) }
         if isReviewMode { return .readOnly(.reviewMode) }
+        if isLocked { return .readOnly(.locked) }
         return .editable
     }
 }

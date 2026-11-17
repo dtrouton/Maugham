@@ -65,6 +65,18 @@ enum FigureGridStrip {
         /// Why Accept is disabled in the window's review mode, where Got it
         /// and Reject (no cell moves) stay offered (fix round ruling I1).
         static let reviewModeAccept = "Turn off review mode to accept \u{2014} it writes the cell."
+        /// The same, under the window's Lock.
+        static let lockedAccept = "Unlock the window to accept \u{2014} it writes the cell."
+
+        /// The Accept-refusal line for a read-only reason that keeps Got it
+        /// and Reject (review mode, the Lock); nil for every other reason.
+        static func acceptRefusal(for reason: FigureGridGate.Reason?) -> String? {
+            switch reason {
+            case .reviewMode?: return reviewModeAccept
+            case .locked?: return lockedAccept
+            default: return nil
+            }
+        }
 
         /// The entry on `page` (clamped) and its "1 of 2" (nil with one note).
         func page(_ page: Int) -> (entry: Entry, label: String?)? {
@@ -80,7 +92,7 @@ enum FigureGridStrip {
         /// - `mayReject`: a note may be answered without writing a cell
         ///   (Reject, Got it) — the posture allows `.acceptOrReject`.
         /// - `readOnly`: the grid's read-only reason; the buttons are hidden
-        ///   and the reason said — except review mode, which keeps Got it and
+        ///   and the reason said — except review mode and the Lock, which keep Got it and
         ///   Reject (the posture decides) and shows Accept disabled.
         static func make(
             notes: FigureCellNotes, active: CellKey?, table: FigureTable, names: FormulaNames,
@@ -89,7 +101,8 @@ enum FigureGridStrip {
             guard let active else { return .empty }
             let found = notes.notes(containing: active)
             guard !found.isEmpty else { return .empty }
-            let reviewing = readOnly == .reviewMode
+            let acceptRefusal = acceptRefusal(for: readOnly)
+            let reviewing = acceptRefusal != nil
             let hidden = readOnly != nil && !reviewing
             let entries = found.map { note -> Entry in
                 let address: String? = switch note.figureAnchor?.resolve(in: table) {
@@ -115,8 +128,8 @@ enum FigureGridStrip {
                 readOnly.sentence
             } else if !mayReject {
                 notPermitted
-            } else if reviewing, entries.contains(where: { $0.kind == .suggestedChange }) {
-                reviewModeAccept
+            } else if let acceptRefusal, entries.contains(where: { $0.kind == .suggestedChange }) {
+                acceptRefusal
             } else if entries.contains(where: { $0.actions.contains { !$0.isEnabled } }) {
                 notPermitted
             } else {
