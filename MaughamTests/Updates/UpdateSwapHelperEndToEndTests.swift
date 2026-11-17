@@ -109,13 +109,14 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
 
     /// Starts the helper and returns at once; `runBounded` waits for it.
     private func launchHelper(_ f: Fixture, relaunch: Bool = false, team: String? = nil,
-                              swapToolArgument: String? = nil, bundleIdentifier: String? = nil) throws -> Process {
+                              swapToolArgument: String? = nil, bundleIdentifier: String? = nil,
+                              waitingOn pid: Int32? = nil) throws -> Process {
         let script = f.root.appendingPathComponent("helper.sh")
         try write(UpdateInstaller.helperScript(tools: f.tools), to: script)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = UpdateInstaller.helperArguments(
-            scriptPath: script.path, pid: try exitedPid(),
+            scriptPath: script.path, pid: try pid ?? exitedPid(),
             stagedBundle: f.staged.path, installedBundle: f.installed.path,
             expectedTeamID: team ?? self.team, relaunch: relaunch, version: version,
             updatesDirectory: f.updates.path, swapTool: swapToolArgument ?? f.swapTool.path,
@@ -245,6 +246,37 @@ final class UpdateSwapHelperEndToEndTests: XCTestCase {
         XCTAssertEqual(logged, ["--verify", "--deep", "--strict",
                                 "--test-requirement==identifier \"\(bundleIdentifier)\" and anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"",
                                 f.inflight.path])
+    }
+
+    /// **Two helpers waiting on one app install once** (0.46.0 → 0.47.0, the
+    /// update that left 0.46.0 in place and said nothing): Restart & Update
+    /// launched one helper, the quit launched a second, and both swapped —
+    /// the second put the old app back, each removed `.inflight`, and neither
+    /// recorded anything; or one deleted the other's half-made copy and a
+    /// good download was recorded as refused. The second helper now finds the
+    /// first's lock and leaves.
+    func test_twoHelpersWaitingOnOneApp_installOnce_andRecordNothing() throws {
+        for round in 1...6 {
+            let f = try makeFixture(codesignExit: 0, spctlExit: 0)
+            let app = Process()
+            app.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            app.arguments = ["120"]
+            try app.run()
+            defer { if app.isRunning { kill(app.processIdentifier, SIGKILL) } }
+            let first = try launchHelper(f, waitingOn: app.processIdentifier)
+            let second = try launchHelper(f, waitingOn: app.processIdentifier)
+            Thread.sleep(forTimeInterval: 0.5)
+            kill(app.processIdentifier, SIGKILL)
+            app.waitUntilExit()
+            XCTAssertEqual(runBounded(first, allowance: Self.helperAllowance), 0, "round \(round)")
+            XCTAssertEqual(runBounded(second, allowance: Self.helperAllowance), 0, "round \(round)")
+            XCTAssertEqual(marker(f.installed), "new", "round \(round): the update is installed, not swapped back")
+            XCTAssertFalse(exists(f.status), "round \(round): nothing is recorded")
+            XCTAssertFalse(exists(f.inflight), "round \(round)")
+            let left = try FileManager.default.contentsOfDirectory(atPath: f.updates.path)
+            XCTAssertEqual(left, [], "round \(round): the lock is gone once the helper has finished")
+            try FileManager.default.removeItem(at: f.root)
+        }
     }
 
     func test_aCopyCodesignRefuses_isNeverSwappedIn_andTheRefusalIsRecorded() throws {
