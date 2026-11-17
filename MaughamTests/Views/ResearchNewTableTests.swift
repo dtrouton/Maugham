@@ -236,16 +236,15 @@ final class ResearchNewTableTests: XCTestCase {
 
     // MARK: - Where it is not offered
 
-    /// A view-only share and Review offer no New Table — not in the header,
-    /// a row's menu or a fold — and the window's rule is the research
-    /// centre's own.
-    func test_aViewOnlyShareAndReviewOfferNoNewTable() async throws {
-        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .author))
-        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .plan))
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true, persona: .author),
+    /// A view-only share and a locked window offer no New Table — not in
+    /// the header, a row's menu or a fold — and the window's rule is the
+    /// research centre's own.
+    func test_aViewOnlyShareAndALockedWindowOfferNoNewTable() async throws {
+        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, isLocked: false))
+        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true, isLocked: false),
                        "a view-only share")
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, persona: .review),
-                       "Review")
+        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, isLocked: true),
+                       "a locked window")
 
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
@@ -347,7 +346,7 @@ final class ResearchNewTableTests: XCTestCase {
     @MainActor
     final class WindowBox {
         var control = EditorControl()
-        var persona: Persona = .author
+        var isLocked = false
     }
 
     /// The tree wired as `ProjectWindow` wires it.
@@ -359,14 +358,14 @@ final class ResearchNewTableTests: XCTestCase {
             Color.clear.modifier(FigureSectionWiring(
                 store: store, documentStore: store.documentStore, listing: FigureListingModel(),
                 treeState: tree, figureWindows: nil, typography: .defaults,
-                control: box.control, persona: box.persona))
+                control: box.control, isLocked: box.isLocked))
         }
     }
 
     /// **The window tells the tree** (`FigureSectionWiring`): a tree no
-    /// window has told offers nothing; a writable Author window offers New
-    /// Table; a view-only share and Review take it away, and lifting them
-    /// gives it back.
+    /// window has told offers nothing; a writable unlocked window offers New
+    /// Table; a view-only share and the window's Lock take it away, and
+    /// lifting them gives it back.
     func test_theWindowsWiringOffersNewTableOnlyWhereTheGridCouldEditIt() async throws {
         let store = try await novel()
         let tree = BinderTreeSectionsState()
@@ -386,9 +385,12 @@ final class ResearchNewTableTests: XCTestCase {
         let back = await pumpUntil(deadline: 5) { tree.offersNewTable }
         XCTAssertTrue(back)
 
-        box.persona = .review
-        let reviewHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
-        XCTAssertTrue(reviewHides, "Review hides it")
+        box.isLocked = true
+        let lockHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
+        XCTAssertTrue(lockHides, "the window's Lock hides it")
+        box.isLocked = false
+        let unlocked = await pumpUntil(deadline: 5) { tree.offersNewTable }
+        XCTAssertTrue(unlocked, "unlocking gives it back")
         FigureSectionWiring.attach(tree, to: nil)
     }
 }

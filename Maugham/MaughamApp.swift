@@ -205,22 +205,21 @@ struct MaughamApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 Divider()
-                // The compiler's two keys (spec §3.1). Plain ⌘R, verified
-                // unbound 2026-08-04: the two other "r" bindings carry ⌘⌥⇧
-                // (Toggle Review Mode) and ⌘⌥ (Research pane). ⌘⇧R for the
-                // cold read, verified unbound 2026-08-15 against the same
-                // three. Beside Save because a run acknowledges in Save's
-                // register — a sub-second flash and nothing else.
+                // The compiler's four commands (spec §3.1; shell p1 Task 5).
+                // Plain ⌘R, verified unbound 2026-08-04: the two other "r"
+                // bindings carry ⌘⌥⇧ (Toggle Review Mode) and ⌘⌥ (Research
+                // pane). ⌘⇧R for the cold read, verified unbound 2026-08-15
+                // against the same three. ⌃⌘R and ⌃⇧⌘R for the round's two,
+                // verified unbound 2026-11-17 across `Maugham/` (no other
+                // `.control` "r" chord; the figure grid's own ⌘R key handler
+                // matches plain ⌘ only). Beside Save because a run
+                // acknowledges in Save's register — a sub-second flash and
+                // nothing else.
                 //
-                // **Two keys, four titles** (two loops P1, ADR 0031): the keys
-                // post the same two events they always did, and the receiver
-                // mints the `RunKind` from the key window's persona — so what
-                // moves here is the WORDING. Author's ⌘R is a check and its
-                // ⌘⇧R a *Reread*; Review's are a *Run Round* and *Fresh Eyes*.
-                // The cold read used to sit here as "the same act asked for
-                // differently", which two loops made false: it is one act under
-                // each loop's own verb, and the menu says which loop you are in.
-                FocusedRunButtons()
+                // **Four commands, each naming its kind** (`RunCommand`): what
+                // Run means is the command's, never the window's. ⌘R is a check
+                // wherever the writer stands; a round is asked for by name.
+                RunButtons()
                 Divider()
                 FocusedRestoreButton()
                 Divider()
@@ -564,19 +563,6 @@ extension FocusedValues {
     }
 }
 
-/// The working mode of the focused project window, so a menu item can speak in
-/// that window's own vocabulary. Published by `CanvasPromotionModifier` beside
-/// the promotion flag; read only by `FocusedRunButtons`, which changes the two
-/// compiler items' TITLES and nothing else — what they post is the persona's
-/// business at the receiver, never the menu's.
-struct FocusedPersonaKey: FocusedValueKey { typealias Value = Persona }
-extension FocusedValues {
-    var persona: Persona? {
-        get { self[FocusedPersonaKey.self] }
-        set { self[FocusedPersonaKey.self] = newValue }
-    }
-}
-
 /// Whether the focused window's posture may start a piece (`.startAPiece`,
 /// P3c Task 8 / ruling X). Published by `ProjectWindow.CollectionPieceModifier`
 /// — the receiver of the three items it enables; read only by
@@ -761,22 +747,29 @@ private struct InsertMenuButtons: View {
     }
 }
 
-/// File → the compiler's two keys, titled in the focused window's persona
-/// (`RunMenuTitles`). Deliberately NOT `.disabled` on the focused value: a run
-/// with no project window in front is already a no-op at the receiver, and
-/// greying the item out would make the writer's own muscle memory look broken
-/// while a sheet or the Welcome window held focus.
-private struct FocusedRunButtons: View {
-    @FocusedValue(\.persona) private var persona
+/// File → the compiler's four commands (`RunCommand`), each posting its own
+/// kind. Fixed titles: nothing here reads the focused window. Deliberately NOT
+/// `.disabled`: a run with no project window in front is already a no-op at
+/// the receiver, and greying the items out would make the writer's own muscle
+/// memory look broken while a sheet or the Welcome window held focus.
+private struct RunButtons: View {
     var body: some View {
-        Button(RunMenuTitles.check(for: persona)) {
-            MaughamEvent.postCompilerRun()
+        Button(RunCommand.checkWriting.title) {
+            MaughamEvent.postRun(.checkWriting)
         }
         .keyboardShortcut("r", modifiers: .command)
-        Button(RunMenuTitles.cold(for: persona)) {
-            MaughamEvent.postCompilerFreshEyes()
+        Button(RunCommand.reread.title) {
+            MaughamEvent.postRun(.reread)
         }
         .keyboardShortcut("r", modifiers: [.command, .shift])
+        Button(RunCommand.runRound.title) {
+            MaughamEvent.postRun(.runRound)
+        }
+        .keyboardShortcut("r", modifiers: [.command, .control])
+        Button(RunCommand.freshEyes.title) {
+            MaughamEvent.postRun(.freshEyes)
+        }
+        .keyboardShortcut("r", modifiers: [.command, .control, .shift])
     }
 }
 

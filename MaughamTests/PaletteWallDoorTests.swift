@@ -164,7 +164,7 @@ final class PaletteWallDoorTests: XCTestCase {
         var closed = false
         let window = hostKeyWindow(PaletteWallCentre(
             store: store, selectedPaletteCardId: .constant(nil),
-            onClose: { closed = true }, persona: .author))
+            onClose: { closed = true }, isLocked: false))
         await waitOut(0.2)   // outlast the 30ms deferred focus claim
 
         window.sendEvent(Self.escapeKeyEvent(for: window))
@@ -465,7 +465,7 @@ private struct BothOpenProbeView: View {
             ProjectSearchView(store: store)
                 .frame(width: 160)
             PaletteWallCentre(store: store, selectedPaletteCardId: .constant(nil),
-                              onClose: onCloseWall, persona: .author)
+                              onClose: onCloseWall, isLocked: false)
         }
     }
 }

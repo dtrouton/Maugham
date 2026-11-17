@@ -101,13 +101,12 @@ struct PaletteWallCentre: View {
     let store: ProjectStore
     @Binding var selectedPaletteCardId: String?
     let onClose: () -> Void
-    /// The persona the wall is opened from, asked directly
-    /// (`Persona.editsResearchInTheCentre`) by the card arm below rather than
-    /// threaded as a pre-computed bool — shell-finish stage 3b Task 6, Denver's
-    /// ruling that Review adjudicates and does not edit from its own columns.
-    /// `ResearchSubjectCentre` reads the same predicate at its own mount; never
-    /// `== .review` at either site.
-    let persona: Persona
+    /// The window's Lock (`WindowLock`, shell p1 Task 5), asked by the card
+    /// arm below: a locked window reads a card and does not edit it — what
+    /// Review's adjudicating columns did before the personas went
+    /// (shell-finish stage 3b Task 6). `ResearchSubjectCentre` asks the same
+    /// answer at its own mount.
+    let isLocked: Bool
 
     @FocusState private var isFocused: Bool
 
@@ -125,7 +124,7 @@ struct PaletteWallCentre: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    if persona.editsResearchInTheCentre {
+                    if !WindowLock.refusesEdits(isLocked: isLocked) {
                         PaletteCardEditor(store: store, cardId: cardId)
                     } else {
                         PaletteCardReadHost(store: store, cardId: cardId)

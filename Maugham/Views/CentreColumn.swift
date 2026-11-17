@@ -44,9 +44,9 @@ struct CentreColumn: View {
     let declaredWorld: DeclaredWorldStore?
     let window: NSWindow?
 
-    // Inputs this column only reads. `persona` answers only the read-only
-    // questions (`editsResearchInTheCentre`, `editsFigures`) until Lock does.
-    let persona: Persona
+    // Inputs this column only reads. `isLocked` is the window's Lock
+    // (`WindowLock`): research, palette cards and figures read, never edit.
+    let isLocked: Bool
     let researchPreviewVisible: Bool
 
     // The window's state this column writes — bindings, never copies.
@@ -122,11 +122,11 @@ struct CentreColumn: View {
                                          problems: publishCentre.selectedProblems) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: closePaletteWall, persona: persona)
+                              onClose: closePaletteWall, isLocked: isLocked)
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: !persona.editsResearchInTheCentre,
+                                  readOnly: WindowLock.refusesEdits(isLocked: isLocked),
                                   shareIsReadOnly: editorControl.shareIsReadOnly,
                                   typography: editorControl.typography,
                                   presence: figureGridPresence, window: window)
@@ -134,7 +134,7 @@ struct CentreColumn: View {
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
                 presence: figureGridPresence, listing: figureListing, control: editorControl,
-                persona: persona, window: window)
+                isLocked: isLocked, window: window)
         case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
         case .reference(let piece):

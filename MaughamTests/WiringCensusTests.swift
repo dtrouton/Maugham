@@ -50,16 +50,21 @@ final class WiringCensusTests: XCTestCase {
     static let window = "family:ProjectWindow"
 
     static let entries: [Entry] = [
-        // MARK: The run keys (⌘R, ⌘⇧R)
-        Entry("type:FocusedRunButtons", .anyOrder,
-              ["MaughamEvent.postCompilerRun()", #".keyboardShortcut("r", modifiers: .command)"#,
-               "MaughamEvent.postCompilerFreshEyes()", #".keyboardShortcut("r", modifiers: [.command, .shift])"#],
-              why: "the menu items post through the typed wrapper (tripwire 21) and carry ⌘R / ⌘⇧R; without them neither key reaches a window"),
+        // MARK: The run commands (⌘R, ⇧⌘R, ⌃⌘R, ⌃⇧⌘R)
+        Entry("type:RunButtons", .anyOrder,
+              ["MaughamEvent.postRun(.checkWriting)", #".keyboardShortcut("r", modifiers: .command)"#,
+               "MaughamEvent.postRun(.reread)", #".keyboardShortcut("r", modifiers: [.command, .shift])"#,
+               "MaughamEvent.postRun(.runRound)", #".keyboardShortcut("r", modifiers: [.command, .control])"#,
+               "MaughamEvent.postRun(.freshEyes)", #".keyboardShortcut("r", modifiers: [.command, .control, .shift])"#],
+              why: "each menu item posts its own command through the typed wrapper (tripwire 21) and carries its key; without them no run reaches a window, and a swapped pair posts a round under ⌘R"),
         Entry("type:CompilerRunModifier", .anyOrder,
-              [".onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in send(Self.request(freshEyes: false, persona: persona, docId: activeDocId)) }",
-               ".onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in send(Self.request(freshEyes: true, persona: persona, docId: activeDocId)) }",
+              [".onKeyWindowCommand(.maughamRunCompiler, window: window) { _ in send(.checkWriting) }",
+               ".onKeyWindowCommand(.maughamFreshEyesCompiler, window: window) { _ in send(.reread) }",
+               ".onKeyWindowCommand(.maughamRunRound, window: window) { _ in send(.runRound) }",
+               ".onKeyWindowCommand(.maughamFreshEyesRound, window: window) { _ in send(.freshEyes) }",
+               "guard let request = Self.request(command, subject: subject) else { return }",
                "roster.compiler.runRequested( docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)"],
-              why: "each key hands its own request (CompilerRunCommandTests pins what `request` answers) to the compiler; a literal kind or a dropped flag here files ⌘R in Review as a check, or ⌘⇧R as an ordinary ⌘R"),
+              why: "each event hands its own command's request (CompilerRunCommandTests pins what `request` answers) to the compiler; a swapped arm files ⌘R as a round, and a literal kind or a dropped flag files Fresh Eyes as an ordinary check"),
         Entry(window, .anyOrder,
               ["CompilerRunModifier(", "Task { await sessions.release(lease) }",
                "SaveFlashOverlay(isShowing: $flashes.showingCompiler"],

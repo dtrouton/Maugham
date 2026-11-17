@@ -26,7 +26,7 @@ enum ResearchVersionsModel {
     static let beforeAssistantMark = "Before the assistant’s change"
 
     /// Why Restore is off, nil when it is on: a view-only share first, then
-    /// Review (whose grid reads the table and refuses its edits) — the grid's
+    /// the window's Lock (whose grid reads the table and refuses its edits) — the grid's
     /// own reasons and sentences (`FigureGridGate.Reason`).
     static func restoreRefusal(shareIsReadOnly: Bool, reviewing: Bool) -> FigureGridGate.Reason? {
         if shareIsReadOnly { return .viewOnlyShare }

@@ -47,15 +47,14 @@ extension Notification.Name {
     /// value) — or opens exactly one window if none is open yet. Harmless
     /// duplication at worst. OK.
     public static let maughamOpenProject = Notification.Name("maugham.openProject")
-    /// Scope: .keyWindow — ⌘R ("Check Writing" in Author, "Run Round" in
-    /// Review; `RunMenuTitles`). The compiler's warm trigger:
-    /// the key window asks its `CompilerOrchestrator` to check the active
-    /// document. A command, not a data event — a background window running
+    /// Scope: .keyWindow — ⌘R, Check Writing (`RunCommand.checkWriting`).
+    /// The compiler's warm trigger: the key window asks its
+    /// `CompilerOrchestrator` to check the piece its subject names. A command, not a data event — a background window running
     /// against its own document would spend a real API call on prose nobody is
     /// looking at.
     public static let maughamRunCompiler = Notification.Name("maugham.run.compiler")
-    /// Scope: .keyWindow — ⌘⇧R ("Reread" in Author, "Fresh Eyes" in Review).
-    /// The same trigger read cold: the
+    /// Scope: .keyWindow — ⇧⌘R, Reread (`RunCommand.reread`).
+    /// The same check read cold: the
     /// warm session is retired and the piece is read whole, rather than the
     /// delta since the last run's marker. Key-window-scoped for exactly the
     /// reason ⌘R is, and more so — a cold read is the most expensive thing the
@@ -63,6 +62,14 @@ extension Notification.Name {
     /// prose nobody is looking at is the worst case of the same defect.
     public static let maughamFreshEyesCompiler =
         Notification.Name("maugham.run.compiler.fresheyes")
+    /// Scope: .keyWindow — ⌃⌘R, Run Round (`RunCommand.runRound`): the key
+    /// window asks its compiler for a numbered round on the piece its subject
+    /// names. Key-window-scoped for ⌘R's reason.
+    public static let maughamRunRound = Notification.Name("maugham.run.round")
+    /// Scope: .keyWindow — ⌃⇧⌘R, Fresh Eyes (`RunCommand.freshEyes`): the
+    /// round read cold. Key-window-scoped for ⇧⌘R's reason, and more so.
+    public static let maughamFreshEyesRound =
+        Notification.Name("maugham.run.round.fresheyes")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
     /// Posted by the Translation Review menu command (`.keyWindow`, menu-command

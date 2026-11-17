@@ -87,14 +87,6 @@ struct PersonaModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // **The window's working mode, published to the scene** for the File
-            // menu's two compiler items: Author's ⌘R is a check and Review's a
-            // round, so `RunMenuTitles` titles them apart. A TITLE and nothing else
-            // — the `RunKind` is minted from the persona at the receiver, and a
-            // second read on the posting side would be one decision made in two
-            // places. Here because the persona is this modifier's whole subject;
-            // `RunMenuTitlesTests` censuses the publish site so there stays one.
-            .focusedSceneValue(\.persona, persona)
             .onKeyWindowCommand(.maughamSetPersona, window: window) { note in
                 guard let next = Self.persona(
                     fromPayload: note.userInfo?[MaughamEvent.personaKey] as? String)

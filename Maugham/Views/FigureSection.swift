@@ -594,11 +594,11 @@ struct FigureSectionWiring: ViewModifier {
     let treeState: BinderTreeSectionsState
     let figureWindows: FigureWindows?
     let typography: TypographySettings
-    /// The window's control plane (the share, ⌘⌥⇧R) and persona: the one
+    /// The window's control plane (the share, ⌘⌥⇧R) and its Lock: the one
     /// answer to whether this window refuses figure writes, shared with the
     /// inspector (`FigureActions.windowRefusesWrites`).
     let control: EditorControl
-    let persona: Persona
+    let isLocked: Bool
 
     func body(content: Content) -> some View {
         content
@@ -623,11 +623,11 @@ struct FigureSectionWiring: ViewModifier {
                 treeState.figureWindows = figureWindows
             }
             .onChange(of: typography, initial: true) { _, next in treeState.figureTypography = next }
-            .onChange(of: FigureActions.windowRefusesWrites(control: control, persona: persona),
+            .onChange(of: FigureActions.windowRefusesWrites(control: control, isLocked: isLocked),
                       initial: true) { _, refused in treeState.figureWritesRefused = refused }
             // New Table where the research grid could edit it (D8b-2).
             .onChange(of: BinderTreeSectionsState.offersNewTable(
-                        shareIsReadOnly: control.shareIsReadOnly, persona: persona),
+                        shareIsReadOnly: control.shareIsReadOnly, isLocked: isLocked),
                       initial: true) { _, offers in treeState.offersNewTable = offers }
             // Which Research items bring a parked figure back: asked again
             // when Research, the registry, the set of parked figures or the

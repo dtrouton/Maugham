@@ -598,7 +598,7 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         awaitSends(1, on: runner)
 
         XCTAssertEqual(runner.sends.count, 1,
@@ -624,36 +624,77 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         settle()
 
         XCTAssertEqual(runner.sends.count, 0)
     }
 
-    /// **Which verb a run key is.** Both keys mint their kind from the
-    /// window's persona, and only the cold read asks for fresh eyes. A
-    /// literal `.check` in either arm would leave every assertion in this file
-    /// green over a ⌘R pressed in Review that filed itself as a check. The
-    /// two ends no test can mount — the menu items in `MaughamApp` and the
-    /// arms that hand this request to the roster — are `WiringCensusTests`'
-    /// entries for `CompilerRunModifier` and `FocusedRunButtons`.
-    func test_eachRunKeyAsksForItsPersonasKindAndOnlyTheColdReadIsFresh() {
-        for persona in Persona.allCases {
-            XCTAssertEqual(
-                CompilerRunModifier.request(freshEyes: false, persona: persona, docId: docId),
-                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: false),
-                "\u{2318}R in \(persona)")
-            XCTAssertEqual(
-                CompilerRunModifier.request(freshEyes: true, persona: persona, docId: docId),
-                .init(docId: docId, kind: RunKind.of(persona: persona), freshEyes: true),
-                "\u{2318}\u{21e7}R in \(persona)")
+    /// **⌘R is always a check**, whatever the window has open — the Book, a
+    /// piece, the Canvas, an edition, the Inbox — and Reread is the same check
+    /// read cold. The kind is the command's, never the window's (shell p1
+    /// Task 5). The two ends no test can mount — the menu items in
+    /// `MaughamApp` and the arms that hand this request to the roster — are
+    /// `WiringCensusTests`' entries for `CompilerRunModifier` and `RunButtons`.
+    func test_commandRAlwaysRequestsACheck() {
+        for subject in Self.subjectsFacingThePiece(docId) {
+            XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject),
+                           .init(docId: docId, kind: .check, freshEyes: false), "\(subject)")
+            XCTAssertEqual(CompilerRunModifier.request(.reread, subject: subject),
+                           .init(docId: docId, kind: .check, freshEyes: true), "\(subject)")
         }
-        XCTAssertEqual(
-            CompilerRunModifier.request(freshEyes: true, persona: .review, docId: docId).kind,
-            .round, "a cold read in Review is a cold ROUND")
-        XCTAssertEqual(
-            CompilerRunModifier.request(freshEyes: false, persona: .author, docId: docId).kind,
-            .check, "control: Author's \u{2318}R is a check")
+    }
+
+    /// **Run Round is always a round**, and Fresh Eyes the round read cold —
+    /// wherever the writer stands.
+    func test_runRoundAlwaysRequestsARound() {
+        for subject in Self.subjectsFacingThePiece(docId) {
+            XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject),
+                           .init(docId: docId, kind: .round, freshEyes: false), "\(subject)")
+            XCTAssertEqual(CompilerRunModifier.request(.freshEyes, subject: subject),
+                           .init(docId: docId, kind: .round, freshEyes: true), "\(subject)")
+        }
+    }
+
+    /// **The Canvas open and no piece on the faces: every command is a
+    /// no-op** — no request, so nothing reaches the compiler, exactly as with
+    /// no window in front. The same for an edition and the Inbox.
+    func test_aRunWithTheCanvasOpenAndNoPieceOnTheFacesIsANoOp() {
+        for open in [BinderSubject.canvas, .edition(language: "es"), .inbox, .palette, .project] {
+            for faces in [BinderSubject.project, .canvas, .research("r1"), .figure("f1")] {
+                let subject = WindowSubject(open: open, faces: faces)
+                for command in RunCommand.allCases {
+                    XCTAssertNil(CompilerRunModifier.request(command, subject: subject),
+                                 "\(command) with \(open) open facing \(faces)")
+                }
+            }
+        }
+    }
+
+    /// **The Canvas open with a piece on the faces: the run reads that piece**
+    /// — never the canvas, and a check stays a check.
+    func test_aRunWithTheCanvasOpenRunsOnTheFacesPiece() {
+        let subject = WindowSubject(open: .canvas, faces: .item(docId))
+        XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject),
+                       .init(docId: docId, kind: .check, freshEyes: false))
+        XCTAssertEqual(CompilerRunModifier.request(.runRound, subject: subject),
+                       .init(docId: docId, kind: .round, freshEyes: false))
+        // The faces win over an open piece; an open piece answers when the
+        // faces name none.
+        XCTAssertEqual(CompilerRunModifier.runDocId(
+            for: WindowSubject(open: .item("OPEN"), faces: .item(docId))), docId)
+        XCTAssertEqual(CompilerRunModifier.runDocId(
+            for: WindowSubject(open: .item(docId), faces: .project)), docId)
+    }
+
+    /// Every shape of subject a writer can stand in with `piece` on the faces.
+    private static func subjectsFacingThePiece(_ piece: String) -> [WindowSubject] {
+        [WindowSubject(open: .item(piece), faces: .item(piece)),
+         WindowSubject(open: .project, faces: .item(piece)),
+         WindowSubject(open: .canvas, faces: .item(piece)),
+         WindowSubject(open: .edition(language: "es"), faces: .item(piece)),
+         WindowSubject(open: .inbox, faces: .item(piece)),
+         WindowSubject(open: .palette, faces: .item(piece), beside: .research("r1"))]
     }
 
     // MARK: - Refusal
@@ -719,9 +760,9 @@ final class CompilerRunCommandTests: XCTestCase {
             })
         defer { NotificationCenter.default.removeObserver(token) }
 
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         awaitSends(1, on: runner)
-        MaughamEvent.postCompilerRun()
+        MaughamEvent.postRun(.checkWriting)
         settle()
 
         XCTAssertEqual(runner.sends.count, 1)

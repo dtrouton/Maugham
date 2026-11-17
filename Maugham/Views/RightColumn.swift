@@ -54,6 +54,8 @@ struct RightColumn: View {
 
     // The window's state this column only reads.
     let persona: Persona
+    /// The window's Lock (`WindowLock`): research and figures read, never edit.
+    let isLocked: Bool
     /// The window's subject. This column is about its `faces` (the document
     /// the panes follow) and shows what is opened `beside`, whose Open in
     /// Centre and close controls write it — a `Binding`, never a copy.
@@ -375,8 +377,8 @@ struct RightColumn: View {
         ResearchSubjectInspector(
             store: store, itemID: id,
             showsPreview: showsPreview, figureTree: figureTree,
-            figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
-            documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
+            figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, isLocked: isLocked),
+            documentStore: documentStore, readOnly: WindowLock.refusesEdits(isLocked: isLocked),
             shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
             window: window, presence: figureGridPresence)
     }
@@ -411,7 +413,7 @@ struct RightColumn: View {
     private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
         let inspector = FigureInspector(
             figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
-            figureWindows: figureWindows, figureTree: figureTree, control: editorControl, persona: persona,
+            figureWindows: figureWindows, figureTree: figureTree, control: editorControl, isLocked: isLocked,
             window: window, select: { selectedSubject = $0 },
             showNotes: { id in
                 annotationScopeRequest = .project(focusPiece: id)
@@ -423,7 +425,7 @@ struct RightColumn: View {
                 FigureSubjectSurface(
                     figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
                     presence: figureGridPresence, listing: figureListing, control: editorControl,
-                    persona: persona, window: window)
+                    isLocked: isLocked, window: window)
                     .frame(maxHeight: .infinity)
                 Divider()
                 inspector.frame(maxHeight: .infinity)

@@ -12,8 +12,10 @@ The ones you'll use most:
 | `⌘O` | Open project |
 | `⌘S` | Checkpoint, and back up if you've set a backup destination — autosave is automatic (see [Backups & History](backups-and-history.md)) |
 | `⌘⇧S` | Save Checkpoint As… — a named checkpoint you can find again, and back up as ⌘S does |
-| `⌘R` | **Check Writing** in Author — notes on what you've written since the last check; **Run Round** in Review — a numbered round in the piece's pass. In an expanded table, ⌘R is Format ▸ Table ▸ **Fill Right** instead: the selection's left column copied across it |
-| `⌘⇧R` | **Reread** in Author, **Fresh Eyes** in Review — ends the warm session and reads the whole piece cold |
+| `⌘R` | **Check Writing** — notes on what you've written since the last check. In an expanded table, ⌘R is Format ▸ Table ▸ **Fill Right** instead: the selection's left column copied across it |
+| `⌘⇧R` | **Reread** — the check read cold: ends the warm session and reads the whole piece |
+| `⌘⌃R` | **Run Round** — a numbered round in the piece's pass |
+| `⌘⌃⇧R` | **Fresh Eyes** — the round read cold |
 | `⌘⇧↩` | Promote… — turn the canvas selection into a durable artifact |
 | `⌘Z` | Undo (text, annotation action, task, checkbox, or History Rewind) |
 | `⌘⇧Z` | Redo |

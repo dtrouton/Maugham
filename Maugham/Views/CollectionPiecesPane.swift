@@ -377,7 +377,7 @@ enum StartAPieceDoor {
     /// The menu item's enabled state. nil — no project window in front — keeps
     /// the item enabled as it always was: the receiver is already a no-op
     /// there, and greying it would read as broken while a sheet holds focus
-    /// (`FocusedRunButtons`' reasoning). Only a window that SAYS it may not
+    /// (`RunButtons`' reasoning). Only a window that SAYS it may not
     /// start a piece disables it.
     static func menuIsEnabled(mayStartAPiece: Bool?) -> Bool {
         mayStartAPiece != false

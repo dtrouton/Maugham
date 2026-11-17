@@ -48,13 +48,13 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - The probe
 
-    /// What the window hands the figure route: the subject, the persona and
+    /// What the window hands the figure route: the subject, its Lock and
     /// the control plane (review mode, the share), moved by a test.
     @Observable
     @MainActor
     final class CentreBox {
         var figureId: String?
-        var persona: Persona = .author
+        var isLocked = false
         var control = EditorControl()
     }
 
@@ -76,7 +76,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
                     FigureSubjectSurface(
                         figureID: id, store: store, documentStore: documentStore, figureWindows: windows,
                         presence: presence, listing: listing, control: box.control,
-                        persona: box.persona, window: window)
+                        isLocked: box.isLocked, window: window)
                 } else {
                     Color.clear
                 }
@@ -97,12 +97,12 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     private var centres: [Centre] = []
 
     /// The centre mounted on `m`'s figure in a second window of the project.
-    private func centre(_ m: Mounted, windows: FigureWindows, persona: Persona = .author,
+    private func centre(_ m: Mounted, windows: FigureWindows, isLocked: Bool = false,
                         listing: FigureListingModel? = nil,
                         figureId: String? = nil) throws -> Centre {
         let listing = listing ?? FigureListingModel()
         let box = CentreBox()
-        box.persona = persona
+        box.isLocked = isLocked
         box.figureId = try figureId ?? XCTUnwrap(m.figure?.id)
         let presence = FigureGridPresence()
         let ds = try XCTUnwrap(m.store.documentStore)
@@ -555,19 +555,19 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     // MARK: - Read-only reasons
 
-    /// Review (a persona that does not edit figures) opens read-only with
-    /// the review reason; the window's ⌘⌥⇧R flips an open grid; a view-only
-    /// share is read-only.
-    func test_reviewPersonaAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
+    /// A locked window opens read-only (with the grid's review reason —
+    /// `FigureGridGate` has no Lock reason of its own); the window's ⌘⌥⇧R
+    /// flips an open grid; a view-only share is read-only.
+    func test_theLockAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
         let windows = FigureWindows()
-        let review = try centre(m, windows: windows, persona: .review)
+        let review = try centre(m, windows: windows, isLocked: true)
         let r = try await mounted(review)
         XCTAssertEqual(r.mode, .readOnly(.reviewMode))
         XCTAssertFalse(r.bars.nameField.isEditable)
         review.box.figureId = nil
         let released = await RunLoopPump.until(deadline: 5) { windows.inPlaceHolds[r.figureId] == nil }
-        XCTAssertTrue(released, "premise: the review centre let the figure go")
+        XCTAssertTrue(released, "premise: the locked centre let the figure go")
 
         let author = try centre(m, windows: windows)
         let c = try await mounted(author)

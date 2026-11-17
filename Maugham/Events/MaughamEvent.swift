@@ -201,26 +201,15 @@ enum MaughamEvent {
              payload: [detailSegmentKey: segment.rawValue])
     }
 
-    /// Ask the key window to check what has been written since its last run.
+    /// Ask the key window to run `command` (`RunCommand`: Check Writing,
+    /// Reread, Run Round, Fresh Eyes) — each its own event, so the command
+    /// names its kind and no receiver infers one.
     ///
-    /// No payload: which document is checked is the receiving window's own
-    /// answer (its `activeDocId`), not the menu's — the menu has no idea what
-    /// any window is looking at.
-    static func postCompilerRun() {
-        post(.maughamRunCompiler, to: .keyWindow)
-    }
-
-    /// Ask the key window to read its piece **whole**, on a session that has
-    /// read nothing (⌘⇧R).
-    ///
-    /// A second event rather than a payload on the first: the two keystrokes
-    /// are different promises — one costs a delta, the other costs the piece —
-    /// and a receiver that had to read a flag out of a `userInfo` dictionary
-    /// could deliver the expensive one by accident. No payload here either,
-    /// for `postCompilerRun`'s reason: which document is read is the receiving
-    /// window's own answer.
-    static func postCompilerFreshEyes() {
-        post(.maughamFreshEyesCompiler, to: .keyWindow)
+    /// No payload: which piece is read is the receiving window's own answer
+    /// (its subject, `CompilerRunModifier.request`), not the menu's — the menu
+    /// has no idea what any window is looking at.
+    static func postRun(_ command: RunCommand) {
+        post(command.event, to: .keyWindow)
     }
 
     /// Post `name` to the given scope. `object` and `payload` pass through to

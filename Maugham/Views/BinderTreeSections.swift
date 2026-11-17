@@ -969,8 +969,8 @@ final class BinderTreeSectionsState {
     @ObservationIgnored weak var figureWindows: FigureWindows?
     /// The editor's typography, handed to a figure window a row opens.
     @ObservationIgnored var figureTypography: TypographySettings = .defaults
-    /// The window refuses figure writes (a view-only share, ⌘⌥⇧R, a persona
-    /// that edits no figures — `FigureActions.windowRefusesWrites`), as the
+    /// The window refuses figure writes (a view-only share, ⌘⌥⇧R, the
+    /// window's Lock — `FigureActions.windowRefusesWrites`), as the
     /// inspector asks it; asked by a row's menu builder.
     @ObservationIgnored var figureWritesRefused = false
     /// **Research items that bring a parked figure back**, item id → figure
@@ -1028,15 +1028,15 @@ final class BinderTreeSectionsState {
         queuedError = nil
     }
     /// **Whether Research offers New Table** (D8b-2): not on a view-only share
-    /// or in Review — where the table could not be edited (`offersNewTable(…)`).
+    /// or while the window is locked — where the table could not be edited (`offersNewTable(…)`).
     /// False until the window's wiring says otherwise (`FigureSectionWiring`):
     /// a tree no window has told offers nothing it might not allow.
     var offersNewTable = false
 
     /// The one answer `FigureSectionWiring` keeps `offersNewTable` to: the
     /// research centre's own read-only rule (`ResearchSubjectCentre`).
-    static func offersNewTable(shareIsReadOnly: Bool, persona: Persona) -> Bool {
-        !shareIsReadOnly && persona.editsResearchInTheCentre
+    static func offersNewTable(shareIsReadOnly: Bool, isLocked: Bool) -> Bool {
+        !shareIsReadOnly && !WindowLock.refusesEdits(isLocked: isLocked)
     }
 
     /// Whether `section` is open — the flag its header's chevron reads.

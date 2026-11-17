@@ -103,6 +103,11 @@ struct ProjectWindow: View {
     @State private var treeKeyboardRequest = 0
     @State private var detailSegment: DetailSegment = .inspector
     @State private var persona: Persona = .default
+    /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
+    /// cards and figures read and never edit while it is on. Per window and
+    /// never stored — every window opens unlocked — and it only adds refusals
+    /// beside the posture's. It does not lock the manuscript text.
+    @State private var isLocked = WindowLock.atOpen
     /// **What the Publish persona's centre column is showing** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for
     /// changing it. Window-transient: see `PublishCentreModel`.
@@ -306,7 +311,8 @@ struct ProjectWindow: View {
             store: store,
             persona: persona,
             isNoChromeOn: isNoChromeOn,
-            onSelectPersona: Self.postPersona))
+            onSelectPersona: Self.postPersona,
+            isLocked: $isLocked))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives in
@@ -363,9 +369,8 @@ struct ProjectWindow: View {
             }
         }
         .modifier(CompilerRunModifier(roster: roster,
-                                      persona: persona,
                                       window: window,
-                                      activeDocId: activeDocId,
+                                      subject: subject,
                                       mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
@@ -471,7 +476,7 @@ struct ProjectWindow: View {
         .modifier(FigureSectionWiring(
             store: store, documentStore: documentStore, listing: figureListing,
             treeState: treeState, figureWindows: session?.figureWindows,
-            typography: effectiveTypography, control: editorControl, persona: persona))
+            typography: effectiveTypography, control: editorControl, isLocked: isLocked))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -731,7 +736,7 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The persona bar, the top banners (software-update, backups-paused,
+    /// The persona bar and the Lock (`LockToggle`), the top banners (software-update, backups-paused,
     /// settings-file-restored), and
     /// the focused project URL, pulled off `body` for the Release type-check
     /// ceiling.
@@ -752,6 +757,8 @@ struct ProjectWindow: View {
         let persona: Persona
         let isNoChromeOn: Bool
         let onSelectPersona: (Persona) -> Void
+        /// The window's Lock, whose toggle sits beside the persona bar.
+        @Binding var isLocked: Bool
 
         private var toolbarVisibility: Visibility {
             PersonaBar.isVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -769,6 +776,9 @@ struct ProjectWindow: View {
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
                         PersonaBar(persona: persona, onSelect: onSelectPersona)
+                    }
+                    ToolbarItem(placement: .navigation) {
+                        LockToggle(isLocked: $isLocked)
                     }
                 }
                 .toolbar(toolbarVisibility, for: .windowToolbar)
@@ -1243,7 +1253,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, window: window,
-            persona: persona, researchPreviewVisible: researchPreviewVisible,
+            isLocked: isLocked, researchPreviewVisible: researchPreviewVisible,
             subject: subjectBinding,
             bookView: $bookView,
             selectedPaletteCardId: $selectedPaletteCardId,
@@ -1723,7 +1733,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
-            persona: persona, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
+            persona: persona, isLocked: isLocked, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
             showInspector: showInspector, metrics: metrics,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,

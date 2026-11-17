@@ -27,7 +27,7 @@ struct ResearchTreeActions {
     var newNote: (_ parentId: String?) -> Void
     /// **New Table** (D8b-2), beside every New Note: a blank table, selected
     /// and in rename; its work, which a test awaits. Nil where it is not
-    /// offered — a view-only share, Review (`BinderTreeSectionsState.offersNewTable`).
+    /// offered — a view-only share, a locked window (`BinderTreeSectionsState.offersNewTable`).
     var newTable: ((_ parentId: String?) -> Task<Void, Never>)? = nil
     var newGroup: (_ parentId: String?) -> Void
     var addFile: (_ parentId: String?) -> Void

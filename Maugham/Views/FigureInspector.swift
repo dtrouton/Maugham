@@ -315,7 +315,8 @@ struct FigureInspector: View {
     /// figure revision instead).
     let figureTree: BinderTreeSectionsState?
     let control: EditorControl
-    let persona: Persona
+    /// The window's Lock (`WindowLock`), asked beside the share and ⌘⌥⇧R.
+    let isLocked: Bool
     /// The project window, whose annotation changes reload the notes.
     let window: NSWindow?
     /// The window's subject-picker, for a Used-in link that can only select its piece.
@@ -330,7 +331,7 @@ struct FigureInspector: View {
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore, listing: FigureListingModel,
          figureWindows: FigureWindows?, figureTree: BinderTreeSectionsState? = nil,
-         control: EditorControl, persona: Persona, window: NSWindow?,
+         control: EditorControl, isLocked: Bool, window: NSWindow?,
          select: @escaping (BinderSubject) -> Void, showNotes: @escaping (String) -> Void) {
         self.figureId = figureId
         self.store = store
@@ -339,7 +340,7 @@ struct FigureInspector: View {
         self.figureWindows = figureWindows
         self.figureTree = figureTree
         self.control = control
-        self.persona = persona
+        self.isLocked = isLocked
         self.window = window
         self.select = select
         self.showNotes = showNotes
@@ -348,14 +349,14 @@ struct FigureInspector: View {
 
     /// The one helper (`FigureActions`), as the inspector hands it what it knows.
     static func actions(store: ProjectStore, figureWindows: FigureWindows?, control: EditorControl,
-                        persona: Persona, model: FigureInspectorModel, window: NSWindow? = nil) -> FigureActions {
+                        isLocked: Bool, model: FigureInspectorModel, window: NSWindow? = nil) -> FigureActions {
         FigureActions(store: store, figureWindows: figureWindows, typography: control.typography,
-                      windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, persona: persona) },
+                      windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, isLocked: isLocked) },
                       report: { [weak model] in model?.message = $0 }, window: window)
     }
 
     private var actions: FigureActions {
-        Self.actions(store: store, figureWindows: figureWindows, control: control, persona: persona, model: model,
+        Self.actions(store: store, figureWindows: figureWindows, control: control, isLocked: isLocked, model: model,
                      window: window)
     }
     private var record: FigureRecord? { store.manifest.figures?.first { $0.id == figureId } }

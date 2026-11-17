@@ -74,8 +74,8 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     }
 
     private func actions(_ m: Mounted, windows: FigureWindows? = nil, control: EditorControl = EditorControl(),
-                         persona: Persona = .author, model: FigureInspectorModel) -> FigureActions {
-        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, persona: persona,
+                         isLocked: Bool = false, model: FigureInspectorModel) -> FigureActions {
+        FigureInspector.actions(store: m.store, figureWindows: windows, control: control, isLocked: isLocked,
                                 model: model)
     }
 
@@ -474,7 +474,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertEqual(FigureInspector.offered(mayEdit: true, kind: .image), [.openInWindow, .sendToResearch])
         XCTAssertEqual(FigureInspector.offered(mayEdit: false, kind: .table), [.openInWindow])
         XCTAssertEqual(FigureInspector.refusal(mayEdit: false, hasGrid: true), "This figure is read-only here.",
-                       "Compare's Refresh says why in Review")
+                       "Compare's Refresh says why when the window refuses")
 
         // The window's own refusal: one answer, for the inspector and the tree.
         let viewOnly = EditorControl()
@@ -483,10 +483,10 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         manualReview.isManualReviewMode = true
         XCTAssertFalse(actions(m, control: viewOnly, model: model).mayEdit(figure.id), "a view-only share")
         XCTAssertFalse(actions(m, control: manualReview, model: model).mayEdit(figure.id), "⌘⌥⇧R")
-        XCTAssertFalse(actions(m, persona: .review, model: model).mayEdit(figure.id), "the Review persona")
-        XCTAssertTrue(actions(m, persona: .plan, model: model).mayEdit(figure.id), "control: Plan edits figures")
+        XCTAssertFalse(actions(m, isLocked: true, model: model).mayEdit(figure.id), "the window's Lock")
+        XCTAssertTrue(actions(m, isLocked: false, model: model).mayEdit(figure.id), "control: unlocked edits figures")
         let tree = BinderTreeSectionsState()
-        tree.figureWritesRefused = FigureActions.windowRefusesWrites(control: viewOnly, persona: .plan)
+        tree.figureWritesRefused = FigureActions.windowRefusesWrites(control: viewOnly, isLocked: false)
         XCTAssertFalse(FigureSectionVerbs(store: m.store, state: tree).shared.mayEdit(figure.id),
                        "the tree's row refuses on the same answer")
 
@@ -500,7 +500,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     @MainActor
     final class WindowBox {
         var control = EditorControl()
-        var persona: Persona = .plan
+        var isLocked = false
     }
 
     /// The tree wired as `ProjectWindow` wires it, in a window with no editor.
@@ -512,15 +512,15 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         var body: some View {
             Color.clear.modifier(FigureSectionWiring(
                 store: store, documentStore: documentStore, listing: FigureListingModel(), treeState: tree,
-                figureWindows: nil, typography: .defaults, control: box.control, persona: box.persona))
+                figureWindows: nil, typography: .defaults, control: box.control, isLocked: box.isLocked))
         }
     }
 
     /// **I1: a Plan window with no editor on a view-only share** — the tree's
     /// row hears the share from the window's control plane, as the inspector
     /// does, so it offers no Send to Research or Rename; the share lifting,
-    /// it offers them again. ⌘⌥⇧R and the Review persona the same.
-    func test_theTreeHearsTheWindowsShareAndReviewWithNoEditorMounted() async throws {
+    /// it offers them again. ⌘⌥⇧R and the window's Lock the same.
+    func test_theTreeHearsTheWindowsShareAndLockWithNoEditorMounted() async throws {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
         let ds = try XCTUnwrap(m.store.documentStore)
@@ -546,9 +546,14 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let reviewing = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
         XCTAssertTrue(reviewing, "⌘⌥⇧R")
         box.control.isManualReviewMode = false
-        box.persona = .review
-        let review = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
-        XCTAssertTrue(review, "the Review persona")
+        // Lifted first, or the Lock's assertion below reads ⌘⌥⇧R's refusal
+        // still standing (the disable experiment found it passing with a Lock
+        // that refused nothing).
+        let reviewLifted = await pumpUntil(deadline: 5) { !tree.figureWritesRefused }
+        XCTAssertTrue(reviewLifted, "control: ⌘⌥⇧R lifted")
+        box.isLocked = true
+        let locked = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
+        XCTAssertTrue(locked, "the window's Lock")
     }
 
     /// `cards`, cut off from the store's own triggers (a late presenter
@@ -746,7 +751,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
         let model = FigureInspectorModel(figureId: figure.id)
         let here = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
-                                           persona: .author, model: model, window: thisWindow)
+                                           isLocked: false, model: model, window: thisWindow)
         XCTAssertEqual(here.gridReach(figure.id), .inAnotherWindow)
         XCTAssertEqual(FigureInspector.refusal(mayEdit: true, reach: .inAnotherWindow), FigureActions.openInThatWindow)
         XCTAssertFalse(here.importFromCSV(figure.id), "not acted through from another window")
@@ -757,7 +762,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertEqual(focused, 2)
 
         let there = FigureInspector.actions(store: m.store, figureWindows: windows, control: EditorControl(),
-                                            persona: .author, model: model, window: gridsWindow)
+                                            isLocked: false, model: model, window: gridsWindow)
         XCTAssertEqual(there.gridReach(figure.id), .here)
         XCTAssertTrue(there.importFromCSV(figure.id), "control: from the grid's own window it acts")
         XCTAssertEqual(asked, 1)

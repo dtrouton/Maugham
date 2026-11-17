@@ -48,7 +48,7 @@ extension ProjectWindow {
 
 /// **What a figure subject shows** (report plan 8a Task 6), in the centre and
 /// in Plan's right column alike: a table's grid (`FigureCentreGrid`, one mount
-/// per figure), read-only where the persona does not edit figures or the
+/// per figure), read-only where the window is locked (`WindowLock`) or the
 /// window's ⌘⌥⇧R is on; an image, its picture large (`FigureImageSubject`);
 /// anything else — a kind from a later build, a window with no session —
 /// its name and number.
@@ -60,7 +60,7 @@ struct FigureSubjectSurface: View {
     let presence: FigureGridPresence
     let listing: FigureListingModel
     let control: EditorControl
-    let persona: Persona
+    let isLocked: Bool
     let window: NSWindow?
 
     /// The image figure's file, resolved once per path, never per body pass.
@@ -99,7 +99,7 @@ struct FigureSubjectSurface: View {
                     figureId: figureID, store: store, documentStore: documentStore,
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
-                    isReviewMode: control.isManualReviewMode || !persona.editsFigures,
+                    isReviewMode: control.isManualReviewMode || WindowLock.refusesEdits(isLocked: isLocked),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)
             }

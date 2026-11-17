@@ -162,7 +162,7 @@ Before editing a path, read the area guide its row names. If a path matches seve
 | `Maugham/MCP/**` | `Maugham/MCP/AREA.md` | One catalogue, `MCPToolCatalog.all`; MCP never writes manuscript text. |
 | `Maugham/Publish/**` | `Maugham/Publish/AREA.md`; the emission contract is `Maugham/Resources/PublishStarter/EMISSION.md` (generated) | Edit `EmissionContract.swift`, never `EMISSION.md`; keep `style_file` inside its `\begingroup`. |
 | `Maugham/Updates/**` | `Maugham/Updates/AREA.md` | — |
-| `Maugham/Models/**` | `Maugham/Views/AREA.md` for Persona, DetailSegment, PersonaMemory, BinderSubject, TreePane; `Maugham/Compiler/AREA.md` for AuthorReader, RoundEditor, ActivePassMemory, CompilerModelChoice, RunMenuTitles | A run never resolves its reader from the other loop's memory (tripwire 34). |
+| `Maugham/Models/**` | `Maugham/Views/AREA.md` for Persona, DetailSegment, PersonaMemory, BinderSubject, TreePane; `Maugham/Compiler/AREA.md` for AuthorReader, RoundEditor, ActivePassMemory, CompilerModelChoice | A run never resolves its reader from the other loop's memory (tripwire 34). |
 | `MaughamPhone/**` | `MaughamPhone/AREA.md` | AppKit never; WhisperKit is Mac-only. |
 
 ## Inbox + transcription (`Maugham/Stores/` — iPhone-companion Mac side)

@@ -1082,7 +1082,7 @@ private struct AltitudeCentreProbeView: View {
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
                 presence: figurePresence, listing: figureListing, control: control,
-                persona: .author, window: nil)
+                isLocked: false, window: nil)
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { [] })

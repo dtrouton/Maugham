@@ -1136,49 +1136,69 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertTrue(seatHits[0].hasPrefix("RoundEditor.swift:"), seatHits[0])
     }
 
-    // MARK: - A run's kind is minted from the persona in one place (two loops P1)
+    // MARK: - Every run names its kind (two loops P1; shell p1 Task 5)
 
-    /// Lines that mention the mint but are not a CALL of it: any comment
-    /// naming it, and the string literals in the wiring censuses that assert
-    /// on the modifier's source.
-    private func runKindMintNonCall(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+    /// The `kind:` argument of every CALL of `runRequested(` under `dir`, as
+    /// `File.swift: <argument>`. A call is any `runRequested(` that is not the
+    /// declaration (`func runRequested(`) and not on a comment line; its
+    /// argument is read up to the next `,` or `)`.
+    static func runRequestedKindArguments(in dir: URL) throws -> [String] {
+        var hits: [String] = []
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { return [] }
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let lines = text.components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("runRequested("), !trimmed.hasPrefix("//"),
+                      !trimmed.contains("func runRequested(") else { continue }
+                let call = lines[i..<min(i + 4, lines.count)].joined(separator: " ")
+                guard let open = call.range(of: "runRequested(") else { continue }
+                let rest = call[open.upperBound...]
+                guard let kind = rest.range(of: "kind:") else {
+                    hits.append("\(url.lastPathComponent): <no kind>")
+                    continue
+                }
+                let argument = rest[kind.upperBound...]
+                    .prefix { $0 != "," && $0 != ")" }
+                    .trimmingCharacters(in: .whitespaces)
+                hits.append("\(url.lastPathComponent): \(argument)")
+            }
+        }
+        return hits.sorted()
     }
 
-    /// **Tripwire: `RunKind.of(persona:)` is called in exactly ONE production
-    /// file — `CompilerRunModifier.swift`, the run keys' delivery path.**
+    /// **Every run names its kind: a literal `.check` or `.round`, or the run
+    /// command's own (`request.kind`, in `CompilerRunModifier.swift` alone).**
     ///
-    /// Which loop a run belongs to is one decision, made at the keystroke from
-    /// the key window's persona. A second site minting a kind is a second
-    /// answer to "which verb is this", and the two would part company the
-    /// moment the loops do — a surface holding a persona and reaching for the
-    /// mint would file a round as a check, or worse, file a check as a round
-    /// on a piece nobody is reading. Every other caller of `runRequested`
-    /// belongs to one loop by construction and names it literally, which is a
-    /// claim a reader can check; a second mint is one they cannot.
-    func test_theRunKindIsMintedFromThePersonaInOneFile() throws {
-        let offenders = try grepSwift(
-            in: sourceDir,
-            patterns: ["RunKind.of(persona:"],
-            excludeLine: { self.runKindMintNonCall($0) })
-        XCTAssertEqual(
-            Set(offenders.compactMap { $0.split(separator: ":").first.map(String.init) }),
-            ["CompilerRunModifier.swift"],
-            "the kind is minted from a persona in one place \u{2014} the run "
-            + "keys' own modifier \u{2014} and every other caller says which "
-            + "loop it belongs to literally. Offenders:\n"
-            + offenders.joined(separator: "\n"))
-        XCTAssertEqual(
-            offenders.count, 1,
-            "…once, in `CompilerRunModifier.request`, which both run keys ask "
-            + "(`CompilerRunCommandTests` pins each key's request). Hits:\n"
-            + offenders.joined(separator: "\n"))
+    /// Which loop a run belongs to is the COMMAND's (`RunCommand`): Check
+    /// Writing and Reread are checks, Run Round and Fresh Eyes rounds, and
+    /// every other caller of `runRequested` belongs to one loop by
+    /// construction and names it literally — a claim a reader can check. A
+    /// kind derived from anything else (a window's mode, a subject, a stored
+    /// flag) is a second answer to "which verb is this", the shape that filed
+    /// every Author ⌘R as a round once (tripwire 34's history). Replaces the
+    /// persona-mint census (`RunKind.of(persona:)` died with the persona's
+    /// say in it).
+    func test_everyRunNamesItsKindLiterallyOrByItsCommand() throws {
+        let hits = try Self.runRequestedKindArguments(in: sourceDir)
+        XCTAssertFalse(hits.isEmpty, "premise: production calls runRequested")
+        let offenders = hits.filter { hit in
+            hit.hasSuffix(": .check") || hit.hasSuffix(": .round") ? false
+                : hit != "CompilerRunModifier.swift: request.kind"
+        }
+        XCTAssertTrue(offenders.isEmpty,
+            "a run's kind is a literal, or its command's in CompilerRunModifier "
+            + "alone. Offenders:\n" + offenders.joined(separator: "\n"))
+        XCTAssertEqual(hits.filter { $0 == "CompilerRunModifier.swift: request.kind" }.count, 1,
+            "the commands' request reaches the compiler once. Hits:\n" + hits.joined(separator: "\n"))
     }
 
-    /// CONTROL for the census above: it is not passing because the pattern
-    /// matches nothing. A planted second mint is caught, and a comment naming
-    /// the call is not.
-    func test_theRunKindMintCensusFiresOnAPlantedOffender() throws {
+    /// CONTROL for the census above: a planted kind derived from a window's
+    /// mode is caught, a literal on a continuation line is not, and neither
+    /// is a comment naming the call.
+    func test_theRunKindCensusFiresOnAPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root
             .appendingPathComponent("tripwire-runkind-selfcheck-\(UUID().uuidString)")
@@ -1187,23 +1207,21 @@ final class TripwireGrepTests: XCTestCase {
 
         try """
         struct SecondMint {
-            // A comment naming RunKind.of(persona: persona) is not a call.
-            func run(persona: Persona) {
+            // A comment naming orchestrator.runRequested(docId: d, kind: mode.kind) is not a call.
+            func run(mode: Mode) {
                 orchestrator.runRequested(
-                    docId: docId, kind: RunKind.of(persona: persona))
+                    docId: docId, kind: mode.kind)
+                orchestrator.runRequested(
+                    docId: docId,
+                    kind: .round, freshEyes: true)
             }
         }
         """.write(to: tmp.appendingPathComponent("SecondMint.swift"),
                   atomically: true, encoding: .utf8)
 
-        let offenders = try grepSwift(
-            in: tmp,
-            patterns: ["RunKind.of(persona:"],
-            excludeLine: { self.runKindMintNonCall($0) })
-        XCTAssertEqual(offenders.count, 1,
-            "Self-check: the planted mint should be the one caught, and not "
-            + "the comment. Got:\n" + offenders.joined(separator: "\n"))
-        XCTAssertTrue(offenders[0].hasPrefix("SecondMint.swift:"), offenders[0])
+        XCTAssertEqual(try Self.runRequestedKindArguments(in: tmp),
+                       ["SecondMint.swift: .round", "SecondMint.swift: mode.kind"],
+                       "Self-check: the planted mint and the literal are read, the comment is not")
     }
 
     // MARK: - Filing a research note has a known set of callers (editorial letter P1)

@@ -536,7 +536,7 @@ final class FigureGridFillKeyTests: FigureGridMountedTestCase {
         XCTAssertFalse(m.window.performKeyEquivalent(with: commandR(m.window)),
                        "no view claims ⌘R in the text: the menu bar answers it")
         let item = try XCTUnwrap(checkWritingItem(), "premise: the app's menu bar binds ⌘R")
-        XCTAssertEqual(item.title, RunMenuTitles.check(for: nil))
+        XCTAssertEqual(item.title, RunCommand.checkWriting.title)
     }
 
     /// **⌘R in the text runs Check Writing**, through `NSApp.sendEvent` —

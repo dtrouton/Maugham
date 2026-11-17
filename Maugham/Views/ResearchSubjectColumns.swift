@@ -228,10 +228,10 @@ struct ResearchSubjectCentre: View {
     /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
-    /// **Threaded from the mount off `Persona.editsResearchInTheCentre`**
-    /// (shell-finish stage 3b Task 6) — never re-derived here, so this view
-    /// cannot answer a different question than the persona did. True only in
-    /// Review: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
+    /// **Threaded from the mount off `WindowLock.refusesEdits`** (shell p1
+    /// Task 5; Review's read-only centre before it, shell-finish stage 3b Task
+    /// 6) — never re-derived here, so this view cannot answer a different
+    /// question than the window's Lock did. True only while locked: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
     /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
     /// rather than leaving it editable. `.preview` and `.missing` are
     /// unaffected — both were already read-only. The `.table` arm's grid reads

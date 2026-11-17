@@ -5,24 +5,19 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **Review adjudicates; it doesn't edit research or palette cards from its own
-/// columns** — Denver's ruling, shell-finish stage 3b Task 6.
+/// **A locked window reads research and palette cards; it doesn't edit them
+/// from its own columns** (shell p1 Task 5) — what Review's adjudicating
+/// columns did before the personas went (Denver's ruling, shell-finish stage
+/// 3b Task 6), now the window's Lock (`WindowLock`).
 ///
-/// Before this task `ResearchSubjectCentre` mounted fully editable
-/// `ResearchNoteEditor`/`PaletteCardEditor` in every persona including Review,
-/// and the palette wall's card click opened the editor there too. The fix is
-/// one predicate, `Persona.editsResearchInTheCentre` (false only for
-/// `.review`), read by both of Task 6's mounts: `ResearchSubjectCentre`'s own
-/// `readOnly` and `PaletteWallCentre`'s card arm.
-///
-/// This suite mounts the two surfaces directly — the way `PaletteWallDoorTests`
-/// already mounts `PaletteWallCentre` alone — because the contract under test
-/// is what ONE column draws for a given `readOnly`/persona, not how a tree
-/// click gets there (that routing already lives in
-/// `ResearchSubjectRoutingTests`, extended alongside this file to thread
-/// `readOnly` through its own production-tree harness).
+/// One answer, `WindowLock.refusesEdits(isLocked:)`, read by both mounts:
+/// `ResearchSubjectCentre`'s own `readOnly` and `PaletteWallCentre`'s card
+/// arm. This suite mounts the two surfaces directly — the way
+/// `PaletteWallDoorTests` already mounts `PaletteWallCentre` alone — because
+/// the contract under test is what ONE column draws while locked or not, not
+/// how a tree click gets there (`ResearchSubjectRoutingTests`).
 @MainActor
-final class ReviewAdjudicationTests: XCTestCase {
+final class LockedResearchSurfaceTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
@@ -62,24 +57,13 @@ final class ReviewAdjudicationTests: XCTestCase {
     /// missing `@Environment` (measured: `EnvironmentValues.subscript.getter`
     /// assertion, `AG::Graph::update_attribute`).
     private func makePreferences() -> UserPreferences {
-        let suite = "review-adjudication-\(UUID().uuidString)"
+        let suite = "locked-research-surface-\(UUID().uuidString)"
         defaultsSuites.append(suite)
         return UserPreferences(defaults: UserDefaults(suiteName: suite)!)
     }
 
     private static let noteText = "Ships at anchor, unhurried."
     private static let cardBody = "Salt air, gulls overhead."
-
-    // MARK: - The one predicate
-
-    /// The census: false for exactly `.review`. Publish answers `true` despite
-    /// never being asked in production (`researchSubjectPlacement` routes a
-    /// Publish research subject to `.nothingMoves` before this predicate is
-    /// read there, Task 5's rule) — `true` is the honest answer to the literal
-    /// question, not a value chosen to dress up an unreachable case.
-    func test_onlyReviewDoesNotEditResearchInTheCentre() {
-        XCTAssertEqual(Persona.allCases.filter { !$0.editsResearchInTheCentre }, [.review])
-    }
 
     // MARK: - ResearchSubjectCentre: the note
 
@@ -88,9 +72,9 @@ final class ReviewAdjudicationTests: XCTestCase {
     /// coordinator — the thing `EditorEditPolicy.allowsTextMutation` actually
     /// gates every keystroke on (`EditorCoordinator.shouldChangeTextIn`) — must
     /// carry the lock.
-    func test_reviewLocksTheNoteEditorInTheCentre() async throws {
+    func test_aLockedWindowLocksTheNoteEditorInTheCentre() async throws {
         let (store, note) = try await storeWithNote(text: Self.noteText)
-        let window = try await hostCentre(store: store, itemID: note.id, readOnly: true)
+        let window = try await hostCentre(store: store, itemID: note.id, isLocked: true)
 
         await pumpUntil(deadline: 5) {
             self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
@@ -99,7 +83,7 @@ final class ReviewAdjudicationTests: XCTestCase {
             textViews(in: window).first { $0.string.contains(Self.noteText) },
             "the note's own text must still be in the centre column — locked, not hidden")
         XCTAssertEqual(editor.coordinator?.lockEditing, true,
-                       "Review's readOnly must reach the coordinator's hard floor")
+                       "the Lock's readOnly must reach the coordinator's hard floor")
         XCTAssertFalse(
             EditorEditPolicy.allowsTextMutation(
                 isReviewMode: editor.coordinator?.isReviewMode ?? false,
@@ -108,11 +92,12 @@ final class ReviewAdjudicationTests: XCTestCase {
         XCTAssertTrue(editor.isSelectable, "selection must survive the lock")
     }
 
-    /// **The control: Author is unaffected.** Without this, a `readOnly`
-    /// wired backwards (locking every persona) would still pass the test above.
-    func test_authorLeavesTheNoteEditorUnlocked() async throws {
+    /// **The control: an unlocked window is unaffected.** Without this, a
+    /// `readOnly` wired backwards (locking every window) would still pass the
+    /// test above.
+    func test_anUnlockedWindowLeavesTheNoteEditorEditable() async throws {
         let (store, note) = try await storeWithNote(text: Self.noteText)
-        let window = try await hostCentre(store: store, itemID: note.id, readOnly: false)
+        let window = try await hostCentre(store: store, itemID: note.id, isLocked: false)
 
         await pumpUntil(deadline: 5) {
             self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
@@ -120,7 +105,7 @@ final class ReviewAdjudicationTests: XCTestCase {
         let editor = try XCTUnwrap(
             textViews(in: window).first { $0.string.contains(Self.noteText) })
         XCTAssertEqual(editor.coordinator?.lockEditing, false,
-                       "Author must reach the centre with its editor unlocked, as before this task")
+                       "an unlocked window must reach the centre with its editor editable")
     }
 
     /// **A locked note must not write a file to disk on paste** (review
@@ -135,10 +120,10 @@ final class ReviewAdjudicationTests: XCTestCase {
     /// which this test pins from the outside: drive the REAL paste path
     /// (`MaughamTextView.paste(_:)`, not a hand call into the store) and
     /// assert nothing landed in the well.
-    func test_reviewLockedNoteRefusesAnImagePaste_noFileLands() async throws {
+    func test_aLockedNoteRefusesAnImagePaste_noFileLands() async throws {
         let (store, note) = try await storeWithNote(text: Self.noteText)
         let assets = try assetsWell(for: note, in: store)
-        let window = try await hostCentre(store: store, itemID: note.id, readOnly: true)
+        let window = try await hostCentre(store: store, itemID: note.id, isLocked: true)
 
         await pumpUntil(deadline: 5) {
             self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
@@ -161,13 +146,13 @@ final class ReviewAdjudicationTests: XCTestCase {
                        "…and the note's text must be unchanged too")
     }
 
-    /// **The control: Author's paste still saves and references.** Without
+    /// **The control: an unlocked window's paste still saves and references.** Without
     /// this, a handler wired backwards (nil for everyone) would still pass
     /// the test above.
-    func test_authorNoteStillSavesAndReferencesAnImagePaste() async throws {
+    func test_anUnlockedNoteStillSavesAndReferencesAnImagePaste() async throws {
         let (store, note) = try await storeWithNote(text: Self.noteText)
         let assets = try assetsWell(for: note, in: store)
-        let window = try await hostCentre(store: store, itemID: note.id, readOnly: false)
+        let window = try await hostCentre(store: store, itemID: note.id, isLocked: false)
 
         await pumpUntil(deadline: 5) {
             self.textViews(in: window).contains { $0.string.contains(Self.noteText) }
@@ -197,17 +182,17 @@ final class ReviewAdjudicationTests: XCTestCase {
     /// attached — `DiagnosticsPaneTests`' guard) is the positive half: this is
     /// `PaletteCardReadView` actually drawing the card, not an empty/missing
     /// state that happens to have no segmented control either.
-    func test_reviewShowsTheReadOnlyCardNotTheEditor() async throws {
+    func test_aLockedWindowShowsTheReadOnlyCardNotTheEditor() async throws {
         let (store, card) = try await storeWithCard(title: "Harbour", body: Self.cardBody)
-        let window = try await hostCentre(store: store, itemID: card.id, readOnly: true)
+        let window = try await hostCentre(store: store, itemID: card.id, isLocked: true)
 
         await pumpUntil(deadline: 5) { !self.allStringsIgnoringSkip(in: window).isEmpty }
         XCTAssertTrue(
             segmentedControls(in: window).isEmpty,
-            "PaletteCardEditor's Kind picker must not be reachable from Review's centre")
+            "PaletteCardEditor's Kind picker must not be reachable from a locked centre")
         XCTAssertTrue(
             textFields(in: window).filter(\.isEditable).isEmpty,
-            "no editable field of any kind — Review's card is a reference view")
+            "no editable field of any kind — a locked window's card is a reference view")
 
         do {
             let strings = try axStrings(in: window)
@@ -218,34 +203,35 @@ final class ReviewAdjudicationTests: XCTestCase {
         } catch { throw error }  // XCTSkip when no assistive client is attached
     }
 
-    /// The control: Author's card in the centre is still the visual editor —
-    /// pinned so nothing above (segmented-control / editable-field absence) is
-    /// read as "the card mounts nothing editable in ANY persona".
-    func test_authorShowsTheCardEditor() async throws {
+    /// The control: an unlocked window's card in the centre is still the
+    /// visual editor — pinned so nothing above (segmented-control /
+    /// editable-field absence) is read as "the card mounts nothing editable
+    /// in ANY window".
+    func test_anUnlockedWindowShowsTheCardEditor() async throws {
         let (store, card) = try await storeWithCard(title: "Harbour", body: Self.cardBody)
-        let window = try await hostCentre(store: store, itemID: card.id, readOnly: false)
+        let window = try await hostCentre(store: store, itemID: card.id, isLocked: false)
 
         await pumpUntil(deadline: 5) { !self.segmentedControls(in: window).isEmpty }
         XCTAssertFalse(
             segmentedControls(in: window).isEmpty,
-            "Author must still reach PaletteCardEditor's Kind picker")
+            "an unlocked window must still reach PaletteCardEditor's Kind picker")
     }
 
     // MARK: - PaletteWallCentre: the wall's own card click
 
-    /// **The wall's card click in Review shows the read view under the
-    /// existing back-chevron header** — never the editor.
-    func test_reviewWallCardClickShowsTheReadOnlyCardUnderTheChevron() async throws {
+    /// **The wall's card click in a locked window shows the read view under
+    /// the existing back-chevron header** — never the editor.
+    func test_aLockedWallCardClickShowsTheReadOnlyCardUnderTheChevron() async throws {
         let (store, card) = try await storeWithCard(title: "Harbour", body: Self.cardBody)
-        let window = try await hostWall(store: store, selectedCardId: card.id, persona: .review)
+        let window = try await hostWall(store: store, selectedCardId: card.id, isLocked: true)
 
         await pumpUntil(deadline: 5) { !self.allStringsIgnoringSkip(in: window).isEmpty }
         XCTAssertTrue(
             segmentedControls(in: window).isEmpty,
-            "the wall's card click in Review must not reach PaletteCardEditor's Kind picker")
+            "the wall's card click in a locked window must not reach PaletteCardEditor's Kind picker")
         XCTAssertTrue(
             textFields(in: window).filter(\.isEditable).isEmpty,
-            "no editable field on the wall's card in Review")
+            "no editable field on the wall's card in a locked window")
 
         do {
             let strings = try axStrings(in: window)
@@ -256,31 +242,30 @@ final class ReviewAdjudicationTests: XCTestCase {
         } catch { throw error }
     }
 
-    /// The control: the wall's card click in Author is still the editor.
-    func test_authorWallCardClickShowsTheEditor() async throws {
+    /// The control: the wall's card click in an unlocked window is still the editor.
+    func test_anUnlockedWallCardClickShowsTheEditor() async throws {
         let (store, card) = try await storeWithCard(title: "Harbour", body: Self.cardBody)
-        let window = try await hostWall(store: store, selectedCardId: card.id, persona: .author)
+        let window = try await hostWall(store: store, selectedCardId: card.id, isLocked: false)
 
         await pumpUntil(deadline: 5) { !self.segmentedControls(in: window).isEmpty }
         XCTAssertFalse(
             segmentedControls(in: window).isEmpty,
-            "Author's wall card click must still reach the visual editor")
+            "an unlocked wall card click must still reach the visual editor")
     }
 
-    // MARK: - Control: the tree's verbs stay live in Review
+    // MARK: - Control: the tree's verbs stay live in a locked window
 
-    /// **Creation/rename/delete belong to the tree in every persona** — stage
-    /// 2a's rule, untouched by this task. Pinned here because this task's
-    /// whole diff is about the CENTRE column and the wall's card arm; nothing
-    /// in it should have coupled Review's centre lock to the tree's own verbs.
+    /// **Creation/rename/delete belong to the tree, locked or not** — stage
+    /// 2a's rule. Pinned here because the Lock is about the CENTRE column and
+    /// the wall's card arm; nothing should couple it to the tree's own verbs.
     /// Driven through `BinderTreeVerbs`, the one wiring every tree row's Rename
     /// menu item and inline commit already goes through — a rename that lands
     /// through it is the same rename a row's own affordance produces.
-    func test_treeVerbsStayLiveInReview_renameLands() async throws {
+    func test_treeVerbsStayLiveInALockedWindow_renameLands() async throws {
         let (store, note) = try await storeWithNote(text: Self.noteText)
-        // Mount Review's own (locked) centre alongside, so the scenario is
-        // genuinely Review's rather than a bare store call.
-        _ = try await hostCentre(store: store, itemID: note.id, readOnly: true)
+        // Mount a locked centre alongside, so the scenario is genuinely a
+        // locked window's rather than a bare store call.
+        _ = try await hostCentre(store: store, itemID: note.id, isLocked: true)
 
         let state = BinderTreeSectionsState()
         var subject: BinderSubject? = .research(note.id)
@@ -294,7 +279,7 @@ final class ReviewAdjudicationTests: XCTestCase {
         }
         XCTAssertEqual(
             store.manifest.research.first(where: { $0.id == note.id })?.title, "Tides",
-            "the tree's rename verb must still land while Review's centre shows the locked note")
+            "the tree's rename verb must still land while a locked centre shows the note")
     }
 
     // MARK: - Fixtures
@@ -370,11 +355,13 @@ final class ReviewAdjudicationTests: XCTestCase {
 
     // MARK: - Hosting
 
-    private func hostCentre(store: ProjectStore, itemID: String, readOnly: Bool) async throws -> NSWindow {
+    /// The centre as `CentreColumn` mounts it: `readOnly` is the window's Lock.
+    private func hostCentre(store: ProjectStore, itemID: String, isLocked: Bool) async throws -> NSWindow {
         let documentStore = try XCTUnwrap(store.documentStore)
         let window = TestWindow.mount(AnyView(
             ResearchSubjectCentre(store: store, documentStore: documentStore,
-                                  itemID: itemID, previewVisible: false, readOnly: readOnly)
+                                  itemID: itemID, previewVisible: false,
+                                  readOnly: WindowLock.refusesEdits(isLocked: isLocked))
                 .environment(makePreferences())),
             size: CGSize(width: 700, height: 600),
             as: SilentTestWindow.self)
@@ -384,10 +371,10 @@ final class ReviewAdjudicationTests: XCTestCase {
     }
 
     private func hostWall(store: ProjectStore, selectedCardId: String,
-                          persona: Persona) async throws -> NSWindow {
+                          isLocked: Bool) async throws -> NSWindow {
         let window = TestWindow.mount(AnyView(
             PaletteWallCentre(store: store, selectedPaletteCardId: .constant(selectedCardId),
-                              onClose: {}, persona: persona)),
+                              onClose: {}, isLocked: isLocked)),
             size: CGSize(width: 700, height: 600),
             as: SilentTestWindow.self)
         windows.append(window)

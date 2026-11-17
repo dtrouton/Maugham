@@ -11,7 +11,7 @@ import MaughamCore
 ///
 /// - **Who may write** is the posture's one door (tripwires 47, 51:
 ///   `.editFigure`) and the window's own refusal (`windowRefusesWrites`: a
-///   view-only share, ⌘⌥⇧R, the Review persona): either offers Open in
+///   view-only share, ⌘⌥⇧R, the window's Lock): either offers Open in
 ///   Window alone (Review Focus 5).
 /// - **Import and Refresh act through the grid open on the figure**
 ///   (`FigureWindows.gridController(on:)`) — the centre's, an editor's in
@@ -41,13 +41,13 @@ struct FigureActions {
     // MARK: Who may write
 
     /// **Does the window itself refuse figure writes?** A view-only share,
-    /// the explicit review toggle (⌘⌥⇧R), or a persona that edits no figures
-    /// (Review) — what the centre grid opens read-only for
+    /// the explicit review toggle (⌘⌥⇧R), or the window's Lock
+    /// (`WindowLock`) — what the centre grid opens read-only for
     /// (`FigureSubjectSurface`). ONE answer, read off the window's control
     /// plane, for the tree's row (through `FigureSectionWiring`) and the
     /// inspector alike.
-    static func windowRefusesWrites(control: EditorControl, persona: Persona) -> Bool {
-        control.shareIsReadOnly || control.isManualReviewMode || !persona.editsFigures
+    static func windowRefusesWrites(control: EditorControl, isLocked: Bool) -> Bool {
+        control.shareIsReadOnly || control.isManualReviewMode || WindowLock.refusesEdits(isLocked: isLocked)
     }
 
     /// The posture's one door and the window's own refusal: Send to

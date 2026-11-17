@@ -24,7 +24,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TranslationReviewModifier.swift` — this window's translation-review selection and the reveal's window half.
 - `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, from the posture, pure), `InsertMenuGate` (whether the Insert menu is enabled, published as the focused value `mayInsertReportElement`) and the modifier.
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
-- `CompilerRunModifier.swift` — the run keys' delivery path and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
+- `CompilerRunModifier.swift` — the run commands' delivery path (`RunCommand`) and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
@@ -34,6 +34,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Personas and the shell
 - `PersonaBar.swift` — the four-persona switcher, a window-toolbar item; posts `.maughamSetPersona` exactly as ⌘1–4 do.
+- `LockToggle.swift` — the window's Lock (`WindowLock`) and its toolbar toggle.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `AssistantColumn.swift` — the study column (`AssistantColumnModel.studied`, `isPresented`, `AssistantColumnModifier`).
@@ -250,12 +251,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log, never the `.fountain` (tripwire 20).
 
 ### Personas
-- **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — Review's read-only centre `editsResearchInTheCentre` (the centre itself is the subject's, "The centre column"): `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
+- **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** (the centre itself is the subject's, "The centre column"): `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
 - **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `PersonaModifier`, `ProjectWindow`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
 - **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2).
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
-- **The window publishes its persona to the menu bar from `PersonaModifier.body` alone** (`.focusedSceneValue(\.persona, …)`, read by `MaughamApp`'s run items): `RunMenuTitlesTests.test_theWindowPublishesItsPersonaFromThePersonaModifierAlone`. A title only ([ADR 0031](../../docs/adr/0031-the-persona-is-an-input-to-the-run.md)).
+- **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
 - **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
 ### The subject and the tree
@@ -293,7 +294,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_aNoteBesideCanBePutAwayFromItsOwnRow`.
 - **A research item `beside` previews in the right column whatever the centre, with Open in Centre and close; `open` takes the centre** (`ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
-- **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
+- **A locked window's research and figures are read-only** off `WindowLock.refusesEdits`, beside the posture (`LockTests` names the sites).
 - **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject arrives beside; a restore does not.
 - **A figure asks `figureSubjectPlacement` in both columns**: `open` takes the centre, `beside` the right column.
 - **The Figures section** is drawn only while a figure is not parked; a piece's count filters it, its header chip clears it.

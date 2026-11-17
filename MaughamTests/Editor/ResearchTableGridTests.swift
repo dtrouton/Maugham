@@ -411,14 +411,15 @@ final class ResearchTableGridTests: XCTestCase {
 
     // MARK: - Read-only
 
-    /// **Review reads the table, never edits it**: the grid opens read-only
-    /// with the review reason and typing writes nothing. (Review is this
-    /// window's gate; the host is shared with any other window's grid.)
-    func test_reviewOpensTheTableReadOnly() async throws {
+    /// **A locked window reads the table, never edits it**: the grid opens
+    /// read-only (with the grid's review reason) and typing writes nothing.
+    /// (The Lock is this window's gate; the host is shared with any other
+    /// window's grid.)
+    func test_aLockedWindowOpensTheTableReadOnly() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
         let before = try bytes(of: item)
-        let mount = await mount(item, store, projectStore, readOnly: !Persona.review.editsResearchInTheCentre)
+        let mount = await mount(item, store, projectStore, readOnly: WindowLock.refusesEdits(isLocked: true))
         let c = try XCTUnwrap(mount.controller)
         let host = try XCTUnwrap(mount.host)
         XCTAssertEqual(c.mode, .readOnly(.reviewMode))
@@ -1050,7 +1051,7 @@ final class ResearchTableGridTests: XCTestCase {
 
     /// **The right column shows the same grid** for a table beside the canvas
     /// (`ResearchSubjectInspector`'s preview, through the same route).
-    func test_planPreviewsTheTableInTheSameGridBesideTheCanvas() async throws {
+    func test_aTableBesideTheCanvasPreviewsInTheSameGrid() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
         let placement = ProjectWindow.researchSubjectPlacement(
@@ -1059,7 +1060,7 @@ final class ResearchTableGridTests: XCTestCase {
         let window = TestWindow.mount(
             ResearchSubjectInspector(store: projectStore, itemID: item.id,
                                      showsPreview: placement.previewsInTheRightColumn,
-                                     documentStore: store, readOnly: !Persona.plan.editsResearchInTheCentre),
+                                     documentStore: store, readOnly: WindowLock.refusesEdits(isLocked: false)),
             size: CGSize(width: 420, height: 640))
         windows.append(window)
         let up = await RunLoopPump.until(deadline: 5) { Self.gridView(in: window.contentView) != nil }

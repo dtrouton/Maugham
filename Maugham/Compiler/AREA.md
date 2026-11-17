@@ -1,6 +1,6 @@
 # Compiler — area guide
 
-The `claude -p` runs Maugham spawns and everything they read and answer. ⌘R (⌘⇧R for a cold read) sends the piece to a warm session: in Author a **check** over what changed since the last check, in Review a **round** over the whole piece by the pass's named editor (`RunKind`, ADR 0031). Each finding lands where its nature says (ADR 0029): a conformance strain stays a ¶-anchored diagnostic in the Diagnostics pane; a continuity question, reader's report or letter question mints as an annotation; a fact lands in the bible. The same rails carry the translator, the designer and the seven-leg translation pipeline's cold sessions. The one rule from CLAUDE.md: **the compiler reads and never writes; Maugham writes at ingest. A new `claude` service joins `AgentRoster`, the one teardown.** The area carries tripwires 2, 3, 6, 11, 17, 20, 21, 24 and 34. Each rule's why and history: `docs/history/compiler.md`.
+The `claude -p` runs Maugham spawns and everything they read and answer. ⌘R (⇧⌘R cold) asks a warm session for a **check** over what changed since the last check; ⌃⌘R (⌃⇧⌘R cold) for a **round** over the whole piece by the pass's named editor (`RunCommand`). Each finding lands where its nature says (ADR 0029): a conformance strain stays a ¶-anchored diagnostic in the Diagnostics pane; a continuity question, reader's report or letter question mints as an annotation; a fact lands in the bible. The same rails carry the translator, the designer and the seven-leg translation pipeline's cold sessions. The one rule from CLAUDE.md: **the compiler reads and never writes; Maugham writes at ingest. A new `claude` service joins `AgentRoster`, the one teardown.** The area carries tripwires 2, 3, 6, 11, 17, 20, 21, 24 and 34. Each rule's why and history: `docs/history/compiler.md`.
 
 ## Map
 
@@ -17,7 +17,7 @@ Every file in `Maugham/Compiler/` appears once.
 ### The compiler's run
 - `CompilerOrchestrator.swift` — **the run**: delta → prompt → session → parse → mint → store. `runRequested`, `beginRun`, `finish`, `record(...)`, `resolveWorld`, `shutdown()`/`detach()`/`retireSession()`. Closure-`Environment`, no store named (tripwires 2, 3, 6).
 - `CompilerEnvironment+Project.swift` — the production wiring: one window's stores as the orchestrator's closures, every capture weak. Holds the mint loop (`mintAnnotations`) and `pinnedListing`.
-- `RunKind.swift` — `.check`/`.round`, minted from the persona at the keystroke (tripwire 34).
+- `RunKind.swift` — `.check`/`.round`, and `RunCommand`: the File menu's four run commands, each naming its kind (tripwire 34).
 - `DeltaBuilder.swift` — what changed since the check's marker, in `sequence` order; a round is built `since: nil`.
 - `CompilerPrompt.swift` — the message: `checkMessage`/`roundMessage` over `runMessageV2`, `briefingHashInput`, the frame sections, `sectionSchema(judgesIntentDrift:)`, the preamble.
 - `ProcessSignals.swift` — the writer's process, pure over `(ops, sequence, now)`: sessions, frontier, churn, `daysAway`, `noteworthy`.
@@ -76,7 +76,6 @@ Every file in `Maugham/Compiler/` appears once.
 - `Maugham/Models/RoundEditor.swift` — which pass runs a ROUND, or a refusal (tripwire 34).
 - `Maugham/Models/ActivePassMemory.swift` — which lane a piece is parked in; the round loop's memory only.
 - `Maugham/Models/CompilerModelChoice.swift` — the depth menu; `exhaustive` (`fable`) is last in the enum and the menu.
-- `Maugham/Models/RunMenuTitles.swift` — the per-persona run menu titles.
 
 ### Outside this folder
 - Views (`Maugham/Views/AREA.md`): `CompilerRunModifier.swift` (run keys, two teardown arms), `DiagnosticsPane.swift`, `Maugham/Views/Review/ReviewRoundCockpit.swift`, `LetterKeep.swift`, `LetterSection.swift`, `LessonLedgerVerbs.swift` (with `LessonOffer`), `FirstReaderRuling.swift`, `BibleStratum.swift`, `RulingsStratum.swift`; the desk's `Maugham/Views/Publish/DepartmentPaneHost.swift`, `Maugham/Views/Publish/DepartmentRunState.swift` (`DepartmentRunSession`, `TranslationRunLog`) and `Maugham/Views/Publish/DesignGateVerbs.swift`.
@@ -111,7 +110,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`RoundEditor` never reaches for the coach's seat or the first reader** (tripwire 34): no `effectiveCoach` or `firstReaderName` in `RoundEditor.swift` or the wiring, and the `roundEditor` closure does not name `authorReader` either: `TripwireGrepTests.test_theRoundEditorNeverReachesForTheCoachsSeat`, controls in `test_theTwoReaderCensusesFireOnPlantedOffenders`.
 
 ### Two loops, two readers
-- **`RunKind.of(persona:)` is called in exactly one production file**, `CompilerRunModifier.swift`; every other caller of `runRequested` belongs to one loop and says so literally (`TripwireGrepTests.test_theRunKindIsMintedFromThePersonaInOneFile`).
+- **Every run names its kind**: a literal `.check`/`.round`, or the command's own (`request.kind`) in `CompilerRunModifier.swift` alone (`TripwireGrepTests.test_everyRunNamesItsKindLiterallyOrByItsCommand`).
 - **Two closures, two answer types**: `Environment.authorReader(docId)` → `AuthorReader`, `Environment.roundEditor(docId)` → `ActivePass?`, so asking the other loop's question does not type-check. Never collapse them into one closure taking the kind.
 - **A check's reader is per project**: `ProjectManifest.authorReader(choice:statementText:)` takes the roster choice (`UIState.authorReaderChoice`) while its subject exists, else the coach while her seat is held, else a first reader, else nobody. *A reader is not a lane.*
 - **The first reader's description is read from her statement at the keystroke**, cached nowhere.
