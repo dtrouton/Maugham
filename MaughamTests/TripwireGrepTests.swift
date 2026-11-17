@@ -653,8 +653,8 @@ final class TripwireGrepTests: XCTestCase {
 
     // MARK: - Every bespoke mover caller says whether it moves Research (#145)
 
-    /// What a caller of `relocateUserContent` moves, as the note door needs
-    /// to know it: a verb that moves Research files enters
+    /// What a caller of the typed mover (`relocateUserContent`,
+    /// `relocate(plan:)`) moves, as the note door needs to know it: a verb that moves Research files enters
     /// `ProjectStore.withResearchItemsInFlight` around its mover call (#142
     /// T2's span), so a note save landing mid-move takes the door's "being
     /// moved" route and is never written afresh at the old path; any other
@@ -665,9 +665,9 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// **Every production function in `Maugham/Stores` that calls
-    /// `relocateUserContent(`**, keyed `"<file>: <function>"` (the innermost
-    /// enclosing `func`). A new caller is unlisted and fails; an
-    /// `entersSpan` entry whose body does not call
+    /// `relocateUserContent(` or `relocate(plan:`**, keyed
+    /// `"<file>: <function>"` (the innermost enclosing `func`). A new caller
+    /// is unlisted and fails; an `entersSpan` entry whose body does not call
     /// `withResearchItemsInFlight(` fails. #145 found the piece reorder and
     /// rename moving `pieces/…/research/` outside the span.
     static let userContentMoverCallers: [String: MoverSpan] = [
@@ -679,10 +679,17 @@ final class TripwireGrepTests: XCTestCase {
             + "so no research root is under it"),
         "DocumentStore+Figures.swift: moveFigureFile": .holdsNoResearch(
             "moves a figure's file inside figures/, which is no research root"),
+        "ProjectStore+ResearchMove.swift: moveResearchItems": .entersSpan,
+        "ProjectStore+Structure.swift: moveStructureItem": .holdsNoResearch(
+            "renumbers manuscript files and group folders under one structure parent; a Collection's "
+            + "pieces reorder through movePiece, and a piece's .md would move alone, never its folder"),
+        "ProjectStore+Structure.swift: tidyFilenames": .holdsNoResearch(
+            "renumbers manuscript files and group folders under one structure parent; a piece's .md "
+            + "would move alone, never its folder, so no research root is under it"),
     ]
 
-    /// The functions under `dir` calling `relocateUserContent(`, each with
-    /// whether its body calls `withResearchItemsInFlight(`. A function is
+    /// The functions under `dir` calling `relocateUserContent(` or
+    /// `relocate(plan:`, each with whether its body calls `withResearchItemsInFlight(`. A function is
     /// found by brace depth from its `func` line over code with string
     /// literals and line comments removed; a call is credited to the
     /// innermost function around it.
@@ -712,7 +719,8 @@ final class TripwireGrepTests: XCTestCase {
                 functions.append((String(line[range]), i, min(j, lines.count - 1)))
             }
             for (i, line) in lines.enumerated()
-            where line.contains("relocateUserContent(") && !line.contains("func ") {
+            where (line.contains("relocateUserContent(") || line.contains("relocate(plan:"))
+                && !line.contains("func ") {
                 guard let owner = functions.filter({ $0.start < i && i <= $0.end }).max(by: { $0.start < $1.start })
                 else { found["\(name): <top level>"] = false; continue }
                 let enters = lines[owner.start...owner.end].contains { $0.contains("withResearchItemsInFlight(") }
@@ -725,7 +733,7 @@ final class TripwireGrepTests: XCTestCase {
     func test_everyBespokeMoverCallerSaysWhetherItMovesResearch() throws {
         let found = try Self.userContentMoverCallerScan(in: sourceDir.appendingPathComponent("Stores"))
         XCTAssertEqual(Set(found.keys), Set(Self.userContentMoverCallers.keys),
-            "The production callers of `relocateUserContent` moved. Classify each new one in "
+            "The production callers of `relocateUserContent` / `relocate(plan:)` moved. Classify each new one in "
             + "`userContentMoverCallers`: `.entersSpan` if it can move a Research file (wrap its mover "
             + "call in `withResearchItemsInFlight`), else `.holdsNoResearch(\"<why>\")`. Found: "
             + "\(found.keys.sorted())")
@@ -753,6 +761,9 @@ final class TripwireGrepTests: XCTestCase {
                     try await ds.relocateUserContent(affectedPaths: []) { }
                 }
             }
+            func planPlanted() async throws {
+                try await documentStore.relocate(plan: plan)
+            }
             func outerPlanted() async throws {
                 func innerPlanted() async throws {
                     try await ds.relocateUserContent(affectedPaths: []) { }
@@ -765,6 +776,7 @@ final class TripwireGrepTests: XCTestCase {
             "ProjectStore+Planted.swift: movePlanted": false,
             "ProjectStore+Planted.swift: spannedPlanted": true,
             "ProjectStore+Planted.swift: innerPlanted": false,
+            "ProjectStore+Planted.swift: planPlanted": false,
         ])
     }
 

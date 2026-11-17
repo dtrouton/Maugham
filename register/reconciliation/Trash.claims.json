@@ -1118,5 +1118,21 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M3-TR-071",
+  "scope": "ProjectStore.movePiece / renamePiece — a piece's Research follows its folder at every depth",
+  "kind": "POSTCONDITION",
+  "statement": "A Collection piece's reorder (movePiece: every piece it renumbers) and rename (renamePiece) rewrite the manifest path of EVERY Research item under the piece's research/ folder, at any depth — a group moved into the piece's research, the notes in it, and the groups and notes nested in those — to the piece's new folder, through one shared rewrite both verbs call (ProjectStore.researchAfterPieceFoldersMoved; each item takes the first folder move its path lay under before any was applied, so two folders trading names never rewrite an item twice). After either verb, and after a reorder then a rename, each item's file is at its manifest path, a note in a nested group is still a note (ResearchTextRole) that the note door writes at that path over its kept text (keeping a version), and a new note added to such a group through addResearchTextNote (what the assistant's add_note calls) lands in that group's current recorded folder; a group directly under the piece's research is accepted as a research root's group before and after both verbs. Before this (hardening 2026-11-17, Task 10, found by Task 2), only the top-level rows were rewritten: a group's children kept the old folder, the door could not reach them (its save was not made), and a new note added to a nested group was refused with outsideResearch. That nested paths follow the piece is the coordinator's call, hardening 2026-11-17, not Denver's",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Stores/PieceResearchNestedPathTests.swift: test_aReorderThenARenameCarryEveryNestedResearchPath, test_aNoteAddedToAGroupUnderAPieceLandsInItsFolder_acrossAReorderAndARename, test_theRewriteMovesEachItemOnceWhenTwoFoldersTradeNames"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — the coordinator's call, hardening 2026-11-17 (Task 10), not Denver's",
+  "reachability": "LIVE — a group dragged into a piece's Research section (moveResearchItems .piece), then a note or group added inside it; then the piece is reordered or renamed in the Pieces pane",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

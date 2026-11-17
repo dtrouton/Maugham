@@ -800,13 +800,18 @@
   }
  },
  {
+  "claim_id": "M3-TR-071",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Where a piece's nested Research rows say their files are after the piece's folder moves is bookkeeping the writer meets only as a symptom (a note the door cannot save, an add refused). RULING-52 (the collateral report) is the nearest family and does not reach it: nothing here fails part way, the verb now leaves every path right. No ruling decides that Research follows its piece; the coordinator's call, hardening 2026-11-17, not Denver's."
+ },
+ {
   "_summary": {
    "reached": 45,
    "complies": 45,
    "violates": 0,
-   "no_ruling": 25,
-   "total": 70,
-   "coverage": "64%",
+   "no_ruling": 26,
+   "total": 71,
+   "coverage": "63%",
    "by_ruling": {
     "RULING-15": [
      "M3-TR-003",

@@ -1120,6 +1120,31 @@ extension ProjectStore {
         }).map(\.id)
     }
 
+    /// **The Research tree after piece folders moved** (`oldRel` → `newRel`,
+    /// each a piece folder): every item, at ANY depth, whose path lies under
+    /// an old folder's `research/` names the new one — a note inside a group
+    /// inside the piece's research moves with the folder, as its group does.
+    /// The reorder and the rename both ask it; neither keeps a loop of its
+    /// own. Each item takes the first rewrite it lies under, judged by its
+    /// path before any rewrite, so a reorder whose new folder name is another
+    /// piece's old one never rewrites an item twice.
+    nonisolated static func researchAfterPieceFoldersMoved(
+        _ research: [ResearchItem], _ rewrites: [(oldRel: String, newRel: String)]
+    ) -> [ResearchItem] {
+        research.map { item in
+            var item = item
+            if let path = item.path,
+               let rewrite = rewrites.first(where: { path.hasPrefix("\($0.oldRel)/research/") }) {
+                item.path = "\(rewrite.newRel)/research/"
+                    + path.dropFirst("\(rewrite.oldRel)/research/".count)
+            }
+            if let children = item.children {
+                item.children = researchAfterPieceFoldersMoved(children, rewrites)
+            }
+            return item
+        }
+    }
+
     /// Reorder a Collection piece within manifest.structure. Renumbers all
     /// piece folder NN- prefixes contiguously (01, 02, 03, …), moves folders
     /// on disk to match, updates manifest entry paths, and rewrites per-piece
@@ -1229,20 +1254,9 @@ extension ProjectStore {
                 try await swapFolders()
             }
 
-            // 4. Rewrite per-piece research item paths.
-            for (i, item) in manifest.research.enumerated() {
-                guard let p = item.path else { continue }
-                for rewrite in folderRewrites {
-                    let oldPrefix = "\(rewrite.oldRel)/research/"
-                    let newPrefix = "\(rewrite.newRel)/research/"
-                    if p.hasPrefix(oldPrefix) {
-                        var copy = item
-                        copy.path = newPrefix + String(p.dropFirst(oldPrefix.count))
-                        manifest.research[i] = copy
-                        break
-                    }
-                }
-            }
+            // 4. Rewrite per-piece research item paths, at any depth.
+            manifest.research = Self.researchAfterPieceFoldersMoved(
+                manifest.research, folderRewrites)
         }
 
         // 5. Commit
@@ -1356,16 +1370,9 @@ extension ProjectStore {
                 try await renameFolderAndDoc()
             }
 
-            // 3. Rewrite per-piece research item paths in manifest.research.
-            let oldResearchPrefix = "\(oldFolderRel)/research/"
-            let newResearchPrefix = "\(newFolderRel)/research/"
-            for (i, item) in manifest.research.enumerated() {
-                if let p = item.path, p.hasPrefix(oldResearchPrefix) {
-                    var copy = item
-                    copy.path = newResearchPrefix + String(p.dropFirst(oldResearchPrefix.count))
-                    manifest.research[i] = copy
-                }
-            }
+            // 3. Rewrite per-piece research item paths, at any depth.
+            manifest.research = Self.researchAfterPieceFoldersMoved(
+                manifest.research, [(oldRel: oldFolderRel, newRel: newFolderRel)])
         }
 
         // 4. Update manifest entry: title + path.
