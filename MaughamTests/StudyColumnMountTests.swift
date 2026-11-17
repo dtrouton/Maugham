@@ -162,7 +162,6 @@ final class StudyColumnMountTests: XCTestCase {
     @MainActor
     final class StudyProbe {
         let assistant = AssistantColumnModel()
-        var persona: Persona = .author
         var isNoChromeOn = false
         var width: Double = UIState.defaultDetailColumnWidth
         private(set) var containerWidth: Double?
@@ -223,7 +222,6 @@ final class StudyColumnMountTests: XCTestCase {
         private var detailColumn: some View {
             HStack(spacing: 0) {
                 if AssistantColumn.isPresented(studied: probe.assistant.studied,
-                                               persona: probe.persona,
                                                isNoChromeOn: probe.isNoChromeOn,
                                                showInspector: true) {
                     AssistantColumn(store: store, projectRoot: projectRoot,

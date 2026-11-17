@@ -19,9 +19,11 @@ extension ProjectWindow {
     ///
     /// - `takesTheCentre` — the item is the subject's `open`: the centre column
     ///   shows it, and the right column inspects it.
-    /// - `besideTheCanvas` — the item is the subject's `beside` (a click): the
-    ///   centre is left alone and the right column previews the item. Whatever
-    ///   the centre is — the canvas STAYS MOUNTED; `CanvasTreeSegmentMountTests`
+    /// - `beside` — the item is the subject's `beside` (a click): the centre is
+    ///   left alone and the right column previews the item under its Open in
+    ///   Centre and close controls (`BesideHeader`), **whatever the centre is**
+    ///   — a research item open in the centre included, which the case carries
+    ///   as `centre`. The canvas STAYS MOUNTED; `CanvasTreeSegmentMountTests`
     ///   measured what a second centre-column branch costs (the camera back to
     ///   origin, every scrap layout re-measured, the thumbnail cache emptied).
     /// - `nothingMoves` — the subject names no research item in either place.
@@ -41,7 +43,8 @@ extension ProjectWindow {
     /// is deliberately NOT a term here.
     enum ResearchSubjectPlacement: Equatable {
         case takesTheCentre(String)
-        case besideTheCanvas(String)
+        /// The item beside, and the research item the centre shows, if any.
+        case beside(String, centre: String? = nil)
         /// The subject names no research item. It was `.segmentStands` while
         /// there were segments for one to stand.
         case nothingMoves
@@ -49,24 +52,27 @@ extension ProjectWindow {
         /// The item the CENTRE column shows, or `nil` when the centre is not
         /// the research subject's to take.
         var centreItemID: String? {
-            if case .takesTheCentre(let id) = self { return id }
-            return nil
+            switch self {
+            case .takesTheCentre(let id): return id
+            case .beside(_, let centre): return centre
+            case .nothingMoves: return nil
+            }
         }
 
         /// The item the RIGHT column shows, or `nil`.
         var inspectedItemID: String? {
             switch self {
-            case .takesTheCentre(let id), .besideTheCanvas(let id): return id
+            case .takesTheCentre(let id), .beside(let id, _): return id
             case .nothingMoves: return nil
             }
         }
 
         /// Whether the right column also PREVIEWS the item's content rather
-        /// than only inspecting it — true exactly when the centre column is not
-        /// showing the item, because otherwise the writer has no way to read
-        /// what they just selected.
+        /// than only inspecting it — true exactly when the item is beside,
+        /// which is never what the centre shows, because otherwise the writer
+        /// has no way to read what they just pulled up.
         var previewsInTheRightColumn: Bool {
-            if case .besideTheCanvas = self { return true }
+            if case .beside = self { return true }
             return false
         }
     }
@@ -76,21 +82,45 @@ extension ProjectWindow {
     /// spelled inside a `@ViewBuilder` where no test could be exhaustive over
     /// it.
     ///
-    /// **Asked of the subject's two places.** A research item in `open` (a
-    /// double-click, the explicit control) takes the centre; one in `beside`
-    /// (a click) previews in the right column whatever the centre is — the
-    /// canvas keeps its one mount, the editor its document. `open` wins when
-    /// both name one: the right column inspects what the centre shows.
+    /// **Asked of the subject's two places.** A research item in `beside` (a
+    /// click) previews in the right column whatever the centre is — the canvas
+    /// keeps its one mount, the editor its document, and a research item open
+    /// in the centre stays there (`centre`). A research item in `open` (a
+    /// double-click, Open in Centre) takes the centre and, with nothing else
+    /// beside, the right column inspects it. The same item in both places is
+    /// the centre's: one card or grid is never mounted twice.
     static func researchSubjectPlacement(subject: WindowSubject) -> ResearchSubjectPlacement {
-        if let id = subject.open.researchID { return .takesTheCentre(id) }
-        if let id = subject.beside?.researchID { return .besideTheCanvas(id) }
+        let centre = subject.open.researchID
+        if let id = subject.beside?.researchID, id != centre {
+            return .beside(id, centre: centre)
+        }
+        if let centre { return .takesTheCentre(centre) }
         return .nothingMoves
+    }
+
+    /// **Open in Centre** — the beside view's control: the click rule's
+    /// `.openInCentre` on what is beside, so the thing beside becomes `open`
+    /// and the faces, and leaves `beside`. Nothing beside moves nothing.
+    static func openingBesideInCentre(_ subject: WindowSubject,
+                                      structure: [StructureItem],
+                                      projectType: ProjectType) -> WindowSubject {
+        guard let beside = subject.beside else { return subject }
+        return ClickRule.resolve(beside, gesture: .openInCentre, current: subject,
+                                 structure: structure, projectType: projectType)
+    }
+
+    /// **Close** — the beside view's other control: what is beside is put
+    /// away, and nothing else moves.
+    static func closingBeside(_ subject: WindowSubject) -> WindowSubject {
+        var next = subject
+        next.beside = nil
+        return next
     }
 
     /// **Showing the column the placement chose** (stage 2b final review's
     /// Critical) — for a research item or a figure alike.
     ///
-    /// `besideTheCanvas` says the right column previews the item. It does not
+    /// `beside` says the right column previews the item. It does not
     /// make that column VISIBLE: `ResearchSubjectInspector` is mounted by
     /// `DetailPaneToggle`'s `.inspector` arm alone. Without this a research row
     /// would write a subject that reaches no surface at all.
@@ -328,8 +358,7 @@ struct ResearchSubjectInspector: View {
     /// window (tripwire 4). `PaletteCardEditor` owns that load (`.task(id:
     /// cardId)`) and its debounced save, and it is the app's one card surface.
     /// It is never mounted twice for one card: this half is shown only where the
-    /// placement is `.besideTheCanvas`, and there the centre column is the
-    /// canvas.
+    /// placement is `.beside`, which is never the item the centre shows.
     ///
     /// `.table` reaches the same grid the centre mounts (`ResearchTableGrid`,
     /// report plan 8b Task 7) — never twice, for the card's reason.

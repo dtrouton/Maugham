@@ -584,7 +584,7 @@ final class PublishPreviewCentreTests: XCTestCase {
             current: SubjectSamples.opened(.edition(language: "es")),
             structure: Self.oneDocument, projectType: .novel)
         XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: clicked),
-                       .besideTheCanvas("r1"))
+                       .beside("r1"))
         XCTAssertEqual(ProjectWindow.publishCentre(
             subject: clicked, preview: .ready(newestFirst: [Self.aBook])),
                        .books([Self.aBook]))

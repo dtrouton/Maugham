@@ -70,6 +70,85 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         }
     }
 
+    /// **A beside item shows whatever the centre is** (shell p1 Task 4) — a
+    /// research item open in the centre included, which used to win and leave
+    /// the item the writer just clicked on no surface at all. The centre's own
+    /// research item is carried, so the centre route does not lose it.
+    func test_aBesideItemShowsWhateverTheCentreIs() {
+        for open in SubjectSamples.everyOpen {
+            let subject = WindowSubject(open: open, faces: open, beside: .research("r1"))
+            let placement = ProjectWindow.researchSubjectPlacement(subject: subject)
+            XCTAssertEqual(placement, .beside("r1", centre: open.researchID), "\(open) open")
+            XCTAssertTrue(placement.previewsInTheRightColumn, "\(open): the item previews")
+            XCTAssertEqual(placement.inspectedItemID, "r1", "\(open)")
+            XCTAssertEqual(placement.centreItemID, open.researchID,
+                           "\(open): the centre keeps what it shows")
+        }
+        // The same item in both places is the centre's: never mounted twice.
+        let both = WindowSubject(open: .research("r1"), faces: .research("r1"),
+                                 beside: .research("r1"))
+        XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: both),
+                       .takesTheCentre("r1"))
+    }
+
+    /// **Open in Centre moves the beside item to the centre** — the click
+    /// rule's `.openInCentre`, from every centre: it becomes `open` and the
+    /// faces, and nothing is left beside. Close puts it away and moves
+    /// nothing else. With nothing beside, both are no-ops.
+    func test_openInCentreMovesTheBesideItemToTheCentre() {
+        for open in SubjectSamples.everyOpen {
+            let subject = WindowSubject(open: open, faces: .item(SubjectSamples.pieceID),
+                                        beside: .research("r1"))
+            let opened = ProjectWindow.openingBesideInCentre(
+                subject, structure: SubjectSamples.structure, projectType: .novel)
+            XCTAssertEqual(opened, WindowSubject(open: .research("r1"),
+                                                 faces: .research("r1"), beside: nil),
+                           "\(open) open")
+            XCTAssertEqual(ProjectWindow.centreRoute(
+                subject: opened, bookView: .outline, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: .nothingCompiled),
+                           .research(id: "r1"), "\(open): the centre shows it")
+            XCTAssertEqual(ProjectWindow.closingBeside(subject),
+                           WindowSubject(open: open, faces: .item(SubjectSamples.pieceID),
+                                         beside: nil), "\(open): close moves nothing else")
+        }
+        let nothing = SubjectSamples.opened(.canvas)
+        XCTAssertEqual(ProjectWindow.openingBesideInCentre(
+            nothing, structure: SubjectSamples.structure, projectType: .novel), nothing)
+    }
+
+    /// **The beside view's two controls are wired to those two functions and
+    /// drawn as visible buttons** — read from the source, because pressing a
+    /// mounted control and waiting is tripwire 33's shape.
+    func test_theBesideViewCarriesOpenInCentreAndClose() throws {
+        let source = try SourceTree.read("Maugham/Views/RightColumn.swift")
+        let code = SourceScan.codeLines(of: source).joined(separator: "\n")
+        XCTAssertTrue(code.contains("ProjectWindow.openingBesideInCentre("),
+                      "Open in Centre is the click rule's openInCentre")
+        XCTAssertTrue(code.contains("ProjectWindow.closingBeside(subject)"))
+        XCTAssertTrue(code.contains("Button(Self.openInCentreLabel, action: openInCentre)"),
+                      "Open in Centre is a plain visible button")
+        XCTAssertTrue(code.contains("Button(action: close)"))
+        XCTAssertEqual(BesideHeader.openInCentreLabel, "Open in Centre")
+    }
+
+    /// **The right column's panes read the FACES, not what is open** — with the
+    /// canvas, an edition or the Inbox in the centre and the faces on a piece,
+    /// the panes are about that piece; with the faces on the Book, about no
+    /// document.
+    func test_theFacesReadTheFacesSubjectNotTheOpenOne() {
+        let piece = SubjectSamples.pieceID
+        for open in SubjectSamples.everyOpen {
+            let subject = WindowSubject(open: open, faces: .item(piece))
+            XCTAssertEqual(RightColumn.panesDocId(of: subject), piece, "\(open) open")
+            XCTAssertEqual(RightColumn.panesItemID(of: subject), piece, "\(open) open")
+        }
+        let onTheBook = WindowSubject(open: .item(piece), faces: .project)
+        XCTAssertEqual(RightColumn.panesDocId(of: onTheBook), BinderSubject.noDocumentSubject,
+                       "an open piece with the faces on the Book is not the panes' document")
+        XCTAssertNil(RightColumn.panesItemID(of: onTheBook))
+    }
+
     /// **A research item beside previews in the right column and never takes
     /// the centre, whatever the centre is** — the canvas keeps its one mount
     /// (camera, layouts, thumbnails), the editor its document.
@@ -77,7 +156,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         for open in SubjectSamples.everyOpen where open.researchID == nil {
             let subject = WindowSubject(open: open, faces: open, beside: .research("r1"))
             XCTAssertEqual(ProjectWindow.researchSubjectPlacement(subject: subject),
-                           .besideTheCanvas("r1"), "\(open) open")
+                           .beside("r1"), "\(open) open")
             XCTAssertEqual(
                 ProjectWindow.centreRoute(
                     subject: subject, bookView: .outline, projectType: .novel,
@@ -119,11 +198,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// every case rather than trusted at each call site.
     func test_thePreviewIsShownExactlyWhereTheCentreIsNotShowingTheItem() {
         let placements: [ProjectWindow.ResearchSubjectPlacement] =
-            [.takesTheCentre("r1"), .besideTheCanvas("r1"), .nothingMoves]
+            [.takesTheCentre("r1"), .beside("r1"), .beside("r1", centre: "r2"), .nothingMoves]
         for placement in placements {
             XCTAssertEqual(
                 placement.previewsInTheRightColumn,
-                placement.inspectedItemID != nil && placement.centreItemID == nil,
+                placement.inspectedItemID != nil
+                    && placement.centreItemID != placement.inspectedItemID,
                 "\(placement)")
         }
     }

@@ -8284,8 +8284,11 @@ final class TripwireGrepTests: XCTestCase {
     /// that file's own name, and fails the census. `PersonaModifier` (the
     /// `.maughamSetPersona` handler, the one sanctioned direct choice) lives in
     /// `ProjectWindow.swift` beside the window, so it is named by its own type.
+    ///
+    /// `ManuscriptNavigation.swift` and `CanvasClaudeArrivalModifier.swift` left
+    /// in shell p1 Task 4: going to a place and Claude's arrival write the
+    /// window's SUBJECT now, never a persona.
     static let personaDecisionSites: Set<String> = [
-        "ManuscriptNavigation.swift", "CanvasClaudeArrivalModifier.swift",
         "type:ProjectWindow", "type:PersonaModifier",
     ]
 
@@ -8438,14 +8441,17 @@ final class TripwireGrepTests: XCTestCase {
     /// (`centresTheCanvas`, `showsPaletteWall`, `showsIntentStrip`,
     /// `showsExports`, …), because a name compared at four sites reads the same
     /// at all four and drifts at the fifth.
-    static let personaComparisonAllowed: [PersonaComparisonAllowance] = [
-        PersonaComparisonAllowance(
-            file: "AssistantColumn.swift",
-            spelling: "old.persona == new.persona",
-            reason: "compares two SNAPSHOTS of the window's persona to tell a "
-                + "pane change from a persona switch (`paneChangeEndsTheStudy`); "
-                + "it names no persona, so there is no predicate it could ask"),
-    ]
+    ///
+    /// Empty since shell p1 Task 4: `AssistantColumnModifier`'s snapshot
+    /// comparison went with the study column's persona input.
+    static let personaComparisonAllowed: [PersonaComparisonAllowance] = []
+
+    /// The allowance the control below plants — the shape the production list
+    /// carried until it emptied, so the allowance mechanism stays measured.
+    static let plantedComparisonAllowance = PersonaComparisonAllowance(
+        file: "AssistantColumn.swift",
+        spelling: "old.persona == new.persona",
+        reason: "planted: a snapshot comparison that names no persona")
 
     /// `persona ==`, `persona != .x` / `persona != Persona.x`, and the same two
     /// through a binding (`persona.wrappedValue ==` / `!=`) — the shapes a
@@ -8544,7 +8550,8 @@ final class TripwireGrepTests: XCTestCase {
             }
             """,
         ])
-        let planted = try Self.personaComparisonOffenders(base: base)
+        let planted = try Self.personaComparisonOffenders(
+            base: base, allowed: [Self.plantedComparisonAllowance])
         XCTAssertEqual(planted.offenders.sorted(), [
             "Maugham/Views/Elsewhere/NotTheAssistant.swift: static func f(old: S, new: S) -> Bool { old.persona == new.persona }",
             "Maugham/Views/RogueStrip.swift: func a(persona: Persona) -> Bool { persona == .author }",
@@ -8558,7 +8565,7 @@ final class TripwireGrepTests: XCTestCase {
 
         let stale = try Self.personaComparisonOffenders(
             base: base,
-            allowed: Self.personaComparisonAllowed + [PersonaComparisonAllowance(
+            allowed: [Self.plantedComparisonAllowance, PersonaComparisonAllowance(
                 file: "RogueStrip.swift", spelling: "persona == .gone", reason: "planted")])
         XCTAssertEqual(stale.unused, ["RogueStrip.swift: persona == .gone"],
                        "an allowance that admits nothing is reported")

@@ -486,7 +486,7 @@ struct ProjectWindow: View {
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
-            persona: $persona,
+            subject: subjectBinding,
             restoreOutcome: $restoreOutcome,
             assistant: assistant,
             mcpBanner: flashes.mcpBanner,
@@ -501,9 +501,8 @@ struct ProjectWindow: View {
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
-                                       persona: $persona,
-                                       detailSegment: $detailSegment,
-                                       documentStore: documentStore))
+                                       subject: subjectBinding,
+                                       structure: { store?.manifest.structure ?? [] }))
         // A double-click on a tree row opens it in the centre — the click
         // rule's `.openInCentre` (`TreeTravel.swift`); THIS LINE is what makes
         // it reachable (this body has no expression budget — the Release
@@ -578,10 +577,9 @@ struct ProjectWindow: View {
         // the modifier present and every test green.
         .modifier(CanvasClaudeArrivalModifier(url: url, window: window,
                                               model: canvasModel,
-                                              persona: $persona,
+                                              subject: subjectBinding,
                                               showInspector: $showInspector,
-                                              detailSegment: $detailSegment,
-                                              documentStore: documentStore))
+                                              detailSegment: $detailSegment))
         // ⌘\ on the canvas collapses both side columns (spec §8A.3). Load-bearing
         // line: deleting it leaves every decision test green, while ⌘\ on the
         // canvas moves nothing.
@@ -828,11 +826,12 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
-        /// Written by `.maughamNavigateToDocument` alone, through
-        /// `ManuscriptNavigation` — a navigation to a manuscript document moves the
-        /// writer to Author when the persona they are in would not show it
-        /// (Denver, 2026-08-02). Closing find moves nobody.
-        @Binding var persona: Persona
+        /// The window's subject. **Going to a place opens its piece**
+        /// (`ManuscriptNavigation`): a `[[wiki-link]]`, the Inspector's Links
+        /// row, the statistics window's jump and a find result in a piece all
+        /// end with that piece in the centre and the faces. Closing find moves
+        /// nobody.
+        @Binding var subject: WindowSubject
         /// What ⌘⌥Z has to say when it cannot restore a deletion whole
         /// (RULING-40), or when a restore gave back less than was deleted
         /// (RULING-42).
@@ -868,29 +867,16 @@ struct ProjectWindow: View {
                 }
                 // Project-scoped (ADR 0021), NOT key-window: a wiki-link click
                 // OR a click in the separate stats-window scene must navigate
-                // this project's window even when it isn't key.
-                //
-                // **The persona write on this path is cross-window, and that is
-                // intended.** The stats window is key and this window must move; taking
-                // it to the document while leaving its persona on Plan would draw a
-                // manuscript editor under a persona whose centre is the board — the
-                // state Denver ruled out. Two windows on ONE project both move;
-                // `persona` is per-project `UIState`, shared last-writer-wins by design.
+                // this project's window even when it isn't key. Two windows on
+                // ONE project both move, each its own subject.
                 .onProjectEvent(.maughamNavigateToDocument, url: url, window: window) { note in
                     // `store != nil` rather than a binding: the navigation moves window
                     // state and reads none of the store's.
                     if let id = note.userInfo?["id"] as? String, store != nil {
-                        // Whether this persona shows a document at all is
-                        // `ManuscriptNavigation`'s to answer.
                         ManuscriptNavigation.go(
                             to: ManuscriptNavigation.destination(
-                                from: persona,
-                                currentDetailSegment: detailSegment,
-                                memory: documentStore?.uiState.personaMemory ?? .empty),
-                            persona: $persona,
-                            detailSegment: $detailSegment,
-                            documentStore: documentStore)
-                        navigate(.item(id))
+                                toDocument: id, current: subject),
+                            subject: $subject)
                     }
                 }
                 .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
@@ -963,11 +949,20 @@ struct ProjectWindow: View {
                 .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
                     guard let store,
                           let match = note.userInfo?["match"] as? SearchMatch,
-                          let subject = ProjectWindow.matchSubject(match, in: store)
+                          let target = ProjectWindow.matchSubject(match, in: store)
                     else { return }
-                    navigate(subject)
+                    // A match in a piece is a place: its piece opens. A match in
+                    // research is reference material: it goes beside.
+                    if case .item(let id) = target {
+                        ManuscriptNavigation.go(
+                            to: ManuscriptNavigation.destination(
+                                toDocument: id, current: subject),
+                            subject: $subject)
+                    } else {
+                        navigate(target)
+                    }
                     treeState.scrollRequest = ProjectWindow.findMatchScrollTarget(
-                        for: subject, store: store, treeState: treeState)
+                        for: target, store: store, treeState: treeState)
                 }
                 .onProjectEvent(.maughamMCPNoteAdded, url: url, window: window) { note in
                     guard let info = note.userInfo,
@@ -1329,7 +1324,7 @@ struct ProjectWindow: View {
             // `showInspector` and would take Escape's arbiter registration down
             // every time the writer hid it.
             .modifier(AssistantColumnModifier(
-                window: window, isNoChromeOn: isNoChromeOn, persona: persona,
+                window: window, isNoChromeOn: isNoChromeOn,
                 activeDocId: activeDocId, detailSegment: detailSegment,
                 selectedSubject: subject.lastClicked, showInspector: $showInspector,
                 assistant: assistant))
@@ -1727,7 +1722,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre, assistant: assistant,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
-            persona: persona, subject: subject, isNoChromeOn: isNoChromeOn,
+            persona: persona, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
             showInspector: showInspector, metrics: metrics,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,
@@ -2141,11 +2136,18 @@ struct ProjectWindow: View {
         if next != subject { subject = next }
     }
 
-    /// **The right column's view of the subject**: the faces, written through
-    /// `navigate` — what its panes travel with (a note's piece, a figure's
-    /// use) and what they read as "the subject".
+    /// **The right column's view of the subject**: the faces — what its panes
+    /// read as "the subject" — written through `ManuscriptNavigation.travel`,
+    /// what they travel with: a note's piece or a figure's use is a place and
+    /// opens, anything else is `ClickRule.navigate`.
     private var facesNavigation: Binding<BinderSubject?> {
-        Binding(get: { subject.faces }, set: { navigate(to: $0) })
+        Binding(get: { subject.faces }, set: { target in
+            let next = ManuscriptNavigation.travel(
+                to: target, current: subject,
+                structure: store?.manifest.structure ?? [],
+                projectType: store?.manifest.type ?? .novel)
+            if next != subject { subject = next }
+        })
     }
 
     /// **The window's subject, repaired against the project** — `load()`'s

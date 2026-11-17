@@ -104,16 +104,6 @@ struct ReferencesPane: View {
         "Add research to this document, or cluster its cards inside a region on "
         + "the planning canvas."
 
-    /// **Author and Review, as of Denver's 2026-08-14 ruling (spec §9).**
-    /// `.references` stays reachable from every persona, but the assistant
-    /// column it promotes into presents only where
-    /// `Persona.studiesPinnedReferences` is true (`AssistantColumn.isPresented`)
-    /// — Author and Review now, Plan and Publish still not. Rather than a
-    /// dead click — a row that looks pressable and silently does nothing — a
-    /// non-studying mount renders every row inert and says where studying
-    /// happens instead.
-    static let nonStudyingFooter = "Studying a pin opens here in Author or Review."
-
     /// How many pixels a row's thumbnail is decoded at. The drawn box is
     /// `thumbnailSize` points; `CanvasThumbnails.assumedPixelScale` is the
     /// points→pixels allowance, and the bucket ladder snaps it up from there.
@@ -121,15 +111,11 @@ struct ReferencesPane: View {
 
     let sections: [Section]
     let projectRoot: URL
-    /// **Whether a row's click can reach the assistant column.** The same
-    /// predicate as `AssistantColumn.isPresented`'s persona veto
-    /// (`Persona.studiesPinnedReferences`) — Author and Review now, Plan and
-    /// Publish still not — so a Plan or Publish mount draws the same rows
-    /// inert rather than a click that promotes into a column nobody sees.
-    let persona: Persona
+    /// What a row's click studies. **Every row is a live control, whatever
+    /// the centre** (shell p1 Task 4): the study column presents wherever
+    /// something is studied (`AssistantColumn.isPresented`), so no mount draws
+    /// its rows inert any more.
     @Bindable var assistant: AssistantColumnModel
-
-    private var isInteractive: Bool { persona.studiesPinnedReferences }
 
     /// Every row on the shelf, in section order.
     ///
@@ -193,19 +179,6 @@ struct ReferencesPane: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-            // **Outside Author and Review the rows above are inert** — see
-            // `isInteractive` — and this line is the whole of what replaces
-            // the click: nothing on the shelf is a dead control.
-            if !isInteractive {
-                Divider()
-                Text(Self.nonStudyingFooter)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Decoding happens HERE and never in a row's body: `resolved` is a
@@ -221,7 +194,7 @@ struct ReferencesPane: View {
     /// give their section headers, so the shelf reads as one of them rather than
     /// as a form. It is a plain `Text` and never a control: a section is not a
     /// thing to study, and nothing on this shelf may look pressable without
-    /// being so (the same rule the non-studying footer exists to keep).
+    /// being so.
     ///
     /// **The header trait is load-bearing, not decoration.** Caption grey says
     /// "these belong together" to a writer who looks and to nobody else; with
@@ -242,24 +215,18 @@ struct ReferencesPane: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    /// One row, interactive or not. **Never a disabled `Button`** — a disabled
-    /// control still reads to VoiceOver as "button, dimmed", which restates the
-    /// affordance the footer just took away; a plain row reads as what it is.
+    /// One row: a plain button that studies its pin, highlighted while it is
+    /// the one up.
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
         let highlighted = assistant.isStudying(row.reference)
-        if isInteractive {
-            Button {
-                assistant.study(row.reference)
-            } label: {
-                rowLabel(row)
-            }
-            .buttonStyle(.plain)
-            .background(highlighted ? Color.accentColor.opacity(0.15) : Color.clear)
-        } else {
+        Button {
+            assistant.study(row.reference)
+        } label: {
             rowLabel(row)
-                .background(highlighted ? Color.accentColor.opacity(0.15) : Color.clear)
         }
+        .buttonStyle(.plain)
+        .background(highlighted ? Color.accentColor.opacity(0.15) : Color.clear)
     }
 
     @ViewBuilder
@@ -382,7 +349,6 @@ struct ReferencesPaneHost: View {
     let store: ProjectStore
     let projectURL: URL
     let docId: String
-    let persona: Persona
     @Bindable var assistant: AssistantColumnModel
 
     @State private var sections: [ReferencesPane.Section] = []
@@ -415,7 +381,7 @@ struct ReferencesPaneHost: View {
     }
 
     var body: some View {
-        ReferencesPane(sections: sections, projectRoot: projectURL, persona: persona,
+        ReferencesPane(sections: sections, projectRoot: projectURL,
                        assistant: assistant)
             .task(id: reloadKey) {
                 let shelf = PinnedReferenceResolver.pins(

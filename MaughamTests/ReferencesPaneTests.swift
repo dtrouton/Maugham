@@ -355,7 +355,6 @@ final class ReferencesPaneTests: XCTestCase {
         let window = mount(AnyView(
             ReferencesPane(sections: oneSection(pins),
                            projectRoot: temp.url,
-                           persona: .author,
                            assistant: model)
                 .frame(width: 300, height: 500)))
 
@@ -370,7 +369,7 @@ final class ReferencesPaneTests: XCTestCase {
     func test_anEmptyShelfShowsTheEmptyStateAndNoRows() async throws {
         let model = AssistantColumnModel()
         let window = mount(AnyView(
-            ReferencesPane(sections: [], projectRoot: temp.url, persona: .author,
+            ReferencesPane(sections: [], projectRoot: temp.url,
                            assistant: model)
                 .frame(width: 300, height: 500)))
 
@@ -409,7 +408,6 @@ final class ReferencesPaneTests: XCTestCase {
         let window = mount(AnyView(
             ReferencesPane(sections: ReferencesPane.sections(for: shelf, in: index()),
                            projectRoot: temp.url,
-                           persona: .author,
                            assistant: model)
                 .frame(width: 300, height: 500)))
 
@@ -440,43 +438,26 @@ final class ReferencesPaneTests: XCTestCase {
                        + "the flat shelf back")
     }
 
-    // MARK: - Contract: Review studies too (Denver's 2026-08-14 ruling, spec §9)
+    // MARK: - Contract: every row is live, whatever the centre (shell p1 Task 4)
 
-    // MARK: - Contract: outside Author and Review, a pin is inert, and says why
-
-    /// **Plan and Publish still veto** (`Persona.studiesPinnedReferences` is
-    /// false for both), so a mount in either must not be a dead click — no
-    /// button reaches the model, and the pane says where studying happens now
-    /// that the answer names two personas rather than one.
-    func test_aNonStudyingMountRendersRowsInertWithAFooterAndNoDeadClick() async throws {
-        for persona: Persona in [.plan, .publish] {
-            let model = AssistantColumnModel()
-            let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
-
-            let window = mount(AnyView(
-                ReferencesPane(sections: oneSection(pins),
-                               projectRoot: temp.url,
-                               persona: persona,
-                               assistant: model)
-                    .frame(width: 300, height: 500)))
-
-            let text = allStrings(in: window).joined(separator: "\n")
-            XCTAssertTrue(text.contains(ReferencesPane.nonStudyingFooter),
-                          "\(persona) must explain where studying a pin happens. "
-                          + "Found: \(text)")
-            XCTAssertTrue(text.contains("The falls at night"),
-                          "the row's title must still be on screen in \(persona), just "
-                          + "not pressable")
-
-            do {
-                _ = try findButton(labelled: "The falls at night", in: window)
-                XCTFail("a pin row in \(persona) must not be a pressable button — the "
-                        + "column it would promote into does not study there, so a "
-                        + "press here would be a dead click")
-            } catch is XCTSkip {
-                // Expected: no such button was built.
-            }
-        }
+    /// **No mount draws its rows inert any more.** The shelf used to ask a
+    /// persona (`studiesPinnedReferences`) and draw Plan's and Publish's rows
+    /// as text under a footer; the study column now presents wherever
+    /// something is studied (`AssistantColumn.isPresented`), so every row is
+    /// a button and there is no footer to explain a veto.
+    func test_everyRowIsAButtonWhateverTheCentre() async throws {
+        let model = AssistantColumnModel()
+        let pins = [pin("res-note", .research(itemId: "res-note"), "The falls at night")]
+        let window = mount(AnyView(
+            ReferencesPane(sections: oneSection(pins),
+                           projectRoot: temp.url,
+                           assistant: model)
+                .frame(width: 300, height: 500)))
+        XCTAssertNoThrow(try findButton(labelled: "The falls at night", in: window),
+                         "a pin row is a live control")
+        let source = try SourceTree.read("Maugham/Views/ReferencesPane.swift")
+        XCTAssertFalse(SourceScan.codeLines(of: source).joined().contains("persona"),
+                       "the shelf asks no persona whether a row is live")
     }
 
     // MARK: - Hosting

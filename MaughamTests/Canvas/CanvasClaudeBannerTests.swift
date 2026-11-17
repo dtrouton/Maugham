@@ -190,54 +190,50 @@ final class CanvasClaudeBannerTests: XCTestCase {
 
     // MARK: - Show
 
-    /// **Where the writer is taken, as a value.** The board is Plan's centre
-    /// column and nobody else's (`Persona.centresTheCanvas`), so selecting the
-    /// region without moving the persona would change something the writer
-    /// cannot see.
-    ///
-    /// `handleShowLatestMCPNote` is the precedent for the shape: point the
-    /// window at the thing, dismiss.
-    func test_showTakesTheWriterToTheRegion() {
+    /// **Where the writer is taken, as a value** (shell p1 Task 4): Show opens
+    /// the canvas in the centre — `open` and the faces on it, exactly as the
+    /// tree's Canvas row opens it — whatever was open, and leaves what is
+    /// beside alone. Selecting the region without opening the canvas would
+    /// change something the writer cannot see.
+    func test_aClaudeArrivalOpensTheCanvas() {
         let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
-        XCTAssertEqual(to.persona, .plan,
-                       "the board is Plan's centre column and nobody else's")
+        XCTAssertEqual(to.open, .canvas)
+        for open in SubjectSamples.everyOpen {
+            for beside in [nil, BinderSubject.research(SubjectSamples.researchID)] {
+                let current = WindowSubject(open: open, faces: open, beside: beside)
+                let next = to.subject(from: current)
+                XCTAssertEqual(next, WindowSubject(open: .canvas, faces: .canvas, beside: beside),
+                               "\(open) open")
+                XCTAssertEqual(ProjectWindow.centreRoute(
+                    subject: next, bookView: .outline, projectType: .novel,
+                    structure: SubjectSamples.structure, preview: .nothingCompiled),
+                               .canvas, "\(open): the centre is the canvas")
+            }
+        }
         XCTAssertEqual(to.selection, .region(r1),
                        "the region, so the inspector's region arm names what "
                        + "arrived and ⌫/Promote… act on it")
         XCTAssertTrue(to.opensInspector,
                       "with the column closed by ⌘⌥I the writer clicks Show and "
-                      + "lands on the canvas with nothing naming what arrived — "
-                      + "every other navigation-to-a-pane in ProjectWindow forces "
-                      + "it open, PersonaModifier on every persona switch")
+                      + "lands on the canvas with nothing naming what arrived")
     }
 
     /// **A writer already looking at the canvas is not moved off it** — the
-    /// slice-2 ruling, which since shell-finish stage 2b Task 7 holds by
-    /// construction rather than by a term.
-    ///
-    /// The rule had work to do while Plan's left column was a picker: two of its
-    /// four tabs drew the board and two did not, so "already there" had to be
-    /// asked of the (persona, segment) pair, and answering it wrong swapped the
-    /// writer's left column out from under them and cost them their place in the
-    /// structure they were arranging. With one left column per persona the
-    /// destination is Plan and nothing else, so a writer already in Plan is
-    /// written the value they already hold — and that is what this asserts,
-    /// because "the answer does not depend on where you were" is exactly the
-    /// property the old term existed to buy.
-    ///
-    /// The premise is asserted rather than assumed: Plan is really the persona
-    /// that centres the board, so this is not vacuously true of a destination
-    /// nobody would have been moved off anyway.
+    /// slice-2 ruling: the canvas already open is written the value it holds.
     func test_showLeavesAWriterWhoIsAlreadyOnTheCanvasWhereTheyAre() {
-        let destination = CanvasClaudeArrivalModifier.destination(forRegion: r1)
-        XCTAssertTrue(destination.persona.centresTheCanvas,
-                      "premise: Show lands somewhere the board is the centre "
-                      + "column, or there is nothing to reveal")
-        for persona in Persona.allCases where persona.centresTheCanvas {
-            XCTAssertEqual(destination.persona, persona,
-                           "\(persona) already draws the canvas — Show has "
-                           + "nothing to move and a left column to cost")
-        }
+        let onCanvas = SubjectSamples.opened(.canvas)
+        XCTAssertEqual(CanvasClaudeArrivalModifier.destination(forRegion: r1)
+            .subject(from: onCanvas), onCanvas)
+    }
+
+    /// Show writes the window's SUBJECT through the destination, and no
+    /// persona — read from the source, since `show` is a private method.
+    func test_showWritesTheSubjectAndNoPersona() throws {
+        let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
+            at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
+        XCTAssertTrue(text.contains("to.subject(from: subject)"))
+        XCTAssertFalse(text.contains("persona"),
+                       "Claude's arrival decides the centre by the subject now")
     }
 
     /// **And the camera moves, or Show shows nothing.**
@@ -249,7 +245,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
     ///
     /// Driven through the REAL model verb rather than through a stub, because the
     /// interesting half is that the request survives a canvas that is not mounted
-    /// yet — Show switches the persona and asks in the same act.
+    /// yet — Show opens the canvas and asks in the same act.
     func test_showAsksTheCanvasToBringTheRegionIntoSight() {
         let model = CanvasModel()
         var revealed: [CanvasRevealTarget] = []
@@ -270,7 +266,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
         let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
             at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
         XCTAssertTrue(text.contains("model.reveal("),
-                      "Show sets the persona, the segment and the selection and "
+                      "Show sets the subject, the segment and the selection and "
                       + "leaves the camera where it was — so the writer arrives on "
                       + "the canvas with the region off screen")
         XCTAssertTrue(text.contains("showInspector = true"),
@@ -280,23 +276,13 @@ final class CanvasClaudeBannerTests: XCTestCase {
 
     /// **Show lands on the Inspector, and it takes writing the segment to get
     /// there.** `Destination.opensInspector` promises the pane that names what
-    /// arrived; before 2026-08-26 `show` forced the COLUMN open and left the
-    /// segment alone, which meant Plan's own coercion picked the pane (`.inbox`)
-    /// — and once a studied pin can be what is mounted in the right column,
-    /// `DetailPaneToggle` is unmounted at the moment the persona moves, remounts
-    /// fresh in Plan still carrying `.references`, and its `.onAppear` persists
-    /// that shelf into `ui-state.json`. So the destination's promise is asserted
-    /// here and the write that keeps it is censused below.
-    ///
-    /// The premise is asserted rather than assumed: `.inspector` really is a pane
-    /// Plan offers, or the segment written would be coerced straight back out.
+    /// arrived; forcing the COLUMN open while leaving the segment alone lets
+    /// whatever pane was last mounted fill it. So the destination's promise is
+    /// asserted here and the write that keeps it is censused below.
     func test_showOpensThePaneThatNamesWhatArrived() throws {
         let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
         XCTAssertTrue(to.opensInspector,
                       "premise: the destination promises the naming pane")
-        XCTAssertTrue(Persona.plan.panes.contains(.inspector),
-                      "premise: .inspector is one of Plan's own panes, or the "
-                      + "segment Show writes is coerced back out from under it")
 
         let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
             at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))

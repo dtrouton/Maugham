@@ -195,10 +195,12 @@ struct TranslationReveal: Equatable, Sendable {
         post(.maughamNavigateToParagraph, navigatePayload(reveal))
     }
 
-    /// The paragraph navigation's payload: the paragraph, and the offset in
-    /// it when the reveal names one.
+    /// The paragraph navigation's payload: the paragraph, its document (so the
+    /// window opens that piece, `ManuscriptNavigation.paragraphDocId`), and the
+    /// offset in it when the reveal names one.
     static func navigatePayload(_ reveal: TranslationReveal) -> [String: Any] {
-        var payload: [String: Any] = [paragraphIdKey: reveal.paragraphId]
+        var payload: [String: Any] = [paragraphIdKey: reveal.paragraphId,
+                                      ManuscriptNavigation.docIdKey: reveal.docId]
         if let offset = reveal.offset { payload[offsetKey] = offset }
         return payload
     }

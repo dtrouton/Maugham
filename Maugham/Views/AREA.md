@@ -34,7 +34,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Personas and the shell
 - `PersonaBar.swift` — the four-persona switcher, a window-toolbar item; posts `.maughamSetPersona` exactly as ⌘1–4 do.
-- `ManuscriptNavigation.swift` — where a navigation to a manuscript document decides the persona.
+- `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `AssistantColumn.swift` — the study column (`AssistantColumnModel.studied`, `isPresented`, `AssistantColumnModifier`).
 - `IntentStrip.swift` — the writer's signature line above the prose.
@@ -251,12 +251,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Personas
 - **Ask a persona by a named predicate in `Persona.swift`, never compare it by name** — Review's read-only centre `editsResearchInTheCentre` (the centre itself is the subject's, "The centre column"): `TripwireGrepTests.test_noViewComparesAPersonaByName` (allowances in `personaComparisonAllowed`, file plus spelling).
-- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `ManuscriptNavigation`, `PersonaModifier`, `ProjectWindow`, `CanvasClaudeArrivalModifier`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
+- **The window's persona is written only from the closed set of decision sites** (count `personaDecisionSites`: `PersonaModifier`, `ProjectWindow`): `TripwireGrepTests.test_theWindowsPersonaIsWrittenOnlyFromTheClosedSetOfDecisionSites`.
 - **The automatic persona writes call `PersonaModifier.applyPersonaChange` directly, never post `.maughamSetPersona`** — posting would rest correctness on SwiftUI delivery order (tripwire 2).
 - **`PersonaMemory` records the persona being LEFT and restores the one entered**, at departure time only; never add per-click recording. Transient segments ride through unrecorded.
 - **`panes` is ONE canonical order filtered four ways**: a persona chooses membership, never position, and a new pane takes a place in `PersonaPaneRegistryTests.canonicalPaneOrder`. `.inspector` is last everywhere so `defaultPane = panes.first` holds.
 - **The window publishes its persona to the menu bar from `PersonaModifier.body` alone** (`.focusedSceneValue(\.persona, …)`, read by `MaughamApp`'s run items): `RunMenuTitlesTests.test_theWindowPublishesItsPersonaFromThePersonaModifierAlone`. A title only ([ADR 0031](../../docs/adr/0031-the-persona-is-an-input-to-the-run.md)).
-- **A navigation to a manuscript document decides the persona in `ManuscriptNavigation`**, guarded on `Persona.showsManuscriptDocuments`, so a reviewer is never ejected into Author. Every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
+- **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
@@ -291,7 +291,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Research subjects and the palette wall
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_aNoteBesideCanBePutAwayFromItsOwnRow`.
-- **A research item `beside` previews in the right column; `open` takes the centre** (`researchSubjectPlacement`, `ResearchSubjectRoutingTests`).
+- **A research item `beside` previews in the right column whatever the centre, with Open in Centre and close; `open` takes the centre** (`ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **Review's research centre is read-only** via `ResearchSubjectCentre.readOnly` off `editsResearchInTheCentre`.
 - **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject arrives beside; a restore does not.
@@ -313,7 +313,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Every `DetailPaneToggle` pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
-- **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss clears `studied`; hide (persona veto, ⌘⌥I, ⌘\) only takes it off screen.
+- **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss clears `studied`; hide (⌘⌥I, ⌘\) only takes it off screen. It presents whatever the centre.
 - **Re-check dark-mode propagation to side panes after theme changes.**
 
 ### Events, modals and sheets

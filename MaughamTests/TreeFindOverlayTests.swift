@@ -290,7 +290,7 @@ final class TreeFindOverlayTests: XCTestCase {
                                             projectType: .novel)
             XCTAssertEqual(
                 ProjectWindow.researchSubjectPlacement(subject: clicked),
-                .besideTheCanvas("res-note"),
+                .beside("res-note"),
                 "\(open) open: the note the writer just found previews beside — "
                 + "the whole of the gap was that it took nothing")
         }

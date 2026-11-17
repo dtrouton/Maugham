@@ -337,22 +337,23 @@ final class ProjectSubjectReachabilityTests: XCTestCase {
                        + "the first scene starts at 0")
     }
 
-    /// **Where that click takes the window**, as a value. Plan does not show
-    /// manuscript documents, so the ruling applies and the writer moves to
-    /// Author — where the same slugline navigator is on the left and the script
-    /// is in the centre.
-    ///
-    /// **It used to assert the landing segment too** (`.scenes`, a screenplay's
-    /// document home, never `.manuscript`, which was the 2026-07-02 defect). A
-    /// destination carries no binder position since stage 2b Task 7, and which
-    /// tree a screenplay puts up is `TreePaneTests`'.
-    func test_thatNavigationTakesAScreenplayWriterFromPlanToAuthor() {
-        let destination = ManuscriptNavigation.destination(
-            from: .plan, currentDetailSegment: .inspector, memory: .empty)
-        XCTAssertEqual(destination.persona, .author)
-        XCTAssertTrue(destination.movesPersona,
-                      "the departing Plan position has to be recorded, or ⌘1 "
-                      + "does not come back to the pane the writer was on")
+    /// **Where that click takes the window**, as a value (shell p1 Task 4).
+    /// Over the canvas, the navigator first puts the script on the faces
+    /// (`SceneNavigatorPane.subject(_:whenNavigatingTo:)`, a click); the
+    /// slugline's navigation is then a place, and opens the faces' piece — the
+    /// script, in the centre, where the slugline can be scrolled to.
+    func test_aSluglineOverTheCanvasOpensTheScript() {
+        let script = SubjectSamples.pieceID
+        let faced = SceneNavigatorPane.subject(
+            SubjectSamples.opened(.canvas), whenNavigatingTo: script,
+            structure: SubjectSamples.structure, projectType: .screenplay)
+        XCTAssertEqual(faced.open, .canvas, "precondition: the navigator's click keeps the canvas")
+        let landed = ManuscriptNavigation.destination(
+            toDocument: ManuscriptNavigation.paragraphDocId(
+                payload: ["lineLocation": 0], current: faced,
+                structure: SubjectSamples.structure),
+            current: faced)
+        XCTAssertEqual(landed, WindowSubject(open: .item(script), faces: .item(script)))
     }
 
     // MARK: - Fixtures

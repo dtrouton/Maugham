@@ -55,8 +55,9 @@ struct RightColumn: View {
     // The window's state this column only reads.
     let persona: Persona
     /// The window's subject. This column is about its `faces` (the document
-    /// the panes follow) and shows what is opened `beside`.
-    let subject: WindowSubject
+    /// the panes follow) and shows what is opened `beside`, whose Open in
+    /// Centre and close controls write it — a `Binding`, never a copy.
+    @Binding var subject: WindowSubject
     let isNoChromeOn: Bool
     let showInspector: Bool
     let metrics: EditorMetrics
@@ -147,7 +148,6 @@ struct RightColumn: View {
                 // with it. Simplifying it away would let the two callers ask different
                 // questions.
                 if AssistantColumn.isPresented(studied: assistant.studied,
-                                               persona: persona,
                                                isNoChromeOn: isNoChromeOn,
                                                showInspector: showInspector) {
                     AssistantColumn(store: store, projectRoot: projectRoot,
@@ -176,6 +176,18 @@ struct RightColumn: View {
         } else {
             ProjectWindow.hiddenDetailColumn
         }
+    }
+
+    /// **The panes' document is the FACES', never what is open** — with the
+    /// canvas or an edition in the centre, the faces are on the piece the
+    /// writer last clicked, and that is what To resolve and Brief are about.
+    static func panesDocId(of subject: WindowSubject) -> String {
+        BinderSubject.activeDocId(for: subject.faces)
+    }
+
+    /// The structure item the panes follow — the faces', `nil` for the Book.
+    static func panesItemID(of subject: WindowSubject) -> String? {
+        subject.faces.itemID
     }
 
     /// The resize handle's gutter. A pane gets the column's width less this,
@@ -232,10 +244,10 @@ struct RightColumn: View {
             store: store,
             segment: $detailSegment,
             selectedSubject: $selectedSubject,
-            activeManuscriptItemId: subject.faces.itemID,
+            activeManuscriptItemId: Self.panesItemID(of: subject),
             persona: persona,
             projectURL: store.url,
-            activeDocId: BinderSubject.activeDocId(for: subject.faces),
+            activeDocId: Self.panesDocId(of: subject),
             allDocIds: ProjectWindow.documentIds(in: store.manifest.structure),
             device: _checkpointDeviceId,
             session: _checkpointSessionId,
@@ -317,20 +329,28 @@ struct RightColumn: View {
     ///
     /// A method rather than inline in `DetailPaneToggle`'s trailing builder,
     /// already the heaviest expression in this file.
+    ///
+    /// **What is beside is asked first** (shell p1 Task 4): it shows whatever
+    /// the centre is — a figure or a research item open in the centre
+    /// included — under `BesideHeader`'s Open in Centre and close. Only with
+    /// nothing beside does the column inspect what the centre shows.
     @ViewBuilder
     private func researchOrSubject(store: ProjectStore) -> some View {
         let placement = ProjectWindow.researchSubjectPlacement(subject: subject)
         let figurePlacement = ProjectWindow.figureSubjectPlacement(subject: subject)
-        if let figureID = figurePlacement.centreFigureID ?? figurePlacement.besideFigureID {
+        if let figureID = figurePlacement.besideFigureID {
+            besideView(title: figureListing.row(forFigureId: figureID)?.name ?? "", store: store) {
+                figureSubject(figureID, store: store)
+            }
+        } else if placement.previewsInTheRightColumn, let id = placement.inspectedItemID {
+            besideView(title: TreeWalk.find(id: id, in: store.manifest.research)?.title ?? "",
+                       store: store) {
+                researchInspector(id, showsPreview: true, store: store)
+            }
+        } else if let figureID = figurePlacement.centreFigureID {
             figureSubject(figureID, store: store)
         } else if let id = placement.inspectedItemID {
-            ResearchSubjectInspector(
-                store: store, itemID: id,
-                showsPreview: placement.previewsInTheRightColumn, figureTree: figureTree,
-                figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
-                documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
-                shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
-                window: window, presence: figureGridPresence)
+            researchInspector(id, showsPreview: false, store: store)
         } else {
             switch ProjectWindow.inspectorRoute(subject: subject,
                                                 projectType: store.manifest.type) {
@@ -346,6 +366,40 @@ struct RightColumn: View {
                     onOpenProjectSettings: openProjectSettings,
                     posture: posture(subject.faces.itemID))
             }
+        }
+    }
+
+    /// A research item's inspector, previewing it above when it is beside.
+    private func researchInspector(_ id: String, showsPreview: Bool,
+                                   store: ProjectStore) -> some View {
+        ResearchSubjectInspector(
+            store: store, itemID: id,
+            showsPreview: showsPreview, figureTree: figureTree,
+            figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, persona: persona),
+            documentStore: documentStore, readOnly: !persona.editsResearchInTheCentre,
+            shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
+            window: window, presence: figureGridPresence)
+    }
+
+    /// **The beside view**: what the writer pulled up, under a header that
+    /// carries its two controls — Open in Centre (the click rule's
+    /// `.openInCentre`, `ProjectWindow.openingBesideInCentre`) and close
+    /// (`ProjectWindow.closingBeside`). Both are always drawn here, because
+    /// both always apply to something beside; nothing beside, no header.
+    private func besideView<Content: View>(title: String, store: ProjectStore,
+                                           @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            BesideHeader(
+                title: title,
+                openInCentre: {
+                    subject = ProjectWindow.openingBesideInCentre(
+                        subject, structure: store.manifest.structure,
+                        projectType: store.manifest.type)
+                },
+                close: { subject = ProjectWindow.closingBeside(subject) })
+            Divider()
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -431,5 +485,44 @@ struct RightColumn: View {
             // A region's member list names item nodes too, so the pane resolves a
             // title through the same index the canvas draws from.
             itemIndex: ProjectWindow.canvasItemIndex(in: store))
+    }
+}
+
+/// **The beside view's header** (shell p1 Task 4): the pulled-up item's title,
+/// truncated in the middle with the whole of it in its tooltip, then two plain
+/// visible buttons — **Open in Centre** and close. A view of its own so the
+/// labels the buttons, their help and a test read are one spelling.
+struct BesideHeader: View {
+    let title: String
+    let openInCentre: () -> Void
+    let close: () -> Void
+
+    static let openInCentreLabel = "Open in Centre"
+    static let closeLabel = "Close"
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(Self.openInCentreLabel, action: openInCentre)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .lineLimit(1)
+                .fixedSize()
+                .help("Open \(title) in the centre")
+            Button(action: close) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(Self.closeLabel)
+            .accessibilityLabel(Self.closeLabel)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
