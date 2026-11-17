@@ -256,7 +256,7 @@ extension BinderTreeVerbs {
     ) -> Bool {
         switch intent {
         case .rescope(let ids, let target):
-            perform { try await store.moveResearchItems(
+            performSaying { try await store.moveResearchItems(
                 ids: batch.isEmpty ? ids : batch, to: target, atIndex: atIndex) }
             return true
         case .link(let researchId, let documentId):
@@ -336,7 +336,7 @@ extension BinderTreeVerbs {
             destIndex = index
         }
         guard batched else {
-            perform { try await store.moveResearchItem(
+            performSaying { try await store.moveResearchItem(
                 id: draggedId, toParentId: toParentId, atIndex: destIndex) }
             return true
         }
@@ -346,7 +346,7 @@ extension BinderTreeVerbs {
             : TreeDropIntent.container(ofRow: target.id,
                                        structure: store.manifest.structure,
                                        research: store.manifest.research)
-        perform { try await store.moveResearchItems(
+        performSaying { try await store.moveResearchItems(
             ids: movingIds, to: destination, atIndex: destIndex) }
         return true
     }

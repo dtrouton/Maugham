@@ -145,22 +145,10 @@ extension ProjectStore {
         parentId: String?,
         title: String = "Untitled Note"
     ) async throws -> ResearchItem {
-        // Determine target folder: research/, or research/<group-slug>/
-        let researchRoot = url.appendingPathComponent("research")
+        let folderPath = try newNoteFolder(parentId: parentId)
+        let parentFolder = try resolvedProjectPathToChange(folderPath, isDirectory: true)
         try FileManager.default.createDirectory(
-            at: researchRoot, withIntermediateDirectories: true)
-
-        let parentFolder: URL
-        if let parentId,
-           let parent = findResearchItem(id: parentId, in: manifest.research),
-           parent.type == .group {
-            let groupSlug = Slugifier.slug(from:parent.title)
-            parentFolder = researchRoot.appendingPathComponent(groupSlug) // local-path: a slug of the group's title
-            try FileManager.default.createDirectory(
-                at: parentFolder, withIntermediateDirectories: true)
-        } else {
-            parentFolder = researchRoot
-        }
+            at: parentFolder, withIntermediateDirectories: true)
 
         // Dedup title against existing siblings (numeric suffix)
         let siblings: [ResearchItem]
@@ -187,20 +175,14 @@ extension ProjectStore {
         // `attributesOfItem`, not `fileExists`: a dangling link at the slug is
         // taken, not vacant (fileExists follows it and answers false).
         while (try? FileManager.default.attributesOfItem(
-            atPath: parentFolder.appendingPathComponent(finalFilename).path)) != nil { // local-path: slugs minted from the titles, under research/
+            atPath: parentFolder.appendingPathComponent(finalFilename).path)) != nil { // local-path: a slug minted from the title, in the folder resolved through SafeRelativePath above
             finalFilename = "\(slug)-\(diskCounter).md"
             diskCounter += 1
         }
-        let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: slugs minted from the titles, under research/
+        let fileURL = parentFolder.appendingPathComponent(finalFilename) // local-path: a slug minted from the title, in the folder resolved through SafeRelativePath above
         try Data().write(to: fileURL, options: .withoutOverwriting) // raw-research-text: create; a link already there (even a dangling one) refuses rather than being followed
 
-        // Compute relative path from project root
-        let relativePath: String = {
-            if parentFolder.path == researchRoot.path {
-                return "research/\(finalFilename)"
-            }
-            return "research/\(parentFolder.lastPathComponent)/\(finalFilename)"
-        }()
+        let relativePath = "\(folderPath)/\(finalFilename)"
 
         let item = ResearchItem(
             id: Self.newId(prefix: "res"),
@@ -219,6 +201,28 @@ extension ProjectStore {
         manifest.modified = Date()
         try await saveManifest()
         return item
+    }
+
+    /// **The folder a new note in `parentId` lands in** (#148 D4): the
+    /// group's own recorded folder (`path`), which a rename (deduped beside
+    /// a namesake) and a move keep current — never one re-derived from its
+    /// title, and never one read off its children, whose paths say where
+    /// each child is. A group row recording no folder falls back to
+    /// `research/<title slug>`; no parent, or one that is not a group, is
+    /// the top of `research/`. A group whose folder is outside every
+    /// research root (a synced manifest naming the manuscript) is refused
+    /// as a move into it is, before anything is made.
+    private func newNoteFolder(parentId: String?) throws -> String {
+        guard let parentId,
+              let parent = findResearchItem(id: parentId, in: manifest.research),
+              parent.type == .group else { return "research" }
+        guard let recorded = parent.path, !recorded.isEmpty else {
+            return "research/\(Slugifier.slug(from: parent.title))"
+        }
+        guard ResearchTextRole.isInsideAResearchRoot(recorded, structure: manifest.structure) else {
+            throw ProjectStoreError.outsideResearch(title: parent.title)
+        }
+        return recorded
     }
 
     // MARK: - New Table (report plan 8b Task 8, D8b-2)
@@ -431,10 +435,12 @@ extension ProjectStore {
 
     /// Move a research item. Sibling reorder is manifest-only; cross-group
     /// drag physically moves the file (asset) or folder (group) on disk and
-    /// rewrites descendant paths.
+    /// rewrites descendant paths. Returns what the move left (as
+    /// `moveResearchItems`).
+    @discardableResult
     public func moveResearchItem(
         id: String, toParentId: String?, atIndex destIndex: Int
-    ) async throws {
+    ) async throws -> RenameOutcome {
         guard let item = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
         }
@@ -442,7 +448,7 @@ extension ProjectStore {
 
         // No-op detection.
         let oldIndex = currentResearchIndex(of: id, parentId: oldParentId)
-        if oldParentId == toParentId, oldIndex == destIndex { return }
+        if oldParentId == toParentId, oldIndex == destIndex { return RenameOutcome(act: .moved) }
 
         // Same-parent reorder → manifest-only.
         if oldParentId == toParentId {
@@ -456,14 +462,14 @@ extension ProjectStore {
             replaceResearchChildren(parentId: toParentId, with: siblings)
             manifest.modified = Date()
             try await saveManifest()
-            return
+            return RenameOutcome(act: .moved)
         }
 
         // Cross-group: delegate to the batch scope-aware mover (one
         // RenamePlan incl. the note's sibling _assets/ folder, manifest
         // rewrite, single save).
         let target: ResearchMoveTarget = toParentId.map { .group($0) } ?? .sharedRoot
-        try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
+        return try await moveResearchItems(ids: [id], to: target, atIndex: destIndex)
     }
 
     func findResearchParentId(
@@ -827,6 +833,128 @@ extension ProjectStore {
         armDeletion(trashIds: entries.map(\.id), label: Self.deletionLabel(titles))
     }
 
+    /// **A note this call has just created, whose body the door refused,
+    /// taken back** (#148 D1): `add_note`, an inbox promotion and a kept
+    /// letter create the note empty and then save its body; when that save
+    /// does not land, the error they throw is this function's answer. The
+    /// row and file are `created`'s alone (its id is fresh, its file was
+    /// minted beside any note of the same title, never over it), so a note
+    /// the writer already had is never touched. They leave through the
+    /// ordinary delete path, trashed by id and then permanently deleted:
+    /// no Trash entry is left and ⌘⌥Z is not armed — the writer never made
+    /// this note.
+    ///
+    /// **Bytes this call did not write are never destroyed** (the
+    /// coordinator's call, Task 6 fix round 1): the file is sized before the
+    /// trash, and the trashed file again before the permanent delete. Bytes
+    /// found (written outside Maugham meanwhile), or a size that cannot be
+    /// read, stop there, and the refusal says where the note is: left in
+    /// Research, or in the Trash. A cleanup that fails says the same.
+    ///
+    /// **A note a verb is moving is left alone** (final review, finding 1):
+    /// mid-move its file is not at `created.path` (it travels with its
+    /// folder), so a trash would take the row only and orphan the file.
+    /// The note stays in Research, row and file together.
+    func takeBackUnsavedNewNote(_ created: ResearchItem, refusal: Error) async -> Error {
+        let title = created.title
+        func said(_ tail: String) -> Error {
+            ProjectStoreError.fileSystemError(Self.saying(refusal, tail + "."))
+        }
+        guard !researchItemsInFlight.contains(created.id) else {
+            return said("; the note “\(title)” was left in Research")
+        }
+        do {
+            if let path = created.path, !path.isEmpty {
+                switch Self.noteFileContent(at: try resolvedProjectPathToChange(path)) {
+                case .emptyOrGone: break
+                case .holdsBytes:
+                    return said("; the note “\(title)” was left in Research because its file changed outside Maugham")
+                case .cannotTell:
+                    return said("; the note “\(title)” was left in Research")
+                }
+            }
+            Self.beforeTakingBackTheNoteForTesting?()
+            switch try await discardUnsavedNewNote(id: created.id) {
+            case .emptyOrGone: return refusal
+            case .holdsBytes:
+                return said("; the note “\(title)” was moved to the Trash because its file changed outside Maugham")
+            case .cannotTell:
+                return said("; the note “\(title)” was moved to the Trash")
+            }
+        } catch {
+            projectStoreLog.error(
+                "The empty note \(created.id, privacy: .public) was not taken back: \(error.localizedDescription, privacy: .public)")
+            return findResearchItem(id: created.id, in: manifest.research) != nil
+                ? said("; the empty note “\(title)” was left in Research")
+                : said("; the empty note “\(title)” was moved to the Trash")
+        }
+    }
+
+    /// Test seam: runs after the note's file was found empty, before it is
+    /// trashed. Nil in production.
+    static var beforeTakingBackTheNoteForTesting: (() -> Void)?
+
+    /// What a note's file holds, as far as a size can say.
+    enum NoteFileContent { case emptyOrGone, holdsBytes, cannotTell }
+
+    /// Gone is nothing to lose; a size that will not read is not empty
+    /// (RULING-7) and not known to hold bytes either.
+    private static func noteFileContent(at fileURL: URL) -> NoteFileContent {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .emptyOrGone }
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? Int else {
+            return .cannotTell
+        }
+        return size == 0 ? .emptyOrGone : .holdsBytes
+    }
+
+    /// `refusal`'s sentence with `tail` in place of what it says next: a
+    /// `researchTextNotSaved` keeps only its lead (“Maugham couldn’t save
+    /// “X””) — its “so it is as it was” would contradict a tail saying where
+    /// the note went; any other refusal loses only its full stop.
+    private static func saying(_ refusal: Error, _ tail: String) -> String {
+        if case .researchTextNotSaved(let title)? = refusal as? ProjectStoreError {
+            return ProjectStoreError.couldNotSave(title) + tail
+        }
+        var said = refusal.localizedDescription
+        if said.hasSuffix(".") { said.removeLast() }
+        return said + tail
+    }
+
+    /// The row taken through `trashResearchItemCore`, the manifest saved,
+    /// and the entry permanently deleted (`permanentlyDeleteTrashEntry`)
+    /// only when the trashed file is still empty — otherwise the entry stays
+    /// in the Trash and what was found is returned. The link a kept letter's
+    /// create made to its chapter (`.sharedPlusLink`) goes after the trash,
+    /// best-effort, so a note the trash could not take keeps its link;
+    /// nothing else could name a fresh id.
+    private func discardUnsavedNewNote(id: String) async throws -> NoteFileContent {
+        beginStructuralVerb(); defer { endStructuralVerb() }
+        let entry = try await trashResearchItemCore(id: id)
+        let linking = TreeWalk.collect(in: manifest.structure) { $0.linkedResearchIds?.contains(id) == true }
+        for document in linking {
+            try? await unlinkResearch(researchId: id, fromDocumentId: document.id)
+        }
+        manifest.modified = Date()
+        try await saveManifest()
+        guard let entry else {
+            trashEntries = (try? await trashStore.list()) ?? trashEntries
+            return .emptyOrGone
+        }
+        var trashed = NoteFileContent.emptyOrGone
+        if entry.carriesFile {
+            let folder = trashStore.trashRoot.appendingPathComponent(
+                try SafeRelativePath.requirePlainFileName(entry.id))
+            trashed = Self.noteFileContent(at: folder.appendingPathComponent(
+                try SafeRelativePath.requirePlainFileName((entry.originalRelativePath as NSString).lastPathComponent)))
+        }
+        guard trashed == .emptyOrGone else {
+            trashEntries = (try? await trashStore.list()) ?? trashEntries
+            return trashed
+        }
+        try await permanentlyDeleteTrashEntry(id: entry.id)
+        return .emptyOrGone
+    }
+
     /// ⌘⌥Z's name for a gesture over `titles`: the one title, or "N items".
     private static func deletionLabel(_ titles: [String]) -> String {
         titles.count == 1 ? (titles.first ?? "") : "\(titles.count) items"
@@ -859,7 +987,20 @@ extension ProjectStore {
         } else {
             saveFailure = saveError.localizedDescription
         }
-        return ProjectStoreError.manifestUnwritable("\(saveFailure). \(partial.errorDescription ?? "")")
+        return ProjectStoreError.manifestUnwritable(
+            Self.saveFailure(saveFailure, thenSaying: partial.errorDescription ?? ""))
+    }
+
+    /// **A save failure's detail, then the next sentence**, joined by one
+    /// full stop: the system's text often ends in its own, which the join
+    /// would double, so a single trailing "." (and trailing whitespace) is
+    /// taken off first. The join `saveManifest(saying:)` and
+    /// `settleDeletedInPart` make.
+    static func saveFailure(_ detail: String, thenSaying next: String) -> String {
+        var lead = Substring(detail)
+        while lead.last?.isWhitespace == true { lead.removeLast() }
+        if lead.last == "." { lead.removeLast() }
+        return "\(lead). \(next)"
     }
 
     /// Import a list of file URLs (and/or folders) into the research tree
@@ -934,13 +1075,16 @@ extension ProjectStore {
     /// When `title` changes AND the item has a path whose slug matches the old
     /// title slug, the underlying file (for assets) or folder (for groups) is
     /// renamed on disk to match the new slug before the manifest is updated.
+    /// Returns what the rename left: a note whose picture links could not be
+    /// rewritten is named (`RenameOutcome.assetRefsLeftIn`, #148 D2).
+    @discardableResult
     public func updateResearchItem(
         id: String,
         title: String? = nil,
         caption: String? = nil,
         tags: [String]? = nil,
         url linkURL: String? = nil
-    ) async throws {
+    ) async throws -> RenameOutcome {
         beginStructuralVerb(); defer { endStructuralVerb() }
         guard let oldItem = findResearchItem(id: id, in: manifest.research) else {
             throw ProjectStoreError.structureMissing
@@ -1029,13 +1173,16 @@ extension ProjectStore {
         // names where it now is (the note door asks the item's path at the
         // write) and BEFORE the save, so a save that throws cannot leave them
         // naming a folder that is gone (#142 T3). Outside the in-flight span.
-        if let assetRefs {
-            await rewriteMovedNoteAssetRefs(
-                itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem)
+        // A rewrite that fails is named in the outcome (#148 D2): the rename
+        // stands, and the writer is told its picture links were left.
+        var assetRefsLeftIn: [String] = []
+        if let assetRefs, let left = await rewriteMovedNoteAssetRefs(
+            itemId: id, oldStem: assetRefs.oldStem, newStem: assetRefs.newStem) {
+            assetRefsLeftIn.append(left)
         }
 
         manifest.modified = Date()
-        try await saveManifest()
+        return try await saveManifest(saying: RenameOutcome(assetRefsLeftIn: assetRefsLeftIn, act: .renamed))
     }
 
     /// Rename the backing file or folder when a research item's title changes.

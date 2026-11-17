@@ -67,7 +67,15 @@ extension ProjectStore {
         guard generation > landedSearchGeneration else { return }
         landedSearchGeneration = generation
         currentSearch = results
+        recentlyLandedSearches.append(results)
+        if recentlyLandedSearches.count > Self.landedSearchesKept {
+            recentlyLandedSearches.removeFirst()
+        }
     }
+
+    /// How many landed results `listedMatch(for:)` can trace a click back
+    /// to: a click queued behind more refreshes than this is refused.
+    static let landedSearchesKept = 8
 
     public func clearSearch() {
         searchTask?.cancel()
@@ -76,6 +84,7 @@ extension ProjectStore {
         landedSearchGeneration = searchGeneration
         latestSearchRequest = nil
         currentSearch = nil
+        recentlyLandedSearches = []
         searchInProgress = false
     }
 
@@ -102,12 +111,17 @@ extension ProjectStore {
     // its document's matches in `currentSearch` (`ordinal(of:)`). A single
     // Replace refreshes `currentSearch` before it returns (`searchNow`) and
     // single Replaces run one at a time, so the results an ordinal is read
-    // from are never older than the last Replace; a match whose id is not in
-    // them (it came from results a Replace has since refreshed) is refused
-    // with `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
+    // from are never older than the last Replace. A match whose id is not in
+    // them (it came from results a Replace has since refreshed) means the
+    // one current match with its path, range and line (`listedMatch(for:)`,
+    // #147 R1) when its document shows the same occurrences now as in the
+    // click's results — another document's match is still clickable after a
+    // Replace, one in the document the Replace changed is not; with none, or
+    // several, it is refused with
+    // `ProjectStoreError.staleSearchMatch`, never re-aimed at a guessed
     // occurrence. So is a text that changed since the search under the
     // ordinal (`ClickedOccurrence.range`): a different count of occurrences,
-    // or a different line at the ordinal.
+    // or a different line at the ordinal. Every refusal refreshes the results.
 
     // MARK: - What this Mac may replace (P3c whole-branch fix wave, C1)
 
@@ -124,10 +138,25 @@ extension ProjectStore {
         }
     }
 
-    /// What `replaceAll` did not do: the manuscript documents it left alone
-    /// because this Mac may not write their text (ruling AI), by title.
+    /// What `replaceAll` did not do, by title: `leftAlone` — the manuscript
+    /// documents this Mac may not write (ruling AI) and Research files
+    /// Maugham may not change; `changedSinceRead` — the notes that changed
+    /// between Replace All's read of them and the door's write (#147 R2).
     public struct ReplaceAllOutcome: Equatable, Sendable {
         public let leftAlone: [String]
+        public let changedSinceRead: [String]
+
+        public init(leftAlone: [String], changedSinceRead: [String] = []) {
+            self.leftAlone = leftAlone
+            self.changedSinceRead = changedSinceRead
+        }
+
+        /// What the writer is told, each list with its own reason; nil — nothing.
+        public var notice: String? {
+            let sentences = [ProjectStore.leftAloneSentence(leftAlone),
+                             ProjectStore.changedSinceReadSentence(changedSinceRead)].compactMap { $0 }
+            return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        }
     }
 
     /// The one sentence naming the pieces a replace left alone.
@@ -135,6 +164,18 @@ extension ProjectStore {
         guard !titles.isEmpty else { return nil }
         return "Left as it was — this Mac may not change the text of "
             + titles.joined(separator: ", ") + "."
+    }
+
+    /// The one sentence naming the notes Replace All left because they
+    /// changed while it ran (#147 R2).
+    nonisolated static func changedSinceReadSentence(_ titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        let quoted = titles.map { "“\($0)”" }
+        if quoted.count == 1 {
+            return "Left as it was — \(quoted[0]) changed while Replace was running. Search again."
+        }
+        let named = quoted.count == 2 ? quoted.joined(separator: " and ") : quoted.joined(separator: ", ")
+        return "Left as they were — \(named) changed while Replace was running. Search again."
     }
 
     /// Replace a single search match with the given replacement text.
@@ -149,8 +190,11 @@ extension ProjectStore {
     /// Replace All), each waiting for the one before it and its refresh, and
     /// **each ends by refreshing `currentSearch`**
     /// (`searchNow`, no debounce): a second click — even on the same match,
-    /// even while the first is in flight — is judged against fresh results,
-    /// where its stale match is gone, and throws
+    /// even while the first is in flight — is judged against fresh results.
+    /// Its id is gone from them, so it means the fresh match with the same
+    /// path, range and line (`listedMatch(for:)`) only in a document the
+    /// first Replace left unchanged; in the one it changed there is none,
+    /// and it throws
     /// `ProjectStoreError.staleSearchMatch` with nothing written.
     public func replaceMatch(
         _ match: SearchMatch, with replacement: String
@@ -218,6 +262,9 @@ extension ProjectStore {
         // Which occurrence to hit, and what the search showed of it — taken
         // before any await.
         guard let clicked = clickedOccurrence(match) else {
+            // The results the click came from are gone and nothing in the
+            // current ones is its occurrence: show what the text holds now.
+            await refreshAfterReplace()
             throw ProjectStoreError.staleSearchMatch
         }
         do {
@@ -226,13 +273,14 @@ extension ProjectStore {
                 // are the newest and the write cannot be undone by a later save.
                 try? await documentStore?.flushPendingSave()
                 await settleResearchEdits(target)
-                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+                let (original, readHash) = try Self.readResearchText(at: url)
                 // Re-found in the text just read, by its ordinal in the search —
                 // never the search-time offsets, which an edit since may have moved.
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: query, options: options,
                     replacement: replacement, clicked: clicked)
-                try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
+                try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url,
+                                                    readHash: readHash)
             } else {
                 try await replaceInManuscript(
                     path: match.documentPath, title: match.documentTitle,
@@ -249,21 +297,74 @@ extension ProjectStore {
         await refreshAfterReplace()
     }
 
-    /// **A clicked match's ordinal** — its index among its document's
-    /// matches in `currentSearch`, left to right — for both arms; nil when
-    /// its id is not there (the results it came from have been refreshed).
-    /// Match ids are minted fresh by every search (`SearchMatch.id`, a
-    /// `UUID()`), so a match from older results never finds itself in newer
-    /// ones.
+    /// **The match in `currentSearch` a click means** (#147 R1): the one
+    /// with its id; else — its results have been refreshed since, and match
+    /// ids are minted fresh by every search (`SearchMatch.id`, a `UUID()`) —
+    /// the one current match with the same path, range and line preview,
+    /// **only when its document is unchanged since the click's results**:
+    /// the results it came from (`recentlyLandedSearches`) are for the same
+    /// query and options and list the very same occurrences in that document
+    /// (`shownOccurrences`) as the current ones. A Replace (or any edit) in
+    /// the document shows there — the occurrence it changed reads a
+    /// different line, and a length change moves every later range — so a
+    /// document a Replace changed has no fallback: an identical line at the
+    /// old range is another occurrence (fix round 1). Not always: on a line
+    /// longer than the ~120-character preview, a replacement that starts
+    /// with the query can leave that occurrence's preview unchanged, so the
+    /// change does not show there. Untouched, a range
+    /// names one occurrence, so this never names another; none, or several,
+    /// or results no longer remembered, is nil (a refusal). The
+    /// clicked-occurrence check (`ClickedOccurrence.range`) still runs on
+    /// whichever it names.
+    private func listedMatch(for match: SearchMatch) -> SearchMatch? {
+        guard let current = currentSearch else { return nil }
+        if let same = current.matches.first(where: { $0.id == match.id }) { return same }
+        guard let clickedFrom = recentlyLandedSearches.last(where: { results in
+                  results.matches.contains { $0.id == match.id } }),
+              clickedFrom.query == current.query, clickedFrom.options == current.options,
+              Self.shownOccurrences(in: clickedFrom, at: match.documentPath)
+                  == Self.shownOccurrences(in: current, at: match.documentPath)
+        else { return nil }
+        let candidates = current.matches.filter {
+            $0.documentPath == match.documentPath
+                && $0.charRangeInDocument == match.charRangeInDocument
+                && $0.linePreview == match.linePreview
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    /// What `results` show of one document's occurrences, left to right,
+    /// ids aside: equal for two searches of an unchanged document.
+    private static func shownOccurrences(
+        in results: SearchResults, at path: String
+    ) -> [ShownOccurrence] {
+        results.matches
+            .filter { $0.documentPath == path }
+            .map { ShownOccurrence(range: $0.charRangeInDocument, line: $0.linePreview,
+                                   inLine: $0.matchRangeInLine) }
+            .sorted { $0.range.location < $1.range.location }
+    }
+
+    private struct ShownOccurrence: Equatable {
+        let range: NSRange
+        let line: String
+        let inLine: NSRange
+    }
+
+    /// **A clicked match's ordinal** — the index of the match it means
+    /// (`listedMatch(for:)`) among its document's matches in
+    /// `currentSearch`, left to right — for both arms; nil when it means
+    /// none.
     private func ordinal(of match: SearchMatch) -> Int? {
-        (currentSearch?.matches ?? [])
+        guard let listed = listedMatch(for: match) else { return nil }
+        return (currentSearch?.matches ?? [])
             .filter { $0.documentPath == match.documentPath }
             .sorted { $0.charRangeInDocument.location < $1.charRangeInDocument.location }
-            .firstIndex { $0.id == match.id }
+            .firstIndex { $0.id == listed.id }
     }
 
     /// The clicked match as a single Replace will check it, from
-    /// `currentSearch`; nil when its id is not there (`ordinal(of:)`).
+    /// `currentSearch`; nil when it means no match there (`ordinal(of:)`).
     private func clickedOccurrence(_ match: SearchMatch) -> ClickedOccurrence? {
         guard let ordinal = ordinal(of: match) else { return nil }
         let count = (currentSearch?.matches ?? []).filter { $0.documentPath == match.documentPath }.count
@@ -376,21 +477,38 @@ extension ProjectStore {
         return .note(item)
     }
 
+    /// **A Research file's text as Replace reads it, with the hash of the
+    /// bytes read** — the door's expectation for the write
+    /// (`writeReplacedResearchText`'s `readHash`, #147 R2).
+    private static func readResearchText(at url: URL) throws -> (text: String, bytesHash: String) {
+        let bytes = try Data(contentsOf: url)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+        guard let text = String(data: bytes, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSURLErrorKey: url])
+        }
+        return (text, ContentHash.of(bytes))
+    }
+
     /// A research file's text after a replace. **A note goes through the note
     /// door** — what it held is kept as a version, and an editor open on it
-    /// reloads — and the door writing nothing throws, as any other failure of
-    /// this write does (`replaceAll` stops there, as it always has). A file
+    /// reloads — **as compare-and-swap** (#147 R2): the door is handed
+    /// `readHash`, the hash of the bytes `text` was made from, and a note
+    /// changed since writes nothing and throws `staleSearchMatch` (Replace All
+    /// skips that note and names it in `changedSinceRead`). The door writing nothing for any
+    /// other reason throws, as any other failure of this write does
+    /// (`replaceAll` stops there, as it always has). A file
     /// no item names has no door and keeps the raw atomic write; so does a
     /// note in a store never given a `DocumentStore`. A note in a store that
     /// had one and lost it (teardown) throws rather than write raw (#141 N6).
     private func writeReplacedResearchText(_ text: String, to target: ResearchReplaceTarget,
-                                           path: String, url: URL) async throws {
+                                           path: String, url: URL, readHash: String) async throws {
         if case .note(let note) = target {
             if let ds = documentStore {
-                guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text, from: self) else {
-                    throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
+                switch await ds.saveResearchNote(itemId: note.id, text: text,
+                                                 expectingBytesHash: readHash, from: self) {
+                case .saved: return
+                case .changedSinceTheCallerRead: throw ProjectStoreError.staleSearchMatch
+                case .notSaved: throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
                 }
-                return
             }
             guard rawNoteWriteWithNoDoor() == .allowed else {
                 throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
@@ -417,6 +535,9 @@ extension ProjectStore {
     /// **A manuscript document this Mac may not write is SKIPPED and named**
     /// (controller ruling AI), never replaced and never a part-way failure:
     /// the rest of the book is replaced, and the outcome lists what was left.
+    /// A Research note changed between Replace All's read of it and the
+    /// door's write is skipped too (#147 R2): nothing is written to it, and
+    /// it is named in the outcome's `changedSinceRead`, with its own reason.
     ///
     /// **It takes its turn with the single Replaces** (`takingTheReplaceTurn`)
     /// **and ends by refreshing `currentSearch`** — on a throw too, since a
@@ -445,6 +566,7 @@ extension ProjectStore {
     ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         var leftAlone: [String] = []
+        var changedSinceRead: [String] = []
         // Once for the whole replace: the editor's queued note edits land
         // before any research file below is read.
         if results.matches.contains(where: { $0.documentSource == .research }) {
@@ -474,7 +596,7 @@ extension ProjectStore {
                     continue
                 }
                 await settleResearchEdits(target)
-                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+                let (original, readHash) = try Self.readResearchText(at: url)
                 // Every match the text just read holds, not the search-time list.
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: results.query, options: results.options,
@@ -482,10 +604,17 @@ extension ProjectStore {
                 // Nothing left to replace (the query is gone since the
                 // search): the file is skipped and nothing is written.
                 guard updated != original else { continue }
-                try await writeReplacedResearchText(updated, to: target, path: path, url: url)
+                do {
+                    try await writeReplacedResearchText(updated, to: target, path: path, url: url,
+                                                        readHash: readHash)
+                } catch ProjectStoreError.staleSearchMatch {
+                    // Changed since the read just above (#147 R2): nothing
+                    // was written; left as it was, and named for that.
+                    changedSinceRead.append(matches[0].documentTitle)
+                }
             }
         }
-        return ReplaceAllOutcome(leftAlone: leftAlone)
+        return ReplaceAllOutcome(leftAlone: leftAlone, changedSinceRead: changedSinceRead)
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op

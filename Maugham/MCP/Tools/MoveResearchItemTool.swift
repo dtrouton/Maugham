@@ -33,6 +33,11 @@ public enum MoveResearchItemTool: MCPTool {
     }
     public struct Result: Codable, Equatable {
         public let moved: [MovedItem]
+        /// Titles of the moved notes whose picture links could not be
+        /// rewritten to their new folder (#148 D2); absent when none.
+        public var asset_refs_left_in: [String]? = nil
+        /// The sentence the writer is told about them; absent when none.
+        public var notice: String? = nil
     }
 
     @MainActor
@@ -58,12 +63,16 @@ public enum MoveResearchItemTool: MCPTool {
             throw MCPError.invalidArgument("research_ids must not be empty")
         }
 
-        try await store.moveResearchItems(ids: params.research_ids, to: targets[0])
+        // The move stands; what it left is said in the result (RULING-52).
+        let outcome = try await store.moveResearchItems(ids: params.research_ids, to: targets[0])
 
         let moved = params.research_ids.map { id in
             MovedItem(id: id,
                       path: TreeWalk.find(id: id, in: store.manifest.research)?.path)
         }
-        return try JSONEncoder().encode(Result(moved: moved))
+        return try JSONEncoder().encode(Result(
+            moved: moved,
+            asset_refs_left_in: outcome.assetRefsLeftIn.isEmpty ? nil : outcome.assetRefsLeftIn,
+            notice: outcome.sentence))
     }
 }

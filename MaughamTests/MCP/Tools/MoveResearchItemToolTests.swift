@@ -107,4 +107,68 @@ final class MoveResearchItemToolTests: XCTestCase {
                 registry: registry))
         await ds.close()
     }
+
+    /// #148 D2: a move whose picture-link rewrite fails stands, and the
+    /// result names the note and carries the writer's sentence.
+    func test_aMoveWhosePictureLinkRewriteFails_namesTheNoteInTheResult() async throws {
+        let (registry, store, ds, piece, projectId) = try await makeRegistry()
+        ds.projectStore = store   // the note door finds notes through it
+        let url = store.url
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+        try FileManager.default.createDirectory(
+            at: url.appendingPathComponent("research/sarah_assets"), withIntermediateDirectories: true)
+        try await ds.coordinatedWrite(
+            text: "![img](./sarah_assets/img.png)",
+            to: url.appendingPathComponent("research/sarah.md"))
+        let prefix = try XCTUnwrap(ProjectStore.pieceResearchPrefix(for: piece))
+        try FileManager.default.createDirectory(   // dedups the stem: the refs need rewriting
+            at: url.appendingPathComponent(prefix).appendingPathComponent("sarah_assets"),
+            withIntermediateDirectories: true)
+        var locked: URL?
+        ds.researchNoteDoor.keepWillRunForTesting = { [store] in
+            guard let path = TreeWalk.find(id: note.id, in: store.manifest.research)?.path else { return }
+            let folder = url.appendingPathComponent(path).deletingLastPathComponent()
+            try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+            locked = folder
+        }
+        defer {
+            if let locked {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            }
+        }
+
+        let data = try await MoveResearchItemTool.handle(
+            paramsJSON: params([
+                "project_id": projectId,
+                "research_ids": [note.id],
+                "target_document_id": piece.id]),
+            registry: registry)
+
+        XCTAssertNotNil(locked, "premise: the rewrite reached the door's write")
+        let result = try JSONDecoder().decode(MoveResearchItemTool.Result.self, from: data)
+        XCTAssertEqual(result.moved.map(\.id), [note.id])
+        XCTAssertTrue(result.moved.first?.path?.hasPrefix(prefix) == true, "the move stands")
+        XCTAssertEqual(result.asset_refs_left_in, ["Sarah"])
+        XCTAssertEqual(result.notice,
+                       "Moved “Sarah”, but the picture links in “Sarah” could not be updated.")
+        await ds.close()
+    }
+
+    /// A move that left nothing adds nothing to the result.
+    func test_aCleanMoveAddsNoNotice() async throws {
+        let (registry, store, ds, piece, projectId) = try await makeRegistry()
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Sarah")
+
+        let data = try await MoveResearchItemTool.handle(
+            paramsJSON: params([
+                "project_id": projectId,
+                "research_ids": [note.id],
+                "target_document_id": piece.id]),
+            registry: registry)
+
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("asset_refs_left_in"), json)
+        XCTAssertFalse(json.contains("notice"), json)
+        await ds.close()
+    }
 }

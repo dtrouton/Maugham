@@ -186,13 +186,18 @@
   "reason": "The close order is an internal invariant (a clean close leaves no pending file; a failed flush keeps it). RULING-56/60 are about what a Research note or table saves at close, not this buffer, and nothing rules the order of a document's close. The coordinator's call, hardening 2026-11-16, not Denver's."
  },
  {
+  "claim_id": "M9-OL-020",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "Which of two same-path Document instances may remove the pending file is an internal invariant of the close, M9-OL-019's sibling. RULING-54 is about an unreadable-yet-present file being surfaced, not about whose file a clear may delete, and nothing rules the close. The coordinator's call, hardening 2026-11-17 (#146 first half), not Denver's."
+ },
+ {
   "_summary": {
    "reached": 18,
    "complies": 18,
    "violates": 0,
-   "no_ruling": 1,
-   "total": 19,
-   "coverage": "95%",
+   "no_ruling": 2,
+   "total": 20,
+   "coverage": "90%",
    "by_ruling": {
     "RULING-52": [
      "M9-OL-004",

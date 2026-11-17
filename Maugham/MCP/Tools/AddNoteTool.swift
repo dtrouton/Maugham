@@ -72,7 +72,9 @@ public enum AddNoteTool: MCPTool {
         if let documentStore = store.documentStore {
             guard case .saved = await documentStore.saveResearchNote(
                 itemId: created.id, text: params.body, by: .assistant, mustLand: true, from: store) else {
-                throw ProjectStoreError.researchTextNotSaved(title: created.title)
+                // The empty note it made is taken back first (#148 D1).
+                throw await store.takeBackUnsavedNewNote(
+                    created, refusal: ProjectStoreError.researchTextNotSaved(title: created.title))
             }
         } else {
             // Never given a store: the raw write. Lost it (teardown): refused,

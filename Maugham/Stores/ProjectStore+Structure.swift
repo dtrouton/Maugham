@@ -423,19 +423,67 @@ extension ProjectStore {
         return RenameOutcome(linksLeftIn: [])
     }
 
-    /// What a rename could not do (controller ruling AH).
+    /// What a rename — or a Research move — could not do (controller ruling
+    /// AH; RULING-52: the verb stands, and says what it left).
     public struct RenameOutcome: Equatable {
+        /// Which verb the sentence names.
+        public enum Act: Equatable { case renamed, moved }
+
         /// Titles of the pieces (and statements) whose `[[old title]]` links
         /// were left, because this Mac may not write their text.
         public let linksLeftIn: [String]
+        /// Titles of the Research notes whose `./<old>_assets/` picture links
+        /// could not be rewritten after the note was renamed or moved
+        /// (`rewriteMovedNoteAssetRefs`, #148 D2): they point at a folder
+        /// that is gone.
+        public let assetRefsLeftIn: [String]
+        public let act: Act
 
-        /// The sentence the tree says, or nil when every link was rewritten.
+        public init(linksLeftIn: [String] = [], assetRefsLeftIn: [String] = [], act: Act = .renamed) {
+            self.linksLeftIn = linksLeftIn
+            self.assetRefsLeftIn = assetRefsLeftIn
+            self.act = act
+        }
+
+        /// The sentence the tree says, or nil when everything was rewritten.
         public var sentence: String? {
+            let said = [linksSentence, assetRefsSentence].compactMap { $0 }
+            return said.isEmpty ? nil : said.joined(separator: " ")
+        }
+
+        private var linksSentence: String? {
             guard !linksLeftIn.isEmpty else { return nil }
             return "Links to the old title were left in "
                 + linksLeftIn.joined(separator: ", ")
                 + " — this Mac may not change their text, so those links no "
                 + "longer point anywhere until someone who may fixes them."
+        }
+
+        private var assetRefsSentence: String? {
+            guard !assetRefsLeftIn.isEmpty else { return nil }
+            let verb = act == .renamed ? "Renamed" : "Moved"
+            return "\(verb) \(Self.prose(assetRefsLeftIn)), but the picture links in "
+                + (assetRefsLeftIn.count == 1 ? Self.prose(assetRefsLeftIn) : "\(assetRefsLeftIn.count) notes")
+                + " could not be updated."
+        }
+
+        /// The stale picture links said on their own, for when the manifest
+        /// save after the rewrite throws and its error replaces this outcome
+        /// (RULING-52: what failed AND what it left). No "Renamed …, but":
+        /// the verb did not land cleanly. Nil when nothing was left.
+        var assetRefsAfterAFailedSave: String? {
+            guard !assetRefsLeftIn.isEmpty else { return nil }
+            let which = assetRefsLeftIn.count == 1
+                ? Self.prose(assetRefsLeftIn)
+                : "\(assetRefsLeftIn.count) notes, \(Self.prose(assetRefsLeftIn)),"
+            return "The picture links in \(which) could not be updated."
+        }
+
+        /// Titles as prose: “A”; “A” and “B”; “A”, “B” and “C”.
+        private static func prose(_ titles: [String]) -> String {
+            let quoted = titles.map { "“\($0)”" }
+            guard let last = quoted.last, quoted.count > 1 else { return quoted.first ?? "" }
+            return quoted.dropLast().joined(separator: ", ") + " and " + last
         }
     }
 

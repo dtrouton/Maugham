@@ -703,7 +703,7 @@ struct BinderTreeVerbs {
     var bundle: ResearchTreeActions {
         ResearchTreeActions(
             rename: { id, newTitle in
-                perform { try await store.updateResearchItem(id: id, title: newTitle) }
+                performSaying { try await store.updateResearchItem(id: id, title: newTitle) }
             },
             // **The tree's rows route by scope** (Task 7): what a drop MEANS is
             // `TreeDropIntent.classify`, what it DOES is `BinderTreeDrops`.
@@ -764,7 +764,7 @@ struct BinderTreeVerbs {
                 ResearchSelectionSync.moveTargets(forIds: ids, manifest: store.manifest)
             },
             move: { ids, target in
-                perform { try await store.moveResearchItems(ids: ids, to: target) }
+                performSaying { try await store.moveResearchItems(ids: ids, to: target) }
             },
             deleteMany: { ids in
                 perform { try await store.deleteResearchItems(ids: ids) }
@@ -843,6 +843,19 @@ struct BinderTreeVerbs {
         Task { @MainActor in
             do { try await work() }
             catch { state.pendingError = error.localizedDescription }
+        }
+    }
+
+    /// A rename or move, run as `perform` runs it, whose outcome is said in
+    /// the same alert when it left something behind: the verb stood, and the
+    /// sentence names what it did and what it could not (RULING-52) — a
+    /// note's picture links not rewritten (#148 D2), as the binder says the
+    /// `[[links]]` a manuscript rename left (`BinderView.rename`).
+    func performSaying(_ work: @escaping () async throws -> ProjectStore.RenameOutcome) {
+        Task { @MainActor in
+            do {
+                if let sentence = try await work().sentence { state.pendingError = sentence }
+            } catch { state.pendingError = error.localizedDescription }
         }
     }
 

@@ -286,6 +286,64 @@ final class LetterKeepTests: XCTestCase {
         XCTAssertEqual(version.writtenBy, .assistant)
     }
 
+    /// #148 D1: the door refuses the letter's save with the new note's file
+    /// still empty — the keep throws, and the note it made is taken back:
+    /// no row, no file, no Trash entry.
+    /// Disable experiment: throw `researchTextNotSaved` without
+    /// `takeBackUnsavedNewNote` and the empty note stays.
+    func test_aRefusedDoorSaveLeavesNoKeptNoteBehind() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        ds.projectStore = store
+        let research = url.appendingPathComponent("research")
+        let filesBefore = try FileManager.default.contentsOfDirectory(atPath: research.path).sorted()
+        let refusal = RefusedNoteBodySave(in: research, cleanupCanRun: true)
+        defer { refusal.end() }
+
+        do {
+            _ = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+            XCTFail("a refused door save reported a kept letter")
+        } catch ProjectStoreError.researchTextNotSaved {}
+        XCTAssertTrue(refusal.refused, "premise: the door refused the body save")
+        XCTAssertTrue(store.manifest.research.isEmpty, "no new row")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: research.path).sorted(), filesBefore,
+                       "no new file")
+        XCTAssertTrue(store.trashEntries.isEmpty, "no Trash entry")
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [],
+                       "the chapter's link to the note went with it")
+    }
+
+    /// A cleanup that itself fails (the folder still read-only) names the
+    /// empty note it left, and the note keeps its chapter link: the trash
+    /// comes first and the unlink only after it (fix round 1).
+    func test_aCleanupThatFailsSaysTheEmptyNoteWasLeftAndKeepsItsLink() async throws {
+        let (url, store) = try await makeNovel()
+        let ds = try await DocumentStore.open(url: url)
+        defer { Task { await ds.close() } }
+        store.documentStore = ds
+        ds.projectStore = store
+        let refusal = RefusedNoteBodySave(in: url.appendingPathComponent("research"), cleanupCanRun: false)
+        defer { refusal.end() }
+
+        var title = ""
+        do {
+            _ = try await LetterKeep.keep(
+                letter, run: makeRun(), docId: "ch-1", editorName: "Le Guin", store: store)
+            XCTFail("a refused door save reported a kept letter")
+        } catch {
+            title = try XCTUnwrap(store.manifest.research.first?.title, "premise: the note was left")
+            XCTAssertEqual(error.localizedDescription,
+                "Maugham couldn’t save “\(title)”; the empty note “\(title)” was left in Research.")
+        }
+        refusal.end()
+        let left = try XCTUnwrap(store.manifest.research.first)
+        XCTAssertEqual(store.linkedResearchIds(forDocumentId: "ch-1"), [left.id],
+                       "the note that was left keeps its chapter link")
+    }
+
     /// A store that had a `DocumentStore` and lost it (teardown) refuses the
     /// raw fallback: the keep throws and the note's file stays empty.
     /// Disable experiment: skip the `rawNoteWriteWithNoDoor()` question and the

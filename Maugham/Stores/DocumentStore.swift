@@ -1883,7 +1883,13 @@ public final class DocumentStore {
         }
         if let coordError { throw coordError }
         if let moveError { throw moveError }
+        await Self.afterCoordinatedMoveForTesting?(sourceURL, destinationURL)
     }
+
+    /// Test seam: runs once a `coordinatedMove` has landed, before the
+    /// bespoke move's next step (#145: a save held between a piece
+    /// reorder's two phases). Nil in production.
+    static var afterCoordinatedMoveForTesting: (@MainActor (URL, URL) async -> Void)?
 
     private func persistUIState(_ state: UIState) async {
         let dotDir = projectURL.appendingPathComponent(".maugham")

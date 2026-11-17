@@ -142,6 +142,43 @@ final class PublishConfigToolsTests: XCTestCase {
         }
     }
 
+    // MARK: - Non-object patch (RFC 7396 needs an object at the top level)
+
+    func test_setPublishConfig_nonObjectPatchIsRefusedNotCrashing() async throws {
+        let cfgURL = projectURL.appendingPathComponent(".maugham/publish/config.json")
+        let before = try Data(contentsOf: cfgURL)
+        for patch in ["null", "3", #""x""#, "[]"] {
+            do {
+                _ = try await SetPublishConfigTool.handle(
+                    paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":\#(patch)}"#.utf8),
+                    registry: registry)
+                XCTFail("expected a refusal for patch \(patch)")
+            } catch let MCPError.invalidArgument(message) {
+                XCTAssertEqual(message,
+                    "patch must be a JSON object (RFC 7396 merge patch); a scalar, null, or array is not a valid patch",
+                    "patch \(patch)")
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: cfgURL), before,
+                       "a refused patch must leave the stored config unchanged")
+    }
+
+    func test_setPublishConfig_nullInsideTheObjectStillDeletesTheKey() async throws {
+        let cfgURL = projectURL.appendingPathComponent(".maugham/publish/config.json")
+        _ = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":{"metadata":{"subtitle":"Sub"}}}"#.utf8),
+            registry: registry)
+        func storedSubtitle() throws -> Any? {
+            let root = try JSONSerialization.jsonObject(with: Data(contentsOf: cfgURL)) as? [String: Any]
+            return (root?["metadata"] as? [String: Any])?["subtitle"]
+        }
+        XCTAssertEqual(try storedSubtitle() as? String, "Sub")
+        _ = try await SetPublishConfigTool.handle(
+            paramsJSON: Data(#"{"project_id":"\#(projectID!)","patch":{"metadata":{"subtitle":null}}}"#.utf8),
+            registry: registry)
+        XCTAssertNil(try storedSubtitle() as? String, "a null INSIDE the object deletes the key")
+    }
+
     // MARK: - Unknown section key warnings
 
     func test_setPublishConfig_unknownSectionKey_warns() async throws {
