@@ -4,8 +4,10 @@ import MaughamCore
 /// **What To resolve is about**, answered once from the faces' subject
 /// (shell plan 2). A value: the reader filters by it and nothing else.
 enum ResolveScope: Hashable {
-    /// One manuscript document.
-    case piece(docId: String)
+    /// One manuscript document. `includesBookLevel` is true for a
+    /// screenplay's Book only: grouped as its one script, it still holds the
+    /// Book's own to-dos.
+    case piece(docId: String, includesBookLevel: Bool = false)
     /// The Book (`includesBookLevel: true` — the Book's own to-dos and every
     /// figure's notes come too) or a Part (false), its documents in
     /// manuscript order. Reference pieces are never among them.
@@ -23,14 +25,14 @@ enum ResolveScope: Hashable {
     /// reference piece `.elsewhere`), a group `.pieces` over its document
     /// descendants, `.project` `.pieces(includesBookLevel: true)` over every
     /// document — except a screenplay's Book, which is `.piece` over its one
-    /// script. An id the structure does not hold is `.outside`.
+    /// script, still holding the Book's own to-dos. An id the structure does not hold is `.outside`.
     static func of(_ faces: BinderSubject, structure: [StructureItem],
                    projectType: ProjectType) -> ResolveScope {
         switch faces {
         case .project:
             let docs = documents(in: structure)
             if isOneScript(projectType), docs.count == 1 {
-                return .piece(docId: docs[0])
+                return .piece(docId: docs[0], includesBookLevel: true)
             }
             return .pieces(docIds: docs, includesBookLevel: true)
         case .item(let id):
@@ -53,17 +55,19 @@ enum ResolveScope: Hashable {
     /// name none.
     var docIds: [String] {
         switch self {
-        case .piece(let docId): return [docId]
+        case .piece(let docId, _): return [docId]
         case .pieces(let docIds, _): return docIds
         case .figure(let id): return [id]
         case .elsewhere, .outside: return []
         }
     }
 
-    /// The Book's own level — its to-dos and the figures' notes.
+    /// The Book's own level — its to-dos and the notes on figures no piece owns.
     var includesBookLevel: Bool {
-        if case .pieces(_, let book) = self { return book }
-        return false
+        switch self {
+        case .piece(_, let book), .pieces(_, let book): return book
+        case .figure, .elsewhere, .outside: return false
+        }
     }
 
     // MARK: - Helpers

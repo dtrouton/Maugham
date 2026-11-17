@@ -8,7 +8,7 @@ struct ResolveSnapshot: Equatable {
     let sequences: [String: [String]]
     /// The `.piece` scope's paragraphs only, for group titles and the letter.
     let paragraphText: [String: String]
-    /// The scope's documents (and, at Book scope, figures) that would not
+    /// The scope's documents and the figures it holds that would not
     /// read — named, never presented as empty (RULING-54).
     let unreadableDocIds: [String]
 
@@ -25,23 +25,39 @@ struct ResolveSnapshot: Equatable {
 enum ResolveReader {
 
     /// The pure half: filter what the walks found down to `scope`. Only open
-    /// notes, open to-dos and conformance strains are items; figure notes and
-    /// the Book's own to-dos come only at Book scope (figure notes at figure
-    /// scope too). `findings` are already live (`DiagnosticsStore.live`).
+    /// notes, open to-dos and conformance strains are items. `findings` are
+    /// already live (`DiagnosticsStore.live`).
+    ///
+    /// **A figure's notes go where the board counts them**: on the piece that
+    /// owns it, by the board's own rule (`ProjectStore.countsOn` over
+    /// `figureOwners`, which is `ProjectStore.figureNoteOwners(manifest.figures)`),
+    /// after that scope's paragraph notes. A figure no piece owns (a
+    /// whole-book or shared-Research figure, or one the registry no longer
+    /// holds) shows at Book scope and its own scope only. The Book's own to-dos
+    /// come only where `includesBookLevel`.
     static func snapshot(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
                          tasks: [WriterTask], findings: [String: [Diagnostic]],
-                         paragraphText: [String: String]) -> ResolveSnapshot {
+                         paragraphText: [String: String],
+                         figureOwners: [String: String?] = [:]) -> ResolveSnapshot {
         let docIds = scope.docIds
         guard !docIds.isEmpty || scope.includesBookLevel else { return .empty }
         let inScope = Set(docIds)
         let book = scope.includesBookLevel
 
         func holds(_ docId: String) -> Bool {
-            inScope.contains(docId) || (book && DocumentClass.isFigureDocId(docId))
+            if inScope.contains(docId) { return true }
+            guard DocumentClass.isFigureDocId(docId) else { return false }
+            if let owner = ProjectStore.countsOn(docId, owners: figureOwners) {
+                return inScope.contains(owner)
+            }
+            return book
         }
 
-        let notes = annotations.annotations
+        let open = annotations.annotations
             .filter { $0.annotation.status == .open && holds($0.docId) }
+        // Paragraph notes first, then the figures' (stable within each).
+        let notes = (open.filter { !DocumentClass.isFigureDocId($0.docId) }
+                     + open.filter { DocumentClass.isFigureDocId($0.docId) })
             .map(ResolveItem.note)
         let strains = docIds.flatMap { docId in
             (findings[docId] ?? [])
@@ -113,10 +129,11 @@ enum ResolveReader {
         }
 
         var paragraphText: [String: String] = [:]
-        if case .piece(let docId) = scope { paragraphText = texts[docId] ?? [:] }
+        if case .piece(let docId, _) = scope { paragraphText = texts[docId] ?? [:] }
 
         let read = snapshot(scope: scope, annotations: annotations, tasks: tasks,
-                            findings: findings, paragraphText: paragraphText)
+                            findings: findings, paragraphText: paragraphText,
+                            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))
         let named = read.unreadableDocIds + unreadable.filter { !read.unreadableDocIds.contains($0) }
         return ResolveSnapshot(items: read.items, sequences: read.sequences,
                                paragraphText: read.paragraphText, unreadableDocIds: named)

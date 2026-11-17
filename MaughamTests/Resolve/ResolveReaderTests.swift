@@ -100,6 +100,62 @@ final class ResolveReaderTests: XCTestCase {
         XCTAssertEqual(everything(scope: .outside), .empty)
     }
 
+    /// A piece's own figure's notes come at that piece's scope (and its
+    /// Part's), after its paragraph notes — where the board counts them. A
+    /// figure no piece owns stays at Book and figure scope.
+    func test_aPiecesOwnFigureNotesAppearAtThatPiecesScope() {
+        let owned = "fig-bbbb2222", shared = "fig-cccc3333"
+        let owners = ProjectStore.figureNoteOwners([
+            FigureRecord(id: owned, name: "cash", kind: .table, piece: "doc-a", path: "figures/cash.csv"),
+            FigureRecord(id: shared, name: "ledger", kind: .table, piece: nil, path: "figures/ledger.csv"),
+        ])
+        func read(_ scope: ResolveScope) -> [String] {
+            ResolveReader.snapshot(
+                scope: scope,
+                annotations: walk([note("n-own", on: owned, pid: nil), note("n-a", on: "doc-a"),
+                                   note("n-shared", on: shared, pid: nil), note("n-b", on: "doc-b")]),
+                tasks: [], findings: [:], paragraphText: [:], figureOwners: owners).items.map(\.id)
+        }
+        XCTAssertEqual(read(.piece(docId: "doc-a")), ["note:doc-a/n-a", "note:\(owned)/n-own"],
+                       "the piece's paragraph notes, then its figure's")
+        XCTAssertEqual(read(.piece(docId: "doc-b")), ["note:doc-b/n-b"])
+        XCTAssertEqual(Set(read(part)), ["note:doc-a/n-a", "note:doc-b/n-b", "note:\(owned)/n-own"])
+        XCTAssertEqual(Set(read(book)), ["note:doc-a/n-a", "note:doc-b/n-b",
+                                         "note:\(owned)/n-own", "note:\(shared)/n-shared"])
+        XCTAssertEqual(read(.figure(id: shared)), ["note:\(shared)/n-shared"])
+        XCTAssertEqual(read(.figure(id: owned)), ["note:\(owned)/n-own"])
+    }
+
+    /// An owned figure that would not read is named at its piece's scope.
+    func test_aPiecesUnreadableFigureIsNamedAtThatPiece() {
+        let owners = ProjectStore.figureNoteOwners([
+            FigureRecord(id: "fig-bbbb2222", name: "cash", kind: .table, piece: "doc-a", path: "figures/cash.csv"),
+        ])
+        let read = ResolveReader.snapshot(
+            scope: .piece(docId: "doc-a"), annotations: walk([], unreadable: ["fig-bbbb2222"]),
+            tasks: [], findings: [:], paragraphText: [:], figureOwners: owners)
+        XCTAssertEqual(read.unreadableDocIds, ["fig-bbbb2222"])
+    }
+
+    func test_aScreenplaysBookHoldsTheBookLevelTodos() {
+        let script = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
+        let scope = ResolveScope.of(.project, structure: script, projectType: .screenplay)
+        guard case .piece(let docId, _) = scope else { return XCTFail("grouped as the script: \(scope)") }
+        XCTAssertEqual(docId, "doc-s")
+        let read = ResolveReader.snapshot(
+            scope: scope, annotations: walk([note("n-s", on: "doc-s")]),
+            tasks: [todo("t-s", on: "doc-s"), todo("t-book", on: ProjectStore.projectTasksDocId),
+                    todo("t-none", on: nil)],
+            findings: [:], paragraphText: ["aa11": "INT. DOCK - NIGHT"])
+        XCTAssertEqual(ids(read), ["note:doc-s/n-s", "todo:doc-s/t-s",
+                                   "todo:\(ProjectStore.projectTasksDocId)/t-book",
+                                   "todo:\(ProjectStore.projectTasksDocId)/t-none"])
+        XCTAssertEqual(read.paragraphText, ["aa11": "INT. DOCK - NIGHT"], "still read as the script")
+        // CONTROL: a plain piece holds no Book-level to-dos.
+        XCTAssertFalse(ids(everything(scope: .piece(docId: "doc-a")))
+            .contains("todo:\(ProjectStore.projectTasksDocId)/t-book"))
+    }
+
     func test_aReferencePieceIsElsewhereAndAddsNothingToTheBook() {
         let read = ResolveReader.snapshot(
             scope: .elsewhere(docId: "doc-r"),

@@ -47,7 +47,7 @@ final class ResolveScopeTests: XCTestCase {
     func test_aScreenplaysBookIsItsScript() {
         let script = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
         XCTAssertEqual(ResolveScope.of(.project, structure: script, projectType: .screenplay),
-                       .piece(docId: "doc-s"))
+                       .piece(docId: "doc-s", includesBookLevel: true))
         // CONTROL: the same one-document structure in prose is a Book.
         XCTAssertEqual(ResolveScope.of(.project, structure: script, projectType: .novel),
                        .pieces(docIds: ["doc-s"], includesBookLevel: true))
