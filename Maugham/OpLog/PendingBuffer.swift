@@ -41,7 +41,7 @@ import MaughamCore
 /// in since (basis != the log's newest opId — e.g. a peer's while-closed delete),
 /// the empty-changes fold is SKIPPED and a non-empty-changes fold recovers text
 /// with `sequence: nil` rather than reasserting a superseded order. A CLEAN close
-/// deletes the pending file outright now (Issue 2a), so a stale `{seq, []}` mirror
+/// deletes the pending file it last wrote (Issue 2a; #146 `clearIfUnchanged`), so a stale `{seq, []}` mirror
 /// only survives a crash; legacy files (no `basis`) decode to nil and are treated
 /// conservatively — see `Document+Load`'s basis-aware fold.
 @MainActor
@@ -123,8 +123,17 @@ public final class PendingBuffer {
         enc.outputFormatting = [.sortedKeys]
         let state = DiskState(
             sequence: seq, changes: snapshot(), basis: basisOpId)
-        try enc.encode(state).write(to: url, options: .atomic)
+        let bytes = try enc.encode(state)
+        try bytes.write(to: url, options: .atomic)
+        lastKnownBytes = bytes
     }
+
+    /// The file's bytes as this instance last wrote them (`flushToDisk`) or
+    /// read them (`loadFromDisk`), nil when it has done neither since its last
+    /// clear. `clearIfUnchanged` removes the file only when it still holds
+    /// these (#146): a same-path instance reopened meanwhile has written its
+    /// own, and they are not this instance's to delete.
+    private var lastKnownBytes: Data?
 
     /// What `loadFromDisk` found. RULING-54: a pending file that EXISTS but
     /// can't be read or decoded holds the writer's un-bursted keystrokes from
@@ -178,16 +187,34 @@ public final class PendingBuffer {
         }
         seq = state.sequence
         basisOpId = state.basis
+        lastKnownBytes = data
         for change in state.changes { buffer[change.paragraphId] = change }
         return .loaded
     }
 
     public func clear() async throws {
         clearInMemoryOnly()
+        lastKnownBytes = nil
         let url = try file()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// **Compare-and-clear** (#146): `clear()`, except the file is removed
+    /// only while it still holds the bytes this instance last wrote or read.
+    /// A close finishing late must not delete the recovery file of the same
+    /// document reopened meanwhile; when the bytes differ (or this instance
+    /// never touched the file) only memory is cleared.
+    public func clearIfUnchanged() async throws {
+        clearInMemoryOnly()
+        let expected = lastKnownBytes
+        lastKnownBytes = nil
+        let url = try file()
+        guard let expected,
+              let current = try? Data(contentsOf: url),  // adr-0018-ok: PendingBuffer's own pending file, not a manuscript
+              current == expected else { return }
+        try FileManager.default.removeItem(at: url)
     }
 
     /// **Drop what is held in memory and leave the file exactly where it is**

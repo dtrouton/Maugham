@@ -1979,8 +1979,10 @@ public final class Document {
         // AFTER `isClosed` (#143 Q2): an autosave queued during the seals
         // re-creates the mirror, so only a clear no run can follow removes it:
         // from here on `performAutosave` and `runAutosave` stop at `isClosed`.
+        // Compare-and-clear (#146): a same-path Document reopened while this
+        // close was in flight may have written its own file; it stays.
         if burstFlushSucceeded && mayWriteThePendingFile {
-            try? await pending.clear()
+            try? await pending.clearIfUnchanged()
         }
         huskInMemoryState()
     }

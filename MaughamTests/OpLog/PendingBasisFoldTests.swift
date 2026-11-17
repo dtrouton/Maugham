@@ -65,6 +65,89 @@ final class PendingBasisFoldTests: XCTestCase {
             "a clean close must leave no pending file, even when an autosave lands during the seals")
     }
 
+    /// #146 (F4): a close that finishes late must not delete the recovery file
+    /// of the same document reopened meanwhile. The clean clear removes the
+    /// file only when it still holds the bytes THIS instance last wrote.
+    func test_aLateCloseLeavesTheReopenedDocumentsPendingFileInPlace() async throws {
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+        let first = try await Document.load(
+            url: url, device: "m", session: "s1", presenter: nil)
+        let pendingURL = pendingFileURL(project: project, docId: first.docId, device: "m")
+        first.setFullText("Alpha edited.\n\nBravo.")
+        try await first.performAutosave()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path),
+            "premise: the first instance wrote its pending file")
+
+        var second: Document?
+        var secondsBytes: Data?
+        first.closeWillFinishForTesting = {
+            let reopened = try? await Document.load(
+                url: url, device: "m", session: "s2", presenter: nil)
+            reopened?.setFullText("Alpha edited again.\n\nBravo.")
+            try? await reopened?.performAutosave()
+            secondsBytes = try? Data(contentsOf: pendingURL)
+            second = reopened
+        }
+        await first.close()
+
+        XCTAssertNotNil(second, "premise: the reopen loaded while the first close was held")
+        XCTAssertNotNil(secondsBytes, "premise: the reopened instance wrote its pending file")
+        XCTAssertEqual(try? Data(contentsOf: pendingURL), secondsBytes,
+            "the late close must leave the reopened document's pending file, with its bytes, in place")
+
+        // The reopened instance's own clean close still clears its file.
+        await second?.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path),
+            "the reopened instance's clean close leaves no pending file")
+    }
+
+    /// M9-OL-019 under compare-and-clear: a single clean close after an
+    /// autosave wrote the pending file still leaves none.
+    func test_aCleanCloseAfterAnAutosaveWroteThePendingFileLeavesNone() async throws {
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+        let doc = try await Document.load(
+            url: url, device: "m", session: "s1", presenter: nil)
+        let pendingURL = pendingFileURL(project: project, docId: doc.docId, device: "m")
+        doc.setFullText("Alpha edited.\n\nBravo.")
+        try await doc.performAutosave()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path),
+            "premise: the autosave wrote the pending file")
+        await doc.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path),
+            "a clean close leaves no pending file")
+    }
+
+    /// A current, clean mirror the load read but did not fold (its order equals
+    /// the derived one) is this instance's too: a close with no typing clears it.
+    func test_aCleanCloseClearsAMirrorTheLoadReadAndDidNotFold() async throws {
+        let (project, url) = try makeTestProject(prefix: "PBF", initialMd: "Alpha.\n\nBravo.")
+        let docId: String
+        let ids: [String]
+        do {
+            let doc = try await Document.load(
+                url: url, device: "m", session: "s1", presenter: nil)
+            docId = doc.docId
+            ids = doc.sequence
+            await doc.close()
+        }
+        let newest = try await OpLogStore(projectURL: project)
+            .load(docId: docId).map(\.opId).max()!
+        let pendingURL = pendingFileURL(project: project, docId: docId, device: "m")
+        do {
+            let pb = PendingBuffer(projectURL: project, docId: docId, device: "m")
+            pb.setSequence(ids, basis: newest)
+            try await pb.flushToDisk()
+        }
+
+        let reopened = try await Document.load(
+            url: url, device: "m", session: "s2", presenter: nil)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingURL.path),
+            "premise: the load read the mirror and did not fold or clear it")
+        await reopened.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pendingURL.path),
+            "a clean close clears the mirror its own load read")
+    }
+
     // MARK: - (b) peer delete while closed → not reverted by a stale pending file
 
     func test_peerDeleteWhileClosed_staleEmptyPending_doesNotRevertDelete() async throws {
