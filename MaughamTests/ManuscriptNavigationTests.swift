@@ -27,7 +27,7 @@ final class ManuscriptNavigationTests: XCTestCase {
                 let current = WindowSubject(open: open, faces: open, beside: beside)
                 let next = ManuscriptNavigation.destination(toDocument: other, current: current)
                 XCTAssertEqual(next, WindowSubject(open: .item(other), faces: .item(other),
-                                                   beside: beside),
+                                                   beside: beside, besideIsLatest: false),
                                "\(open) open, \(String(describing: beside)) beside")
                 XCTAssertEqual(ProjectWindow.centreRoute(
                     subject: next, bookView: .outline, projectType: .novel,

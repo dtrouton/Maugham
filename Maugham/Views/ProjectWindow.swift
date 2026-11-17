@@ -368,6 +368,12 @@ struct ProjectWindow: View {
                                       window: window,
                                       subject: subject,
                                       structure: store?.manifest.structure ?? [],
+                                      isDocumentOpen: { [weak documentStore] docId in
+                                          documentStore?.document(forDocId: docId) != nil
+                                      },
+                                      onPieceNotOpen: { [flash = compilerFlash] in
+                                          flash.show(.pieceWouldNotOpen)
+                                      },
                                       mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in
             toggleFullScreen()
@@ -545,8 +551,7 @@ struct ProjectWindow: View {
         .modifier(TranslationReviewModifier(
             window: window,
             projectURL: url,
-            activeDocId: activeDocId,
-            navigate: { navigate(to: $0) },
+            subject: subjectBinding,
             documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(

@@ -406,16 +406,30 @@ final class PaletteWallDoorTests: XCTestCase {
     /// is the row's own) — never by position, which moves whenever the tree's
     /// furniture grows. `selectRowIndexes` reaches the `List`'s selection
     /// binding exactly as a click does.
+    ///
+    /// **Asserted, never skipped** (shell p1 final fix, M7): a `List` mounts
+    /// only the rows on screen, so on a short display the row is scrolled into
+    /// view one row at a time until it mounts. A test that skips on CI's
+    /// narrower display is the flaky-test shape the no-skips gate exists for.
     private func selectThePaletteRow(in window: NSWindow) throws {
         let table = try XCTUnwrap(firstTableView(in: window))
-        guard let mark = allViews(in: table)
-                .compactMap({ $0 as? TreeTravelTargetView })
-                .first(where: { $0.subject == .palette }),
-              case let row = table.row(for: mark), row >= 0
-        else {
-            throw XCTSkip("this display mounted no Palette row")
+        func mountedRow() -> Int? {
+            guard let mark = allViews(in: table)
+                    .compactMap({ $0 as? TreeTravelTargetView })
+                    .first(where: { $0.subject == .palette }) else { return nil }
+            let row = table.row(for: mark)
+            return row >= 0 ? row : nil
         }
-        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        var row = mountedRow()
+        var next = 0
+        while row == nil, next < table.numberOfRows {
+            table.scrollRowToVisible(next)
+            pump(0.02)
+            row = mountedRow()
+            next += 1
+        }
+        let paletteRow = try XCTUnwrap(row, "the tree mounted no Palette row in any scroll position")
+        table.selectRowIndexes(IndexSet(integer: paletteRow), byExtendingSelection: false)
         pump(0.05)
     }
 

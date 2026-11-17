@@ -192,9 +192,11 @@ final class CanvasClaudeBannerTests: XCTestCase {
 
     /// **Where the writer is taken, as a value** (shell p1 Task 4): Show opens
     /// the canvas in the centre — `open` and the faces on it, exactly as the
-    /// tree's Canvas row opens it — whatever was open, and leaves what is
-    /// beside alone. Selecting the region without opening the canvas would
-    /// change something the writer cannot see.
+    /// tree's Canvas row opens it — whatever was open, and puts away what is
+    /// beside (shell p1 final fix, M2: the right column asks what is beside
+    /// first, so a note left there hid the region inspector Show opens).
+    /// Selecting the region without opening the canvas would change something
+    /// the writer cannot see.
     func test_aClaudeArrivalOpensTheCanvas() {
         let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
         XCTAssertEqual(to.open, .canvas)
@@ -202,8 +204,11 @@ final class CanvasClaudeBannerTests: XCTestCase {
             for beside in [nil, BinderSubject.research(SubjectSamples.researchID)] {
                 let current = WindowSubject(open: open, faces: open, beside: beside)
                 let next = to.subject(from: current)
-                XCTAssertEqual(next, WindowSubject(open: .canvas, faces: .canvas, beside: beside),
+                XCTAssertEqual(next, WindowSubject(open: .canvas, faces: .canvas, beside: nil),
                                "\(open) open")
+                XCTAssertNil(ProjectWindow.researchSubjectPlacement(subject: next).inspectedItemID,
+                             "\(open), beside \(String(describing: beside)): the right "
+                             + "column inspects the canvas, not a note")
                 XCTAssertEqual(ProjectWindow.centreRoute(
                     subject: next, bookView: .outline, projectType: .novel,
                     structure: SubjectSamples.structure, preview: .nothingCompiled),

@@ -92,6 +92,35 @@ final class PublishProblemsViewTests: XCTestCase {
 
     /// R-S14: a problem found in the `sr` body of a two-body compile carries
     /// `sr` onto its row, and its reveal is the translated reveal in `sr`.
+    /// **A problem with no paragraph opens its piece** (shell p1 final fix,
+    /// C1): the list is only drawn over an edition, and the click rule there
+    /// moves only the faces. The problem is a place: its document piece takes
+    /// the centre and the faces; a Part named instead opens as a click would.
+    func test_aProblemWithNoParagraphOpensItsPiece() {
+        let structure: [StructureItem] = [
+            StructureItem(id: "part-1", title: "Part One", type: .group, children: [
+                StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md"),
+            ]),
+        ]
+        for faces: BinderSubject in [.edition(language: "sr"), .item("ch-1"), .project] {
+            let current = WindowSubject(open: .edition(language: "sr"), faces: faces,
+                                        beside: .research("r-1"))
+            XCTAssertEqual(
+                PublishProblems.destination(revealing: .item("ch-1"), current: current,
+                                            structure: structure, projectType: .novel),
+                WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                              beside: .research("r-1"), besideIsLatest: false),
+                "faces \(faces): the problem's piece opens in the centre")
+        }
+        XCTAssertEqual(
+            PublishProblems.destination(
+                revealing: .item("part-1"),
+                current: WindowSubject(open: .edition(language: "sr"),
+                                       faces: .edition(language: "sr")),
+                structure: structure, projectType: .novel).open,
+            .item("part-1"), "a Part opens as its click does")
+    }
+
     func test_aProblemInATranslatedBodyRevealsInThatEdition() {
         let sr = Diagnostic(level: .error, file: nil, line: nil,
                             message: "[sr] No section is labelled @sec:intro.",

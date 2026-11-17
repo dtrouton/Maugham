@@ -54,12 +54,15 @@ enum ScreenplayScriptSource {
     ///   one would be an op-log decode nobody reads. **This is where
     ///   `BinderSegment.showsSceneNavigator(for:)` went** (stage 2b Task 6): it
     ///   asked the segment a question only the project type could answer.
-    /// - the subject's `open` is the canvas or the Inbox — which is what says
-    ///   *there is no editor here to produce it* (the Inbox route tears
-    ///   `EditorHost` down; shell p1 Task 3). A piece in the centre mounts
-    ///   `EditorHost` beside the same navigator, so the coordinator posts within
-    ///   a frame and a derivation there would be duplicate work racing a
-    ///   fresher value.
+    /// - the subject's `open` names no piece — the Book, an edition, the
+    ///   canvas, the Inbox, the palette, a research item or a figure — which is
+    ///   what says *no editor here is loading the script* (shell p1 final fix,
+    ///   M8: it was the canvas and the Inbox alone, so a cold open on any other
+    ///   of them listed no sluglines). A piece in the centre mounts `EditorHost`
+    ///   beside the same navigator, so the coordinator posts within a frame and
+    ///   a derivation there would be duplicate work racing a fresher value; an
+    ///   editor still holding the script under an edition has already
+    ///   produced its parse, which `existing` answers.
     ///
     /// **A fourth condition died with the strip in Task 7**, and it is worth
     /// recording why it was ever there. the left column beside the canvas was four panes, and
@@ -76,7 +79,7 @@ enum ScreenplayScriptSource {
                                 existing: FountainScript?) -> Bool {
         existing == nil
             && TreePane(for: projectType) == .sceneNavigator
-            && (subject.open == .canvas || subject.open == .inbox)
+            && subject.open.itemID == nil
     }
 
     /// The project's one script, parsed — or `nil` when the project has no

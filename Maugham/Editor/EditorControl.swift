@@ -7,9 +7,11 @@ import Observation
 /// `Document`; this is its control-plane analogue (ADR 0017).
 ///
 /// `ProjectWindow` owns one of these and mirrors its derived control into it;
-/// the `EditorCoordinator` observes it via `withObservationTracking`. Flow is
-/// strictly one-way (sources → model → coordinator); the coordinator never
-/// writes back.
+/// the `EditorCoordinator` observes it via `withObservationTracking`. Control
+/// flows one way (sources → model → coordinator). The coordinator writes back
+/// only two `@ObservationIgnored` facts nothing observes: which document it
+/// has mounted (`editorDidMount`/`editorDidDetach`), and clearing the
+/// `pendingPlace` it consumes (shell p1 Task 4b).
 ///
 /// INVARIANT D1: only genuine control state lives here — never text- or
 /// cursor-derived values. If a per-keystroke value leaked in, the coordinator's

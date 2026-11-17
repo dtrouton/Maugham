@@ -27,7 +27,8 @@ final class ClickRuleTests: XCTestCase {
     func test_openInCentreOpensAndFacesTheClickedThing() {
         let r = resolve(.item("ch-1"), .openInCentre,
                         from: ws(.canvas, .item("ch-2"), beside: .research("r-1")))
-        XCTAssertEqual(r, ws(.item("ch-1"), .item("ch-1"), beside: .research("r-1")))
+        XCTAssertEqual(r, WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                                        beside: .research("r-1"), besideIsLatest: false))
     }
 
     func test_openInCentreOnTheBesideItemClearsBeside() {
@@ -132,5 +133,66 @@ final class ClickRuleTests: XCTestCase {
     func test_anItemNotInStructureIsTreatedAsAPiece() {
         XCTAssertEqual(resolve(.item("ghost"), .click, from: ws(.canvas, .project)),
                        ws(.canvas, .item("ghost")))
+    }
+
+    // MARK: - The part clicked last (shell p1 final fix, I1)
+
+    /// **With a note beside, a piece clicked on the canvas lights its region.**
+    /// `beside` persists across clicks, so "what is beside, else the faces"
+    /// kept the note as the part clicked last and the canvas stayed dimmed
+    /// around the note's card. The subject records the order instead.
+    func test_aPieceClickedOnTheCanvasLightsItsRegionWithANoteBeside() {
+        let research = [ResearchItem(id: "r-1", title: "Note", type: .asset,
+                                     kind: .document, path: "research/note.md")]
+        let withNote = resolve(.research("r-1"), .click, from: ws(.canvas, .canvas))
+        XCTAssertEqual(CanvasSubject.resolve(withNote.lastClicked, in: structure,
+                                             research: research),
+                       .research("r-1"), "premise: the note's card lights first")
+        let clicked = resolve(.item("ch-2"), .click, from: withNote)
+        XCTAssertEqual(clicked.beside, .research("r-1"), "premise: the note stays beside")
+        XCTAssertEqual(clicked.lastClicked, .item("ch-2"))
+        XCTAssertEqual(CanvasSubject.resolve(clicked.lastClicked, in: structure,
+                                             research: research),
+                       CanvasSubject.resolve(.item("ch-2"), in: structure,
+                                             research: research),
+                       "the piece clicked after the note is what the canvas lights")
+    }
+
+    /// The order follows the clicks either way, a dismissal hands it back to
+    /// the faces, and a navigation to what is beside makes it last again
+    /// without putting it away.
+    func test_lastClickedFollowsTheOrderOfTheClicks() {
+        let pieceThenNote = resolve(.research("r-1"), .click,
+                                    from: resolve(.item("ch-1"), .click))
+        XCTAssertEqual(pieceThenNote.lastClicked, .research("r-1"))
+        let noteThenPiece = resolve(.item("ch-2"), .click, from: pieceThenNote)
+        XCTAssertEqual(noteThenPiece.lastClicked, .item("ch-2"))
+        XCTAssertFalse(noteThenPiece.besideIsLatest)
+        let dismissed = resolve(.research("r-1"), .click, from: pieceThenNote)
+        XCTAssertNil(dismissed.beside)
+        XCTAssertEqual(dismissed.lastClicked, .item("ch-1"))
+        let shown = ClickRule.navigate(to: .research("r-1"), current: noteThenPiece,
+                                       structure: structure, projectType: .novel)
+        XCTAssertEqual(shown.beside, .research("r-1"), "a navigation never puts it away")
+        XCTAssertEqual(shown.lastClicked, .research("r-1"))
+        XCTAssertTrue(ResearchRevealModifier.isAnArrival(from: noteThenPiece, to: shown),
+                      "shown again: the column that previews it is revealed")
+        XCTAssertFalse(ResearchRevealModifier.isAnArrival(from: pieceThenNote, to: dismissed),
+                       "putting it away is not an arrival")
+    }
+
+    /// The order survives the window's save and a validation; a subject saved
+    /// before it was recorded decodes as built whole.
+    func test_theOrderRoundTripsAndOldStateDecodes() throws {
+        let noteThenPiece = resolve(.item("ch-2"), .click,
+                                    from: resolve(.research("r-1"), .click))
+        let data = try JSONEncoder().encode(noteThenPiece)
+        XCTAssertEqual(try JSONDecoder().decode(WindowSubject.self, from: data), noteThenPiece)
+        XCTAssertEqual(noteThenPiece.validated(structure: structure, researchIDs: ["r-1"],
+                                               figureIDs: [], editionLanguages: []),
+                       noteThenPiece)
+        let old = Data(#"{"open":{"kind":"project"},"faces":{"kind":"project"},"beside":{"kind":"research","id":"r-1"}}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(WindowSubject.self, from: old).lastClicked,
+                       .research("r-1"))
     }
 }

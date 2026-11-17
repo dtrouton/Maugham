@@ -69,6 +69,17 @@ enum PublishProblems {
         case piece(BinderSubject)
     }
 
+    /// **A problem with no paragraph opens its piece** (shell p1 final fix,
+    /// C1): a place, so a document piece takes the centre and the faces
+    /// (`ManuscriptNavigation.travel`) even though the list was drawn over an
+    /// edition — never the click rule, which would move only the faces.
+    static func destination(revealing piece: BinderSubject, current: WindowSubject,
+                            structure: [StructureItem],
+                            projectType: ProjectType) -> WindowSubject {
+        ManuscriptNavigation.travel(to: piece, current: current,
+                                    structure: structure, projectType: projectType)
+    }
+
     static func reveal(_ row: Row) -> Reveal {
         guard let paragraphID = row.paragraphID else { return .piece(.item(row.pieceID)) }
         return .paragraph(TranslationReveal(

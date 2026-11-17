@@ -313,8 +313,9 @@ struct DetailPaneToggle<Inspector: View>: View {
 
     /// The segments this picker shows, in order: `DetailSegment.pickerOrder`,
     /// less the Department desk unless an edition is open, and less the panes
-    /// about one document (`DetailSegment.needsADocument`) while the faces
-    /// name none. The order is never anything but `pickerOrder` filtered.
+    /// about one document (`DetailSegment.needsADocument`) unless the faces'
+    /// piece is the one the editor has loaded (`facesPieceIsOpen`). The order
+    /// is never anything but `pickerOrder` filtered.
     ///
     /// `selected`, when supplied and not already offered, is **appended**:
     /// every `⌘⌥`-letter pane shortcut fires whatever the subject, and
@@ -329,8 +330,7 @@ struct DetailPaneToggle<Inspector: View>: View {
     ) -> [DetailSegment] {
         let opensAnEdition: Bool
         if case .edition = subject.open { opensAnEdition = true } else { opensAnEdition = false }
-        let facesADocument: Bool
-        if case .item = subject.faces { facesADocument = true } else { facesADocument = false }
+        let facesADocument = facesPieceIsOpen(subject)
         var segments = DetailSegment.pickerOrder.filter { segment in
             if segment == .department { return opensAnEdition }
             if DetailSegment.needsADocument.contains(segment) { return facesADocument }
@@ -340,6 +340,19 @@ struct DetailPaneToggle<Inspector: View>: View {
             segments.append(selected)
         }
         return segments
+    }
+
+    /// **Whether the faces' piece is the one the editor has loaded** (shell p1
+    /// final fix, I2): the faces name an item and the centre has it open. With
+    /// the canvas or an edition in the centre the faces can sit on a piece no
+    /// editor holds, and the panes that read a document (`needsADocument`, the
+    /// Annotations pane's document scope) would show nothing, or — Diagnostics
+    /// — a piece with no paragraph notes when it has them. Those panes wait for
+    /// a store-level read of an unopened piece (plan 2); until then they are
+    /// not offered there, and their empty states stand.
+    static func facesPieceIsOpen(_ subject: WindowSubject) -> Bool {
+        guard case .item = subject.faces else { return false }
+        return subject.faces == subject.open
     }
 
     /// How many segment-widths to shift `badged`'s unread badge left from the
@@ -595,7 +608,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let ds = documentStore,
            let compilerOrchestrator,
            let diagnosticsStore,
-           activeDocId != BinderSubject.noDocumentSubject {
+           activeDocId != BinderSubject.noDocumentSubject,
+           Self.facesPieceIsOpen(subject) {
             DiagnosticsPane(
                 // The DRAWING door (controller ruling I), read here in `body`
                 // so a demotion re-draws the pane (P3c Task 7).
@@ -681,6 +695,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         if let ds = documentStore,
            let control = editorControl,
            activeDocId != BinderSubject.noDocumentSubject,
+           Self.facesPieceIsOpen(subject),
            let doc = ds.document(forDocId: activeDocId) {
             TranslationReviewPane(
                 document: doc, control: control, store: store,
@@ -729,9 +744,13 @@ struct DetailPaneToggle<Inspector: View>: View {
             // state a writer arrives in from the board's open-notes column.
             // Document scope's "Select a document" empty state moved inside,
             // so the scope toggle above it stays reachable.
+            // Document scope only for the piece the centre has open
+            // (`facesPieceIsOpen`); otherwise its own empty state.
+            let document = activeDocId == BinderSubject.noDocumentSubject
+                || !Self.facesPieceIsOpen(subject)
+                ? nil : ds.document(forDocId: activeDocId)
             AnnotationsPane(
-                document: activeDocId == BinderSubject.noDocumentSubject
-                    ? nil : ds.document(forDocId: activeDocId),
+                document: document,
                 store: store,
                 documentStore: ds,
                 scope: $annotationScope,

@@ -51,8 +51,8 @@ final class ScreenplayScriptSourceTests: XCTestCase {
             "control: with nothing produced and the canvas open, the tree must derive")
     }
 
-    /// **Exactly one (subject, project type) pair derives, and the census says
-    /// which** — asked over every kind of `open` and every project type rather
+    /// **Which (subject, project type) pairs derive, and the census says
+    /// which by name** — asked over every kind of `open` and every project type rather
     /// than the one the fix was written against, because that is how the
     /// original defect got in: a new member of a set nobody re-enumerated.
     ///
@@ -74,13 +74,15 @@ final class ScreenplayScriptSourceTests: XCTestCase {
                 derives.append("\(SubjectSamples.kind(of: open))×\(type.rawValue)")
             }
         }
-        XCTAssertEqual(Set(derives), ["inbox×screenplay", "canvas×screenplay"],
-                       "the canvas and the Inbox on a screenplay are the two "
-                       + "window states that list sluglines with no editor behind "
-                       + "them (the Inbox route tears `EditorHost` down, shell p1 "
-                       + "Task 3). Anything else "
-                       + "here is either an op-log decode nobody reads or a race "
-                       + "with the editor's own parse")
+        XCTAssertEqual(Set(derives), ["project×screenplay", "research×screenplay",
+                                      "figure×screenplay", "inbox×screenplay",
+                                      "canvas×screenplay", "palette×screenplay",
+                                      "edition×screenplay"],
+                       "every centre that names no piece lists sluglines with no "
+                       + "editor loading the script (shell p1 final fix, M8). A "
+                       + "piece or Part open, or another project type, here is "
+                       + "either a race with the editor's own parse or an op-log "
+                       + "decode nobody reads")
         XCTAssertTrue(ScreenplayScriptSource.needsDerivation(
             subject: WindowSubject(open: .canvas, faces: .item(SubjectSamples.pieceID)),
             projectType: .screenplay, existing: nil),

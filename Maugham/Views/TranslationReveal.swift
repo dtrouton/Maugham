@@ -88,6 +88,28 @@ struct TranslationReveal: Equatable, Sendable {
         reveal.docId == activeDocId ? .now : .afterSelecting(.item(reveal.docId))
     }
 
+    /// **The window's plan: against the piece the CENTRE has open**, never the
+    /// faces (shell p1 final fix, C1). Only the open piece is in the editor, so
+    /// only it can be revealed `.now`; the faces can sit on a piece the centre
+    /// does not show (an edition's, the canvas's clause 1).
+    static func plan(_ reveal: TranslationReveal, subject: WindowSubject) -> Step {
+        plan(reveal, activeDocId: openDocId(subject))
+    }
+
+    /// The piece the centre has open, as the reveal compares it: the open
+    /// item's id, or the no-document sentinel.
+    static func openDocId(_ subject: WindowSubject) -> String {
+        BinderSubject.activeDocId(for: subject.open)
+    }
+
+    /// **Where a reveal takes the window**: it is a place, so its piece opens
+    /// in the centre (`ManuscriptNavigation.destination(toDocument:)`) whatever
+    /// the centre was — an edition's report or problems list included.
+    static func destination(_ reveal: TranslationReveal,
+                            current: WindowSubject) -> WindowSubject {
+        ManuscriptNavigation.destination(toDocument: reveal.docId, current: current)
+    }
+
     /// `.keyWindow` because this is a command, not a data event: the row was
     /// clicked in one window and it is that window that must move (ADR 0021).
     ///

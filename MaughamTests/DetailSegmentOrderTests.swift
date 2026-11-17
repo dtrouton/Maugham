@@ -87,7 +87,9 @@ final class DetailSegmentOrderTests: XCTestCase {
     func test_thePanesAboutOneDocumentLeaveWhenTheFacesNameNone() {
         for subject in Self.subjects {
             let facesADocument: Bool
-            if case .item = subject.faces { facesADocument = true } else { facesADocument = false }
+            if case .item = subject.faces, subject.faces == subject.open {
+                facesADocument = true
+            } else { facesADocument = false }
             let shown = Set(Toggle.visibleSegments(subject: subject))
             for segment in DetailSegment.needsADocument {
                 XCTAssertEqual(shown.contains(segment), facesADocument,
@@ -100,6 +102,27 @@ final class DetailSegmentOrderTests: XCTestCase {
                         .visualLanguage, .tasks, .inspector] {
             XCTAssertTrue(book.contains(segment), "the Book lost \(segment)")
         }
+    }
+
+    /// **A pane about one document is not offered for a faces' piece that is
+    /// not open** (shell p1 final fix, I2): with the canvas or an edition in
+    /// the centre, a piece clicked moves only the faces, and no editor has
+    /// that piece — the panes would show "Select a document", or Diagnostics a
+    /// piece with no paragraph notes. The same piece open in the centre offers
+    /// them all.
+    func test_aDocumentPaneIsNotOfferedForAFacesPieceThatIsNotOpen() {
+        for open in [BinderSubject.canvas, .edition(language: "es")] {
+            let subject = WindowSubject(open: open, faces: .item("ch-1"))
+            let shown = Set(Toggle.visibleSegments(subject: subject))
+            for segment in DetailSegment.needsADocument {
+                XCTAssertFalse(shown.contains(segment), "\(segment) offered over \(open)")
+            }
+            XCTAssertFalse(Toggle.facesPieceIsOpen(subject), "\(open)")
+        }
+        let shown = Set(Toggle.visibleSegments(subject: Self.chapter))
+        XCTAssertTrue(DetailSegment.needsADocument.isSubset(of: shown),
+                      "control: the piece open in the centre offers them")
+        XCTAssertTrue(Toggle.facesPieceIsOpen(Self.chapter))
     }
 
     /// With a chapter open the picker leads with Diagnostics, the check's pane.

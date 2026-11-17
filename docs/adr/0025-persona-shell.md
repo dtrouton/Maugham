@@ -1,6 +1,6 @@
 # ADR 0025 — Persona shell: four optional lenses over one project
 
-> **Superseded in part by [ADR 0035](0035-the-subject-not-the-persona.md) (2026-11-17):** the whole decision — the four personas, ⌘1–4 and the per-persona right pane — is replaced by the window subject.
+> **Superseded in part by [ADR 0035](0035-the-subject-not-the-persona.md) (2026-11-17):** the four personas, ⌘1–4 and the per-persona right pane are replaced by the window subject; the rest of this body is history.
 
 **Date:** 2026-07-25 · **Status:** Accepted · **Milestone:** persona-shell (branch `feat/persona-shell-2026-07-25`)
 

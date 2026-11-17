@@ -290,6 +290,19 @@ final class PendingPlaceTests: XCTestCase {
 
         let later = try load(Self.pieceB, control: control)
         XCTAssertEqual(later.caret, baseline, "an hour later, an ordinary open lands nothing")
+
+        // **And the window asks it** (shell p1 final fix): the drop above is
+        // inert unless `ParagraphNavModifier` calls it whenever `open`
+        // changes. Deleting that line left every test green.
+        let modifier = try SourceTree.sourceOfType("ParagraphNavModifier", under: ["Maugham"])
+        let code = modifier.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") }
+        let change = try XCTUnwrap(code.firstIndex { $0.hasPrefix(".onChange(of: subject.open)") },
+                                   "the window watches `open`")
+        XCTAssertTrue(code[change...].prefix(3).contains {
+            $0.contains("ManuscriptNavigation.openChanged(to: open, control: editorControl)")
+        }, "a change of `open` drops a place whose piece the window has left")
     }
 
     /// **I2: a refused load drops its place** — and only its own. Production's

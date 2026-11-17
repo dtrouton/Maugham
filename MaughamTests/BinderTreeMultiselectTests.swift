@@ -189,7 +189,8 @@ final class BinderTreeMultiselectTests: XCTestCase {
                           stored: [.research("a")], subject: beside("a"))
         XCTAssertEqual(out.subject,
                        WindowSubject(open: .item("c2"), faces: .item("c2"),
-                                     beside: .research("a")))
+                                     beside: .research("a"), besideIsLatest: false),
+                       "the chapter was clicked after the note: it is the part clicked last")
         XCTAssertEqual(out.selection, [.item("c2")])
     }
 

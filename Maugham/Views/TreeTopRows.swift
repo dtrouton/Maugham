@@ -77,10 +77,6 @@ struct TreeTopRows: View {
             .id(subject)
     }
 
-    /// Whether the tree draws the Inbox row: the project has a capture
-    /// manifest (`BinderTreeSectionsState.projectHasInbox`, cached), the
-    /// window's inbox holds a capture, or the Inbox is what is open — a row
-    /// that is open is always drawn.
     /// Whether the Inbox row carries its dot: the inbox holds a capture still
     /// awaiting triage — the same `entries` (new captures only) the deleted
     /// picker badge counted, kept fresh by the same store refreshes. A read of
@@ -95,6 +91,10 @@ struct TreeTopRows: View {
         !(inbox?.entries.isEmpty ?? true)
     }
 
+    /// Whether the tree draws the Inbox row: the project has a capture
+    /// manifest (`BinderTreeSectionsState.projectHasInbox`, cached), the
+    /// window's inbox holds a capture, or the Inbox is what is open — a row
+    /// that is open is always drawn.
     @MainActor
     static func hasInbox(state: BinderTreeSectionsState, store: ProjectStore,
                          subject: WindowSubject) -> Bool {

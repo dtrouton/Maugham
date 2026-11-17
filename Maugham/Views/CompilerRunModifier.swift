@@ -45,6 +45,11 @@ struct CompilerRunModifier: ViewModifier {
     let subject: WindowSubject
     /// The book's structure, so a Part on the faces is not taken for a piece.
     let structure: [StructureItem]
+    /// Whether a piece's `Document` is open in this window — the only thing a
+    /// run can read (`CompilerEnvironment`'s `reading`).
+    let isDocumentOpen: (String) -> Bool
+    /// The window's flash, for a run whose piece is not open.
+    let onPieceNotOpen: () -> Void
     /// `UserPreferences.mcpEnabled` — the one toggle that governs outbound as
     /// well as inbound (spec §3.5). Passed as a value so `.onChange` sees it;
     /// the session enforces the toggle again on every send, and this is what
@@ -81,10 +86,37 @@ struct CompilerRunModifier: ViewModifier {
         return RunKeyRequest(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)
     }
 
+    /// **What a run command does** (shell p1 final fix, I2): nothing with no
+    /// piece; a run when the piece's document is open; otherwise the
+    /// `.pieceWouldNotOpen` flash. The faces can sit on a piece no editor has
+    /// loaded (the canvas or an edition in the centre), and the compiler reads
+    /// only an open document — a run there used to do nothing, without a word.
+    enum Decision: Equatable {
+        case nothing
+        case run(RunKeyRequest)
+        case pieceNotOpen
+    }
+
+    static func decision(_ command: RunCommand, subject: WindowSubject,
+                         structure: [StructureItem],
+                         isDocumentOpen: (String) -> Bool) -> Decision {
+        guard let request = request(command, subject: subject, structure: structure) else {
+            return .nothing
+        }
+        return isDocumentOpen(request.docId) ? .run(request) : .pieceNotOpen
+    }
+
     private func send(_ command: RunCommand) {
-        guard let request = Self.request(command, subject: subject, structure: structure) else { return }
-        roster.compiler.runRequested(
-            docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
+        switch Self.decision(command, subject: subject, structure: structure,
+                             isDocumentOpen: isDocumentOpen) {
+        case .nothing:
+            return
+        case .pieceNotOpen:
+            onPieceNotOpen()
+        case .run(let request):
+            roster.compiler.runRequested(
+                docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)
+        }
     }
 
     func body(content: Content) -> some View {

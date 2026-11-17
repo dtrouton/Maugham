@@ -97,9 +97,9 @@ import MaughamCore
 /// (`SceneNavigatorPane.scriptRow` — structurally a structure row in every way
 /// that matters, just named for what a screenplay's one document always is).
 /// Excluded on purpose: a slugline in `SceneNavigatorPane` is a place in the
-/// script, not a subject. Its own click opens the script through the click
-/// rule — with the canvas or an edition open that moves only the faces, and
-/// the scroll it posts then reaches no editor.
+/// script, not a subject. Its own click posts `.maughamNavigateToScene`, a
+/// place, whose receiver opens the script whatever the centre was
+/// (`ManuscriptNavigation`).
 enum TreeTravel {
 
     /// What a double-click on the row naming `clicked` makes of the window's

@@ -45,9 +45,13 @@ struct ResearchRevealModifier: ViewModifier {
     /// across clicks (the click rule), so a change that leaves it as it was —
     /// the faces moving to a chapter, the Book opening — is not an arrival, and
     /// revealing on it would take the writer's chosen pane away on every click
-    /// after the first. The restore (from `nil`) is not an arrival either.
+    /// after the first. The restore (from `nil`) is not an arrival either, and
+    /// nor is putting what was beside away (shell p1 final fix). Something
+    /// already beside that a navigation makes the part clicked last again
+    /// (`ClickRule.navigate`) is: the writer asked to be shown it.
     static func isAnArrival(from previous: WindowSubject?, to next: WindowSubject?) -> Bool {
-        guard let previous, let next else { return false }
+        guard let previous, let next, next.beside != nil else { return false }
         return next.beside != previous.beside
+            || (next.besideIsLatest && !previous.besideIsLatest)
     }
 }

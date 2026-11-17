@@ -3,26 +3,25 @@ import MaughamCore
 import AppKit
 
 /// Owns this window's translation-review selection: receives the key-window
-/// picker / enter / exit commands (ADR 0021), resolves the active doc's
+/// picker / enter / exit commands (ADR 0021), resolves the open doc's
 /// available languages for the picker, mirrors the chosen language ONE-WAY
 /// into `editorControl.translationLanguage` (EditorHost swaps in the derived
 /// surface and the coordinator flips its membrane from there), and renders
 /// the top indicator pill next to `ReviewModeIndicator`.
 ///
-/// The app-global menu can't reach `activeDocId`/`projectURL`, so it posts a
+/// The app-global menu can't reach the subject/`projectURL`, so it posts a
 /// generic "show picker" command and THIS window presents the picker — the
 /// filesystem scan happens only on demand, never on every body render.
 struct TranslationReviewModifier: ViewModifier {
     let window: NSWindow?
     let projectURL: URL
-    /// From `ProjectWindow`'s boundary (`BinderSubject.activeDocId`), so this
-    /// modifier sees the same value the right-hand panes do.
-    let activeDocId: String
-    /// Points the window at a chapter when a reveal names one that is not the
-    /// open one (`ClickRule.navigate`). The round report the row was clicked
-    /// in is dismissed explicitly by its own `onReveal`
-    /// (`PublishCentreModel.clearRound`), since it draws over a chapter too.
-    let navigate: (BinderSubject) -> Void
+    /// The window's subject. Everything here asks about the piece the CENTRE
+    /// has open (`TranslationReveal.openDocId`) — the one the editor holds —
+    /// never the faces (shell p1 final fix, C1 and M9). A reveal that names
+    /// another piece goes to it as a place (`ManuscriptNavigation.go`), so its
+    /// piece opens whatever the centre was. The round report or problems list
+    /// the row was clicked in is dismissed by its own `onReveal`.
+    @Binding var subject: WindowSubject
     /// For the pending reveal's one question: has that chapter's `Document`
     /// registered yet? The enter-review post reaches an `EditorCoordinator` that
     /// does not exist until it has.
@@ -32,7 +31,7 @@ struct TranslationReviewModifier: ViewModifier {
     @State private var translationLanguage: String?
     @State private var pickerLanguages: [String] = []
     @State private var showingPicker = false
-    /// A reveal whose chapter had to be selected first, held until `activeDocId`
+    /// A reveal whose chapter had to be opened first, held until `openDocId`
     /// catches up. Nil at every other moment.
     @State private var pendingReveal: TranslationReveal?
     /// The two waits a reveal performs — for the chapter's document, then for
@@ -44,16 +43,19 @@ struct TranslationReviewModifier: ViewModifier {
     private static let revealPollInterval = 50
     private static let revealPollAttempts = 60
 
+    /// The piece the centre has open, or the no-document sentinel.
+    private var openDocId: String { TranslationReveal.openDocId(subject) }
+
     func body(content: Content) -> some View {
         content
             .onKeyWindowCommand(.maughamShowTranslationPicker, window: window) { _ in
                 // The sentinel names no document, so the store finds no
                 // translations for it and the picker says so — the same empty
                 // list the `nil` arm produced before.
-                pickerLanguages = activeDocId == BinderSubject.noDocumentSubject
+                pickerLanguages = openDocId == BinderSubject.noDocumentSubject
                     ? []
                     : TranslationStore.languages(
-                        forDocId: activeDocId, in: projectURL).sorted()
+                        forDocId: openDocId, in: projectURL).sorted()
                 showingPicker = true
             }
             .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { note in
@@ -70,12 +72,14 @@ struct TranslationReviewModifier: ViewModifier {
             // made here — `.now` when the chapter is up, `.afterSelecting` when not.
             .onKeyWindowCommand(.maughamRevealTranslation, window: window) { note in
                 guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
-                switch TranslationReveal.plan(reveal, activeDocId: activeDocId) {
+                switch TranslationReveal.plan(reveal, subject: subject) {
                 case .now:
                     startReveal(reveal, waitingForDocument: false)
-                case .afterSelecting(let subject):
+                case .afterSelecting:
                     pendingReveal = reveal
-                    navigate(subject)
+                    ManuscriptNavigation.go(
+                        to: TranslationReveal.destination(reveal, current: subject),
+                        subject: $subject)
                 }
             }
             // The chosen language belongs to the doc that was active when it was
@@ -85,7 +89,7 @@ struct TranslationReviewModifier: ViewModifier {
             // window looks at the chapter it named. The clear still runs first, on
             // purpose: until the reveal's enter-review post sets the language, the
             // writer sees the new chapter's SOURCE, never the previous edition.
-            .onChange(of: activeDocId) { _, newValue in
+            .onChange(of: openDocId) { _, newValue in
                 if translationLanguage != nil {
                     translationLanguage = nil
                     editorControl.translationLanguage = nil

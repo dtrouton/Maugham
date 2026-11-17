@@ -295,7 +295,12 @@ struct CentreColumn: View {
                         case .paragraph(let reveal):
                             TranslationReveal.post(reveal)
                         case .piece(let piece):
-                            navigate(to: piece, store: store)
+                            ManuscriptNavigation.go(
+                                to: PublishProblems.destination(
+                                    revealing: piece, current: subject,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type),
+                                subject: $subject)
                         }
                     })
             case .translationRound(let round):
@@ -490,8 +495,10 @@ struct CentreColumn: View {
                    // research id from a deleted one) needs the manifest, which the
                    // canvas does not hold — and this body re-evaluates per manifest
                    // change, the canvas's per drag frame.
-                   // The faces (or what is opened beside): a click on a piece moves
-                   // the faces while the canvas keeps the centre.
+                   // The part clicked last — the faces or what is opened beside
+                   // (`WindowSubject.besideIsLatest`): a click on a piece moves the
+                   // faces while the canvas keeps the centre, and lights its region
+                   // even with a note still beside.
                    subject: CanvasSubject.resolve(subject.lastClicked,
                                                   in: store.manifest.structure,
                                                   research: store.manifest.research),

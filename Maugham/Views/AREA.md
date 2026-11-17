@@ -248,9 +248,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The subject decides, never a mode
 - **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.
-- **The right column is `DetailSegment.pickerOrder` filtered, never reordered**: the desk only with an edition open, `needsADocument` panes only while the faces name a document; a selected segment is always carried. One remembered segment in `UIState` (`DetailSegmentOrderTests`).
+- **The right column is `DetailSegment.pickerOrder` filtered, never reordered**: the desk only with an edition open, `needsADocument` panes only while the faces' piece is the one open in the centre (`facesPieceIsOpen`); a selected segment is always carried. One remembered segment in `UIState` (`DetailSegmentOrderTests`).
 - **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
-- **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
+- **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver (the translation reveal included) routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*

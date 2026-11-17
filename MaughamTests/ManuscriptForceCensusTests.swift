@@ -135,6 +135,13 @@ final class ManuscriptForceCensusTests: XCTestCase {
             Expectation(receiver: ".maughamTreeTravel",
                        file: "Maugham/Views/TreeTravel.swift",
                        call: "TreeTravel.openInCentre("),
+            // A translation round report row, a publish problem, a figure's
+            // Used-in link: a place, whose piece opens even from an edition
+            // (shell p1 final fix, C1 — it went through the click rule, which
+            // left the edition in the centre and dropped the reveal).
+            Expectation(receiver: ".maughamRevealTranslation",
+                       file: "Maugham/Views/TranslationReviewModifier.swift",
+                       call: "ManuscriptNavigation.go("),
         ]
         for expectation in expectations {
             let fileTexts = try texts(of: expectation.file)
@@ -167,7 +174,8 @@ final class ManuscriptForceCensusTests: XCTestCase {
         for path in ["Maugham/Views/BinderPaneToggle.swift",
                      "Maugham/Views/CollectionBinderPaneToggle.swift",
                      Self.window,
-                     "Maugham/Views/TreeTravel.swift"] {
+                     "Maugham/Views/TreeTravel.swift",
+                     "Maugham/Views/TranslationReviewModifier.swift"] {
             XCTAssertFalse(try text(of: path).isEmpty, "\(path): read nothing")
         }
     }

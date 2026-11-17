@@ -146,14 +146,15 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let opensInspector: Bool
 
         /// The window's subject after Show: the canvas opened in the centre
-        /// exactly as a double-click on the tree's Canvas row opens it
-        /// (`ClickRule`'s `.openInCentre`: `open` and `faces` on the canvas),
-        /// and whatever is beside left where it is.
+        /// as a double-click on the tree's Canvas row opens it (`open` and
+        /// `faces` on the canvas), and whatever was beside put away (shell p1
+        /// final fix, M2): the right column asks what is beside first, so a
+        /// note left there would hide the region inspector Show opens.
         func subject(from current: WindowSubject) -> WindowSubject {
             var next = current
             next.open = open
             next.faces = open
-            if next.beside == open { next.beside = nil }
+            next.beside = nil
             return next
         }
     }

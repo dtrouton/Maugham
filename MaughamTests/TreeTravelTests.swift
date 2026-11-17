@@ -64,7 +64,11 @@ final class TreeTravelDestinationTests: XCTestCase {
         XCTAssertEqual(heard(note, selected: true, over: beside), .book)
         XCTAssertEqual(heard(note, selected: false, over: beside), beside,
                        "a row that was not selected is the `List`'s to deliver")
-        XCTAssertEqual(heard(.project, selected: true, over: beside), beside,
+        // The Book row drawn selected means the Book was clicked after the
+        // note (`WindowSubject.besideIsLatest`, shell p1 final fix I1).
+        let bookLatest = WindowSubject(open: .project, faces: .project, beside: note,
+                                       besideIsLatest: false)
+        XCTAssertEqual(heard(.project, selected: true, over: bookLatest), bookLatest,
                        "any other selected row: nothing for the click rule to change")
         XCTAssertEqual(heard(note, selected: true, over: .book),
                        WindowSubject(open: .project, faces: .project, beside: note),

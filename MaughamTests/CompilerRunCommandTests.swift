@@ -671,9 +671,11 @@ final class CompilerRunCommandTests: XCTestCase {
         }
     }
 
-    /// **The Canvas open with a piece on the faces: the run reads that piece**
-    /// — never the canvas, and a check stays a check.
-    func test_aRunWithTheCanvasOpenRunsOnTheFacesPiece() {
+    /// **The Canvas open with a piece on the faces: the run ASKS for that
+    /// piece** — never the canvas, and a check stays a check. What production
+    /// does with the request is the next test's: with the canvas in the centre
+    /// no editor has the piece open, so the request is answered with a flash.
+    func test_aRunWithTheCanvasOpenAsksForTheFacesPiece() {
         let subject = WindowSubject(open: .canvas, faces: .item(docId))
         XCTAssertEqual(CompilerRunModifier.request(.checkWriting, subject: subject, structure: []),
                        .init(docId: docId, kind: .check, freshEyes: false))
@@ -685,6 +687,29 @@ final class CompilerRunCommandTests: XCTestCase {
             for: WindowSubject(open: .item("OPEN"), faces: .item(docId)), structure: []), docId)
         XCTAssertEqual(CompilerRunModifier.runDocId(
             for: WindowSubject(open: .item(docId), faces: .project), structure: []), docId)
+    }
+
+    /// **A run whose piece is not open says so** (shell p1 final fix, I2):
+    /// the compiler reads only an open document, and with the canvas or an
+    /// edition in the centre the faces' piece usually is not one. The press is
+    /// answered with `.pieceWouldNotOpen`, never silence; an open piece runs;
+    /// no piece at all is still nothing.
+    func test_aRunWhosePieceIsNotOpenFlashesInsteadOfDoingNothing() {
+        let subject = WindowSubject(open: .canvas, faces: .item(docId))
+        for command in RunCommand.allCases {
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: subject, structure: [], isDocumentOpen: { _ in false }),
+                .pieceNotOpen, "\(command): the faces' piece is not open")
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: subject, structure: [], isDocumentOpen: { $0 == self.docId }),
+                .run(.init(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)),
+                "\(command): an open piece runs")
+            XCTAssertEqual(CompilerRunModifier.decision(
+                command, subject: WindowSubject(open: .canvas, faces: .canvas), structure: [],
+                isDocumentOpen: { _ in false }), .nothing, "\(command): no piece, no run")
+        }
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.pieceWouldNotOpen.flashLabel,
+                       "Couldn\u{2019}t open the piece \u{2014} try again.")
     }
 
     /// **A Part on the faces is not a piece**: the run falls through to the

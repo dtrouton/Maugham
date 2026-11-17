@@ -18,11 +18,11 @@ The window has no modes. What it shows is a function of what the writer pointed 
 - `faces` — what the right column is about.
 - `beside` — reference material opened beside (optional).
 
-`WindowSubject.book` is `open = faces = .project`, no `beside`. `validated(…)` turns a part naming something that no longer exists into the Book (`open`, `faces`) or nil (`beside`). `lastClicked` is `beside ?? faces`.
+`WindowSubject.book` is `open = faces = .project`, no `beside`. `validated(…)` turns a part naming something that no longer exists into the Book (`open`, `faces`) or nil (`beside`). `lastClicked` is whichever of `faces` and `beside` was written last (`besideIsLatest`, kept by a `didSet` on each and saved with the subject): `beside` persists across clicks, so a piece clicked after a note is what the canvas lights and the tree outlines.
 
 ### The click rule
 
-`ClickRule.resolve` is the one rule that turns a tree click into a `WindowSubject`; `centreRoute` (`Maugham/Views/CentreRoute.swift`) answers what the centre draws from `open` alone, as one exhaustive value.
+`ClickRule.resolve` is the one rule that turns a tree click into a `WindowSubject`; `centreRoute` (`Maugham/Views/CentreRoute.swift`) answers what the centre draws from the subject's `open`, the Book's view and the publish state (preview, proposal, round, problems), as one exhaustive value.
 
 | Click on | Result |
 |---|---|
@@ -35,9 +35,9 @@ The window has no modes. What it shows is a function of what the writer pointed 
 
 The reading is: **an overview is navigated FROM, while the canvas and an edition are worked IN.** The Book's Cards, Outline and Status (`BookView`) are overviews, so a click on a piece leaves them for the piece. The canvas and an edition are places the writer works, so a click on a piece there changes what the right column is about and leaves the centre alone.
 
-`ClickRule.navigate` is the same rule for a caller outside the tree (a wiki link, a find result, Claude's Show, a board chip, a creation selecting what it made). It differs in one way: a target already in the last-clicked slot stays exactly where it is, because such a caller says "show me this" and never "put it away".
+`ClickRule.navigate` is the same rule for a caller outside the tree (a wiki link, a find result, Claude's Show, a board chip, a creation selecting what it made). It differs in one way: a target already beside or last clicked stays where it is (one beside becomes the part clicked last again), because such a caller says "show me this" and never "put it away". Claude's Show opens the canvas and puts away what was beside, so the right column shows the region it selected.
 
-**Going to a place always opens its piece.** A go-to-paragraph or slugline sets `open` to the place's document. A place the window's editor does not yet have loaded is held on `EditorControl.pendingPlace` and landed once that document loads (`ManuscriptNavigation.holdingThePlace`; consumed in `EditorSurface.makeNSView`). It lives on `EditorControl`, `@ObservationIgnored`, and not on `EditorHost`, because it is a request and not control state: nothing may observe it, and a parallel observable on `EditorHost` is tripwire 6. The slot is last-act-wins; `ManuscriptNavigation.openChanged` drops a waiting place whose document is no longer open, and a refused load drops it too, so it never lands on a later, ordinary open.
+**Going to a place always opens its piece.** A go-to-paragraph or slugline, a translation reveal (a round report row, a publish problem, a figure's Used-in link) and a publish problem with no paragraph set `open` and `faces` to the place's document, whatever the centre was; the reveal is planned against the piece the centre has open, never the faces. Every receiver is named in `ManuscriptForceCensusTests`. A place the window's editor does not yet have loaded is held on `EditorControl.pendingPlace` and landed once that document loads (`ManuscriptNavigation.holdingThePlace`; consumed in `EditorSurface.makeNSView`). It lives on `EditorControl`, `@ObservationIgnored`, and not on `EditorHost`, because it is a request and not control state: nothing may observe it, and a parallel observable on `EditorHost` is tripwire 6. The slot is last-act-wins; `ManuscriptNavigation.openChanged` drops a waiting place whose document is no longer open, and a refused load drops it too, so it never lands on a later, ordinary open.
 
 ### The tree
 
@@ -55,7 +55,7 @@ Run is four explicit commands in the File menu, each naming its own `RunKind` (`
 
 ### The right column
 
-The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one remembered segment in `UIState`. The Department pane is offered only while an edition is open, and a pane that needs a document only while `faces` names one. At narrow widths the picker falls back from normal to small to a menu; the menu form carries no unread badges. This is transitional: plan 2 replaces the picker.
+The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one remembered segment in `UIState`. The Department pane is offered only while an edition is open, and a pane that needs a document (and the Annotations pane's document scope) only while the faces' piece is the one the centre has open (`DetailPaneToggle.facesPieceIsOpen`); a segment reached by key or already selected is carried. With the canvas or an edition in the centre the faces can sit on a piece no editor has loaded: those panes show their empty states, and a run there answers with the `.pieceWouldNotOpen` flash rather than doing nothing. At narrow widths the picker falls back from normal to small to a menu; the menu form carries no unread badges. This is transitional: plan 2 replaces the picker.
 
 ### What was deleted
 
@@ -81,6 +81,14 @@ Later plans of the same milestone. None of these exist; nothing above depends on
 - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
 - The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
 - A drop on the tree's Canvas row as the capture-to-canvas route, with the spec's open decision on the Inbox at scale.
+- **The faces' piece readable without the editor** (a store-level read of an unopened piece). Plan 2 is written against it: its To Resolve and Brief show the faces' piece with the canvas in the centre. Until then the document panes are not offered, and a run flashes, for a faces' piece the centre does not have open.
+- The tree's stage dot (`ReviewStatus`) and its one "to resolve" dot on rows; only the Inbox dot exists.
+- The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
+- Drop-target feedback on the tree that says which drop is about to happen.
+- The old inspector's dispersal: word and page targets to the status line, tags to Outline, links to the fold, publishing settings to the edition's Status; and the line above the prose opening Brief on click.
+- An edition's centre scrolling the book to a piece clicked in the tree, and the separate translation-review mode going.
+- The Canvas centre's right column (the selected card's or region's details).
+- The spec's open decision on what each ⌘⌥ pane shortcut maps to.
 
 ## Decisions made during the build
 
@@ -99,3 +107,5 @@ Each was a ruling taken in the build ledger on the agent's authority, not Denver
 11. There is no capture-to-canvas drag in one window; Send to Canvas remains.
 12. The word ceiling of `docs/tripwires.md` is raised by 10 for the `NoPersonaCensusTests` line.
 13. `NoPersonaCensusTests` greps `\bPersona\b` and `\bpersona\b` only.
+14. **Lock does not lock the manuscript text**, a departure from the approved design, which said it would cover "the text and the research and figure surfaces Review locks today". Review locked only research, figures and palette cards, and no existing plain text lock was found to reuse (`isManualReviewMode` is the editor's own control). Cost if wrong: Denver may want the text locked later, a new refusal at the editor's write door.
+15. The final fix wave (whole-branch review C1, I1, I2): a reveal and a publish problem are places; `WindowSubject` records which of `faces` and `beside` was clicked last; the document panes and a run ask whether the faces' piece is open (the smallest fix, not the store-level read, which is plan 2's).

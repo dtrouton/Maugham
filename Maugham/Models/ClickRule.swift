@@ -42,15 +42,21 @@ public enum ClickRule {
     }
 
     /// **Going to a thing from outside the tree** — a wiki link, a find
-    /// result, Claude's Show, a board chip, a creation selecting what it made.
-    /// A click, except that a thing already beside or in the faces stays
-    /// exactly where it is: such a caller says *show me this*, never *put it
-    /// away*, so it must not reach the click's dismissal. `nil` is the Book.
-    /// (Task 4 replaces this with going to a place.)
+    /// result, a board chip, a creation selecting what it made. A click,
+    /// except that a thing already beside or in the faces stays exactly where
+    /// it is: such a caller says *show me this*, never *put it away*, so it
+    /// must not reach the click's dismissal. What is beside becomes the part
+    /// clicked last again (`WindowSubject.besideIsLatest`). `nil` is the Book.
+    /// A paragraph or document is a place, not this: `ManuscriptNavigation`.
     public static func navigate(to target: BinderSubject?, current: WindowSubject,
                                 structure: [StructureItem],
                                 projectType: ProjectType) -> WindowSubject {
         let target = target ?? .project
+        if target == current.beside {
+            var next = current
+            next.beside = target
+            return next
+        }
         guard target != current.lastClicked else { return current }
         return resolve(target, gesture: .click, current: current,
                        structure: structure, projectType: projectType)

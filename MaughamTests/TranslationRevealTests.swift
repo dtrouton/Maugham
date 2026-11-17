@@ -38,6 +38,40 @@ final class TranslationRevealTests: XCTestCase {
             + "the reveal is about")
     }
 
+    /// **A reveal from an edition opens its piece** (shell p1 final fix, C1).
+    /// A round report row or a publish problem is only drawn over an edition,
+    /// and the faces can sit on the edition, on the very piece, or elsewhere:
+    /// in every case the plan is made against what the CENTRE has open (the
+    /// edition, so never `.now`), and the reveal takes the window to its piece
+    /// as a place — `open` and `faces` both — leaving `beside` alone. The click
+    /// rule would have moved only the faces and the reveal would have waited
+    /// for a document the editor never loads.
+    func test_aRevealFromAnEditionOpensItsPiece() {
+        let opened = WindowSubject(open: .item("doc-2"), faces: .item("doc-2"),
+                                   beside: .research("r-1"), besideIsLatest: false)
+        for faces: BinderSubject in [.edition(language: "es"), .item("doc-2"),
+                                     .item("doc-1"), .project] {
+            let current = WindowSubject(open: .edition(language: "es"), faces: faces,
+                                        beside: .research("r-1"))
+            XCTAssertEqual(
+                TranslationReveal.plan(reveal, subject: current),
+                .afterSelecting(.item("doc-2")),
+                "faces \(faces): the edition is what the centre shows, so the "
+                + "piece is not open and the reveal must open it first")
+            XCTAssertEqual(
+                TranslationReveal.destination(reveal, current: current), opened,
+                "faces \(faces): a reveal is a place — its piece takes the centre")
+        }
+        let canvas = WindowSubject(open: .canvas, faces: .item("doc-2"))
+        XCTAssertEqual(TranslationReveal.plan(reveal, subject: canvas),
+                       .afterSelecting(.item("doc-2")),
+                       "the canvas has no editor: the faces' piece is not open")
+        XCTAssertEqual(
+            TranslationReveal.plan(reveal, subject: WindowSubject(
+                open: .item("doc-2"), faces: .item("doc-2"))),
+            .now, "the piece is open in the centre: reveal at once")
+    }
+
     func test_theRevealRoundTripsThroughItsPayload() {
         var received: Notification?
         let token = MaughamEvent.observe(
