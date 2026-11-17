@@ -49,7 +49,7 @@ struct CompilerRunModifier: ViewModifier {
     /// run can read (`CompilerEnvironment`'s `reading`).
     let isDocumentOpen: (String) -> Bool
     /// The window's flash, for a run whose piece is not open.
-    let onPieceNotOpen: () -> Void
+    let onPieceNotOpen: (RunKind) -> Void
     /// `UserPreferences.mcpEnabled` — the one toggle that governs outbound as
     /// well as inbound (spec §3.5). Passed as a value so `.onChange` sees it;
     /// the session enforces the toggle again on every send, and this is what
@@ -88,13 +88,13 @@ struct CompilerRunModifier: ViewModifier {
 
     /// **What a run command does** (shell p1 final fix, I2): nothing with no
     /// piece; a run when the piece's document is open; otherwise the
-    /// `.pieceWouldNotOpen` flash. The faces can sit on a piece no editor has
+    /// `.openThePieceFirst` flash. The faces can sit on a piece no editor has
     /// loaded (the canvas or an edition in the centre), and the compiler reads
     /// only an open document — a run there used to do nothing, without a word.
     enum Decision: Equatable {
         case nothing
         case run(RunKeyRequest)
-        case pieceNotOpen
+        case pieceNotOpen(RunKind)
     }
 
     static func decision(_ command: RunCommand, subject: WindowSubject,
@@ -103,7 +103,7 @@ struct CompilerRunModifier: ViewModifier {
         guard let request = request(command, subject: subject, structure: structure) else {
             return .nothing
         }
-        return isDocumentOpen(request.docId) ? .run(request) : .pieceNotOpen
+        return isDocumentOpen(request.docId) ? .run(request) : .pieceNotOpen(request.kind)
     }
 
     private func send(_ command: RunCommand) {
@@ -111,8 +111,8 @@ struct CompilerRunModifier: ViewModifier {
                              isDocumentOpen: isDocumentOpen) {
         case .nothing:
             return
-        case .pieceNotOpen:
-            onPieceNotOpen()
+        case .pieceNotOpen(let kind):
+            onPieceNotOpen(kind)
         case .run(let request):
             roster.compiler.runRequested(
                 docId: request.docId, kind: request.kind, freshEyes: request.freshEyes)

@@ -371,8 +371,8 @@ struct ProjectWindow: View {
                                       isDocumentOpen: { [weak documentStore] docId in
                                           documentStore?.document(forDocId: docId) != nil
                                       },
-                                      onPieceNotOpen: { [flash = compilerFlash] in
-                                          flash.show(.pieceWouldNotOpen)
+                                      onPieceNotOpen: { [flash = compilerFlash] kind in
+                                          flash.show(.openThePieceFirst(kind))
                                       },
                                       mcpEnabled: userPreferences.mcpEnabled))
         .onKeyWindowCommand(.maughamToggleFullScreen, window: window) { _ in

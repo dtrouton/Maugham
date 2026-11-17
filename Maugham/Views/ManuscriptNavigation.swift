@@ -19,9 +19,9 @@ import MaughamCore
 /// nowhere.
 ///
 /// **Which receivers route here is a census, not a number** —
-/// `ManuscriptForceCensusTests` names the notifications
-/// (`.maughamNavigateToDocument`, `.maughamNavigateToParagraph`,
-/// `.maughamNavigateToScene`) and requires each receiver to call `go`.
+/// `ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`
+/// names the notifications and requires each receiver to call `go`; read the
+/// list there rather than a copy here.
 ///
 /// It used to decide a window MODE (Denver's 2026-08-02 ruling, *"if I'm moving
 /// to the manuscript I'm moving to Author"*); the subject's `open` is that

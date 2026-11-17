@@ -66,6 +66,11 @@ final class CompilerOrchestrator {
         /// `RunWhenDocumentOpens`' bound (Denver's 2026-08-18 ruling). A
         /// FAILURE, so it says what to do next.
         case pieceWouldNotOpen
+        /// **A run asked of a piece that is not open** (shell p1 final fix
+        /// 2): the faces sit on a piece the centre does not show (the canvas
+        /// or an edition), so nothing tried to open it and trying again would
+        /// do nothing. Says what to do, by the kind the command named.
+        case openThePieceFirst(RunKind)
         /// A round on a piece with no STAGE (unassigned, or a retired pass). A
         /// round with no lane numbers nothing (`RoundEditor`); the coach reads
         /// checks and is no substitute. A FAILURE, worded the same way.
@@ -84,6 +89,8 @@ final class CompilerOrchestrator {
             case .alreadyChecking: return "Still checking\u{2026}"
             case .freshEyes: return "Reading whole\u{2026}"
             case .pieceWouldNotOpen: return "Couldn\u{2019}t open the piece \u{2014} try again."
+            case .openThePieceFirst(.check): return "Open the piece to run a check on it."
+            case .openThePieceFirst(.round): return "Open the piece to run a round on it."
             case .noEditor: return "Set a pass to run a round."
             case .notYourPiece: return "Not your piece \u{2014} leave a note instead."
             }

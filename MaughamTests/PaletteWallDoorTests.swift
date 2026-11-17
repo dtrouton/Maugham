@@ -151,6 +151,35 @@ final class PaletteWallDoorTests: XCTestCase {
         XCTAssertEqual(wall.closingWall(Self.piece), Self.piece)
     }
 
+    /// **Closing the wall keeps the order of the clicks before it** (shell p1
+    /// final fix 2, N1): a piece clicked after a note on the canvas is still
+    /// the part clicked last once the wall closes, and the close is not an
+    /// arrival, so the right column's pane is not taken. A note opened while
+    /// the wall was up still arrives.
+    func test_closingTheWallKeepsTheLastClickedOrderAndIsNotAnArrival() {
+        let note = BinderSubject.research("r-1")
+        let canvas = WindowSubject(open: .canvas, faces: .canvas)
+        let before = ClickRule.resolve(.item("ch-1"), gesture: .click,
+            current: ClickRule.resolve(note, gesture: .click, current: canvas,
+                                       structure: [], projectType: .novel),
+            structure: [], projectType: .novel)
+        XCTAssertFalse(before.besideIsLatest, "premise: the piece was clicked after the note")
+        let atWall = ClickRule.resolve(.palette, gesture: .click, current: before,
+                                       structure: [], projectType: .novel)
+        let wall = PaletteWallState(inspectorWasVisibleBefore: true, subjectBeforeWall: before)
+        let closed = wall.closingWall(atWall)
+        XCTAssertEqual(closed, before)
+        XCTAssertEqual(closed.lastClicked, .item("ch-1"))
+        XCTAssertFalse(ResearchRevealModifier.isAnArrival(from: atWall, to: closed))
+
+        let other = BinderSubject.research("r-2")
+        let noteAtWall = ClickRule.resolve(other, gesture: .click, current: atWall,
+                                           structure: [], projectType: .novel)
+        let closedWithNew = wall.closingWall(noteAtWall)
+        XCTAssertEqual(closedWithNew.beside, other)
+        XCTAssertEqual(closedWithNew.lastClicked, other, "control: a new note is the part clicked last")
+    }
+
     // MARK: - Esc closes the wall — a REAL Escape, at the wall's own claim
 
     /// **The mechanism is `.onExitCommand`, reused from Task 1** — see

@@ -49,7 +49,10 @@ struct PaletteWallState: Equatable {
     func closingWall(_ subject: WindowSubject) -> WindowSubject {
         guard ProjectWindow.showsPaletteWallCentre(subject: subject) else { return subject }
         var back = subjectBeforeWall ?? .book
-        back.beside = subject.beside
+        // Only on change: writing `beside` marks it the part clicked last
+        // (`WindowSubject.besideIsLatest`), and the same note carried back
+        // must keep the order it had before the wall (shell p1 final fix 2).
+        if back.beside != subject.beside { back.beside = subject.beside }
         return back
     }
 }

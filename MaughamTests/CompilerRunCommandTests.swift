@@ -692,14 +692,16 @@ final class CompilerRunCommandTests: XCTestCase {
     /// **A run whose piece is not open says so** (shell p1 final fix, I2):
     /// the compiler reads only an open document, and with the canvas or an
     /// edition in the centre the faces' piece usually is not one. The press is
-    /// answered with `.pieceWouldNotOpen`, never silence; an open piece runs;
-    /// no piece at all is still nothing.
+    /// answered with `.openThePieceFirst` for the command's kind, never
+    /// silence, and it says what to do: nothing tried to open the piece, so
+    /// "try again" (`.pieceWouldNotOpen`, the board chip's timeout) would be
+    /// false (final fix 2). An open piece runs; no piece at all is nothing.
     func test_aRunWhosePieceIsNotOpenFlashesInsteadOfDoingNothing() {
         let subject = WindowSubject(open: .canvas, faces: .item(docId))
         for command in RunCommand.allCases {
             XCTAssertEqual(CompilerRunModifier.decision(
                 command, subject: subject, structure: [], isDocumentOpen: { _ in false }),
-                .pieceNotOpen, "\(command): the faces' piece is not open")
+                .pieceNotOpen(command.kind), "\(command): the faces' piece is not open")
             XCTAssertEqual(CompilerRunModifier.decision(
                 command, subject: subject, structure: [], isDocumentOpen: { $0 == self.docId }),
                 .run(.init(docId: docId, kind: command.kind, freshEyes: command.isFreshEyes)),
@@ -708,8 +710,10 @@ final class CompilerRunCommandTests: XCTestCase {
                 command, subject: WindowSubject(open: .canvas, faces: .canvas), structure: [],
                 isDocumentOpen: { _ in false }), .nothing, "\(command): no piece, no run")
         }
-        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.pieceWouldNotOpen.flashLabel,
-                       "Couldn\u{2019}t open the piece \u{2014} try again.")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.openThePieceFirst(.check).flashLabel,
+                       "Open the piece to run a check on it.")
+        XCTAssertEqual(CompilerOrchestrator.Acknowledgment.openThePieceFirst(.round).flashLabel,
+                       "Open the piece to run a round on it.")
     }
 
     /// **A Part on the faces is not a piece**: the run falls through to the
