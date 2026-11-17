@@ -648,6 +648,62 @@ final class ResearchNoteWritersTests: XCTestCase {
         XCTAssertEqual(researchMatches(after).count, 3)
     }
 
+    // MARK: - Replace is compare-and-swap (#147 R2)
+
+    /// Lands `outside` on `item`'s file once, as the door is about to read
+    /// it: after Replace's own read, before anything is written.
+    private func landOutsideAfterReplacesRead(_ outside: String, on item: ResearchItem,
+                                              _ store: DocumentStore) throws {
+        let url = file(try XCTUnwrap(item.path))
+        store.researchNoteDoor.willReadForTesting = { [weak store] itemId in
+            guard itemId == item.id else { return }
+            store?.researchNoteDoor.willReadForTesting = nil
+            try? Data(outside.utf8).write(to: url)
+        }
+    }
+
+    /// A change made outside Maugham between Replace's read of a note and
+    /// the door's write is never written over: Replace refuses as stale, the
+    /// outside text stands, and nothing is kept as a version.
+    func test_aNoteChangedOutsideBetweenReplacesReadAndItsWriteIsRefused_andTheOutsideTextStands() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("The fog came in.", in: projectStore)
+        let results = await search("fog", projectStore)
+        projectStore.currentSearch = results
+        let match = try XCTUnwrap(researchMatches(results).first)
+        try landOutsideAfterReplacesRead("The fog came in. From outside.", on: item, store)
+
+        do {
+            try await projectStore.replaceMatch(match, with: "mist")
+            XCTFail("a note changed since Replace read it must be refused")
+        } catch ProjectStoreError.staleSearchMatch {}
+
+        XCTAssertEqual(try text(of: item, projectStore), "The fog came in. From outside.",
+                       "the outside bytes are on disk untouched")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was written, so nothing was kept")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0,
+                       "nothing was written, so no open editor re-reads")
+    }
+
+    /// Replace All skips (does not abort on) a note changed outside after
+    /// its read: that note is left as it was and named with the notes Replace
+    /// All leaves alone, and every other note is still replaced.
+    func test_replaceAllSkipsANoteChangedOutsideAfterItsRead_andReplacesTheRest() async throws {
+        let (store, projectStore) = try await openBook()
+        let changed = try await note("The fog came in.", titled: "Changed", in: projectStore)
+        let other = try await note("The fog stayed.", titled: "Other", in: projectStore)
+        let results = await search("fog", projectStore)
+        XCTAssertEqual(researchMatches(results).count, 2)
+        try landOutsideAfterReplacesRead("The fog came in. From outside.", on: changed, store)
+
+        let outcome = try await projectStore.replaceAll(in: results, with: "mist")
+
+        XCTAssertEqual(try text(of: changed, projectStore), "The fog came in. From outside.")
+        XCTAssertTrue(versions(of: changed).isEmpty, "nothing was written over it, so nothing was kept")
+        XCTAssertEqual(try text(of: other, projectStore), "The mist stayed.", "the rest is replaced")
+        XCTAssertEqual(outcome.leftAlone, ["Changed"], "counted with the notes Replace All leaves alone")
+    }
+
     // MARK: - Asset refs after a rename or a move (recon §6 row 6)
 
     func test_renamingANoteWithAssetsKeepsItsTextAsAVersion() async throws {

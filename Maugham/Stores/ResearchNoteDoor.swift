@@ -91,6 +91,10 @@ enum ResearchNoteSave: Equatable {
     case saved(keptAVersion: Bool)
     /// Nothing was written (and, where the writer can act on it, said).
     case notSaved
+    /// Nothing was written or kept, and nothing said: the file no longer
+    /// holds the bytes the caller made its text from (`expectingBytesHash`,
+    /// #147 R2). The caller answers for it (Replace: `staleSearchMatch`).
+    case changedSinceTheCallerRead
 }
 
 /// **The note door's memory** (note versions plan 2): the table door
@@ -168,11 +172,14 @@ final class ResearchNoteDoor {
         /// the version could not be kept, the file would not read, or the
         /// write failed. The editor's text stays pending for the next attempt.
         case stoppedTextStaysPending
+        /// A caller's expectation failed (`ResearchNoteSave.changedSinceTheCallerRead`).
+        case changedSinceTheCallerRead
 
         var asSave: ResearchNoteSave {
             switch self {
             case .saved(let kept): return .saved(keptAVersion: kept)
             case .notSaved, .stoppedTextStaysPending: return .notSaved
+            case .changedSinceTheCallerRead: return .changedSinceTheCallerRead
             }
         }
     }
@@ -420,20 +427,26 @@ final class ResearchNoteDoor {
     /// funnel, a rename sweep, Replace, a promotion): the item is looked up
     /// in it, so a store whose `DocumentStore` was wired one way only (a
     /// load-only test context) still finds what it is writing.
+    /// `expectingBytesHash`: `ContentHash.of` the bytes the caller made
+    /// `text` from (Replace, #147 R2); when the door's read finds other bytes
+    /// it writes nothing and answers `.changedSinceTheCallerRead`. Nil — no
+    /// expectation, as before.
     func save(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
-              mustLand: Bool, owner: ProjectStore? = nil, in store: DocumentStore) async -> ResearchNoteSave {
+              mustLand: Bool, expectingBytesHash: String? = nil, owner: ProjectStore? = nil,
+              in store: DocumentStore) async -> ResearchNoteSave {
         if let entry = pending.removeValue(forKey: itemId) {
             entry.timer?.cancel()
             _ = await enqueue(itemId, text: entry.text, by: .writer, restoring: nil,
                               source: .editorFlush, owner: owner, in: store)
         }
         return await enqueue(itemId, text: text, by: writer, restoring: restoring,
-                             source: .direct(mustLand: mustLand), owner: owner, in: store).asSave
+                             source: .direct(mustLand: mustLand), expectingBytesHash: expectingBytesHash,
+                             owner: owner, in: store).asSave
     }
 
     /// One save, queued behind any save of the same note already in flight.
     private func enqueue(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
-                         source: SaveSource, owner: ProjectStore? = nil,
+                         source: SaveSource, expectingBytesHash: String? = nil, owner: ProjectStore? = nil,
                          in store: DocumentStore) async -> Outcome {
         enqueuedForTesting?(itemId)
         let before = inFlight[itemId]?.task
@@ -447,7 +460,8 @@ final class ResearchNoteDoor {
             _ = await before?.value
             guard let self, let store else { return .notSaved }
             return await self.write(itemId, text: text, by: writer, restoring: restoring,
-                                    source: source, owner: owner, in: store)
+                                    source: source, expectingBytesHash: expectingBytesHash,
+                                    owner: owner, in: store)
         }
         inFlight[itemId] = (token, task)
         return await task.value
@@ -502,8 +516,15 @@ final class ResearchNoteDoor {
     /// not made, and each is said. The verb's own saves (its mover's flush,
     /// `ResearchItemsMoving.byThisTask`) are written as before. A file
     /// missing with no verb moving it is written afresh, as before.
+    ///
+    /// **A caller's expectation is compare-and-swap** (#147 R2): with
+    /// `expectingBytesHash`, a read (the first, or the retry's) that finds
+    /// other bytes — or no file — writes nothing, keeps nothing and says
+    /// nothing (`.changedSinceTheCallerRead`): the caller's text was made
+    /// from bytes that are no longer there.
     private func write(_ itemId: String, text: String, by writer: ResearchWriter, restoring: String?,
-                       source: SaveSource, owner: ProjectStore?, in store: DocumentStore,
+                       source: SaveSource, expectingBytesHash: String? = nil,
+                       owner: ProjectStore?, in store: DocumentStore,
                        secondRead: Bool = false) async -> Outcome {
         let projectURL = store.projectURL
         let item: ResearchItem, path: String
@@ -522,6 +543,11 @@ final class ResearchNoteDoor {
             // Silent: the span's end sets the timer again, and it lands then.
             if source == .editorTimer { return .stoppedTextStaysPending }
             return unreachable(itemId, .beingMoved(item, fileURL), text: text, source: source, in: store)
+        }
+        if let expectingBytesHash {
+            guard case .bytes(let data) = prior, ContentHash.of(data) == expectingBytesHash else {
+                return .changedSinceTheCallerRead
+            }
         }
         let onDisk: Data?
         let expecting: FileExpectation
@@ -612,7 +638,7 @@ final class ResearchNoteDoor {
             // as a version before the note is saved.
             researchNoteLog.error("\(pathNow, privacy: .public) changed after it was read; reading it again")
             return await write(itemId, text: text, by: writer, restoring: restoring, source: source,
-                               owner: owner, in: store, secondRead: true)
+                               expectingBytesHash: expectingBytesHash, owner: owner, in: store, secondRead: true)
         } catch ProjectStoreError.unsafeProjectPath(let refused, let reason) {
             store.logRefusedSave(path: refused, reason: reason)
             return unreachable(itemId, .refusedPath(item, pathNow), text: text, source: source, in: store)
@@ -1007,13 +1033,18 @@ extension DocumentStore {
     /// `mustLand`: saved even when that version cannot be kept, with a
     /// notice saying so (a write whose reason has already happened, as a
     /// moved note's asset refs).
+    /// `expectingBytesHash`: `ContentHash.of` the bytes the caller made
+    /// `text` from; the door writes nothing over other bytes and answers
+    /// `.changedSinceTheCallerRead` (compare-and-swap, Replace, #147 R2).
     /// `from`: the project store asking, when one is (`ResearchNoteDoor.save`'s `owner`).
     @discardableResult
     func saveResearchNote(itemId: String, text: String, by writer: ResearchWriter = .writer,
                           restoring: String? = nil, mustLand: Bool = false,
+                          expectingBytesHash: String? = nil,
                           from projectStore: ProjectStore? = nil) async -> ResearchNoteSave {
         await researchNoteDoor.save(itemId, text: text, by: writer, restoring: restoring,
-                                    mustLand: mustLand, owner: projectStore, in: self)
+                                    mustLand: mustLand, expectingBytesHash: expectingBytesHash,
+                                    owner: projectStore, in: self)
     }
 
     /// **A palette card editor's own save of the card's text** — the writer's

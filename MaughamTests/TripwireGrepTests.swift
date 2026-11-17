@@ -15764,7 +15764,7 @@ extension TripwireGrepTests {
     /// `SafeRelativePath` confines a path to the project, not to research, so
     /// a write site that does not ask writes over the manuscript or the op log.
     /// - `ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)` — the table door, `tablePath(`.
-    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)` — the
+    /// - `ResearchNoteDoor.swift:write(_:text:by:restoring:source:expectingBytesHash:owner:in:secondRead:)` — the
     ///   note door, `noteLookup(` (which asks `ResearchNoteDoor.takes` →
     ///   `ResearchTextRole.of`).
     /// Since palette cards keep versions (2026-11-11) every card writer —
@@ -15786,7 +15786,7 @@ extension TripwireGrepTests {
     /// in different folders (keys use the file name, not its folder).
     static let researchFileSaveFunctions: [String: String] = [
         "ResearchTableHost.swift:write(_:by:restoring:source:secondRead:)": "ResearchTextRole.tablePath(",
-        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:owner:in:secondRead:)": "noteLookup(",
+        "ResearchNoteDoor.swift:write(_:text:by:restoring:source:expectingBytesHash:owner:in:secondRead:)": "noteLookup(",
     ]
     static let researchFileSaveExempt: Set<String> = ["DocumentStore.swift:open(url:)"]
 

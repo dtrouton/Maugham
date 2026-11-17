@@ -127,8 +127,10 @@ extension ProjectStore {
         }
     }
 
-    /// What `replaceAll` did not do: the manuscript documents it left alone
-    /// because this Mac may not write their text (ruling AI), by title.
+    /// What `replaceAll` did not do: the documents it left alone, by title —
+    /// manuscript documents this Mac may not write (ruling AI), Research
+    /// files Maugham may not change, and notes changed since their read
+    /// (#147 R2).
     public struct ReplaceAllOutcome: Equatable, Sendable {
         public let leftAlone: [String]
     }
@@ -234,13 +236,14 @@ extension ProjectStore {
                 // are the newest and the write cannot be undone by a later save.
                 try? await documentStore?.flushPendingSave()
                 await settleResearchEdits(target)
-                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+                let (original, readHash) = try Self.readResearchText(at: url)
                 // Re-found in the text just read, by its ordinal in the search —
                 // never the search-time offsets, which an edit since may have moved.
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: query, options: options,
                     replacement: replacement, clicked: clicked)
-                try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url)
+                try await writeReplacedResearchText(updated, to: target, path: match.documentPath, url: url,
+                                                    readHash: readHash)
             } else {
                 try await replaceInManuscript(
                     path: match.documentPath, title: match.documentTitle,
@@ -402,21 +405,38 @@ extension ProjectStore {
         return .note(item)
     }
 
+    /// **A Research file's text as Replace reads it, with the hash of the
+    /// bytes read** — the door's expectation for the write
+    /// (`writeReplacedResearchText`'s `readHash`, #147 R2).
+    private static func readResearchText(at url: URL) throws -> (text: String, bytesHash: String) {
+        let bytes = try Data(contentsOf: url)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+        guard let text = String(data: bytes, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSURLErrorKey: url])
+        }
+        return (text, ContentHash.of(bytes))
+    }
+
     /// A research file's text after a replace. **A note goes through the note
     /// door** — what it held is kept as a version, and an editor open on it
-    /// reloads — and the door writing nothing throws, as any other failure of
-    /// this write does (`replaceAll` stops there, as it always has). A file
+    /// reloads — **as compare-and-swap** (#147 R2): the door is handed
+    /// `readHash`, the hash of the bytes `text` was made from, and a note
+    /// changed since writes nothing and throws `staleSearchMatch` (Replace All
+    /// skips that note and names it). The door writing nothing for any
+    /// other reason throws, as any other failure of this write does
+    /// (`replaceAll` stops there, as it always has). A file
     /// no item names has no door and keeps the raw atomic write; so does a
     /// note in a store never given a `DocumentStore`. A note in a store that
     /// had one and lost it (teardown) throws rather than write raw (#141 N6).
     private func writeReplacedResearchText(_ text: String, to target: ResearchReplaceTarget,
-                                           path: String, url: URL) async throws {
+                                           path: String, url: URL, readHash: String) async throws {
         if case .note(let note) = target {
             if let ds = documentStore {
-                guard case .saved = await ds.saveResearchNote(itemId: note.id, text: text, from: self) else {
-                    throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
+                switch await ds.saveResearchNote(itemId: note.id, text: text,
+                                                 expectingBytesHash: readHash, from: self) {
+                case .saved: return
+                case .changedSinceTheCallerRead: throw ProjectStoreError.staleSearchMatch
+                case .notSaved: throw ProjectStoreError.fileSystemError("“\(note.title)” was not changed.")
                 }
-                return
             }
             guard rawNoteWriteWithNoDoor() == .allowed else {
                 throw ProjectStoreError.noteWriteRefusedAsTheProjectCloses
@@ -443,6 +463,8 @@ extension ProjectStore {
     /// **A manuscript document this Mac may not write is SKIPPED and named**
     /// (controller ruling AI), never replaced and never a part-way failure:
     /// the rest of the book is replaced, and the outcome lists what was left.
+    /// So is a Research note changed between Replace All's read of it and
+    /// the door's write (#147 R2): nothing is written to it.
     ///
     /// **It takes its turn with the single Replaces** (`takingTheReplaceTurn`)
     /// **and ends by refreshing `currentSearch`** — on a throw too, since a
@@ -500,7 +522,7 @@ extension ProjectStore {
                     continue
                 }
                 await settleResearchEdits(target)
-                let original = try String(contentsOf: url, encoding: .utf8)  // adr-0018-ok: research-note read (manuscript replace routes through the op log)
+                let (original, readHash) = try Self.readResearchText(at: url)
                 // Every match the text just read holds, not the search-time list.
                 let updated = try Self.replacingResearchMatches(
                     in: original, query: results.query, options: results.options,
@@ -508,7 +530,14 @@ extension ProjectStore {
                 // Nothing left to replace (the query is gone since the
                 // search): the file is skipped and nothing is written.
                 guard updated != original else { continue }
-                try await writeReplacedResearchText(updated, to: target, path: path, url: url)
+                do {
+                    try await writeReplacedResearchText(updated, to: target, path: path, url: url,
+                                                        readHash: readHash)
+                } catch ProjectStoreError.staleSearchMatch {
+                    // Changed since the read just above (#147 R2): nothing
+                    // was written; left as it was, and named.
+                    leftAlone.append(matches[0].documentTitle)
+                }
             }
         }
         return ReplaceAllOutcome(leftAlone: leftAlone)

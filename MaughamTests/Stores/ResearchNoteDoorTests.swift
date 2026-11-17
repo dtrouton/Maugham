@@ -602,6 +602,57 @@ final class ResearchNoteDoorTests: XCTestCase {
         XCTAssertEqual(heard.notices, ["Couldn’t save “Notes”: \(Self.changedWhileSaving)"])
     }
 
+    // MARK: - Hardening 11-17 task 5: a caller's expectation is compare-and-swap (#147 R2)
+
+    /// A caller that made its text from bytes no longer on disk is turned
+    /// away: nothing written, nothing kept, nothing said, no reload.
+    func test_aSaveExpectingOtherBytesWritesNothing_andAnswersChangedSinceTheCallerRead() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("From outside.", in: projectStore)
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .changedSinceTheCallerRead)
+        XCTAssertEqual(try text(of: item, projectStore), "From outside.")
+        XCTAssertTrue(versions(of: item).isEmpty, "nothing was kept")
+        XCTAssertEqual(heard.notices, [], "the caller answers for it")
+        XCTAssertEqual(store.researchNoteReloadCount(itemId: item.id), 0)
+    }
+
+    /// The expectation met, the save is made as any direct save is.
+    func test_aSaveExpectingTheBytesOnDiskIsMade() async throws {
+        let (store, projectStore) = try await openBook()
+        let item = try await note("Before.", in: projectStore)
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .saved(keptAVersion: true))
+        XCTAssertEqual(try text(of: item, projectStore), "Replaced.")
+        XCTAssertEqual(try versions(of: item).map(versionText), ["Before."])
+    }
+
+    /// Bytes landing after the door's own read are found by the coordinated
+    /// write; the door's retry reads them, and they fail the caller's
+    /// expectation: they stand, and are not kept.
+    func test_aChangeLandingAfterTheDoorsReadFailsTheCallersExpectationOnTheRetry() async throws {
+        let (store, projectStore) = try await openBook()
+        let heard = listen()
+        let item = try await note("Before.", in: projectStore)
+        landOutside(["From outside."], at: file(try XCTUnwrap(item.path)))
+
+        let saved = await store.saveResearchNote(itemId: item.id, text: "Replaced.",
+                                                 expectingBytesHash: ContentHash.of(Data("Before.".utf8)))
+
+        XCTAssertEqual(saved, .changedSinceTheCallerRead)
+        XCTAssertEqual(try text(of: item, projectStore), "From outside.")
+        XCTAssertFalse(try versions(of: item).map(versionText).contains("From outside."),
+                       "the outside bytes were not kept: nothing was written over them")
+        XCTAssertEqual(heard.notices, [])
+    }
+
     // MARK: - The prior file
 
     func test_aMissingOrEmptyFileKeepsNothingAndSaves() async throws {
