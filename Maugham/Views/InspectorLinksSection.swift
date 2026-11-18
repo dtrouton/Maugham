@@ -139,8 +139,7 @@ struct InspectorLinksSection: View {
     }
 
     private var backlinks: [StructureItem] {
-        TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
-            .filter { ($0.links ?? []).contains(currentItemId) }
+        PieceLinks.linkedFrom(currentItemId, in: store.manifest.structure)
     }
 
     private func linkedTitle(id: String) -> String {

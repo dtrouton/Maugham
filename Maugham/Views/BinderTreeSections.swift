@@ -1082,6 +1082,19 @@ final class BinderTreeSectionsState {
     /// `foldExpansion(of:)` (stage-3b Task 7); before it, a fold's open/closed
     /// flag was SwiftUI's own private state and `reveal` could not open one.
     var expandedPieceFolds: Set<String> = []
+    /// **Every piece's fold contents** (shell plan 3, Task 2), built in a tree
+    /// host's `.task(id: PieceFoldIndex.key(…))` and read per row by lookup —
+    /// never computed in a row (tripwire 4). Not persisted, as
+    /// `expandedPieceFolds` is not.
+    var foldIndex: PieceFoldIndex = .empty
+    /// The host's count of `.maughamCanvasNodesAdded` — the closed-canvas
+    /// write that moves no manifest stamp and no live scene revision, so the
+    /// fold index's key carries it (`PieceFoldIndex.Key.canvasWrites`).
+    var foldCanvasWrites = 0
+    /// **The groups of a grouped fold (past six entries) that are OPEN**,
+    /// keyed per piece — the open-ids-only spelling `expandedPieceFolds` uses,
+    /// for its reasons. Not persisted.
+    var expandedFoldGroups: Set<PieceFoldGroupKey> = []
 
     /// **A one-shot scroll request** (stage-3b Task 8) — set by ⌘⌥R/⌘⌥P (a
     /// section header) and by the two forced-reveal entries plus a find
