@@ -26,6 +26,10 @@ struct DiagnosticsPaneHeader: View {
     let onCompilerModelChange: (CompilerModelChoice) -> Void
     let onChooseReader: (AuthorReaderChoice) -> Void
     let onOpenProjectSettings: () -> Void
+    /// Whether Reread is drawn. To resolve's head offers it on the open piece
+    /// only (read anywhere, act only on the open piece; hidden, not
+    /// disabled). The old pane draws it always.
+    var offersReread: Bool = true
 
     var body: some View { header }
 
@@ -100,17 +104,24 @@ struct DiagnosticsPaneHeader: View {
                 // `.failed`'s remedy is another read, and a control that
                 // reports a failure then withholds the button answering it is
                 // RULING-35's dead control with a red line over it.
-                Button(DiagnosticsPane.rereadTitle) {
-                    orchestrator.runRequested(docId: docId, kind: .check, freshEyes: true)
+                //
+                // **It posts the command** (shell plan 2 Task 5): ⇧⌘R's own
+                // event, so the window runs its open piece and answers a piece
+                // it cannot open — one delivery path, no second call into the
+                // orchestrator from a view.
+                if offersReread {
+                    Button(DiagnosticsPane.rereadTitle) {
+                        MaughamEvent.postRun(.reread)
+                    }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        // A round on this piece holds the window's one session
+                        // too (#77 F7): Reread stays refused exactly as it was
+                        // while the header read `.running` over that round, and
+                        // now says whose run it is waiting for.
+                        .disabled(isRunningState || otherLoopLine != nil)
+                        .help(otherLoopLine ?? DiagnosticsPane.rereadHelp)
                 }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    // A round on this piece holds the window's one session
-                    // too (#77 F7): Reread stays refused exactly as it was
-                    // while the header read `.running` over that round, and
-                    // now says whose run it is waiting for.
-                    .disabled(isRunningState || otherLoopLine != nil)
-                    .help(otherLoopLine ?? DiagnosticsPane.rereadHelp)
                 gearMenu
             }
             // **The picker P1 promised, and it travels nowhere** (two loops

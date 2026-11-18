@@ -135,6 +135,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
 - `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift` — a note's verbs and sheets, one note row, a to-do's verbs.
+- `Maugham/Views/Resolve/ResolveHead.swift` — the head; also the shared letter host, cockpit mount and nudge row.
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.

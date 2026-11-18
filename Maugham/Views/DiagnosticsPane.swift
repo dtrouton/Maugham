@@ -573,40 +573,27 @@ struct DiagnosticsPane: View {
     @ViewBuilder
     private var letterSection: some View {
         if let run = lastRun, let letter = run.letter, !letter.isEmpty {
-            let ledger = ledgerHandlers(for: letter, run: run)
-            LetterSection(
-                letter: letter,
-                // **The run, so an accepted exercise is forgotten with it.**
-                // An index means nothing outside one letter (final review).
-                runId: run.id,
-                signature: LetterSection.signature(
-                    // **The name the RUN was read under, not the live one**
-                    // (two loops P2 Task 4, P1's Ruling 10). The writer changes
-                    // who reads their checks — vacates the seat, names a first
-                    // reader — and a standing letter signed by whoever reads
-                    // today is yesterday's letter in a stranger's hand. `nil`
-                    // is a record written before the stamp existed, which falls
-                    // back to the live reader: the same answer those records
-                    // always got.
-                    voice: run.readerName ?? reader.editorName, round: run.round,
-                    // The stage this run derived, off the SAME letter
-                    // `shortLetterPart` reads (fix round 1, minor 2) \u{2014}
-                    // `run.letter?.draftStage` would be a second path to one
-                    // value, and the two could disagree about one letter.
-                    stage: letter.draftStage),
+            // **The one letter host** (`RunLetterSection`, moved out with the
+            // round's in shell plan 2 Task 5): this pane supplies its values
+            // and its refusal channels; the verbs and builders live there.
+            RunLetterSection(
+                letter: letter, run: run,
+                // **The name the RUN was read under, not the live one** (two
+                // loops P2 Task 4, P1's Ruling 10). The section signs, heads
+                // Keep, files lessons and files Add-to-intent with this one
+                // value. `nil` is a record written before the stamp existed,
+                // which falls back to the live reader.
+                voice: run.readerName ?? reader.editorName,
+                docId: docId, store: store, world: world,
+                postureOf: posture.statement,
                 currentText: currentText,
                 onJump: { Self.jump(toParagraph: $0) },
                 // `promote`'s own verb, one layer out: the exercise is the
-                // thing to DO, and a habit with no exercise never draws the
-                // button, so the `?? habit.name` fallback is a belt on a path
-                // the view already refuses to offer.
+                // thing to DO.
                 //
                 // **`paneDocument`, not `activeDocument()`** (fix round 1):
-                // the guard is the pane's own — the window's active document
-                // IS this pane's subject, or there is no queue and no task to
-                // file. Anchoring a habit's exercise onto another chapter's
-                // document would be a task the writer cannot account for from
-                // anything on their screen.
+                // anchoring a habit's exercise onto another chapter's
+                // document would be a task the writer cannot account for.
                 onAcceptExercise: !Self.offersATask(posture) ? nil : { habit in
                     paneDocument?.createPaneTask(
                         body: habit.exercise ?? habit.name,
@@ -614,82 +601,14 @@ struct DiagnosticsPane: View {
                         paragraphId: habit.refs.first?.paragraphId,
                         undoManager: undoManager)
                 },
-                onAddTurnClause: turnClauseOffer(for: letter, run: run),
-                // The tense follows the scope the ruling will be filed at, and
-                // both come from the same builder.
-                addToIntentTitle: TurnClauseOffer.buttonTitle(
-                    store: store, docId: docId),
-                // **Keep files a research note, and the router decides where**
-                // (`LetterKeep`, spec §3.6). This pane supplies its own values
-                // and its own refusal channel; the verb, the render and the
-                // scope are shared with the round cockpit so the two homes
-                // cannot file two different letters.
-                onKeep: LetterKeep.handler(
-                    letter: letter, run: run, docId: docId, store: store,
-                    // The kept note's heading says whose letter it was, so it
-                    // reads the run's own byline for the signature's reason.
-                    editorName: run.readerName ?? reader.editorName,
-                    onKept: { keptLetter = $0 },
-                    onFailure: { answerFailures[Self.keepFailureKey] = $0 }),
-                offerFailure: answerFailures[Self.turnClauseFailureKey],
-                keepConfirmation: LetterKeep.confirmation(for: keptLetter, run: run),
-                keepFailure: answerFailures[Self.keepFailureKey],
-                // **The ledger, from one builder** (P2 Task 7): the text the
-                // offers are judged against and the three presses that write
-                // into it, so this pane cannot draw offers about one file and
-                // write into another — and cannot spell the write differently
-                // from the round cockpit.
-                ledgerText: ledger.ledgerText,
-                // **A stated fact, not one inferred from the wiring.** The
-                // cold claim and the Retire button both turn on it, and a warm
-                // round read a three-paragraph delta, which proves nothing
-                // about a habit.
-                freshEyes: run.freshEyes == true,
-                onKeepAsLesson: ledger.onKeepAsLesson,
-                onAllChoices: ledger.onAllChoices,
-                onRetire: ledger.onRetire,
-                ledgerFailure: ledgerFailure)
+                turnClauseFiledForRun: $turnClauseFiledForRun,
+                offerFailure: $answerFailures[Self.turnClauseFailureKey],
+                keptLetter: $keptLetter,
+                keepFailure: $answerFailures[Self.keepFailureKey],
+                ledgerFailure: $ledgerFailure,
+                ledgerRevision: $ledgerRevision)
             Divider()
         }
-    }
-
-    /// **The ledger's four inputs, built by the one builder both hosts call**
-    /// (`LessonOffer.handlers`). The provenance, the date and the refusal
-    /// channel live there; what this pane supplies is its own voice, its own
-    /// store and its own re-read.
-    private func ledgerHandlers(
-        for letter: Letter, run: CompilerRun
-    ) -> LessonLedgerHandlers {
-        // Read so the text below is re-derived after a write lands — see
-        // `ledgerRevision`, which nothing else observes.
-        _ = ledgerRevision
-        return LessonOffer.handlers(
-            letter: letter, run: run, store: store, world: world,
-            // The provenance of a filed lesson is whoever wrote the letter it
-            // came out of — the run's own byline, not today's reader.
-            voice: run.readerName ?? reader.editorName,
-            postureOf: posture.statement,
-            onFiled: { ledgerRevision += 1 },
-            onFailure: { ledgerFailure = $0 })
-    }
-
-    /// **The offer, decided and written by `TurnClauseOffer`** — the one
-    /// builder both hosts call (fix round 1, Minor 4). The predicate, the two
-    /// tenses it reads and the ruling's provenance all live there; what this
-    /// pane supplies is its own values and its own refusal channel.
-    private func turnClauseOffer(
-        for letter: Letter, run: CompilerRun
-    ) -> (() -> Void)? {
-        TurnClauseOffer.handler(
-            letter: letter, run: run, docId: docId, store: store, world: world,
-            // "from <voice>'s letter" — the run's own byline, on the
-            // signature's rule: a dated ruling must name who actually raised
-            // it.
-            voice: run.readerName ?? reader.editorName,
-            filedRunId: turnClauseFiledForRun,
-            postureOf: posture.statement,
-            onFiled: { turnClauseFiledForRun = $0 },
-            onFailure: { answerFailures[Self.turnClauseFailureKey] = $0 })
     }
 
     /// The offer's slot in `answerFailures`. A ULID id space cannot produce

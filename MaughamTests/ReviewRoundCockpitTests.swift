@@ -1196,10 +1196,18 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// it those would make "resolved" permanently zero under the default
     /// `[.open]` filter and would skew every count under any other.
     func test_theStripIsFedTheUnfilteredQueueAndNotTheVisibleRows() throws {
+        // Two hops since shell plan 2 Task 5: the strip reads through
+        // `ResolveHead.everyState`, the one read To resolve's head makes too.
         let source = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
-        let read = try XCTUnwrap(
+        let hop = try XCTUnwrap(
             Self.declaration(named: "private var cockpitAnnotations:", in: source),
             "the strip's annotation read must be a readable declaration")
+        XCTAssertTrue(hop.contains("ResolveHead.everyState(of: document)"),
+                      "the strip reads the one every-state read. Got:\n\(hop)")
+        let head = try Self.source(of: "Views/Resolve/ResolveHead.swift")
+        let read = try XCTUnwrap(
+            Self.declaration(named: "static func everyState(of document: Document?)", in: head),
+            "the every-state read must be a readable declaration")
 
         XCTAssertTrue(read.contains("AnnotationFilter(statuses: nil)"),
                       "the strip counts the queue in EVERY state \u{2014} a "
@@ -1261,7 +1269,16 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       + "child \u{2014} got:\n\(hop)")
         XCTAssertTrue(hop.contains("onCompilerModelChange: onCompilerModelChange"),
                       "\u{2026}and its own closure \u{2014} got:\n\(hop)")
-        let pane = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
+        // Three hops since shell plan 2 Task 5: the strip hands its pair to
+        // `RoundCockpitMount`, which hands it to the cockpit.
+        let strip = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
+        let mount = try XCTUnwrap(
+            Self.mountArguments(of: "RoundCockpitMount(", in: strip),
+            "the strip must still mount the moved cockpit")
+        XCTAssertTrue(mount.contains("compilerModel: compilerModel")
+                      && mount.contains("onCompilerModelChange: onCompilerModelChange"),
+                      "the strip's own pair must reach the mount \u{2014} got:\n\(mount)")
+        let pane = try Self.source(of: "Views/Resolve/ResolveHead.swift")
         // **Balanced parens, never a character budget** (`mountArguments`'
         // own reasoning): this scan took a fixed 1600-character prefix until
         // the run's clock arrived on two arguments of its own and pushed
@@ -1504,7 +1521,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// that refuses to run one — the two loops disagreeing inside one strip,
     /// which is exactly what this task took apart.
     func test_theProductionMountNeverReachesForTheSeat() throws {
-        let pane = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
+        // The mount moved to `RoundCockpitMount` (shell plan 2 Task 5).
+        let pane = try Self.source(of: "Views/Resolve/ResolveHead.swift")
         let whole = try XCTUnwrap(
             Self.declaration(named: "private var roundCockpit: some View {", in: pane),
             "the strip's mount must still be a readable declaration")
@@ -1809,17 +1827,32 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// takes its voice from the ONE resolution above, and none of them reads
     /// the pane's current pass selection.
     ///
-    /// Four call sites — the signature, Keep, the ledger handlers and the turn
-    /// clause. Falsification: put `cockpitActivePass?.effectiveEditorName`
-    /// back on any one of them and the last assertion fails.
+    /// Four writing sites — the signature, Keep, the ledger handlers and the
+    /// turn clause — live in `RunLetterSection` since shell plan 2 Task 5, and
+    /// each reads its one `voice`; the strip hands it the round's.
+    /// Falsification: put `cockpitActivePass?.effectiveEditorName` back as the
+    /// strip's `voice:` and the last assertion fails.
     func test_everyLetterVerbTakesItsVoiceFromTheStandingRound() throws {
         let source = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
+        let host = try XCTUnwrap(
+            Self.mountArguments(of: "RunLetterSection(", in: source),
+            "the strip must mount the one letter host")
+        XCTAssertTrue(host.contains("voice: letterVoice(run)"),
+                      "the strip hands the host the round's own voice: \(host)")
+        let section = try XCTUnwrap(
+            Self.declaration(
+                named: "struct RunLetterSection: View {",
+                in: readSource("Maugham/Views/Resolve/ResolveHead.swift")),
+            "the letter host must be a readable declaration")
+        let code = SourceScan.codeLines(of: section).joined(separator: "\n")
         XCTAssertEqual(
-            source.components(separatedBy: "voice: letterVoice(run)").count - 1, 3,
+            code.components(separatedBy: "voice: voice").count - 1, 3,
             "the signature, the ledger handlers and the turn clause each take the "
-            + "round's own voice")
-        XCTAssertTrue(source.contains("editorName: letterVoice(run)"),
+            + "run's own voice")
+        XCTAssertTrue(code.contains("editorName: voice"),
                       "and so does Keep, whose parameter is spelled differently")
+        XCTAssertFalse(code.contains("reader") || code.contains("activePass"),
+                       "the host reads no reader and no selection of its own")
         XCTAssertFalse(
             try AnnotationsPaneSource.surfaceSource().contains(
                 "cockpitActivePass?.effectiveEditorName ?? AuthorReader.nobody.editorName"),
@@ -1832,8 +1865,19 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// **The census the mount cannot make**: the pane derives the line through
     /// the one static above and builds the disclosure from the same
     /// `LetterSection` Author draws, rather than a second view of its own.
+    /// The cockpit's mount and the letter host moved to
+    /// `Resolve/ResolveHead.swift` (shell plan 2 Task 5).
     func test_thePaneDerivesTheLineAndDisclosesTheSharedSection() throws {
-        let source = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
+        let strip = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
+        let mount = try XCTUnwrap(
+            Self.mountArguments(of: "RoundCockpitMount(", in: strip),
+            "the strip feeds the moved mount its letter")
+        XCTAssertTrue(mount.contains("letter: cockpitLetter(")
+                      && mount.contains("letterDisclosure:"),
+                      "the strip must feed the line's letter and the disclosure: \(mount)")
+        XCTAssertTrue(strip.contains("RunLetterSection("),
+                      "the disclosure is the one letter host")
+        let source = try readSource("Maugham/Views/Resolve/ResolveHead.swift")
         let cockpit = try XCTUnwrap(
             Self.mountArguments(of: "ReviewRoundCockpit(", in: source),
             "the cockpit's mount is where the two inputs are fed")
@@ -1886,11 +1930,25 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_bothHostsKeepThroughTheOneVerb() throws {
         // Each side is its whole pane: the press lives in one file, and a note
         // filed anywhere else in the pane is still a second answer (#116 F11).
+        //
+        // Since shell plan 2 Task 5 both panes mount the one letter host,
+        // `RunLetterSection`, so the press lives there and each pane must
+        // reach it rather than spell its own.
+        let section = try XCTUnwrap(
+            Self.declaration(named: "struct RunLetterSection: View {",
+                             in: Self.source(of: "Views/Resolve/ResolveHead.swift")),
+            "the one letter host must be a readable declaration")
         let hosts = [
             ("the AnnotationsPane files", try AnnotationsPaneSource.surfaceSource()),
             ("the DiagnosticsPane files", try DiagnosticsPaneSource.surfaceSource()),
         ]
-        for (file, source) in hosts {
+        for (file, pane) in hosts {
+            XCTAssertTrue(pane.contains("RunLetterSection("),
+                          "\(file) must mount the one letter host")
+            XCTAssertFalse(pane.contains("createResearchNote("),
+                           "\(file) must not file a note of its own")
+        }
+        for (file, source) in [("RunLetterSection", section)] {
             XCTAssertTrue(source.contains("onKeep: LetterKeep.handler("),
                           "\(file) must press the shared verb")
             XCTAssertTrue(source.contains("LetterKeep.confirmation(for:"),

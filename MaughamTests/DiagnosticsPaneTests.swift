@@ -1507,63 +1507,29 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Reread (two loops P1 Task 7)
 
-    /// **Reread asks for a cold CHECK of this document, and nothing else.**
+    /// **Reread posts ⇧⌘R's own command, and nothing else** (shell plan 2
+    /// Task 5: one delivery path).
     ///
-    /// The call is what is asserted, never its effect: `reading` and
-    /// `onRunAcknowledged` are closures the harness appends to, and both are
-    /// reached synchronously inside `runRequested` — before the hop that would
-    /// spawn anything — so there is no window between the press and the
-    /// assertion for a poll to have to wait out (tripwire 33).
-    ///
-    /// Three appends, three claims. `readings` says the press named THIS
-    /// document. `acknowledgments` says `freshEyes: true`, because the
-    /// orchestrator answers a cold press with its own case. And
-    /// `roundEditorAsks` being empty says the press was a `.check`: a `.round`
-    /// asks `roundEditor` for a lane synchronously, one line above the
-    /// acknowledgment, and is refused when there is none — so a Reread that had
-    /// been wired to the round loop would leave this document's id in that
-    /// array and no acknowledgment at all.
-    func test_theRereadButtonAsksForAColdCheckOfThisDocument() throws {
-        let docId = "doc-reread-call"
-        let runner = SpyRunner()
-        let recorder = RunRequests()
-        let orchestrator = CompilerOrchestrator()
-        var environment = makeEnvironment(docId: docId, runner: runner)
-        let readingOfRecord = environment.reading
-        environment.reading = { id in
-            recorder.readings.append(id)
-            return readingOfRecord(id)
-        }
-        environment.roundEditor = { id in
-            recorder.roundEditorAsks.append(id)
-            return nil
-        }
-        environment.onRunAcknowledged = { recorder.acknowledgments.append($0) }
-        orchestrator.configure(
-            environment: environment,
-            diagnostics: DiagnosticsStore(
-                projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")))
-
-        let window = mount(AnyView(DiagnosticsPane(
-            posture: .everyVerbForTesting,
-            orchestrator: orchestrator,
-            diagnostics: DiagnosticsStore(
-                projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac")),
-            docId: docId, currentText: { _ in nil }, compilerModel: .standard)))
-        let reread = try button(labelled: DiagnosticsPane.rereadTitle, in: window)
-
-        _ = reread.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        XCTAssertEqual(recorder.readings, [docId],
-                       "Reread must ask about the document this pane is about")
-        XCTAssertEqual(recorder.acknowledgments, [.freshEyes],
-                       "a cold press is answered with its own case \u{2014} an ordinary "
-                       + ".started here means freshEyes never reached the orchestrator")
-        XCTAssertTrue(recorder.roundEditorAsks.isEmpty,
-                      "Author's Reread is a check; a round would have asked for a "
-                      + "lane here and been refused \u{2014} got \(recorder.roundEditorAsks)")
-
-        runner.release(.failed(.timedOut()))
+    /// It used to call `runRequested(docId:kind:.check, freshEyes: true)`
+    /// itself and a press test pinned that call. The button now posts
+    /// `RunCommand.reread` through `MaughamEvent`, so the window runs its open
+    /// piece and answers a piece it cannot open; what `.reread` asks for (a
+    /// cold check, never a round) is `CompilerRunCommandTests`' and the
+    /// `CompilerRunModifier` entry in `WiringCensusTests`. A census, so
+    /// nothing is pressed and waited on (tripwire 33).
+    func test_theRereadButtonPostsTheRereadCommand() throws {
+        let source = try Self.source(of: "Views/DiagnosticsPaneHeader.swift")
+        let code = SourceScan.codeLines(of: source).joined(separator: "\n")
+        let button = try XCTUnwrap(
+            code.range(of: "Button(DiagnosticsPane.rereadTitle) {"),
+            "Reread must still be a button")
+        let action = String(code[button.upperBound...].prefix(80))
+        XCTAssertTrue(action.contains("MaughamEvent.postRun(.reread)"),
+                      "Reread posts the cold check's command. Got: \(action)")
+        XCTAssertFalse(code.contains("runRequested("),
+                       "and the header calls the orchestrator no other way")
+        XCTAssertEqual(RunCommand.reread.kind, .check)
+        XCTAssertTrue(RunCommand.reread.isFreshEyes)
     }
 
     /// Every append the Reread press makes, in order. A reference box because
@@ -4205,13 +4171,16 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// contains `reader.editorName` too, so the assertion is over what is LEFT
     /// once every guarded spelling is removed.
     func test_everythingTheStandingLetterWritesIsSignedByTheRunsOwnReader() throws {
+        // Since shell plan 2 Task 5 the four writing sites — the signature,
+        // Keep's heading, a filed lesson's provenance and Add-to-intent's —
+        // are `RunLetterSection`'s, each reading its one `voice`
+        // (`ReviewRoundCockpitTests.test_everyLetterVerbTakesItsVoiceFromTheStandingRound`
+        // counts them). This pane hands it the run's own byline, once.
         let section = try letterWiringSource()
         XCTAssertEqual(
-            section.components(separatedBy: "run.readerName ?? reader.editorName").count - 1,
-            4,
-            "all four writing sites \u{2014} the signature, Keep's heading, a "
-            + "filed lesson's provenance and Add-to-intent's \u{2014} read the "
-            + "run's own byline: \(section)")
+            section.components(separatedBy: "voice: run.readerName ?? reader.editorName").count - 1,
+            1,
+            "the pane hands the letter host the run's own byline: \(section)")
         let unguarded = section
             .replacingOccurrences(of: "run.readerName ?? reader.editorName", with: "")
         XCTAssertFalse(
@@ -4880,10 +4849,10 @@ final class DiagnosticsPaneTests: XCTestCase {
             source.range(of: "private var letterSection: some View {"),
             "`letterSection` is where the wiring lives; find it by name if it moved")
         let end = try XCTUnwrap(
-            source.range(of: "private func turnClauseOffer(",
+            source.range(of: "static let turnClauseFailureKey",
                          range: start.upperBound..<source.endIndex),
-            "`turnClauseOffer` is the declaration that bounds it; find it by name "
-            + "if it moved")
+            "`turnClauseFailureKey` is the declaration that bounds it (the builders "
+            + "moved to `RunLetterSection`); find it by name if it moved")
         return String(source[start.upperBound..<end.lowerBound])
     }
 
@@ -5300,12 +5269,18 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     /// A letter host's code: each host is its whole pane (#116 F11). Each
     /// pane is split across files, and a ban must see every one of them.
+    private static let resolveHeadPath = "Maugham/Views/Resolve/ResolveHead.swift"
+
     private func hostSource(_ relativePath: String) throws -> String {
         switch relativePath {
+        // Each pane's letter and the strip's cockpit are hosted by the views
+        // they mount from `Resolve/ResolveHead.swift` since shell plan 2 Task
+        // 5 (`RunLetterSection`, `RoundCockpitMount`), so a host's code is its
+        // surface plus that file.
         case "Maugham/Views/AnnotationsPane.swift":
-            return try AnnotationsPaneSource.surfaceSource()
+            return try AnnotationsPaneSource.surfaceSource() + "\n" + readSource(Self.resolveHeadPath)
         case "Maugham/Views/DiagnosticsPane.swift":
-            return try DiagnosticsPaneSource.surfaceSource()
+            return try DiagnosticsPaneSource.surfaceSource() + "\n" + readSource(Self.resolveHeadPath)
         default:
             return try readSource(relativePath)
         }
