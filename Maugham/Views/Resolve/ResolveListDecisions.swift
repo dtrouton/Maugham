@@ -8,7 +8,8 @@ import MaughamCore
 // MARK: - The caret
 
 /// **The caret's group, read where it changes.** Mounted only on the open
-/// piece at a `.piece` scope. It reads `Document.cursorLocation` itself, so a
+/// piece, where the faces' scope holds it (its own list, or the Book or Part
+/// list it was opened inside, review I1). It reads `Document.cursorLocation` itself, so a
 /// caret move re-renders this empty view and nothing else; per move only
 /// `paragraphId(at:)` and the caret function over groups already built run
 /// (tripwire 4), and the list hears of it only when the GROUP changes.
@@ -21,7 +22,8 @@ struct ResolveCaretReader: View {
     @Binding var caretGroup: ResolveGroup.Key?
 
     var body: some View {
-        let paragraph = ResolvePane.caretParagraph(scope: scope, mayAct: true) {
+        let paragraph = ResolvePane.caretParagraph(scope: scope, openDocId: document.docId,
+                                                   mayAct: true) {
             document.paragraphId(at: document.cursorLocation)
         }
         let key = ResolveFilter.cursorGroup(paragraphId: paragraph, docId: document.docId,
@@ -243,11 +245,13 @@ extension ResolvePane {
         }?.key
     }
 
-    /// The caret's paragraph, read only on the open piece at a `.piece`
-    /// scope; nil anywhere else, without reading it.
-    static func caretParagraph(scope: ResolveScope, mayAct: Bool,
+    /// The caret's paragraph, read only on the open piece, and only where the
+    /// scope holds it (its own list, or a Book or Part list it was opened
+    /// inside); nil anywhere else, without reading it.
+    static func caretParagraph(scope: ResolveScope, openDocId: String?, mayAct: Bool,
                                read: () -> String?) -> String? {
-        guard mayAct, case .piece = scope else { return nil }
+        guard mayAct, let openDocId, !DocumentClass.isFigureDocId(openDocId),
+              scope.docIds.contains(openDocId) else { return nil }
         return read()
     }
 

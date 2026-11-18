@@ -144,9 +144,10 @@ enum ResolveFilter {
     /// The caret's group among groups ALREADY BUILT: its paragraph's group, or
     /// in a screenplay (`sceneIndex != nil`) its scene's (Before the first
     /// scene when it precedes every slugline). `docId` is the editor's open
-    /// piece; a group about another piece is never the caret's, and nor is a
-    /// Book or Part's piece group. Nil with no caret, or when the caret's
-    /// paragraph has nothing raised. O(groups) per caret move; no walk.
+    /// piece; a group about another piece is never the caret's. In a Book or
+    /// Part list (groups by piece) the open piece's own group is the caret's
+    /// (review I1). Nil with no caret, or when the caret's paragraph has
+    /// nothing raised. O(groups) per caret move; no walk.
     static func cursorGroup(paragraphId: String?, docId: String, sceneIndex: [String: Int]?,
                             groups: [ResolveGroup]) -> ResolveGroup.Key? {
         guard let paragraphId else { return nil }
@@ -164,8 +165,12 @@ enum ResolveFilter {
             return nil
         }
         let paragraph = ResolveGroup.Key.paragraph(docId: docId, paragraphId: paragraphId)
+        let piece = ResolveGroup.Key.piece(docId: docId)
         for group in groups {
             if group.key == paragraph { return paragraph }
+            // A Book or Part list groups by piece: the open piece's group is
+            // the caret's (review I1).
+            if group.key == piece { return piece }
             if case .unplaced(let groupDoc) = group.key, groupDoc == docId,
                group.items.contains(where: { $0.paragraphId == paragraphId }) {
                 return group.key

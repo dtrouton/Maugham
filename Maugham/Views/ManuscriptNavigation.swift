@@ -44,6 +44,20 @@ enum ManuscriptNavigation {
         return next
     }
 
+    /// **Where a paragraph navigation takes the subject**: To resolve's row
+    /// click over the Book or a Part that holds the piece opens it inside the
+    /// faces (`ClickRule.openInsideTheFaces`, review I1); every other place —
+    /// find, a wiki link, history, Claude's Show, a slugline, a report row —
+    /// is `destination(toDocument:)`, the faces moving with it.
+    static func destination(toDocument docId: String?, payload: [AnyHashable: Any]?,
+                            current: WindowSubject, structure: [StructureItem]) -> WindowSubject {
+        if let docId, payload?[ResolveNavigation.insideTheFacesKey] as? Bool == true,
+           let inside = ClickRule.openInsideTheFaces(docId, current: current, structure: structure) {
+            return inside
+        }
+        return destination(toDocument: docId, current: current)
+    }
+
     /// **Which document a paragraph navigation is in.** The payload's own
     /// `doc_id` when the poster named one; otherwise the piece the faces are
     /// on, because every poster that names none is a right-column pane about
@@ -92,7 +106,7 @@ enum ManuscriptNavigation {
                                 structure: [StructureItem],
                                 control: EditorControl) -> WindowSubject {
         let docId = paragraphDocId(payload: payload, current: current, structure: structure)
-        let next = destination(toDocument: docId, current: current)
+        let next = destination(toDocument: docId, payload: payload, current: current, structure: structure)
         if holdsThePlace(docId: docId, structure: structure,
                          mounted: control.mountedDocumentId),
            let place = place(docId: docId, payload: payload) {

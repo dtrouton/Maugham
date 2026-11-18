@@ -41,10 +41,45 @@ enum ResolveNavigation {
         return payload(docId: docId, paragraphId: paragraphId)
     }
 
+    /// The payload key that makes a row's click open its piece inside the
+    /// faces (`ClickRule.openInsideTheFaces`). Posted only by
+    /// `goInsideTheFaces`; read only by `ManuscriptNavigation.destination`.
+    static let insideTheFacesKey = "resolve_inside_the_faces"
+
     /// Go there. Posts through `MaughamEvent` only (tripwire 21), to the key
     /// window: a note's annotation event first, then the paragraph event.
     static func go(_ item: ResolveItem, firstParagraph: String?) {
-        let payload = payload(for: item, firstParagraph: firstParagraph)
+        post(item, payload: payload(for: item, firstParagraph: firstParagraph).map { $0 as [String: Any] })
+    }
+
+    /// **A row's click in a Book or Part list** (owner's ruling, review I1):
+    /// the same place, but the piece opens inside the faces — `open` moves,
+    /// the faces and the list stay. The receiver falls back to `go`'s
+    /// destination when the faces do not hold the piece.
+    static func goInsideTheFaces(_ item: ResolveItem, firstParagraph: String?) {
+        post(item, payload: insideTheFacesPayload(for: item, firstParagraph: firstParagraph))
+    }
+
+    /// What `goInsideTheFaces` posts: the row's place, marked.
+    static func insideTheFacesPayload(for item: ResolveItem, firstParagraph: String?) -> [String: Any]? {
+        payload(for: item, firstParagraph: firstParagraph).map(insideTheFaces)
+    }
+
+    private static func insideTheFaces(_ place: [String: String]) -> [String: Any] {
+        var info: [String: Any] = place
+        info[insideTheFacesKey] = true
+        return info
+    }
+
+    /// Whether a row's click in `scope` opens its piece inside the faces: a
+    /// Book or Part list that holds the row's piece. A piece's own list, a
+    /// figure's, anything else: the ordinary place.
+    static func opensInsideTheFaces(docId: String, scope: ResolveScope) -> Bool {
+        guard case .pieces(let docIds, _) = scope else { return false }
+        return docIds.contains(docId)
+    }
+
+    private static func post(_ item: ResolveItem, payload: [String: Any]?) {
         if case .note(let note) = item, !DocumentClass.isFigureDocId(note.docId) {
             var info: [String: Any] = ["annotation_id": note.annotation.id]
             if let pid = note.annotation.paragraphId { info[paragraphIdKey] = pid }
@@ -52,6 +87,12 @@ enum ResolveNavigation {
         }
         guard let payload else { return }
         MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow, payload: payload)
+    }
+
+    /// The finding chip's twin of `goInsideTheFaces`.
+    static func goInsideTheFaces(toDocId docId: String, paragraphId: String?) {
+        MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow,
+                          payload: insideTheFaces(payload(docId: docId, paragraphId: paragraphId)))
     }
 
     /// Open `docId` in the centre — with a paragraph, on it. The head's

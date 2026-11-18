@@ -244,6 +244,14 @@ struct ResolvePane: View {
     /// May this window act on the faces' piece?
     private var mayActOnFaces: Bool { pieceDocId.map(mayAct(on:)) ?? false }
 
+    /// **The piece whose caret the list follows**: the open piece, wherever
+    /// the faces' scope holds it — the piece's own list, or the Book or Part
+    /// list it was opened inside (review I1). Nil off the open piece.
+    private var caretDocument: Document? {
+        guard let openDocId, scope.docIds.contains(openDocId), mayAct(on: openDocId) else { return nil }
+        return documentStore.document(forDocId: openDocId)
+    }
+
     private var listKey: ResolveListKey {
         Self.listKey(scope: scope, annotationsToken: annotationsToken, store: store,
                      documentStore: documentStore, diagnostics: diagnostics, localName: localName,
@@ -324,7 +332,7 @@ struct ResolvePane: View {
         .onChange(of: letterLedgerRevision) { _, _ in
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         }
-        .onChange(of: mayActOnFaces) { _, may in if !may { caretGroup = nil } }
+        .onChange(of: caretDocument?.docId) { _, docId in if docId == nil { caretGroup = nil } }
         .onAppear { markChecksRead() }
         // Notes landing while the checks' items are on screen were never
         // unread: the dot is for a run that finished somewhere the writer
@@ -460,8 +468,8 @@ struct ResolvePane: View {
                 }
             }
             .background {
-                if mayActOnFaces, let acting, acting.docId == pieceDocId {
-                    ResolveCaretReader(document: acting, scope: scope, sceneIndex: sceneIndex,
+                if let caret = caretDocument {
+                    ResolveCaretReader(document: caret, scope: scope, sceneIndex: sceneIndex,
                                        groups: shown, caretGroup: $caretGroup)
                 }
             }
@@ -622,7 +630,13 @@ struct ResolvePane: View {
             answerFailure: answerFailures[finding.id],
             // A finding's chips name their own paragraphs: go to the one
             // pressed, on the finding's piece.
-            onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) },
+            onJump: { pid in
+                if ResolveNavigation.opensInsideTheFaces(docId: docId, scope: scope) {
+                    ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: pid)
+                } else {
+                    ResolveNavigation.go(toDocId: docId, paragraphId: pid)
+                }
+            },
             onPromote: { promote(finding, docId: docId) },
             onAnswer: { answer($0, to: finding, docId: docId) })
     }
@@ -831,7 +845,13 @@ struct ResolvePane: View {
             figureClick(note)
             return
         }
-        ResolveNavigation.go(item, firstParagraph: held.sequences[item.docId]?.first)
+        let first = held.sequences[item.docId]?.first
+        // A Book or Part list stays beside the piece it opens (review I1).
+        if ResolveNavigation.opensInsideTheFaces(docId: item.docId, scope: scope) {
+            ResolveNavigation.goInsideTheFaces(item, firstParagraph: first)
+        } else {
+            ResolveNavigation.go(item, firstParagraph: first)
+        }
     }
 
     private func figureClick(_ note: ProjectAnnotation) {

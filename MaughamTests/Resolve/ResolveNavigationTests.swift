@@ -34,6 +34,98 @@ final class ResolveNavigationTests: XCTestCase {
                          createdAt: t, createdBySession: nil))
     }
 
+    // MARK: - A row's click inside the Book or a Part (owner's ruling, review I1)
+
+    private let structure: [StructureItem] = [
+        StructureItem(id: "doc-a", title: "Arrival", type: .document, path: "manuscript/a.md"),
+        StructureItem(id: "part-1", title: "Part One", type: .group, children: [
+            StructureItem(id: "doc-b", title: "Breakfast", type: .document, path: "manuscript/b.md"),
+        ]),
+    ]
+
+    /// The window's receiver, as production runs it (`ParagraphNavModifier`).
+    private func receive(_ payload: [String: Any]?, current: WindowSubject,
+                         control: EditorControl) -> WindowSubject {
+        ManuscriptNavigation.holdingThePlace(payload: payload, current: current,
+                                             structure: structure, control: control)
+    }
+
+    /// What the pane posts for a row's click in `faces`' list.
+    private func clickPayload(_ item: ResolveItem, faces: BinderSubject) -> [String: Any]? {
+        let scope = ResolveScope.of(faces, structure: structure, projectType: .novel)
+        return ResolveNavigation.opensInsideTheFaces(docId: item.docId, scope: scope)
+            ? ResolveNavigation.insideTheFacesPayload(for: item, firstParagraph: "aa11")
+            : ResolveNavigation.payload(for: item, firstParagraph: "aa11")
+    }
+
+    /// Book scope → click a row: the piece is open, the faces are still the
+    /// Book (and so the list), the clicked-last part is still the Book, the
+    /// place is held for the editor, and the row's verbs are then offered.
+    func test_aRowClickInTheBookListOpensThePieceAndLeavesTheFaces() throws {
+        for faces in [BinderSubject.project, .item("part-1")] {
+            let current = WindowSubject(open: .project, faces: faces)
+            let before = ResolveScope.of(faces, structure: structure, projectType: .novel)
+            let row = note("n1", on: "doc-b", pid: "bb22")
+            let control = EditorControl()
+            let next = receive(clickPayload(row, faces: faces), current: current, control: control)
+            XCTAssertEqual(next.open, .item("doc-b"), "\(faces): the row's piece takes the centre")
+            XCTAssertEqual(next.faces, faces, "\(faces): the faces stay")
+            XCTAssertEqual(next.lastClicked, faces, "\(faces): what was clicked last is still the faces")
+            XCTAssertEqual(ResolveScope.of(next.faces, structure: structure, projectType: .novel), before,
+                           "\(faces): so the list stays")
+            XCTAssertEqual(control.pendingPlace?.docId, "doc-b", "\(faces): the place is held for the load")
+            XCTAssertEqual(control.pendingPlace?.target, .paragraph(id: "bb22", offset: nil),
+                           "\(faces): on the row's paragraph")
+            XCTAssertTrue(ResolveVerbGate.mayAct(onDocId: "doc-b", subject: next, isRegistered: { _ in true }),
+                          "\(faces): once registered, the opened piece's rows act inside the list")
+            XCTAssertFalse(ResolveVerbGate.mayAct(onDocId: "doc-a", subject: next, isRegistered: { _ in true }),
+                           "\(faces): and only its rows")
+        }
+    }
+
+    /// Every kind of row, and the finding's chip, go inside the faces.
+    func test_everyRowKindOpensInsideTheBook() {
+        let book = WindowSubject(open: .project, faces: .project)
+        for row in [note("n1", on: "doc-a", pid: "aa11"), finding("s1", on: "doc-a", pid: "aa11"),
+                    todo("t1", on: "doc-a", pid: "aa11")] {
+            let next = receive(clickPayload(row, faces: .project), current: book, control: EditorControl())
+            XCTAssertEqual(next, WindowSubject(open: .item("doc-a"), faces: .project), row.id)
+        }
+    }
+
+    /// At a piece's own scope nothing changes: open = faces = piece.
+    func test_aRowClickAtPieceScopeIsTheOrdinaryPlace() {
+        let current = WindowSubject(open: .canvas, faces: .item("doc-a"))
+        let row = note("n1", on: "doc-a", pid: "aa11")
+        XCTAssertFalse(ResolveNavigation.opensInsideTheFaces(
+            docId: "doc-a", scope: ResolveScope.of(.item("doc-a"), structure: structure, projectType: .novel)))
+        let next = receive(clickPayload(row, faces: .item("doc-a")), current: current, control: EditorControl())
+        XCTAssertEqual(next.open, .item("doc-a"))
+        XCTAssertEqual(next.faces, .item("doc-a"))
+    }
+
+    /// Every OTHER going-to-a-place path keeps `open = faces = piece`: a find
+    /// result (a plain paragraph payload) over the Book still moves the faces.
+    /// And the marked payload where the faces do not hold the piece falls back
+    /// to the same.
+    func test_aFindResultStillMovesTheFaces() {
+        let book = WindowSubject(open: .project, faces: .project)
+        let find: [String: Any] = [docKey: "doc-b", "paragraph_id": "bb22"]
+        let next = receive(find, current: book, control: EditorControl())
+        XCTAssertEqual(next.open, .item("doc-b"))
+        XCTAssertEqual(next.faces, .item("doc-b"), "a find result moves the faces with the piece")
+
+        let elsewhere = WindowSubject(open: .project, faces: .item("part-1"))
+        let marked = ResolveNavigation.insideTheFacesPayload(for: note("n", on: "doc-a", pid: "aa11"),
+                                                             firstParagraph: nil)
+        let fallback = receive(marked, current: elsewhere, control: EditorControl())
+        XCTAssertEqual(fallback, WindowSubject(open: .item("doc-a"), faces: .item("doc-a")),
+                       "a Part that does not hold the piece: the ordinary place")
+        XCTAssertNil(ClickRule.openInsideTheFaces("doc-a", current: WindowSubject(open: .project,
+                                                                                   faces: .figure("fig-aaaa1111")),
+                                                  structure: structure), "a figure's faces hold no piece")
+    }
+
     func test_aRowPayloadAlwaysNamesItsDocument() {
         for item in [note("n1", on: "doc-b", pid: "bb22"),
                      finding("s1", on: "doc-b", pid: "bb22"),

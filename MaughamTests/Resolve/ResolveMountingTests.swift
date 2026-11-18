@@ -198,7 +198,9 @@ final class ResolveMountingTests: XCTestCase {
     }
 
     /// **The mount's travel writes the window's subject and nothing else**
-    /// (`ManuscriptNavigation`'s ruling): the list stays beside the piece.
+    /// (`ManuscriptNavigation`'s ruling) — a figure note's travel. A paragraph
+    /// row's click in a Book or Part list keeps the list by opening the piece
+    /// inside the faces (`ClickRule.openInsideTheFaces`, review I1).
     func test_theMountsTravelClosureWritesTheSubjectAndNothingElse() throws {
         let mount = try SourceTree.declaration(named: "private var resolvePane: some View {", under: "Maugham")
         let start = try XCTUnwrap(mount.range(of: "onTravel: { subject in"))

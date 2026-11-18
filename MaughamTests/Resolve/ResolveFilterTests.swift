@@ -298,7 +298,7 @@ final class ResolveFilterTests: XCTestCase {
                                                sceneIndex: sceneIndex, groups: sparse))
     }
 
-    func test_theCaretsParagraphNamesItsParagraphInProseAndNothingAtBookScope() {
+    func test_theCaretsParagraphNamesItsParagraphInProseAndItsPieceAtBookScope() {
         let groups = [group(.wholePiece(docId: "doc-a")),
                       group(.paragraph(docId: "doc-a", paragraphId: "aa11")),
                       group(.unplaced(docId: "doc-b"), [note("u", on: "doc-b", pid: "cc33")])]
@@ -311,10 +311,19 @@ final class ResolveFilterTests: XCTestCase {
         XCTAssertEqual(ResolveFilter.cursorGroup(paragraphId: "cc33", docId: "doc-b",
                                                  sceneIndex: nil, groups: groups),
                        .unplaced(docId: "doc-b"))
-        // Book / Part scope: piece groups are never the caret's.
-        let book = [group(.bookLevel), group(.piece(docId: "doc-a"), [note("p", pid: "aa11")])]
-        XCTAssertNil(ResolveFilter.cursorGroup(paragraphId: "aa11", docId: "doc-a",
-                                               sceneIndex: nil, groups: book))
+        // Book / Part scope (review I1): the open piece's own group is the
+        // caret's, wherever in the piece the caret is; another piece's never.
+        let book = [group(.bookLevel), group(.piece(docId: "doc-a"), [note("p", pid: "aa11")]),
+                    group(.piece(docId: "doc-b"), [note("q", on: "doc-b", pid: "cc33")])]
+        XCTAssertEqual(ResolveFilter.cursorGroup(paragraphId: "aa11", docId: "doc-a",
+                                                 sceneIndex: nil, groups: book), .piece(docId: "doc-a"))
+        XCTAssertEqual(ResolveFilter.cursorGroup(paragraphId: "zz99", docId: "doc-a",
+                                                 sceneIndex: nil, groups: book), .piece(docId: "doc-a"),
+                       "a paragraph with nothing raised is still in the piece")
+        XCTAssertNil(ResolveFilter.cursorGroup(paragraphId: nil, docId: "doc-a",
+                                               sceneIndex: nil, groups: book), "no caret, no group")
+        XCTAssertNil(ResolveFilter.cursorGroup(paragraphId: "aa11", docId: "doc-c",
+                                               sceneIndex: nil, groups: book), "a piece with no group here")
     }
 
     /// Tripwire 4: per caret move only the caret function runs, and it is

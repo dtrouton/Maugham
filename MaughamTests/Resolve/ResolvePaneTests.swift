@@ -488,18 +488,35 @@ final class ResolvePaneTests: XCTestCase {
 
     // MARK: - The caret (carried item 9)
 
-    /// Only the open piece has a caret group: off it, or at Book scope, the
-    /// caret is never even read.
-    func test_noCaretGroupOffTheOpenPieceOrAtBookScope() {
+    /// Only the open piece has a caret group: off it the caret is never even
+    /// read. Inside a Book or Part list that holds the open piece (review I1)
+    /// it is read, and the caret's group is that piece's.
+    func test_theCaretIsReadOnlyOnTheOpenPieceWhereTheScopeHoldsIt() {
         var asked = 0
         let reader: () -> String? = { asked += 1; return "aa11" }
         let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
-        XCTAssertNil(ResolvePane.caretParagraph(scope: piece, mayAct: false, read: reader))
+        let book = ResolveScope.pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: true)
+        XCTAssertNil(ResolvePane.caretParagraph(scope: piece, openDocId: "doc-a", mayAct: false, read: reader))
+        XCTAssertNil(ResolvePane.caretParagraph(scope: piece, openDocId: nil, mayAct: true, read: reader))
         XCTAssertNil(ResolvePane.caretParagraph(
-            scope: .pieces(docIds: ["doc-a"], includesBookLevel: true), mayAct: true, read: reader))
-        XCTAssertNil(ResolvePane.caretParagraph(scope: .outside, mayAct: true, read: reader))
-        XCTAssertEqual(asked, 0, "the caret is read only where the faces' piece is the open one")
-        XCTAssertEqual(ResolvePane.caretParagraph(scope: piece, mayAct: true, read: reader), "aa11")
+            scope: .pieces(docIds: ["doc-b"], includesBookLevel: false), openDocId: "doc-a",
+            mayAct: true, read: reader), "a Part that does not hold the open piece")
+        XCTAssertNil(ResolvePane.caretParagraph(scope: .outside, openDocId: "doc-a", mayAct: true, read: reader))
+        XCTAssertEqual(asked, 0, "the caret is read only where the scope holds the open piece")
+        XCTAssertEqual(ResolvePane.caretParagraph(scope: piece, openDocId: "doc-a", mayAct: true, read: reader),
+                       "aa11")
+        XCTAssertEqual(ResolvePane.caretParagraph(scope: book, openDocId: "doc-a", mayAct: true, read: reader),
+                       "aa11", "the Book list follows the piece opened inside it")
+
+        // Marked and scrolled to once per group change.
+        let built = groups([note("n1"), note("n2", on: "doc-b", pid: "cc33")], book)
+        let caret = ResolveFilter.cursorGroup(paragraphId: "aa11", docId: "doc-a", sceneIndex: nil, groups: built)
+        XCTAssertEqual(caret, .piece(docId: "doc-a"))
+        XCTAssertEqual(ResolvePane.scrollTarget(from: nil, to: caret), caret, "arriving scrolls to the piece")
+        let moved = ResolveFilter.cursorGroup(paragraphId: "bb22", docId: "doc-a", sceneIndex: nil, groups: built)
+        XCTAssertNil(ResolvePane.scrollTarget(from: caret, to: moved), "a move inside the piece does not")
+        XCTAssertEqual(ResolveFilter.expanded(built, cursor: caret, dense: true), [.piece(docId: "doc-a")],
+                       "dense: the open piece's group is the one open")
     }
 
     /// Per caret move only the caret function runs, and the list scrolls only
