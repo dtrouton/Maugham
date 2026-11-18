@@ -247,10 +247,9 @@ struct ResearchSubjectCentre: View {
     var body: some View {
         switch ProjectWindow.researchCentreRoute(id: itemID, in: store.manifest) {
         case .paletteCard(let cardID):
-            if readOnly {
-                PaletteCardReadHost(store: store, cardId: cardID)
-            } else {
-                PaletteCardEditor(store: store, cardId: cardID)
+            switch PaletteCardSurface.of(readOnly: readOnly) {
+            case .read: PaletteCardReadHost(store: store, cardId: cardID)
+            case .edit: PaletteCardEditor(store: store, cardId: cardID)
             }
         case .note(let item, let path):
             ResearchNoteEditor(
@@ -350,8 +349,11 @@ struct ResearchSubjectInspector: View {
     /// rendering this column has always shown and the right one for a preview:
     /// the writer is looking at the item beside a canvas, not editing it.
     ///
-    /// `.paletteCard` reaches `PaletteCardEditor`, and that choice is the one
-    /// worth defending. There is no read-only card rendering to reuse —
+    /// `.paletteCard` reaches `PaletteCardEditor` — or, while the window is
+    /// locked, `PaletteCardReadHost`, asking the same `readOnly` the centre's
+    /// card asks through the same route (`PaletteCardSurface`; carried from
+    /// shell plan 1, where the beside card stayed editable under Lock). The
+    /// editor is the choice worth defending. There is no read-only card rendering to reuse —
     /// `PaletteCardTile` takes a loaded `PaletteCard` and a pre-loaded
     /// thumbnail, neither of which this column has, and giving it a loader of
     /// its own would be per-render I/O in a column that re-renders with the
@@ -367,7 +369,10 @@ struct ResearchSubjectInspector: View {
         switch ProjectWindow.researchCentreRoute(id: item.id,
                                                  in: store.manifest) {
         case .paletteCard(let cardID):
-            PaletteCardEditor(store: store, cardId: cardID)
+            switch PaletteCardSurface.of(readOnly: readOnly) {
+            case .read: PaletteCardReadHost(store: store, cardId: cardID)
+            case .edit: PaletteCardEditor(store: store, cardId: cardID)
+            }
         case .table(let item, _):
             if let documentStore {
                 ResearchTableGrid(
@@ -389,4 +394,15 @@ struct ResearchSubjectInspector: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+/// **Which surface a palette card gets in a research column** — the one
+/// answer the centre's card and the beside card both ask, so the window's
+/// Lock reaches both (`readOnly` is `WindowLock.refusesEdits`, threaded from
+/// the mount). Hidden, not disabled: a locked card mounts the read view.
+enum PaletteCardSurface: Equatable {
+    case read
+    case edit
+
+    static func of(readOnly: Bool) -> PaletteCardSurface { readOnly ? .read : .edit }
 }

@@ -292,8 +292,8 @@ final class FigureAnnotationQueueHostTests: XCTestCase {
         XCTAssertFalse(store.holdsFigureOpen(figure.id))
     }
 
-    private func verbs(_ store: ProjectStore, _ documentStore: DocumentStore, undo: UndoManager) -> AnnotationsPaneVerbs {
-        AnnotationsPaneVerbs(
+    private func verbs(_ store: ProjectStore, _ documentStore: DocumentStore, undo: UndoManager) -> ResolveNoteVerbs {
+        ResolveNoteVerbs(
             store: store, documentStore: documentStore, world: nil,
             userPreferences: UserPreferences(defaults: UserDefaults(suiteName: "fignote-\(UUID().uuidString)")!),
             undoManager: undo, onChoiceOfferChanged: { _ in },

@@ -26,7 +26,7 @@ struct AnnotationsDocumentQueue: View {
     let bulkInFlight: Bool
     @Binding var selectedIds: Set<String>
     let wiring: AnnotationRowWiring
-    let verbs: AnnotationsPaneVerbs
+    let verbs: ResolveNoteVerbs
 
     @ViewBuilder
     var body: some View {
@@ -167,7 +167,7 @@ struct AnnotationsBulkBar: View {
     let documentStore: DocumentStore
     let bulkInFlight: Bool
     @Binding var selectedIds: Set<String>
-    let verbs: AnnotationsPaneVerbs
+    let verbs: ResolveNoteVerbs
 
     var body: some View { bulkBar(document: document, rows: rows) }
 
@@ -290,8 +290,10 @@ struct AnnotationsBulkBar: View {
 // MARK: - Project scope (M3 P2 Task 7)
 
 /// **Every piece's notes, by the board's rows** — sections, each piece's
-/// header (its yield and its lock), and RULING-54's footnote. Values in from
-/// `AnnotationsPane`; every press goes out through the row wiring.
+/// header (its yield), and RULING-54's footnote. Values in from
+/// `AnnotationsPane`; every press goes out through the row wiring. A piece's
+/// rows act only where it is the open piece (`ResolveVerbGate`); every other
+/// piece's rows read and travel.
 @MainActor
 struct AnnotationsProjectQueue: View {
     let focusPiece: String?
@@ -302,6 +304,8 @@ struct AnnotationsProjectQueue: View {
     /// The pane's `ledgerText`, read only where rows are drawn.
     let ledgerText: () -> String?
     let documentStore: DocumentStore
+    /// The piece open in the window's centre — the only piece whose rows act.
+    let openDocId: String?
     let wiring: AnnotationRowWiring
 
     @ViewBuilder
@@ -378,13 +382,16 @@ struct AnnotationsProjectQueue: View {
         sequences: [String: [String]],
         ledgerText: String?
     ) -> some View {
-        // The row's own document, and the whole of the open-vs-closed question:
-        // a closed piece's notes are readable here and actable in ITS window.
-        let rowDocument = documentStore.document(forDocId: section.id)
+        // The row's own live document, handed down only where this window may
+        // act on the piece (`ResolveVerbGate`): every other piece's notes read
+        // here, offer no Document verb, and travel to their piece on a click.
+        let liveDocument = documentStore.document(forDocId: section.id)
+        let rowDocument = AnnotationRowHost.actingDocument(
+            docId: section.id, openDocId: openDocId, documentStore: documentStore)
         // A figure's section (report plan 9c-1 Task 7): its notes act through
-        // the figure's own host, so no lock — a figure is never "closed".
+        // the figure's own host (`FigureRowGate`), never a `Document`.
         let isFigure = DocumentClass.isFigureDocId(section.id)
-        let livePids = Set(rowDocument?.sequence
+        let livePids = Set(liveDocument?.sequence
             ?? sequences[section.id] ?? [])
         // Ruling AJ (P3c plan 2 Task 8): the root yielding on this piece hides
         // its rows' verbs, so the header says whose piece it is and offers the
@@ -412,12 +419,6 @@ struct AnnotationsProjectQueue: View {
                     .font(.caption)
                 }
                 Spacer(minLength: 4)
-                if rowDocument == nil, !isFigure {
-                    Image(systemName: "lock")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .help(AnnotationScopePolicy.closedPieceReason)
-                        .accessibilityLabel(AnnotationScopePolicy.closedPieceReason)
-                }
             }
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 4)
             AnnotationListView(

@@ -721,7 +721,7 @@ final class AnnotationStetTests: XCTestCase {
 
         XCTAssertEqual(callers(of: "stetAnnotation("), [
             "Document+Annotations.swift",   // the definition (+ its own redo)
-            "AnnotationsPaneVerbs.swift",   // the queue's Stet button
+            "ResolveNoteVerbs.swift",       // the queue's Stet button
             "EditorHost.swift",             // the margin card's Stet handler
             "AnnotationBulkActions.swift",  // (Task 5) the bulk bar's executor
             // (editorial letter P2 Task 8) **This is a choice** — a stet that
@@ -737,7 +737,7 @@ final class AnnotationStetTests: XCTestCase {
 
         XCTAssertEqual(callers(of: "triageAnnotation("), [
             "Document+Annotations.swift",   // the definition (+ its own redo)
-            "AnnotationsPaneVerbs.swift",   // the row's Do / Decline / Discuss menu
+            "ResolveNoteVerbs.swift",       // the row's Do / Decline / Discuss menu
             "AnnotationBulkActions.swift",  // (Task 5) the bulk bar's executor
         ], "triage is a queue verb: a margin-card caller here is a design change")
     }

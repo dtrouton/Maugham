@@ -128,16 +128,16 @@ struct AnnotationsPane: View {
     @State private var triageFilter: AnnotationTriageFilter = .all
     @State private var authorFilter: String = AnnotationAuthorFilter.all
     @State private var showResolved: Bool = false
-    @State private var rejectSheet: AnnotationTarget?
-    @State private var querySheet: AnnotationTarget?
+    @State private var rejectSheet: ResolveNoteTarget?
+    @State private var querySheet: ResolveNoteTarget?
     /// A figure note's Reject… and Reply… sheets (report plan 9c-1 Task 7):
     /// the figure's id, not a `Document`, travels with the note.
-    @State private var figureRejectSheet: FigureNoteTarget?
-    @State private var figureReplySheet: FigureNoteTarget?
+    @State private var figureRejectSheet: ResolveFigureNoteTarget?
+    @State private var figureReplySheet: ResolveFigureNoteTarget?
     /// The language-tagged question being answered as a ruling (publish
     /// department, Task 8) — the edition brief's `## Rulings` and the thread's
     /// reply, from one sentence.
-    @State private var rulingSheet: AnnotationTarget?
+    @State private var rulingSheet: ResolveNoteTarget?
     /// What `QueryRuling.commit` refused, in its own words. A refusal here can
     /// arrive with half the act done (the ruling landed, the reply did not), so
     /// it is never swallowed — the sentence says what is where.
@@ -158,23 +158,23 @@ struct AnnotationsPane: View {
     @State private var choiceOffer: ChoiceOffer?
     /// The accepted craft note being shortened into a ledger entry (spec §6's
     /// second door).
-    @State private var keepLessonSheet: AnnotationTarget?
-    @State private var staleConfirm: AnnotationTarget?
+    @State private var keepLessonSheet: ResolveLessonTarget?
+    @State private var staleConfirm: ResolveNoteTarget?
     /// A suggestion whose accept was REFUSED because its quoted phrase is no
     /// longer in the paragraph (RULING-5). Drives the told-why alert; the
     /// refusal itself is `Document.acceptAnnotation`'s throw — this state only
     /// makes it audible.
-    @State private var anchorLostNotice: AnnotationTarget?
+    @State private var anchorLostNotice: ResolveNoteTarget?
     /// The accepted suggestion pending a revert confirmation — set when the
     /// paragraph's text drifted since the accept, so reverting would clobber
     /// the intervening edits (mirror of `staleConfirm` on the accept path).
-    @State private var revertConfirm: AnnotationTarget?
+    @State private var revertConfirm: ResolveNoteTarget?
     /// The annotation currently being edited in the inline edit sheet (author
     /// self-service). Only ever the reviewer's own annotation (gated by the
     /// Edit affordance's `isOwn` check).
-    @State private var editSheet: AnnotationTarget?
+    @State private var editSheet: ResolveNoteTarget?
     /// The annotation pending a withdraw (delete) confirmation.
-    @State private var withdrawConfirm: AnnotationTarget?
+    @State private var withdrawConfirm: ResolveNoteTarget?
     /// Annotation ids currently showing the transient "stet" flourish after the
     /// writer STETS a note. Keyed per-row so it survives the ~2.5s window
     /// between the stet op and the row leaving the open list.
@@ -217,24 +217,6 @@ struct AnnotationsPane: View {
     /// This pane's hosting window, for the ADR 0021 receive helper's liveness
     /// guard (`.onProjectEvent` on `.maughamAnnotationsChanged`).
     @State private var window: NSWindow?
-
-    /// A sheet's subject, plus the document it belongs to.
-    ///
-    /// In project scope the row's document is not the pane's own, and a sheet
-    /// that remembered only the annotation would commit its reject reason or
-    /// its edit against whichever piece happened to be centred.
-    struct AnnotationTarget: Identifiable {
-        let document: Document
-        let annotation: Annotation
-        var id: String { annotation.id }
-    }
-
-    /// A sheet's subject on a figure's stream, plus the figure it is on.
-    struct FigureNoteTarget: Identifiable {
-        let figureId: String
-        let annotation: Annotation
-        var id: String { annotation.id }
-    }
 
     private var filter: AnnotationFilter {
         let kinds: Set<AnnotationKind>? = kindFilter.kind.map { Set([$0]) }
@@ -459,8 +441,8 @@ struct AnnotationsPane: View {
         // called from `body`.
         .onAppear { loadDiagnostics() }
         // Every sheet and alert a row's verbs raise, over this pane's own state
-        // (`AnnotationsPaneDialogs`).
-        .modifier(AnnotationsPaneDialogs(
+        // (`ResolveDialogs`).
+        .modifier(ResolveDialogs(
             store: store, verbs: verbs,
             rejectSheet: $rejectSheet, querySheet: $querySheet,
             rulingSheet: $rulingSheet, rulingNotice: $rulingNotice,
@@ -660,6 +642,7 @@ struct AnnotationsPane: View {
                 figures: store.manifest.figures ?? []),
             ledgerText: { ledgerText },
             documentStore: documentStore,
+            openDocId: document?.docId,
             wiring: rowWiring)
     }
 
@@ -675,36 +658,36 @@ struct AnnotationsPane: View {
             rowVerbs: { rowVerbs(for: $0, docId: $1, isOwn: $2) },
             onToggleSelection: { toggleSelection($0) },
             onAccept: { verbs.accept($0, $1) },
-            onReject: { rejectSheet = AnnotationTarget(document: $0, annotation: $1) },
+            onReject: { rejectSheet = ResolveNoteTarget(document: $0, annotation: $1) },
             onStet: { verbs.stet($0, $1) },
             onTriage: { verbs.triage($0, $1, mark: $2) },
             onArchive: { verbs.archive($0, $1) },
-            onReply: { querySheet = AnnotationTarget(document: $0, annotation: $1) },
+            onReply: { querySheet = ResolveNoteTarget(document: $0, annotation: $1) },
             onAnswerAsRuling: {
-                rulingSheet = AnnotationTarget(document: $0, annotation: $1) },
+                rulingSheet = ResolveNoteTarget(document: $0, annotation: $1) },
             onMakeChoice: { verbs.performChoice($0, $1) },
             onKeepAsLesson: {
-                keepLessonSheet = AnnotationTarget(document: $0, annotation: $1) },
-            onEdit: { editSheet = AnnotationTarget(document: $0, annotation: $1) },
+                keepLessonSheet = ResolveLessonTarget(docId: $0, annotation: $1) },
+            onEdit: { editSheet = ResolveNoteTarget(document: $0, annotation: $1) },
             onWithdraw: {
-                withdrawConfirm = AnnotationTarget(document: $0, annotation: $1) },
+                withdrawConfirm = ResolveNoteTarget(document: $0, annotation: $1) },
             onRevert: { verbs.revert($0, $1) },
             onReopen: { verbs.reopen($0, id: $1.id) },
             onJump: { click(docId: $0, annotation: $1) },
             figure: FigureRowWiring(
                 onAccept: { verbs.figureAccept($0, $1) },
-                onReject: { figureRejectSheet = FigureNoteTarget(figureId: $0, annotation: $1) },
+                onReject: { figureRejectSheet = ResolveFigureNoteTarget(figureId: $0, annotation: $1) },
                 onStet: { verbs.figureStet($0, $1) },
                 onArchive: { verbs.figureArchive($0, $1) },
-                onReply: { figureReplySheet = FigureNoteTarget(figureId: $0, annotation: $1) },
+                onReply: { figureReplySheet = ResolveFigureNoteTarget(figureId: $0, annotation: $1) },
                 onReopen: { verbs.figureReopen($0, $1) },
                 reachable: { drawsFigure($0) }))
     }
 
-    /// This pane's verbs — `AnnotationsPaneVerbs`, built per call over
+    /// This pane's verbs — `ResolveNoteVerbs`, built per call over
     /// bindings to its own state and never stored.
-    private var verbs: AnnotationsPaneVerbs {
-        AnnotationsPaneVerbs(
+    private var verbs: ResolveNoteVerbs {
+        ResolveNoteVerbs(
             store: store, documentStore: documentStore, world: world,
             userPreferences: userPreferences, undoManager: undoManager,
             onChoiceOfferChanged: onChoiceOfferChanged,
@@ -725,8 +708,9 @@ struct AnnotationsPane: View {
     /// window's selection: in project scope a pieces-author's own chapter
     /// carries its verbs and the chapter beside it, somebody else's, carries
     /// none. The drawing door answers for a closed document too, so a closed
-    /// piece's row is judged by its own posture as well (its verbs are also
-    /// disabled until it is opened — `AnnotationScopePolicy.verbsEnabled`).
+    /// piece's row is judged by its own posture as well — and then
+    /// `ResolveVerbGate` hides every `Document` verb on a piece that is not the
+    /// open one (`AnnotationRowHost`).
     /// Reading the door observes `postureEpoch`, so a promotion or a demotion
     /// redraws the queue with no reopen.
     private func rowVerbs(

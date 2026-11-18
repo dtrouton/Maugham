@@ -1,16 +1,21 @@
 import SwiftUI
 import MaughamCore
 
-/// **`AnnotationsPane`'s verbs** — every press that writes a note, the ledger
-/// or the pane's own state, over bindings to the pane's `@State`.
+/// **A note's verbs** — every press that writes a note, the ledger or its
+/// host's own state, over bindings to the host's `@State`. Moved out of the
+/// Annotations pane for To resolve (shell plan 2 Task 4), unchanged.
 ///
-/// Built fresh per call by `AnnotationsPane.verbs` and never stored (the
-/// CanvasView split's shape): a binding writes the same storage the pane
-/// writes, so nothing is copied and nothing is synchronised. The pane's own
-/// lens reads (`projectSnapshot`, `visibleAnnotations`, `effectiveSelection`)
-/// arrive as closures, so a read after an `await` is the pane's live answer.
+/// Built fresh per call by its host and never stored (the CanvasView split's
+/// shape): a binding writes the same storage the host writes, so nothing is
+/// copied and nothing is synchronised. The host's own lens reads
+/// (`projectSnapshot`, `visibleAnnotations`, `effectiveSelection`) arrive as
+/// closures, so a read after an `await` is the host's live answer.
+///
+/// **Every verb but Keep as lesson takes a live `Document`**, the one the
+/// editor holds: a host reaches these only for a row on the open piece
+/// (`ResolveVerbGate`). Keep as lesson files into the ledger and takes none.
 @MainActor
-struct AnnotationsPaneVerbs {
+struct ResolveNoteVerbs {
     let store: ProjectStore
     let documentStore: DocumentStore
     let world: DeclaredWorldStore?
@@ -20,9 +25,9 @@ struct AnnotationsPaneVerbs {
     let projectSnapshot: () -> ProjectAnnotationsSnapshot
     let visibleAnnotations: (Document) -> [Annotation]
     let effectiveSelection: ([Annotation]) -> Set<String>
-    @Binding var staleConfirm: AnnotationsPane.AnnotationTarget?
-    @Binding var anchorLostNotice: AnnotationsPane.AnnotationTarget?
-    @Binding var revertConfirm: AnnotationsPane.AnnotationTarget?
+    @Binding var staleConfirm: ResolveNoteTarget?
+    @Binding var anchorLostNotice: ResolveNoteTarget?
+    @Binding var revertConfirm: ResolveNoteTarget?
     @Binding var rulingNotice: String?
     @Binding var ledgerNotice: String?
     @Binding var choiceOffer: ChoiceOffer?
@@ -95,7 +100,7 @@ struct AnnotationsPaneVerbs {
 
     func accept(_ document: Document, _ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {
-            staleConfirm = AnnotationsPane.AnnotationTarget(document: document, annotation: ann)
+            staleConfirm = ResolveNoteTarget(document: document, annotation: ann)
             return
         }
         Task { await performAccept(document, ann) }
@@ -122,7 +127,7 @@ struct AnnotationsPaneVerbs {
                 id: ann.id, undoManager: undoManager,
                 mayWrite: mayWriteText(document))
         } catch let error as AnnotationAcceptError where error == .suggestionAnchorLost {
-            anchorLostNotice = AnnotationsPane.AnnotationTarget(document: document, annotation: ann)
+            anchorLostNotice = ResolveNoteTarget(document: document, annotation: ann)
         } catch {
             documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
@@ -278,7 +283,8 @@ struct AnnotationsPaneVerbs {
     /// **Keep as lesson…** — the writer's shortened sentence, filed. No
     /// annotation op: the note is already accepted, and this is a second,
     /// independent act (`QueueLedgerVerbs.keepAsLesson`).
-    func keepAsLesson(_ ann: Annotation, heading: String) {
+    @discardableResult
+    func keepAsLesson(_ ann: Annotation, heading: String) -> Task<Void, Never> {
         Task {
             ledgerNotice = await QueueLedgerVerbs.keepAsLesson(
                 heading, from: ann, store: store, world: world)
@@ -334,7 +340,7 @@ struct AnnotationsPaneVerbs {
     /// action needs no confirm).
     func revert(_ document: Document, _ ann: Annotation) {
         if document.acceptedTextDrifted(annotationId: ann.id) {
-            revertConfirm = AnnotationsPane.AnnotationTarget(document: document, annotation: ann)
+            revertConfirm = ResolveNoteTarget(document: document, annotation: ann)
             return
         }
         performRevert(document, ann)

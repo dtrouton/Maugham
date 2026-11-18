@@ -1,31 +1,60 @@
 import SwiftUI
 import MaughamCore
 
-/// **Every sheet and alert `AnnotationsPane`'s rows raise** — moved whole out
-/// of the pane's `body`, in the same order and at the same place in its
-/// modifier chain. Owns no state: each presentation is a binding to the pane's
-/// own `@State`, and every answer reaches the pane's verbs.
+/// **A sheet's subject: a note, plus the live document it belongs to.**
+///
+/// A row on another piece is not the host's own, and a sheet that remembered
+/// only the annotation would commit its reject reason or its edit against
+/// whichever piece happened to be centred. Only a row on the open piece raises
+/// one (`ResolveVerbGate`), so the document is always the editor's.
+struct ResolveNoteTarget: Identifiable {
+    let document: Document
+    let annotation: Annotation
+    var id: String { annotation.id }
+}
+
+/// A sheet's subject on a figure's stream, plus the figure it is on.
+struct ResolveFigureNoteTarget: Identifiable {
+    let figureId: String
+    let annotation: Annotation
+    var id: String { annotation.id }
+}
+
+/// **Keep as lesson's subject: a note and its piece, no `Document`.** The
+/// lesson files into the ledger, so a note on a piece that is not open keeps
+/// its Keep as lesson (`ResolveVerbGate.noteVerbs`).
+struct ResolveLessonTarget: Identifiable {
+    let docId: String
+    let annotation: Annotation
+    var id: String { annotation.id }
+}
+
+/// **Every sheet and alert a note row raises** — moved whole out of the
+/// Annotations pane's `body` (shell plan 2 Task 4), in the same order and at
+/// the same place in its host's modifier chain. Owns no state: each
+/// presentation is a binding to the host's own `@State`, and every answer
+/// reaches the host's verbs.
 @MainActor
-struct AnnotationsPaneDialogs: ViewModifier {
+struct ResolveDialogs: ViewModifier {
     let store: ProjectStore
-    let verbs: AnnotationsPaneVerbs
-    @Binding var rejectSheet: AnnotationsPane.AnnotationTarget?
-    @Binding var querySheet: AnnotationsPane.AnnotationTarget?
-    @Binding var rulingSheet: AnnotationsPane.AnnotationTarget?
+    let verbs: ResolveNoteVerbs
+    @Binding var rejectSheet: ResolveNoteTarget?
+    @Binding var querySheet: ResolveNoteTarget?
+    @Binding var rulingSheet: ResolveNoteTarget?
     @Binding var rulingNotice: String?
     @Binding var choiceOffer: ChoiceOffer?
     @Binding var ledgerNotice: String?
-    @Binding var keepLessonSheet: AnnotationsPane.AnnotationTarget?
-    @Binding var staleConfirm: AnnotationsPane.AnnotationTarget?
-    @Binding var anchorLostNotice: AnnotationsPane.AnnotationTarget?
-    @Binding var revertConfirm: AnnotationsPane.AnnotationTarget?
+    @Binding var keepLessonSheet: ResolveLessonTarget?
+    @Binding var staleConfirm: ResolveNoteTarget?
+    @Binding var anchorLostNotice: ResolveNoteTarget?
+    @Binding var revertConfirm: ResolveNoteTarget?
     @Binding var bulkNotice: String?
-    @Binding var editSheet: AnnotationsPane.AnnotationTarget?
-    @Binding var withdrawConfirm: AnnotationsPane.AnnotationTarget?
+    @Binding var editSheet: ResolveNoteTarget?
+    @Binding var withdrawConfirm: ResolveNoteTarget?
     /// A figure note's Reject… and Reply… (report plan 9c-1 Task 7): the same
     /// sheets, answered through the figure's host.
-    @Binding var figureRejectSheet: AnnotationsPane.FigureNoteTarget?
-    @Binding var figureReplySheet: AnnotationsPane.FigureNoteTarget?
+    @Binding var figureRejectSheet: ResolveFigureNoteTarget?
+    @Binding var figureReplySheet: ResolveFigureNoteTarget?
 
     func body(content: Content) -> some View {
         content

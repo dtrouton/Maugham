@@ -958,7 +958,7 @@ final class AnnotationsCharacterization: XCTestCase {
             "Document+Annotations.swift",   // the definition (+ the undoable wrapper)
             "Document+RewindUndo.swift",    // undo of a rewind's auto-archive
             "Document+Tasks.swift",         // undo of a task-archive's auto-archive
-            "AnnotationsPaneVerbs.swift",   // RULING-29: the writer's Reopen
+            "ResolveNoteVerbs.swift",       // RULING-29: the writer's Reopen
             // report plan 9c-1 Task 5: FigureDocument's own Reopen of a figure
             // note (definition, its ⌘Z re-settling, the settling undos).
             "FigureDocument+Annotations.swift",

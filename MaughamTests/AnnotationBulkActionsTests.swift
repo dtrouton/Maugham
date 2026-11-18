@@ -787,7 +787,7 @@ final class AnnotationBulkActionsTests: XCTestCase {
             "AnnotationsPaneQueues.swift",  // the bulk bar's honest counts
         ])
         XCTAssertEqual(callers(of: "AnnotationBulkActions.perform("), [
-            "AnnotationsPaneVerbs.swift",   // the bar's press, `runBulk`
+            "ResolveNoteVerbs.swift",       // the bar's press, `runBulk`
         ], "the executor is reached from the bar and nowhere else")
     }
 }

@@ -12,15 +12,18 @@ import Foundation
 /// as `notThePane`.
 enum AnnotationsPaneSource {
 
-    /// Every name here is a file in `Maugham/Views/`.
+    /// Every name here is a path under `Maugham/Views/`. The verbs, dialogs
+    /// and row host moved to `Resolve/` (shell plan 2 Task 4) and are still
+    /// the pane's until it is deleted.
     static let surfaceFiles: [String] = [
         "AnnotationsPane.swift",
         "AnnotationsPaneStatics.swift",
-        "AnnotationsPaneVerbs.swift",
-        "AnnotationsPaneDialogs.swift",
+        "Resolve/ResolveNoteVerbs.swift",
+        "Resolve/ResolveDialogs.swift",
         "AnnotationsPaneStrips.swift",
         "AnnotationsPaneQueues.swift",
         "AnnotationListView.swift",
+        "Resolve/AnnotationRowHost.swift",
         "AnnotationRow.swift",
     ]
 

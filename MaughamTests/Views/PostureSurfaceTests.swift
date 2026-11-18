@@ -673,8 +673,12 @@ final class PostureSurfaceTests: XCTestCase {
     }
 
     /// **Review focus #2.** An author of piece A, looking at B in the window,
-    /// sees A's note carry its verbs and B's carry none — side by side in the
-    /// cross-document queue — and a promotion brings B's back with no reopen.
+    /// sees neither note carry a verb in the cross-document queue: A's because
+    /// A is not the open piece (read anywhere, act only on the open piece —
+    /// shell plan 2 Task 4, Denver's 2026-11-18 ruling), B's because B's own
+    /// posture refuses it. A promotion brings B's back with no reopen, and A's
+    /// stay hidden: the open piece's row is judged by ITS posture, and no
+    /// other piece's row acts at all.
     func test_theProjectQueueJudgesEachRowByItsOwnDocument() async throws {
         let projectURL = try makeTwoPieceProject()
         let identities = beASigningMac(projectURL)
@@ -719,14 +723,18 @@ final class PostureSurfaceTests: XCTestCase {
         windows.append(window)
         pump()
 
-        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 1, in: window), 1,
-                       "A's note is answerable and B's is not, in one queue")
+        pump(0.3)
+        XCTAssertEqual(try buttons(labelled: "Got it", in: window), 0,
+                       "A's note is on a piece that is not open, and B's posture refuses")
 
         try await rootChangesMyPermit(
             to: .bookAuthor, root: root, identities: identities,
             projectURL: projectURL, store: documentStore)
-        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 2, in: window), 2,
+        XCTAssertEqual(try waitForButtons(labelled: "Got it", count: 1, in: window), 1,
                        "the promotion brings B's verbs back with no reopen")
+        pump(0.3)
+        XCTAssertEqual(try buttons(labelled: "Got it", in: window), 1,
+                       "and A's stay hidden: A is not the open piece")
 
         for doc in docs { await doc.close() }
     }

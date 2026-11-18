@@ -6,8 +6,10 @@ import MaughamCore
 /// `AnnotationsPane` mounts it for the centred document and once per piece in
 /// project scope. Any other host mounts it the same way: the notes in the
 /// order to draw them, a `filter` if it shows fewer, the stream's document
-/// (`nil` when the piece is closed — every row's verbs are then disabled, with
-/// the reason), and an `AnnotationRowWiring` saying what each verb does.
+/// to act through (`nil` unless the piece is the one open in the window's
+/// centre — `AnnotationRowHost.actingDocument`; every row then offers no
+/// `Document` verb), and an `AnnotationRowWiring` saying what each verb does.
+/// Each row is an `AnnotationRowHost`.
 ///
 /// A `ForEach` of rows and dividers, not a scroll view: the host supplies the
 /// container, so the rows lay out in the host's own stack.
@@ -20,7 +22,7 @@ struct AnnotationListView: View {
     var filter: (Annotation) -> Bool = { _ in true }
     /// The piece these notes belong to — what a click jumps within or travels to.
     let docId: String
-    /// The piece's live document, or `nil` for a closed one.
+    /// The piece's live document where this window may act on it, else `nil`.
     let document: Document?
     /// The document's live paragraph ids, for Revert's gate.
     let livePids: Set<String>
@@ -40,108 +42,15 @@ struct AnnotationListView: View {
 
     var body: some View {
         ForEach(annotations.filter(filter)) { ann in
-            if DocumentClass.isFigureDocId(docId) {
-                figureRow(ann, isOwn: AnnotationOwnership.isOwn(ann, localName: wiring.localName))
-            } else {
-                annotationRow(
-                ann, docId: docId, document: document,
+            AnnotationRowHost(
+                annotation: ann, docId: docId, document: document,
                 livePids: livePids, ledgerText: ledgerText,
                 isSelectable: isSelectable,
-                isSelected: selection.contains(ann.id))
-            }
+                isSelected: selection.contains(ann.id),
+                figureTitle: figureTitle, figureCells: figureCells[ann.id],
+                wiring: wiring)
             Divider()
         }
-    }
-
-    // MARK: - A note on a figure (report plan 9c-1 Task 7)
-
-    /// A figure note's row: always actable (no `Document` gate — its verbs
-    /// act through the figure's own host), its verbs narrowed to what a
-    /// figure stream can write and routed to `wiring.figure`. A suggestion's
-    /// Accept is the row's click — the figure opened at its cell, whose strip
-    /// accepts it (report plan 9c-2 Task 7) — or disabled with the reason
-    /// when the cell is gone (`FigureRowGate`).
-    @ViewBuilder
-    private func figureRow(_ ann: Annotation, isOwn: Bool) -> some View {
-        let figureId = docId
-        let figure = wiring.figure
-        let gate = FigureRowGate(
-            annotation: ann, figureId: figureId,
-            figureTitle: figureTitle ?? figureId, cells: figureCells[ann.id],
-            reachable: figure.reachable(figureId))
-        AnnotationRow(
-            annotation: ann,
-            revertIsEnabled: false,
-            showingStet: wiring.stetFlourishIds.contains(ann.id),
-            verbs: FigureRowGate.verbs(wiring.rowVerbs(ann, figureId, isOwn)),
-            verbsEnabled: true,
-            figure: gate,
-            onAccept: { gate.acceptTravels ? wiring.onJump(figureId, ann) : figure.onAccept(figureId, ann) },
-            onReject: { figure.onReject(figureId, ann) },
-            onStet: { figure.onStet(figureId, ann) },
-            onArchive: { figure.onArchive(figureId, ann) },
-            onReply: { figure.onReply(figureId, ann) },
-            onReopen: { figure.onReopen(figureId, ann) },
-            onJumpToParagraph: { wiring.onJump(figureId, ann) },
-            ledgerText: ledgerText,
-            manifest: wiring.manifest)
-    }
-
-    // MARK: - One row, either scope
-
-    /// The one row builder. Document scope passes its own document for every
-    /// row; project scope passes the row's, which is `nil` for a closed piece —
-    /// and that nil is the whole of the verb gate.
-    @ViewBuilder
-    private func annotationRow(
-        _ ann: Annotation,
-        docId: String,
-        document rowDocument: Document?,
-        livePids: Set<String>,
-        ledgerText: String?,
-        isSelectable: Bool = false,
-        isSelected: Bool = false
-    ) -> some View {
-        let isOwn = AnnotationOwnership.isOwn(
-            ann, localName: wiring.localName)
-        AnnotationRow(
-            annotation: ann,
-            revertIsEnabled: AnnotationRowPolicy.revertEnabled(ann, livePids: livePids),
-            showingStet: wiring.stetFlourishIds.contains(ann.id),
-            verbs: wiring.rowVerbs(ann, docId, isOwn),
-            verbsEnabled: AnnotationScopePolicy.verbsEnabled(
-                documentIsOpen: rowDocument != nil),
-            verbsDisabledReason: AnnotationScopePolicy.closedPieceReason,
-            isSelectable: isSelectable,
-            isSelected: isSelected,
-            onToggleSelection: { wiring.onToggleSelection(ann.id) },
-            onAccept: { withDocument(rowDocument) { wiring.onAccept($0, ann) } },
-            onReject: { withDocument(rowDocument) { wiring.onReject($0, ann) } },
-            onStet: { withDocument(rowDocument) { wiring.onStet($0, ann) } },
-            onTriage: { mark in
-                withDocument(rowDocument) { wiring.onTriage($0, ann, mark) } },
-            onArchive: { withDocument(rowDocument) { wiring.onArchive($0, ann) } },
-            onReply: { withDocument(rowDocument) { wiring.onReply($0, ann) } },
-            onAnswerAsRuling: { withDocument(rowDocument) {
-                wiring.onAnswerAsRuling($0, ann) } },
-            onMakeChoice: { withDocument(rowDocument) { wiring.onMakeChoice($0, ann) } },
-            onKeepAsLesson: { withDocument(rowDocument) {
-                wiring.onKeepAsLesson($0, ann) } },
-            onEdit: { withDocument(rowDocument) { wiring.onEdit($0, ann) } },
-            onWithdraw: { withDocument(rowDocument) { wiring.onWithdraw($0, ann) } },
-            onRevert: { withDocument(rowDocument) { wiring.onRevert($0, ann) } },
-            onReopen: { withDocument(rowDocument) { wiring.onReopen($0, ann) } },
-            onJumpToParagraph: { wiring.onJump(docId, ann) },
-            ledgerText: ledgerText,
-            manifest: wiring.manifest)
-    }
-
-    /// Belt behind the disabled verbs: a control that somehow fires with no
-    /// live document does nothing, rather than reaching for a transient one
-    /// whose ops the writer's ⌘Z could never find.
-    private func withDocument(_ document: Document?, _ body: (Document) -> Void) {
-        guard let document else { return }
-        body(document)
     }
 }
 
@@ -149,10 +58,11 @@ struct AnnotationListView: View {
 /// is, which rows wear the stet, the project's identity, which verbs this Mac
 /// may offer, and what each verb does.
 ///
-/// Every verb takes the row's OWN document explicitly: in project scope it is
-/// not the host's, and a verb that reached for the host's would answer a note
-/// about Chapter Nine by editing whatever is centred. `AnnotationsPane.rowWiring`
-/// builds the pane's.
+/// Every verb takes the row's OWN document explicitly: a verb that reached for
+/// the host's would answer a note about Chapter Nine by editing whatever is
+/// centred. Keep as lesson takes the row's piece and no document — it files
+/// into the ledger, so it is offered on a piece that is not open too
+/// (`ResolveVerbGate`). `AnnotationsPane.rowWiring` builds the pane's.
 ///
 /// A host that only SHOWS a stream's notes takes `readOnly(manifest:onJump:)`:
 ///
@@ -182,7 +92,8 @@ struct AnnotationRowWiring {
     let onReply: (Document, Annotation) -> Void
     let onAnswerAsRuling: (Document, Annotation) -> Void
     let onMakeChoice: (Document, Annotation) -> Void
-    let onKeepAsLesson: (Document, Annotation) -> Void
+    /// `(docId, note)` — no `Document`.
+    let onKeepAsLesson: (String, Annotation) -> Void
     let onEdit: (Document, Annotation) -> Void
     let onWithdraw: (Document, Annotation) -> Void
     let onRevert: (Document, Annotation) -> Void
@@ -240,7 +151,7 @@ extension AnnotationRowWiring {
             onAccept: ignore, onReject: ignore, onStet: ignore,
             onTriage: { _, _, _ in },
             onArchive: ignore, onReply: ignore, onAnswerAsRuling: ignore,
-            onMakeChoice: ignore, onKeepAsLesson: ignore, onEdit: ignore,
+            onMakeChoice: ignore, onKeepAsLesson: { _, _ in }, onEdit: ignore,
             onWithdraw: ignore, onRevert: ignore, onReopen: ignore,
             onJump: onJump)
     }

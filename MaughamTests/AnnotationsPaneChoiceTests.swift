@@ -652,7 +652,7 @@ final class AnnotationsPaneChoiceTests: XCTestCase {
             contentsOf: URL(fileURLWithPath: #filePath)
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
-                .appendingPathComponent("Maugham/Views/AnnotationsPaneDialogs.swift"),
+                .appendingPathComponent("Maugham/Views/Resolve/ResolveDialogs.swift"),
             encoding: .utf8)
         let lines = source.split(separator: "\n").map(String.init)
 

@@ -112,12 +112,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
 - `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections.
 - `PassLadder.swift` — the inspector's per-piece pass ladder; `offersRulings`.
-- `TasksPane.swift`, `TasksPaneToolbar.swift`, `TaskRow.swift` — the tasks pane (`TaskDropIntent`, `TaskRowVerbs`).
+- `TasksPane.swift`, `TasksPaneToolbar.swift`, `TaskRow.swift` — the tasks pane; its verbs moved to Resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
 
 ### Annotations queue and Review
-- `AnnotationsPane.swift` — the queue; children `AnnotationsPaneStrips.swift`, `AnnotationsPaneQueues.swift`, `AnnotationListView.swift` (mountable alone), `AnnotationRow.swift`, `AnnotationsPaneVerbs.swift`, `AnnotationsPaneDialogs.swift`, `AnnotationsPaneStatics.swift`.
+- `AnnotationsPane.swift` — the queue; children `AnnotationsPaneStrips.swift`, `AnnotationsPaneQueues.swift`, `AnnotationListView.swift` (mountable alone), `AnnotationRow.swift`, `AnnotationsPaneStatics.swift`; verbs, dialogs, row host in Resolve.
 - `AnnotationAuthorPresentation.swift` — how an annotation's author is shown; `AnnotationAuthorFilter`.
 - `AnnotationBulkActions.swift` — multiselect's plan, honest counts and executor.
 - `AnnotationQueueOrder.swift` — queue order and `AnnotationTriageFilter`.
@@ -133,6 +133,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift` — To resolve's scope (from the faces), its items (notes, strains, to-dos) and the reader that reads them without a load.
 - `Maugham/Views/Resolve/ResolveGrouping.swift`, `ParagraphOffsets.swift` — To resolve's grouping (by paragraph, scene or piece) and the display-text offsets that place a closed screenplay's paragraphs among its scenes.
 - `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
+- `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
+- `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift` — a note's verbs and sheets, one note row, a to-do's verbs.
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.

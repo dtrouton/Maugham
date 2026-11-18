@@ -787,13 +787,25 @@ struct DiagnosticsPane: View {
     /// next run. A ⌘Z that resurrected it would be claiming the compiler had
     /// re-checked something it has not looked at since.
     private func promote(_ diagnostic: Diagnostic) {
-        guard let document = activeDocument() else { return }
+        guard let document = activeDocument(), document.docId == docId else { return }
+        Self.promote(diagnostic, run: lastRun, in: document,
+                     diagnostics: diagnostics, undoManager: undoManager)
+    }
+
+    /// **Promote to Task, on the checked piece's own live `Document`** — a
+    /// static so To resolve calls the same act (shell plan 2 Task 4). The
+    /// caller hands the editor's document for the open piece, never a loaded
+    /// one; the finding is dismissed from that piece's sidecar.
+    static func promote(
+        _ diagnostic: Diagnostic, run: CompilerRun?, in document: Document,
+        diagnostics: DiagnosticsStore, undoManager: UndoManager?
+    ) {
         document.createPaneTask(
-            body: DiagnosticPromotion.taskBody(for: diagnostic, run: lastRun),
+            body: DiagnosticPromotion.taskBody(for: diagnostic, run: run),
             parentTaskId: nil,
             paragraphId: diagnostic.anchor?.paragraphId,
             undoManager: undoManager)
-        diagnostics.dismiss(diagnostic.id, docId: docId)
+        diagnostics.dismiss(diagnostic.id, docId: document.docId)
     }
 
     private func answer(_ text: String, to diagnostic: Diagnostic) {

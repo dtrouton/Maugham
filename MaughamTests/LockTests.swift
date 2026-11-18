@@ -45,6 +45,25 @@ final class LockTests: XCTestCase {
         XCTAssertFalse(WindowLock.refusesEdits(isLocked: false), "control: unlocked edits")
     }
 
+    /// **A palette card open beside the centre reads while locked** (carried
+    /// from shell plan 1, closed in plan 2 Task 4): the beside preview asks the
+    /// same `readOnly` the centre's card asks, through one route, and mounts
+    /// the read view — hidden, not disabled. Before, the beside arm mounted
+    /// `PaletteCardEditor` whatever the Lock said.
+    func test_lockRefusesAPaletteCardEditBeside() throws {
+        XCTAssertEqual(PaletteCardSurface.of(readOnly: WindowLock.refusesEdits(isLocked: true)), .read)
+        XCTAssertEqual(PaletteCardSurface.of(readOnly: WindowLock.refusesEdits(isLocked: false)), .edit,
+                       "control: unlocked, the card edits")
+
+        let code = try SourceTree.read("Maugham/Views/ResearchSubjectColumns.swift")
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let asks = code.filter { $0.contains("PaletteCardSurface.of(readOnly: readOnly)") }
+        let editors = code.filter { $0.contains("PaletteCardEditor(") }
+        XCTAssertEqual(asks.count, 2, "the centre's card and the beside card both ask the one route")
+        XCTAssertEqual(editors.count, 2, "and each mounts the editor only on its `.edit` arm")
+    }
+
     /// A figure write — the inspector's actions, the tree row's menu, the
     /// centre grid — is refused by the window while locked.
     func test_lockRefusesAFigureWrite() {

@@ -347,16 +347,21 @@ final class AnnotationScopeTests: XCTestCase {
 
     // MARK: - The pane is wired to the rules above
 
-    /// The project-scope row must pass BOTH halves of the gate — the predicate
-    /// and the reason — or a closed piece's row is a set of live controls that
-    /// do nothing.
-    func test_theProjectRowIsGatedOnTheOpenDocumentAndCarriesTheReason() throws {
+    /// **A row acts only on the open piece** (shell plan 2 Task 4, Denver's
+    /// 2026-11-18 ruling): the row's verbs pass `ResolveVerbGate` and its
+    /// document comes through the one door over it, so a piece that is not
+    /// open offers no `Document` verb at all — hidden, never the old disabled
+    /// row with a reason.
+    func test_theProjectRowIsGatedOnTheOpenPiece() throws {
         let source = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertTrue(source.contains("AnnotationScopePolicy.verbsEnabled("),
-                      "the row's gate is the pure predicate, not a second "
-                      + "spelling of it in the view")
-        XCTAssertTrue(source.contains("AnnotationScopePolicy.closedPieceReason"),
-                      "and the disabled row says why")
+        XCTAssertTrue(source.contains("ResolveVerbGate.noteVerbs("),
+                      "the row's verbs are the gate's answer over the posture's")
+        XCTAssertTrue(source.contains("AnnotationRowHost.actingDocument("),
+                      "and a section's document comes through the gate's one door")
+        XCTAssertFalse(source.contains("AnnotationScopePolicy.verbsEnabled("),
+                       "no row is disabled for a closed piece any more")
+        XCTAssertFalse(source.contains("AnnotationScopePolicy.closedPieceReason"),
+                       "so nothing says why a disabled row is disabled")
         XCTAssertTrue(source.contains("AnnotationScopePolicy.click("),
                       "and the click's meaning is the pure rule's, not the "
                       + "view's own comparison")
@@ -391,11 +396,11 @@ final class AnnotationScopeTests: XCTestCase {
     /// A census rather than a mounted drive: each verb is a `Task` on the
     /// pane, and the failure mode is one of them being ADDED without the bump.
     ///
-    /// The verbs live in `AnnotationsPaneVerbs` since #116 F11; the mutation
+    /// The verbs live in `ResolveNoteVerbs` (#116 F11, moved in shell plan 2); the mutation
     /// scan below reads EVERY file the pane is made of, so a mutation written
     /// into a child view is still found and still has to be a named verb.
     func test_everyVerbBumpsTheRefreshTokenSoProjectScopeReReads() throws {
-        let source = try AnnotationsPaneSource.source(of: "AnnotationsPaneVerbs.swift")
+        let source = try AnnotationsPaneSource.source(of: "Resolve/ResolveNoteVerbs.swift")
         let verbs = [
             "func performAccept(",
             "func replyToQuery(",

@@ -2,7 +2,8 @@ import XCTest
 import MaughamCore
 @testable import Maugham
 
-/// Integration coverage for `TasksPane` — exercises the backing model and
+/// Integration coverage for `TasksPane` and the to-do verbs it calls
+/// (`ResolveTaskVerbs`, moved out of it in shell plan 2 Task 4) — exercises the backing model and
 /// the drag/drop classifier directly, not the SwiftUI render path. The
 /// drop classifier is a pure function (`TaskDropIntent.classify`) and
 /// pane mutations route through `Document` / `ProjectStore`, so we can
@@ -73,8 +74,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
             position: .top,
             targetId: a.id,
             targetParentTaskId: a.parentTaskId)
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: b, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: b, in: doc, allTasks: pool)
 
         // Exactly one .taskPriorityChange op (no parent change — same root).
         let newOps = doc.opLogSnapshot.dropFirst(countBefore)
@@ -289,8 +290,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         // Sanity-check the classifier returned a nest, not a reorder.
         XCTAssertEqual(intent, .nestUnder(parentId: parent.id))
 
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: child, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: child, in: doc, allTasks: pool)
 
         let newOps = doc.opLogSnapshot.dropFirst(countBefore)
         let parentOps = newOps.filter { $0.kind == .taskParentChange }
@@ -332,8 +333,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let pool = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: Set(TaskStatus.allCases)))
-        let pane = try await makePane(for: doc)
-        pane.apply(intent: intent, dragged: dragged, in: doc, allTasks: pool)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.apply(intent: intent, dragged: dragged, in: doc, allTasks: pool)
 
         let after = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
@@ -403,8 +404,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         - [x] done two
         - [ ] still open
         """)
-        let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.archiveAllDone(in: .document)
         let remaining = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.open, .done]))
@@ -414,9 +415,9 @@ final class TasksPaneIntegrationTests: XCTestCase {
 
     func test_archiveAllDone_emptyList_noOps() async throws {
         let doc = try await makeDocument()
-        let pane = try await makePane(for: doc, registering: doc)
+        let verbs = try await makeVerbs(for: doc)
         let countBefore = doc.opLogMirrorCount
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        verbs.archiveAllDone(in: .document)
         XCTAssertEqual(doc.opLogMirrorCount, countBefore,
             "no done tasks → no ops")
     }
@@ -425,8 +426,8 @@ final class TasksPaneIntegrationTests: XCTestCase {
         let doc = try await makeDocument()
         let task = doc.createPaneTask(body: "pane thing", parentTaskId: nil)
         doc.setTaskStatus(id: task.id, status: .done)
-        let pane = try await makePane(for: doc, registering: doc)
-        pane.archiveAllDone(in: .document, undoManager: nil)
+        let verbs = try await makeVerbs(for: doc)
+        verbs.archiveAllDone(in: .document)
         let archived = doc.tasks(filter: TaskFilter(
             scope: .document(docId: doc.docId),
             statuses: [.archived]))
@@ -436,8 +437,19 @@ final class TasksPaneIntegrationTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The to-do verbs To resolve and the tasks pane call
+    /// (`ResolveTaskVerbs`), over the same stub stores with `doc` registered
+    /// and open in the window's centre — a to-do's verbs act only there.
+    private func makeVerbs(
+        for doc: Document, undoManager: UndoManager? = nil
+    ) async throws -> ResolveTaskVerbs {
+        let pane = try await makePane(for: doc, registering: doc)
+        return ResolveTaskVerbs(store: pane.store, documentStore: pane.documentStore,
+                                openDocId: doc.docId, undoManager: undoManager)
+    }
+
     /// Construct a TasksPane bound to a real Document + minimal stores.
-    /// We never render this view; we call `.apply(...)` on it directly.
+    /// We never render this view; we call `.handleListMove(...)` on it directly.
     private func makePane(for doc: Document) async throws -> TasksPane {
         return try await makePane(for: doc, registering: nil)
     }
