@@ -1,0 +1,1028 @@
+import SwiftUI
+import AppKit
+import MaughamCore
+
+/// **What a key or another surface asks To resolve to do** — applied once,
+/// then cleared. `.filter` selects a source's chip (inert when the chip is
+/// absent); `.focus` scrolls to and opens a piece's or a figure's group.
+enum ResolveRequest: Equatable {
+    case filter(ResolveKeyFilter)
+    case focus(groupOwnerId: String)
+}
+
+/// What one refresh does (`ResolvePane.refreshStep`).
+enum ResolveRefreshStep: Equatable {
+    /// The walks and the sidecar: `ResolveReader.read`, then the regroup.
+    case read
+    /// A new screenplay parse alone: the open piece's text, then the regroup.
+    case reread
+}
+
+/// What applying a request leaves (`ResolvePane.apply`).
+struct ResolveRequestOutcome: Equatable {
+    let selection: Set<ResolveSource>
+    let choices: [ResolveGroup.Key: Bool]
+    let scrollTo: ResolveGroup.Key?
+}
+
+/// **To resolve** — the right column's one list of what has been raised about
+/// the faces' subject: notes, a check's strains, to-dos (shell plan 2).
+///
+/// The head (`ResolveHeadView`), the filter bar, then one `ScrollView` of a
+/// `LazyVStack` — never a `List` (tripwire 9). Groups are sections; a closed
+/// group is its title and its count. **Read anywhere, act only on the open
+/// piece** (`ResolveVerbGate`): a row on another piece reads, offers only what
+/// needs no `Document`, and its click opens the piece on its paragraph.
+///
+/// **Reading.** `.task(id: ResolveRegroupKey)` builds everything once per key
+/// change — the read (`ResolveReader.read`), the groups, the chips, density —
+/// into state; no row and no caret move reads a store. A script-only change
+/// re-reads the open piece's text and regroups without the walks.
+///
+/// **The caret.** Only on the open piece at a `.piece` scope, a small child
+/// view reads `Document.cursorLocation` (so a caret move re-renders it, not
+/// the list) and runs the caret function over groups already built; the list
+/// scrolls only when the caret's group changes. `EditorHost` gains nothing.
+///
+/// The sheets and alerts the note verbs raise are owned here
+/// (`ResolveDialogs`), as are the finding answers, New To-do's sheet and the
+/// bulk selection.
+@MainActor
+struct ResolvePane: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let subject: WindowSubject
+    /// The window's parsed screenplay (`lastParsedScript`).
+    let script: FountainScript?
+    let diagnostics: DiagnosticsStore?
+    let orchestrator: CompilerOrchestrator?
+    let world: DeclaredWorldStore?
+    let compilerModel: CompilerModelChoice
+    let onCompilerModelChange: (CompilerModelChoice) -> Void
+    /// `(piece, passId, state)` — `RightColumn`'s `ProjectStore.setPassState`.
+    let onSetPassState: (String, String, PassState?) -> Void
+    /// `(piece, passId)` — `ProjectWindow.recordActivePass`.
+    let onSetActivePass: (String, String) -> Void
+    @Binding var request: ResolveRequest?
+    /// The check header's "Define a first reader…" (the window's sheet).
+    var onOpenProjectSettings: () -> Void = {}
+    /// A figure note's click travels to its figure (the window's subject).
+    var onTravel: (BinderSubject) -> Void = { _ in }
+    var drawsFigure: (String) -> Bool = { _ in false }
+    var revealFigure: (String) -> Void = { _ in }
+    var revealFigureCell: (_ figureId: String, _ cell: CellKey, _ pending: Bool) -> Bool = { _, _, _ in false }
+    var onChoiceOfferChanged: (ChoiceOffer?) -> Void = { _ in }
+
+    @Environment(UserPreferences.self) private var userPreferences
+    @Environment(\.undoManager) private var undoManager
+
+    // MARK: The read, and what it builds (once per key)
+
+    @State private var held: ResolveSnapshot = .empty
+    @State private var lastRead: ResolveReadKey?
+    @State private var groups: [ResolveGroup] = []
+    @State private var sceneIndex: [String: Int]?
+    @State private var chips: [ResolveSource] = []
+    @State private var dense = false
+    @State private var incomplete: String?
+    @State private var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
+    @State private var figureNames: [String: String] = [:]
+    @State private var ledgerText: String?
+    /// The groups the selection leaves, and their items in order.
+    @State private var shown: [ResolveGroup] = []
+    @State private var visible: [ResolveItem] = []
+    /// Bumped by `.maughamAnnotationsChanged` and by every note verb (the
+    /// walk's cache is not observable).
+    @State private var annotationsToken = 0
+
+    // MARK: The writer's
+
+    @State private var selection: Set<ResolveSource> = []
+    @State private var choices: [ResolveGroup.Key: Bool] = [:]
+    @State private var caretGroup: ResolveGroup.Key?
+    @State private var pendingRequest: ResolveRequest?
+    @State private var scrollRequest: ResolveGroup.Key?
+    @State private var settledExpanded = false
+
+    // MARK: A finding's answer
+
+    @State private var answering: Set<String> = []
+    @State private var answerFailures: [String: String] = [:]
+
+    // MARK: New To-do
+
+    @State private var showCreateSheet = false
+    @State private var newTaskBody = ""
+    @State private var newTaskScope: ResolveTaskScope = .document
+
+    // MARK: The note verbs' sheets and alerts (moved from the Annotations pane)
+
+    @State private var rejectSheet: ResolveNoteTarget?
+    @State private var querySheet: ResolveNoteTarget?
+    @State private var figureRejectSheet: ResolveFigureNoteTarget?
+    @State private var figureReplySheet: ResolveFigureNoteTarget?
+    @State private var rulingSheet: ResolveNoteTarget?
+    @State private var rulingNotice: String?
+    @State private var ledgerNotice: String?
+    @State private var choiceOffer: ChoiceOffer?
+    @State private var keepLessonSheet: ResolveLessonTarget?
+    @State private var staleConfirm: ResolveNoteTarget?
+    @State private var anchorLostNotice: ResolveNoteTarget?
+    @State private var revertConfirm: ResolveNoteTarget?
+    @State private var editSheet: ResolveNoteTarget?
+    @State private var withdrawConfirm: ResolveNoteTarget?
+    @State private var stetFlourishIds: Set<String> = []
+    @State private var selectionModeOn = false
+    @State private var selectedIds: Set<String> = []
+    @State private var bulkNotice: String?
+    @State private var bulkInFlight = false
+    @State private var letterLedgerRevision = 0
+    @State private var window: NSWindow?
+
+    // MARK: - Derived per render (no walk)
+
+    private var scope: ResolveScope {
+        ResolveScope.of(subject.faces, structure: store.manifest.structure,
+                        projectType: store.manifest.type)
+    }
+
+    private var openDocId: String? { subject.open.itemID }
+
+    private var localName: String { userPreferences.collaboratorDisplayName }
+
+    private var passes: [ReviewPass] { store.manifest.effectiveReviewPasses }
+
+    /// The faces' piece, at a `.piece` scope.
+    private var pieceDocId: String? {
+        if case .piece(let docId, _) = scope { return docId }
+        return nil
+    }
+
+    private func mayAct(on docId: String) -> Bool {
+        ResolveVerbGate.mayAct(onDocId: docId, openDocId: openDocId,
+                               isRegistered: { documentStore.document(forDocId: $0) != nil })
+    }
+
+    /// May this window act on the faces' piece?
+    private var mayActOnFaces: Bool { pieceDocId.map(mayAct(on:)) ?? false }
+
+    private var regroupKey: ResolveRegroupKey {
+        ResolveRegroupKey(
+            read: Self.readKey(scope: scope, annotationsToken: annotationsToken, store: store,
+                               documentStore: documentStore, diagnostics: diagnostics,
+                               localName: localName),
+            script: Self.script(for: scope, structure: store.manifest.structure,
+                                openDocId: openDocId, script: script))
+    }
+
+    private var shownSelection: Set<ResolveSource> {
+        ResolveFilter.normalized(selection, chips: chips, dense: dense)
+    }
+
+    private var hasList: Bool {
+        switch scope {
+        case .piece, .pieces, .figure: return true
+        case .elsewhere, .outside: return false
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ResolveHeadView(
+                scope: scope, snapshot: held, openDocId: openDocId,
+                store: store, documentStore: documentStore,
+                orchestrator: orchestrator, diagnostics: diagnostics, world: world,
+                reader: store.manifest.authorReader(
+                    choice: documentStore.uiState.authorReaderChoice,
+                    statementText: { _ in nil }),
+                compilerModel: compilerModel,
+                onCompilerModelChange: onCompilerModelChange,
+                onChooseReader: { documentStore.setAuthorReaderChoice($0) },
+                onOpenProjectSettings: onOpenProjectSettings,
+                onSetActivePass: onSetActivePass,
+                onSetPassState: onSetPassState)
+                // Its letter's state is per piece.
+                .id(scope.docIds.first ?? "")
+            if hasList {
+                filterBar
+                Divider()
+                list
+            } else {
+                ContentUnavailableView {
+                    Label("To resolve", systemImage: "checklist")
+                } description: {
+                    Text((Self.emptyState(scope: scope, hasItems: false, offersColdStart: false)
+                          ?? .outside).sentence)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: regroupKey) { refresh(regroupKey) }
+        // The sidecar for the scope's pieces — never from `body`; its
+        // `version` moves the read key.
+        .task(id: scope) {
+            if let diagnostics { ResolveReader.loadFindings(scope: scope, diagnostics: diagnostics) }
+        }
+        .onChange(of: scope) { _, _ in
+            selection = []
+            choices = [:]
+            caretGroup = nil
+            selectionModeOn = false
+            selectedIds = []
+            settledExpanded = false
+            markChecksRead()
+        }
+        .onChange(of: request, initial: true) { _, new in take(new) }
+        .onChange(of: selection) { _, _ in
+            refilter()
+            markChecksRead()
+        }
+        .onChange(of: letterLedgerRevision) { _, _ in
+            ledgerText = LessonLedgerVerbs.ledgerText(store: store)
+        }
+        .onChange(of: mayActOnFaces) { _, may in if !may { caretGroup = nil } }
+        .onAppear { markChecksRead() }
+        .modifier(ResolveDialogs(
+            store: store, verbs: noteVerbs,
+            rejectSheet: $rejectSheet, querySheet: $querySheet,
+            rulingSheet: $rulingSheet, rulingNotice: $rulingNotice,
+            choiceOffer: $choiceOffer, ledgerNotice: $ledgerNotice,
+            keepLessonSheet: $keepLessonSheet, staleConfirm: $staleConfirm,
+            anchorLostNotice: $anchorLostNotice, revertConfirm: $revertConfirm,
+            bulkNotice: $bulkNotice, editSheet: $editSheet,
+            withdrawConfirm: $withdrawConfirm,
+            figureRejectSheet: $figureRejectSheet, figureReplySheet: $figureReplySheet))
+        .sheet(isPresented: $showCreateSheet) {
+            let creation = creationVerbs.creation
+            NewTaskSheet(
+                taskBody: $newTaskBody, scope: $newTaskScope,
+                canPickDocumentScope: creation.document,
+                canPickProjectScope: creation.project,
+                onCommit: commitNewTask,
+                onCancel: {
+                    showCreateSheet = false
+                    newTaskBody = ""
+                })
+        }
+        .background(WindowAccessor(window: $window))
+        // A note changed anywhere — a closed piece's file, a peer's sync.
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
+            annotationsToken &+= 1
+        }
+        .doesNotRaiseTheWindowFloor()
+    }
+
+    // MARK: - The filter bar
+
+    private var filterBar: some View {
+        ResolveFilterBar(
+            chips: chips, selection: shownSelection, passes: passes,
+            showsSelectionMode: showsSelectionMode,
+            selectionModeOn: selectionModeOn,
+            showsNewTodo: creationVerbs.creation.offersAny,
+            onToggle: { selection = ResolveFilter.toggled(shownSelection, $0, dense: dense) },
+            onToggleSelectionMode: {
+                selectionModeOn.toggle()
+                if !selectionModeOn { selectedIds.removeAll() }
+            },
+            onNewTodo: presentCreateSheet)
+    }
+
+    /// Selection mode's door: a `.piece` scope on the open piece with notes,
+    /// where its posture leaves a bulk verb to press.
+    private var showsSelectionMode: Bool {
+        guard mayActOnFaces, let docId = pieceDocId, !bulkRows.isEmpty else { return false }
+        return AnnotationsPane.bulkOffersAVerb(posture: documentStore.posture(forDocId: docId))
+    }
+
+    // MARK: - The list
+
+    private var list: some View {
+        let acting = openDocId.flatMap {
+            AnnotationRowHost.actingDocument(docId: $0, openDocId: openDocId,
+                                             documentStore: documentStore)
+        }
+        let wiring = rowWiring
+        let open = ResolveFilter.expanded(shown, cursor: caretGroup, dense: dense, choices: choices)
+        let reorders = reordersHere
+        let piece = pieceDocId
+        let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
+                                    offersColdStart: offersColdStart)
+        return VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if let incomplete {
+                            Text(incomplete)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                        }
+                        emptyLine(empty)
+                        ForEach(shown) { group in
+                            groupHeader(group, isOpen: open.contains(group.key))
+                                .id(group.key)
+                            if open.contains(group.key) {
+                                ForEach(group.items) { item in
+                                    row(item, acting: acting, piece: piece, wiring: wiring, reorders: reorders)
+                                    Divider()
+                                }
+                            }
+                        }
+                        if ResolveSettled.offered(scope: scope, mayAct: mayActOnFaces),
+                           let acting, acting.docId == pieceDocId {
+                            ResolveSettledSection(
+                                document: acting,
+                                posture: documentStore.posture(forDocId: acting.docId),
+                                ledgerText: ledgerText, wiring: wiring,
+                                noteVerbs: noteVerbs, taskVerbs: rowTaskVerbs,
+                                onJumpToTask: { go(.todo($0)) },
+                                isExpanded: $settledExpanded)
+                        }
+                    }
+                }
+                .onChange(of: caretGroup) { old, new in
+                    guard let target = Self.scrollTarget(from: old, to: new) else { return }
+                    withAnimation { proxy.scrollTo(target, anchor: .top) }
+                }
+                .onChange(of: scrollRequest) { _, key in
+                    guard let key else { return }
+                    withAnimation { proxy.scrollTo(key, anchor: .top) }
+                    scrollRequest = nil
+                }
+            }
+            .background {
+                if mayActOnFaces, let acting, acting.docId == pieceDocId {
+                    ResolveCaretReader(document: acting, scope: scope, sceneIndex: sceneIndex,
+                                       groups: shown, caretGroup: $caretGroup)
+                }
+            }
+            if selectionModeOn, mayActOnFaces, let acting, acting.docId == pieceDocId,
+               !bulkRows.isEmpty,
+               AnnotationsPane.bulkOffersAVerb(posture: documentStore.posture(forDocId: acting.docId)) {
+                Divider()
+                AnnotationsBulkBar(
+                    document: acting, rows: bulkRows,
+                    selection: effectiveSelection(in: bulkRows),
+                    targets: bulkTargets(in: bulkRows),
+                    documentStore: documentStore, bulkInFlight: bulkInFlight,
+                    selectedIds: $selectedIds, verbs: noteVerbs)
+            }
+        }
+    }
+
+    /// Nothing to resolve: a quiet line, not furniture; a never-checked piece
+    /// the cold-start offer.
+    @ViewBuilder
+    private func emptyLine(_ empty: EmptyState?) -> some View {
+        switch empty {
+        case .coldStart?:
+            if let pieceDocId, let diagnostics, let orchestrator {
+                DiagnosticsColdStartOffer(
+                    docId: pieceDocId, diagnostics: diagnostics, orchestrator: orchestrator,
+                    otherLoopLine: DiagnosticsPane.otherLoopLine(
+                        runState: orchestrator.runState, docId: pieceDocId,
+                        titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) }))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+            }
+        case .nothing?:
+            Text(EmptyState.nothing.sentence)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+        case .outside?, .elsewhere?, nil:
+            EmptyView()
+        }
+    }
+
+    // MARK: - A group
+
+    private func groupHeader(_ group: ResolveGroup, isOpen: Bool) -> some View {
+        let atCaret = group.key == caretGroup
+        return Button {
+            choices[group.key] = !isOpen
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(group.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(atCaret ? Color.primary : Color.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                Text("\(group.items.count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(alignment: .leading) {
+                if atCaret {
+                    Rectangle().fill(Color.accentColor).frame(width: 3)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(group.title), \(group.items.count)")
+        .accessibilityAddTraits(atCaret ? .isSelected : [])
+    }
+
+    // MARK: - A row
+
+    @ViewBuilder
+    private func row(_ item: ResolveItem, acting: Document?, piece: String?,
+                     wiring: AnnotationRowWiring, reorders: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let caption = Self.caption(for: item, localName: localName) {
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.top, 6)
+            }
+            switch item {
+            case .note(let note):
+                AnnotationRowHost(
+                    annotation: note.annotation, docId: note.docId,
+                    document: note.docId == acting?.docId ? acting : nil,
+                    livePids: [], ledgerText: ledgerText,
+                    isSelectable: selectionModeOn && note.docId == piece,
+                    isSelected: selectedIds.contains(note.annotation.id),
+                    figureTitle: figureNames[note.docId],
+                    figureCells: figureCells[note.annotation.id],
+                    wiring: wiring)
+            case .finding(let docId, let finding):
+                findingRow(item, docId: docId, finding: finding, acting: acting)
+            case .todo(let task):
+                todoRow(task, acting: acting, reorders: reorders)
+            }
+        }
+    }
+
+    private func findingRow(_ item: ResolveItem, docId: String, finding: Diagnostic,
+                            acting: Document?) -> some View {
+        let offers = Self.findingOffers(
+            item, mayAct: acting?.docId == docId,
+            posture: documentStore.posture(forDocId: docId),
+            statementAllowsAnswer: documentStore.posture(
+                ofStatement: .intent, scope: .document(docId),
+                statements: store.manifest.statements).allows(.editStatement),
+            durable: durable(docId))
+        return DiagnosticRow(
+            diagnostic: finding,
+            canAnswer: offers.answer,
+            canPromote: offers.promote,
+            isSubmitting: answering.contains(finding.id),
+            answerFailure: answerFailures[finding.id],
+            // A finding's chips name their own paragraphs: go to the one
+            // pressed, on the finding's piece.
+            onJump: { ResolveHead.go(toDocId: docId, paragraphId: $0) },
+            onPromote: { promote(finding, docId: docId) },
+            onAnswer: { answer($0, to: finding, docId: docId) })
+    }
+
+    @ViewBuilder
+    private func todoRow(_ task: WriterTask, acting: Document?, reorders: Bool) -> some View {
+        let offered = rowTaskVerbs.offered(task)
+        let base = TaskRow(
+            task: task, verbs: offered,
+            onToggle: { rowTaskVerbs.toggle(task) },
+            onJump: { go(.todo(task)) },
+            onArchive: { rowTaskVerbs.archive(task) },
+            onDelete: { rowTaskVerbs.delete(task) })
+            .padding(.leading, task.parentTaskId == nil ? 12 : 30)
+            .padding(.trailing, 12).padding(.vertical, 4)
+        if reorders && offered.move {
+            base
+                .draggable(task.id) {
+                    Text(task.body)
+                        .padding(6)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                }
+                .dropDestination(for: String.self) { ids, location in
+                    drop(ids.first, onto: task, at: location)
+                }
+        } else {
+            base
+        }
+    }
+
+    // MARK: - Reordering to-dos (re-gated at the drop)
+
+    private var reordersHere: Bool {
+        guard let first = visible.first else { return false }
+        return Self.reordersTodos(visible: visible, selection: shownSelection,
+                                  mayAct: mayAct(on: first.docId))
+    }
+
+    private func drop(_ draggedId: String?, onto target: WriterTask, at location: CGPoint) -> Bool {
+        let todos = visible.compactMap { item -> WriterTask? in
+            if case .todo(let task) = item { return task } else { return nil }
+        }
+        guard let draggedId, reordersHere,
+              rowTaskVerbs.offered(target).move,
+              let dragged = todos.first(where: { $0.id == draggedId }),
+              rowTaskVerbs.offered(dragged).move,
+              ResolveTaskVerbs.acceptsDrop(of: dragged, onto: target),
+              let doc = documentStore.document(forDocId: ResolveTaskVerbs.docId(of: dragged)),
+              mayAct(on: doc.docId)
+        else { return false }
+        // `TasksPane`'s reading of a drop: the row's top or bottom half.
+        let rowHeight: CGFloat = 28
+        let yFraction = Double(min(max(location.y, 0), rowHeight) / rowHeight)
+        let intent = TaskDropIntent.classify(
+            position: TaskDropIntent.position(yFraction: yFraction),
+            targetId: target.id, targetParentTaskId: target.parentTaskId)
+        rowTaskVerbs.apply(intent: intent, dragged: dragged, in: doc, allTasks: todos)
+        return true
+    }
+
+    // MARK: - Refresh
+
+    private func refresh(_ key: ResolveRegroupKey) {
+        let readScope = key.read.scope
+        switch Self.refreshStep(key, lastRead: lastRead) {
+        case .read:
+            held = ResolveReader.read(scope: readScope, store: store,
+                                      documentStore: documentStore, diagnostics: diagnostics)
+            figureCells = readScope.docIds.isEmpty
+                ? [:] : store.listAnnotationsAcrossProject().figureCells
+            ledgerText = LessonLedgerVerbs.ledgerText(store: store)
+            lastRead = key.read
+        case .reread:
+            held = ResolveReader.rereadText(held, scope: readScope, store: store,
+                                            documentStore: documentStore)
+        }
+        regroup(scope: readScope, script: key.script)
+        applyPendingRequest()
+    }
+
+    private func regroup(scope: ResolveScope, script: FountainScript?) {
+        let structure = store.manifest.structure
+        var names: [String: String] = [:]
+        for figure in store.manifest.figures ?? [] where names[figure.id] == nil {
+            names[figure.id] = figure.name
+        }
+        var index: [String: Int]?
+        var titles: [String] = []
+        if case .piece(let docId, _) = scope, let script {
+            let starts = ParagraphOffsets.starts(sequence: held.sequences[docId] ?? [],
+                                                 paragraphs: held.paragraphText)
+            let summaries = script.sceneSummaries()
+            index = ParagraphOffsets.sceneIndex(
+                starts: starts, sceneStarts: summaries.map(\.line.range.location))
+            titles = summaries.map(\.line.content)
+        }
+        figureNames = names
+        sceneIndex = index
+        groups = ResolveGrouping.groups(held, scope: scope, structure: structure,
+                                        sceneIndex: index, sceneTitles: titles,
+                                        figureNames: names)
+        chips = ResolveFilter.chips(held.items, passes: passes, localName: localName)
+        dense = ResolveFilter.isDense(held.items)
+        incomplete = Self.incompleteLine(held, structure: structure, figureNames: names)
+        refilter()
+    }
+
+    /// The selection over the built groups — once per selection change or
+    /// rebuild, never per row.
+    private func refilter() {
+        let items = ResolveFilter.visible(held.items, selection: shownSelection,
+                                          localName: localName)
+        let ids = Set(items.map(\.id))
+        shown = groups.compactMap { group in
+            let kept = group.items.filter { ids.contains($0.id) }
+            return kept.isEmpty ? nil : ResolveGroup(key: group.key, title: group.title, items: kept)
+        }
+        visible = shown.flatMap(\.items)
+    }
+
+    // MARK: - Requests
+
+    private func take(_ new: ResolveRequest?) {
+        guard let new else { return }
+        request = nil
+        pendingRequest = new
+        applyPendingRequest()
+    }
+
+    /// A request waits for the read of the scope it arrived with.
+    private func applyPendingRequest() {
+        guard let pending = pendingRequest, lastRead?.scope == scope else { return }
+        pendingRequest = nil
+        let activePass = pieceDocId.flatMap {
+            documentStore.uiState.activePassMemory.validatedActivePass(forPiece: $0, in: passes)
+        }
+        let outcome = Self.apply(pending, groups: groups, chips: chips, activePassId: activePass,
+                                 dense: dense, selection: shownSelection, choices: choices)
+        selection = outcome.selection
+        choices = outcome.choices
+        scrollRequest = outcome.scrollTo
+        refilter()
+    }
+
+    /// Showing the checks' items reads them (`clearsUnreadChecks`).
+    private func markChecksRead() {
+        guard let diagnostics, let pieceDocId,
+              ResolveFilter.clearsUnreadChecks(selection: shownSelection) else { return }
+        diagnostics.markRead(docId: pieceDocId, kind: .check)
+    }
+
+    // MARK: - Going to a place
+
+    /// A row's click: its piece, on its paragraph (`ResolveNavigation`); a
+    /// figure's note travels to the figure.
+    private func go(_ item: ResolveItem) {
+        if case .note(let note) = item, DocumentClass.isFigureDocId(note.docId) {
+            figureClick(note)
+            return
+        }
+        ResolveNavigation.go(item, firstParagraph: held.sequences[item.docId]?.first)
+    }
+
+    private func figureClick(_ note: ProjectAnnotation) {
+        let click = AnnotationScopePolicy.click(
+            rowDocId: note.docId, activeDocId: openDocId, drawsFigure: drawsFigure)
+        if let cell = FigureRowGate.cell(of: note.annotation) {
+            let travels = if case .travel = click { true } else { false }
+            if revealFigureCell(note.docId, cell, travels) { return }
+        }
+        if case .travel(let subject) = click {
+            if case .figure(let id) = subject { revealFigure(id) }
+            onTravel(subject)
+        }
+    }
+
+    // MARK: - A finding's verbs
+
+    private func durable(_ docId: String) -> Bool {
+        guard let orchestrator, let diagnostics else { return true }
+        return DiagnosticsPane.offersDurableActions(state: DiagnosticsPane.headerState(
+            runState: orchestrator.runState, lastRun: diagnostics.lastCheck(docId: docId),
+            noteCount: 0, docId: docId))
+    }
+
+    /// Promote to Task, on the open piece's live `Document` only.
+    private func promote(_ finding: Diagnostic, docId: String) {
+        guard let diagnostics, mayAct(on: docId),
+              let document = documentStore.document(forDocId: docId) else { return }
+        DiagnosticsPane.promote(finding, run: diagnostics.lastCheck(docId: docId), in: document,
+                                diagnostics: diagnostics, undoManager: undoManager)
+    }
+
+    private func answer(_ text: String, to finding: Diagnostic, docId: String) {
+        guard let diagnostics else { return }
+        answerFailures[finding.id] = nil
+        answering.insert(finding.id)
+        Task {
+            let failure = await DiagnosticsPane.commitAnswer(
+                text, to: finding, docId: docId, store: store, world: world,
+                diagnostics: diagnostics)
+            answering.remove(finding.id)
+            answerFailures[finding.id] = failure
+        }
+    }
+
+    private var offersColdStart: Bool {
+        guard mayActOnFaces, let pieceDocId, let diagnostics, let orchestrator else { return false }
+        _ = diagnostics.version
+        return DiagnosticsPane.showsColdStartOffer(
+            state: DiagnosticsPane.headerState(
+                runState: orchestrator.runState, lastRun: diagnostics.lastCheck(docId: pieceDocId),
+                noteCount: 0, docId: pieceDocId),
+            liveParagraphCount: held.sequences[pieceDocId]?.count ?? 0,
+            hasRefused: diagnostics.hasRefusedColdStart(docId: pieceDocId))
+    }
+
+    // MARK: - To-do verbs
+
+    /// The rows' verbs: only the piece open in the centre acts.
+    private var rowTaskVerbs: ResolveTaskVerbs {
+        ResolveTaskVerbs(store: store, documentStore: documentStore,
+                         openDocId: openDocId, undoManager: undoManager)
+    }
+
+    /// New To-do's verbs: the faces' piece when it is the open one, else the
+    /// Book's stream only — never a piece the list is not about.
+    private var creationVerbs: ResolveTaskVerbs {
+        ResolveTaskVerbs(store: store, documentStore: documentStore,
+                         openDocId: mayActOnFaces ? pieceDocId : nil, undoManager: undoManager)
+    }
+
+    private func presentCreateSheet() {
+        newTaskBody = ""
+        newTaskScope = creationVerbs.creation.document ? .document : .project
+        showCreateSheet = true
+    }
+
+    private func commitNewTask() {
+        let trimmed = newTaskBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            creationVerbs.createTask(body: trimmed, in: newTaskScope)
+        }
+        showCreateSheet = false
+        newTaskBody = ""
+    }
+
+    // MARK: - Notes: bulk, wiring, verbs
+
+    /// The open piece's visible notes — what bulk acts over.
+    private var bulkRows: [Annotation] {
+        guard let pieceDocId else { return [] }
+        return visible.compactMap { item -> Annotation? in
+            if case .note(let note) = item, note.docId == pieceDocId { return note.annotation }
+            return nil
+        }
+    }
+
+    private func effectiveSelection(in rows: [Annotation]) -> Set<String> {
+        guard !selectedIds.isEmpty else { return [] }
+        return selectedIds.intersection(rows.map(\.id))
+    }
+
+    private func bulkTargets(in rows: [Annotation]) -> [Annotation] {
+        let picked = effectiveSelection(in: rows)
+        guard !picked.isEmpty else { return rows }
+        return rows.filter { picked.contains($0.id) }
+    }
+
+    private var noteVerbs: ResolveNoteVerbs {
+        ResolveNoteVerbs(
+            store: store, documentStore: documentStore, world: world,
+            userPreferences: userPreferences, undoManager: undoManager,
+            onChoiceOfferChanged: onChoiceOfferChanged,
+            projectSnapshot: { store.listAnnotationsAcrossProject() },
+            visibleAnnotations: { doc in doc.docId == pieceDocId ? bulkRows : [] },
+            effectiveSelection: { effectiveSelection(in: $0) },
+            staleConfirm: $staleConfirm, anchorLostNotice: $anchorLostNotice,
+            revertConfirm: $revertConfirm, rulingNotice: $rulingNotice,
+            ledgerNotice: $ledgerNotice, choiceOffer: $choiceOffer,
+            stetFlourishIds: $stetFlourishIds, bulkInFlight: $bulkInFlight,
+            selectedIds: $selectedIds, bulkNotice: $bulkNotice,
+            letterLedgerRevision: $letterLedgerRevision,
+            projectRefreshToken: $annotationsToken)
+    }
+
+    private var rowWiring: AnnotationRowWiring {
+        let verbs = noteVerbs
+        return AnnotationRowWiring(
+            localName: localName,
+            stetFlourishIds: stetFlourishIds,
+            manifest: store.manifest,
+            rowVerbs: { rowVerbs(for: $0, docId: $1, isOwn: $2) },
+            onToggleSelection: { id in
+                if selectedIds.remove(id) == nil { selectedIds.insert(id) }
+            },
+            onAccept: { verbs.accept($0, $1) },
+            onReject: { rejectSheet = ResolveNoteTarget(document: $0, annotation: $1) },
+            onStet: { verbs.stet($0, $1) },
+            onTriage: { verbs.triage($0, $1, mark: $2) },
+            onArchive: { verbs.archive($0, $1) },
+            onReply: { querySheet = ResolveNoteTarget(document: $0, annotation: $1) },
+            onAnswerAsRuling: { rulingSheet = ResolveNoteTarget(document: $0, annotation: $1) },
+            onMakeChoice: { verbs.performChoice($0, $1) },
+            onKeepAsLesson: { keepLessonSheet = ResolveLessonTarget(docId: $0, annotation: $1) },
+            onEdit: { editSheet = ResolveNoteTarget(document: $0, annotation: $1) },
+            onWithdraw: { withdrawConfirm = ResolveNoteTarget(document: $0, annotation: $1) },
+            onRevert: { verbs.revert($0, $1) },
+            onReopen: { verbs.reopen($0, id: $1.id) },
+            onJump: { docId, ann in go(.note(ProjectAnnotation(docId: docId, annotation: ann))) },
+            figure: FigureRowWiring(
+                onAccept: { verbs.figureAccept($0, $1) },
+                onReject: { figureRejectSheet = ResolveFigureNoteTarget(figureId: $0, annotation: $1) },
+                onStet: { verbs.figureStet($0, $1) },
+                onArchive: { verbs.figureArchive($0, $1) },
+                onReply: { figureReplySheet = ResolveFigureNoteTarget(figureId: $0, annotation: $1) },
+                onReopen: { verbs.figureReopen($0, $1) },
+                reachable: { drawsFigure($0) }))
+    }
+
+    /// The posture of the ROW'S OWN document decides its verbs; the gate in
+    /// `AnnotationRowHost` then hides every `Document` verb off the open piece.
+    private func rowVerbs(for ann: Annotation, docId: String, isOwn: Bool) -> AnnotationRowVerbs {
+        let rulingKind: Statement.Kind? = switch RulingDestination.offered(
+            for: ann, manifest: store.manifest) {
+        case .editionBrief(let language): .editionBrief(language)
+        case .firstReader: .firstReader
+        case nil: nil
+        }
+        return AnnotationRowVerbs.decide(
+            posture: documentStore.posture(forDocId: docId),
+            isOwn: isOwn,
+            rulingStatement: rulingKind.map(postureOfStatement(_:)),
+            lessons: postureOfStatement(.lessons))
+    }
+
+    private func postureOfStatement(_ kind: Statement.Kind) -> Posture {
+        documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+            kind: kind, scope: .project, statements: store.manifest.statements))
+    }
+}
+
+// MARK: - The caret
+
+/// **The caret's group, read where it changes.** Mounted only on the open
+/// piece at a `.piece` scope. It reads `Document.cursorLocation` itself, so a
+/// caret move re-renders this empty view and nothing else; per move only
+/// `paragraphId(at:)` and the caret function over groups already built run
+/// (tripwire 4), and the list hears of it only when the GROUP changes.
+@MainActor
+private struct ResolveCaretReader: View {
+    let document: Document
+    let scope: ResolveScope
+    let sceneIndex: [String: Int]?
+    let groups: [ResolveGroup]
+    @Binding var caretGroup: ResolveGroup.Key?
+
+    var body: some View {
+        let paragraph = ResolvePane.caretParagraph(scope: scope, mayAct: true) {
+            document.paragraphId(at: document.cursorLocation)
+        }
+        let key = ResolveFilter.cursorGroup(paragraphId: paragraph, docId: document.docId,
+                                            sceneIndex: sceneIndex, groups: groups)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: key, initial: true) { _, new in caretGroup = new }
+    }
+}
+
+// MARK: - The decisions, pure
+
+extension ResolvePane {
+
+    /// **What To resolve's read is keyed on**, from the live stores: the
+    /// scope, the event token, every open document's versions (a typed to-do
+    /// bumps its `tasksVersion` at once), the Book's to-dos, the sidecar, the
+    /// passes and the local name.
+    static func readKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
+                        documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
+                        localName: String) -> ResolveReadKey {
+        ResolveReadKey(
+            scope: scope, annotationsToken: annotationsToken,
+            openVersions: documentStore.allOpenDocuments().map {
+                (annotations: $0.annotationsVersion, tasks: $0.tasksVersion)
+            },
+            projectTasksVersion: store.projectTasksVersion,
+            diagnosticsVersion: diagnostics?.version ?? 0,
+            passes: store.manifest.effectiveReviewPasses,
+            localName: localName)
+    }
+
+    /// **Read before regroup.** A read key that moved runs the read (which
+    /// also reads the piece's text); a script-only change re-reads the text.
+    static func refreshStep(_ key: ResolveRegroupKey, lastRead: ResolveReadKey?) -> ResolveRefreshStep {
+        key.read == lastRead ? .reread : .read
+    }
+
+    /// The window's script, where it is about the scope's piece: a
+    /// screenplay piece (by its format) that is the open one, a screenplay's
+    /// Book, or the one document of a one-script project. Otherwise no scenes.
+    static func script(for scope: ResolveScope, structure: [StructureItem], openDocId: String?,
+                       script: FountainScript?) -> FountainScript? {
+        guard let script, case .piece(let docId, let isBook) = scope,
+              let item = TreeWalk.find(id: docId, in: structure),
+              DocumentFormat.ofManuscript(path: item.path).isScreenplay
+        else { return nil }
+        let isTheOnlyDocument = TreeWalk.collect(in: structure) { $0.type == .document }.count == 1
+        guard isBook || docId == openDocId || isTheOnlyDocument else { return nil }
+        return script
+    }
+
+    /// **To-dos reorder** only under Mine alone, when every visible item is a
+    /// to-do of one piece and that piece is open (`mayAct`). The Book's
+    /// to-dos have no `Document` to reorder through.
+    static func reordersTodos(visible: [ResolveItem], selection: Set<ResolveSource>,
+                              mayAct: Bool) -> Bool {
+        guard mayAct, selection == [.mine], let first = visible.first,
+              first.docId != ProjectStore.projectTasksDocId else { return false }
+        return visible.allSatisfy { item in
+            if case .todo = item { return item.docId == first.docId }
+            return false
+        }
+    }
+
+    /// A request, applied: a filter through `ResolveFilter.selection(for:)`
+    /// (inert when its chip is absent); a focus opens and scrolls to that
+    /// piece's or figure's group.
+    static func apply(_ request: ResolveRequest, groups: [ResolveGroup], chips: [ResolveSource],
+                      activePassId: String?, dense: Bool, selection: Set<ResolveSource>,
+                      choices: [ResolveGroup.Key: Bool]) -> ResolveRequestOutcome {
+        switch request {
+        case .filter(let key):
+            let next = ResolveFilter.selection(for: key, chips: chips,
+                                               activePassId: activePassId, dense: dense)
+            return ResolveRequestOutcome(selection: next ?? selection, choices: choices, scrollTo: nil)
+        case .focus(let ownerId):
+            guard let key = focusKey(ownerId: ownerId, in: groups) else {
+                return ResolveRequestOutcome(selection: selection, choices: choices, scrollTo: nil)
+            }
+            var opened = choices
+            opened[key] = true
+            return ResolveRequestOutcome(selection: selection, choices: opened, scrollTo: key)
+        }
+    }
+
+    /// The group a piece or a figure owns among the built groups.
+    static func focusKey(ownerId: String, in groups: [ResolveGroup]) -> ResolveGroup.Key? {
+        groups.first { group in
+            switch group.key {
+            case .piece(let docId): return docId == ownerId
+            case .figure(let id): return id == ownerId
+            default: return false
+            }
+        }?.key
+    }
+
+    /// The caret's paragraph, read only on the open piece at a `.piece`
+    /// scope; nil anywhere else, without reading it.
+    static func caretParagraph(scope: ResolveScope, mayAct: Bool,
+                               read: () -> String?) -> String? {
+        guard mayAct, case .piece = scope else { return nil }
+        return read()
+    }
+
+    /// Scroll only when the caret's group changes to a group.
+    static func scrollTarget(from old: ResolveGroup.Key?, to new: ResolveGroup.Key?) -> ResolveGroup.Key? {
+        guard let new, new != old else { return nil }
+        return new
+    }
+
+    static let fromTheCheckCaption = "From the check"
+    static let replacedByTheNextCheckCaption = "Replaced by the next check"
+
+    /// The one caption a row may wear: a check-minted note is "From the
+    /// check"; a sidecar strain is "Replaced by the next check".
+    static func caption(for item: ResolveItem, localName: String) -> String? {
+        switch item {
+        case .finding: return replacedByTheNextCheckCaption
+        case .note:
+            return ResolveFilter.source(of: item, localName: localName) == .checks
+                ? fromTheCheckCaption : nil
+        case .todo: return nil
+        }
+    }
+
+    /// A finding's verbs: Answer files a ruling (any piece, by the intent's
+    /// posture); Promote writes the piece's `Document` (the open piece only).
+    /// Nothing while a check is still arriving.
+    static func findingOffers(_ item: ResolveItem, mayAct: Bool, posture: Posture,
+                              statementAllowsAnswer: Bool,
+                              durable: Bool) -> (answer: Bool, promote: Bool) {
+        guard case .finding(_, let finding) = item, durable else { return (false, false) }
+        return ResolveVerbGate.findingVerbs(
+            answer: statementAllowsAnswer && DiagnosticsPane.offersAnAnswer(finding),
+            promote: posture.allows(.task),
+            mayAct: mayAct)
+    }
+
+    /// The line above the list naming any piece that would not read
+    /// (RULING-54).
+    static func incompleteLine(_ snapshot: ResolveSnapshot, structure: [StructureItem],
+                               figureNames: [String: String]) -> String? {
+        ResolveIncompleteness.of(snapshot, structure: structure, figureNames: figureNames)?.message
+    }
+
+    enum EmptyState: Equatable {
+        /// The faces are an edition, the Canvas, the Inbox or the Palette.
+        case outside
+        /// A Collection piece that lives in another project.
+        case elsewhere
+        /// A piece with nothing and no standing check: the cold-start offer.
+        case coldStart
+        /// Nothing to resolve.
+        case nothing
+
+        var sentence: String {
+            switch self {
+            case .outside:
+                return "To resolve gathers what has been raised about a piece, a Part or the Book: "
+                    + "notes, checks, to-dos and questions. Choose one in the tree."
+            case .elsewhere:
+                return "This piece belongs to another project. Open that project to see what it raises."
+            case .coldStart:
+                return DiagnosticsPane.coldStartOfferSentence
+            case .nothing:
+                return "Nothing to resolve."
+            }
+        }
+    }
+
+    static func emptyState(scope: ResolveScope, hasItems: Bool, offersColdStart: Bool) -> EmptyState? {
+        switch scope {
+        case .outside: return .outside
+        case .elsewhere: return .elsewhere
+        case .piece, .pieces, .figure:
+            guard !hasItems else { return nil }
+            return offersColdStart ? .coldStart : .nothing
+        }
+    }
+}

@@ -402,7 +402,10 @@ struct ResolveHeadView: View {
             onCompilerModelChange: onCompilerModelChange,
             onChooseReader: onChooseReader,
             onOpenProjectSettings: onOpenProjectSettings,
-            offersReread: offers.runCheck)
+            offersReread: offers.runCheck,
+            // The cockpit above draws the same `compilerModel` menu: one
+            // setting, drawn once.
+            offersModelMenu: false)
     }
 }
 

@@ -30,6 +30,10 @@ struct DiagnosticsPaneHeader: View {
     /// only (read anywhere, act only on the open piece; hidden, not
     /// disabled). The old pane draws it always.
     var offersReread: Bool = true
+    /// Whether the header draws its model menu. False where the round
+    /// cockpit above it already draws the same setting's menu (To resolve's
+    /// head): one setting, one menu.
+    var offersModelMenu: Bool = true
 
     var body: some View { header }
 
@@ -122,7 +126,7 @@ struct DiagnosticsPaneHeader: View {
                         .disabled(isRunningState || otherLoopLine != nil)
                         .help(otherLoopLine ?? DiagnosticsPane.rereadHelp)
                 }
-                gearMenu
+                if offersModelMenu { gearMenu }
             }
             // **The picker P1 promised, and it travels nowhere** (two loops
             // P2 Task 6). This line used to be a button that switched the

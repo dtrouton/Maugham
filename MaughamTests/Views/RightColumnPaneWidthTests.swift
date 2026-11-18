@@ -163,6 +163,30 @@ final class RightColumnPaneWidthTests: XCTestCase {
             + "(\(atCeiling.height)pt), not stacked (\(stacked.height)pt)")
     }
 
+    // MARK: - To resolve's filter bar
+
+    /// **Every chip and both trailing controls**, with long pass names: the
+    /// chips scroll sideways, so the bar takes the width it is offered at the
+    /// floor and at the default, and its trailing controls stay on the column.
+    func test_theFilterBarFitsTheColumnFloor() {
+        let passes = (1...4).map {
+            ReviewPass(id: "p\($0)", name: "A long structural pass number \($0)")
+        }
+        let bar = ResolveFilterBar(
+            chips: passes.map { .pass($0.id) } + [.mine, .checks, .questions, .others],
+            selection: [.mine], passes: passes,
+            showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
+            onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+        XCTAssertGreaterThan(Self.idealWidth(of: bar), Self.ceiling,
+                             "premise: the chips alone want more than the widest column")
+        for width in Self.paneWidths {
+            let (fits, measured) = Self.fits(bar, in: width)
+            XCTAssertTrue(fits,
+                "To resolve's filter bar wants \(measured)pt in a \(width)pt pane — "
+                + "an over-wide row is cropped by the column (#122)")
+        }
+    }
+
     // MARK: - The census: every pane the right column can show
 
     /// **Every `DetailSegment`, walked off `allCases`**, rendered by the real

@@ -316,7 +316,7 @@ private struct ClauseRow: View {
 // MARK: - One note
 
 @MainActor
-private struct DiagnosticRow: View {
+struct DiagnosticRow: View {
     let diagnostic: Diagnostic
     /// Whether this row offers the **Answer** action at all — false for a
     /// reader report, false with no project to write into, and false for every
