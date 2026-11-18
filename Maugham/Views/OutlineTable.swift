@@ -12,6 +12,11 @@ struct OutlineTable: View {
     /// is one of the recurrence-trippers for).
     @State private var writers: PieceWriters = .none
 
+    /// Each row's line (`BriefLine`: the synopsis, else the intent's
+    /// opening), built once per manifest change in `.task` — it reads a
+    /// statement per piece, so never in a cell (tripwire 4).
+    @State private var lines: [String: String] = [:]
+
     /// **`Table` cannot carry a `BinderSubject`, and this is where that is
     /// paid for.** `List(selection:)` takes any `Hashable` and matches it
     /// against each row's `.tag`, so the binder and the pieces pane hold a
@@ -70,8 +75,8 @@ struct OutlineTable: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            TableColumn("Synopsis") { item in
-                Text(item.synopsis ?? "")
+            TableColumn("Line") { item in
+                Text(lines[item.id] ?? "")
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(.secondary)
@@ -109,6 +114,7 @@ struct OutlineTable: View {
             }
         }
         .task(id: store.url) { await loadWriters() }
+        .task(id: store.manifest.modified) { lines = BriefLine.index(store: store) }
     }
 
     /// The one registry read this table makes — one per project, off the main

@@ -298,7 +298,9 @@ public enum GetOutlineTool: MCPTool {
     public static let method = "get_outline"
     public static let description =
         "Return the hierarchical manuscript structure with review status, " +
-        "synopsis, and word counts. `review_status` (draft/revising/final) is " +
+        "synopsis, and word counts. `synopsis` is the item's one-line Brief: " +
+        "the writer's stored line, else the opening of its intent (a piece's " +
+        "own intent, never the book's), else null. `review_status` (draft/revising/final) is " +
         "the derived truth for a piece; `pass_states` says where it stands on " +
         "each named review pass, keyed by the ids in the top-level " +
         "`review_passes` ladder (an absent key means untouched; a key NOT in " +
@@ -324,7 +326,9 @@ public enum GetOutlineTool: MCPTool {
         // `word_count` is read as final: a burst still in its settle delay
         // is counted first.
         store.documentStore?.settleWordCount()
-        let nodes = Self.toNodes(store.manifest.structure, store: store, passes: passes)
+        // Each item's line, read once for the whole outline (`BriefLine`).
+        let lines = BriefLine.index(store: store)
+        let nodes = Self.toNodes(store.manifest.structure, store: store, passes: passes, lines: lines)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return try encoder.encode(Outline(
@@ -334,11 +338,12 @@ public enum GetOutlineTool: MCPTool {
 
     @MainActor
     private static func toNodes(
-        _ items: [StructureItem], store: ProjectStore, passes: [ReviewPass]
+        _ items: [StructureItem], store: ProjectStore, passes: [ReviewPass],
+        lines: [String: String]
     ) -> [Node] {
         items.map { item in
             let isDoc = (item.type == .document)
-            let childNodes = item.children.map { toNodes($0, store: store, passes: passes) }
+            let childNodes = item.children.map { toNodes($0, store: store, passes: passes, lines: lines) }
             let modified: Date? = isDoc
                 ? Self.modifiedDate(for: item, store: store)
                 : Self.maxDescendantModified(in: item.children ?? [], store: store)
@@ -357,7 +362,7 @@ public enum GetOutlineTool: MCPTool {
                         legacyStatus: item.status).rawValue
                     : nil,
                 pass_states: isDoc ? item.passStates : nil,
-                synopsis: item.synopsis,
+                synopsis: lines[item.id],
                 word_count: isDoc ? store.cachedWordCount(for: item.id) : nil,
                 word_target: item.wordTarget,
                 modified: modified,

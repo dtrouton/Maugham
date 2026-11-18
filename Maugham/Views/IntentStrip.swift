@@ -192,6 +192,13 @@ struct IntentStrip: View {
     ) -> String? {
         guard shows(subject: subject, structure: store.manifest.structure),
               !isNoChromeOn else { return nil }
+        // **The Brief in a sentence** (shell plan 3): the piece's stored line
+        // (`StructureItem.synopsis`) wins, and the intent's opening is the
+        // fallback — `BriefLine.display`, the one rule the corkboard, the
+        // outline and the MCP listing share. A stored line needs no statement
+        // read at all.
+        let synopsis = TreeWalk.find(id: docId, in: store.manifest.structure)?.synopsis
+        if let stored = BriefLine.stored(synopsis) { return stored }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }
         // **The ESSAY stratum, not the whole statement** (declared-world Task
         // 6). `line(from:)` walks blocks and takes the first paragraph, list
@@ -207,7 +214,7 @@ struct IntentStrip: View {
         // unreadable statement shows no line, exactly as an absent one does;
         // the Intent pane's editor owns surfacing the refusal.
         guard let text = try? store.statementText(of: statement) else { return nil }
-        return line(from: StatementEssay.half(of: text))
+        return BriefLine.display(synopsis: synopsis, intentEssay: StatementEssay.half(of: text))
     }
 
     // MARK: - The line rule (pure)
