@@ -379,8 +379,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
-- **Bulk acts on the open piece only.** To resolve holds the walks (`ResolveWalkHold`) and splices open pieces off their `Document`s: no walk on the typing path.
-- **A row's click in a Book or Part list keeps the faces** (`ClickRule.openInsideTheFaces`); elsewhere `open = faces = piece`.
+- **Bulk acts on the open piece only.** To resolve holds the walks (`ResolveWalkHold`); open pieces splice live.
+- **A row's click in a Book or Part list keeps the faces** (`ClickRule.openInsideTheFaces`).
 - **Inside a group, notes take `AnnotationQueueOrder.sorted` (Do first)**; it does not change the deriver's projection.
 - **To resolve filters by source chip (`ResolveFilter`), view-side**; `AnnotationFilter`'s shape reaches MCP and never widens.
 - **A note has one source** (`ResolveFilter.source`): unstamped is Mine or Others, a coach-lane note its own pass; never another pass.
