@@ -106,10 +106,6 @@ final class RightColumnPaneWidthTests: XCTestCase {
     // resolve's filter bar is measured by
     // `test_theFilterBarFitsTheColumnFloor` (`ResolvePaneTests`).
 
-
-
-
-
     // MARK: - To resolve's filter bar
 
     /// **Every chip and both trailing controls**, with long pass names: the

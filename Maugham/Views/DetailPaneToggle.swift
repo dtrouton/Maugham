@@ -402,14 +402,18 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `ResolvePane` the moment it shows the checks' items
     /// (`ResolveFilter.clearsUnreadChecks`), the rule the Diagnostics pane's
     /// badge kept: on screen is read.
+    ///
+    /// **Keyed on the doc id the list clears** (`ResolvePane.unreadDocId`):
+    /// the faces' piece at a `.piece` scope, else no dot — so a dot never
+    /// stands where To resolve could not clear it.
     private var checksUnread: Bool {
-        Self.showsUnreadDot(unreadChecks: diagnosticsStore?.unreadCount(docId: activeDocId) ?? 0)
+        guard let diagnosticsStore,
+              let docId = ResolvePane.unreadDocId(scope: ResolveScope.of(
+                subject.faces, structure: store.manifest.structure,
+                projectType: store.manifest.type))
+        else { return false }
+        return UnreadDot.shows(unreadChecks: diagnosticsStore.unreadCount(docId: docId))
     }
-
-    /// **A dot, never a number** (shell plan 2 Task 7): unread is a signal
-    /// that something came in, and how many is the list's to say. The dot
-    /// sits on To resolve's position in the picker and on its Checks chip.
-    static func showsUnreadDot(unreadChecks: Int) -> Bool { unreadChecks > 0 }
 
     /// The segment the unread dot sits over — To resolve, the one list the
     /// check's findings are read in.
@@ -477,7 +481,7 @@ struct DetailPaneToggle<Inspector: View>: View {
         .overlay(alignment: .topTrailing) {
             // Accent rather than red: these are craft notes on prose the
             // writer chose to have checked, not something wrong. A dot, not a
-            // count (`showsUnreadDot`).
+            // count (`UnreadDot.shows`).
             unreadDot(over: Self.unreadDotSegment, shown: checksUnread,
                       help: Self.unreadDotHelp)
         }

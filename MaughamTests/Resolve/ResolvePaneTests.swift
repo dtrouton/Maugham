@@ -399,6 +399,35 @@ final class ResolvePaneTests: XCTestCase {
                       "and no document was loaded for the Book")
     }
 
+    /// **Archived to-dos have a surface, and Unarchive lands** (controller
+    /// ruling, shell plan 2 Task 7 fix): the open piece's Settled lists its
+    /// archived to-dos, the Book's Settled the Book's, and Unarchive opens
+    /// each again — on the piece through its live `Document`, on the Book
+    /// through the project stream.
+    func test_archivedTodosAreSettledAndUnarchiveLands() async throws {
+        let (doc, store, documentStore) = try await openDocument()
+        let verbs = ResolveTaskVerbs(store: store, documentStore: documentStore,
+                                     openDocId: doc.docId, undoManager: nil)
+        let piece = doc.createPaneTask(body: "check the dates", parentTaskId: nil)
+        doc.archiveTask(id: piece.id)
+        let archived = try XCTUnwrap(ResolveSettled.contents(of: doc).archived.first { $0.id == piece.id },
+                                     "the piece's Settled lists its archived to-do")
+        XCTAssertTrue(ResolveTaskVerbs.offersUnarchive(archived, verbs: verbs.offered(archived)))
+        verbs.unarchive(archived)
+        XCTAssertEqual(doc.tasks(filter: TaskFilter(scope: .document(docId: doc.docId),
+                                                    statuses: Set(TaskStatus.allCases)))
+                        .first { $0.id == piece.id }?.status, .open, "Unarchive lands on the piece")
+        XCTAssertFalse(ResolveSettled.contents(of: doc).archived.contains { $0.id == piece.id })
+
+        let bookTask = store.createProjectPaneTask(body: "index", undoManager: nil)
+        verbs.archive(bookTask)
+        let bookArchived = try XCTUnwrap(ResolveSettled.bookArchived(store: store).first { $0.id == bookTask.id },
+                                         "the Book's Settled lists its archived to-do")
+        verbs.unarchive(bookArchived)
+        XCTAssertEqual(ResolveTaskVerbs.bookTasks(store: store).first { $0.id == bookTask.id }?.status, .open,
+                       "Unarchive lands on the Book")
+    }
+
     /// Hidden where the posture refuses — never an enabled no-op.
     func test_theBooksVerbsAreHiddenWhereThePostureRefuses() {
         let reviewer = Posture(LocalWritePermit(permit: .reviewer, actor: .author,
@@ -498,15 +527,15 @@ final class ResolvePaneTests: XCTestCase {
     func test_offThePieceTheCheckPromoteAndArchiveAllDoneAreHidden() {
         let author = Posture(.unrestricted)
         let off = ResolvePane.findingOffers(finding("f"), mayAct: false, posture: author,
-                                            statementAllowsAnswer: true, durable: true)
+                                            statementDoor: { _, _ in .author }, durable: true)
         XCTAssertTrue(off.answer, "Answer files a ruling: offered on any piece")
         XCTAssertFalse(off.promote, "Promote writes the piece's Document: hidden off it")
         let on = ResolvePane.findingOffers(finding("f"), mayAct: true, posture: author,
-                                           statementAllowsAnswer: true, durable: true)
+                                           statementDoor: { _, _ in .author }, durable: true)
         XCTAssertTrue(on.answer)
         XCTAssertTrue(on.promote)
         let running = ResolvePane.findingOffers(finding("f"), mayAct: true, posture: author,
-                                                statementAllowsAnswer: true, durable: false)
+                                                statementDoor: { _, _ in .author }, durable: false)
         XCTAssertFalse(running.answer || running.promote, "a run still arriving has no fates")
 
         XCTAssertFalse(ResolveSettled.offered(

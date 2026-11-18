@@ -135,7 +135,6 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// silent `?? ""` fallback, which is what `RulingPerformer` refuses over.
     private static let undecodableBytes = Data([0xFF, 0xFE, 0xFD, 0xFC])
 
-
     // MARK: - Header state (pure — no mount)
 
     func test_headerState_neverRun() {
@@ -455,9 +454,7 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Version-bump re-render
 
-
     // MARK: - Streaming (Task 4)
-
 
     /// **The wait copy stays while the report grows.** The header describes the
     /// RUN, and the run is still going — a section landing must not flip it to
@@ -478,7 +475,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "a section arriving must not end the wait")
         XCTAssertEqual(CheckNarrative.headerCopy(for: state, annotations: [], passes: []), "Checking 1 new paragraph\u{2026}")
     }
-
 
     /// A run record as the stream builds one — the run id is the caller's
     /// because a preview and the answer that supersedes it are the same run.
@@ -694,7 +690,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(docId: docId), 0)
     }
 
-
     /// The unread dot's offset is derived for To resolve (shell plan 2 Task 7)
     /// from the rendered list, so it stays on To resolve when a selection is
     /// appended after it.
@@ -841,11 +836,7 @@ final class DiagnosticsPaneTests: XCTestCase {
             url: docURL, device: "macA", session: "s1", presenter: nil)
     }
 
-
-
-
     // MARK: - Open Intent
-
 
     // MARK: - Who reads this piece's checks (two loops P1 Task 2)
     //
@@ -905,8 +896,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         let empty = CheckNarrative.emptyState(for: .neverRun, annotations: [], passes: [])
         XCTAssertEqual(empty.description, "Press \u{2318}R and Claude reads what you've written.")
     }
-
-
 
     // MARK: - The reader picker (two loops P2 Task 6)
 
@@ -972,8 +961,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             .firstReader)
         XCTAssertEqual(CheckNarrative.resolvedChoice(for: .nobody), .nobody)
     }
-
-
 
     /// **Source census: every item writes the choice, one item opens Project
     /// Settings, and nothing in the menu travels to Review.**
@@ -1091,7 +1078,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(handoff.sheetDismissed(), "\u{2026}so a second dismissal hands nobody on")
     }
 
-
     // MARK: - Reread (two loops P1 Task 7)
 
     /// **Reread posts ⇧⌘R's own command, and nothing else** (shell plan 2
@@ -1127,7 +1113,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         var roundEditorAsks: [String] = []
         var acknowledgments: [CompilerOrchestrator.Acknowledgment] = []
     }
-
 
     // MARK: - Drift (spec §4's last bullet, computed in Stage 3 by `DriftDetector`)
     //
@@ -1212,8 +1197,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                       + "a mid-word chop")
     }
 
-
-
     /// A bare `Annotation` value for the pure ordering tests below —
     /// `inManuscriptOrder` only reads `paragraphId` (for rank) and identity
     /// (for the stable-tie assertion), so every other field is an arbitrary
@@ -1233,8 +1216,6 @@ final class DiagnosticsPaneTests: XCTestCase {
     // The sentences themselves belong to `RoundNarrative` and are pinned in
     // `RoundNarrativeTests`; what is asserted here is that this pane says none
     // of them.
-
-
 
     // MARK: - Click-to-jump (wiring census — see reasoning below)
 
@@ -1258,106 +1239,18 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     func test_jump_postsTheSameEventAnnotationsRowUses() throws {
-        let source = try readSource("Maugham/Views/Resolve/CheckNarrativeVerbs.swift")
+        // A finding's chip goes through To resolve's one navigation (shell
+        // plan 2 Task 7): the row event, with the finding's piece and the
+        // chip's paragraph.
+        let source = try readSource("Maugham/Views/Resolve/ResolveNavigation.swift")
         XCTAssertTrue(source.contains(".maughamNavigateToParagraph"),
                      "the check's jump must reuse the row navigation event, not a copy")
-        XCTAssertTrue(source.contains(#"["paragraph_id": pid]"#))
+        XCTAssertTrue(source.contains(#"static let paragraphIdKey = "paragraph_id""#))
+        let pane = try readSource("Maugham/Views/Resolve/ResolvePane.swift")
+        XCTAssertTrue(pane.contains("onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) }"))
     }
 
     // MARK: - The conformance summary (spec §5's first section)
-
-    /// **Every clause the run checked, paired with what strained against it.**
-    /// The pairing is on the writer's quoted sentence, because that is the only
-    /// thing the two records share — the ingest mints a `ClauseStatus` and a
-    /// `.conformanceStrain` from one entry and stamps both with it.
-    func test_conformanceRows_pairEveryStrainWithTheClauseItPullsAgainst() {
-        let holds = makeClause("Cold, and never wistful.", "holds")
-        let strainsClause = makeClause("Kelly only acts on what she has heard.", "strains")
-        let silent = makeClause("The weather is a character.", "silent")
-        let strain = makeDiagnostic(
-            docId: "d1", body: "She answers a question nobody asked her.",
-            kind: .conformanceStrain,
-            clauseQuote: "Kelly only acts on what she has heard.")
-
-        let paired = CheckNarrative.conformanceRows(
-            clauses: [holds, strainsClause, silent], strains: [strain])
-
-        XCTAssertEqual(paired.rows.map(\.status.clauseQuote),
-                       [holds.clauseQuote, strainsClause.clauseQuote, silent.clauseQuote],
-                       "the clauses keep the order the run reported them in")
-        XCTAssertEqual(paired.rows[0].strains.count, 0)
-        XCTAssertEqual(paired.rows[1].strains.map(\.id), [strain.id])
-        XCTAssertEqual(paired.rows[2].strains.count, 0)
-        XCTAssertTrue(paired.orphans.isEmpty)
-    }
-
-    /// **A strain whose clause is missing from the summary is still drawn.**
-    /// It cannot happen through the ingest — both records are minted from one
-    /// entry — and the alternative to handling it is a note the compiler raised
-    /// vanishing with nothing said, which is the loss shape this codebase keeps
-    /// paying for.
-    func test_conformanceRows_neverSwallowAStrainWhoseClauseIsNotInTheSummary() {
-        let unquoted = makeDiagnostic(
-            docId: "d1", body: "Something pulls.", kind: .conformanceStrain,
-            clauseQuote: nil)
-        let mismatched = makeDiagnostic(
-            docId: "d1", body: "Something else pulls.", kind: .conformanceStrain,
-            clauseQuote: "A clause this run never reported.")
-
-        let paired = CheckNarrative.conformanceRows(
-            clauses: [makeClause("Cold, and never wistful.", "holds")],
-            strains: [unquoted, mismatched])
-
-        XCTAssertEqual(paired.orphans.map(\.id), [unquoted.id, mismatched.id])
-        XCTAssertEqual(paired.rows.count, 1, "control: the clause itself still rendered")
-    }
-
-    /// **A clause declared twice makes two rows with two identities.**
-    ///
-    /// `conformanceRows` renders the duplicate on purpose (its doc: "a
-    /// wrong-looking duplicate is a smaller harm than a missing finding"), and
-    /// the rows go straight into a SwiftUI `ForEach` — whose behaviour on
-    /// repeated ids is undefined, so keying on the quote alone made the
-    /// intended case the broken one. The strains are asserted alongside,
-    /// because an id built from position must not be one a row can be *sorted*
-    /// out of agreement with.
-    func test_conformanceRows_giveDuplicateClausesDistinctIdentities() {
-        let quote = "Cold, and never wistful."
-        let strain = makeDiagnostic(
-            docId: "d1", body: "It reads fond here.", kind: .conformanceStrain,
-            clauseQuote: quote)
-
-        let paired = CheckNarrative.conformanceRows(
-            clauses: [makeClause(quote, "holds"), makeClause(quote, "strains")],
-            strains: [strain])
-
-        XCTAssertEqual(paired.rows.count, 2, "the duplicate is kept, by design")
-        XCTAssertEqual(Set(paired.rows.map(\.id)).count, 2,
-                       "two rows shared one ForEach id: \(paired.rows.map(\.id))")
-        XCTAssertTrue(paired.rows.allSatisfy { $0.id.contains(quote) },
-                      "the writer's own sentence is still part of the identity")
-        XCTAssertEqual(paired.rows.map { $0.strains.map(\.id) }, [[strain.id], [strain.id]],
-                       "both rows still carry the strain raised against that sentence")
-    }
-
-    /// Three quiet marks, each with a word VoiceOver can read — a glyph alone
-    /// is silent — and a neutral fourth for a status this build has never heard
-    /// of, so a later contract's word cannot render as "holds".
-    func test_everyClauseStatusHasItsOwnMarkAndItsOwnWord() {
-        let symbols = ["holds", "strains", "silent"].map(CheckNarrative.statusSymbol)
-        XCTAssertEqual(Set(symbols).count, 3, "got: \(symbols)")
-        XCTAssertEqual(CheckNarrative.statusWord("holds"), "holds")
-        XCTAssertEqual(CheckNarrative.statusWord("strains"), "strains")
-        XCTAssertFalse(CheckNarrative.statusWord("silent").isEmpty)
-
-        XCTAssertFalse(symbols.contains(CheckNarrative.statusSymbol("recanted")),
-                       "an unknown status must not borrow one of the three marks")
-        XCTAssertEqual(CheckNarrative.statusWord("recanted"), "recanted")
-    }
-
-
-
-
 
     /// The same rule at the source, where every sentence is assertable without
     /// a mount — and the one-note wording, which a mounted test would only
@@ -1556,8 +1449,6 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Excerpt chips (requirement 3)
 
-
-
     // MARK: - Tripwire 15
 
     // `test_everyContentUnavailableViewChainsFullFrame` retired with the
@@ -1598,8 +1489,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertFalse(CheckNarrative.offersAnAnswer(
             makeDiagnostic(docId: "d1", kind: .readerReport)))
     }
-
-
 
     /// **The whole loop in one test**, driven through the exact function the
     /// reply field's `.onSubmit` calls: the answer reaches the piece's rulings
@@ -1905,8 +1794,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                       + "notes must not be frozen behind it")
     }
 
-
-
     /// The one finding this section streams, and the words that prove its row
     /// reached the pane.
     ///
@@ -1985,11 +1872,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the note left the document's annotation layer entirely")
     }
 
-
-
-
-
-
     /// ⌘Z reaches the decline through the undo manager the verb is handed —
     /// the annotation layer's existing machinery, wired rather than
     /// reimplemented. Windowless (#120, tripwire 33): the pane hands the verb
@@ -2023,75 +1905,7 @@ final class DiagnosticsPaneTests: XCTestCase {
                        "\u{2318}Z after Not this must reopen the note")
     }
 
-
-
-
-
     // MARK: - The order, the room, and what the copy may claim (review fixes)
-
-    /// **A check's notes read down the piece** (review ruling): manuscript
-    /// order, never newest-first. The notes are minted in the model's own
-    /// order, which is not the writer's.
-    func test_theRowsFollowTheProseAndNotTheMintingOrder() {
-        let sequence = ["a1b2", "c3d4", "e5f6"]
-        let third = makeAnnotation(id: "n1", paragraphId: "e5f6", body: "third")
-        let first = makeAnnotation(id: "n2", paragraphId: "a1b2", body: "first")
-        let second = makeAnnotation(id: "n3", paragraphId: "c3d4", body: "second")
-
-        let ordered = CheckNarrative.inManuscriptOrder(
-            [third, first, second], sequence: sequence)
-
-        XCTAssertEqual(ordered.map(\.body), ["first", "second", "third"])
-    }
-
-    /// A whole-piece note has no place in the prose, so it follows it — and
-    /// so does a note whose paragraph has left the sequence. Ties inside one
-    /// rank keep the order they were minted in, because two rows that swap
-    /// places between renders of one check are the pane shuffling under a
-    /// writer mid-read.
-    func test_docScopedAndOrphanedNotesFollowTheProse_andTiesAreStable() {
-        let sequence = ["a1b2", "c3d4"]
-        let notes = [
-            makeAnnotation(id: "n1", paragraphId: nil, body: "whole piece"),
-            makeAnnotation(id: "n2", paragraphId: "c3d4", body: "second"),
-            makeAnnotation(id: "n3", paragraphId: "zzzz", body: "orphan"),
-            makeAnnotation(id: "n4", paragraphId: "a1b2", body: "first A"),
-            makeAnnotation(id: "n5", paragraphId: "a1b2", body: "first B"),
-        ]
-
-        XCTAssertEqual(
-            CheckNarrative.inManuscriptOrder(notes, sequence: sequence).map(\.body),
-            ["first A", "first B", "second", "whole piece", "orphan"])
-    }
-
-    /// **A tie breaks on mint order even when the ARRAY arrives newest-first**
-    /// — the real shape of a defect this fix round shipped and then found by
-    /// smoke: `queueAnnotations` reads `Document.annotations(filter:)`, and
-    /// `AnnotationDeriver.derive` sorts its result newest-first for the
-    /// queue's own purposes. An earlier version of `inManuscriptOrder` broke
-    /// ties on the incoming array's own position, which silently inherited
-    /// that newest-first order for two same-paragraph notes — exactly the
-    /// "queue-consistent newest-first" the manuscript-order ruling exists to
-    /// not be. Passing `newer` before `older` here, as the real projection
-    /// would, is the falsification: `id` — a ULID, monotonic within the
-    /// process — is the only thing in this fixture that is actually mint
-    /// order, and the older note must lead regardless of array position.
-    func test_tiesBreakOnMintOrder_notOnTheIncomingArraysNewestFirstPosition() {
-        let sequence = ["a1b2"]
-        let older = makeAnnotation(id: "n1", paragraphId: "a1b2", body: "older")
-        let newer = makeAnnotation(id: "n2", paragraphId: "a1b2", body: "newer")
-
-        XCTAssertEqual(
-            CheckNarrative.inManuscriptOrder([newer, older], sequence: sequence).map(\.body),
-            ["older", "newer"],
-            "the older note (minted first) must lead even though it arrived "
-            + "second in a newest-first array")
-    }
-
-
-
-
-
 
     /// The standing, pure — including the case that keeps the historical
     /// sentence honest: a pane with no document behind it cannot see the
@@ -2116,20 +1930,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             .none,
             "a preview and a pre-P1 record both know nothing about a mint")
     }
-
-    /// A refused disposition says so in the row it was pressed in, not only in
-    /// the log (review, Minor 2). The sentence names what did not happen and
-    /// carries the cause.
-    func test_aRefusedDispositionSpeaksInTheRow() {
-        struct Refusal: LocalizedError {
-            var errorDescription: String? { "the op log is read-only" }
-        }
-        XCTAssertEqual(CheckNarrative.dispositionRefusal(Refusal()),
-                       "That didn\u{2019}t settle: the op log is read-only")
-        XCTAssertTrue(CheckNarrative.anchorLostRefusal.hasPrefix("That didn\u{2019}t settle:"),
-                      "both refusals open the same way, so the row reads one voice")
-    }
-
 
     // MARK: - Fixtures: a fake compiler runner (mirrors CompilerRunCommandTests.SpyRunner)
 
@@ -2255,17 +2055,6 @@ final class DiagnosticsPaneTests: XCTestCase {
             scenePosition: scenePosition)
     }
 
-
-
-
-
-
-
-
-
-
-
-
     /// CONTROL for the census above: the HEADER line is deliberately NOT
     /// guarded. "Le Guin reads this piece" and the empty state's "Press ⌘R
     /// and … reads what you've written." are promises about the NEXT run, so
@@ -2281,19 +2070,13 @@ final class DiagnosticsPaneTests: XCTestCase {
             "the header names who WILL read, so it reads the live reader")
     }
 
-
-
-
-
-
     /// **The census the behavioural tests cannot make**: both hosts decide and
     /// write the offer through the ONE builder, and neither re-spells the
     /// predicate. A host keeping its own copy would pass every behavioural
     /// test above that mounts it once, and drift silently afterwards.
     func test_bothHostsDecideTheOfferThroughTheOneBuilder() throws {
-        for path in ["Maugham/Views/CheckNarrative.swift",
-                     "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try hostSource(path)
+        for path in [Self.resolveHeadPath] {  // the one letter host, both loops (shell plan 2 Task 7)
+            let source = try readSource(path)
             XCTAssertTrue(
                 source.contains("TurnClauseOffer.handler("),
                 "\(path) must reach the one builder")
@@ -2317,10 +2100,7 @@ final class DiagnosticsPaneTests: XCTestCase {
         }
     }
 
-
     // MARK: - Ask about… (P2 Task 7, spec §3.7)
-
-
 
     /// **The commit lands, and it starts no run.** The keystroke is the only
     /// trigger (spec §2): typing a worry and pressing Return records the worry
@@ -2508,11 +2288,6 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
 
-
-
-
-
-
     /// **A draft belongs to the document it was typed about** (fix round 1,
     /// Minor 2).
     ///
@@ -2617,9 +2392,8 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// **Both homes commit through the one function**, so neither can refuse a
     /// long ask in different words or trim it differently.
     func test_bothHostsCommitTheAskThroughTheOneFunction() throws {
-        for path in ["Maugham/Views/CheckNarrative.swift",
-                     "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try hostSource(path)
+        for path in [Self.resolveHeadPath] {  // the one letter host, both loops (shell plan 2 Task 7)
+            let source = try readSource(path)
             XCTAssertTrue(
                 source.contains("AskField.commit("),
                 "\(path) must go through the shared commit")
@@ -2631,9 +2405,6 @@ final class DiagnosticsPaneTests: XCTestCase {
     }
 
     // MARK: - Letter hosting
-
-
-
 
     // MARK: - The lessons ledger, from the letter (P2 Task 7)
 
@@ -2652,16 +2423,14 @@ final class DiagnosticsPaneTests: XCTestCase {
             questions: [], scenes: nil, scenePosition: nil, retired: retired)
     }
 
-
     /// **Neither host spells a ledger write.** All three presses are built by
     /// `LessonOffer.handlers`, so the provenance, the date and the refusal
     /// channel cannot come out different in Author than in Review — a
     /// difference that would be invisible until a writer read their ledger
     /// months later.
     func test_bothHostsTakeTheLedgerVerbsFromTheOneBuilder() throws {
-        for path in ["Maugham/Views/CheckNarrative.swift",
-                     "Maugham/Views/AnnotationsPane.swift"] {
-            let source = try hostSource(path)
+        for path in [Self.resolveHeadPath] {  // the one letter host, both loops (shell plan 2 Task 7)
+            let source = try readSource(path)
             XCTAssertTrue(
                 source.contains("LessonOffer.handlers("),
                 "\(path) must build its ledger closures with the shared builder")
@@ -2679,40 +2448,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                 "\(path) must state the round's tense rather than leave the view to "
                 + "infer it from which closures arrived")
         }
-    }
-
-    /// Files the turn clause through `TurnClauseOffer.handler` \u{2014} the
-    /// closure the pane hands its Add-to-intent button, from the same builder
-    /// the pane calls \u{2014} and returns once the ruling has landed. The
-    /// decision (where the clause files) is pinned here without a press, so
-    /// nothing polls for the effect of one (tripwire 33, hardening 11-01); the
-    /// mounted tests assert only that the button is drawn, in which tense.
-    private func fileTheTurnClause(
-        store: ProjectStore, docId: String, letter: Letter
-    ) async throws {
-        let run = makeRun(letter: letter)
-        var failure: String?
-        var offered = true
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            guard let handler = TurnClauseOffer.handler(
-                letter: letter, run: run, docId: docId, store: store, world: nil,
-                voice: ReviewPass.coachPreset.effectiveEditorName, filedRunId: nil,
-                postureOf: DiagnosticsPostures.everyVerbForTesting.statement,
-                onFiled: { _ in done.resume() },
-                onFailure: { message in
-                    guard let message else { return }
-                    failure = message
-                    done.resume()
-                })
-            else {
-                offered = false
-                done.resume()
-                return
-            }
-            handler()
-        }
-        XCTAssertTrue(offered, "the clause was not offered for \(docId)")
-        if let failure { XCTFail("the ruling was refused: \(failure)") }
     }
 
     // MARK: - Hosting
@@ -2991,34 +2726,6 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// pane is split across files, and a ban must see every one of them.
     private static let resolveHeadPath = "Maugham/Views/Resolve/ResolveHead.swift"
 
-    private func hostSource(_ relativePath: String) throws -> String {
-        // Each pane's letter (and the strip's cockpit) is drawn by a view it
-        // mounts from `Resolve/ResolveHead.swift` since shell plan 2 Task 5.
-        // A host's code is its surface plus ONLY the declarations it mounts —
-        // each required to be mounted — so a pane's census is met by its own
-        // code and what it actually draws (fix round 1, M2).
-        switch relativePath {
-        // Since shell plan 2 Task 7 there is ONE host for both loops' letters:
-        // To resolve's head (`RunLetterSection`, `RoundCockpitMount`), so both
-        // former hosts' censuses read it.
-        case "Maugham/Views/CheckNarrative.swift", "Maugham/Views/AnnotationsPane.swift":
-            return try readSource(Self.resolveHeadPath)
-        default:
-            return try readSource(relativePath)
-        }
-    }
-
-    /// The named `ResolveHead.swift` declarations, each one `pane` mounts.
-    private func mounted(_ names: [String], by pane: String) throws -> String {
-        let head = try readSource(Self.resolveHeadPath)
-        return try names.map { name in
-            XCTAssertTrue(pane.contains("\(name)("), "the pane must mount `\(name)`")
-            return "\n" + (try XCTUnwrap(
-                Self.declaration(named: "struct \(name): View {", in: head),
-                "`\(name)` must be a readable declaration"))
-        }.joined()
-    }
-
     /// **`DiagnosticsPaneSource.surfaceFiles` is every file the pane is split
     /// into** (#116 F11): every `Diagnostic*.swift` in `Maugham/Views/` is the
     /// pane's or named in `notThePane`, so a census reading the surface cannot
@@ -3031,6 +2738,328 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(problems, [],
                        "every Diagnostic*.swift must be classified, or each "
                        + "census reading the pane's surface is blind to it")
+    }
+
+    // MARK: - The turn clause, windowless (re-made, shell plan 2 Task 7 fix)
+    //
+    // To resolve's head draws Add to intent through `TurnClauseOffer` (the
+    // one letter host, `RunLetterSection`). The decisions are pinned here
+    // through the same builder the head calls, never by mounting a button.
+
+    /// Whether `TurnClauseOffer` offers the clause for `letter` on `docId`.
+    private func offersTheClause(store: ProjectStore?, docId: String, letter: Letter) -> Bool {
+        TurnClauseOffer.handler(
+            letter: letter, run: makeRun(letter: letter), docId: docId, store: store, world: nil,
+            voice: ReviewPass.coachPreset.effectiveEditorName, filedRunId: nil,
+            postureOf: { _, _ in .author },
+            onFiled: { _ in }, onFailure: { _ in }) != nil
+    }
+
+    /// Files the turn clause through `TurnClauseOffer.handler` — the closure
+    /// the head hands its Add-to-intent button — and returns once the ruling
+    /// has landed (tripwire 33: no press, no poll).
+    private func fileTheTurnClause(
+        store: ProjectStore, docId: String, letter: Letter
+    ) async throws {
+        let run = makeRun(letter: letter)
+        var failure: String?
+        var offered = true
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            guard let handler = TurnClauseOffer.handler(
+                letter: letter, run: run, docId: docId, store: store, world: nil,
+                voice: ReviewPass.coachPreset.effectiveEditorName, filedRunId: nil,
+                postureOf: { _, _ in .author },
+                onFiled: { _ in done.resume() },
+                onFailure: { message in
+                    guard let message else { return }
+                    failure = message
+                    done.resume()
+                })
+            else {
+                offered = false
+                done.resume()
+                return
+            }
+            handler()
+        }
+        XCTAssertTrue(offered, "the clause was not offered for \(docId)")
+        if let failure { XCTFail("the ruling was refused: \(failure)") }
+    }
+
+    /// **The offer is `strong_default`'s alone**, and needs a project to file in.
+    func test_theTurnOfferIsOfferedForStrongDefaultAndForNothingElse() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOffer")
+        for position in [ScenePosition.strongDeclared, .weak, .none] {
+            XCTAssertFalse(offersTheClause(store: store, docId: chapter.id,
+                                           letter: makeLetter(scenePosition: position.rawValue)),
+                           "\(position.rawValue) must not offer the clause")
+        }
+        XCTAssertTrue(offersTheClause(store: store, docId: chapter.id, letter: makeLetter()),
+                      "the strong form with no clause of the writer's is the gap the offer exists for")
+        XCTAssertTrue(LetterSection.hasTurnlessScene(makeLetter()), "control")
+        XCTAssertFalse(LetterSection.hasTurnlessScene(makeLetter(turn: "She stops asking")),
+                       "every scene already turns \u{2014} the section draws no offer")
+        XCTAssertFalse(offersTheClause(store: nil, docId: chapter.id, letter: makeLetter()),
+                       "no project, nowhere to file a ruling")
+    }
+
+    /// **Add to intent files the clause in the writer's own layer, with the
+    /// letter's provenance — and the loop closes.**
+    func test_addToIntentFilesTheClauseAndTheNextDeriveReadsItBack() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "TurnOfferFiles")
+        XCTAssertEqual(TurnClauseOffer.buttonTitle(store: store, docId: chapter.id),
+                       LetterSection.addToIntentTitle, "the piece's own tense")
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
+        let statement = try XCTUnwrap(store.statement(kind: .intent, scope: .document(chapter.id)))
+        let text = try store.statementText(of: statement)
+        XCTAssertTrue(text.contains(LetterSection.turnClauseRuling), text)
+        XCTAssertTrue(text.contains("## Rulings"), "a dated ruling, never an appended paragraph: \(text)")
+        XCTAssertTrue(text.contains("from \(ReviewPass.coachPreset.effectiveEditorName)'s letter"), text)
+        XCTAssertEqual(ScenePosition.derive(projectType: .novel, statement: text, passBrief: nil),
+                       .strongDeclared, "the round after the click strains against the clause")
+        let derived = try await derivedText(of: statement, in: url)
+        XCTAssertTrue(derived.contains(LetterSection.turnClauseRuling))
+    }
+
+    /// **The clause lands in the intent the piece is MEASURED against** (a
+    /// chapter with no intent of its own reads the book's).
+    func test_theClauseLandsInTheIntentThePieceIsMeasuredAgainst() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferBookScope")
+        let book = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("A ghost story told through weather on the coast.",
+                                          to: book, session: "seed")
+        XCTAssertEqual(store.effectiveIntent(forDocId: chapter.id)?.scope, .project, "premise")
+        XCTAssertEqual(TurnClauseOffer.buttonTitle(store: store, docId: chapter.id),
+                       LetterSection.addToBookIntentTitle, "the book's tense")
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
+        let text = try store.statementText(of: try XCTUnwrap(
+            store.statement(kind: .intent, scope: .project)))
+        XCTAssertTrue(text.contains("## Rulings") && text.contains(LetterSection.turnClauseRuling), text)
+        XCTAssertTrue(text.contains("A ghost story told through weather on the coast."), text)
+        XCTAssertNil(store.statement(kind: .intent, scope: .document(chapter.id)),
+                     "no document-scoped statement may be minted")
+        XCTAssertEqual(store.effectiveIntent(forDocId: chapter.id)?.scope, .project)
+    }
+
+    /// The control: a piece with its own intent files under itself.
+    func test_aPieceWithItsOwnIntentFilesTheClauseUnderItself() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferPieceScope")
+        let book = try await store.createStatement(kind: .intent, scope: .project)
+        try await store.appendToStatement("A ghost story told through weather on the coast.",
+                                          to: book, session: "seed")
+        let own = try await store.createStatement(kind: .intent, scope: .document(chapter.id))
+        try await store.appendToStatement("This chapter belongs to the dock and the fog.",
+                                          to: own, session: "seed")
+        XCTAssertEqual(TurnClauseOffer.buttonTitle(store: store, docId: chapter.id),
+                       LetterSection.addToIntentTitle)
+        try await fileTheTurnClause(store: store, docId: chapter.id, letter: makeLetter())
+        let bookText = try store.statementText(of: try XCTUnwrap(
+            store.statement(kind: .intent, scope: .project)))
+        XCTAssertFalse(bookText.contains(LetterSection.turnClauseRuling),
+                       "a chapter's clause may not reach the book: \(bookText)")
+    }
+
+    /// **The offer's memory is the writer's intent**, read live.
+    func test_aFreshOfferDoesNotAskForAClauseTheIntentAlreadyCarries() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferLive")
+        XCTAssertTrue(offersTheClause(store: store, docId: chapter.id, letter: makeLetter()), "control")
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling, provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .document(chapter.id), store: store, world: nil)
+        XCTAssertFalse(offersTheClause(store: store, docId: chapter.id, letter: makeLetter()),
+                       "the clause is in the writer's intent now")
+    }
+
+    /// A book-level clause silences the offer on a chapter that reads it.
+    func test_aProjectLevelClauseSilencesTheOfferOnAChapter() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferProject")
+        try await RulingPerformer.rule(
+            LetterSection.turnClauseRuling, provenance: "from Le Guin's letter",
+            kind: .intent, forScope: .project, store: store, world: nil)
+        XCTAssertFalse(offersTheClause(store: store, docId: chapter.id, letter: makeLetter()))
+    }
+
+    /// A prose piece opted in by its pass brief still gets the offer.
+    func test_aProsePieceOptedInByItsPassBriefStillGetsTheOffer() async throws {
+        let (_, store, chapter) = try await loadedNovel(named: "TurnOfferBriefOptIn")
+        XCTAssertEqual(ScenePosition.live(store: store, docId: chapter.id), .weak, "premise")
+        XCTAssertTrue(offersTheClause(store: store, docId: chapter.id, letter: makeLetter()),
+                      "a live `.weak` must not withdraw the offer")
+    }
+
+    /// A refused disposition says so in the row it was pressed in.
+    func test_aRefusedDispositionSpeaksInTheRow() {
+        struct Refusal: LocalizedError {
+            var errorDescription: String? { "the op log is read-only" }
+        }
+        XCTAssertEqual(CheckNarrative.dispositionRefusal(Refusal()),
+                       "That didn\u{2019}t settle: the op log is read-only")
+    }
+
+    // MARK: - The check header, the cold-start offer and the drift line,
+    // mounted as To resolve's head mounts them (re-made, shell plan 2 Task 7 fix)
+
+    /// The check header exactly as `ResolveHeadView.checkHeader` builds it,
+    /// for a piece never checked.
+    private func checkHeader(
+        store: ProjectStore?, diagnostics: DiagnosticsStore, docId: String,
+        orchestrator: CompilerOrchestrator? = nil,
+        reader: AuthorReader = .nobody
+    ) -> AnyView {
+        let orchestrator = orchestrator ?? CompilerOrchestrator()
+        return AnyView(DiagnosticsPaneHeader(
+            state: .neverRun, wetInk: .none, visibleQueue: [], reviewPasses: [],
+            otherLoopLine: nil, orchestrator: orchestrator, diagnostics: diagnostics,
+            docId: docId, reader: reader, store: store, compilerModel: .standard,
+            onCompilerModelChange: { _ in }, onChooseReader: { _ in },
+            onOpenProjectSettings: {}, offersModelMenu: false))
+    }
+
+    /// **The reader line is a picker when there is a project** — drawn, not
+    /// opened (tripwire 33).
+    func test_mountedHeader_theReaderLineIsAPickerWhenThereIsAProject() async throws {
+        let (_, store, _) = try await loadedNovel(named: "ReaderPickerDrawn")
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let window = mount(checkHeader(store: store, diagnostics: diagnostics,
+                                       docId: "doc-picker", reader: .coach(ReviewPass.coachPreset)))
+        pump(0.2)
+        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"),
+                      "got \(allLabels(in: window))")
+        XCTAssertTrue(roles(labelled: "Le Guin reads this piece", in: window)
+                        .contains { $0 != "AXStaticText" },
+                      "the reader line must be a control the writer can open")
+    }
+
+    /// **With no project the line is a plain label, never a door to Review.**
+    func test_mountedHeader_withNoProjectTheLineIsAPlainLabelAndNoDoor() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let window = mount(checkHeader(store: nil, diagnostics: diagnostics,
+                                       docId: "doc-no-project", reader: .coach(ReviewPass.coachPreset)))
+        pump(0.2)
+        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"), "control")
+        XCTAssertEqual(roles(labelled: "Le Guin reads this piece", in: window)
+                        .filter { $0 != "AXStaticText" }, [],
+                       "with no store there is nothing to pick between")
+        XCTAssertNil(findButton(labelled: "Le Guin reads this piece", in: window),
+                     "the reader line is a label, never a door to Review")
+    }
+
+    /// **The header's Ask field opens holding the stored ask.**
+    func test_theAskFieldShowsTheStoredAskOnMount() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskFieldSeeded")
+        let diagnostics = DiagnosticsStore(projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        diagnostics.setAsk("I'm worried the middle sags.", docId: chapter.id, kind: .check)
+        let window = mount(checkHeader(store: store, diagnostics: diagnostics, docId: chapter.id))
+        pump(0.3)
+        let fields = textFields(in: window)
+        XCTAssertTrue(fields.contains { axAttribute($0, "accessibilityValue") as? String
+                        == "I'm worried the middle sags." },
+                      "read: \(fields.map { axAttribute($0, "accessibilityValue") as? String ?? "nil" })")
+    }
+
+    /// **⌘R commits what is still in the header's Ask field**: typed, not
+    /// committed, and the check is briefed with it.
+    func test_theRunKeyCommitsWhatIsStillInTheAskField() async throws {
+        let (url, store, chapter) = try await loadedNovel(named: "AskRunKey")
+        let diagnostics = DiagnosticsStore(projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
+        let runner = SpyRunner()
+        let orchestrator = CompilerOrchestrator()
+        orchestrator.configure(environment: makeEnvironment(docId: chapter.id, runner: runner),
+                               diagnostics: diagnostics)
+        let window = mount(checkHeader(store: store, diagnostics: diagnostics, docId: chapter.id,
+                                       orchestrator: orchestrator))
+        pump(0.4)
+        let worry = "I'm worried the middle sags."
+        let field = try XCTUnwrap(askTextField(in: window), "no ask field in the header")
+        type(worry, into: field)
+        pump(0.2)
+        XCTAssertNil(diagnostics.ask(docId: chapter.id, kind: .check), "premise: typing commits nothing")
+        // Exactly what ⌘R's receiver does (`CompilerRunModifier`).
+        orchestrator.runRequested(docId: chapter.id, kind: .check)
+        try await waitUntilAsync(timeout: 5) { !runner.sentMessages.isEmpty }
+        XCTAssertEqual(diagnostics.ask(docId: chapter.id, kind: .check), worry)
+        XCTAssertTrue(runner.sentMessages.first?.contains(worry) == true,
+                      "sent: \(runner.sentMessages.first ?? "nothing")")
+    }
+
+    /// **The cold-start offer draws Read and Not now**, as To resolve mounts
+    /// it on a never-checked open piece; Read's act is the run command
+    /// (`ResolveMountingTests.test_noViewCallsRunRequestedDirectly`).
+    func test_theColdStartOfferDrawsReadAndNotNow() throws {
+        let diagnostics = DiagnosticsStore(
+            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        let window = mount(AnyView(DiagnosticsColdStartOffer(
+            docId: "doc-cold", diagnostics: diagnostics, otherLoopLine: nil)))
+        pump(0.2)
+        XCTAssertNotNil(findButton(labelled: "Read", in: window))
+        XCTAssertNotNil(findButton(labelled: "Not now", in: window))
+        XCTAssertTrue(allLabels(in: window).contains(CheckNarrative.coldStartOfferSentence))
+        // Not now's act, called (tripwire 33): the refusal is recorded, so
+        // the offer never stands again for this piece.
+        diagnostics.refuseColdStart(docId: "doc-cold")
+        XCTAssertFalse(CheckNarrative.showsColdStartOffer(
+            state: .neverRun, liveParagraphCount: 5,
+            hasRefused: diagnostics.hasRefusedColdStart(docId: "doc-cold")))
+    }
+
+    /// **The drift line, mounted as the head mounts it**: three straining
+    /// runs of one clause draw the line, as a button.
+    func test_theDriftLineDrawsAsAButtonForAPattern() throws {
+        let docId = "doc-drift"
+        let store = DiagnosticsStore(projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
+        for _ in 0..<3 {
+            store.replace(run: makeRun(clauseStatuses: [makeClause("Cold, and never wistful.", "strains")]),
+                          diagnostics: [], docId: docId)
+        }
+        let findings = DriftDetector.drift(history: store.clauseStatusHistory(docId: docId))
+        let line = try XCTUnwrap(CheckNarrative.driftNote(findings))
+        let window = mount(AnyView(DiagnosticsDriftLine(driftFindings: findings)))
+        pump(0.2)
+        XCTAssertNoThrow(try button(labelled: line, in: window), "the drift line is a button")
+        let none = mount(AnyView(DiagnosticsDriftLine(driftFindings: [])))
+        pump(0.1)
+        XCTAssertFalse(allLabels(in: none).contains(line), "no pattern, no line")
+    }
+
+    /// **No paragraph id is rendered on a finding's row** (re-made over To
+    /// resolve's finding row, shell plan 2 Task 7 fix). Every reference
+    /// travels as the words that paragraph said; the id is a payload the chip
+    /// carries and never shows. Proved against a planted offender.
+    func test_noParagraphIdIsEverRendered() {
+        let ids = ["a1b2", "c3d4", "e5f6"]
+        let findings = [
+            makeDiagnostic(
+                docId: "doc-no-ids",
+                anchor: Diagnostic.Anchor(paragraphId: ids[0], anchorText: "The fog came in."),
+                body: "The sentence pulls the other way.", kind: .conformanceStrain,
+                refs: [Diagnostic.Ref(paragraphId: ids[0], excerpt: "The fog came in off the water and")],
+                clauseQuote: "Cold, and never wistful."),
+            makeDiagnostic(
+                docId: "doc-no-ids", body: "Was that learned offstage?",
+                refs: [Diagnostic.Ref(paragraphId: ids[1], excerpt: "She already knew about the letter"),
+                       Diagnostic.Ref(paragraphId: ids[2], excerpt: "He had not told anyone yet")]),
+        ]
+        let window = mount(AnyView(VStack(spacing: 0) {
+            ForEach(findings) { finding in
+                DiagnosticRow(diagnostic: finding, canAnswer: true, canPromote: true,
+                              isSubmitting: false, answerFailure: nil,
+                              onJump: { _ in }, onPromote: {}, onAnswer: { _ in })
+            }
+        }))
+        pump(0.3)
+        let rendered = allLabels(in: window)
+        for id in ids {
+            XCTAssertFalse(rendered.contains { $0.contains(id) },
+                           "the row rendered the paragraph id \u{201C}\(id)\u{201D}")
+        }
+        XCTAssertTrue(rendered.contains { $0.contains("The fog came in off the water and") },
+                      "control: the chip's own words did render, so the walk sees chips")
+        let offender = mount(AnyView(VStack { Text("\u{00b6}\(ids[0])") }))
+        pump(0.2)
+        XCTAssertTrue(allLabels(in: offender).contains { $0.contains(ids[0]) },
+                      "the walk must be able to see a rendered id")
     }
 }
 
@@ -3066,13 +3095,5 @@ struct AskFieldProbe: View {
             note: { text, doc in
                 AskField.note(text, docId: doc, kind: .check, diagnostics: diagnostics)
             }))
-    }
-}
-
-/// **Every verb, by name** (P3c Task 7) — the P1 surface, for a mount that is
-/// not about the posture. The pane requires one so a host cannot forget it.
-extension DiagnosticsPostures {
-    static var everyVerbForTesting: DiagnosticsPostures {
-        DiagnosticsPostures(document: .author, statement: { _, _ in .author })
     }
 }

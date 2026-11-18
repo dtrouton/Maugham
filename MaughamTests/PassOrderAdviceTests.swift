@@ -137,38 +137,6 @@ final class PassOrderAdviceTests: XCTestCase {
         return (memory, ["structural": .done, "line": .done])
     }
 
-    func test_theNudgeSurvivesWideningTheFilterToAllPasses() {
-        let (memory, states) = workingProof
-        // The lens says: show me everything.
-        XCTAssertNil(AnnotationPassFilter.resolved(
-            .allPasses, piece: "piece-1", memory: memory, passes: passes))
-        // The piece has not changed, so neither has the advice. Keyed on the
-        // filter this would be nil — no pass, no "earlier than" — and the
-        // caption would silently disappear.
-        XCTAssertEqual(
-            PassOrderAdvice.advice(
-                forPiece: "piece-1", memory: memory,
-                passes: passes, passStates: states)?.id,
-            "copyedit")
-    }
-
-    func test_aMomentaryExplicitPassSelectionDoesNotMoveTheNudge() {
-        let (memory, states) = workingProof
-        // The writer glances at the Line pass's notes.
-        XCTAssertEqual(
-            AnnotationPassFilter.resolved(
-                .pass("line"), piece: "piece-1", memory: memory, passes: passes),
-            "line")
-        // Keyed on the filter, the advice would become nil (Structural, the
-        // only pass before Line, is done). Keyed on what is being WORKED, it
-        // is still Copyedit.
-        XCTAssertEqual(
-            PassOrderAdvice.advice(
-                forPiece: "piece-1", memory: memory,
-                passes: passes, passStates: states)?.id,
-            "copyedit")
-    }
-
     func test_noRecordedActivePassIsNoNudge() {
         XCTAssertNil(PassOrderAdvice.advice(
             forPiece: "piece-1", memory: .empty, passes: passes, passStates: nil))

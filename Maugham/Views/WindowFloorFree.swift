@@ -52,7 +52,7 @@ struct WindowFloorFreeLayout: Layout {
         // **The width answer is the content's own, unchanged.** Only the height
         // is freed here: reporting `proposal.width` would hand back a zero
         // minimum width on the width query too, and this column has a floor its
-        // toolbar is measured against (`AnnotationsQueueToolbarWidthTests`).
+        // rows are measured against (`ResolveColumnWidthTests`).
         let width = ideal.width
         // An unspecified or infinite height proposal is a question about what
         // the content WANTS, and the honest answer is its ideal. Every other

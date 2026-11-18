@@ -118,11 +118,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Annotations queue and Review
 - `AnnotationRow.swift` — one note's row, drawn in To resolve.
-- `AnnotationAuthorPresentation.swift` — how an annotation's author is shown; `AnnotationAuthorFilter`.
+- `AnnotationAuthorPresentation.swift` — how an annotation's author is shown.
 - `AnnotationBulkActions.swift` — multiselect's plan, honest counts and executor.
-- `AnnotationQueueOrder.swift` — queue order and `AnnotationTriageFilter`.
+- `AnnotationQueueOrder.swift` — the order inside a To resolve group (triaged Do first); `AnnotationTriageFilter`.
 - `PassOrderAdvice.swift` — the advisory nudge.
-- `Maugham/Views/Review/AnnotationPassFilter.swift` — the pass filter.
 - `Maugham/Views/Review/ReviewRoundCockpit.swift` — the round cockpit strip; `BoundedHeightLayout`. **→ Compiler**
 - `Maugham/Views/Review/ReviewBoardPane.swift` — Review's pieces × passes board; `ReviewBoardChipVerbs`, `ReviewBoardOpenNotes`.
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
@@ -328,7 +327,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Posture surfaces
 - **Hide, don't disable**: a verb the posture forbids is not drawn. The editor stays and refuses mutation; the File menu's piece items disable (a menu-bar item greys).
-- **Each verb's offer is a pure value pinned in `PostureSurfaceTests`** (`AnnotationRowVerbs.decide`, `AnnotationBulkActions.offers`, `ReviewCardActions.actions(for:isOwn:posture:)`, `PassLadder.offersRulings`, `StatementSurfaceVerbs.offered(under:)`, `TurnClauseOffer.mayFile`, `LessonOffer.mayWriteTheLedger`, `DiagnosticsPostures`, `TreeStructureVerbs.decide`, `TaskRowVerbs`, `TranslationAuthorVerbs`, `HistoryPane.offersRevert`).
+- **Each verb's offer is a pure value pinned in `PostureSurfaceTests`** (`AnnotationRowVerbs.decide`, `AnnotationBulkActions.offers`, `ReviewCardActions.actions(for:isOwn:posture:)`, `PassLadder.offersRulings`, `StatementSurfaceVerbs.offered(under:)`, `TurnClauseOffer.mayFile`, `LessonOffer.mayWriteTheLedger`, `ResolvePane.findingOffers`/`offersNotThis`, `TreeStructureVerbs.decide`, `TaskRowVerbs`, `TranslationAuthorVerbs`, `HistoryPane.offersRevert`).
 - **A queue row asks ITS OWN document's posture**, never the window's selection; a statement asks the statement's own (its piece's, or the book's); the letter asks the destination statement's.
 - **A nil posture draws the fail-closed card**: her own note's Edit and Delete, no disposition.
 - **The standing line is keyed on `reason`, never `isRestricted`**; Edit Anyway is `DocumentStore.overrideYield(docId:)`, per window, per piece, for the session.
@@ -370,7 +369,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Review: the queue and the board
 - **The board and the desk take values and closures, never a store**; every verb is the MOUNT's.
-- **A chip click navigates the subject and `recordActivePass`**; a count click opens the queue in project scope and does not move the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
+- **A chip click navigates the subject and `recordActivePass`**; a count click opens To resolve on the Book with the piece's group focused and does not move the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
@@ -380,11 +379,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
-- **Bulk is document scope only**; project scope reads `listAnnotationsAcrossProject` and refreshes on `noteChanged()`, the document's `annotationsVersion` and `.maughamAnnotationsChanged`.
+- **Bulk acts on the open piece only**; To resolve reads `listAnnotationsAcrossProject` and refreshes on `.maughamAnnotationsChanged` and the open pieces' `annotationsVersion`.
 - **A row's click on another piece travels by `selectedSubject` only** (`ResolveNavigation`).
-- **Queue order is `AnnotationQueueOrder.sorted`, pane-side**; it does not change the deriver's projection.
-- **Pane-side filters (triage, author) apply after `AnnotationFilter`**, whose shape reaches MCP and never widens.
-- **The pass filter defaults to following the active pass, a fallback not a write**; a retired pass's selection heals to All Passes.
+- **Inside a group, notes take `AnnotationQueueOrder.sorted` (Do first)**; it does not change the deriver's projection.
+- **To resolve filters by source chip (`ResolveFilter`), view-side**; `AnnotationFilter`'s shape reaches MCP and never widens.
 - **A selected pass also shows every unstamped note and every note in the coach's lane** (`ReviewPass.coachPreset.id`, never `effectiveCoach`).
 - **The nudge keys on the RECORDED active pass and takes no filter argument**, document scope only.
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.

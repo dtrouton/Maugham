@@ -673,7 +673,7 @@ struct RunLetterSection: View {
 // MARK: - The pass-order nudge's row (moved from `AnnotationsPaneStrips`)
 
 /// **The advisory nudge's row** (pass-order nudge gains its verbs) — its own
-/// view so its width is measurable (`AnnotationsQueueToolbarWidthTests`). The
+/// view so its width is measurable (`ResolveColumnWidthTests`). The
 /// host supplies the pass and the two closures
 /// (`ResolveHead.passOrderNudgeDecision`); this struct owns no store and
 /// calls neither closure itself.

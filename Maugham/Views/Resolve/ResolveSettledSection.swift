@@ -19,6 +19,9 @@ enum ResolveSettled {
         let deleted: [AnnotationDeriver.WithdrawnAnnotation]
         /// The piece's done to-dos.
         let done: [WriterTask]
+        /// The piece's archived to-dos — their one surface (shell plan 2
+        /// Task 7 fix): an archived inline to-do's line is gone from the text.
+        var archived: [WriterTask] = []
     }
 
     /// Drawn only on the open piece, at a `.piece` scope.
@@ -41,6 +44,12 @@ enum ResolveSettled {
         scope.includesBookLevel
     }
 
+    /// The Book's archived to-dos, from the project stream alone.
+    @MainActor
+    static func bookArchived(store: ProjectStore) -> [WriterTask] {
+        ResolveTaskVerbs.bookTasks(store: store).filter { $0.status == .archived }
+    }
+
     /// The Book's done to-dos, from the project stream alone.
     @MainActor
     static func bookDone(store: ProjectStore) -> [WriterTask] {
@@ -56,7 +65,10 @@ enum ResolveSettled {
             .sorted { ($0.resolvedAt ?? $0.createdAt) > ($1.resolvedAt ?? $1.createdAt) }
         let done = document.tasks(filter: TaskFilter(
             scope: .document(docId: document.docId), statuses: [.done]))
-        return Contents(resolved: resolved, deleted: document.withdrawnAnnotations(), done: done)
+        let archived = document.tasks(filter: TaskFilter(
+            scope: .document(docId: document.docId), statuses: [.archived]))
+        return Contents(resolved: resolved, deleted: document.withdrawnAnnotations(), done: done,
+                        archived: archived)
     }
 }
 
@@ -102,7 +114,8 @@ struct ResolveSettledSection: View {
     @ViewBuilder
     private var expanded: some View {
         let contents = ResolveSettled.contents(of: document)
-        if contents.resolved.isEmpty && contents.deleted.isEmpty && contents.done.isEmpty {
+        if contents.resolved.isEmpty && contents.deleted.isEmpty && contents.done.isEmpty
+            && contents.archived.isEmpty {
             Text("Nothing settled yet.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -169,7 +182,43 @@ struct ResolveSettledSection: View {
                 Divider()
             }
         }
+        ResolveArchivedTodos(archived: contents.archived, taskVerbs: taskVerbs)
     }
+}
+
+/// **Archived to-dos** (controller ruling, shell plan 2 Task 7 fix) — their
+/// one surface since the Tasks pane went: each with Unarchive where
+/// `ResolveTaskVerbs.offersUnarchive` holds, hidden otherwise.
+@MainActor
+struct ResolveArchivedTodos: View {
+    let archived: [WriterTask]
+    let taskVerbs: ResolveTaskVerbs
+
+    var body: some View {
+        if !archived.isEmpty {
+            Text(Self.title)
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.top, 10)
+            ForEach(archived, id: \.id) { task in
+                HStack(spacing: 8) {
+                    Text(task.body)
+                        .font(.callout).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Spacer()
+                    if ResolveTaskVerbs.offersUnarchive(task, verbs: taskVerbs.offered(task)) {
+                        Button(Self.unarchiveTitle) { taskVerbs.unarchive(task) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                Divider()
+            }
+        }
+    }
+
+    static let title = "Archived"
+    static let unarchiveTitle = "Unarchive"
 }
 
 /// **The Book's Settled section** — its done to-dos (un-tick, archive,
@@ -187,6 +236,7 @@ struct ResolveBookSettledSection: View {
     /// The done Book to-dos, derived once per key — the section open and the
     /// project stream's version — never per render.
     @State private var done: [WriterTask] = []
+    @State private var archived: [WriterTask] = []
 
     private struct ReadKey: Equatable { let open: Bool; let version: Int }
 
@@ -214,6 +264,7 @@ struct ResolveBookSettledSection: View {
         }
         .task(id: ReadKey(open: isExpanded, version: store.projectTasksVersion)) {
             done = isExpanded ? ResolveSettled.bookDone(store: store) : []
+            archived = isExpanded ? ResolveSettled.bookArchived(store: store) : []
         }
     }
 
@@ -240,5 +291,6 @@ struct ResolveBookSettledSection: View {
                 .padding(.horizontal, 12)
             Divider()
         }
+        ResolveArchivedTodos(archived: archived, taskVerbs: taskVerbs)
     }
 }

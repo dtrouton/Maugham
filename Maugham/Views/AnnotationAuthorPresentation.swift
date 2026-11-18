@@ -27,25 +27,3 @@ enum AnnotationAuthorPresentation {
         return author.sourceKind == .claude
     }
 }
-
-/// Pure predicate for filtering annotations by author display label. Extracted
-/// so it can be unit-tested without a Document. `selected == nil` (or "All")
-/// matches every annotation; otherwise it matches by the author's display
-/// label (with nil author → "Claude").
-enum AnnotationAuthorFilter {
-    /// The sentinel label meaning "no author filter".
-    static let all = "All"
-
-    static func matches(_ annotation: Annotation, selected: String?) -> Bool {
-        guard let selected, selected != all else { return true }
-        return AnnotationAuthorPresentation.label(for: annotation.author) == selected
-    }
-
-    /// The distinct author labels present among `annotations`, sorted with
-    /// "Claude" first (the historical default) then the rest alphabetically.
-    static func distinctLabels(in annotations: [Annotation]) -> [String] {
-        let labels = Set(annotations.map { AnnotationAuthorPresentation.label(for: $0.author) })
-        let rest = labels.subtracting(["Claude"]).sorted()
-        return (labels.contains("Claude") ? ["Claude"] : []) + rest
-    }
-}

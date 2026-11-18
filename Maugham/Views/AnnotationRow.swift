@@ -449,7 +449,7 @@ struct AnnotationRow: View {
     /// layout width, and everything in the column is then centred against a
     /// width the column does not have. The third variant closes the gaps instead
     /// of taking anything else away, since by that point there is no word left
-    /// to lose. `AnnotationsQueueToolbarWidthTests.test_theRowsVerbsFitTheColumn`
+    /// to lose. `ResolveColumnWidthTests.test_theRowsVerbsFitTheColumn`
     /// is the measurement.
     @ViewBuilder
     private var actionRow: some View {

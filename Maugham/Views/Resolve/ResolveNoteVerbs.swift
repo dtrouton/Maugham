@@ -96,7 +96,7 @@ struct ResolveNoteVerbs {
     // argument document scope passes.
     //
     // Every one of them also calls `noteChanged()` when its work lands — see
-    // `projectRefreshToken`. `AnnotationScopeTests` keeps the two together.
+    // `projectRefreshToken` (To resolve's `annotationsToken`).
 
     func accept(_ document: Document, _ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {

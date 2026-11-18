@@ -95,8 +95,19 @@ final class ResolveMountingTests: XCTestCase {
 
     func test_theUnreadDotLandsOnToResolve() throws {
         XCTAssertEqual(Toggle.unreadDotSegment, .resolve)
-        XCTAssertTrue(Toggle.showsUnreadDot(unreadChecks: 3))
-        XCTAssertFalse(Toggle.showsUnreadDot(unreadChecks: 0))
+        XCTAssertTrue(UnreadDot.shows(unreadChecks: 3))
+        XCTAssertFalse(UnreadDot.shows(unreadChecks: 0))
+        // The picker's dot and the list's clear key on ONE doc id
+        // (`ResolvePane.unreadDocId`): the faces' piece at a `.piece` scope,
+        // else none — so a dot never stands where nothing can clear it.
+        XCTAssertEqual(ResolvePane.unreadDocId(scope: .piece(docId: "doc-a", includesBookLevel: false)), "doc-a")
+        for none in [ResolveScope.elsewhere(docId: "ref-1"), .outside, .figure(id: "fig-1"),
+                     .pieces(docIds: ["doc-a"], includesBookLevel: true)] {
+            XCTAssertNil(ResolvePane.unreadDocId(scope: none), "\(none)")
+        }
+        let picker = try source("Maugham/Views/DetailPaneToggle.swift")
+        XCTAssertTrue(picker.contains("ResolvePane.unreadDocId(scope: ResolveScope.of("),
+                      "the picker's dot asks the list's own doc id")
         let open = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: nil)
         let segments = Toggle.visibleSegments(subject: open)
         XCTAssertEqual(Toggle.badgeOffset(of: .resolve, in: segments), segments.count - 1,
@@ -124,6 +135,8 @@ final class ResolveMountingTests: XCTestCase {
         XCTAssertFalse(ResolveFilter.clearsUnreadChecks(selection: [.mine]))
         let pane = try source("Maugham/Views/Resolve/ResolvePane.swift")
         XCTAssertTrue(pane.contains(".onChange(of: diagnostics?.version) { _, _ in markChecksRead() }"))
+        XCTAssertTrue(pane.contains("let docId = Self.unreadDocId(scope: scope)"),
+                      "the clear asks the same doc id the picker's dot does")
     }
 
     // MARK: - UIState
@@ -159,6 +172,60 @@ final class ResolveMountingTests: XCTestCase {
                       "script: script"] {
             XCTAssertTrue(toggle.contains(wired), "the mount passes \(wired)")
         }
+    }
+
+    // MARK: - A row's click (re-made from `AnnotationScopeTests`)
+
+    /// A row of the piece already centred jumps; any other piece travels; a
+    /// figure travels to the figure only where the tree draws it, else stays.
+    func test_aRowOfThePieceAlreadyCentredJumpsAndAnyOtherTravels() {
+        let never: (String) -> Bool = { _ in false }
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: "doc-a", activeDocId: "doc-a", drawsFigure: never), .jump)
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: "doc-b", activeDocId: "doc-a", drawsFigure: never),
+                       .travel(.item("doc-b")))
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: "doc-b", activeDocId: nil, drawsFigure: never),
+                       .travel(.item("doc-b")))
+    }
+
+    func test_aNoteOnAFigureTheTreeDoesNotDrawStays() {
+        let figure = "fig-aaaa1111"
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: figure, activeDocId: "doc-a", drawsFigure: { _ in false }),
+                       .stay, "a parked figure: nothing moves")
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: figure, activeDocId: figure, drawsFigure: { _ in false }),
+                       .stay, "never a jump: no editor shows a figure's paragraphs")
+        XCTAssertEqual(FigureNoteClick.click(rowDocId: figure, activeDocId: "doc-a", drawsFigure: { $0 == figure }),
+                       .travel(.figure(figure)))
+    }
+
+    /// **The mount's travel writes the window's subject and nothing else**
+    /// (`ManuscriptNavigation`'s ruling): the list stays beside the piece.
+    func test_theMountsTravelClosureWritesTheSubjectAndNothingElse() throws {
+        let mount = try SourceTree.declaration(named: "private var resolvePane: some View {", under: "Maugham")
+        let start = try XCTUnwrap(mount.range(of: "onTravel: { subject in"))
+        let end = try XCTUnwrap(mount.range(of: "drawsFigure: drawsFigure", range: start.upperBound..<mount.endIndex))
+        let closure = SourceScan.codeLines(of: String(mount[start.upperBound..<end.lowerBound]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        XCTAssertEqual(closure, ["selectedSubject = subject", "},"],
+                       "the travel is a subject write and nothing else")
+    }
+
+    // MARK: - Settled's archived to-dos (controller ruling)
+
+    func test_anArchivedTodoOffersUnarchiveOnlyWhereItCanRestoreIt() {
+        func task(_ kind: TaskKind, _ status: TaskStatus) -> WriterTask {
+            WriterTask(id: "t", kind: kind, anchor: TaskAnchor(docId: "doc-a", paragraphId: nil),
+                       body: "b", status: status, priority: 0, parentTaskId: nil,
+                       createdAt: Date(timeIntervalSince1970: 0), createdBySession: nil)
+        }
+        let all = TaskRowVerbs.unrestricted
+        let none = TaskRowVerbs(toggle: false, archive: false, delete: false, move: false)
+        XCTAssertTrue(ResolveTaskVerbs.offersUnarchive(task(.paneCreated, .archived), verbs: all))
+        XCTAssertFalse(ResolveTaskVerbs.offersUnarchive(task(.paneCreated, .archived), verbs: none),
+                       "hidden where the posture refuses a status change")
+        XCTAssertFalse(ResolveTaskVerbs.offersUnarchive(task(.inlineMarkdown, .archived), verbs: all),
+                       "an inline to-do's words are gone from the text: a status change cannot restore them")
+        XCTAssertFalse(ResolveTaskVerbs.offersUnarchive(task(.paneCreated, .done), verbs: all),
+                       "only an archived to-do unarchives")
     }
 
     // MARK: - Censuses

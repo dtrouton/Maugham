@@ -192,6 +192,28 @@ struct ResolveTaskVerbs {
         doc.archiveTask(id: task.id, undoManager: undoManager)
     }
 
+    // MARK: - Archived to-dos (shell plan 2 Task 7 fix, controller ruling)
+
+    /// **Whether an archived to-do offers Unarchive**: a pane-created one
+    /// (an inline to-do's archive spliced its line out of the manuscript, and
+    /// a status change cannot put the words back), where this Mac may change
+    /// its status (`offered(_:).toggle`, the status door), on the open piece
+    /// or the Book. Hidden otherwise — never an enabled no-op.
+    static func offersUnarchive(_ task: WriterTask, verbs: TaskRowVerbs) -> Bool {
+        task.status == .archived && task.kind == .paneCreated && verbs.toggle
+    }
+
+    /// **Unarchive**: the to-do opens again, one ⌘Z step.
+    func unarchive(_ task: WriterTask) {
+        guard Self.offersUnarchive(task, verbs: offered(task)) else { return }
+        if Self.docId(of: task) == ProjectStore.projectTasksDocId {
+            Self.setProjectTaskStatus(task, to: .open, store: store, undoManager: undoManager)
+            return
+        }
+        guard let doc = ownerDoc(of: task) else { return }
+        doc.setTaskStatus(id: task.id, status: .open, undoManager: undoManager)
+    }
+
     // MARK: - The Book's own to-dos (the project stream; no Document)
 
     /// The Book's own to-dos, every status, derived from the project stream's
@@ -228,7 +250,7 @@ struct ResolveTaskVerbs {
 
     /// A Book to-do's status, on the project stream, with its ⌘Z inverse
     /// registered only when the op landed (the stream's door may refuse).
-    private static func setProjectTaskStatus(
+    static func setProjectTaskStatus(
         _ task: WriterTask, to status: TaskStatus, store: ProjectStore,
         undoManager: UndoManager?
     ) {

@@ -435,67 +435,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
     // MARK: - The empty queue teaches the loop
 
-    /// **The Review copy carry.** An empty queue used to say only "ask Claude
-    /// for editorial feedback" — which is one of the two ways it fills, and no
-    /// longer the one the persona is built around.
-    func test_theEmptyQueueNamesBothWaysItFills() {
-        let withPass = ReviewRoundCockpit.emptyQueueTeaching(editorName: "Gould")
-        XCTAssertTrue(withPass.contains("Run Gould\u{2019}s round (\u{2303}\u{2318}R)"),
-                      "the round is the first way, and it is named for the "
-                      + "editor who reads it \u{2014} got: \(withPass)")
-        XCTAssertTrue(withPass.contains("Claude Desktop"),
-                      "and asking Claude is the second \u{2014} got: \(withPass)")
-
-        let withoutPass = ReviewRoundCockpit.emptyQueueTeaching(editorName: nil)
-        XCTAssertEqual(
-            withoutPass,
-            "Claude proposes; you dispose. Set a pass and run its "
-            + "editor\u{2019}s round (\u{2303}\u{2318}R), or ask Claude in Claude Desktop.",
-            "with no pass set there is no editor to name AND no round to run "
-            + "(two loops P1 Task 8) \u{2014} so the teaching asks for the pass "
-            + "first rather than offering a keystroke the piece would refuse")
-        XCTAssertFalse(
-            withoutPass.contains("Run a round"),
-            "\u{2026}and never the bare offer, which taught a loop this piece "
-            + "cannot enter. Got: \(withoutPass)")
-    }
-
     // MARK: - The empty queue names the piece's own reader (Task 6 fix round)
-
-
-
-
-
-    /// **The Run button's tooltip names the round the press would produce** —
-    /// the shared offer plus its number, which is the one thing the empty
-    /// state's copy and the board chip's verb do not carry.
-    ///
-    /// Pinned when `runHelp` was recomposed onto `RoundNarrative.runRoundTitle`
-    /// (M4 P2 Task 4's review): three hand-built spellings of "Run X's round"
-    /// across two files is how one act comes to be worded three ways, and
-    /// nothing asserted this string at all before the consolidation.
-    /// **The cockpit names the Run Round key, never ⌘R** (shell p1 Task 5 fix):
-    /// ⌘R is always Check Writing now, so a cockpit sentence teaching ⌘R for
-    /// a round sends the writer to a check filed in no lane. Every sentence
-    /// that names the cockpit's keys reads them from `RunCommand.keyLabel`.
-    func test_theCockpitNamesTheRunRoundKeys() {
-        XCTAssertEqual(RunCommand.runRound.keyLabel, "\u{2303}\u{2318}R")
-        XCTAssertEqual(RunCommand.freshEyes.keyLabel, "\u{2303}\u{21e7}\u{2318}R")
-        let sentences = [
-            ReviewRoundCockpit.emptyQueueTeaching(editorName: "Gould"),
-            ReviewRoundCockpit.emptyQueueTeaching(editorName: nil),
-            ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
-        ]
-        for sentence in sentences {
-            XCTAssertTrue(sentence.contains("(\(RunCommand.runRound.keyLabel))"), sentence)
-            XCTAssertFalse(sentence.contains("(\(RunCommand.checkWriting.keyLabel))"),
-                           "never ⌘R, Check Writing's key: \(sentence)")
-        }
-        XCTAssertTrue(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.freshEyes.keyLabel))"),
-                      ReviewRoundCockpit.freshEyesHelp)
-        XCTAssertFalse(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.reread.keyLabel))"),
-                       "never ⇧⌘R, Reread's key")
-    }
 
     func test_theRunTooltipNamesTheOfferAndTheRoundItWouldProduce() {
         XCTAssertEqual(ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2),
@@ -887,7 +827,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
                         "a run in flight must offer a way out")
     }
 
-
     /// **The failure REPLACES the report line rather than sitting beside it.**
     ///
     /// Both describe a round, and the report line describes an OLDER one — the
@@ -955,8 +894,21 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }, "\u{2026}and no lane line, however much the pass memory knows")
     }
 
-
-
+    /// **The cockpit names the Run Round key, never ⌘R** (shell p1 Task 5 fix):
+    /// ⌘R is always Check Writing now. Every sentence that names the cockpit's
+    /// keys reads them from `RunCommand.keyLabel`.
+    func test_theCockpitNamesTheRunRoundKeys() {
+        XCTAssertEqual(RunCommand.runRound.keyLabel, "\u{2303}\u{2318}R")
+        XCTAssertEqual(RunCommand.freshEyes.keyLabel, "\u{2303}\u{21e7}\u{2318}R")
+        let sentence = ReviewRoundCockpit.runHelp(pass: Self.copyedit, round: 2)
+        XCTAssertTrue(sentence.contains("(\(RunCommand.runRound.keyLabel))"), sentence)
+        XCTAssertFalse(sentence.contains("(\(RunCommand.checkWriting.keyLabel))"),
+                       "never ⌘R, Check Writing's key: \(sentence)")
+        XCTAssertTrue(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.freshEyes.keyLabel))"),
+                      ReviewRoundCockpit.freshEyesHelp)
+        XCTAssertFalse(ReviewRoundCockpit.freshEyesHelp.contains("(\(RunCommand.reread.keyLabel))"),
+                       "never ⇧⌘R, Reread's key")
+    }
 
     // MARK: - (retired) The queue's empty-state teaching and its Run press
     //

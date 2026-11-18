@@ -32,17 +32,3 @@ enum CheckNarrative {
         diagnostics.dismiss(diagnostic.id, docId: document.docId)
     }
 }
-
-// MARK: - The posture (P3c Task 7)
-
-/// **What a window may offer on the check's findings** — two questions,
-/// because the verbs write to two places. `document` is the checked
-/// piece's own posture (Got it / Not this settle its notes); `statement`
-/// answers for whichever statement a verb would file a ruling in (an Answer,
-/// the letter's *Add to intent*, the ledger's presses), at the ruling door's
-/// own id (`DocumentStore.posture(ofStatement:scope:statements:)`), so the verb
-/// To resolve hides and the ruling `RulingPerformer` refuses are one question.
-struct DiagnosticsPostures {
-    let document: Posture
-    let statement: (Statement.Kind, Statement.Scope) -> Posture
-}

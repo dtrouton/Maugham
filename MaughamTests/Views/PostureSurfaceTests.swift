@@ -1111,37 +1111,6 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(LessonOffer.mayWriteTheLedger(author))
     }
 
-    /// **Author's Diagnostics pane (controller ruling Q)**: Got it / Not this
-    /// follow the piece's `.acceptOrReject`, Answer the piece intent's
-    /// `.editStatement`, both directions.
-    func test_theDiagnosticsPanesVerbsFollowThePosture() {
-        func pane(_ document: Posture, _ statement: Posture) -> DiagnosticsPostures {
-            DiagnosticsPostures(document: document, statement: { _, _ in statement })
-        }
-        let theReviewer = pane(reviewer, reviewerOnAPieceStatement)
-        XCTAssertFalse(CheckNarrative.offersDisposal(theReviewer))
-        XCTAssertFalse(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: theReviewer))
-        let herPiece = pane(piecesAuthorInA, piecesAuthorOnHerPieceStatement)
-        XCTAssertTrue(CheckNarrative.offersDisposal(herPiece))
-        XCTAssertTrue(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: herPiece))
-        let theirPiece = pane(piecesAuthorInB, piecesAuthorOnAnotherPieceStatement)
-        XCTAssertFalse(CheckNarrative.offersDisposal(theirPiece))
-        XCTAssertFalse(CheckNarrative.offersAnAnswer(docId: "doc-b", posture: theirPiece))
-        let author = pane(bookAuthor, bookAuthor)
-        XCTAssertTrue(CheckNarrative.offersDisposal(author))
-        XCTAssertTrue(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: author))
-
-        // The answer asks the statement it WRITES — `.document(docId)`'s
-        // intent — and nothing else.
-        var asked: [String] = []
-        let recording = DiagnosticsPostures(document: bookAuthor, statement: { kind, scope in
-            asked.append("\(kind.rawValue)|\(scope.rawValue)")
-            return self.bookAuthor
-        })
-        _ = CheckNarrative.offersAnAnswer(docId: "doc-a", posture: recording)
-        XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
-    }
-
     /// **The rulings are drawn for a reviewer; their verbs are not** — drawn
     /// or absent, never pressed (tripwire 33).
     func test_theRulingsStratumDrawsItsRowsAndHidesItsVerbs() async throws {
@@ -1570,26 +1539,23 @@ final class PostureSurfaceTests: XCTestCase {
     /// **A task is judged by ITS document**: the project's tasks by the
     /// project stream, a chapter's by the chapter — and an inline task's toggle
     /// or archive, which edits the manuscript, needs the words as well.
-    func test_theTasksPaneOffersTaskVerbsByTheTasksOwnDocument() {
+    func test_theTodoVerbsAreOfferedByTheTodosOwnDocument() {
         let none = TaskRowVerbs(toggle: false, archive: false, delete: false, move: false)
         for kind in [TaskKind.paneCreated, .inlineMarkdown, .fountainBoneyard] {
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: reviewer), none,
-                           "a reviewer's tasks pane is read-only: \(kind)")
+                           "a reviewer's to-dos are read-only: \(kind)")
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: bookAuthor), .unrestricted)
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInA),
                            .unrestricted, "her piece: \(kind)")
             XCTAssertEqual(TaskRowVerbs.decide(kind: kind, posture: piecesAuthorInB), none,
                            "not her piece: \(kind)")
         }
-        // The project stream takes her tasks but not her words: a pane task
-        // is hers there, and anything that would edit text is not.
         let projectStream = posture(.author(.pieces(["doc-a"])), in: .projectStream)
         XCTAssertEqual(TaskRowVerbs.decide(kind: .paneCreated, posture: projectStream),
                        .unrestricted, "task create on __project__ is allowed (R3's pair)")
         XCTAssertEqual(TaskRowVerbs.decide(kind: .inlineMarkdown, posture: projectStream),
                        TaskRowVerbs(toggle: false, archive: false, delete: true, move: true),
                        "an inline toggle also needs .writeText")
-
         XCTAssertEqual(TaskCreationScopes.decide(document: reviewer, project: reviewer),
                        TaskCreationScopes(document: false, project: false))
         XCTAssertEqual(TaskCreationScopes.decide(document: piecesAuthorInB, project: projectStream),
@@ -1598,14 +1564,58 @@ final class PostureSurfaceTests: XCTestCase {
                        TaskCreationScopes(document: true, project: true))
         XCTAssertEqual(TaskCreationScopes.decide(document: nil, project: bookAuthor),
                        TaskCreationScopes(document: false, project: true))
+    }
 
-        // Ruling U: Promote to Task and Accept as task ask `.task` of THIS
-        // document.
-        let pane = { (doc: Posture) in DiagnosticsPostures(document: doc, statement: { _, _ in doc }) }
-        XCTAssertFalse(CheckNarrative.offersATask(pane(reviewer)))
-        XCTAssertFalse(CheckNarrative.offersATask(pane(piecesAuthorInB)))
-        XCTAssertTrue(CheckNarrative.offersATask(pane(piecesAuthorInA)))
-        XCTAssertTrue(CheckNarrative.offersATask(pane(bookAuthor)))
+    /// **A check's finding in To resolve follows the posture** (controller
+    /// rulings Q and U, re-pointed from the deleted Diagnostics pane's statics
+    /// onto the live gate, `ResolvePane.findingOffers`): Answer asks
+    /// `.editStatement` of the piece's OWN intent, Promote asks `.task` of the
+    /// piece, and only on the open piece; one-gesture Not this on a check's
+    /// note asks `.acceptOrReject` of the piece (`ResolvePane.offersNotThis`).
+    func test_aFindingsVerbsFollowThePosture() {
+        let strain = Diagnostic(
+            id: "d1", docId: "doc-a", anchor: Diagnostic.Anchor(paragraphId: "abcd", anchorText: "x"),
+            body: "Pulls against the clause.", category: nil, runId: "run-1",
+            kind: .conformanceStrain)
+        func offers(_ docId: String, piece: Posture, statement: Posture, mayAct: Bool = true)
+            -> (answer: Bool, promote: Bool) {
+            ResolvePane.findingOffers(.finding(docId: docId, strain), mayAct: mayAct,
+                                      posture: piece, statementDoor: { _, _ in statement },
+                                      durable: true)
+        }
+        let reviewers = offers("doc-a", piece: reviewer, statement: reviewerOnAPieceStatement)
+        XCTAssertFalse(reviewers.answer); XCTAssertFalse(reviewers.promote)
+        let hers = offers("doc-a", piece: piecesAuthorInA, statement: piecesAuthorOnHerPieceStatement)
+        XCTAssertTrue(hers.answer); XCTAssertTrue(hers.promote)
+        let theirs = offers("doc-b", piece: piecesAuthorInB, statement: piecesAuthorOnAnotherPieceStatement)
+        XCTAssertFalse(theirs.answer); XCTAssertFalse(theirs.promote)
+        let author = offers("doc-a", piece: bookAuthor, statement: bookAuthor)
+        XCTAssertTrue(author.answer); XCTAssertTrue(author.promote)
+        let elsewhere = offers("doc-a", piece: bookAuthor, statement: bookAuthor, mayAct: false)
+        XCTAssertFalse(elsewhere.promote, "Promote writes the open piece's Document only")
+
+        // The answer asks the statement it WRITES and nothing else.
+        var asked: [String] = []
+        _ = ResolvePane.findingOffers(
+            .finding(docId: "doc-a", strain), mayAct: true, posture: bookAuthor,
+            statementDoor: { kind, scope in
+                asked.append("\(kind.rawValue)|\(scope.rawValue)"); return self.bookAuthor
+            }, durable: true)
+        XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
+
+        // Not this: a check's open note, on the open piece, by `.acceptOrReject`.
+        let checkNote = Annotation(
+            id: "n1", kind: .query, paragraphId: "abcd", body: "Whose coat?",
+            suggestedText: nil, priorText: nil, createdAt: Date(timeIntervalSince1970: 0),
+            createdBySession: nil, status: .open, userResponse: nil, resolvedAt: nil,
+            isStale: false, compilerRunId: "run-1")
+        let item = ResolveItem.note(ProjectAnnotation(docId: "doc-a", annotation: checkNote))
+        XCTAssertTrue(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: bookAuthor))
+        XCTAssertTrue(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: piecesAuthorInA))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: reviewer))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: true, posture: piecesAuthorInB))
+        XCTAssertFalse(ResolvePane.offersNotThis(item, localName: "Denver", mayAct: false, posture: bookAuthor),
+                       "off the open piece: nothing to settle it through")
     }
 
     /// **The task door**: a task op the stamp refuses is never appended, and

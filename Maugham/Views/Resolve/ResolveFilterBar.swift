@@ -109,6 +109,9 @@ struct ResolveFilterBar: View {
 /// resolve's position in the right column's picker and on its Checks chip.
 /// A dot and never a count — how many is the list's to say.
 struct UnreadDot: View {
+    /// **A dot, never a number**: shown for any unread note.
+    static func shows(unreadChecks: Int) -> Bool { unreadChecks > 0 }
+
     var body: some View {
         Circle()
             .fill(Color.accentColor)

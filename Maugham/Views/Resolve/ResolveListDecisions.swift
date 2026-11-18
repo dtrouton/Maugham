@@ -214,17 +214,48 @@ extension ResolvePane {
         }
     }
 
-    /// A finding's verbs: Answer files a ruling (any piece, by the intent's
-    /// posture); Promote writes the piece's `Document` (the open piece only).
-    /// Nothing while a check is still arriving.
+    /// **A finding's verbs, by who may write where** (P3c Task 7/8, controller
+    /// rulings Q and U; the Diagnostics pane's posture rules, now To resolve's
+    /// one gate). Answer files a ruling into the piece's OWN intent, so it asks
+    /// `.editStatement` of that statement and nothing else; Promote files a
+    /// task on the piece's `Document`, so it asks `.task` of the piece and only
+    /// on the open piece. Nothing while a check is still arriving.
+    ///
+    /// `statementDoor` is the window's statement door
+    /// (`DocumentStore.posture(ofStatement:scope:statements:)`), asked here —
+    /// once, with the scope the answer writes — rather than at the call site.
     static func findingOffers(_ item: ResolveItem, mayAct: Bool, posture: Posture,
-                              statementAllowsAnswer: Bool,
+                              statementDoor: (Statement.Kind, Statement.Scope) -> Posture,
                               durable: Bool) -> (answer: Bool, promote: Bool) {
-        guard case .finding(_, let finding) = item, durable else { return (false, false) }
+        guard case .finding(let docId, let finding) = item, durable else { return (false, false) }
+        let answers = statementDoor(.intent, .document(docId)).allows(.editStatement)
         return ResolveVerbGate.findingVerbs(
-            answer: statementAllowsAnswer && CheckNarrative.offersAnAnswer(finding),
+            answer: answers && CheckNarrative.offersAnAnswer(finding),
             promote: posture.allows(.task),
             mayAct: mayAct)
+    }
+
+    /// **One-gesture Not this on a check's note** (controller ruling, shell
+    /// plan 2 Task 7 fix): a note the check minted (`ResolveFilter.source`
+    /// `.checks`) on the open piece keeps the wet-ink decline — a reject with
+    /// no reason field — where the piece's posture allows `.acceptOrReject`.
+    /// Hidden, never disabled; the `Document`'s door refuses a press that
+    /// arrives anyway.
+    static func offersNotThis(_ item: ResolveItem, localName: String, mayAct: Bool,
+                              posture: Posture) -> Bool {
+        guard case .note(let note) = item, note.annotation.status == .open,
+              ResolveFilter.source(of: item, localName: localName) == .checks
+        else { return false }
+        return mayAct && posture.allows(.acceptOrReject)
+    }
+
+    /// The document the unread dot is about and the list clears: the faces'
+    /// piece at a `.piece` scope, else none. The picker's dot and the list's
+    /// clear both ask this one function, so a dot never stands over a list
+    /// that cannot clear it (risk (c)).
+    static func unreadDocId(scope: ResolveScope) -> String? {
+        if case .piece(let docId, _) = scope { return docId }
+        return nil
     }
 
     /// The line above the list naming any piece that would not read

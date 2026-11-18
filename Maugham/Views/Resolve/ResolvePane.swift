@@ -547,6 +547,7 @@ struct ResolvePane: View {
                     figureTitle: figureNames[note.docId],
                     figureCells: figureCells[note.annotation.id],
                     wiring: wiring)
+                notThisLine(item, note: note, acting: acting)
             case .finding(let docId, let finding):
                 findingRow(item, docId: docId, finding: finding, acting: acting)
             case .todo(let task):
@@ -555,14 +556,47 @@ struct ResolvePane: View {
         }
     }
 
+    /// The check's note's one-gesture decline (`offersNotThis`), and what a
+    /// refused one said.
+    @ViewBuilder
+    private func notThisLine(_ item: ResolveItem, note: ProjectAnnotation,
+                             acting: Document?) -> some View {
+        if Self.offersNotThis(item, localName: localName, mayAct: acting?.docId == note.docId,
+                              posture: documentStore.posture(forDocId: note.docId)),
+           let acting {
+            HStack(spacing: 6) {
+                Button(Self.notThisTitle) {
+                    let id = note.annotation.id
+                    answerFailures[id] = nil
+                    let undoManager = undoManager
+                    Task {
+                        if let failure = await CheckNarrative.notThis(
+                            annotationId: id, in: acting, undoManager: undoManager) {
+                            answerFailures[id] = failure
+                        }
+                    }
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+                .help("Let it go. Nothing to explain \u{2014} the written decline belongs to a review pass.")
+                if let failure = answerFailures[note.annotation.id] {
+                    Text(failure).font(.caption).foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+    }
+
+    static let notThisTitle = "Not this"
+
     private func findingRow(_ item: ResolveItem, docId: String, finding: Diagnostic,
                             acting: Document?) -> some View {
         let offers = Self.findingOffers(
             item, mayAct: acting?.docId == docId,
             posture: documentStore.posture(forDocId: docId),
-            statementAllowsAnswer: documentStore.posture(
-                ofStatement: .intent, scope: .document(docId),
-                statements: store.manifest.statements).allows(.editStatement),
+            statementDoor: { [statements = store.manifest.statements] kind, scope in
+                documentStore.posture(ofStatement: kind, scope: scope, statements: statements)
+            },
             durable: durable(docId))
         return DiagnosticRow(
             diagnostic: finding,
@@ -751,17 +785,16 @@ struct ResolvePane: View {
     /// Whether the faces' piece's last check left notes unread — the Checks
     /// chip's dot, which stands only while another filter hides them.
     private var checksUnread: Bool {
-        guard let diagnostics, let pieceDocId else { return false }
+        guard let diagnostics, let docId = Self.unreadDocId(scope: scope) else { return false }
         _ = diagnostics.version
-        return DetailPaneToggle<EmptyView>.showsUnreadDot(
-            unreadChecks: diagnostics.unreadCount(docId: pieceDocId))
+        return UnreadDot.shows(unreadChecks: diagnostics.unreadCount(docId: docId))
     }
 
     /// Showing the checks' items reads them (`clearsUnreadChecks`).
     private func markChecksRead() {
-        guard let diagnostics, let pieceDocId,
+        guard let diagnostics, let docId = Self.unreadDocId(scope: scope),
               ResolveFilter.clearsUnreadChecks(selection: shownSelection) else { return }
-        diagnostics.markRead(docId: pieceDocId, kind: .check)
+        diagnostics.markRead(docId: docId, kind: .check)
     }
 
     // MARK: - Going to a place

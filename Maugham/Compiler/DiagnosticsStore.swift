@@ -501,7 +501,7 @@ final class DiagnosticsStore {
     ///
     /// Does **not** bump `version`: the notes did not change, and a mounted
     /// pane calls this from its own reaction to a version change (see
-    /// `CheckNarrative.body`), which a bump here would re-enter.
+    /// `ResolvePane`'s `.onChange(of: diagnostics?.version)`), which a bump here would re-enter.
     func markRead(docId: String, kind: RunKind) {
         unread[SlotKey(docId: docId, kind: kind)] = nil
     }

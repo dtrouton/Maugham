@@ -376,33 +376,6 @@ struct ReviewRoundCockpit: View {
         return line + RoundNarrative.readInSuffix(run?.timing)
     }
 
-    /// **What an empty queue says now** — the Review copy carry.
-    ///
-    /// It used to name one of the two ways the queue fills ("ask Claude for
-    /// editorial feedback") and it was no longer the one Review is built
-    /// around. Both are named, the round first and by its editor's name, so
-    /// the empty state teaches the loop instead of describing the absence of
-    /// one (spec §7).
-    ///
-    /// The offer itself is `RoundNarrative.runRoundTitle` — the same spelling
-    /// the board chip's menu verb carries (M4 P2 Task 4), so the two places a
-    /// reviewer meets the round in the same minute name it the same way.
-    static func emptyQueueTeaching(editorName: String?) -> String {
-        // `nil` here means no pass is active yet — there is no editor for
-        // `RoundNarrative.runRoundTitle(editorName:)` to name (its parameter
-        // is non-optional on purpose), so this arm is its own hand-written
-        // sentence rather than a call through it with a placeholder editor.
-        // **And it asks for the pass first** (two loops P1 Task 8): with none
-        // set the keystroke is refused, so "Run a round (⌃⌘R)" over an
-        // unassigned piece taught a loop the writer cannot yet enter.
-        guard let editorName else {
-            return "Claude proposes; you dispose. Set a pass and run its "
-                + "editor\u{2019}s round (\(RunCommand.runRound.keyLabel)), or ask Claude in Claude Desktop."
-        }
-        let round = "\(RoundNarrative.runRoundTitle(editorName: editorName)) (\(RunCommand.runRound.keyLabel))"
-        return "Claude proposes; you dispose. \(round), or ask Claude in Claude Desktop."
-    }
-
     // MARK: - The letter's bound
 
     /// **How tall the opened letter may grow inside the strip** (Denver's
@@ -768,7 +741,7 @@ struct ReviewRoundCockpit: View {
     /// reason: a project may name any number of passes and the column's floor
     /// is 240pt. **No `.fixedSize()`** — the passless label was two short words
     /// and could afford one; a lane line carries a writer's own pass name and
-    /// must stay compressible, which is what `AnnotationsQueueToolbarWidthTests`
+    /// must stay compressible, which is what `ResolveColumnWidthTests`
     /// measures. The `Spacer` is what keeps it left rather than a `maxWidth`
     /// frame, so the pressable area is the line and its chevron and not the
     /// whole width of the column.
@@ -904,7 +877,7 @@ struct ReviewRoundCockpit: View {
 /// toolbar is measured against; this one sits INSIDE that column, wrapping
 /// content a model wrote, and a letter with one unbreakable line in it must
 /// never widen the queue — an inflated layout width is
-/// `AnnotationsQueueToolbarWidthTests`' own defect, in which SwiftUI centres the
+/// `ResolveColumnWidthTests`' own defect, in which SwiftUI centres the
 /// overflow and clips annotation bodies at the left edge.
 ///
 /// A nil-width proposal falls back to the content's ideal, and that is right
