@@ -216,7 +216,7 @@ final class AnnotationEventRecorder {
     private var token: NSObjectProtocol?
 
     init(projectURL: URL) {
-        token = NotificationCenter.default.addObserver(
+        token = NotificationCenter.default.addObserver( // adr-0021-ok: a test's synchronous recorder of what was posted, in post order
             forName: .maughamAnnotationsChanged, object: nil, queue: nil) { [weak self] note in
             guard let docId = note.userInfo?[MaughamEvent.annotationDocIdKey] as? String else { return }
             MainActor.assumeIsolated { self?.docIds.append(docId) }

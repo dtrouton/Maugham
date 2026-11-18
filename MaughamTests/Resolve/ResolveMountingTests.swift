@@ -58,8 +58,9 @@ final class ResolveMountingTests: XCTestCase {
                 MaughamEvent.detailSegmentKey: DetailSegment.resolve.rawValue,
                 MaughamEvent.resolveFilterKey: filter.rawValue]), filter)
         }
-        // The translation round's Open queue asks for Questions.
-        let report = try source("Maugham/Views/Publish/TranslationRoundReportView.swift")
+        // The translation round's Open queue opens the round's piece, then
+        // asks for Questions (review I3; `ResolveNavigationTests` pins the order).
+        let report = try source("Maugham/Views/Publish/TranslationRoundReport.swift")
         XCTAssertTrue(report.contains("MaughamEvent.postResolve(.questions)"))
         // The receiver: the one selection act, then the request.
         let receiver = try SourceTree.declaration(

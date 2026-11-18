@@ -134,7 +134,7 @@ final class ResolveNavigationTests: XCTestCase {
         var posts: [(Notification.Name, [AnyHashable: Any])] = []
         let names: [Notification.Name] = [.maughamNavigateToParagraph, .maughamSetDetailSegment]
         let tokens = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in // adr-0021-ok: a test's synchronous recorder of the posts' order
                 posts.append((note.name, note.userInfo ?? [:]))
             }
         }

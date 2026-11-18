@@ -1234,7 +1234,10 @@ final class DiagnosticsPaneTests: XCTestCase {
                      "the check's jump must reuse the row navigation event, not a copy")
         XCTAssertTrue(source.contains(#"static let paragraphIdKey = "paragraph_id""#))
         let pane = try readSource("Maugham/Views/Resolve/ResolvePane.swift")
-        XCTAssertTrue(pane.contains("onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) }"))
+        // Inside a Book or Part list the chip opens the piece inside the
+        // faces (review I1); elsewhere the ordinary place. Both post the row event.
+        XCTAssertTrue(pane.contains("ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: pid)"))
+        XCTAssertTrue(pane.contains("ResolveNavigation.go(toDocId: docId, paragraphId: pid)"))
     }
 
     // MARK: - The conformance summary (spec §5's first section)
