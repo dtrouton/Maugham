@@ -113,23 +113,94 @@ final class ResolveHeadTests: XCTestCase {
 
     // MARK: - Book or Part
 
+    private let noOwners: [String: String?] = [:]
+    private let wholeBook = DocumentClass.figureDocIdPrefix + "-01WHOLE"
+    private let owned = DocumentClass.figureDocIdPrefix + "-01OWNED"
+
+    private func lines(_ items: [ResolveItem],
+                       owners: [String: String?] = [:]) -> [String] {
+        ResolveHead.bookLines(ResolveHead.bookCount(items, scope: book, figureOwners: owners))
+    }
+
     func test_theBookLineCountsPiecesNotItems() {
         let items = [note("n1", on: "doc-a"), note("n2", on: "doc-a"),
                      strain("s1", on: "doc-a"), todo("t1", on: "doc-b")]
-        XCTAssertEqual(ResolveHead.openPieceCount(items, scope: book), 2)
-        XCTAssertEqual(ResolveHead.bookLine(openPieces: 0), "Nothing to resolve")
-        XCTAssertEqual(ResolveHead.bookLine(openPieces: 1), "1 piece has something to resolve")
-        XCTAssertEqual(ResolveHead.bookLine(openPieces: 2), "2 pieces have something to resolve")
+        XCTAssertEqual(ResolveHead.bookCount(items, scope: book, figureOwners: noOwners),
+                       ResolveBookCount(pieces: 2, bookTodos: 0, bookFigures: 0))
+        XCTAssertEqual(lines(items), ["2 pieces have something open"])
+        XCTAssertEqual(lines([note("n", on: "doc-c")]), ["1 piece has something open"])
     }
 
-    func test_bookLevelTodosAndFiguresAreNotCountedAsPieces() {
-        let figure = DocumentClass.figureDocIdPrefix + "-01HZZ"
-        XCTAssertTrue(DocumentClass.isFigureDocId(figure), "premise: a figure's id")
-        let items = [todo("t1", on: nil), note("fn", on: figure), note("n", on: "doc-c")]
-        XCTAssertEqual(ResolveHead.openPieceCount(items, scope: book), 1,
-                       "the Book's own to-do and a figure's note are not pieces")
-        XCTAssertEqual(ResolveHead.openPieceCount([note("x", on: "doc-z")], scope: book), 0,
+    /// Controller ruling M3: the Book's own to-dos are counted, on a line of
+    /// their own.
+    func test_onlyBookLevelToDosOpenSaysSo() {
+        XCTAssertEqual(lines([todo("t1", on: nil), todo("t2", on: nil)]), ["Book to-dos open"])
+    }
+
+    func test_piecesAndBookToDosOpenSayBoth() {
+        XCTAssertEqual(lines([todo("t1", on: nil), note("n", on: "doc-a"),
+                              todo("t2", on: "doc-b")]),
+                       ["2 pieces have something open", "Book to-dos open"])
+    }
+
+    func test_nothingOpenSaysNothingToResolve() {
+        XCTAssertEqual(lines([]), ["Nothing to resolve"])
+    }
+
+    /// A figure's note counts on the piece that owns it (the board's rule);
+    /// a figure no piece owns is the Book's, on its own line. Either way the
+    /// head never says "Nothing to resolve" over a list with rows in it.
+    func test_figureNotesCountOnTheirOwnerOrTheBook() {
+        XCTAssertTrue(DocumentClass.isFigureDocId(owned), "premise: a figure's id")
+        let owners: [String: String?] = [owned: "doc-a", wholeBook: nil]
+        XCTAssertEqual(lines([note("f", on: owned)], owners: owners),
+                       ["1 piece has something open"])
+        XCTAssertEqual(lines([note("f", on: owned), note("n", on: "doc-a")], owners: owners),
+                       ["1 piece has something open"], "one piece, counted once")
+        XCTAssertEqual(lines([note("w", on: wholeBook)], owners: owners),
+                       ["Book figures have notes open"])
+        XCTAssertEqual(ResolveHead.bookCount([note("x", on: "doc-z")], scope: book,
+                                             figureOwners: owners).pieces, 0,
                        "a piece the scope does not hold is not counted")
+    }
+
+    /// Never "Nothing to resolve" above a non-empty list, whatever it holds.
+    func test_aNonEmptySnapshotNeverReadsNothingToResolve() {
+        let owners: [String: String?] = [owned: "doc-a", wholeBook: nil]
+        let kinds: [ResolveItem] = [note("n", on: "doc-a"), strain("s", on: "doc-b"),
+                                    todo("t", on: "doc-c"), todo("b", on: nil),
+                                    note("f", on: owned), note("w", on: wholeBook)]
+        for item in kinds {
+            XCTAssertFalse(lines([item], owners: owners).contains(ResolveHead.nothingLine),
+                           "\(item.id) is open, so something is said about it")
+        }
+    }
+
+    // MARK: - The letter's identity (fix round 1, I1)
+
+    /// The letter block's state lives and dies with one letter: a new piece
+    /// or a new latest run (the check's letter giving way to the round's on
+    /// the same piece) is a new identity, so no refusal outlives its letter.
+    func test_theLetterBlockIsKeyedByPieceAndRun() {
+        let same = ResolveHead.letterIdentity(docId: "doc-a", runId: "check-1")
+        XCTAssertEqual(same, ResolveHead.letterIdentity(docId: "doc-a", runId: "check-1"))
+        XCTAssertNotEqual(same, ResolveHead.letterIdentity(docId: "doc-a", runId: "round-1"),
+                          "the check's letter flipping to the round's is a new block")
+        XCTAssertNotEqual(same, ResolveHead.letterIdentity(docId: "doc-b", runId: "check-1"),
+                          "another piece is a new block")
+    }
+
+    func test_theLettersStateIsHeldByTheKeyedBlockOnly() throws {
+        let source = try headSource()
+        let head = try XCTUnwrap(
+            source.range(of: "struct ResolveHeadView: View {").map { String(source[$0.lowerBound...]) }
+                .flatMap { s in s.range(of: "// MARK: - The head's letter block").map { String(s[..<$0.lowerBound]) } },
+            "the head's declaration is bounded by the letter block's")
+        let code = SourceScan.codeLines(of: head).joined(separator: "\n")
+        XCTAssertFalse(code.contains("@State"), "the head holds no letter state of its own")
+        XCTAssertTrue(code.contains("HeadLetterBlock("), "the head mounts the keyed block")
+        XCTAssertTrue(code.contains(".id(ResolveHead.letterIdentity(docId: docId, runId: run.id))"),
+                      "keyed by the piece and the latest run")
     }
 
     // MARK: - What the head is, per scope

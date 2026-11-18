@@ -5272,18 +5272,32 @@ final class DiagnosticsPaneTests: XCTestCase {
     private static let resolveHeadPath = "Maugham/Views/Resolve/ResolveHead.swift"
 
     private func hostSource(_ relativePath: String) throws -> String {
+        // Each pane's letter (and the strip's cockpit) is drawn by a view it
+        // mounts from `Resolve/ResolveHead.swift` since shell plan 2 Task 5.
+        // A host's code is its surface plus ONLY the declarations it mounts —
+        // each required to be mounted — so a pane's census is met by its own
+        // code and what it actually draws (fix round 1, M2).
         switch relativePath {
-        // Each pane's letter and the strip's cockpit are hosted by the views
-        // they mount from `Resolve/ResolveHead.swift` since shell plan 2 Task
-        // 5 (`RunLetterSection`, `RoundCockpitMount`), so a host's code is its
-        // surface plus that file.
         case "Maugham/Views/AnnotationsPane.swift":
-            return try AnnotationsPaneSource.surfaceSource() + "\n" + readSource(Self.resolveHeadPath)
+            let pane = try AnnotationsPaneSource.surfaceSource()
+            return try pane + mounted(["RunLetterSection", "RoundCockpitMount"], by: pane)
         case "Maugham/Views/DiagnosticsPane.swift":
-            return try DiagnosticsPaneSource.surfaceSource() + "\n" + readSource(Self.resolveHeadPath)
+            let pane = try DiagnosticsPaneSource.surfaceSource()
+            return try pane + mounted(["RunLetterSection"], by: pane)
         default:
             return try readSource(relativePath)
         }
+    }
+
+    /// The named `ResolveHead.swift` declarations, each one `pane` mounts.
+    private func mounted(_ names: [String], by pane: String) throws -> String {
+        let head = try readSource(Self.resolveHeadPath)
+        return try names.map { name in
+            XCTAssertTrue(pane.contains("\(name)("), "the pane must mount `\(name)`")
+            return "\n" + (try XCTUnwrap(
+                Self.declaration(named: "struct \(name): View {", in: head),
+                "`\(name)` must be a readable declaration"))
+        }.joined()
     }
 
     /// **`DiagnosticsPaneSource.surfaceFiles` is every file the pane is split

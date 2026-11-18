@@ -115,37 +115,66 @@ enum ResolveHead {
         return document.annotations(filter: AnnotationFilter(statuses: nil))
     }
 
-    /// **How many pieces have something to resolve**: distinct piece ids
-    /// among `items`, within the scope. The Book's own to-dos and figures'
-    /// notes are not pieces.
-    static func openPieceCount(_ items: [ResolveItem], scope: ResolveScope) -> Int {
+    /// **What a Book or Part holds open**, counted from the UNFILTERED
+    /// snapshot (controller ruling M3): the pieces with something open, the
+    /// Book's own to-dos, and notes on figures no piece owns. A figure owned by
+    /// a piece counts on that piece (`ProjectStore.countsOn`, the board's rule).
+    static func bookCount(_ items: [ResolveItem], scope: ResolveScope,
+                          figureOwners: [String: String?]) -> ResolveBookCount {
         let held = Set(scope.docIds)
-        return Set(items.map(\.docId).filter {
-            held.contains($0) && $0 != ProjectStore.projectTasksDocId
-                && !DocumentClass.isFigureDocId($0)
-        }).count
+        var pieces: Set<String> = []
+        var bookTodos = 0
+        var bookFigures = 0
+        for item in items {
+            let docId = item.docId
+            if docId == ProjectStore.projectTasksDocId {
+                bookTodos += 1
+            } else if let piece = ProjectStore.countsOn(docId, owners: figureOwners) {
+                if held.contains(piece) { pieces.insert(piece) }
+            } else {
+                bookFigures += 1
+            }
+        }
+        return ResolveBookCount(pieces: pieces.count, bookTodos: bookTodos,
+                                bookFigures: bookFigures)
     }
 
-    /// The Book's or a Part's one line.
-    static func bookLine(openPieces: Int) -> String {
-        switch openPieces {
-        case 0: return "Nothing to resolve"
-        case 1: return "1 piece has something to resolve"
-        default: return "\(openPieces) pieces have something to resolve"
+    /// **The Book's or a Part's lines** — one per kind of thing open, never
+    /// "Nothing to resolve" over a list with something in it.
+    static func bookLines(_ count: ResolveBookCount) -> [String] {
+        var lines: [String] = []
+        switch count.pieces {
+        case 0: break
+        case 1: lines.append("1 piece has something open")
+        default: lines.append("\(count.pieces) pieces have something open")
         }
+        if count.bookTodos > 0 { lines.append(bookTodosLine) }
+        if count.bookFigures > 0 { lines.append(bookFiguresLine) }
+        return lines.isEmpty ? [nothingLine] : lines
+    }
+
+    static let nothingLine = "Nothing to resolve"
+    static let bookTodosLine = "Book to-dos open"
+    static let bookFiguresLine = "Book figures have notes open"
+
+    /// **The identity the letter block takes**: its piece and its run. The
+    /// block holds the letter's refusals and confirmations, so a new piece or
+    /// a new latest run (the check's letter giving way to the round's) mounts
+    /// a fresh block and nothing raised on one letter is drawn under another.
+    static func letterIdentity(docId: String, runId: String) -> String {
+        "\(docId)/\(runId)"
     }
 
     /// In place of Run on a piece that is not open; its click opens it.
     static let openThePieceLine = "Open the piece to run a check or a round on it."
+}
 
-    /// Open `docId` in the centre — the window's own paragraph navigation,
-    /// which opens a piece it does not have (`ManuscriptNavigation`). With a
-    /// paragraph, the caret lands there.
-    static func go(toDocId docId: String, paragraphId: String? = nil) {
-        var payload: [String: String] = [ManuscriptNavigation.docIdKey: docId]
-        if let paragraphId { payload["paragraph_id"] = paragraphId }
-        MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow, payload: payload)
-    }
+/// What a Book or Part holds open (`ResolveHead.bookCount`).
+struct ResolveBookCount: Equatable {
+    let pieces: Int
+    let bookTodos: Int
+    /// Notes on figures no piece owns (a whole-book figure).
+    let bookFigures: Int
 }
 
 // MARK: - The head
@@ -199,24 +228,23 @@ struct ResolveHeadView: View {
 
     @Environment(\.undoManager) private var undoManager
 
-    @State private var turnClauseFiledForRun: String?
-    @State private var offerFailure: String?
-    @State private var keptLetter: LetterKeep.Kept?
-    @State private var keepFailure: String?
-    @State private var ledgerFailure: String?
-    @State private var ledgerRevision = 0
-
     var body: some View {
         switch ResolveHead.shape(scope) {
         case .piece(let docId):
             pieceHead(docId)
         case .count:
-            Text(ResolveHead.bookLine(
-                openPieces: ResolveHead.openPieceCount(snapshot.items, scope: scope)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12).padding(.vertical, 6)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(ResolveHead.bookLines(ResolveHead.bookCount(
+                    snapshot.items, scope: scope,
+                    figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))),
+                        id: \.self) { line in
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 6)
         case .nothing:
             EmptyView()
         }
@@ -240,7 +268,7 @@ struct ResolveHeadView: View {
             }
             if offers.opensThePiece {
                 Button {
-                    ResolveHead.go(toDocId: docId)
+                    ResolveNavigation.go(toDocId: docId)
                 } label: {
                     Text(ResolveHead.openThePieceLine)
                         .font(.caption)
@@ -301,7 +329,7 @@ struct ResolveHeadView: View {
             check: diagnostics.lastCheck(docId: docId),
             round: diagnostics.lastRound(docId: docId)),
            let letter = run.letter {
-            RunLetterSection(
+            HeadLetterBlock(
                 letter: letter, run: run,
                 voice: ResolveHead.letterVoice(run: run, reader: reader, passes: passes),
                 docId: docId, store: store, world: world,
@@ -311,20 +339,18 @@ struct ResolveHeadView: View {
                         statements: store.manifest.statements)
                 },
                 currentText: { snapshot.paragraphText[$0] },
-                onJump: { ResolveHead.go(toDocId: docId, paragraphId: $0) },
+                onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) },
                 onAcceptExercise: offers.acceptsExercise ? { habit in
                     documentStore.document(forDocId: docId)?.createPaneTask(
                         body: habit.exercise ?? habit.name,
                         parentTaskId: nil,
                         paragraphId: habit.refs.first?.paragraphId,
                         undoManager: undoManager)
-                } : nil,
-                turnClauseFiledForRun: $turnClauseFiledForRun,
-                offerFailure: $offerFailure,
-                keptLetter: $keptLetter,
-                keepFailure: $keepFailure,
-                ledgerFailure: $ledgerFailure,
-                ledgerRevision: $ledgerRevision)
+                } : nil)
+                // **Keyed by piece and run** (fix round 1, I1): a piece switch
+                // or the check's letter giving way to the round's mounts a
+                // fresh block, so no refusal outlives its letter.
+                .id(ResolveHead.letterIdentity(docId: docId, runId: run.id))
             Divider()
         }
     }
@@ -406,6 +432,46 @@ struct ResolveHeadView: View {
             // The cockpit above draws the same `compilerModel` menu: one
             // setting, drawn once.
             offersModelMenu: false)
+    }
+}
+
+// MARK: - The head's letter block
+
+/// **The head's latest letter with its own state** — the six values
+/// `RunLetterSection` binds, held here so they live and die with ONE letter.
+/// Mounted with `.id(ResolveHead.letterIdentity(docId:runId:))`.
+@MainActor
+struct HeadLetterBlock: View {
+    let letter: Letter
+    let run: CompilerRun
+    let voice: String
+    let docId: String
+    let store: ProjectStore
+    let world: DeclaredWorldStore?
+    let postureOf: (Statement.Kind, Statement.Scope) -> Posture
+    let currentText: (String) -> String?
+    let onJump: (String) -> Void
+    let onAcceptExercise: ((Letter.Habit) -> Void)?
+
+    @State private var turnClauseFiledForRun: String?
+    @State private var offerFailure: String?
+    @State private var keptLetter: LetterKeep.Kept?
+    @State private var keepFailure: String?
+    @State private var ledgerFailure: String?
+    @State private var ledgerRevision = 0
+
+    var body: some View {
+        RunLetterSection(
+            letter: letter, run: run, voice: voice, docId: docId,
+            store: store, world: world, postureOf: postureOf,
+            currentText: currentText, onJump: onJump,
+            onAcceptExercise: onAcceptExercise,
+            turnClauseFiledForRun: $turnClauseFiledForRun,
+            offerFailure: $offerFailure,
+            keptLetter: $keptLetter,
+            keepFailure: $keepFailure,
+            ledgerFailure: $ledgerFailure,
+            ledgerRevision: $ledgerRevision)
     }
 }
 

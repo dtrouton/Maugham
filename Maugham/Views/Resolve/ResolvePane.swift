@@ -485,7 +485,7 @@ struct ResolvePane: View {
             answerFailure: answerFailures[finding.id],
             // A finding's chips name their own paragraphs: go to the one
             // pressed, on the finding's piece.
-            onJump: { ResolveHead.go(toDocId: docId, paragraphId: $0) },
+            onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) },
             onPromote: { promote(finding, docId: docId) },
             onAnswer: { answer($0, to: finding, docId: docId) })
     }

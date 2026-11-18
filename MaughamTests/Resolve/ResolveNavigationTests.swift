@@ -77,4 +77,20 @@ final class ResolveNavigationTests: XCTestCase {
         XCTAssertLessThan(annotation.lowerBound, paragraph.lowerBound,
                           "a note's annotation event is posted before the paragraph's")
     }
+
+    /// One spelling of the payload (fix round 1, M4): the head's "Open the
+    /// piece…" and its letter's jumps use the same builder as a row.
+    func test_aPlaceWithoutAParagraphOnlyOpensThePiece() throws {
+        let docKey = ManuscriptNavigation.docIdKey
+        XCTAssertEqual(ResolveNavigation.payload(docId: "doc-b", paragraphId: nil),
+                       [docKey: "doc-b"])
+        XCTAssertEqual(ResolveNavigation.payload(docId: "doc-b", paragraphId: "bb22"),
+                       [docKey: "doc-b", "paragraph_id": "bb22"])
+        for file in ["Maugham/Views/Resolve/ResolveHead.swift",
+                     "Maugham/Views/Resolve/ResolvePane.swift"] {
+            let code = SourceScan.codeLines(of: try SourceTree.read(file)).joined(separator: "\n")
+            XCTAssertFalse(code.contains("\"paragraph_id\""),
+                           "\(file) spells no paragraph payload of its own")
+        }
+    }
 }

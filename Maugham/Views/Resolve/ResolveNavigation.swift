@@ -14,6 +14,19 @@ import MaughamCore
 /// payload of its own (ADR 0027 §1).
 enum ResolveNavigation {
 
+    /// The paragraph payload's key — the one spelling in To resolve.
+    static let paragraphIdKey = "paragraph_id"
+
+    /// The paragraph event's payload for a place: `doc_id`, and
+    /// `paragraph_id` when there is one. With no paragraph it only opens the
+    /// piece: `ManuscriptNavigation` holds no place, and the editor's own
+    /// receiver ignores a payload without a paragraph.
+    static func payload(docId: String, paragraphId: String?) -> [String: String] {
+        var payload = [ManuscriptNavigation.docIdKey: docId]
+        if let paragraphId { payload[paragraphIdKey] = paragraphId }
+        return payload
+    }
+
     /// The paragraph event's payload: `doc_id` and `paragraph_id`. An item
     /// that points at no paragraph lands on its piece's first
     /// (`firstParagraph`). `nil` where there is no place in the manuscript:
@@ -25,7 +38,7 @@ enum ResolveNavigation {
               !DocumentClass.isFigureDocId(docId),
               let paragraphId = item.paragraphId ?? firstParagraph
         else { return nil }
-        return [ManuscriptNavigation.docIdKey: docId, "paragraph_id": paragraphId]
+        return payload(docId: docId, paragraphId: paragraphId)
     }
 
     /// Go there. Posts through `MaughamEvent` only (tripwire 21), to the key
@@ -34,10 +47,17 @@ enum ResolveNavigation {
         let payload = payload(for: item, firstParagraph: firstParagraph)
         if case .note(let note) = item, !DocumentClass.isFigureDocId(note.docId) {
             var info: [String: Any] = ["annotation_id": note.annotation.id]
-            if let pid = note.annotation.paragraphId { info["paragraph_id"] = pid }
+            if let pid = note.annotation.paragraphId { info[paragraphIdKey] = pid }
             MaughamEvent.post(.maughamNavigateToAnnotation, to: .keyWindow, payload: info)
         }
         guard let payload else { return }
         MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow, payload: payload)
+    }
+
+    /// Open `docId` in the centre — with a paragraph, on it. The head's
+    /// "Open the piece…" line and its letter's jumps.
+    static func go(toDocId docId: String, paragraphId: String? = nil) {
+        MaughamEvent.post(.maughamNavigateToParagraph, to: .keyWindow,
+                          payload: payload(docId: docId, paragraphId: paragraphId))
     }
 }
