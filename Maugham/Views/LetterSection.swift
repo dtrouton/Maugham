@@ -356,7 +356,7 @@ struct LetterSection: View {
     }
 
     /// The words a jump chip carries — **never a paragraph id**
-    /// (`CheckNarrative.jumpExcerpt`'s rule, one layer out). The live
+    /// (the finding chip's rule, `ExcerptChip`). The live
     /// paragraph when it can be read, the ref's own remembered excerpt when
     /// it cannot, and `nil` when neither has any words in it.
     static func chipRef(

@@ -383,7 +383,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A row's click on another piece travels by `selectedSubject` only** (`ResolveNavigation`).
 - **Inside a group, notes take `AnnotationQueueOrder.sorted` (Do first)**; it does not change the deriver's projection.
 - **To resolve filters by source chip (`ResolveFilter`), view-side**; `AnnotationFilter`'s shape reaches MCP and never widens.
-- **A selected pass also shows every unstamped note and every note in the coach's lane** (`ReviewPass.coachPreset.id`, never `effectiveCoach`).
+- **A note has one source** (`ResolveFilter.source`): unstamped is Mine or Others, a coach-lane note its own pass; never another pass.
 - **The nudge keys on the RECORDED active pass and takes no filter argument**, document scope only.
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.
 - **Four resolutions — Accept / Reject… / Stet / Archive — with Stet offered wherever Archive is; triage is a mark, not a resolution.** `AnnotationRow.showsReopen` is an exhaustive switch, so a new status must decide.

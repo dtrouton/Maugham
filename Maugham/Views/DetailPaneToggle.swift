@@ -135,6 +135,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// liveness guard — resolved through `WindowAccessor` because a cached
     /// `nil` is not a close check (`MaughamEvent.isLive`).
     @State private var window: NSWindow?
+    /// `unreadDocId(subject:store:)`, refreshed when the subject changes.
+    @State private var unreadDocId: String?
 
     init(
         store: ProjectStore,
@@ -255,6 +257,9 @@ struct DetailPaneToggle<Inspector: View>: View {
         .onChange(of: subject) { old, new in
             let next = Self.segmentAfterSubjectChange(segment, from: old, to: new)
             if next != segment { segment = next }
+        }
+        .onChange(of: subject, initial: true) { _, new in
+            unreadDocId = Self.unreadDocId(subject: new, store: store)
         }
         .background(WindowAccessor(window: $window))
         .modifier(VisualLanguageProposalModifier(
@@ -406,13 +411,18 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// **Keyed on the doc id the list clears** (`ResolvePane.unreadDocId`):
     /// the faces' piece at a `.piece` scope, else no dot — so a dot never
     /// stands where To resolve could not clear it.
+    ///
+    /// The doc id is resolved once per subject change (`unreadDocId`), never
+    /// per render: at the Book `ResolveScope.of` walks the tree.
     private var checksUnread: Bool {
-        guard let diagnosticsStore,
-              let docId = ResolvePane.unreadDocId(scope: ResolveScope.of(
-                subject.faces, structure: store.manifest.structure,
-                projectType: store.manifest.type))
-        else { return false }
-        return UnreadDot.shows(unreadChecks: diagnosticsStore.unreadCount(docId: docId))
+        guard let diagnosticsStore, let unreadDocId else { return false }
+        return UnreadDot.shows(unreadChecks: diagnosticsStore.unreadCount(docId: unreadDocId))
+    }
+
+    /// The faces' piece the unread dot is about (`ResolvePane.unreadDocId`).
+    static func unreadDocId(subject: WindowSubject, store: ProjectStore) -> String? {
+        ResolvePane.unreadDocId(scope: ResolveScope.of(
+            subject.faces, structure: store.manifest.structure, projectType: store.manifest.type))
     }
 
     /// The segment the unread dot sits over — To resolve, the one list the

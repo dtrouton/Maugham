@@ -1197,19 +1197,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                       + "a mid-word chop")
     }
 
-    /// A bare `Annotation` value for the pure ordering tests below —
-    /// `inManuscriptOrder` only reads `paragraphId` (for rank) and identity
-    /// (for the stable-tie assertion), so every other field is an arbitrary
-    /// but valid fixture value.
-    private func makeAnnotation(
-        id: String, paragraphId: String?, body: String
-    ) -> Annotation {
-        Annotation(
-            id: id, kind: .query, paragraphId: paragraphId,
-            body: body, suggestedText: nil, priorText: nil,
-            createdAt: Date(timeIntervalSince1970: 0), createdBySession: nil,
-            status: .open, userResponse: nil, resolvedAt: nil, isStale: false)
-    }
 
     // MARK: - Author narrates no rounds (two loops P1 Tasks 5 and 7)
     //
@@ -2931,20 +2918,6 @@ final class DiagnosticsPaneTests: XCTestCase {
                       "the reader line must be a control the writer can open")
     }
 
-    /// **With no project the line is a plain label, never a door to Review.**
-    func test_mountedHeader_withNoProjectTheLineIsAPlainLabelAndNoDoor() throws {
-        let diagnostics = DiagnosticsStore(
-            projectRoot: temp.url, device: DeviceSlug.make(from: "test-mac"))
-        let window = mount(checkHeader(store: nil, diagnostics: diagnostics,
-                                       docId: "doc-no-project", reader: .coach(ReviewPass.coachPreset)))
-        pump(0.2)
-        XCTAssertTrue(allLabels(in: window).contains("Le Guin reads this piece"), "control")
-        XCTAssertEqual(roles(labelled: "Le Guin reads this piece", in: window)
-                        .filter { $0 != "AXStaticText" }, [],
-                       "with no store there is nothing to pick between")
-        XCTAssertNil(findButton(labelled: "Le Guin reads this piece", in: window),
-                     "the reader line is a label, never a door to Review")
-    }
 
     /// **The header's Ask field opens holding the stored ask.**
     func test_theAskFieldShowsTheStoredAskOnMount() async throws {

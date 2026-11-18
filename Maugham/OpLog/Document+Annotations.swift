@@ -84,8 +84,8 @@ extension Document {
         /// was made (M3 P2 Task 8), or nil for a note that belongs to no pass.
         /// Defaulted so every caller that has not been taught about passes
         /// keeps writing unstamped notes rather than inventing one — and an
-        /// unstamped note appears in EVERY pass's queue, so nothing is hidden
-        /// by the default. Resolution is each caller's: the editor asks the
+        /// unstamped note is still listed (To resolve files it under Mine or
+        /// Others), so nothing is hidden by the default. Resolution is each caller's: the editor asks the
         /// window, the MCP tools ask `activeReviewPassId`, and both go through
         /// `ActivePassMemory.validatedActivePass`.
         reviewPassId: String? = nil,

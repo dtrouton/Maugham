@@ -193,7 +193,7 @@ final class AnnotationReadToolsTests: XCTestCase {
     }
 
     /// An untriaged note written before passes existed. Both keys are emitted
-    /// carrying JSON `null` — an unstamped note belongs to EVERY pass, which
+    /// carrying JSON `null` — an unstamped note was written under no pass, which
     /// is a fact a reader has to be able to read off the wire.
     func test_listAnnotations_unstampedUntriagedNoteEmitsBothKeysAsNull() async throws {
         let h = try await makeHarness()

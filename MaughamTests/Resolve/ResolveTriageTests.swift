@@ -143,10 +143,19 @@ final class ResolveTriageTests: XCTestCase {
                        body: "b", status: .archived, priority: 0, parentTaskId: nil,
                        createdAt: t, createdBySession: nil)
         }
-        XCTAssertEqual(ResolveArchivedTodos.whyNotUnarchived(task(.inlineMarkdown)),
+        let all = TaskRowVerbs.unrestricted
+        let none = TaskRowVerbs(toggle: false, archive: false, delete: false, move: false)
+        XCTAssertEqual(ResolveArchivedTodos.whyNotUnarchived(task(.inlineMarkdown), verbs: all),
                        ResolveArchivedTodos.inlineArchivedLine)
-        XCTAssertEqual(ResolveArchivedTodos.whyNotUnarchived(task(.fountainBoneyard)),
+        XCTAssertEqual(ResolveArchivedTodos.whyNotUnarchived(task(.fountainBoneyard), verbs: all),
                        ResolveArchivedTodos.inlineArchivedLine)
-        XCTAssertNil(ResolveArchivedTodos.whyNotUnarchived(task(.paneCreated)))
+        XCTAssertNil(ResolveArchivedTodos.whyNotUnarchived(task(.paneCreated), verbs: all),
+                     "Unarchive is offered: nothing to explain")
+        XCTAssertEqual(ResolveArchivedTodos.whyNotUnarchived(task(.paneCreated), verbs: none),
+                       ResolveArchivedTodos.refusedArchivedLine,
+                       "hidden by the posture, and it says so")
+        XCTAssertEqual(ResolveBookSettledSection.doneHeading(done: 0, archived: 2), "",
+                       "no 'nothing done' line over an Archived list")
+        XCTAssertEqual(ResolveBookSettledSection.doneHeading(done: 1, archived: 2), "Done")
     }
 }

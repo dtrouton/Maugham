@@ -399,8 +399,8 @@ extension CompilerOrchestrator.Environment {
                             kind: note.kind,
                             paragraphId: note.paragraphId,
                             body: note.body,
-                            // **The exact label IS the filter bucket**
-                            // (`AnnotationAuthorFilter.distinctLabels`), which
+                            // **The exact label is the row's byline**
+                            // (`AnnotationAuthorPresentation.label`), which
                             // is the feature: a Copyedit round's notes gather
                             // under "Gould" and the writer can read one
                             // editor at a time. `.claude` keeps `isClaude`

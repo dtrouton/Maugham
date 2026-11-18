@@ -212,8 +212,8 @@ struct ResolveArchivedTodos: View {
                     }
                 }
                 .padding(.horizontal, 12).padding(.top, 8)
-                .padding(.bottom, task.kind == .paneCreated ? 8 : 0)
-                if let why = Self.whyNotUnarchived(task) {
+                .padding(.bottom, Self.whyNotUnarchived(task, verbs: taskVerbs.offered(task)) == nil ? 8 : 0)
+                if let why = Self.whyNotUnarchived(task, verbs: taskVerbs.offered(task)) {
                     Text(why)
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,13 +224,15 @@ struct ResolveArchivedTodos: View {
         }
     }
 
-    /// The one quiet line under an archived inline to-do: why it offers no
-    /// Unarchive. Nil for a to-do Unarchive can restore.
-    static func whyNotUnarchived(_ task: WriterTask) -> String? {
-        task.kind == .paneCreated ? nil : inlineArchivedLine
+    /// The one quiet line under an archived to-do that offers no Unarchive:
+    /// why. Nil where Unarchive is offered.
+    static func whyNotUnarchived(_ task: WriterTask, verbs: TaskRowVerbs) -> String? {
+        if task.kind != .paneCreated { return inlineArchivedLine }
+        return ResolveTaskVerbs.offersUnarchive(task, verbs: verbs) ? nil : refusedArchivedLine
     }
 
     static let inlineArchivedLine = "Its line left the text when it was archived."
+    static let refusedArchivedLine = "Restoring it isn\u{2019}t yours to do on this Mac."
 
     static let title = "Archived"
     static let unarchiveTitle = "Unarchive"
@@ -254,6 +256,13 @@ struct ResolveBookSettledSection: View {
     @State private var archived: [WriterTask] = []
 
     private struct ReadKey: Equatable { let open: Bool; let version: Int }
+
+    /// The Done heading: "Done" over done to-dos; nothing to say when only
+    /// archived ones stand; the empty line when the Book holds neither.
+    static func doneHeading(done: Int, archived: Int) -> String {
+        if done > 0 { return "Done" }
+        return archived > 0 ? "" : "No Book to-dos are done or archived."
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -286,7 +295,7 @@ struct ResolveBookSettledSection: View {
     @ViewBuilder
     private var expanded: some View {
         HStack(spacing: 8) {
-            Text(done.isEmpty ? "No Book to-dos are done." : "Done")
+            Text(Self.doneHeading(done: done.count, archived: archived.count))
                 .font(.caption).foregroundStyle(.secondary)
             Spacer(minLength: 0)
             if ResolveSettled.offersArchiveAllDone(posture: posture, doneCount: done.count) {
