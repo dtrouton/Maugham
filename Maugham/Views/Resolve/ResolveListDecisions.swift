@@ -215,33 +215,55 @@ extension ResolvePane {
 
     /// A request, applied: a filter through `ResolveFilter.selection(for:)`
     /// (inert when its chip is absent); a focus opens and scrolls to that
-    /// piece's or figure's group.
+    /// piece's or figure's group — a piece's own, else the first of its owned
+    /// figures' (the board counts a piece's figure notes on it). When the
+    /// selection hides every item of that group, the filter gives way: small,
+    /// to everything; dense, to the source of the group's first item.
     static func apply(_ request: ResolveRequest, groups: [ResolveGroup], chips: [ResolveSource],
                       activePassId: String?, dense: Bool, selection: Set<ResolveSource>,
-                      choices: [ResolveGroup.Key: Bool]) -> ResolveRequestOutcome {
+                      choices: [ResolveGroup.Key: Bool],
+                      figureOwners: [String: String?] = [:],
+                      localName: String = "") -> ResolveRequestOutcome {
         switch request {
         case .filter(let key):
             let next = ResolveFilter.selection(for: key, chips: chips,
                                                activePassId: activePassId, dense: dense)
             return ResolveRequestOutcome(selection: next ?? selection, choices: choices, scrollTo: nil)
         case .focus(let ownerId):
-            guard let key = focusKey(ownerId: ownerId, in: groups) else {
+            guard let key = focusKey(ownerId: ownerId, in: groups, figureOwners: figureOwners),
+                  let group = groups.first(where: { $0.key == key }) else {
                 return ResolveRequestOutcome(selection: selection, choices: choices, scrollTo: nil)
             }
             var opened = choices
             opened[key] = true
-            return ResolveRequestOutcome(selection: selection, choices: opened, scrollTo: key)
+            var shown = selection
+            let standing = ResolveFilter.normalized(selection, chips: chips, dense: dense)
+            if ResolveFilter.visible(group.items, selection: standing, localName: localName).isEmpty {
+                shown = dense
+                    ? group.items.first.map { [ResolveFilter.source(of: $0, localName: localName)] } ?? []
+                    : []
+            }
+            return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key)
         }
     }
 
-    /// The group a piece or a figure owns among the built groups.
-    static func focusKey(ownerId: String, in groups: [ResolveGroup]) -> ResolveGroup.Key? {
-        groups.first { group in
+    /// The group a piece or a figure owns among the built groups; for a
+    /// piece with no group of its own, the first group of a figure it owns.
+    static func focusKey(ownerId: String, in groups: [ResolveGroup],
+                         figureOwners: [String: String?] = [:]) -> ResolveGroup.Key? {
+        let own = groups.first { group in
             switch group.key {
             case .piece(let docId): return docId == ownerId
             case .figure(let id): return id == ownerId
             default: return false
             }
+        }?.key
+        if let own { return own }
+        return groups.first { group in
+            if case .figure(let id) = group.key {
+                return ProjectStore.countsOn(id, owners: figureOwners) == ownerId
+            }
+            return false
         }?.key
     }
 

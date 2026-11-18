@@ -120,7 +120,13 @@ final class RightColumnPaneWidthTests: XCTestCase {
             selection: [.mine], passes: passes,
             showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
             onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
-        XCTAssertGreaterThan(Self.idealWidth(of: bar), Self.ceiling,
+        let chipLabels = HStack(spacing: 4) {
+            ForEach(bar.chips, id: \.self) { chip in
+                Text(ResolveFilterBar.label(chip, passes: passes)).font(.caption).fixedSize()
+                    .padding(.horizontal, 8)
+            }
+        }
+        XCTAssertGreaterThan(Self.idealWidth(of: chipLabels), Self.ceiling,
                              "premise: the chips alone want more than the widest column")
         for width in Self.paneWidths {
             let (fits, measured) = Self.fits(bar, in: width)
@@ -169,6 +175,51 @@ final class RightColumnPaneWidthTests: XCTestCase {
                 let (fits, measured) = Self.fits(bar(choice), in: width)
                 XCTAssertTrue(fits, "\(choice) wants \(measured)pt in \(width)pt")
             }
+        }
+    }
+
+    /// **The wrapped arm, measured** (Task 7b deferred minor): with more
+    /// chips than any column holds and each choice, the arm that puts the
+    /// triage control beneath the chips fits every width on its own.
+    func test_theTriageControlsWrappedArmFitsWithMoreChipsThanFit() {
+        let passes = (1...4).map {
+            ReviewPass(id: "p\($0)", name: "A long structural pass number \($0)")
+        }
+        for choice in ResolveTriageChoice.allCases {
+            let bar = ResolveFilterBar(
+                chips: passes.map { .pass($0.id) } + [.mine, .checks, .questions, .others],
+                selection: [.mine], passes: passes,
+                showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
+                triage: choice, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+            for width in Self.paneWidths + [Self.ceiling] {
+                let (fits, measured) = Self.fits(bar.wrapped, in: width)
+                XCTAssertTrue(fits, "wrapped arm, \(choice): \(measured)pt in \(width)pt")
+            }
+        }
+    }
+
+    /// **The bare All flag keeps the chips' row** (review minor): however
+    /// wide the chip set, the bar under All is one row tall — the flag is
+    /// not pushed beneath the chips merely because they scroll.
+    func test_theBareAllFlagStaysOnTheChipsRowHoweverWideTheChips() {
+        let passes = (1...4).map {
+            ReviewPass(id: "p\($0)", name: "A long structural pass number \($0)")
+        }
+        func bar(_ chips: [ResolveSource]) -> ResolveFilterBar {
+            ResolveFilterBar(chips: chips, selection: [], passes: passes,
+                             showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
+                             triage: .all, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+        }
+        let wide = bar(passes.map { .pass($0.id) } + [.mine, .checks, .questions, .others])
+        let narrow = bar([.mine])
+        for width in Self.paneWidths + [Self.ceiling] {
+            let oneRow = Self.size(of: narrow, proposing: width).height
+            let measured = Self.size(of: wide, proposing: width)
+            XCTAssertLessThanOrEqual(measured.width, width + Self.slack)
+            XCTAssertEqual(measured.height, oneRow, accuracy: 1,
+                           "under All at \(width)pt the wide bar is one row, like the narrow one")
+            XCTAssertGreaterThan(Self.size(of: wide.wrapped, proposing: width).height, oneRow + 5,
+                                 "control: the wrapped arm is taller, so the height check can fail")
         }
     }
 

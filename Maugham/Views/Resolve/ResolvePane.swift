@@ -828,7 +828,9 @@ struct ResolvePane: View {
             documentStore.uiState.activePassMemory.validatedActivePass(forPiece: $0, in: passes)
         }
         let outcome = Self.apply(pending, groups: groups, chips: chips, activePassId: activePass,
-                                 dense: dense, selection: shownSelection, choices: choices)
+                                 dense: dense, selection: shownSelection, choices: choices,
+                                 figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+                                 localName: localName)
         selection = outcome.selection
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
@@ -957,8 +959,17 @@ struct ResolvePane: View {
     /// The open piece's visible notes — what bulk acts over.
     private var bulkRows: [Annotation] {
         guard let pieceDocId else { return [] }
-        return visible.compactMap { item -> Annotation? in
-            if case .note(let note) = item, note.docId == pieceDocId { return note.annotation }
+        return Self.bulkRows(visible, pieceDocId: pieceDocId, heldForFlourish: keptStetted)
+    }
+
+    /// The open piece's visible notes, less any row held only for its stet
+    /// flourish: it is settled, and a bulk mark on it would be a verb its own
+    /// row refuses (`AnnotationRow.offersTriage`, review M6).
+    static func bulkRows(_ visible: [ResolveItem], pieceDocId: String,
+                         heldForFlourish: Set<String>) -> [Annotation] {
+        visible.compactMap { item -> Annotation? in
+            if case .note(let note) = item, note.docId == pieceDocId,
+               !heldForFlourish.contains(note.annotation.id) { return note.annotation }
             return nil
         }
     }

@@ -726,7 +726,12 @@ final class PostureSurfaceTests: XCTestCase {
         windows.append(window)
         pump()
 
-        pump(0.3)
+        // Review M7: the zero below means something only once A's row is
+        // drawn — wait for its text first.
+        _ = try buttons(labelled: "Got it", in: window)
+        waitUntil({ ((try? self.axTexts(in: window)) ?? []).contains { $0.contains("note on doc-a") } })
+        XCTAssertTrue(try axTexts(in: window).contains { $0.contains("note on doc-a") },
+                      "premise: A's row is drawn")
         XCTAssertEqual(try buttons(labelled: "Got it", in: window), 0,
                        "A's note is on a piece that is not open, and B's posture refuses")
 

@@ -27,7 +27,8 @@ enum ResolveKeyFilter: String, Sendable {
 /// nothing here walks the project or groups anything (tripwire 4).
 enum ResolveFilter {
 
-    /// Past this many items in scope (unfiltered) the list is **dense**: the
+    /// Past this many items in scope (counted after triage, before any source
+    /// filter — `ResolveTriage.isDense`, ruling 21) the list is **dense**: the
     /// filters are single-choice and only the caret's group is open. At or
     /// below it, any subset of filters and every group open.
     static let singleChoiceThreshold = 12
@@ -71,7 +72,8 @@ enum ResolveFilter {
 
     // MARK: - Density and selection
 
-    /// Counted over the scope's items, unfiltered.
+    /// Counted over the items it is given: `ResolveTriage.isDense` passes
+    /// what triage leaves (ruling 21), before any source filter.
     static func isDense(_ items: [ResolveItem]) -> Bool {
         items.count > singleChoiceThreshold
     }

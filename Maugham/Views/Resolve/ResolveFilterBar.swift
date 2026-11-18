@@ -38,15 +38,28 @@ struct ResolveFilterBar: View {
     var body: some View {
         // One row when it fits; else the triage control wraps beneath the
         // chips — never clipped, never a bare icon while a choice narrows the
-        // list (Task 7b fix).
+        // list (Task 7b fix). The chips scroll, so how many there are never
+        // decides it: the chips ask only `chipsIdealWidth` of the row, and the
+        // bare All flag (or a short choice) stays at the row's end however
+        // wide the chip set is (review minor).
         ViewThatFits(in: .horizontal) {
             row(includesTriage: true)
-            VStack(alignment: .leading, spacing: 4) {
-                row(includesTriage: false)
-                if let triage { triageMenu(triage) }
-            }
+            wrapped
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
+    }
+
+    /// What the chips' scroller asks of the row when the bar is sized: room
+    /// for about one chip. They take whatever the row offers past that.
+    static let chipsIdealWidth: CGFloat = 72
+
+    /// The wrapped arm: the chips' row, then the triage control beneath.
+    /// Internal so a test measures it on its own.
+    var wrapped: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row(includesTriage: false)
+            if let triage { triageMenu(triage) }
+        }
     }
 
     private func row(includesTriage: Bool) -> some View {
@@ -59,7 +72,8 @@ struct ResolveFilterBar: View {
                 }
                 .padding(.vertical, 1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, idealWidth: Self.chipsIdealWidth, maxWidth: .infinity,
+                   alignment: .leading)
             if includesTriage, let triage {
                 triageMenu(triage)
             }

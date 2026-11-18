@@ -195,7 +195,11 @@ final class WiringCensusTests: XCTestCase {
                // The posture's verbs, narrowed to Reopen alone on a row
                // wearing the stet flourish (Task 6 fix 2).
                "let decided = rowVerbs(for: ann, docId: docId, isOwn: isOwn)",
+               // Which rows are narrowed: those wearing the flourish now.
+               "return flourishing.contains(ann.id)",
                "ResolveStetHold.heldVerbs(decided, status: ann.status) : decided",
+               // The settled figure notes' section (review I2).
+               "ResolveFigureSettledSection(",
                "onAccept: { verbs.accept($0, $1) }",
                "onReject: { rejectSheet = ResolveNoteTarget(document: $0, annotation: $1) }",
                "onStet: { verbs.stet($0, $1) }",

@@ -474,6 +474,39 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(absent.choices, [:])
     }
 
+    /// **Review M1.** A board count click on a piece whose open notes are all
+    /// on its figures focuses that figure's group; and a focus whose group the
+    /// filter hides gives the filter way, so the scroll target is shown.
+    func test_aFocusFallsBackToThePiecesFigureAndUnhidesItsGroup() {
+        let book = ResolveScope.pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: true)
+        let built = groups([note("a1"), note("f1", on: "fig-aaaa1111", pid: nil),
+                            finding("s1", on: "doc-a")], book)
+        let owners: [String: String?] = ["fig-aaaa1111": "doc-b"]
+        XCTAssertEqual(ResolvePane.focusKey(ownerId: "doc-b", in: built, figureOwners: owners),
+                       .figure(id: "fig-aaaa1111"), "the piece's owned figure's group")
+        let outcome = ResolvePane.apply(.focus(groupOwnerId: "doc-b"), groups: built,
+                                        chips: [.checks, .others], activePassId: nil, dense: false,
+                                        selection: [.checks], choices: [:], figureOwners: owners)
+        XCTAssertEqual(outcome.scrollTo, .figure(id: "fig-aaaa1111"))
+        XCTAssertEqual(outcome.selection, [], "small: Checks hid the figure's note, so everything shows")
+        let dense = ResolvePane.apply(.focus(groupOwnerId: "doc-b"), groups: built,
+                                      chips: [.checks, .others], activePassId: nil, dense: true,
+                                      selection: [.checks], choices: [:], figureOwners: owners)
+        XCTAssertEqual(dense.selection, [.others], "dense: the group's own source")
+        let kept = ResolvePane.apply(.focus(groupOwnerId: "doc-a"), groups: built,
+                                     chips: [.checks, .others], activePassId: nil, dense: false,
+                                     selection: [.checks], choices: [:], figureOwners: owners)
+        XCTAssertEqual(kept.selection, [.checks], "a group the filter shows: the filter stands")
+    }
+
+    /// **Review M6.** A row held only for its stet flourish is settled: bulk
+    /// acts over it no more than its own row would.
+    func test_bulkSkipsARowHeldForItsFlourish() {
+        let rows = ResolvePane.bulkRows([note("n1"), note("n2"), note("n3", on: "doc-b")],
+                                        pieceDocId: "doc-a", heldForFlourish: ["n2"])
+        XCTAssertEqual(rows.map(\.id), ["n1"])
+    }
+
     func test_aFilterRequestSelectsItsChipOrIsInert() {
         let built = groups([note("n1"), finding("f1")], .piece(docId: "doc-a", includesBookLevel: false))
         let chips: [ResolveSource] = [.checks, .others]
