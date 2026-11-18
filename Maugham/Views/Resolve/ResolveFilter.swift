@@ -106,10 +106,11 @@ enum ResolveFilter {
 
     /// What a key asks for. `.rounds` is every pass chip (dense: the active
     /// pass's chip when present, else the first pass chip); the others select
-    /// their chip. A requested chip that is absent selects nothing in a small
-    /// list (everything shows) and, in a dense one, what `normalized` keeps.
+    /// their chip. **A request whose chip is absent is inert: nil**, and the
+    /// view leaves the writer's selection exactly as it was — a key never
+    /// swaps her filter to an unrelated source.
     static func selection(for key: ResolveKeyFilter, chips: [ResolveSource],
-                          activePassId: String?, dense: Bool) -> Set<ResolveSource> {
+                          activePassId: String?, dense: Bool) -> Set<ResolveSource>? {
         let requested: [ResolveSource]
         switch key {
         case .rounds:
@@ -123,7 +124,13 @@ enum ResolveFilter {
         case .mine: requested = chips.contains(.mine) ? [.mine] : []
         case .questions: requested = chips.contains(.questions) ? [.questions] : []
         }
-        return normalized(Set(requested), chips: chips, dense: dense)
+        guard !requested.isEmpty else { return nil }
+        return Set(requested)
+    }
+
+    /// Whether `key` has anything to select here (its chip is present).
+    static func canRequest(_ key: ResolveKeyFilter, chips: [ResolveSource]) -> Bool {
+        selection(for: key, chips: chips, activePassId: nil, dense: false) != nil
     }
 
     /// Showing the checks' items reads them: the unread count clears when the

@@ -371,13 +371,24 @@ final class ResolveFilterTests: XCTestCase {
         XCTAssertEqual(ResolveFilter.selection(for: .checks, chips: chips, activePassId: nil, dense: true),
                        [.checks])
 
-        // An absent chip: small selects nothing (everything shows); dense
-        // keeps exactly one, the first chip (as `normalized` would).
+    }
+
+    /// A key whose chip is absent is inert: nil, and the view leaves the
+    /// writer's selection as it was — small or dense, never the first chip.
+    func test_aKeyWhoseChipIsAbsentIsInert() {
         let noChecks: [ResolveSource] = [.mine, .others]
-        XCTAssertEqual(ResolveFilter.selection(for: .checks, chips: noChecks, activePassId: nil, dense: false), [])
-        XCTAssertEqual(ResolveFilter.selection(for: .rounds, chips: noChecks, activePassId: "line", dense: false), [])
-        XCTAssertEqual(ResolveFilter.selection(for: .checks, chips: noChecks, activePassId: nil, dense: true), [.mine])
-        XCTAssertEqual(ResolveFilter.selection(for: .rounds, chips: noChecks, activePassId: nil, dense: true), [.mine])
+        for dense in [false, true] {
+            XCTAssertNil(ResolveFilter.selection(for: .checks, chips: noChecks, activePassId: nil, dense: dense))
+            XCTAssertNil(ResolveFilter.selection(for: .questions, chips: noChecks, activePassId: nil, dense: dense))
+            XCTAssertNil(ResolveFilter.selection(for: .rounds, chips: noChecks, activePassId: "line", dense: dense))
+            XCTAssertEqual(ResolveFilter.selection(for: .mine, chips: noChecks, activePassId: nil, dense: dense),
+                           [.mine])
+        }
+        XCTAssertFalse(ResolveFilter.canRequest(.checks, chips: noChecks))
+        XCTAssertFalse(ResolveFilter.canRequest(.rounds, chips: noChecks))
+        XCTAssertTrue(ResolveFilter.canRequest(.mine, chips: noChecks))
+        XCTAssertTrue(ResolveFilter.canRequest(.rounds, chips: [.pass("line"), .mine]))
+        XCTAssertFalse(ResolveFilter.canRequest(.mine, chips: []))
     }
 
     func test_unreadChecksClearOnlyWhenChecksAreShown() {
@@ -392,7 +403,7 @@ final class ResolveFilterTests: XCTestCase {
 
     /// Carried from review: the board shows "unknown" for a piece whose notes
     /// would not read; the list beside it must never look complete.
-    func test_anUnreadablePieceSaysTheListMayBeIncompleteAndNamesIt() {
+    func test_anUnreadablePieceSaysTheListMayBeIncompleteAndNamesIt() throws {
         let structure = [
             StructureItem(id: "doc-a", title: "Arrival", type: .document, path: "manuscript/a.md"),
             StructureItem(id: "doc-b", title: "Breakfast", type: .document, path: "manuscript/b.md"),
@@ -403,11 +414,11 @@ final class ResolveFilterTests: XCTestCase {
 
         let partial = ResolveSnapshot(items: [note("n")], sequences: [:], paragraphText: [:],
                                       unreadableDocIds: ["doc-b", "fig-0a1b", "doc-zz"])
-        let warning = try? XCTUnwrap(ResolveIncompleteness.of(
+        let warning = try XCTUnwrap(ResolveIncompleteness.of(
             partial, structure: structure, figureNames: ["fig-0a1b": "Table 3"]))
-        XCTAssertEqual(warning?.docIds, ["doc-b", "fig-0a1b", "doc-zz"])
-        XCTAssertEqual(warning?.names, ["Breakfast", "Table 3", "Untitled"])
-        XCTAssertEqual(warning?.message,
+        XCTAssertEqual(warning.docIds, ["doc-b", "fig-0a1b", "doc-zz"])
+        XCTAssertEqual(warning.names, ["Breakfast", "Table 3", "Untitled"])
+        XCTAssertEqual(warning.message,
                        "This list may be incomplete: Breakfast, Table 3 and Untitled could not be read.")
 
         let one = ResolveSnapshot(items: [], sequences: [:], paragraphText: [:], unreadableDocIds: ["doc-a"])
@@ -415,40 +426,82 @@ final class ResolveFilterTests: XCTestCase {
                        "This list may be incomplete: Arrival could not be read.")
     }
 
-    // MARK: - The refresh key
+    // MARK: - The read key and the regroup key
 
-    func test_theRefreshKeyChangesWithTheSnapshotsInputsAndTheScript() {
-        let scope = ResolveScope.piece(docId: "doc-a", includesBookLevel: true)
+    private func readKey(scope: ResolveScope = .piece(docId: "doc-a", includesBookLevel: true),
+                         token: Int = 1, open: [(annotations: Int, tasks: Int)] = [(4, 2), (1, 9)],
+                         project: Int = 3, diagnostics: Int = 7,
+                         passes: [ReviewPass]? = nil, localName: String = "Denver") -> ResolveReadKey {
+        ResolveReadKey(scope: scope, annotationsToken: token, openVersions: open,
+                       projectTasksVersion: project, diagnosticsVersion: diagnostics,
+                       passes: passes ?? self.passes, localName: localName)
+    }
+
+    func test_theReadKeyChangesWithEverySnapshotInput() {
+        let base = readKey()
+        XCTAssertEqual(base, readKey())
+        let changes: [(String, ResolveReadKey)] = [
+            ("scope", readKey(scope: .piece(docId: "doc-a", includesBookLevel: false))),
+            ("annotations event", readKey(token: 2)),
+            // A note added in ANY open document, faces' piece or not.
+            ("an open document's notes", readKey(open: [(4, 2), (2, 9)])),
+            // A to-do typed in an open piece moves a Book or Part list's key
+            // (typing a to-do posts no event).
+            ("an open document's to-dos", readKey(open: [(4, 3), (1, 9)])),
+            ("a document opened", readKey(open: [(4, 2), (1, 9), (1, 1)])),
+            ("the Book's own to-dos", readKey(project: 4)),
+            ("the diagnostics", readKey(diagnostics: 8)),
+            ("a pass added", readKey(passes: passes + [ReviewPass(id: "copy", name: "Copy edit")])),
+            ("the passes reordered", readKey(passes: Array(passes.reversed()))),
+            ("a pass renamed", readKey(passes: [ReviewPass(id: "line", name: "Lines"), passes[1]])),
+            ("the local name", readKey(localName: "Ada")),
+        ]
+        for (what, changed) in changes {
+            XCTAssertNotEqual(base, changed, "\(what) must move the read key")
+        }
+        // The sums are what count: the same versions spread differently do not move it.
+        XCTAssertEqual(readKey(open: [(4, 2), (1, 9)]), readKey(open: [(1, 9), (4, 2)]))
+    }
+
+    /// Controller ruling: a new screenplay parse regroups (and re-reads the
+    /// open piece's paragraph state) but never re-runs the project walks.
+    func test_aScriptOnlyChangeMovesTheRegroupKeyAndNotTheReadKey() {
         let sluglines = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.\n\nEXT. YARD - NIGHT\n\nRain.")
         let edited = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.\n\nINT. HALL - NIGHT\n\nRain.")
         XCTAssertNotEqual(sluglines, edited)
 
-        let base = ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                                     tasksVersion: 2, diagnosticsVersion: 7, script: sluglines)
-        XCTAssertEqual(base, ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                                               tasksVersion: 2, diagnosticsVersion: 7, script: sluglines))
+        let before = ResolveRegroupKey(read: readKey(), script: sluglines)
+        let after = ResolveRegroupKey(read: readKey(), script: edited)
+        XCTAssertNotEqual(before, after)
+        XCTAssertEqual(before.read, after.read)
+        XCTAssertNotEqual(before, ResolveRegroupKey(read: readKey(), script: nil))
 
-        let changes: [ResolveRefreshKey] = [
-            ResolveRefreshKey(scope: .piece(docId: "doc-a", includesBookLevel: false), annotationsToken: 1,
-                              annotationsVersion: 4, tasksVersion: 2, diagnosticsVersion: 7, script: sluglines),
-            ResolveRefreshKey(scope: scope, annotationsToken: 2, annotationsVersion: 4,
-                              tasksVersion: 2, diagnosticsVersion: 7, script: sluglines),
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 5,
-                              tasksVersion: 2, diagnosticsVersion: 7, script: sluglines),
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: nil,
-                              tasksVersion: 2, diagnosticsVersion: 7, script: sluglines),
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                              tasksVersion: 3, diagnosticsVersion: 7, script: sluglines),
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                              tasksVersion: 2, diagnosticsVersion: 8, script: sluglines),
-            // The screenplay's parsed script changed (a slugline edited): regroup.
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                              tasksVersion: 2, diagnosticsVersion: 7, script: edited),
-            ResolveRefreshKey(scope: scope, annotationsToken: 1, annotationsVersion: 4,
-                              tasksVersion: 2, diagnosticsVersion: 7, script: nil),
-        ]
-        for (i, changed) in changes.enumerated() {
-            XCTAssertNotEqual(base, changed, "change \(i) must move the key")
-        }
+        // A read input moves both.
+        let reread = ResolveRegroupKey(read: readKey(token: 2), script: sluglines)
+        XCTAssertNotEqual(before, reread)
+        XCTAssertNotEqual(before.read, reread.read)
+    }
+
+    /// The re-read on a script change keeps every held item and replaces only
+    /// the piece's sequence and text; a piece that will not read is named.
+    func test_rereadingKeepsTheHeldItemsAndReplacesOnlyThePiecesText() {
+        let held = ResolveSnapshot(items: [note("n", pid: "aa11"), todo("t", pid: "bb22")],
+                                   sequences: ["doc-a": ["aa11", "bb22"]],
+                                   paragraphText: ["aa11": "INT. OLD", "bb22": "Rain."],
+                                   unreadableDocIds: [])
+        let fresh = ResolveReader.rereading(held, docId: "doc-a", sequence: ["cc33", "aa11", "bb22"],
+                                            paragraphs: ["cc33": "INT. NEW", "aa11": "INT. OLD", "bb22": "Rain."])
+        XCTAssertEqual(fresh.items, held.items)
+        XCTAssertEqual(fresh.sequences["doc-a"], ["cc33", "aa11", "bb22"])
+        XCTAssertEqual(fresh.paragraphText["cc33"], "INT. NEW")
+        XCTAssertEqual(fresh.unreadableDocIds, [])
+
+        let failed = ResolveReader.rereading(held, docId: "doc-a", sequence: nil, paragraphs: [:])
+        XCTAssertEqual(failed.items, held.items)
+        XCTAssertEqual(failed.sequences, held.sequences)
+        XCTAssertEqual(failed.paragraphText, [:])
+        XCTAssertEqual(failed.unreadableDocIds, ["doc-a"])
+        XCTAssertEqual(ResolveReader.rereading(failed, docId: "doc-a", sequence: nil, paragraphs: [:])
+                        .unreadableDocIds, ["doc-a"])
     }
 }

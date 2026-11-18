@@ -96,6 +96,41 @@ enum ResolveReader {
         }
     }
 
+    /// **A new screenplay parse, without the walks** (`ResolveRegroupKey`).
+    /// Re-reads only a `.piece` scope's own paragraph state — its sequence and
+    /// text, which the scene placement is computed against — and keeps every
+    /// held item. Any other scope is returned unchanged. A piece whose state
+    /// will not read is named unreadable (RULING-54) and keeps no text.
+    @MainActor
+    static func rereadText(_ held: ResolveSnapshot, scope: ResolveScope, store: ProjectStore,
+                           documentStore: DocumentStore) -> ResolveSnapshot {
+        guard case .piece(let docId, _) = scope else { return held }
+        do {
+            let state = try currentParagraphState(documentId: docId, store: store,
+                                                  documentStore: documentStore, projectURL: store.url)
+            return rereading(held, docId: docId, sequence: state.sequence, paragraphs: state.paragraphs)
+        } catch {
+            return rereading(held, docId: docId, sequence: nil, paragraphs: [:])
+        }
+    }
+
+    /// `held` with one piece's sequence and text replaced; its items, the
+    /// other pieces' sequences and the unreadable names are kept. `sequence:
+    /// nil` means the state would not read: the piece's held sequence is
+    /// kept, the text emptied, and the piece named.
+    static func rereading(_ held: ResolveSnapshot, docId: String, sequence: [String]?,
+                          paragraphs: [String: String]) -> ResolveSnapshot {
+        var sequences = held.sequences
+        var unreadable = held.unreadableDocIds
+        if let sequence {
+            sequences[docId] = sequence
+        } else if !unreadable.contains(docId) {
+            unreadable.append(docId)
+        }
+        return ResolveSnapshot(items: held.items, sequences: sequences,
+                               paragraphText: paragraphs, unreadableDocIds: unreadable)
+    }
+
     /// One read of `scope`: the two project walks (each cached whole by the
     /// store), the sidecar's live strains, then `snapshot`. Wired to the
     /// stores; the decisions are `gather`'s.

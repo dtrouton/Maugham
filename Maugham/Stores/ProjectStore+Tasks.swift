@@ -10,7 +10,8 @@ import MaughamCore
 //
 // `listTasksAcrossProject(filter:)` is the read API the right-pane Tasks
 // segment will use in project scope. It aggregates open documents'
-// `Document.tasks(filter:)` projections with the project op log, and caches
+// `Document.tasks(filter:)` projections, closed documents' op-log-derived
+// tasks and the project op log, and caches
 // the merged result behind a version-token key per spec §9.5.
 //
 // State for this seam (stored properties + the public observable
@@ -209,16 +210,16 @@ extension ProjectStore {
 
     // MARK: - Aggregation read API
 
-    /// Aggregate task list across every open document plus the project-scope
-    /// op log. Behind a version-token cache (spec §9.5): repeated calls
-    /// without intervening mutation reuse the same derivation.
+    /// Aggregate task list across every document in the manifest, open or
+    /// closed, plus the project-scope op log. Behind a version-token cache
+    /// (spec §9.5): repeated calls without intervening mutation reuse the
+    /// same derivation.
     ///
-    /// Closed documents are intentionally NOT included in this aggregation
-    /// in this milestone — their inline `- [ ]` tasks only surface once the
-    /// user opens the document. Pane-created project-wide tasks are
-    /// independently visible via the project op log. A future milestone
-    /// can extend this to read closed-doc op logs from disk; the cache key
-    /// is shaped to accept a closed-doc mtime hash sum when that lands.
+    /// Closed documents ARE included: their tasks are derived from their op
+    /// logs on disk, and the cache key (`currentAggregationKey`) folds every
+    /// closed document's op-log file mtimes, so a closed piece's to-dos
+    /// re-derive when any device's file for it changes. Pane-created
+    /// project-wide tasks come from the project op log.
     public func listTasksAcrossProject(
         filter: TaskFilter
     ) -> [WriterTask] {
