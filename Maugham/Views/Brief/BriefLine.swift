@@ -31,6 +31,33 @@ enum BriefLine {
         return trimmed
     }
 
+    /// **When the line index must be rebuilt**: the manifest changed (a
+    /// synopsis, the structure), a statement's text changed out of sight
+    /// (`ProjectStore.statementTextRevision`), or a statement open in a pane
+    /// was typed in (its live `displayText`). A view keys `.task(id:)` on it.
+    struct RefreshKey: Hashable {
+        let manifestModified: Date
+        let statementRevision: Int
+        /// Statement id → its open pane's current text.
+        let liveStatementTexts: [String: String]
+    }
+
+    /// The key, read in `body`: two stored values and the open statement
+    /// panes' texts (one or two, never one per row). Reading a live
+    /// `Document`'s `displayText` here is what makes typing in a pane
+    /// invalidate the view.
+    @MainActor
+    static func refreshKey(store: ProjectStore) -> RefreshKey {
+        RefreshKey(
+            manifestModified: store.manifest.modified,
+            statementRevision: store.statementTextRevision,
+            liveStatementTexts: Dictionary(
+                store.openStatementDocuments.keys.compactMap { id in
+                    store.openStatementDocument(id: id).map { (id, $0.displayText) }
+                },
+                uniquingKeysWith: { first, _ in first }))
+    }
+
     /// `docId → line` for every item of the structure that has one. **Built in
     /// a `.task`, never in `body` or per row** (tripwire 4;
     /// `BriefLineTests.test_theLineIndexIsBuiltOutsideBody`): it reads a
@@ -38,7 +65,11 @@ enum BriefLine {
     ///
     /// A document falls back to ITS OWN intent (`.document(id)`), never the
     /// effective one: a chapter with no intent of its own showing the book's
-    /// opening on every card is not that chapter's line. A group has no intent
+    /// opening on every card is not that chapter's line (Denver's controller
+    /// ruling, 2026-11-18). **The line above the prose differs on purpose**:
+    /// `IntentStrip.line(store:…)` falls back to the EFFECTIVE intent, as it
+    /// always has — it is the running head of the one piece being written,
+    /// where the book's sentence is what applies. A group has no intent
     /// and shows only its synopsis. An unreadable intent (RULING-54) gives no
     /// fallback — a card's line is chrome, as the strip's is; Brief names it.
     @MainActor

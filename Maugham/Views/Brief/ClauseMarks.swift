@@ -106,6 +106,14 @@ enum ClauseMarks {
     /// One folded unit per original character (whitespace runs collapse to
     /// one): curly quotes and apostrophes straightened, whitespace a single
     /// space, lowercased.
+    ///
+    /// **Wider than the ingest on purpose** (controller ruling, 2026-11-18).
+    /// The ingest stores the quote trimmed and nothing more; a check routinely
+    /// quotes the writer's sentence with straightened quotes or reflowed
+    /// spaces, and an exact rule would drop those real marks. The fold is safe
+    /// because it can only ever land on the WRITER's own text, and a quote it
+    /// still cannot find is skipped and counted (`Placement.skipped`), never
+    /// guessed at.
     private static func fold(_ string: String) -> [String] {
         var units: [String] = []
         for character in string {

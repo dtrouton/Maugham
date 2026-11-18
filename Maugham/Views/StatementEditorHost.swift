@@ -539,7 +539,9 @@ struct StatementEditorHost: View {
             // close below is asynchronous.
             if let id = target.statementID { store.forgetStatementDocument(id: id) }
             if let document = target.document {
-                Task { await document.close() }
+                // The bump AFTER the close: the burst is on disk by then, so a
+                // closed-statement reader keyed on it reads the typing.
+                Task { await document.close(); store.noteStatementTextChanged() }
             }
             leave()
         }
@@ -554,7 +556,9 @@ struct StatementEditorHost: View {
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
             if let id = target.statementID { store.forgetStatementDocument(id: id) }
             if let document = target.document {
-                Task { await document.close() }
+                // The bump AFTER the close: the burst is on disk by then, so a
+                // closed-statement reader keyed on it reads the typing.
+                Task { await document.close(); store.noteStatementTextChanged() }
             }
             leave()
         }
@@ -726,6 +730,7 @@ struct StatementEditorHost: View {
             // registry offers a `Document` that is on its way to being a husk.
             if let id = target.statementID { store.forgetStatementDocument(id: id) }
             await prior.close()
+            store.noteStatementTextChanged()
         }
         // A cancelled reconcile has been superseded by another scope change; its
         // own task will do the work. Leaving `resolvedScope` stale keeps the
@@ -905,6 +910,7 @@ struct StatementEditorHost: View {
                 // `Document` on this path between them.
                 target.deposit(into: document, for: wanted)
                 await document.close()
+                store.noteStatementTextChanged()
                 return false
             }
             target.bind(document, id: statement.id, for: wanted)

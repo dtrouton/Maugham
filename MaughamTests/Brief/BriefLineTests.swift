@@ -46,7 +46,8 @@ final class BriefLineTests: XCTestCase {
                 .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             let calls = lines.filter { $0.contains(indexCall) }
             if calls.isEmpty { return ["\(name): never reads the line index"] }
-            return calls.filter { !$0.contains(".task(") }.map { "\(name): \($0.trimmingCharacters(in: .whitespaces))" }
+            return calls.filter { !$0.contains(".task(id: BriefLine.refreshKey(store: store))") }
+                .map { "\(name): \($0.trimmingCharacters(in: .whitespaces))" }
         }.sorted()
     }
 
@@ -65,5 +66,21 @@ final class BriefLineTests: XCTestCase {
             ["Planted.swift": "Text(BriefLine.index(store: store)[item.id] ?? \"\")"]) { $1 }
         XCTAssertEqual(Self.offenders(in: planted),
                        ["Planted.swift: Text(BriefLine.index(store: store)[item.id] ?? \"\")"])
+        // And a task keyed on the manifest alone goes stale after an intent edit.
+        let stale = ".task(id: store.manifest.modified) { lines = BriefLine.index(store: store) }"
+        XCTAssertEqual(Self.offenders(in: ["Stale.swift": stale]), ["Stale.swift: \(stale)"])
+    }
+
+    func test_theRefreshKeyIsAPureValueOfItsThreeInputs() {
+        let t = Date(timeIntervalSince1970: 1_700_000_000)
+        let key = BriefLine.RefreshKey(manifestModified: t, statementRevision: 1, liveStatementTexts: ["s": "a"])
+        XCTAssertEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 1,
+                                                 liveStatementTexts: ["s": "a"]))
+        XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t.addingTimeInterval(1), statementRevision: 1,
+                                                    liveStatementTexts: ["s": "a"]), "the manifest")
+        XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 2,
+                                                    liveStatementTexts: ["s": "a"]), "a statement written out of sight")
+        XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 1,
+                                                    liveStatementTexts: ["s": "ab"]), "typing in an open pane")
     }
 }

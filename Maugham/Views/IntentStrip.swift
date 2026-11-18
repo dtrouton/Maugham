@@ -196,7 +196,11 @@ struct IntentStrip: View {
         // (`StructureItem.synopsis`) wins, and the intent's opening is the
         // fallback — `BriefLine.display`, the one rule the corkboard, the
         // outline and the MCP listing share. A stored line needs no statement
-        // read at all.
+        // read at all. **The fallback here is the EFFECTIVE intent** (piece,
+        // else book) — today's running head, kept by ruling (2026-11-18); the
+        // corkboard, outline and MCP listing fall back to the piece's OWN
+        // intent only (`BriefLine.index`), since the book's sentence on every
+        // card is noise.
         let synopsis = TreeWalk.find(id: docId, in: store.manifest.structure)?.synopsis
         if let stored = BriefLine.stored(synopsis) { return stored }
         guard let statement = store.effectiveIntent(forDocId: docId) else { return nil }

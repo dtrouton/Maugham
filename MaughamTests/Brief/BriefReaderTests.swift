@@ -205,6 +205,35 @@ final class BriefReaderTests: XCTestCase {
         XCTAssertNil(index["doc-c"], "no synopsis and no intent of its own: the Book's intent is not its line")
     }
 
+    /// Review concern 2: an intent edited with no manifest change still
+    /// refreshes a card's fallback line — through a real statement write, and
+    /// through typing in an open statement pane.
+    func test_anIntentEditRefreshesTheLineIndexKey() async throws {
+        let f = try await makeFixture()
+        let modified = f.store.manifest.modified
+        let before = BriefLine.refreshKey(store: f.store)
+        let intent = try XCTUnwrap(f.store.statement(kind: .intent, scope: .document("doc-b")))
+
+        try await f.store.mutateStatementText(of: intent, session: "brief-test") {
+            $0.replacingOccurrences(of: "Chapter B is the storm.", with: "Chapter B is the calm.")
+        }
+        XCTAssertEqual(f.store.manifest.modified, modified, "premise: the manifest did not change")
+        let afterWrite = BriefLine.refreshKey(store: f.store)
+        XCTAssertNotEqual(afterWrite, before, "a statement write changes the key")
+        XCTAssertEqual(BriefLine.index(store: f.store)["doc-b"], "Chapter B is the calm.")
+
+        // An open pane: its typing changes the key before anything reaches disk.
+        let pane = try await Document.load(
+            url: f.store.resolvedProjectPath(intent.path), actor: .author, session: "brief-test", presenter: nil)
+        f.store.noteStatementDocumentOpened(pane, id: intent.id)
+        let opened = BriefLine.refreshKey(store: f.store)
+        pane.setFullText(pane.displayText.replacingOccurrences(of: "the calm.", with: "the lull."))
+        XCTAssertNotEqual(BriefLine.refreshKey(store: f.store), opened, "typing changes the key")
+        XCTAssertEqual(BriefLine.index(store: f.store)["doc-b"], "Chapter B is the lull.")
+        f.store.forgetStatementDocument(id: intent.id)
+        await pane.close()
+    }
+
     func test_theMCPListingCarriesTheLine() async throws {
         let f = try await makeFixture()
         let reg = ProjectRegistry()

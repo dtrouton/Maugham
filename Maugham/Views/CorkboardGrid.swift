@@ -11,7 +11,7 @@ struct CorkboardGrid: View {
     ]
 
     /// Each card's line (`BriefLine`: the synopsis, else the intent's
-    /// opening), built once per manifest change in `.task` — it reads a
+    /// opening), built in `.task` once per `BriefLine.RefreshKey` change (the manifest, or an intent's text) — it reads a
     /// statement per piece, so never in a card (tripwire 4).
     @State private var lines: [String: String] = [:]
 
@@ -24,7 +24,7 @@ struct CorkboardGrid: View {
             }
             .padding(12)
         }
-        .task(id: store.manifest.modified) { lines = BriefLine.index(store: store) }
+        .task(id: BriefLine.refreshKey(store: store)) { lines = BriefLine.index(store: store) }
     }
 
     private func card(for item: StructureItem) -> some View {

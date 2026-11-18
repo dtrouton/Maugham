@@ -33,6 +33,15 @@ extension ProjectStore {
         openStatementDocuments[id] = nil
     }
 
+    /// Say that a statement's text may have changed where no observer could see
+    /// it — a write through `withStatementDocument`, or a pane's `Document`
+    /// closed (its typing flushed). Bumps `statementTextRevision`. Call it
+    /// AFTER the text is on disk: a reader keyed on the bump reads the
+    /// derived cache at once.
+    func noteStatementTextChanged() {
+        statementTextRevision &+= 1
+    }
+
     /// The live `Document` for a statement, or nil.
     ///
     /// **Nil for a CLOSED one, and that is the load-bearing half.** A pane that
@@ -619,6 +628,9 @@ extension ProjectStore {
     /// next opener would load a second one against it.
     func withStatementDocument(_ statement: Statement, session: String,
                                _ mutate: (Document) throws -> Void) async throws {
+        // Every exit, the refusing one included (a bump that changes nothing
+        // costs one re-read): after the flush or the awaited close below.
+        defer { noteStatementTextChanged() }
         if let live = openStatementDocument(id: statement.id) {
             try mutate(live)
             // Durable now rather than on the pane's own debounce: a write

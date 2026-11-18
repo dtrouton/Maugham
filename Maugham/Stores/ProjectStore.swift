@@ -295,6 +295,15 @@ public final class ProjectStore {
     /// never a rendered dependency.
     @ObservationIgnored internal var openStatementDocuments: [String: OpenStatementDocument] = [:]
 
+    /// **Bumped whenever a statement's text may have changed out of a view's
+    /// sight** (shell plan 3): after every write through
+    /// `withStatementDocument` (rulings, proposals, appends, promotion), and
+    /// when a pane forgets its statement `Document` (its typing is flushed by
+    /// then). OBSERVED, unlike `derivedCache`, so a view keying a statement
+    /// read on it re-reads. Typing in a still-open pane is seen through that
+    /// `Document`'s own observable `displayText` (`BriefLine.RefreshKey`).
+    internal(set) var statementTextRevision = 0
+
     /// The statements somebody is currently OPENING a `Document` for, and whoever
     /// is queued behind them. The registry above answers for a `Document` that is
     /// already open; these two cover the window in which one is being opened,

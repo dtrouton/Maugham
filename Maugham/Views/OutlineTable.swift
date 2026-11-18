@@ -13,7 +13,7 @@ struct OutlineTable: View {
     @State private var writers: PieceWriters = .none
 
     /// Each row's line (`BriefLine`: the synopsis, else the intent's
-    /// opening), built once per manifest change in `.task` — it reads a
+    /// opening), built in `.task` once per `BriefLine.RefreshKey` change (the manifest, or an intent's text) — it reads a
     /// statement per piece, so never in a cell (tripwire 4).
     @State private var lines: [String: String] = [:]
 
@@ -114,7 +114,7 @@ struct OutlineTable: View {
             }
         }
         .task(id: store.url) { await loadWriters() }
-        .task(id: store.manifest.modified) { lines = BriefLine.index(store: store) }
+        .task(id: BriefLine.refreshKey(store: store)) { lines = BriefLine.index(store: store) }
     }
 
     /// The one registry read this table makes — one per project, off the main
