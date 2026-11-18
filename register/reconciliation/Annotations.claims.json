@@ -26,7 +26,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's default view; its 'show all statuses' toggle passes statuses: nil",
+  "reachability": "LIVE — To resolve lists open notes only; its Settled section, on the piece open in the window, reads the settled statuses (`ResolveSettled.contents`: accepted, rejected, archived, stetted). The old pane's 'show all statuses' toggle is gone (shell plan 2)",
   "evidence": {
    "property_test": null
   }
@@ -42,7 +42,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's kind chips and the editor's per-paragraph marks",
+  "reachability": "LIVE — To resolve's Settled section composes a status filter; the editor's per-paragraph marks compose a paragraph filter. To resolve's chips are SOURCES, filtered view-side (`ResolveFilter`), never `AnnotationFilter.kinds`; the old pane's kind chips are gone (shell plan 2)",
   "evidence": {
    "property_test": null
   }
@@ -241,7 +241,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's pencil affordance on the reviewer's own row",
+  "reachability": "LIVE — the pencil on the reviewer's own row in To resolve, on the piece open in the window (`ResolveVerbGate`)",
   "evidence": {
    "property_test": null
   }
@@ -273,7 +273,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED — the pane can only name ids the projection produced",
+  "reachability": "UNTRACED — To resolve can only name ids the projection produced",
   "evidence": {
    "property_test": null
   }
@@ -289,7 +289,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE for archived (the pane renders its own affordances on resolved rows under 'show all statuses'); UNTRACED for withdrawn",
+  "reachability": "LIVE for archived (To resolve's Settled section, on the open piece, renders resolved rows with their own affordances); UNTRACED for withdrawn",
   "evidence": {
    "property_test": null
   }
@@ -322,7 +322,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's trash affordance on the reviewer's own row ('Delete your annotation')",
+  "reachability": "LIVE — the trash on the reviewer's own row in To resolve ('Delete your annotation'), on the piece open in the window",
   "evidence": {
    "property_test": null
   }
@@ -370,7 +370,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "UNTRACED — the pane can only name ids the projection produced",
+  "reachability": "UNTRACED — To resolve can only name ids the projection produced",
   "evidence": {
    "property_test": null
   }
@@ -402,7 +402,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's 'Got it' and 'Reply…' buttons",
+  "reachability": "LIVE — 'Got it' and 'Reply…' on a To resolve row, on the piece open in the window",
   "evidence": {
    "property_test": null
   }
@@ -434,7 +434,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane renders Accept / 'Got it' on resolved rows under 'show all statuses'",
+  "reachability": "PARTLY LIVE — the old pane's 'show all statuses' view that drew Accept on resolved rows is gone (shell plan 2); To resolve's Settled section draws Reopen, not Accept, on a rejected, archived or stetted row (`AnnotationRow.showsReopen`). Accept over a settled note is reached when a peer's settlement lands under an open row before it refreshes, or from MCP",
   "evidence": {
    "property_test": null
   }
@@ -467,7 +467,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's Revert button consults it on every click",
+  "reachability": "LIVE — Revert on an accepted suggestion's row in To resolve's Settled section (open piece) consults it on every click",
   "evidence": {
    "property_test": null
   }
@@ -499,7 +499,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the pane's Revert, gated behind a confirm that states this consequence when drifted",
+  "reachability": "LIVE — Revert in To resolve's Settled section (open piece), gated behind a confirm that states this consequence when drifted",
   "evidence": {
    "property_test": null
   }
@@ -515,7 +515,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "PARTLY LIVE — archived→rejected is reachable from the pane's resolved rows; the junk-id arms are UNTRACED",
+  "reachability": "PARTLY LIVE — archived→rejected is reachable from a resolved row in To resolve's Settled section (open piece); the junk-id arms are UNTRACED",
   "evidence": {
    "property_test": null
   }
@@ -547,7 +547,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE across devices — traced 2026-11-12 (hardening 11-11 Task 5): another device's newer claudeArchive or annotationStet wins the status of an accepted suggestion, and the pane's Reopen (RULING-29) or the phone's then acts from that status",
+  "reachability": "LIVE across devices — traced 2026-11-12 (hardening 11-11 Task 5): another device's newer claudeArchive or annotationStet wins the status of an accepted suggestion, and To resolve's Reopen (RULING-29; Settled, open piece) or the phone's then acts from that status",
   "evidence": {
    "property_test": null
   },
@@ -597,7 +597,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — reject with a reason, then ⌘Z. Becomes routine the day RULING-29's pane Reopen ships",
+  "reachability": "LIVE — reject with a reason, then ⌘Z; or Reopen from To resolve's Settled section (RULING-29), routine since it shipped",
   "evidence": {
    "property_test": null
   }
@@ -622,14 +622,14 @@
   "claim_id": "M5-AN-039",
   "scope": "Document.reopenAnnotation callers / To resolve (ResolveNoteVerbs, the Settled section)",
   "kind": "STRUCTURE",
-  "statement": "any archived or rejected annotation is reopenable from To resolve's Settled section, on the piece open in the window (RULING-29; shell plan 2, decided 2026-11-18: read anywhere, act only on the open piece): the Reopen action calls reopenAnnotation(id:undoManager:), which registers a ⌘Z pair whose undo re-applies the PRIOR resolution whole — a reject returns with its written reason. The caller census includes the pane deliberately",
+  "statement": "any archived or rejected annotation is reopenable from To resolve's Settled section, on the piece open in the window (RULING-29; shell plan 2, decided 2026-11-18: read anywhere, act only on the open piece): the Reopen action calls reopenAnnotation(id:undoManager:), which registers a ⌘Z pair whose undo re-applies the PRIOR resolution whole — a reject returns with its written reason. The caller census includes To resolve's verbs (`ResolveNoteVerbs`) deliberately",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenHasThePaneAsAProductionCaller + test_paneReopen_isUndoable_andUndoRestoresTheRejectionReason"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-29); fixed 2026-08-09",
-  "reachability": "LIVE — every archived or rejected row in the pane, none of which offers a way back",
+  "reachability": "LIVE — every archived or rejected row in To resolve's Settled section, on the piece open in the window, offers Reopen; a figure's settled notes, in the figure's and its owning piece's Settled",
   "evidence": {
    "property_test": null
   }
@@ -783,7 +783,7 @@
   "claim_id": "M5-AN-049",
   "scope": "Document.acceptAnnotation / SuggestionSplice",
   "kind": "POSTCONDITION",
-  "statement": "a span-anchored suggestion whose quoted phrase is NO LONGER in the paragraph is REFUSED: acceptAnnotation throws AnnotationAcceptError.suggestionAnchorLost before anything is appended — the paragraph is untouched, the annotation stays open, and the pane says why. The decision is SuggestionSplice.attempt's .anchorLost (MaughamCore), shared by the phone's makeAccept (WriteError.suggestionAnchorLost), so the surfaces cannot drift",
+  "statement": "a span-anchored suggestion whose quoted phrase is NO LONGER in the paragraph is REFUSED: acceptAnnotation throws AnnotationAcceptError.suggestionAnchorLost before anything is appended — the paragraph is untouched, the annotation stays open, and To resolve says why. The decision is SuggestionSplice.attempt's .anchorLost (MaughamCore), shared by the phone's makeAccept (WriteError.suggestionAnchorLost), so the surfaces cannot drift",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_aLostSpanAnchorRefusesTheAccept (+ phone: AnnotationWriterTests.test_makeAccept_lostSpanAnchor_isRefused; core: SuggestionSpliceTests.test_attempt_unresolvableSpan_isRefused)"
@@ -848,14 +848,14 @@
   "claim_id": "M5-AN-053",
   "scope": "Document.sweepOrphanedAnnotations / AnnotationDeriver",
   "kind": "POSTCONDITION",
-  "statement": "accepted, rejected and archived annotations on a removed paragraph are left in place, anchored to a paragraph that no longer exists; the deriver marks them stale (the paragraph is absent from the map) and the pane keeps rendering their action rows, Revert included",
+  "statement": "accepted, rejected and archived annotations on a removed paragraph are left in place, anchored to a paragraph that no longer exists; the deriver marks them stale (the paragraph is absent from the map) and To resolve's Settled section keeps rendering their action rows, Revert included",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_theSweepArchivesOpenAnchoredAnnotationsOnly"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — delete a paragraph whose suggestion you had already accepted; the row survives with a Revert that cannot work (M5-AN-030)",
+  "reachability": "LIVE — delete a paragraph whose suggestion you had already accepted; the row survives in To resolve's Settled section (open piece) with a Revert that cannot work (M5-AN-030)",
   "evidence": {
    "property_test": null
   }
@@ -864,14 +864,14 @@
   "claim_id": "M5-AN-055",
   "scope": "AnnotationDeriver + To resolve",
   "kind": "POSTCONDITION",
-  "statement": "after a reopen, the projection carries the most recent PRIOR rejection's written reason as previousRejectionReason (open status only; never-rejected notes carry nil), and the pane renders it as 'Previously rejected: …' — the writer's words stay where they would look",
+  "statement": "after a reopen, the projection carries the most recent PRIOR rejection's written reason as previousRejectionReason (open status only; never-rejected notes carry nil), and To resolve's row renders it as 'Previously rejected: …' — the writer's words stay where they would look",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopeningARejectedNote_keepsTheReasonAsHistory"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-31)",
-  "reachability": "LIVE — the resolved/All filter's rows",
+  "reachability": "LIVE — a reopened note's row in To resolve's open list",
   "evidence": {
    "property_test": null
   }
@@ -887,7 +887,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-34)",
-  "reachability": "LIVE — the resolved view's Deleted section",
+  "reachability": "LIVE — the Deleted group of To resolve's Settled section, on the piece open in the window (`ResolveSettledSection`)",
   "evidence": {
    "property_test": null
   }
@@ -953,7 +953,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-22); issue #41 A2",
-  "reachability": "LIVE — with show-resolved on, the queue's row for an accepted comment draws its dispositions (`AnnotationRow.showsReopen` is false for `.accepted`), Stet among them: accept a note with Reply…, stet it, press ⌘Z",
+  "reachability": "LIVE — To resolve's Settled section (open piece): an accepted comment's row draws its dispositions (`AnnotationRow.showsReopen` is false for `.accepted`), Stet among them: accept a note with Reply…, stet it, press ⌘Z",
   "evidence": {
    "property_test": null
   },
@@ -1218,7 +1218,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-59, whose manuscript half is this claim); the text-can-answer rule, the fold's travel arms, the ⌘Z reading and the limits are the coordinator's calls",
-  "reachability": "LIVE across devices — accept on the Mac, another device's newer archive or stet wins the status, then the pane's Reopen (RULING-29) or the phone's, then Accept again",
+  "reachability": "LIVE across devices — accept on the Mac, another device's newer archive or stet wins the status, then To resolve's Reopen (RULING-29; Settled, open piece) or the phone's, then Accept again",
   "evidence": {
    "property_test": null
   },

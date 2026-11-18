@@ -379,8 +379,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
-- **Bulk acts on the open piece only**; To resolve reads `listAnnotationsAcrossProject` and refreshes on `.maughamAnnotationsChanged` and the open pieces' `annotationsVersion`.
-- **A row's click on another piece travels by `selectedSubject` only** (`ResolveNavigation`).
+- **Bulk acts on the open piece only.** To resolve holds the walks (`ResolveWalkHold`) and splices open pieces off their `Document`s: no walk on the typing path.
+- **A row's click in a Book or Part list keeps the faces** (`ClickRule.openInsideTheFaces`); elsewhere `open = faces = piece`.
 - **Inside a group, notes take `AnnotationQueueOrder.sorted` (Do first)**; it does not change the deriver's projection.
 - **To resolve filters by source chip (`ResolveFilter`), view-side**; `AnnotationFilter`'s shape reaches MCP and never widens.
 - **A note has one source** (`ResolveFilter.source`): unstamped is Mine or Others, a coach-lane note its own pass; never another pass.
@@ -388,7 +388,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.
 - **Four resolutions — Accept / Reject… / Stet / Archive — with Stet offered wherever Archive is; triage is a mark, not a resolution.** `AnnotationRow.showsReopen` is an exhaustive switch, so a new status must decide.
 - **A figure note's row acts through the figure's host** (`FigureRowGate`, `withFigureHost`): Reject, Stet, Archive, Reopen, Got it and Reply work; a suggestion's Accept travels to its cell (off once deleted or in Research); ⌘Z only where the window holds the figure. A piece's figures follow its section; the board counts them on `FigureRecord.piece`.
-- **`ResolveScope` is window state, never persisted**; the Book lays out by the board's rows (`ReviewBoardRows.derive`), skips reference pieces, and never walks twice.
+- **`ResolveScope` is derived from the faces**; the Book lays out by `TreeWalk.collect` and skips reference pieces.
 - **The cockpit reaches for the coach's seat nowhere** (`ReviewRoundCockpitTests.test_theProductionMountNeverReachesForTheSeat`); with no pass, both run buttons disable with `noEditorReason`.
 - **A wide pass set scrolls inside the board** (`ReviewBoardPaneTests.test_aWidePassSetScrollsInsideThePaneAndNeverWidensTheWindow`).
 
