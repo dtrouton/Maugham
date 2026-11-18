@@ -505,9 +505,10 @@ struct TranslationRoundReportView: View {
                 Spacer(minLength: 0)
                 // The round's own notes settle in To resolve with every other
                 // note — this is the door, not a second queue. A translator's
-                // questions are To resolve's Questions (shell plan 2 Task 7).
+                // questions are To resolve's Questions (shell plan 2 Task 7),
+                // on the round's piece (review I3).
                 Button(TranslationRoundReport.openQueueTitle) {
-                    MaughamEvent.postResolve(.questions)
+                    TranslationRoundReport.openQueue(docId: round.docId)
                 }
                 .controlSize(.small)
                 .help("Open To resolve on its Questions, where this round\u{2019}s "

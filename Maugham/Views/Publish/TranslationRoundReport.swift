@@ -312,6 +312,17 @@ enum TranslationRoundReport {
     static let answerTitle = "Answer"
     static let answerAsRulingTitle = "Answer as ruling\u{2026}"
     static let openQueueTitle = "Open the queue"
+
+    /// **Open the queue** (review I3): the report is drawn over an edition,
+    /// whose faces To resolve has no list for. So the round's piece takes the
+    /// centre and the faces (the ordinary place, `ManuscriptNavigation`), and
+    /// then To resolve is asked for its Questions — a request that waits for
+    /// the piece's read (`ResolvePane.applyPendingRequest`).
+    @MainActor
+    static func openQueue(docId: String) {
+        ResolveNavigation.go(toDocId: docId)
+        MaughamEvent.postResolve(.questions)
+    }
     static let closeTitle = "Back to the book"
 
     /// Distinct from the visible title for the reason every control on this

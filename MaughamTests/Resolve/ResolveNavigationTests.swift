@@ -126,6 +126,40 @@ final class ResolveNavigationTests: XCTestCase {
                                                   structure: structure), "a figure's faces hold no piece")
     }
 
+    /// **Review I3.** "Open the queue" on a translation round report (drawn
+    /// over an edition, which To resolve has no list for) opens the round's
+    /// piece — open = faces = piece — and then asks for Questions, in that
+    /// order, so the request waits for the piece's list.
+    func test_openTheQueueOpensTheRoundsPieceThenAsksForQuestions() throws {
+        var posts: [(Notification.Name, [AnyHashable: Any])] = []
+        let names: [Notification.Name] = [.maughamNavigateToParagraph, .maughamSetDetailSegment]
+        let tokens = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
+                posts.append((note.name, note.userInfo ?? [:]))
+            }
+        }
+        defer { tokens.forEach(NotificationCenter.default.removeObserver) }
+
+        TranslationRoundReport.openQueue(docId: "doc-b")
+
+        XCTAssertEqual(posts.map(\.0), names, "the piece first, then To resolve")
+        let place = try XCTUnwrap(posts.first?.1)
+        let edition = WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es"))
+        XCTAssertEqual(ResolveScope.of(edition.faces, structure: structure, projectType: .novel), .outside,
+                       "premise: the edition's faces have no list")
+        let next = receive(place.reduce(into: [String: Any]()) { $0[String(describing: $1.key)] = $1.value },
+                           current: edition, control: EditorControl())
+        XCTAssertEqual(next.open, .item("doc-b"))
+        XCTAssertEqual(next.faces, .item("doc-b"), "the round's piece is on the faces: its list")
+        XCTAssertEqual(posts.last?.1[MaughamEvent.resolveFilterKey] as? String, ResolveKeyFilter.questions.rawValue)
+
+        let view = SourceScan.codeLines(of: try SourceTree.read(
+            "Maugham/Views/Publish/TranslationRoundReportView.swift")).joined(separator: "\n")
+        XCTAssertTrue(view.contains("TranslationRoundReport.openQueue(docId: round.docId)"),
+                      "the report's button is this door")
+        XCTAssertFalse(view.contains("postResolve("), "and asks for no filter of its own")
+    }
+
     func test_aRowPayloadAlwaysNamesItsDocument() {
         for item in [note("n1", on: "doc-b", pid: "bb22"),
                      finding("s1", on: "doc-b", pid: "bb22"),
