@@ -206,7 +206,10 @@ struct ResolveTaskVerbs {
     /// posture lets this Mac archive, as one ⌘Z.
     func archiveAllDoneOnTheBook() {
         let done = Self.bookTasks(store: store).filter { $0.status == .done && offered($0).archive }
-        guard !done.isEmpty else { return }
+        // The stream's one door answers for every append in the batch: where
+        // it refuses, open no group, so no empty "Archive Done Tasks" ⌘Z step.
+        guard Self.opensBookArchiveGroup(doneCount: done.count,
+                                         refusal: store.projectTaskRefusal()) else { return }
         undoManager?.beginUndoGrouping()
         defer {
             undoManager?.setActionName("Archive Done Tasks")
@@ -215,6 +218,12 @@ struct ResolveTaskVerbs {
         for task in done {
             Self.archiveProjectTask(task, store: store, undoManager: undoManager)
         }
+    }
+
+    /// **Whether Archive all done on the Book opens an undo group**: only
+    /// with something done and a stream that takes the appends.
+    static func opensBookArchiveGroup(doneCount: Int, refusal: String?) -> Bool {
+        doneCount > 0 && refusal == nil
     }
 
     /// A Book to-do's status, on the project stream, with its ⌘Z inverse

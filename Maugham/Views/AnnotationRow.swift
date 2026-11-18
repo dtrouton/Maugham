@@ -461,6 +461,16 @@ struct AnnotationRow: View {
         .controlSize(.small)
     }
 
+    /// **A triage mark is about an OPEN note** (`TriageMark`: "a mark, not a
+    /// resolution"), so a settled row — a stetted one inside its flourish
+    /// included — draws no triage menu, only Reopen.
+    static func offersTriage(status: AnnotationStatus) -> Bool {
+        switch status {
+        case .open: return true
+        case .accepted, .rejected, .archived, .stetted: return false
+        }
+    }
+
     /// The gap the last-resort variant closes to. Small enough to buy back the
     /// points the seven-control row was over by, large enough that two bordered
     /// buttons still read as two.
@@ -488,7 +498,8 @@ struct AnnotationRow: View {
                               action: onReopen)
                 }
             }
-            if offered.dispose, figure == nil || FigureRowGate.drawsTriage { triageMenu }
+            if offered.dispose, Self.offersTriage(status: annotation.status),
+               figure == nil || FigureRowGate.drawsTriage { triageMenu }
             if offered.ownNote {
                 Spacer(minLength: 4)
                 ownAffordances

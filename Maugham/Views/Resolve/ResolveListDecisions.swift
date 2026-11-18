@@ -71,8 +71,9 @@ extension ResolvePane {
     }
 
     /// One refresh step's read. `.read` is `ResolveReader.read` (the walks);
-    /// `.reread` the open piece's text, then its live to-dos; `.todos` the
-    /// live to-dos alone — `Document.tasks` per open piece in scope.
+    /// `.reread` the open piece's text, then the live pieces; `.todos` the
+    /// live pieces alone — each open in-scope piece's to-dos, paragraph order
+    /// and (at a `.piece`) text, off its `Document`. Never the walk.
     static func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, scope: ResolveScope,
                           store: ProjectStore, documentStore: DocumentStore,
                           diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
@@ -83,36 +84,45 @@ extension ResolvePane {
         case .reread:
             let text = ResolveReader.rereadText(held, scope: scope, store: store,
                                                 documentStore: documentStore)
-            return splicingTodos(text, order: scope.docIds,
-                                 live: liveTodos(scope: scope, documentStore: documentStore))
+            return splicing(text, scope: scope,
+                            live: livePieces(scope: scope, documentStore: documentStore))
         case .todos:
-            return splicingTodos(held, order: scope.docIds,
-                                 live: liveTodos(scope: scope, documentStore: documentStore))
+            return splicing(held, scope: scope,
+                            live: livePieces(scope: scope, documentStore: documentStore))
         }
     }
 
-    /// The open in-scope pieces' open to-dos, read off their documents.
-    static func liveTodos(scope: ResolveScope, documentStore: DocumentStore) -> [String: [WriterTask]] {
-        var live: [String: [WriterTask]] = [:]
+    /// The open in-scope pieces, read off their documents: their open
+    /// to-dos, their paragraph order and their text.
+    static func livePieces(scope: ResolveScope, documentStore: DocumentStore) -> [String: ResolveLivePiece] {
+        var live: [String: ResolveLivePiece] = [:]
         for docId in scope.docIds {
             guard let doc = documentStore.document(forDocId: docId) else { continue }
-            live[docId] = doc.tasks(filter: TaskFilter(scope: .document(docId: docId), statuses: [.open]))
+            live[docId] = ResolveLivePiece(
+                todos: doc.tasks(filter: TaskFilter(scope: .document(docId: docId), statuses: [.open])),
+                sequence: doc.sequence, paragraphs: doc.paragraphs)
         }
         return live
     }
 
-    /// `held` with each piece in `live` holding exactly its live to-dos;
-    /// every other item is untouched.
-    static func splicingTodos(_ held: ResolveSnapshot, order: [String],
-                              live: [String: [WriterTask]]) -> ResolveSnapshot {
+    /// `held` with each piece in `live` holding exactly its live to-dos and
+    /// its live paragraph order — so a to-do typed into a new paragraph is
+    /// placed there, never under "No longer in the text" — and, at a
+    /// `.piece` scope, that piece's live text (its group titles). Every other
+    /// item, piece and name is untouched.
+    static func splicing(_ held: ResolveSnapshot, scope: ResolveScope,
+                         live: [String: ResolveLivePiece]) -> ResolveSnapshot {
         guard !live.isEmpty else { return held }
         let kept = held.items.filter { item in
             if case .todo = item { return live[item.docId] == nil }
             return true
         }
-        let fresh = order.flatMap { live[$0] ?? [] }.map(ResolveItem.todo)
-        return ResolveSnapshot(items: kept + fresh, sequences: held.sequences,
-                               paragraphText: held.paragraphText,
+        let fresh = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
+        var sequences = held.sequences
+        for (docId, piece) in live { sequences[docId] = piece.sequence }
+        var text = held.paragraphText
+        if case .piece(let docId, _) = scope, let piece = live[docId] { text = piece.paragraphs }
+        return ResolveSnapshot(items: kept + fresh, sequences: sequences, paragraphText: text,
                                unreadableDocIds: held.unreadableDocIds)
     }
 
@@ -263,4 +273,12 @@ extension ResolvePane {
             return offersColdStart ? .coldStart : .nothing
         }
     }
+}
+
+/// **One open piece as its `Document` holds it now** — what a `.todos` step
+/// splices in: its open to-dos, its paragraph order, its text.
+struct ResolveLivePiece: Equatable {
+    let todos: [WriterTask]
+    let sequence: [String]
+    let paragraphs: [String: String]
 }

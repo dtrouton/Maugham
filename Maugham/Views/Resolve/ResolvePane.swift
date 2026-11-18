@@ -43,24 +43,40 @@ enum ResolveStetHold {
     }
 
     /// `fresh`, with every note `previous` held that was stetted inside the
-    /// hold and that `fresh` no longer lists put back. Returns the ids put
-    /// back.
+    /// hold and that `fresh` no longer lists put back — **as it now is**:
+    /// `live` (item id → the note in every status, from the walk) supplies
+    /// the stetted note, never the stale open copy. A note `live` does not
+    /// know is not put back. Returns the ids put back.
     static func keeping(_ fresh: ResolveSnapshot, previous: ResolveSnapshot,
-                        stettedAt: [String: Date], now: Date)
+                        stettedAt: [String: Date], now: Date,
+                        live: [String: ProjectAnnotation])
         -> (snapshot: ResolveSnapshot, kept: Set<String>) {
         let freshIds = Set(fresh.items.map(\.id))
         var kept: Set<String> = []
-        let back = previous.items.filter { item in
+        let back: [ResolveItem] = previous.items.compactMap { item in
             guard case .note(let note) = item, !freshIds.contains(item.id),
                   let at = stettedAt[note.annotation.id],
-                  holds(stettedAt: at, now: now) else { return false }
+                  holds(stettedAt: at, now: now),
+                  let now = live[item.id] else { return nil }
             kept.insert(note.annotation.id)
-            return true
+            return .note(now)
         }
         guard !back.isEmpty else { return (fresh, []) }
         return (ResolveSnapshot(items: back + fresh.items, sequences: fresh.sequences,
                                 paragraphText: fresh.paragraphText,
                                 unreadableDocIds: fresh.unreadableDocIds), kept)
+    }
+
+    /// **What a row wearing the flourish offers**: Reopen alone, once the
+    /// note is stetted (the old queue's live stetted row); nothing while its
+    /// status is still open (the frame between the press and the read) — so a
+    /// second Stet, an Accept or an Archive over a stetted note is never
+    /// reachable during the hold.
+    static func heldVerbs(_ decided: AnnotationRowVerbs, status: AnnotationStatus) -> AnnotationRowVerbs {
+        AnnotationRowVerbs(
+            acceptOrReject: false,
+            dispose: decided.dispose && status != .open,
+            answerAsRuling: false, makeChoice: false, keepAsLesson: false, ownNote: false)
     }
 }
 
@@ -626,12 +642,17 @@ struct ResolvePane: View {
                                    documentStore: documentStore, diagnostics: diagnostics)
         if step == .read {
             // A note just stetted stays for its flourish.
-            let hold = ResolveStetHold.keeping(fresh, previous: held,
-                                               stettedAt: stettedAt, now: Date())
+            let walk = readScope.docIds.isEmpty && !readScope.includesBookLevel
+                ? nil : store.listAnnotationsAcrossProject()
+            var live: [String: ProjectAnnotation] = [:]
+            for note in walk?.annotations ?? [] where stettedAt[note.annotation.id] != nil {
+                live[ResolveItem.note(note).id] = note
+            }
+            let hold = ResolveStetHold.keeping(fresh, previous: held, stettedAt: stettedAt,
+                                               now: Date(), live: live)
             held = hold.snapshot
             keptStetted = hold.kept
-            figureCells = readScope.docIds.isEmpty
-                ? [:] : store.listAnnotationsAcrossProject().figureCells
+            figureCells = walk?.figureCells ?? [:]
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         } else {
             held = fresh
@@ -880,11 +901,17 @@ struct ResolvePane: View {
 
     private var rowWiring: AnnotationRowWiring {
         let verbs = noteVerbs
+        let flourishing = stetFlourishIds
         return AnnotationRowWiring(
             localName: localName,
             stetFlourishIds: stetFlourishIds,
             manifest: store.manifest,
-            rowVerbs: { rowVerbs(for: $0, docId: $1, isOwn: $2) },
+            rowVerbs: { ann, docId, isOwn in
+                let decided = rowVerbs(for: ann, docId: docId, isOwn: isOwn)
+                // A row wearing the stet flourish offers Reopen alone.
+                return flourishing.contains(ann.id)
+                    ? ResolveStetHold.heldVerbs(decided, status: ann.status) : decided
+            },
             onToggleSelection: { id in
                 if selectedIds.remove(id) == nil { selectedIds.insert(id) }
             },

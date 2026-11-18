@@ -244,7 +244,7 @@ final class ResolvePaneTests: XCTestCase {
 
     // MARK: - The stet flourish (controller ruling)
 
-    func test_aStettedNoteIsHeldForItsFlourish() {
+    func test_aStettedNoteIsHeldForItsFlourish() throws {
         let at = t
         XCTAssertEqual(ResolveStetHold.seconds, 2.5, "the old queue's flourish")
         XCTAssertTrue(ResolveStetHold.holds(stettedAt: at, now: at))
@@ -255,19 +255,106 @@ final class ResolvePaneTests: XCTestCase {
                                        paragraphText: [:], unreadableDocIds: [])
         let fresh = ResolveSnapshot(items: [note("n2")], sequences: [:],
                                     paragraphText: [:], unreadableDocIds: [])
+        let stetted = stettedNote("n1")
+        let live = [note("n1").id: stetted]
         let inside = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: ["n1": at],
-                                             now: at.addingTimeInterval(1))
+                                             now: at.addingTimeInterval(1), live: live)
         XCTAssertEqual(Set(inside.snapshot.items.map(\.id)), Set(previous.items.map(\.id)),
                        "inside the flourish the stetted note stays through the read")
         XCTAssertEqual(inside.kept, ["n1"])
+        let held = try XCTUnwrap(inside.snapshot.items.compactMap { item -> Annotation? in
+            if case .note(let n) = item, n.annotation.id == "n1" { return n.annotation }
+            return nil
+        }.first)
+        XCTAssertEqual(held.status, .stetted, "the held row is the LIVE stetted note, not the stale open copy")
         let after = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: ["n1": at],
-                                            now: at.addingTimeInterval(3))
+                                            now: at.addingTimeInterval(3), live: live)
         XCTAssertEqual(after.snapshot, fresh, "after it, the note is gone")
-        let notStetted = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: [:], now: at)
+        let notStetted = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: [:], now: at,
+                                                 live: live)
         XCTAssertEqual(notStetted.snapshot, fresh, "a note that left for any other reason leaves")
-        let stillOpen = ResolveStetHold.keeping(previous, previous: previous, stettedAt: ["n1": at], now: at)
+        let unknown = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: ["n1": at], now: at,
+                                              live: [:])
+        XCTAssertEqual(unknown.snapshot, fresh, "a note the walk does not know is never held stale")
+        let stillOpen = ResolveStetHold.keeping(previous, previous: previous, stettedAt: ["n1": at], now: at,
+                                                live: live)
         XCTAssertEqual(stillOpen.snapshot, previous, "never duplicated while the read still lists it")
         XCTAssertEqual(stillOpen.kept, [])
+    }
+
+    private func stettedNote(_ id: String, on docId: String = "doc-a") -> ProjectAnnotation {
+        ProjectAnnotation(docId: docId, annotation: Annotation(
+            id: id, kind: .comment, paragraphId: "aa11", body: id, suggestedText: nil, priorText: nil,
+            createdAt: t, createdBySession: nil, status: .stetted, userResponse: nil,
+            resolvedAt: t, isStale: false))
+    }
+
+    /// **The held row offers Reopen alone**, as the old queue's live stetted
+    /// row did, and no Stet (nor Accept, Archive, triage, a ruling, a choice,
+    /// a lesson, Edit or Delete) is reachable during the hold — not even in
+    /// the frame before the read, while the row's status is still open.
+    func test_aHeldStetRowOffersReopenAlone() {
+        let everything = AnnotationRowVerbs.unrestricted(isOwn: true)
+        let stetted = ResolveStetHold.heldVerbs(everything, status: .stetted)
+        XCTAssertEqual(stetted, AnnotationRowVerbs(
+            acceptOrReject: false, dispose: true, answerAsRuling: false,
+            makeChoice: false, keepAsLesson: false, ownNote: false),
+            "dispose alone, which a stetted row draws as Reopen (showsReopen), not as Stet")
+        XCTAssertFalse(AnnotationRow.offersTriage(status: .stetted), "and no triage menu on a stetted row")
+        XCTAssertTrue(AnnotationRow.offersTriage(status: .open), "control: an open note is triaged")
+        let beforeTheRead = ResolveStetHold.heldVerbs(everything, status: .open)
+        XCTAssertFalse(beforeTheRead.dispose, "still open in the frame before the read: no Stet, no Archive")
+        XCTAssertFalse(beforeTheRead.acceptOrReject)
+        XCTAssertFalse(beforeTheRead.ownNote)
+        XCTAssertFalse(ResolveStetHold.heldVerbs(
+            AnnotationRowVerbs(acceptOrReject: false, dispose: false, answerAsRuling: false,
+                               makeChoice: false, keepAsLesson: false, ownNote: false),
+            status: .stetted).dispose, "the hold only removes: a posture without dispose gets no Reopen")
+    }
+
+    /// **Review N1.** Return (no task markup, no refresh), then `- [ ]` in the
+    /// new paragraph: the `.todos` splice refreshes the piece's paragraph
+    /// order from its live document, so the to-do groups under its new
+    /// paragraph and never under "No longer in the text".
+    func test_aTodoTypedIntoANewParagraphGroupsUnderIt() async throws {
+        let (doc, store, documentStore) = try await openDocument()
+        let scope = ResolveScope.piece(docId: doc.docId, includesBookLevel: false)
+        func key() -> ResolveListKey {
+            ResolveListKey(
+                regroup: ResolveRegroupKey(read: ResolvePane.readKey(
+                    scope: scope, annotationsToken: 0, store: store,
+                    documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
+        }
+        var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
+                                         documentStore: documentStore, diagnostics: nil)
+        let before = key()
+        doc.setFullText("Hello.\n\n")
+        doc.setFullText("Hello.\n\n- [ ] fix the dock")
+        let after = key()
+        let step = ResolvePane.refreshStep(after, last: before)
+        XCTAssertEqual(step, .todos, "premise: the cheap step, no walk")
+        held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
+                                     documentStore: documentStore, diagnostics: nil)
+        let newPid = try XCTUnwrap(doc.sequence.last)
+        XCTAssertNotEqual(newPid, doc.sequence.first, "premise: the to-do is in a new paragraph")
+        let groups = ResolveGrouping.groups(held, scope: scope, structure: store.manifest.structure,
+                                            sceneIndex: nil, sceneTitles: [], figureNames: [:])
+        let home = groups.first { group in
+            group.items.contains { if case .todo(let task) = $0 { return task.body == "fix the dock" }; return false }
+        }
+        XCTAssertEqual(home?.key, .paragraph(docId: doc.docId, paragraphId: newPid),
+                       "the typed to-do groups under its new paragraph")
+        XCTAssertEqual(held.sequences[doc.docId], doc.sequence, "the piece's live order")
+    }
+
+    /// **Review N4.** A Book Archive all done whose every append the stream's
+    /// door would refuse opens no undo group (no empty ⌘Z step).
+    func test_archiveAllDoneOnTheBookOpensNoEmptyUndoGroup() {
+        XCTAssertTrue(ResolveTaskVerbs.opensBookArchiveGroup(doneCount: 2, refusal: nil))
+        XCTAssertFalse(ResolveTaskVerbs.opensBookArchiveGroup(
+            doneCount: 2, refusal: ProjectStore.projectTaskNotPermittedRefusal), "every append refused")
+        XCTAssertFalse(ResolveTaskVerbs.opensBookArchiveGroup(doneCount: 0, refusal: nil), "nothing done")
     }
 
     // MARK: - The Book's Settled (review I2)

@@ -184,6 +184,12 @@ struct ResolveBookSettledSection: View {
     let taskVerbs: ResolveTaskVerbs
     @Binding var isExpanded: Bool
 
+    /// The done Book to-dos, derived once per key — the section open and the
+    /// project stream's version — never per render.
+    @State private var done: [WriterTask] = []
+
+    private struct ReadKey: Equatable { let open: Bool; let version: Int }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -206,12 +212,13 @@ struct ResolveBookSettledSection: View {
                 expanded
             }
         }
+        .task(id: ReadKey(open: isExpanded, version: store.projectTasksVersion)) {
+            done = isExpanded ? ResolveSettled.bookDone(store: store) : []
+        }
     }
 
     @ViewBuilder
     private var expanded: some View {
-        let _ = store.projectTasksVersion
-        let done = ResolveSettled.bookDone(store: store)
         HStack(spacing: 8) {
             Text(done.isEmpty ? "No Book to-dos are done." : "Done")
                 .font(.caption).foregroundStyle(.secondary)

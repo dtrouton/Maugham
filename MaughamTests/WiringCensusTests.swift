@@ -195,7 +195,10 @@ final class WiringCensusTests: XCTestCase {
         Entry("type:ResolvePane", .anyOrder,
               ["ResolveHeadView(", "AnnotationRowHost(", "AnnotationsBulkBar(",
                ".modifier(ResolveDialogs(",
-               "rowVerbs: { rowVerbs(for: $0, docId: $1, isOwn: $2) }",
+               // The posture's verbs, narrowed to Reopen alone on a row
+               // wearing the stet flourish (Task 6 fix 2).
+               "let decided = rowVerbs(for: ann, docId: docId, isOwn: isOwn)",
+               "ResolveStetHold.heldVerbs(decided, status: ann.status) : decided",
                "onAccept: { verbs.accept($0, $1) }",
                "onReject: { rejectSheet = ResolveNoteTarget(document: $0, annotation: $1) }",
                "onStet: { verbs.stet($0, $1) }",
