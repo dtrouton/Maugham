@@ -58,7 +58,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",
-  "reachability": "LIVE — the order of rows in the annotations pane",
+  "reachability": "LIVE — the order of rows in a To resolve group (inside a group, AnnotationQueueOrder: triaged Do first)",
   "evidence": {
    "property_test": null
   }
@@ -620,9 +620,9 @@
  },
  {
   "claim_id": "M5-AN-039",
-  "scope": "Document.reopenAnnotation callers / AnnotationsPane",
+  "scope": "Document.reopenAnnotation callers / To resolve (ResolveNoteVerbs, the Settled section)",
   "kind": "STRUCTURE",
-  "statement": "any archived or rejected annotation is reopenable from the annotations pane: the Reopen action calls reopenAnnotation(id:undoManager:), which registers a ⌘Z pair whose undo re-applies the PRIOR resolution whole — a reject returns with its written reason. The caller census includes the pane deliberately",
+  "statement": "any archived or rejected annotation is reopenable from To resolve's Settled section, on the piece open in the window (RULING-29; shell plan 2, decided 2026-11-18: read anywhere, act only on the open piece): the Reopen action calls reopenAnnotation(id:undoManager:), which registers a ⌘Z pair whose undo re-applies the PRIOR resolution whole — a reject returns with its written reason. The caller census includes the pane deliberately",
   "source": {
    "type": "CHARACTERIZATION",
    "ref": "AnnotationsCharacterization.test_reopenHasThePaneAsAProductionCaller + test_paneReopen_isUndoable_andUndoRestoresTheRejectionReason"
@@ -798,7 +798,7 @@
  },
  {
   "claim_id": "M5-AN-050",
-  "scope": "Document annotations cache × AnnotationsPane's stale gate",
+  "scope": "Document annotations cache × To resolve's stale gate (ResolveDialogs.staleConfirm)",
   "kind": "POSTCONDITION",
   "statement": "the staleness cache still lags a typing edit until the next burst flush (M5-AN-005's mechanism, unchanged — the pane badge can read fresh ≤30s) but the lag can no longer cost prose: the accept re-resolves the span against CURRENT text and refuses on a lost anchor whatever the cache says; the pane surfaces the refusal instead of swallowing it",
   "source": {
@@ -862,7 +862,7 @@
  },
  {
   "claim_id": "M5-AN-055",
-  "scope": "AnnotationDeriver + AnnotationsPane",
+  "scope": "AnnotationDeriver + To resolve",
   "kind": "POSTCONDITION",
   "statement": "after a reopen, the projection carries the most recent PRIOR rejection's written reason as previousRejectionReason (open status only; never-rejected notes carry nil), and the pane renders it as 'Previously rejected: …' — the writer's words stay where they would look",
   "source": {
@@ -970,7 +970,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-22, with RULING-32's shape); issue #41 A1",
-  "reachability": "LIVE — the Annotations pane's bulk bar over a multi-note selection: Stet (or Accept, or a triage mark) on several notes, a peer or the phone moves two of them (Reopen, or a stet over an accept) or the typing sweep archives their paragraphs, then ⌘Z",
+  "reachability": "LIVE — To resolve's bulk bar (selection mode, the open piece only) over a multi-note selection: Stet (or Accept, or a triage mark) on several notes, a peer or the phone moves two of them (Reopen, or a stet over an accept) or the typing sweep archives their paragraphs, then ⌘Z",
   "evidence": {
    "property_test": null
   },
@@ -1102,7 +1102,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-22); issue #128",
-  "reachability": "LIVE — AnnotationsPane row with show-resolved on (an accepted comment draws its dispositions) / margin card → Reject or Archive → ⌘Z",
+  "reachability": "LIVE — To resolve Settled row (an accepted comment draws its dispositions) / margin card → Reject or Archive → ⌘Z",
   "evidence": {
    "property_test": null
   }
@@ -1235,7 +1235,7 @@
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL — ruled (RULING-22 'controls DO WHAT THEY SAY', RULING-29); the no-changes-carrying-accept reading is the coordinator's call",
-  "reachability": "LIVE — Annotations pane Revert on an accepted suggestion (show-resolved on); the phone's Reopen & Revert",
+  "reachability": "LIVE — To resolve's Settled section Revert on an accepted suggestion; the phone's Reopen & Revert",
   "evidence": {
    "property_test": null
   },

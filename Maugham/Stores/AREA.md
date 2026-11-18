@@ -117,7 +117,7 @@ Two things deliberately live elsewhere:
 - **17 — A file more than one device writes is partitioned per device** (`let-go.<slug>.jsonl`, `inbox.<slug>.jsonl`), read as the union of every device's file. Op-log side: `OpLogStoreSegmentTests.test_legacyFile_neverSealed`.
 - **19 — What the phone also reads is implemented once in MaughamCore** (`StatementLookup`, `StatementConvention`, `PaletteLookup`, `PaletteConvention`, `InboxConvention`, `RegistryPresence`'s claim rule, `PersonKeyStoreChoice`). `TripwirePhoneGrepTest`.
 - **20 — A statement's prose is read from its op log, never its `.md`**: through `statementText(of:)`. Every file read in a production file carries `// adr-0018-ok: <reason>` saying what it reads (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`).
-- **21 — Post through `MaughamEvent`** (`postNotice`, `postDetailSegment(_:)`, `postAdmissionRequested`), never a raw `maugham.*` notification (`TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`).
+- **21 — Post through `MaughamEvent`** (`postNotice`, `postDetailSegment(_:)`, `postResolve(_:)`, `postAdmissionRequested`), never a `maugham.*` notification (`TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`).
 - **22 — A rename or move is followed by the editor's PATH-keyed reload** (`EditorHost.needsReload`), never an id-keyed one: prose only.
 - **24 — Filenames take a `DeviceSlug`** (`LetGoRecord.fileURL(for:in:)`, the inbox manifest): enforced by the compiler.
 - **35 — `trashedBy` is a display string, never an identity**: `DocumentStore.trashedByLabel` gives the register's label or the machine's name (`TripwireGrepTests.test_noHostnameIdentity`).

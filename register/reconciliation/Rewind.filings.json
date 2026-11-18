@@ -143,7 +143,7 @@
   "clause_that_reaches_it": "Where the same product question is answered in more than one place, it has one answer. A second surface or a second code path may not answer it differently.",
   "why_in_scope": "The writer's question is 'has this suggestion been applied to my text?', and two surfaces answer it: the annotations pane (via derived status) and the manuscript itself. Rewinding past the accept reverts the text, so without this pass the pane would say `.accepted` while the text said otherwise — one question, two answers. The changes-free .claudeAcceptRevert makes them agree. I depart from the survey's REW-D10 filing under RULING-5 on scope grounds: R5's clause governs what happens at the moment of APPLICATION ('MUST NOT be applied... refused'), and nothing is being applied here. R8 fits the stated clause without strain.",
   "intent_expressed_when": "contemporaneous — the writer asked to travel to before the accept",
-  "call_path": "MCP add_suggestion → writer accepts in AnnotationsPane → rewind modal → Restore targeting a moment before the accept",
+  "call_path": "MCP add_suggestion → writer accepts in To resolve (filed against AnnotationsPane, since replaced) → rewind modal → Restore targeting a moment before the accept",
   "violation_or_enhancement": "neither"
  },
  {

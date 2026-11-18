@@ -1,0 +1,107 @@
+# ADR 0036 — To resolve: one right-column face for what has been raised
+
+**Date:** 2026-11-18 · **Status:** Accepted (plan 2 of a multi-plan milestone; see "Not yet built") · **Milestone:** shell-p2-to-resolve (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md` ("To resolve", "Constraints") · **Builds on:** [ADR 0035](0035-the-subject-not-the-persona.md)
+
+## Context
+
+After [ADR 0035](0035-the-subject-not-the-persona.md) the window's right column was still three panes about the same piece: Annotations (notes), Diagnostics (a check's strains) and Tasks (to-dos), each with its own scope switch (This Piece / All Pieces), its own filters and its own empty states. The writer asked one question of them, "what has been raised that waits on me?", and had to ask it three times. The panes also needed the piece open in the editor (ADR 0035's stopgap: with the canvas in the centre they showed empty states).
+
+## Decision
+
+**To resolve** (`DetailSegment.resolve`, `Maugham/Views/Resolve/`) is one list of everything raised on the faces' subject that waits on the writer: open notes, a check's conformance strains (findings) and open to-dos. It replaced the three panes. It is first in the picker and bound to ⌘1.
+
+### Show without loading; act only on the open piece
+
+*Decided by the owner, 2026-11-18.*
+
+- **Read.** `ResolveReader` reads a scope from store-level sources only: the project's annotation walk and task walk (each cached whole by `ProjectStore`), the diagnostics sidecar, and `currentParagraphState` (the open document's, else `DerivedManuscriptCache`). It never calls `Document.load`, loads nothing transiently, and registers no document (`ResolveReaderTests.test_noResolveSourceLoadsADocument`). Nothing loads a second document.
+- **Act.** A verb that is a `Document` method (accept, reject, stet, triage, reopen, delete or restore on a note; toggle, archive, delete or reorder on a to-do; the bulk bar) is offered only where the row's piece is the one open in this window's centre and its document is registered (`ResolveVerbGate.mayAct`). The gate only removes: posture still decides what the open piece offers (tripwires 47, 51).
+- **A row on a piece that is not open** is readable, offers none of those verbs (hidden, never disabled), and its click opens the piece on that paragraph through the existing going-to-a-place path (`ResolveNavigation`, `ManuscriptNavigation`): the row then offers its verbs.
+- **Offered everywhere, by posture:** a finding's Answer (it files a ruling, no `Document`) and a note's Keep as lesson. A Book-level to-do lives on the project stream, which needs no `Document`, and keeps exactly the verbs its posture gives it.
+- **Why.** Accepting or rejecting a note is a judgement about a sentence: the writer should be looking at it. And loading a piece is not a read-only act: a second live `Document` on a path is the paragraph-loss defect, and a load's ops would sit where the writer's ⌘Z never reaches.
+
+### Sources, and the two lifetimes
+
+`ResolveFilter.source(of:localName:)` gives every item one source, the first row of this table that matches: **Questions** (the note carries a `language`: a translator's query), **Checks** (a finding, or a note with a `compilerRunId` and no `compilerRound`), **Mine** (a to-do, or a note the local writer owns), **its pass** (`reviewPassId`), **Others** (everything else). Sources are single-valued by design. An unstamped note is Mine or Others and a coach-lane note sits under its own pass chip; neither appears under another pass's chip, where the old queue showed both under every pass. Filtering by source is the design; multi-select covers "Perkins plus the coach".
+
+Two lifetimes: a **finding** is a sidecar strain and is replaced by the next check (`ResolveItem.isReplacedByTheNextCheck`); everything else stays until settled. Each item appears once: a check's continuity question, reader report or letter question is a note and is listed as the note, captioned "From the check".
+
+### Grouping
+
+Pure, once per refresh (`ResolveGrouping`, tripwire 4). In a piece: Whole chapter, then one group per paragraph in order; in a screenplay, Before the first scene, then one group per scene (keyed by the paragraph its slugline begins). Then "No longer in the text" (always last, never dropped) and the piece's own figures' notes (a figure's notes sit on the piece that owns it, by the board's rule). A piece whose paragraph order would not read has one "Position unknown" group instead, never placed by guess. At Book or Part scope: the Book's own to-dos first, then one group per piece, then figures no piece owns. A screenplay's Book is its one script, still holding the Book's to-dos. Inside every group: notes in `AnnotationQueueOrder` (triaged Do first), then findings, then to-dos by priority. A scope that held a piece or figure that would not read says so ("may be incomplete", RULING-54) and never looks complete.
+
+### Filters, density, the caret, the triage control
+
+- Chips: one per source with items in scope, in the column's order (each pass in manifest order, Mine, Checks, Questions, Others); a pass the manifest no longer lists keeps a chip after the listed ones.
+- **Density at 12** (`ResolveFilter.singleChoiceThreshold`), counted after the triage filter: at or below, any subset of chips and every group open; past it, one chip at a time and only the caret's group open (`ResolveFilter.cursorGroup`, the open piece's caret paragraph or scene; no walk per caret move).
+- **The triage control** (the owner approved it 2026-11-18): All / Do / Discuss / Decline / Untriaged, `AnnotationTriageFilter`'s own vocabulary, separate from the source chips and ANDed with them. It is shown only while a note in scope carries a mark (a quiet chapter gains no furniture), applies to notes only (findings and to-dos show under All only), names its active choice in a word beside the icon, and the choice persists across scope changes (hidden control means All). **Declined notes stay in the list**: a mark is a decision about a note, not its settlement; they are reachable under Decline and still count as open until resolved.
+
+### The head
+
+For a piece: the pass ladder (state, derived status, the pass-order nudge, the drift line; a pass state is a manifest write, so it is offered by posture whether or not the piece is open), the latest letter (the newer of the check's and the round's by run time, keyed by piece and run so a refusal raised on one letter is never drawn under another), then the Run block (the round cockpit, and the check's own header: reader, Reread, Ask, status). Run and Accept as task are offered on the open piece only; elsewhere one line says "Open the piece to run a check or a round on it." and opens it. One model menu. There is no Check Writing button: ⌘R is the check and the head's Run is the round. A Book or Part's head is one line counted from the unfiltered snapshot (pieces with something open, Book to-dos, notes on figures no piece owns); it never says "Nothing to resolve" above a non-empty list.
+
+### Settled
+
+A collapsed last section, read only when opened. On the open piece (`.piece` scope): resolved notes (Reopen needs the piece open, RULING-29; Revert, RULING-31), deleted notes (Restore, RULING-34), done to-dos with Archive all done (hidden when the posture files no task), and **Archived** to-dos with Unarchive only: there is no delete op for to-dos, and an archived inline to-do cannot be unarchived (its words were spliced out of the text; a status change cannot restore them) and says why. At Book scope, **Settled on the Book** holds the Book-level to-dos on the project stream (un-tick, archive, delete, Archive all done); in the old Tasks pane those verbs were silent no-ops, and now work.
+
+### Keys and the unread dot
+
+⌘1 opens To resolve. ⌘⌥A, ⌘⌥D and ⌘⌥T keep their keys and open it on their filter (Rounds, Checks, Mine) through `MaughamEvent.postResolve`; each is inert when its chip is absent, leaving the writer's selection as it was. A dot (never a number) marks To resolve in the picker and the Checks chip while a check's notes are unread; showing the checks clears it.
+
+### Refresh
+
+Two keys (`ResolveReadKey`, `ResolveRegroupKey`). The **read key** (scope, the annotations token, the sum of open documents' `annotationsVersion`, the project task version, the diagnostics version, the passes and local name) re-runs the walks, the sidecar and the reader. The **regroup key** is the read key plus the window's parsed screenplay: a new parse re-reads only the open piece's paragraph state and regroups what is held, so a screenplay does not re-run the project walks at every typing pause. A keystroke inside a to-do line moves only the open pieces' live to-dos (`ResolveListKey.openTodos`) and runs no project walk. A note just stetted is **held for its 2.5 s flourish** on the live stetted note (the row offers Reopen alone), then leaves.
+
+### What was deleted, and what moved
+
+`AnnotationsPane`, `DiagnosticsPane` and `TasksPane` (and their `DetailSegment` cases `.annotations`, `.diagnostics`, `.tasks`); the This Piece / All Pieces switch; the triage filter's old home (the queue) and the author filter; the pass filter (`AnnotationPassFilter`); the old queue's toolbar. Moved into `Maugham/Views/Resolve/`: the note row host and verbs, to-do verbs, the bulk bar, the check's statics (`CheckNarrative*`), the letter host and the round cockpit mount. The ~64 mounted Diagnostics tests were retired or re-pointed at the live gate; each guard that still ships was kept on a To resolve census.
+
+### Gone by design, for the owner's eye
+
+- The yield notice with Edit Anyway on a piece that is not open (nothing acts on such a piece now; its click opens it).
+- Double-click and Return on a to-do (a click goes to its place).
+- The old queue's empty-state teaching.
+- The author filter. The inclusive pass filter (single-valued sources, above).
+- No capture-to-canvas drag in one window (from plan 1).
+
+## Not yet built
+
+- The Brief; the pulled-up thing and the fold; ⌘2 and ⌘3.
+- **The check's holds and silent-clause readings**: shown nowhere until the Brief (the owner accepted the gap, 2026-11-18).
+- The translator's letter at the head (a `TranslationRound`, kept per language) and edition scope.
+- Glossary proposals, design proposals, compile problems and figure source-changed items in To resolve.
+- Status views; the margin setting; the rewrite of the guide, the welcome tour and Claude's help text (`docs/guide/annotations-and-suggestions.md` and others still describe the old panes).
+
+## Consequences
+
+- One question, one list; the right column no longer needs the piece open to show what is raised on it.
+- A writer on the canvas sees a piece's raised items but must open the piece (one click on a row) to act: the cost of never loading a second document.
+- Known limits: a note on another piece lands the click on its paragraph, not the exact span; a warm check has no Check Writing button.
+
+## Decisions made during the build
+
+Each was a ruling taken in the build ledger on the agent's authority unless it says it was the owner's. Cost-if-wrong is cheap in each.
+
+1. **Owner, 2026-11-18:** read anywhere, act only on the open piece; a row click opens the piece. Keep the Others filter. Accept the clause-reading gap until the Brief. A separate triage control (yes).
+2. A piece's own figures' notes appear at that piece's scope (agrees with the board's open-notes count).
+3. A screenplay's Book scope includes the Book-level to-dos, otherwise they are unreachable in a screenplay.
+4. The refresh key is split into a read key (no script) and a regroup key (with it).
+5. One model menu in the head if the cockpit's and the check header's bind the same setting.
+6. The Book or Part head counts from the unfiltered snapshot and includes Book-level to-dos; "Book figures have notes open" is accepted for figures no piece owns.
+7. No Check Writing button in the head; ⌘R is the check, Run is the round. Denver may want one at smoke.
+8. The stet flourish is kept: a stetted note stays for its 2.5 s before it leaves.
+9. The Book's own done to-dos get a Settled section at Book scope.
+10. A to-do with no paragraph anchor has no click target.
+11. Archived to-dos get an Archived group in Settled (every data type needs a surface).
+12. Within a group, notes keep the old queue's triage order.
+13. A finding row on the open piece keeps one-gesture "Not this".
+14. The triage filter and the author filter are gone from the old queue (the design filters by source only); the triage control is the owner-approved replacement.
+15. Dead code from the deleted panes was culled and its posture pins moved onto the live gate: dead statics with passing tests are false assurance.
+16. Archived to-dos offer Unarchive only (no delete op exists); an archived inline to-do is listed without Unarchive and the row says why.
+17. Single-valued sources stand: an unstamped note is Mine or Others, a coach-lane note sits under its own pass chip.
+18. Declined notes stay in the list (the owner did not say where they go).
+19. The triage mark shows read-only on stetted and settled rows.
+20. When a triage choice is on, the control names it in a word.
+21. The dense rule counts items after the triage filter.
+22. The triage choice persists across scope changes.
+23. Tripwire 52's counted list for `ResolveTaskVerbs.swift` rose from 2 to 4: the Book to-do verbs' two project-stream appends are real new writers, each asking its posture first (they were silent no-ops before).

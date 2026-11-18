@@ -55,7 +55,7 @@ Run is four explicit commands in the File menu, each naming its own `RunKind` (`
 
 ### The right column
 
-The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one remembered segment in `UIState`. The Department pane is offered only while an edition is open, and a pane that needs a document (and the Annotations pane's document scope) only while the faces' piece is the one the centre has open (`DetailPaneToggle.facesPieceIsOpen`); a segment reached by key or already selected is carried. With the canvas or an edition in the centre the faces can sit on a piece no editor has loaded: those panes show their empty states, and a run there answers with the `.pieceWouldNotOpen` flash rather than doing nothing. At narrow widths the picker falls back from normal to small to a menu; the menu form carries no unread badges. This is transitional: plan 2 replaces the picker.
+The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one remembered segment in `UIState`. **To resolve** ([ADR 0036](0036-to-resolve.md)) is its first member (⌘1) and replaced the Annotations, Diagnostics and Tasks panes; it reads the faces' piece without the editor (a store-level read, no `Document.load`), so it shows the faces with the canvas in the centre. The Department pane is offered only while an edition is open, and a pane that needs a document (References, Translation and History) only while the faces' piece is the one the centre has open (`DetailPaneToggle.facesPieceIsOpen`); a segment reached by key or already selected is carried. With the canvas or an edition in the centre those panes show their empty states, and a run there answers with the `.pieceWouldNotOpen` flash rather than doing nothing. At narrow widths the picker falls back from normal to small to a menu; the menu form carries no unread badges. The picker is transitional: the pulled-up thing and the fold replace it in a later plan, and References, Translation and History still stand on the stopgap above.
 
 ### What was deleted
 
@@ -72,16 +72,16 @@ The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one re
 
 Later plans of the same milestone. None of these exist; nothing above depends on them.
 
-- To Resolve and the Brief.
+- The Brief. (To resolve is built: [ADR 0036](0036-to-resolve.md).)
 - The pulled-up thing and the fold.
-- ⌘1–3 (no key is bound to these now).
+- ⌘2 and ⌘3 (no key is bound to these now; ⌘1 is To resolve).
 - Status views beyond the board.
 - Per-language preview: every edition shows the same book today.
 - Round letters per piece.
 - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
 - The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
 - A drop on the tree's Canvas row as the capture-to-canvas route, with the spec's open decision on the Inbox at scale.
-- **The faces' piece readable without the editor** (a store-level read of an unopened piece). Plan 2 is written against it: its To Resolve and Brief show the faces' piece with the canvas in the centre. Until then the document panes are not offered, and a run flashes, for a faces' piece the centre does not have open.
+- **The faces' piece readable without the editor, for References, Translation and History.** To resolve has the store-level read ([ADR 0036](0036-to-resolve.md)); those panes still need the piece open and are not offered, and a run flashes, for a faces' piece the centre does not have open.
 - The tree's stage dot (`ReviewStatus`) and its one "to resolve" dot on rows; only the Inbox dot exists.
 - The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
 - Drop-target feedback on the tree that says which drop is about to happen.

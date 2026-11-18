@@ -57,6 +57,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0033](0033-report-elements-in-manuscripts.md) | Report elements in manuscripts: tables, footnotes, figures, citations, cross-references and section labels are IN (partly supersedes [0022](0022-commonmark-fountain-ledger.md)) | Accepted | 2026-10-19 |
 | [0034](0034-the-assistant-may-rewrite-a-research-note.md) | The assistant may rewrite a Research note: `update_note`, through the note door, versioned and marked (extends [0004](0004-mcp-foundation-scope.md)) | Accepted | 2026-11-10 |
 | [0035](0035-the-subject-not-the-persona.md) | The subject, not the persona: the tree decides what the window shows (supersedes in part [0005](0005-right-pane-mode-swap.md), [0025](0025-persona-shell.md), [0031](0031-the-persona-is-an-input-to-the-run.md)) | Accepted | 2026-11-17 |
+| [0036](0036-to-resolve.md) | To resolve: one right-column face for what has been raised, read without loading and acted on only on the open piece | Accepted | 2026-11-18 |
 
 ## How to write a new ADR
 
