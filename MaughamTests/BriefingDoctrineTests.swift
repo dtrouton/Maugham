@@ -78,6 +78,20 @@ final class BriefingDoctrineTests: XCTestCase {
                        + "paragraph is work, but it must not keep it work for ever")
     }
 
+    /// A comma-less `— ruled <date>` (what `RulingsSection` writes for a dated
+    /// ruling with no provenance) is DATED since shell plan 3's Core fix, so
+    /// it now directs a retranslation. Deliberate (controller ruling,
+    /// 2026-11-18; recorded for ADR 0037).
+    func test_aDatedDirectiveWithNoProvenanceDirects() {
+        let brief = "Texture.\n\n## Rulings\n\n- ¶zzzz: one sentence, not two — ruled 28 Aug 2026\n"
+        let directives = Directives.gather(craftIntent: nil, editionBrief: brief)
+        XCTAssertEqual(directives.map(\.paragraphId), ["zzzz"])
+        XCTAssertNotNil(directives.first?.ruledOn, "dated, with no provenance")
+        let day = ISO8601DateFormatter().date(from: "2026-08-27T15:00:00Z")!
+        XCTAssertTrue(Directives.isDirected(translatedAt: day, directives: directives),
+                      "translated before the ruling → directed")
+    }
+
     func test_isDirectedIsAboutFreshParagraphsOnly() {
         let ruled = Directives.gather(craftIntent: intent, editionBrief: nil)
         XCTAssertFalse(Directives.isDirected(translatedAt: nil, directives: ruled),

@@ -58,12 +58,19 @@ enum ClauseMarks {
     ///   whitespace and nothing else (`DiagnosticIngest.nonEmptyString`); the
     ///   fold is wider because a model quoting a sentence straightens its
     ///   quotes, reflows its whitespace and adds quotation marks around it.
-    /// - Each clause takes the first occurrence not already taken by an
-    ///   earlier clause with the same range; one clause marks once.
-    /// - Strains are placed before silent ones, and a silent range that
-    ///   overlaps a strain is dropped (it was found, so it is not skipped).
+    /// - Marks never overlap. Strains are placed before silent ones, and
+    ///   within each kind the LONGER quote first (stable, so clauses with one
+    ///   quote keep their order): an outer sentence is placed before a phrase
+    ///   nested in it.
+    /// - Each clause takes the FIRST UNMARKED occurrence of its quote, in
+    ///   order — one overlapping no mark already placed. A duplicate quote
+    ///   therefore lands on the next free occurrence; one clause marks once.
+    /// - A clause with no unmarked occurrence is skipped and counted (a nested
+    ///   inner strain, a duplicate with no second occurrence) — except a
+    ///   silent clause every occurrence of which overlaps a strain: the strain
+    ///   wins there, and the silent one is accounted for, not skipped.
     /// - `holds` gives no mark and is never counted. An empty quote matches
-    ///   nothing.
+    ///   nothing and is counted.
     /// - `findings` (the check's sidecar strains for `docId`) give each solid
     ///   mark its To resolve item, matched by exact `clauseQuote`.
     ///
@@ -71,23 +78,29 @@ enum ClauseMarks {
     static func placement(in text: String, clauses: [DiagnosticIngest.ClauseStatus],
                           findings: [Diagnostic] = [], docId: String? = nil) -> Placement {
         let folded = Folded(text)
-        let ordered = clauses.filter { $0.status == DiagnosticIngest.SectionField.strains }
-            + clauses.filter { $0.status == DiagnosticIngest.SectionField.silent }
+        func byKind(_ status: String) -> [Candidate] {
+            let candidates: [Candidate] = clauses.filter { $0.status == status }.enumerated().map {
+                Candidate(clause: $0.element, needle: trimmedQuote(fold($0.element.clauseQuote)), order: $0.offset)
+            }
+            return candidates.sorted(by: Candidate.placedFirst)
+        }
+        let ordered = byKind(DiagnosticIngest.SectionField.strains) + byKind(DiagnosticIngest.SectionField.silent)
 
         var placed: [ClauseMark] = []
         var skipped = 0
-        for clause in ordered {
+        for candidate in ordered {
+            let clause = candidate.clause, needle = candidate.needle
             let kind: ClauseMark.Kind = clause.status == DiagnosticIngest.SectionField.strains
                 ? .strains : .silent
-            let needle = trimmedQuote(fold(clause.clauseQuote))
-            let taken = Set(placed.map { NSStringFromRange($0.range) })
-            guard !needle.isEmpty,
-                  let range = folded.ranges(of: needle).first(where: { !taken.contains(NSStringFromRange($0)) })
-            else {
-                skipped += 1
-                continue
+            let occurrences = needle.isEmpty ? [] : folded.ranges(of: needle)
+            let overlaps = { (range: NSRange, marks: [ClauseMark]) in
+                marks.contains { NSIntersectionRange($0.range, range).length > 0 }
             }
-            if kind == .silent, placed.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) {
+            guard let range = occurrences.first(where: { !overlaps($0, placed) }) else {
+                let strains = placed.filter { $0.kind == .strains }
+                let strainWon = kind == .silent && !occurrences.isEmpty
+                    && occurrences.allSatisfy { overlaps($0, strains) }
+                if !strainWon { skipped += 1 }
                 continue
             }
             var resolveItemId: String?
@@ -99,6 +112,19 @@ enum ClauseMarks {
                                      resolveItemId: resolveItemId))
         }
         return Placement(marks: placed.sorted { $0.range.location < $1.range.location }, skipped: skipped)
+    }
+
+    /// One clause with its folded quote and its place in the check's order.
+    private struct Candidate {
+        let clause: DiagnosticIngest.ClauseStatus
+        let needle: [String]
+        let order: Int
+
+        /// Longer quote first; ties keep the check's order.
+        static func placedFirst(_ lhs: Candidate, _ rhs: Candidate) -> Bool {
+            if lhs.needle.count != rhs.needle.count { return lhs.needle.count > rhs.needle.count }
+            return lhs.order < rhs.order
+        }
     }
 
     // MARK: - The fold

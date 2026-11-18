@@ -33,29 +33,32 @@ enum BriefLine {
 
     /// **When the line index must be rebuilt**: the manifest changed (a
     /// synopsis, the structure), a statement's text changed out of sight
-    /// (`ProjectStore.statementTextRevision`), or a statement open in a pane
-    /// was typed in (its live `displayText`). A view keys `.task(id:)` on it.
+    /// (`ProjectStore.statementTextRevision`), or the OPENING of a piece intent
+    /// open in a pane changed. Only the opening — the fallback line itself —
+    /// so a keystroke past it changes nothing and restarts no index build.
     struct RefreshKey: Hashable {
         let manifestModified: Date
         let statementRevision: Int
-        /// Statement id → its open pane's current text.
-        let liveStatementTexts: [String: String]
+        /// Piece-intent statement id → the opening of its open pane's essay.
+        let liveIntentOpenings: [String: String?]
     }
 
-    /// The key, read in `body`: two stored values and the open statement
-    /// panes' texts (one or two, never one per row). Reading a live
-    /// `Document`'s `displayText` here is what makes typing in a pane
-    /// invalidate the view.
+    /// The key, read in `body`: two stored values and, for each piece intent
+    /// open in a pane (one or two, never one per row), the opening of its live
+    /// `displayText`. Reading that text here is what lets typing in a pane
+    /// reach the key; the `.task` restarts only when an opening moves.
     @MainActor
     static func refreshKey(store: ProjectStore) -> RefreshKey {
-        RefreshKey(
-            manifestModified: store.manifest.modified,
-            statementRevision: store.statementTextRevision,
-            liveStatementTexts: Dictionary(
-                store.openStatementDocuments.keys.compactMap { id in
-                    store.openStatementDocument(id: id).map { (id, $0.displayText) }
-                },
-                uniquingKeysWith: { first, _ in first }))
+        var openings: [String: String?] = [:]
+        for id in store.openStatementDocuments.keys {
+            guard let live = store.openStatementDocument(id: id),
+                  let statement = store.manifest.statements.first(where: { $0.id == id }),
+                  statement.kind == .intent, case .document = statement.scope else { continue }
+            openings[id] = IntentStrip.line(from: StatementEssay.half(of: live.displayText))
+        }
+        return RefreshKey(manifestModified: store.manifest.modified,
+                          statementRevision: store.statementTextRevision,
+                          liveIntentOpenings: openings)
     }
 
     /// `docId → line` for every item of the structure that has one. **Built in

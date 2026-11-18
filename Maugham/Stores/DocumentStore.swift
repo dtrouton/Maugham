@@ -2337,6 +2337,8 @@ public final class DocumentStore {
         figureTrustChanged()
         if let store = projectStore {
             store.derivedCache.invalidateAll()
+            // A statement's log derives to different words too.
+            store.noteStatementTextChanged()
             store.recountFromOpLogs(ProjectStore.collectDocuments(in: store.manifest.structure))
         }
         // **And the closed pieces' held lines** (carry C4): the same log
@@ -2374,6 +2376,13 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             handleManifestChanged()
 
         case .opLog(let docId):
+            // **A statement's log moved** — a peer's sync, a merge, or our own
+            // append (no `Document` here holds one, so nothing else notices a
+            // closed statement change). One bump; readers re-derive by token.
+            if let store = projectStore,
+               store.manifest.statements.contains(where: { $0.id == docId }) {
+                store.noteStatementTextChanged()
+            }
             // **A figure's stream** (report plan 6a Task 7): the cache forgets
             // it, an open figure re-reads, and it and every table whose
             // formulas name it re-render — debounced, since a device arrives

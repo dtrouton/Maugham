@@ -73,14 +73,88 @@ final class BriefLineTests: XCTestCase {
 
     func test_theRefreshKeyIsAPureValueOfItsThreeInputs() {
         let t = Date(timeIntervalSince1970: 1_700_000_000)
-        let key = BriefLine.RefreshKey(manifestModified: t, statementRevision: 1, liveStatementTexts: ["s": "a"])
+        let key = BriefLine.RefreshKey(manifestModified: t, statementRevision: 1, liveIntentOpenings: ["s": "a"])
         XCTAssertEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 1,
-                                                 liveStatementTexts: ["s": "a"]))
+                                                 liveIntentOpenings: ["s": "a"]))
         XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t.addingTimeInterval(1), statementRevision: 1,
-                                                    liveStatementTexts: ["s": "a"]), "the manifest")
+                                                    liveIntentOpenings: ["s": "a"]), "the manifest")
         XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 2,
-                                                    liveStatementTexts: ["s": "a"]), "a statement written out of sight")
+                                                    liveIntentOpenings: ["s": "a"]), "a statement written out of sight")
         XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 1,
-                                                    liveStatementTexts: ["s": "ab"]), "typing in an open pane")
+                                                    liveIntentOpenings: ["s": "ab"]), "an open intent's opening")
+        XCTAssertNotEqual(key, BriefLine.RefreshKey(manifestModified: t, statementRevision: 1,
+                                                    liveIntentOpenings: ["s": nil]), "an opening typed away")
+    }
+
+    // MARK: - Census: who says a statement's text changed out of sight
+
+    /// `File.swift:member` for every production line calling
+    /// `noteStatementTextChanged(`, one per way a statement's text changes
+    /// out of sight (`ProjectStore.noteStatementTextChanged`'s doc). Every
+    /// statement OPENER is covered by the first: it releases the open gate,
+    /// and `TripwireGrepTests.statementOpenGateTakers` names every opener.
+    static let statementTextBumpSites: Set<String> = [
+        // The open gate's release: writes, adoption, rollback, promotion, a pane binding.
+        "ProjectStore+Statements.swift:unlockStatementOpen",
+        // The live-document arm of the one statement write door.
+        "ProjectStore+Statements.swift:withStatementDocument",
+        // A pane drops its registration (a carried intent forgotten too).
+        "ProjectStore+Statements.swift:forgetStatementDocument",
+        // A pane's Document closed after its burst flushed: onDisappear and willTerminate,
+        // reconcile's prior close, a refused binding's deposit.
+        "StatementEditorHost.swift:body",
+        "StatementEditorHost.swift:reconcile",
+        "StatementEditorHost.swift:load",
+        // A statement op log moved on disk: a peer's sync, a merge, our own append.
+        "DocumentStore.swift:presenterDidChangeSubitem",
+        // A trust change: the same log derives to different words.
+        "DocumentStore.swift:invalidateTrust",
+    ]
+
+    private static let memberDecl = try! NSRegularExpression(pattern:
+        #"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public|static|override|nonisolated|mutating|final)(?:\(set\))?\s+)*(?:func|var)\s+(\w+)"#)
+
+    static func bumpSites(in sources: [String: String]) -> Set<String> {
+        var found: Set<String> = []
+        for (name, text) in sources {
+            var member = "(top level)"
+            for line in text.components(separatedBy: "\n") {
+                let ns = line as NSString
+                if let m = memberDecl.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) {
+                    member = ns.substring(with: m.range(at: 1))
+                }
+                guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//"),
+                      line.contains("noteStatementTextChanged("),
+                      !line.contains("func noteStatementTextChanged") else { continue }
+                found.insert("\(name):\(member)")
+            }
+        }
+        return found
+    }
+
+    func test_everyWayAStatementChangesOutOfSightIsANamedBumpSite() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let walker = try XCTUnwrap(FileManager.default.enumerator(
+            at: repo.appendingPathComponent("Maugham"), includingPropertiesForKeys: nil))
+        var sources: [String: String] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if text.contains("noteStatementTextChanged(") { sources[url.lastPathComponent] = text }
+        }
+        XCTAssertEqual(Self.bumpSites(in: sources), Self.statementTextBumpSites,
+                       "a bump site was added or lost: name it here with the way of change it covers")
+
+        // The planted offender: a new member that bumps is caught, a comment is not.
+        let planted = sources.merging(["Planted.swift": """
+            extension ProjectStore {
+                // noteStatementTextChanged() in a comment does not count
+                func sneakilyRewritesAStatement() {
+                    noteStatementTextChanged()
+                }
+            }
+            """]) { $1 }
+        XCTAssertEqual(Self.bumpSites(in: planted).subtracting(Self.statementTextBumpSites),
+                       ["Planted.swift:sneakilyRewritesAStatement"])
     }
 }

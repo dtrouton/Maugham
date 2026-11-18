@@ -117,6 +117,36 @@ final class ClauseMarksTests: XCTestCase {
         ]).skipped, 0)
     }
 
+    func test_aNestedStrainDoesNotDoubleMarkTheOuterWins() {
+        let p = "The harbour stays shut until the war ends."
+        // The inner phrase comes first in the check's order; the outer still wins.
+        let placement = ClauseMarks.placement(in: p, clauses: [
+            clause("stays shut", "strains"),
+            clause("The harbour stays shut until the war", "strains"),
+        ])
+        XCTAssertEqual(placement.marks.map { text(p, $0) }, ["The harbour stays shut until the war"])
+        XCTAssertEqual(placement.skipped, 1, "the nested inner strain is skipped and counted")
+        // Silent nested in silent: the same rule.
+        let silent = ClauseMarks.placement(in: p, clauses: [
+            clause("until the war", "silent"), clause("stays shut until the war ends", "silent"),
+        ])
+        XCTAssertEqual(silent.marks.map { text(p, $0) }, ["stays shut until the war ends"])
+        XCTAssertEqual(silent.skipped, 1)
+    }
+
+    func test_aDuplicateQuoteLandsOnTheFirstUnmarkedOccurrenceInOrder() {
+        let p = "Keep it quiet now. Keep it quiet. And keep it quiet."
+        let placed = ClauseMarks.placement(in: p, clauses: [
+            clause("Keep it quiet now.", "strains"),
+            clause("Keep it quiet", "silent"),
+            clause("Keep it quiet", "silent"),
+            clause("Keep it quiet", "silent"),
+        ])
+        XCTAssertEqual(placed.marks.map(\.range.location), [0, 19, 38],
+                       "the first occurrence is under the strain, so the duplicates take the next free ones, in order")
+        XCTAssertEqual(placed.skipped, 1, "the third duplicate has no occurrence left")
+    }
+
     func test_aSolidMarkNamesItsToResolveFinding() {
         let p = "Kelly never lies. The harbour stays shut."
         let strain = Diagnostic(id: "d-1", docId: "doc-a", anchor: nil, body: "pulls", category: nil,

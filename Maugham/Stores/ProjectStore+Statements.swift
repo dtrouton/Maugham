@@ -31,13 +31,22 @@ extension ProjectStore {
     /// that is only ever added to is one nobody can reason about.
     func forgetStatementDocument(id: String) {
         openStatementDocuments[id] = nil
+        // The live key loses this pane's text, so readers fall to the derived
+        // cache; a pane's own close bumps again once its burst is on disk.
+        noteStatementTextChanged()
     }
 
     /// Say that a statement's text may have changed where no observer could see
-    /// it — a write through `withStatementDocument`, or a pane's `Document`
-    /// closed (its typing flushed). Bumps `statementTextRevision`. Call it
-    /// AFTER the text is on disk: a reader keyed on the bump reads the
-    /// derived cache at once.
+    /// it. Bumps `statementTextRevision`. Call it AFTER the text is on disk: a
+    /// reader keyed on the bump reads the derived cache at once. **Its callers
+    /// are a census** (`BriefLineTests.statementTextBumpSites`), one per way a
+    /// statement's text changes out of sight: the open gate's release (every
+    /// opener — writes, adoption, rollback, promotion, a pane binding), the
+    /// live-document write arm, a pane forgetting or closing its `Document`, an
+    /// op log arriving or appended on disk (sync, merge), and a trust change
+    /// (the same log derives to different words). Typing, undo and redo in an
+    /// open pane are seen through its `displayText` (`BriefLine.RefreshKey`);
+    /// a statement added or removed changes the manifest.
     func noteStatementTextChanged() {
         statementTextRevision &+= 1
     }
@@ -167,7 +176,13 @@ extension ProjectStore {
 
     /// Release the open lock and wake everyone queued behind it. Each waiter
     /// re-checks, so waking them all is correct rather than merely convenient.
+    ///
+    /// **Every member that opens a statement `Document` releases here**
+    /// (`TripwireGrepTests.statementOpenGateTakers`), after its write and its
+    /// close — so the release is the one place every such writer says its
+    /// text may have changed (`noteStatementTextChanged`).
     func unlockStatementOpen(_ id: String) {
+        noteStatementTextChanged()
         statementOpensInFlight.remove(id)
         let waiters = statementOpenWaiters.removeValue(forKey: id) ?? []
         for waiter in waiters { waiter.resume() }

@@ -44,7 +44,7 @@ struct CorkboardGrid: View {
                             legacyStatus: item.status)))
                         .frame(width: 8, height: 8)
                 }
-                if let line = lines[item.id] {
+                if let line = lines[item.id] ?? BriefLine.stored(item.synopsis) {
                     Text(line)
                         .font(.callout)
                         .foregroundStyle(.secondary)

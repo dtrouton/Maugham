@@ -76,7 +76,7 @@ struct OutlineTable: View {
                 }
             }
             TableColumn("Line") { item in
-                Text(lines[item.id] ?? "")
+                Text(lines[item.id] ?? BriefLine.stored(item.synopsis) ?? "")
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(.secondary)

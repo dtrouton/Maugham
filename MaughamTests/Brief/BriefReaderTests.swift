@@ -234,6 +234,66 @@ final class BriefReaderTests: XCTestCase {
         await pane.close()
     }
 
+    /// Review Important 1: the key carries each open intent's OPENING, not its
+    /// text — a keystroke past the opening restarts nothing.
+    func test_aKeystrokePastTheOpeningLeavesTheKeyAlone() async throws {
+        let f = try await makeFixture()
+        let intent = try XCTUnwrap(f.store.statement(kind: .intent, scope: .document("doc-a")))
+        let pane = try await Document.load(
+            url: f.store.resolvedProjectPath(intent.path), actor: .author, session: "brief-test", presenter: nil)
+        f.store.noteStatementDocumentOpened(pane, id: intent.id)
+        let opened = BriefLine.refreshKey(store: f.store)
+        XCTAssertEqual(opened.liveIntentOpenings[intent.id], "Chapter A turns on a lie.")
+
+        pane.setFullText(pane.displayText.replacingOccurrences(of: "It is quiet.", with: "It is very quiet."))
+        XCTAssertEqual(BriefLine.refreshKey(store: f.store), opened, "a keystroke past the opening changes nothing")
+
+        pane.setFullText(pane.displayText.replacingOccurrences(of: "turns on a lie", with: "turns on a truth"))
+        XCTAssertNotEqual(BriefLine.refreshKey(store: f.store), opened, "a keystroke inside it changes the key")
+        f.store.forgetStatementDocument(id: intent.id)
+        await pane.close()
+    }
+
+    /// Review Important 2: each way a statement changes out of sight bumps
+    /// `statementTextRevision` (the census in `BriefLineTests` names them).
+    func test_everyOutOfSightStatementChangeBumpsTheRevision() async throws {
+        let f = try await makeFixture()
+        let intent = try XCTUnwrap(f.store.statement(kind: .intent, scope: .document("doc-a")))
+        func bumps(_ what: String, _ act: () async throws -> Void) async rethrows {
+            let before = f.store.statementTextRevision
+            try await act()
+            XCTAssertGreaterThan(f.store.statementTextRevision, before, what)
+        }
+        try await bumps("the open gate's release (every opener)") {
+            await f.store.lockStatementOpen(intent.id)
+            f.store.unlockStatementOpen(intent.id)
+        }
+        await bumps("a pane forgetting its Document") { f.store.forgetStatementDocument(id: intent.id) }
+        let log = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: intent.id, in: f.root).first,
+                                "premise: the statement has an op log")
+        await bumps("its op log moving on disk (sync, merge)") { f.ds.presenterDidChangeSubitem(at: log) }
+        await bumps("a trust change") { f.ds.invalidateTrust() }
+
+        // A write through the live-document arm.
+        let pane = try await Document.load(
+            url: f.store.resolvedProjectPath(intent.path), actor: .author, session: "brief-test", presenter: nil)
+        f.store.noteStatementDocumentOpened(pane, id: intent.id)
+        try await bumps("a write into an open pane's Document") {
+            try await f.store.appendToStatement("More.", to: intent, session: "brief-test")
+        }
+        f.store.forgetStatementDocument(id: intent.id)
+        await pane.close()
+
+        // CONTROL: a manuscript piece's log moving is not a statement change.
+        try await OpLogStore(projectURL: f.root).append(Op(
+            opId: "01AAAA", docId: "doc-c", at: Date(), device: "mac", session: "s", kind: .bootstrap,
+            changes: [.init(paragraphId: "aa11", prior: nil, next: "c body.")], sequence: ["aa11"]))
+        let pieceLog = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: "doc-c", in: f.root).first)
+        let before = f.store.statementTextRevision
+        f.ds.presenterDidChangeSubitem(at: pieceLog)
+        XCTAssertEqual(f.store.statementTextRevision, before, "a manuscript log is not a statement's")
+    }
+
     func test_theMCPListingCarriesTheLine() async throws {
         let f = try await makeFixture()
         let reg = ProjectRegistry()

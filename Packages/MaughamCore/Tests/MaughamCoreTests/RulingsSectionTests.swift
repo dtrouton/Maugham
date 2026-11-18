@@ -190,6 +190,10 @@ final class RulingsSectionTests: XCTestCase {
         XCTAssertEqual(rulings.first?.ruledOn, date)
         XCTAssertNil(rulings.first?.provenance)
         XCTAssertEqual(RulingsSection.render(essay: "Essay.", rulings: rulings), md, "and renders back byte-identical")
+        // A hand-typed comma-less line in the file (not from `render`) is dated too.
+        let typed = RulingsSection.parse("E.\n\n## Rulings\n\n- ¶zzzz: one sentence — ruled 28 Aug 2026\n").rulings
+        XCTAssertEqual(typed.first?.ruledOn, try makeDate(day: 28, month: 8, year: 2026))
+        XCTAssertNil(typed.first?.provenance)
         // CONTROL: a `ruled` suffix whose remainder is not a date stays provenance.
         let notADate = RulingsSection.parse("E.\n\n## Rulings\n\n- K — ruled by Denver\n").rulings
         XCTAssertNil(notADate.first?.ruledOn)

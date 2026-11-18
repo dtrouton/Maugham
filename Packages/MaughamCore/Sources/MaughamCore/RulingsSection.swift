@@ -247,6 +247,11 @@ public enum RulingsSection {
     /// else `ruledOn` is nil and the whole suffix (verbatim) is `provenance`.
     /// **A comma-less `ruled <date>` is dated with no provenance** — the form
     /// `lineText` writes for exactly that ruling, so it must read back dated.
+    /// **A deliberate behaviour change** (shell plan 3, controller ruling
+    /// 2026-11-18, recorded for ADR 0037): before it, such a line was undated,
+    /// so a provenance-less translation directive never directed a
+    /// retranslation; now `Directives.isDirected` honours its date
+    /// (`BriefingDoctrineTests.test_aDatedDirectiveWithNoProvenanceDirects`).
     /// No em-dash at all means a bare hand-written line: text only, both nil.
     private static func parseItem(_ item: String) -> (text: String, ruledOn: Date?, provenance: String?) {
         guard let dashRange = item.range(of: "—", options: .backwards) else {
