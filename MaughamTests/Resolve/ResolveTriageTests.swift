@@ -158,4 +158,35 @@ final class ResolveTriageTests: XCTestCase {
                        "no 'nothing done' line over an Archived list")
         XCTAssertEqual(ResolveBookSettledSection.doneHeading(done: 1, archived: 2), "Done")
     }
+
+    /// **The active choice is named on the control** (Task 7b fix).
+    func test_anActiveTriageChoiceIsNamedOnTheControl() throws {
+        XCTAssertNil(ResolveFilterBar.triageWord(.all), "under All the bare flag")
+        XCTAssertEqual(ResolveFilterBar.triageWord(.doThis), "Do")
+        XCTAssertEqual(ResolveFilterBar.triageWord(.discuss), "Discuss")
+        XCTAssertEqual(ResolveFilterBar.triageWord(.decline), "Decline")
+        XCTAssertEqual(ResolveFilterBar.triageWord(.untriaged), "Untriaged")
+        XCTAssertEqual(ResolveFilterBar.triageSymbol(.all), "flag")
+        XCTAssertEqual(ResolveFilterBar.triageSymbol(.discuss), "flag.fill")
+        let bar = try SourceTree.read("Maugham/Views/Resolve/ResolveFilterBar.swift")
+        XCTAssertTrue(bar.contains("if let word = Self.triageWord(choice) {"),
+                      "the control draws the word whenever there is one")
+    }
+
+    /// **Density counts what the triage choice leaves** (controller ruling).
+    func test_aListNarrowedByTriageToAFewNotesIsNotDense() throws {
+        let many = (0..<15).map { note("plain-\($0)") } + (0..<5).map { note("do-\($0)", triage: .do) }
+        XCTAssertTrue(ResolveFilter.isDense(many), "premise: twenty items is dense")
+        XCTAssertTrue(ResolveTriage.isDense(many, choice: .all))
+        XCTAssertFalse(ResolveTriage.isDense(many, choice: .doThis),
+                       "five Do notes are a small list: their groups show open")
+        XCTAssertTrue(ResolveTriage.isDense(many, choice: .untriaged), "fifteen untriaged stay dense")
+        let unmarked = (0..<20).map { note("p-\($0)") }
+        XCTAssertTrue(ResolveTriage.isDense(unmarked, choice: .doThis),
+                      "no mark, no control: the choice is All, and twenty is dense")
+        let pane = try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift")
+        XCTAssertTrue(pane.contains("dense = ResolveTriage.isDense(held.items, choice: triageChoice)"))
+        XCTAssertTrue(pane.contains("dense = ResolveTriage.isDense(held.items, choice: new)"))
+    }
+
 }

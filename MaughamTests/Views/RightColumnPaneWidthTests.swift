@@ -151,6 +151,27 @@ final class RightColumnPaneWidthTests: XCTestCase {
         }
     }
 
+    /// **The active choice's word is drawn, not dropped** (Task 7b fix): the
+    /// bar with a choice on asks for more width than the bare flag — the
+    /// word is there — and still fits every width (it wraps beneath the
+    /// chips rather than clipping or reverting to the bare icon).
+    func test_theActiveTriageWordIsDrawnAndStillFits() {
+        func bar(_ choice: ResolveTriageChoice) -> ResolveFilterBar {
+            ResolveFilterBar(chips: [.mine, .others], selection: [], passes: [],
+                             showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
+                             triage: choice, onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+        }
+        let bare = Self.idealWidth(of: bar(.all))
+        for choice in ResolveTriageChoice.allCases where choice != .all {
+            XCTAssertGreaterThan(Self.idealWidth(of: bar(choice)), bare + 10,
+                                 "\(choice)'s word must be drawn beside the flag")
+            for width in Self.paneWidths + [Self.ceiling] {
+                let (fits, measured) = Self.fits(bar(choice), in: width)
+                XCTAssertTrue(fits, "\(choice) wants \(measured)pt in \(width)pt")
+            }
+        }
+    }
+
     // MARK: - The census: every pane the right column can show
 
     /// **Every `DetailSegment`, walked off `allCases`**, rendered by the real

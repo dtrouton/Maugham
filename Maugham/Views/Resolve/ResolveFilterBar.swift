@@ -36,6 +36,20 @@ struct ResolveFilterBar: View {
     let onNewTodo: () -> Void
 
     var body: some View {
+        // One row when it fits; else the triage control wraps beneath the
+        // chips — never clipped, never a bare icon while a choice narrows the
+        // list (Task 7b fix).
+        ViewThatFits(in: .horizontal) {
+            row(includesTriage: true)
+            VStack(alignment: .leading, spacing: 4) {
+                row(includesTriage: false)
+                if let triage { triageMenu(triage) }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+    }
+
+    private func row(includesTriage: Bool) -> some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
@@ -46,7 +60,7 @@ struct ResolveFilterBar: View {
                 .padding(.vertical, 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let triage {
+            if includesTriage, let triage {
                 triageMenu(triage)
             }
             if showsSelectionMode {
@@ -67,7 +81,6 @@ struct ResolveFilterBar: View {
                 .accessibilityLabel("New To-do")
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
     }
 
     private func chipButton(_ chip: ResolveSource) -> some View {
@@ -109,13 +122,26 @@ struct ResolveFilterBar: View {
                 }
             }
         } label: {
-            Image(systemName: Self.triageSymbol(choice))
+            if let word = Self.triageWord(choice) {
+                Label(word, systemImage: Self.triageSymbol(choice))
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            } else {
+                Image(systemName: Self.triageSymbol(choice))
+            }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .help(Self.triageHelp(choice))
         .accessibilityLabel(Self.triageHelp(choice))
+    }
+
+    /// **The active choice is named on the control** (Task 7b fix): the
+    /// word beside the filled flag while a choice narrows the list; nil —
+    /// the bare flag — under All.
+    static func triageWord(_ choice: ResolveTriageChoice) -> String? {
+        choice == .all ? nil : choice.label
     }
 
     static func triageSymbol(_ choice: ResolveTriageChoice) -> String {

@@ -28,6 +28,14 @@ enum ResolveTriage {
         offered ? choice : .all
     }
 
+    /// **Density counts what the triage choice leaves** (controller ruling,
+    /// Task 7b fix): a list narrowed to five Do notes is a small list, and
+    /// shows its groups open rather than collapsed.
+    static func isDense(_ items: [ResolveItem], choice: ResolveTriageChoice) -> Bool {
+        let effective = effective(choice, offered: offered(items))
+        return ResolveFilter.isDense(items.filter { matches($0, effective) })
+    }
+
     /// Whether `item` passes `choice`. Under All everything does; under a
     /// mark, or Untriaged, only notes do — check findings and to-dos carry no
     /// triage and show only under All.

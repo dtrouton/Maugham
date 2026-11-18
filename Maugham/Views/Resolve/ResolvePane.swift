@@ -312,7 +312,10 @@ struct ResolvePane: View {
             markChecksRead()
         }
         .onChange(of: request, initial: true) { _, new in take(new) }
-        .onChange(of: triageChoice) { _, _ in refilter() }
+        .onChange(of: triageChoice) { _, new in
+            dense = ResolveTriage.isDense(held.items, choice: new)
+            refilter()
+        }
         .onChange(of: selection) { _, _ in
             refilter()
             markChecksRead()
@@ -747,7 +750,7 @@ struct ResolvePane: View {
                                         sceneIndex: index, sceneTitles: titles,
                                         figureNames: names)
         chips = ResolveFilter.chips(held.items, passes: passes, localName: localName)
-        dense = ResolveFilter.isDense(held.items)
+        dense = ResolveTriage.isDense(held.items, choice: triageChoice)
         incomplete = Self.incompleteLine(held, structure: structure, figureNames: names)
         refilter()
     }
