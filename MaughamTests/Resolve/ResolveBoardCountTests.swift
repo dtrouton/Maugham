@@ -100,4 +100,52 @@ final class ResolveBoardCountTests: XCTestCase {
         XCTAssertFalse(notes.contains { $0.docId == wholeBook.id }, "a whole-book table stays at Book scope")
         XCTAssertNil(store.document(forDocId: "doc-a"), "reading registered no document")
     }
+
+    /// **Review I2 (RULING-29).** A stetted note on a table can be reopened:
+    /// it is settled at the figure's own scope and at its owning piece's, its
+    /// row offers Reopen by the figure's posture, and the figure verb lands.
+    func test_aSettledFigureNoteIsReopenableAtItsFigureAndItsPiece() async throws {
+        let (store, projectStore) = try await openBook()
+        let owned = try await projectStore.createFigure(kind: .table, name: "cash", piece: "doc-a")
+        let op = try await note(.comment, on: owned, store: store)
+        try await store.withFigureHost(owned.id) { try await $0.stetAnnotation(id: op.opId) }
+        let owners = ProjectStore.figureNoteOwners(projectStore.manifest.figures ?? [])
+        let walk = projectStore.listAnnotationsAcrossProject()
+
+        for scope in [ResolveScope.figure(id: owned.id), .piece(docId: "doc-a", includesBookLevel: false)] {
+            XCTAssertTrue(ResolveSettled.offersFigures(scope: scope), "\(scope)")
+            XCTAssertEqual(ResolveSettled.figureNotes(in: walk, scope: scope, figureOwners: owners)
+                            .map(\.annotation.id), [op.opId], "\(scope): the stetted note is settled here")
+        }
+        XCTAssertEqual(ResolveSettled.figureNotes(in: walk, scope: .piece(docId: "doc-b", includesBookLevel: false),
+                                                  figureOwners: owners), [], "not on a piece that does not own it")
+        XCTAssertFalse(ResolveSettled.offersFigures(scope: .pieces(docIds: ["doc-a"], includesBookLevel: true)))
+        XCTAssertEqual(ResolveFigureSettledSection.title(for: .figure(id: owned.id)), "Settled")
+        XCTAssertEqual(ResolveFigureSettledSection.title(for: .piece(docId: "doc-a", includesBookLevel: false)),
+                       "Settled on its figures")
+
+        let posture = store.posture(forDocId: owned.id)
+        let offered = FigureRowGate.verbs(AnnotationRowVerbs.decide(
+            posture: posture, isOwn: false, rulingStatement: nil, lessons: posture))
+        XCTAssertTrue(offered.dispose, "Reopen is offered (the dispose group on a settled row)")
+
+        let verbs = ResolveNoteVerbs(
+            store: projectStore, documentStore: store, world: nil,
+            userPreferences: UserPreferences(defaults: UserDefaults(suiteName: "figsettled-\(UUID().uuidString)")!),
+            undoManager: nil, onChoiceOfferChanged: { _ in },
+            projectSnapshot: { projectStore.listAnnotationsAcrossProject() },
+            visibleAnnotations: { _ in [] }, effectiveSelection: { _ in [] },
+            staleConfirm: .constant(nil), anchorLostNotice: .constant(nil),
+            revertConfirm: .constant(nil), rulingNotice: .constant(nil),
+            ledgerNotice: .constant(nil), choiceOffer: .constant(nil),
+            stetFlourishIds: .constant([]), bulkInFlight: .constant(false),
+            selectedIds: .constant([]), bulkNotice: .constant(nil),
+            letterLedgerRevision: .constant(0), projectRefreshToken: .constant(0))
+        let settled = try XCTUnwrap(walk.annotations.first { $0.annotation.id == op.opId })
+        await verbs.figureReopen(owned.id, settled.annotation).value
+        let after = projectStore.listAnnotationsAcrossProject()
+        XCTAssertEqual(after.annotations.first { $0.annotation.id == op.opId }?.annotation.status, .open,
+                       "Reopen lands through the figure's host")
+        XCTAssertEqual(ResolveSettled.figureNotes(in: after, scope: .figure(id: owned.id), figureOwners: owners), [])
+    }
 }

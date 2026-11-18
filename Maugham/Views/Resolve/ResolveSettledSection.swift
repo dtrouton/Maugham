@@ -44,6 +44,42 @@ enum ResolveSettled {
         scope.includesBookLevel
     }
 
+    /// **A figure's settled notes have a home** (RULING-29, review I2): the
+    /// figure's own scope, and the scope of the piece that owns it. Their
+    /// verbs go through the figure's host, never a `Document`, so no open
+    /// piece is needed.
+    static func offersFigures(scope: ResolveScope) -> Bool {
+        switch scope {
+        case .figure, .piece: return true
+        case .pieces, .elsewhere, .outside: return false
+        }
+    }
+
+    /// The settled figure notes `scope` holds, out of the walk To resolve
+    /// already holds (every status; withdrawn notes are not in it): a figure
+    /// scope's own, or a piece's owned figures' (`ProjectStore.countsOn`).
+    /// Newest first. Pure: no read.
+    static func figureNotes(in walk: ProjectAnnotationsSnapshot?, scope: ResolveScope,
+                            figureOwners: [String: String?]) -> [ProjectAnnotation] {
+        guard let walk, offersFigures(scope: scope) else { return [] }
+        let settled: Set<AnnotationStatus> = [.accepted, .rejected, .archived, .stetted]
+        return walk.annotations
+            .filter { note in
+                guard DocumentClass.isFigureDocId(note.docId), settled.contains(note.annotation.status)
+                else { return false }
+                switch scope {
+                case .figure(let id): return note.docId == id
+                case .piece(let docId, _):
+                    return ProjectStore.countsOn(note.docId, owners: figureOwners) == docId
+                case .pieces, .elsewhere, .outside: return false
+                }
+            }
+            .sorted {
+                ($0.annotation.resolvedAt ?? $0.annotation.createdAt)
+                    > ($1.annotation.resolvedAt ?? $1.annotation.createdAt)
+            }
+    }
+
     /// The Book's archived to-dos, from the project stream alone.
     @MainActor
     static func bookArchived(store: ProjectStore) -> [WriterTask] {
@@ -316,5 +352,62 @@ struct ResolveBookSettledSection: View {
             Divider()
         }
         ResolveArchivedTodos(archived: archived, taskVerbs: taskVerbs)
+    }
+}
+
+/// **The settled figure notes** (RULING-29, review I2) — a collapsed section
+/// at a figure's scope ("Settled") and at its owning piece's ("Settled on its
+/// figures"). Each row is the list's own figure row (`AnnotationRowHost`), so
+/// Reopen is offered by the figure's posture and lands through the figure's
+/// host (`ResolveNoteVerbs.figureReopen`). The notes are read once per walk
+/// (`ResolveSettled.figureNotes`), never per render.
+@MainActor
+struct ResolveFigureSettledSection: View {
+    let title: String
+    let notes: [ProjectAnnotation]
+    let figureNames: [String: String]
+    let figureCells: [String: SuggestionDisplay.FigureCells]
+    let ledgerText: String?
+    let wiring: AnnotationRowWiring
+    @Binding var isExpanded: Bool
+
+    static func title(for scope: ResolveScope) -> String {
+        if case .figure = scope { return "Settled" }
+        return "Settled on its figures"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Text("\(notes.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            if isExpanded {
+                ForEach(notes, id: \.annotation.id) { note in
+                    AnnotationRowHost(
+                        annotation: note.annotation, docId: note.docId, document: nil,
+                        livePids: [], ledgerText: ledgerText,
+                        figureTitle: figureNames[note.docId],
+                        figureCells: figureCells[note.annotation.id],
+                        wiring: wiring)
+                    Divider()
+                }
+            }
+        }
     }
 }

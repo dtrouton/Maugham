@@ -177,6 +177,9 @@ struct ResolvePane: View {
     @State private var scrollRequest: ResolveGroup.Key?
     @State private var settledExpanded = false
     @State private var bookSettledExpanded = false
+    /// The scope's settled figure notes, from the held walk (review I2).
+    @State private var figureSettled: [ProjectAnnotation] = []
+    @State private var figureSettledExpanded = false
 
     // MARK: A finding's answer
 
@@ -317,6 +320,7 @@ struct ResolvePane: View {
             selectedIds = []
             settledExpanded = false
             bookSettledExpanded = false
+            figureSettledExpanded = false
             markChecksRead()
         }
         .onChange(of: request, initial: true) { _, new in take(new) }
@@ -447,6 +451,13 @@ struct ResolvePane: View {
                                 noteVerbs: noteVerbs, taskVerbs: rowTaskVerbs,
                                 onJumpToTask: { go(.todo($0)) },
                                 isExpanded: $settledExpanded)
+                        }
+                        if !figureSettled.isEmpty {
+                            ResolveFigureSettledSection(
+                                title: ResolveFigureSettledSection.title(for: scope),
+                                notes: figureSettled, figureNames: figureNames,
+                                figureCells: figureCells, ledgerText: ledgerText,
+                                wiring: wiring, isExpanded: $figureSettledExpanded)
                         }
                         if ResolveSettled.offersBook(scope: scope) {
                             ResolveBookSettledSection(
@@ -722,6 +733,9 @@ struct ResolvePane: View {
         keptStetted = hold.kept
         if step == .read {
             figureCells = walks.annotations?.figureCells ?? [:]
+            figureSettled = ResolveSettled.figureNotes(
+                in: walks.annotations, scope: readScope,
+                figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         }
         lastKey = key
