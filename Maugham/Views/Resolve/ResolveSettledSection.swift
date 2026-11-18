@@ -28,10 +28,23 @@ enum ResolveSettled {
     }
 
     /// **Archive all done**, hidden — never an enabled no-op (RULING-35) —
-    /// off the open piece, where the posture files no task, or with nothing
-    /// done.
-    static func offersArchiveAllDone(mayAct: Bool, posture: Posture, doneCount: Int) -> Bool {
-        mayAct && doneCount > 0 && posture.allows(.task)
+    /// where the posture files no task, or with nothing done. (Off the open
+    /// piece there is no piece Settled section to draw it in: `offered`.)
+    static func offersArchiveAllDone(posture: Posture, doneCount: Int) -> Bool {
+        doneCount > 0 && posture.allows(.task)
+    }
+
+    /// **The Book's own Settled** — wherever the scope holds the Book level
+    /// (the Book, a screenplay's Book). Its to-dos live on the project stream
+    /// and need no `Document`, so it needs no open piece.
+    static func offersBook(scope: ResolveScope) -> Bool {
+        scope.includesBookLevel
+    }
+
+    /// The Book's done to-dos, from the project stream alone.
+    @MainActor
+    static func bookDone(store: ProjectStore) -> [WriterTask] {
+        ResolveTaskVerbs.bookTasks(store: store).filter { $0.status == .done }
     }
 
     /// The open piece's settled notes and done to-dos. Called only while the
@@ -138,7 +151,7 @@ struct ResolveSettledSection: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 if ResolveSettled.offersArchiveAllDone(
-                    mayAct: true, posture: posture, doneCount: contents.done.count) {
+                    posture: posture, doneCount: contents.done.count) {
                     Button("Archive all done") { taskVerbs.archiveAllDone(in: .document) }
                         .buttonStyle(.bordered).controlSize(.small)
                 }
@@ -155,6 +168,70 @@ struct ResolveSettledSection: View {
                     .padding(.horizontal, 12)
                 Divider()
             }
+        }
+    }
+}
+
+/// **The Book's Settled section** — its done to-dos (un-tick, archive,
+/// delete, Archive all done), on the project stream. Each verb is offered by
+/// the stream's posture and hidden where it refuses. Nothing is read until
+/// the section is opened.
+@MainActor
+struct ResolveBookSettledSection: View {
+    let store: ProjectStore
+    /// The project stream's posture (`__project__`).
+    let posture: Posture
+    let taskVerbs: ResolveTaskVerbs
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("Settled on the Book")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            if isExpanded {
+                expanded
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var expanded: some View {
+        let _ = store.projectTasksVersion
+        let done = ResolveSettled.bookDone(store: store)
+        HStack(spacing: 8) {
+            Text(done.isEmpty ? "No Book to-dos are done." : "Done")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if ResolveSettled.offersArchiveAllDone(posture: posture, doneCount: done.count) {
+                Button("Archive all done") { taskVerbs.archiveAllDoneOnTheBook() }
+                    .buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12).padding(.bottom, 6)
+        ForEach(done, id: \.id) { task in
+            TaskRow(
+                task: task,
+                verbs: taskVerbs.offered(task),
+                onToggle: { taskVerbs.toggle(task) },
+                onJump: {},
+                onArchive: { taskVerbs.archive(task) },
+                onDelete: { taskVerbs.delete(task) })
+                .padding(.horizontal, 12)
+            Divider()
         }
     }
 }

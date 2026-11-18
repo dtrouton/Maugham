@@ -14,8 +14,54 @@ enum ResolveRequest: Equatable {
 enum ResolveRefreshStep: Equatable {
     /// The walks and the sidecar: `ResolveReader.read`, then the regroup.
     case read
-    /// A new screenplay parse alone: the open piece's text, then the regroup.
+    /// A new screenplay parse: the open piece's text and its live to-dos,
+    /// then the regroup.
     case reread
+    /// An open piece's to-dos moved (a keystroke on a to-do line): its live
+    /// to-dos are spliced into what is held, then the regroup. No walk.
+    case todos
+}
+
+/// **What To resolve refreshes on**: the regroup key (the read key and the
+/// script) plus the open in-scope pieces' `tasksVersion` sum. Typing on a
+/// to-do line moves only `openTodos`, which costs one `Document.tasks` per
+/// open piece in scope and never the project's task walk.
+struct ResolveListKey: Equatable {
+    let regroup: ResolveRegroupKey
+    let openTodos: Int
+}
+
+/// **A stetted note's flourish** — the old queue's 2.5 seconds. The verbs hold
+/// the STET mark this long; the list holds the row through any read that
+/// lands inside it, so the note does not vanish under its own mark.
+enum ResolveStetHold {
+    static let seconds: TimeInterval = 2.5
+    static var nanoseconds: UInt64 { UInt64(seconds * 1_000_000_000) }
+
+    static func holds(stettedAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(stettedAt) < seconds
+    }
+
+    /// `fresh`, with every note `previous` held that was stetted inside the
+    /// hold and that `fresh` no longer lists put back. Returns the ids put
+    /// back.
+    static func keeping(_ fresh: ResolveSnapshot, previous: ResolveSnapshot,
+                        stettedAt: [String: Date], now: Date)
+        -> (snapshot: ResolveSnapshot, kept: Set<String>) {
+        let freshIds = Set(fresh.items.map(\.id))
+        var kept: Set<String> = []
+        let back = previous.items.filter { item in
+            guard case .note(let note) = item, !freshIds.contains(item.id),
+                  let at = stettedAt[note.annotation.id],
+                  holds(stettedAt: at, now: now) else { return false }
+            kept.insert(note.annotation.id)
+            return true
+        }
+        guard !back.isEmpty else { return (fresh, []) }
+        return (ResolveSnapshot(items: back + fresh.items, sequences: fresh.sequences,
+                                paragraphText: fresh.paragraphText,
+                                unreadableDocIds: fresh.unreadableDocIds), kept)
+    }
 }
 
 /// What applying a request leaves (`ResolvePane.apply`).
@@ -79,7 +125,11 @@ struct ResolvePane: View {
     // MARK: The read, and what it builds (once per key)
 
     @State private var held: ResolveSnapshot = .empty
-    @State private var lastRead: ResolveReadKey?
+    @State private var lastKey: ResolveListKey?
+    /// When each stetted note took its mark, and which held rows are there
+    /// only for their flourish.
+    @State private var stettedAt: [String: Date] = [:]
+    @State private var keptStetted: Set<String> = []
     @State private var groups: [ResolveGroup] = []
     @State private var sceneIndex: [String: Int]?
     @State private var chips: [ResolveSource] = []
@@ -103,6 +153,7 @@ struct ResolvePane: View {
     @State private var pendingRequest: ResolveRequest?
     @State private var scrollRequest: ResolveGroup.Key?
     @State private var settledExpanded = false
+    @State private var bookSettledExpanded = false
 
     // MARK: A finding's answer
 
@@ -166,6 +217,11 @@ struct ResolvePane: View {
     /// May this window act on the faces' piece?
     private var mayActOnFaces: Bool { pieceDocId.map(mayAct(on:)) ?? false }
 
+    private var listKey: ResolveListKey {
+        ResolveListKey(regroup: regroupKey,
+                       openTodos: Self.openTodoVersion(scope: scope, documentStore: documentStore))
+    }
+
     private var regroupKey: ResolveRegroupKey {
         ResolveRegroupKey(
             read: Self.readKey(scope: scope, annotationsToken: annotationsToken, store: store,
@@ -203,8 +259,6 @@ struct ResolvePane: View {
                 onOpenProjectSettings: onOpenProjectSettings,
                 onSetActivePass: onSetActivePass,
                 onSetPassState: onSetPassState)
-                // Its letter's state is per piece.
-                .id(scope.docIds.first ?? "")
             if hasList {
                 filterBar
                 Divider()
@@ -213,14 +267,15 @@ struct ResolvePane: View {
                 ContentUnavailableView {
                     Label("To resolve", systemImage: "checklist")
                 } description: {
-                    Text((Self.emptyState(scope: scope, hasItems: false, offersColdStart: false)
+                    Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
+                                          offersColdStart: false)
                           ?? .outside).sentence)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: regroupKey) { refresh(regroupKey) }
+        .task(id: listKey) { refresh(listKey) }
         // The sidecar for the scope's pieces — never from `body`; its
         // `version` moves the read key.
         .task(id: scope) {
@@ -233,6 +288,7 @@ struct ResolvePane: View {
             selectionModeOn = false
             selectedIds = []
             settledExpanded = false
+            bookSettledExpanded = false
             markChecksRead()
         }
         .onChange(of: request, initial: true) { _, new in take(new) }
@@ -240,6 +296,7 @@ struct ResolvePane: View {
             refilter()
             markChecksRead()
         }
+        .onChange(of: stetFlourishIds) { old, new in stetMarksChanged(from: old, to: new) }
         .onChange(of: letterLedgerRevision) { _, _ in
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
         }
@@ -310,6 +367,7 @@ struct ResolvePane: View {
         let reorders = reordersHere
         let piece = pieceDocId
         let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
+                                    hasVisible: !shown.isEmpty,
                                     offersColdStart: offersColdStart)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -343,6 +401,13 @@ struct ResolvePane: View {
                                 noteVerbs: noteVerbs, taskVerbs: rowTaskVerbs,
                                 onJumpToTask: { go(.todo($0)) },
                                 isExpanded: $settledExpanded)
+                        }
+                        if ResolveSettled.offersBook(scope: scope) {
+                            ResolveBookSettledSection(
+                                store: store,
+                                posture: documentStore.posture(forDocId: ProjectStore.projectTasksDocId),
+                                taskVerbs: rowTaskVerbs,
+                                isExpanded: $bookSettledExpanded)
                         }
                     }
                 }
@@ -391,8 +456,8 @@ struct ResolvePane: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }
-        case .nothing?:
-            Text(EmptyState.nothing.sentence)
+        case .nothing?, .filteredOut?:
+            Text((empty ?? .nothing).sentence)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -548,22 +613,48 @@ struct ResolvePane: View {
 
     // MARK: - Refresh
 
-    private func refresh(_ key: ResolveRegroupKey) {
-        let readScope = key.read.scope
-        switch Self.refreshStep(key, lastRead: lastRead) {
-        case .read:
-            held = ResolveReader.read(scope: readScope, store: store,
-                                      documentStore: documentStore, diagnostics: diagnostics)
+    private func refresh(_ key: ResolveListKey) {
+        let readScope = key.regroup.read.scope
+        let step = Self.refreshStep(key, last: lastKey)
+        let fresh = Self.refreshed(held, step: step, scope: readScope, store: store,
+                                   documentStore: documentStore, diagnostics: diagnostics)
+        if step == .read {
+            // A note just stetted stays for its flourish.
+            let hold = ResolveStetHold.keeping(fresh, previous: held,
+                                               stettedAt: stettedAt, now: Date())
+            held = hold.snapshot
+            keptStetted = hold.kept
             figureCells = readScope.docIds.isEmpty
                 ? [:] : store.listAnnotationsAcrossProject().figureCells
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
-            lastRead = key.read
-        case .reread:
-            held = ResolveReader.rereadText(held, scope: readScope, store: store,
-                                            documentStore: documentStore)
+        } else {
+            held = fresh
         }
-        regroup(scope: readScope, script: key.script)
+        lastKey = key
+        regroup(scope: readScope, script: key.regroup.script)
         applyPendingRequest()
+    }
+
+    /// The verbs put a note's id in `stetFlourishIds` when it is stetted and
+    /// take it out when the flourish ends: record the start, and when it ends
+    /// let a row held only for it go.
+    private func stetMarksChanged(from old: Set<String>, to new: Set<String>) {
+        let now = Date()
+        for id in new.subtracting(old) { stettedAt[id] = now }
+        let ended = old.subtracting(new)
+        guard !ended.isEmpty else { return }
+        for id in ended { stettedAt[id] = nil }
+        let gone = keptStetted.intersection(ended)
+        guard !gone.isEmpty else { return }
+        keptStetted.subtract(gone)
+        held = ResolveSnapshot(
+            items: held.items.filter { item in
+                if case .note(let note) = item { return !gone.contains(note.annotation.id) }
+                return true
+            },
+            sequences: held.sequences, paragraphText: held.paragraphText,
+            unreadableDocIds: held.unreadableDocIds)
+        regroup(scope: scope, script: lastKey?.regroup.script)
     }
 
     private func regroup(scope: ResolveScope, script: FountainScript?) {
@@ -617,7 +708,7 @@ struct ResolvePane: View {
 
     /// A request waits for the read of the scope it arrived with.
     private func applyPendingRequest() {
-        guard let pending = pendingRequest, lastRead?.scope == scope else { return }
+        guard let pending = pendingRequest, lastKey?.regroup.read.scope == scope else { return }
         pendingRequest = nil
         let activePass = pieceDocId.flatMap {
             documentStore.uiState.activePassMemory.validatedActivePass(forPiece: $0, in: passes)
@@ -868,8 +959,11 @@ extension ResolvePane {
                         localName: String) -> ResolveReadKey {
         ResolveReadKey(
             scope: scope, annotationsToken: annotationsToken,
+            // Open to-dos are NOT the read's: a keystroke on a to-do line
+            // moves `tasksVersion`, and that is `ResolveListKey.openTodos`'s
+            // cheap splice, never the project's task walk.
             openVersions: documentStore.allOpenDocuments().map {
-                (annotations: $0.annotationsVersion, tasks: $0.tasksVersion)
+                (annotations: $0.annotationsVersion, tasks: 0)
             },
             projectTasksVersion: store.projectTasksVersion,
             diagnosticsVersion: diagnostics?.version ?? 0,
@@ -879,8 +973,63 @@ extension ResolvePane {
 
     /// **Read before regroup.** A read key that moved runs the read (which
     /// also reads the piece's text); a script-only change re-reads the text.
-    static func refreshStep(_ key: ResolveRegroupKey, lastRead: ResolveReadKey?) -> ResolveRefreshStep {
-        key.read == lastRead ? .reread : .read
+    static func refreshStep(_ key: ResolveListKey, last: ResolveListKey?) -> ResolveRefreshStep {
+        guard let last, last.regroup.read == key.regroup.read else { return .read }
+        return last.regroup.script == key.regroup.script ? .todos : .reread
+    }
+
+    /// The sum of `tasksVersion` over the open pieces the scope holds.
+    static func openTodoVersion(scope: ResolveScope, documentStore: DocumentStore) -> Int {
+        let inScope = Set(scope.docIds)
+        return documentStore.allOpenDocuments()
+            .filter { inScope.contains($0.docId) }
+            .reduce(0) { $0 &+ $1.tasksVersion }
+    }
+
+    /// One refresh step's read. `.read` is `ResolveReader.read` (the walks);
+    /// `.reread` the open piece's text, then its live to-dos; `.todos` the
+    /// live to-dos alone — `Document.tasks` per open piece in scope.
+    static func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, scope: ResolveScope,
+                          store: ProjectStore, documentStore: DocumentStore,
+                          diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+        switch step {
+        case .read:
+            return ResolveReader.read(scope: scope, store: store,
+                                      documentStore: documentStore, diagnostics: diagnostics)
+        case .reread:
+            let text = ResolveReader.rereadText(held, scope: scope, store: store,
+                                                documentStore: documentStore)
+            return splicingTodos(text, order: scope.docIds,
+                                 live: liveTodos(scope: scope, documentStore: documentStore))
+        case .todos:
+            return splicingTodos(held, order: scope.docIds,
+                                 live: liveTodos(scope: scope, documentStore: documentStore))
+        }
+    }
+
+    /// The open in-scope pieces' open to-dos, read off their documents.
+    static func liveTodos(scope: ResolveScope, documentStore: DocumentStore) -> [String: [WriterTask]] {
+        var live: [String: [WriterTask]] = [:]
+        for docId in scope.docIds {
+            guard let doc = documentStore.document(forDocId: docId) else { continue }
+            live[docId] = doc.tasks(filter: TaskFilter(scope: .document(docId: docId), statuses: [.open]))
+        }
+        return live
+    }
+
+    /// `held` with each piece in `live` holding exactly its live to-dos;
+    /// every other item is untouched.
+    static func splicingTodos(_ held: ResolveSnapshot, order: [String],
+                              live: [String: [WriterTask]]) -> ResolveSnapshot {
+        guard !live.isEmpty else { return held }
+        let kept = held.items.filter { item in
+            if case .todo = item { return live[item.docId] == nil }
+            return true
+        }
+        let fresh = order.flatMap { live[$0] ?? [] }.map(ResolveItem.todo)
+        return ResolveSnapshot(items: kept + fresh, sequences: held.sequences,
+                               paragraphText: held.paragraphText,
+                               unreadableDocIds: held.unreadableDocIds)
     }
 
     /// The window's script, where it is about the scope's piece: a
@@ -1000,6 +1149,8 @@ extension ResolvePane {
         case coldStart
         /// Nothing to resolve.
         case nothing
+        /// There are items, and the filter hides every one.
+        case filteredOut
 
         var sentence: String {
             switch self {
@@ -1012,16 +1163,19 @@ extension ResolvePane {
                 return DiagnosticsPane.coldStartOfferSentence
             case .nothing:
                 return "Nothing to resolve."
+            case .filteredOut:
+                return "Nothing under this filter."
             }
         }
     }
 
-    static func emptyState(scope: ResolveScope, hasItems: Bool, offersColdStart: Bool) -> EmptyState? {
+    static func emptyState(scope: ResolveScope, hasItems: Bool, hasVisible: Bool,
+                           offersColdStart: Bool) -> EmptyState? {
         switch scope {
         case .outside: return .outside
         case .elsewhere: return .elsewhere
         case .piece, .pieces, .figure:
-            guard !hasItems else { return nil }
+            guard !hasItems else { return hasVisible ? nil : .filteredOut }
             return offersColdStart ? .coldStart : .nothing
         }
     }

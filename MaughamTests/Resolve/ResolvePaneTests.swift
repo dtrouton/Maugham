@@ -90,35 +90,43 @@ final class ResolvePaneTests: XCTestCase {
 
     // MARK: - The refresh key (carried items 2, 3)
 
-    /// Every input that changes what the list shows moves the read key: the
-    /// event token (`.maughamAnnotationsChanged`), a note added to the open
-    /// piece, a to-do typed into it, a Book-level to-do and a check's sidecar.
+    /// Every input that changes what the list shows moves the list's key:
+    /// the event token (`.maughamAnnotationsChanged`), a note added to the
+    /// open piece, a to-do typed into it, a Book-level to-do and a check's
+    /// sidecar. A typed to-do moves only the cheap half (`openTodos`), never
+    /// the read key that runs the walks.
     func test_theRefreshKeyMovesOnEveryInputThatChangesTheList() async throws {
         let (doc, store, documentStore) = try await openDocument()
         let diagnostics = DiagnosticsStore(projectRoot: store.url, device: DeviceSlug.make(from: "test-mac"))
         let scope = ResolveScope.piece(docId: doc.docId, includesBookLevel: false)
-        func key(_ token: Int) -> ResolveReadKey {
+        func read(_ token: Int) -> ResolveReadKey {
             ResolvePane.readKey(scope: scope, annotationsToken: token, store: store,
                                 documentStore: documentStore, diagnostics: diagnostics,
                                 localName: "Me")
         }
+        func key(_ token: Int) -> ResolveListKey {
+            ResolveListKey(regroup: ResolveRegroupKey(read: read(token), script: nil),
+                           openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
+        }
         let start = key(0)
         XCTAssertEqual(key(0), start, "premise: nothing moved, nothing moves")
 
-        XCTAssertNotEqual(key(1), start, "the annotations event's token")
+        XCTAssertNotEqual(read(1), read(0), "the annotations event's token moves the read")
 
         let pid = try XCTUnwrap(doc.sequence.first)
         try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: "a note")
         let afterNote = key(0)
-        XCTAssertNotEqual(afterNote, start, "a note on the open piece")
+        XCTAssertNotEqual(afterNote.regroup.read, start.regroup.read, "a note on the open piece")
 
         doc.setFullText("Hello.\n\n- [ ] typed to-do")
         let afterTodo = key(0)
         XCTAssertNotEqual(afterTodo, afterNote, "a to-do typed into the open piece")
+        XCTAssertEqual(afterTodo.regroup.read, afterNote.regroup.read,
+                       "and only the to-do half moved: no walk for a keystroke")
 
         _ = store.createProjectPaneTask(body: "book thing", undoManager: nil)
         let afterBook = key(0)
-        XCTAssertNotEqual(afterBook, afterTodo, "a Book-level to-do")
+        XCTAssertNotEqual(afterBook.regroup.read, afterTodo.regroup.read, "a Book-level to-do")
 
         diagnostics.replace(
             run: CompilerRun(id: "run-1", at: t, model: "test-model", lastOpId: "01BBB1",
@@ -127,43 +135,92 @@ final class ResolvePaneTests: XCTestCase {
             diagnostics: [Diagnostic(id: "d1", docId: doc.docId, anchor: nil, body: "strain",
                                      category: nil, runId: "run-1", kind: .conformanceStrain)],
             docId: doc.docId)
-        XCTAssertNotEqual(key(0), afterBook, "a check's sidecar")
+        XCTAssertNotEqual(key(0).regroup.read, afterBook.regroup.read, "a check's sidecar")
 
         XCTAssertNotEqual(
             ResolvePane.readKey(scope: .outside, annotationsToken: 0, store: store,
                                 documentStore: documentStore, diagnostics: diagnostics, localName: "Me"),
-            key(0), "the faces' scope")
+            read(0), "the faces' scope")
     }
 
     /// **Carried item 3.** The old Tasks pane refreshed on the open document's
     /// `tasksVersion`; typing `- [ ]` bumps it at once (`Document.setFullText`'s
-    /// inline-task fast path, `changeTouchesTaskMarkup`). The read key sums
-    /// every open document's `tasksVersion`, so the typed to-do moves the key
-    /// and the one read the key triggers lists it.
+    /// inline-task fast path, `changeTouchesTaskMarkup`). The list key carries
+    /// the open in-scope pieces' `tasksVersion`, so the typed to-do moves it,
+    /// and the step it triggers lists the to-do.
     func test_aTypedTodoReachesTheList() async throws {
         let (doc, store, documentStore) = try await openDocument()
         let scope = ResolveScope.piece(docId: doc.docId, includesBookLevel: false)
-        func key() -> ResolveReadKey {
-            ResolvePane.readKey(scope: scope, annotationsToken: 0, store: store,
-                                documentStore: documentStore, diagnostics: nil, localName: "Me")
+        func key() -> ResolveListKey {
+            ResolveListKey(
+                regroup: ResolveRegroupKey(read: ResolvePane.readKey(
+                    scope: scope, annotationsToken: 0, store: store,
+                    documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
         }
-        func todos() -> [String] {
-            ResolveReader.read(scope: scope, store: store, documentStore: documentStore, diagnostics: nil)
-                .items.compactMap { if case .todo(let task) = $0 { return task.body } else { return nil } }
-        }
-        XCTAssertEqual(todos(), [], "premise: no to-do yet")
+        var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
+                                         documentStore: documentStore, diagnostics: nil)
+        XCTAssertEqual(todoBodies(held), [], "premise: no to-do yet")
         let before = key()
 
         // The editor's binding setter is `doc.setFullText` (EditorHost).
         doc.setFullText("Hello.\n\n- [ ] fix the dock")
 
-        XCTAssertNotEqual(key(), before, "the typed to-do moves the read key with no burst flush")
-        XCTAssertEqual(todos(), ["fix the dock"], "and the read it triggers lists it")
+        let after = key()
+        XCTAssertNotEqual(after, before, "the typed to-do moves the key with no burst flush")
+        let step = ResolvePane.refreshStep(after, last: before)
+        held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
+                                     documentStore: documentStore, diagnostics: nil)
+        XCTAssertEqual(todoBodies(held), ["fix the dock"], "and the step it triggers lists it")
     }
 
-    /// **Carried item 2.** When both keys move, the walks run (the read
+    /// **Review I1.** Every keystroke on a `- [ ]` line bumps `tasksVersion`.
+    /// At a piece and at the Book, that is a splice of the open piece's live
+    /// to-dos — never the project's task walk, which re-derives every closed
+    /// piece from disk. Counted through the walk's own rebuild counter.
+    func test_aKeystrokeInATodoLineRebuildsNoProjectAggregate() async throws {
+        let (doc, store, documentStore) = try await openDocument()
+        doc.setFullText("Hello.\n\n- [ ] fix")
+        for scope in [ResolveScope.piece(docId: doc.docId, includesBookLevel: false),
+                      .pieces(docIds: [doc.docId, "doc-closed"], includesBookLevel: true)] {
+            func key() -> ResolveListKey {
+                ResolveListKey(
+                    regroup: ResolveRegroupKey(read: ResolvePane.readKey(
+                        scope: scope, annotationsToken: 0, store: store,
+                        documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
+                    openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
+            }
+            var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
+                                             documentStore: documentStore, diagnostics: nil)
+            var last = key()
+            let rebuilds = store._debugTasksRebuildCount
+            var typed = "- [ ] fix"
+            for letter in [" t", "h", "e", " dock"] {
+                typed += letter
+                doc.setFullText("Hello.\n\n" + typed)
+                let now = key()
+                let step = ResolvePane.refreshStep(now, last: last)
+                XCTAssertEqual(step, .todos, "\(scope): a keystroke on a to-do line is the cheap step")
+                held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
+                                             documentStore: documentStore, diagnostics: nil)
+                last = now
+            }
+            XCTAssertEqual(store._debugTasksRebuildCount, rebuilds,
+                           "\(scope): no keystroke rebuilt the project's task aggregate")
+            XCTAssertTrue(todoBodies(held).contains("fix the dock"),
+                          "\(scope): and the list holds the to-do as typed")
+            XCTAssertEqual(todoBodies(held).filter { $0.hasPrefix("fix") }.count, 1,
+                           "\(scope): spliced, not duplicated")
+        }
+    }
+
+    private func todoBodies(_ snapshot: ResolveSnapshot) -> [String] {
+        snapshot.items.compactMap { if case .todo(let task) = $0 { return task.body } else { return nil } }
+    }
+
+    /// **Carried item 2.** When the read key moves, the walks run (the read
     /// already reads the piece's text); a script-only change re-reads the
-    /// text and regroups, without the walks; nothing moved, nothing runs.
+    /// text; open to-dos alone splice; the first build reads.
     func test_aReadRunsBeforeARegroupAndAScriptAloneOnlyRereads() {
         let read = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
                                   annotationsToken: 0, openVersions: [], projectTasksVersion: 0,
@@ -171,12 +228,101 @@ final class ResolvePaneTests: XCTestCase {
         let moved = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
                                    annotationsToken: 1, openVersions: [], projectTasksVersion: 0,
                                    diagnosticsVersion: 0, passes: [], localName: "Me")
-        let key = ResolveRegroupKey(read: read, script: nil)
-        XCTAssertEqual(ResolvePane.refreshStep(key, lastRead: nil), .read, "the first build reads")
-        XCTAssertEqual(ResolvePane.refreshStep(key, lastRead: read), .reread,
-                       "the read key held, so only the script moved: re-read the text, regroup")
-        XCTAssertEqual(ResolvePane.refreshStep(ResolveRegroupKey(read: moved, script: nil), lastRead: read),
-                       .read, "both moved: the read, whose text the regroup then uses")
+        let script = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.")
+        let key = ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 0)
+        XCTAssertEqual(ResolvePane.refreshStep(key, last: nil), .read, "the first build reads")
+        XCTAssertEqual(ResolvePane.refreshStep(
+            ResolveListKey(regroup: ResolveRegroupKey(read: read, script: script), openTodos: 0), last: key),
+            .reread, "the read key held, the script moved: re-read the text, regroup")
+        XCTAssertEqual(ResolvePane.refreshStep(
+            ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 3), last: key),
+            .todos, "only the open to-dos moved: splice them")
+        XCTAssertEqual(ResolvePane.refreshStep(
+            ResolveListKey(regroup: ResolveRegroupKey(read: moved, script: script), openTodos: 3), last: key),
+            .read, "everything moved: the read, whose text and to-dos the regroup then uses")
+    }
+
+    // MARK: - The stet flourish (controller ruling)
+
+    func test_aStettedNoteIsHeldForItsFlourish() {
+        let at = t
+        XCTAssertEqual(ResolveStetHold.seconds, 2.5, "the old queue's flourish")
+        XCTAssertTrue(ResolveStetHold.holds(stettedAt: at, now: at))
+        XCTAssertTrue(ResolveStetHold.holds(stettedAt: at, now: at.addingTimeInterval(2.4)))
+        XCTAssertFalse(ResolveStetHold.holds(stettedAt: at, now: at.addingTimeInterval(2.5)))
+
+        let previous = ResolveSnapshot(items: [note("n1"), note("n2")], sequences: [:],
+                                       paragraphText: [:], unreadableDocIds: [])
+        let fresh = ResolveSnapshot(items: [note("n2")], sequences: [:],
+                                    paragraphText: [:], unreadableDocIds: [])
+        let inside = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: ["n1": at],
+                                             now: at.addingTimeInterval(1))
+        XCTAssertEqual(Set(inside.snapshot.items.map(\.id)), Set(previous.items.map(\.id)),
+                       "inside the flourish the stetted note stays through the read")
+        XCTAssertEqual(inside.kept, ["n1"])
+        let after = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: ["n1": at],
+                                            now: at.addingTimeInterval(3))
+        XCTAssertEqual(after.snapshot, fresh, "after it, the note is gone")
+        let notStetted = ResolveStetHold.keeping(fresh, previous: previous, stettedAt: [:], now: at)
+        XCTAssertEqual(notStetted.snapshot, fresh, "a note that left for any other reason leaves")
+        let stillOpen = ResolveStetHold.keeping(previous, previous: previous, stettedAt: ["n1": at], now: at)
+        XCTAssertEqual(stillOpen.snapshot, previous, "never duplicated while the read still lists it")
+        XCTAssertEqual(stillOpen.kept, [])
+    }
+
+    // MARK: - The Book's Settled (review I2)
+
+    /// The Book's done to-dos have a home once the Tasks pane is gone: each
+    /// verb is reachable and actually lands on the project stream (un-tick,
+    /// archive, delete, Archive all done), with no Document loaded.
+    func test_theBooksDoneTodosAreSettledAndEachVerbLands() async throws {
+        XCTAssertTrue(ResolveSettled.offersBook(scope: .pieces(docIds: ["doc-a"], includesBookLevel: true)))
+        XCTAssertTrue(ResolveSettled.offersBook(scope: .piece(docId: "doc-a", includesBookLevel: true)),
+                      "a screenplay's Book")
+        XCTAssertFalse(ResolveSettled.offersBook(scope: .pieces(docIds: ["doc-a"], includesBookLevel: false)),
+                       "a Part")
+        XCTAssertFalse(ResolveSettled.offersBook(scope: .piece(docId: "doc-a", includesBookLevel: false)))
+        XCTAssertFalse(ResolveSettled.offersBook(scope: .outside))
+
+        let (_, store, documentStore) = try await openDocument()
+        let verbs = ResolveTaskVerbs(store: store, documentStore: documentStore,
+                                     openDocId: nil, undoManager: nil)
+        func book(_ id: String) -> WriterTask? { ResolveTaskVerbs.bookTasks(store: store).first { $0.id == id } }
+        let one = store.createProjectPaneTask(body: "index", undoManager: nil)
+        let two = store.createProjectPaneTask(body: "blurb", undoManager: nil)
+        let three = store.createProjectPaneTask(body: "dedication", undoManager: nil)
+        for task in [one, two, three] {
+            XCTAssertTrue(verbs.offered(task).toggle, "premise: the author's Book to-dos offer every verb")
+            verbs.toggle(task)
+        }
+        XCTAssertEqual(Set(ResolveSettled.bookDone(store: store).map(\.id)), [one.id, two.id, three.id],
+                       "ticking a Book to-do lands, and Settled on the Book lists it")
+
+        verbs.toggle(try XCTUnwrap(book(one.id)))
+        XCTAssertEqual(book(one.id)?.status, .open, "un-tick lands")
+        verbs.archive(try XCTUnwrap(book(two.id)))
+        XCTAssertEqual(book(two.id)?.status, .archived, "archive lands")
+        verbs.toggle(try XCTUnwrap(book(one.id)))
+        verbs.delete(try XCTUnwrap(book(one.id)))
+        XCTAssertEqual(book(one.id)?.status, .archived, "delete lands (an archive, as for any pane to-do)")
+        verbs.archiveAllDoneOnTheBook()
+        XCTAssertEqual(book(three.id)?.status, .archived, "Archive all done lands")
+        XCTAssertEqual(ResolveSettled.bookDone(store: store), [])
+        XCTAssertTrue(documentStore.allOpenDocuments().allSatisfy { $0.docId == "doc-test" },
+                      "and no document was loaded for the Book")
+    }
+
+    /// Hidden where the posture refuses — never an enabled no-op.
+    func test_theBooksVerbsAreHiddenWhereThePostureRefuses() {
+        let reviewer = Posture(LocalWritePermit(permit: .reviewer, actor: .author,
+                                                documentClass: .piece("doc-a")))
+        XCTAssertFalse(reviewer.allows(.task), "premise: a reviewer files no task")
+        XCTAssertEqual(TaskRowVerbs.decide(kind: .paneCreated, posture: reviewer),
+                       TaskRowVerbs(toggle: false, archive: false, delete: false, move: false))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: reviewer, doneCount: 3))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: Posture(.unrestricted), doneCount: 0),
+                       "nothing done: nothing to press")
+        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(posture: Posture(.unrestricted), doneCount: 3))
     }
 
     // MARK: - Requests
@@ -276,11 +422,9 @@ final class ResolvePaneTests: XCTestCase {
                                                 statementAllowsAnswer: true, durable: false)
         XCTAssertFalse(running.answer || running.promote, "a run still arriving has no fates")
 
-        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(mayAct: false, posture: author, doneCount: 3),
-                       "Archive all done is hidden off the open piece")
-        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(mayAct: true, posture: author, doneCount: 0),
-                       "and with nothing done")
-        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(mayAct: true, posture: author, doneCount: 3))
+        XCTAssertFalse(ResolveSettled.offered(
+            scope: .piece(docId: "doc-a", includesBookLevel: false), mayAct: false),
+            "Archive all done lives in the piece's Settled, which is not drawn off the open piece")
     }
 
     // MARK: - Settled (carried item 5)
@@ -325,20 +469,24 @@ final class ResolvePaneTests: XCTestCase {
     // MARK: - Empty states and the incomplete line (carried items 4, 12)
 
     func test_anOutsideSubjectSaysWhatToResolveIsAbout() {
-        XCTAssertEqual(ResolvePane.emptyState(scope: .outside, hasItems: false, offersColdStart: false),
+        XCTAssertEqual(ResolvePane.emptyState(scope: .outside, hasItems: false, hasVisible: false, offersColdStart: false),
                        .outside)
         XCTAssertEqual(ResolvePane.EmptyState.outside.sentence,
                        "To resolve gathers what has been raised about a piece, a Part or the Book: "
                        + "notes, checks, to-dos and questions. Choose one in the tree.")
         XCTAssertEqual(ResolvePane.emptyState(scope: .elsewhere(docId: "doc-x"), hasItems: false,
-                                              offersColdStart: false), .elsewhere)
+                                              hasVisible: false, offersColdStart: false), .elsewhere)
         XCTAssertEqual(ResolvePane.EmptyState.elsewhere.sentence,
                        "This piece belongs to another project. Open that project to see what it raises.")
         let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
-        XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, offersColdStart: true), .coldStart)
-        XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, offersColdStart: false), .nothing)
+        XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, hasVisible: false, offersColdStart: true), .coldStart)
+        XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: false, hasVisible: false, offersColdStart: false), .nothing)
         XCTAssertEqual(ResolvePane.EmptyState.nothing.sentence, "Nothing to resolve.")
-        XCTAssertNil(ResolvePane.emptyState(scope: piece, hasItems: true, offersColdStart: true),
+        XCTAssertEqual(ResolvePane.emptyState(scope: piece, hasItems: true, hasVisible: false,
+                                              offersColdStart: true), .filteredOut,
+                       "items hidden by the filter: one quiet line, never a blank list")
+        XCTAssertEqual(ResolvePane.EmptyState.filteredOut.sentence, "Nothing under this filter.")
+        XCTAssertNil(ResolvePane.emptyState(scope: piece, hasItems: true, hasVisible: true, offersColdStart: true),
                      "items: no empty state")
     }
 
@@ -408,9 +556,14 @@ final class ResolvePaneTests: XCTestCase {
             at: url.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
         let docPath = "manuscript/c1.md"
         try Data("Hello.".utf8).write(to: url.appendingPathComponent(docPath))
+        // A closed piece with a to-do, so the project's walk has real work.
+        try Data("Closed.\n\n- [ ] closed thing".utf8).write(
+            to: url.appendingPathComponent("manuscript/c2.md"))
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [StructureItem(id: "doc-test", title: "C1", type: .document, path: docPath)],
+            structure: [StructureItem(id: "doc-test", title: "C1", type: .document, path: docPath),
+                        StructureItem(id: "doc-closed", title: "C2", type: .document,
+                                      path: "manuscript/c2.md")],
             research: [])
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601

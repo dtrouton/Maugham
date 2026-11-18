@@ -81,7 +81,7 @@ struct ResolveNoteVerbs {
                 // surface lying about what happened.
                 stetFlourishIds.subtract(
                     Set(ids).subtracting(outcome.succeeded))
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                try? await Task.sleep(nanoseconds: ResolveStetHold.nanoseconds)
                 stetFlourishIds.subtract(outcome.succeeded)
             }
         }
@@ -241,7 +241,7 @@ struct ResolveNoteVerbs {
         Task {
             try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
             noteChanged()
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: ResolveStetHold.nanoseconds)
             stetFlourishIds.remove(ann.id)
         }
     }
@@ -275,7 +275,7 @@ struct ResolveNoteVerbs {
                 stetFlourishIds.remove(ann.id)
                 return
             }
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: ResolveStetHold.nanoseconds)
             stetFlourishIds.remove(ann.id)
         }
     }
@@ -425,7 +425,7 @@ struct ResolveNoteVerbs {
                 stetFlourishIds.remove(ann.id)
                 return
             }
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: ResolveStetHold.nanoseconds)
             stetFlourishIds.remove(ann.id)
         }) { host, undo in
             try await host.stetAnnotation(id: ann.id, undoManager: undo)

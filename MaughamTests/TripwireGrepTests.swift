@@ -13570,8 +13570,10 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+Tasks.swift": 2,
         // `archiveProjectTask`'s append (whose ⌘Z is registered only when it
         // landed), and its inverse's — moved with the to-do verbs out of the
-        // tasks pane (shell plan 2 Task 4).
-        "ResolveTaskVerbs.swift": 2,
+        // tasks pane (shell plan 2 Task 4); and a Book to-do's status change
+        // and its inverse, which To resolve's Book Settled needs (it was a
+        // silent no-op in the tasks pane).
+        "ResolveTaskVerbs.swift": 4,
     ]
 
     static func projectTaskOpAppendExcludeLine(_ line: String) -> Bool {

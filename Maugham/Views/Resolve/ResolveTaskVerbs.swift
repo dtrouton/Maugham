@@ -108,15 +108,15 @@ struct ResolveTaskVerbs {
             // Project-scope pane-created tasks have anchor.docId == __project__
             // and there is no Document to mutate. For doc-scope pane-created
             // tasks, mutate the owning Document.
-            if let doc = ownerDoc(of: task) {
+            if Self.docId(of: task) == ProjectStore.projectTasksDocId {
+                // The Book's own to-do: its status op on the project stream
+                // (no Document), behind the stream's door.
+                Self.setProjectTaskStatus(task, to: nextStatus, store: store,
+                                          undoManager: undoManager)
+            } else if let doc = ownerDoc(of: task) {
                 doc.setTaskStatus(id: task.id, status: nextStatus,
                                   undoManager: undoManager)
             }
-            // Project-scope status change isn't shipped in this milestone.
-            // (Spec §11: pane edits for inline tasks are out of scope; the
-            // project pane tasks DO support status toggle via the future
-            // ProjectStore mutation API. For now we leave it as a NOP and
-            // surface the tooltip / no-op.)
         case .inlineMarkdown:
             // Markdown: flip the `[ ]` ↔ `[x]` bracket in the paragraph.
             guard let doc = ownerDoc(of: task),
@@ -170,7 +170,12 @@ struct ResolveTaskVerbs {
     }
 
     func archive(_ task: WriterTask) {
-        guard offered(task).archive, let doc = ownerDoc(of: task) else { return }
+        guard offered(task).archive else { return }
+        if Self.docId(of: task) == ProjectStore.projectTasksDocId {
+            Self.archiveProjectTask(task, store: store, undoManager: undoManager)
+            return
+        }
+        guard let doc = ownerDoc(of: task) else { return }
         doc.archiveTask(id: task.id, undoManager: undoManager)
     }
 
@@ -178,9 +183,79 @@ struct ResolveTaskVerbs {
         // For pane-created tasks, "Delete" is the destructive end-state —
         // it's modeled as an archive op in this milestone (no separate
         // delete op kind), per spec §11 simplification.
-        guard task.kind == .paneCreated, offered(task).delete,
-              let doc = ownerDoc(of: task) else { return }
+        guard task.kind == .paneCreated, offered(task).delete else { return }
+        if Self.docId(of: task) == ProjectStore.projectTasksDocId {
+            Self.archiveProjectTask(task, store: store, undoManager: undoManager)
+            return
+        }
+        guard let doc = ownerDoc(of: task) else { return }
         doc.archiveTask(id: task.id, undoManager: undoManager)
+    }
+
+    // MARK: - The Book's own to-dos (the project stream; no Document)
+
+    /// The Book's own to-dos, every status, derived from the project stream's
+    /// mirror alone — no closed piece is read.
+    static func bookTasks(store: ProjectStore) -> [WriterTask] {
+        TaskDeriver.derive(
+            ops: store.projectTasksOpLog(), paragraphs: [:],
+            docId: ProjectStore.projectTasksDocId, maughamDeviceId: nil).0
+    }
+
+    /// **Archive all done, on the Book** — every done Book to-do the
+    /// posture lets this Mac archive, as one ⌘Z.
+    func archiveAllDoneOnTheBook() {
+        let done = Self.bookTasks(store: store).filter { $0.status == .done && offered($0).archive }
+        guard !done.isEmpty else { return }
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.setActionName("Archive Done Tasks")
+            undoManager?.endUndoGrouping()
+        }
+        for task in done {
+            Self.archiveProjectTask(task, store: store, undoManager: undoManager)
+        }
+    }
+
+    /// A Book to-do's status, on the project stream, with its ⌘Z inverse
+    /// registered only when the op landed (the stream's door may refuse).
+    private static func setProjectTaskStatus(
+        _ task: WriterTask, to status: TaskStatus, store: ProjectStore,
+        undoManager: UndoManager?
+    ) {
+        let op = Op(
+            opId: ULID.generate(),
+            docId: ProjectStore.projectTasksDocId,
+            at: Date(),
+            device: store.projectOpDevice,
+            session: store.projectOpSession,
+            kind: .taskStatusChange,
+            changes: [], sequence: nil,
+            provenance: Op.Provenance(
+                sessionId: store.projectOpSession,
+                taskId: task.id,
+                taskStatus: status.rawValue))
+        guard store.appendProjectTaskOp(op) else { return }
+        guard let inverse = TaskInverse.inverse(
+            undoing: .taskStatusChange, prior: task,
+            docId: ProjectStore.projectTasksDocId,
+            device: store.projectOpDevice, session: store.projectOpSession,
+            sessionId: store.projectOpSession) else { return }
+        OpUndoRegistrar.register(
+            undoManager, actionName: "Change Task Status", target: store,
+            workTaskSink: { [weak store] in store?._lastUndoWorkTask = $0 },
+            undo: { s in
+                // Fire-time guard: only revert what this action wrote.
+                guard let now = bookTasks(store: s).first(where: { $0.id == task.id }),
+                      now.status == status else {
+                    projectStoreLog.error("setProjectTaskStatus undo: \(task.id, privacy: .public) drifted — ignoring")
+                    return
+                }
+                s.appendProjectTaskOp(inverse)
+            },
+            redo: { [weak undoManager] s in
+                Self.setProjectTaskStatus(task, to: status, store: s, undoManager: undoManager)
+            })
     }
 
     /// **New task's act** — files `body` on the open piece or the project,
