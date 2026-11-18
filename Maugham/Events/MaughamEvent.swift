@@ -61,6 +61,12 @@ enum MaughamEvent {
     /// a count over a list, and the comment this replaced said "nine".)
     static let detailSegmentKey = "segment"
 
+    /// Payload key for `.maughamSetDetailSegment`'s filter half (shell plan 2
+    /// Task 7): a `ResolveKeyFilter.rawValue` riding beside `segment` when a
+    /// key that used to open the Annotations, Diagnostics or Tasks pane opens
+    /// To resolve on its filter. Absent for every other post.
+    static let resolveFilterKey = "resolve_filter"
+
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
     /// `detailSegmentKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
@@ -194,6 +200,17 @@ enum MaughamEvent {
     static func postDetailSegment(_ segment: DetailSegment) {
         post(.maughamSetDetailSegment, to: .keyWindow,
              payload: [detailSegmentKey: segment.rawValue])
+    }
+
+    /// Ask the key window's right column to show To resolve on `filter`
+    /// (shell plan 2 Task 7) — ⌘⌥A, ⌘⌥D and ⌘⌥T, and the translation round's
+    /// Open queue. The same event as `postDetailSegment`, so the receiver's
+    /// one selection act (`ProjectWindow.selectDetailSegment`) still reveals
+    /// the column and ends a study; the filter key is what it reads next.
+    static func postResolve(_ filter: ResolveKeyFilter) {
+        post(.maughamSetDetailSegment, to: .keyWindow,
+             payload: [detailSegmentKey: DetailSegment.resolve.rawValue,
+                       resolveFilterKey: filter.rawValue])
     }
 
     /// Ask the key window to run `command` (`RunCommand`: Check Writing,

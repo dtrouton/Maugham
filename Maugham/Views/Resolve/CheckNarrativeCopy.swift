@@ -4,7 +4,7 @@ import MaughamCore
 
 // MARK: - What the pane says, per state — pure, so every sentence is a test without a mount
 
-extension DiagnosticsPane {
+extension CheckNarrative {
     /// **What the wet-ink view has to say about this check, as far as the
     /// empty state's copy is concerned** (M4 P2 Task 1 review, Important 2).
     ///

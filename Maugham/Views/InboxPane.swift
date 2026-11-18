@@ -532,7 +532,7 @@ struct InboxPane: View {
         // house notes about that only look like they disagree.** `ResearchRow`
         // records that ".draggable on the container intercepts pointer/keyboard
         // input on child controls" and lifts its rename `TextField` out;
-        // `TasksPane` records the opposite outcome for `TaskRow`, which ships a
+        // the Tasks pane records the opposite outcome for `TaskRow`, which ships a
         // leading `Toggle(.checkbox)` and a borderless `Button` inside a
         // `.draggable` subtree in this same list style — "row-internal
         // interactive controls capture pointer events in their immediate area;
@@ -540,7 +540,7 @@ struct InboxPane: View {
         // padding". The reconciling fact is the CONTROL CLASS: `ResearchRow`'s
         // case is a `TextField` that needs keyboard focus (`@FocusState`, Return
         // to commit), and this is a tap-activated control, which is `TaskRow`'s
-        // case exactly. So the cost here is `TasksPane`'s stated one — a drag
+        // case exactly. So the cost here is the Tasks pane's stated one — a drag
         // cannot be started from the play button itself — and not a button that
         // stops working. **Smoke it anyway**: playback in place is a shipped
         // feature, and losing it would be a regression rather than a missing new

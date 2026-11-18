@@ -20,8 +20,8 @@ Press ⌘⌥O to swap the right pane into the Outline. It shows every chapter as
 
 ## To-dos
 
-Start any line with `- [ ]` to make a checkbox. Maugham gathers every checkbox across your project into the Tasks pane — open it with ⌘⌥T. Try these, then check them off:
+Start any line with `- [ ]` to make a checkbox. Maugham gathers every checkbox across your project into To resolve, beside everything else waiting on you — ⌘⌥T opens it on your own to-dos. Try these, then check them off:
 
-- [ ] Open the Tasks pane with ⌘⌥T
+- [ ] Open your to-dos with ⌘⌥T
 - [ ] Check this box and watch it move to done
-- [ ] Add a standalone task with the + button in the Tasks pane
+- [ ] Add a standalone to-do with the + button in To resolve

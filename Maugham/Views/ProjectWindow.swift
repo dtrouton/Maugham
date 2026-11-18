@@ -34,10 +34,13 @@ struct ProjectWindow: View {
     /// The Diagnostics pane's gear menu, seeded from `UIState.compilerModel` at
     /// `load()` and written back through `updateUIState` on change.
     @State private var compilerModel: CompilerModelChoice = .standard
-    /// **How wide the annotations queue is looking.** Window state because the
-    /// board's open-notes column sets it from the CENTRE column. Deliberately
-    /// NOT persisted to `UIState`: a scope is a glance, not a home.
-    @State private var annotationScopeRequest: AnnotationScope = .document
+    /// **What To resolve is asked to show next** (shell plan 2 Task 7): a
+    /// filter (⌘⌥A, ⌘⌥D, ⌘⌥T, the translation round's Open queue) or a piece
+    /// to focus (the board's open-notes click). Window state because those
+    /// asks arrive from the menu and the CENTRE column; `ResolvePane` applies
+    /// one once and sets it back to nil. Deliberately NOT persisted to
+    /// `UIState`: a request is an arrival, not a home.
+    @State private var resolveRequest: ResolveRequest?
     /// **What the window is about** (shell p1): what the centre shows
     /// (`open`), what the right column is about (`faces`), and the reference
     /// material opened `beside`. The one truth the centre's routing asks.
@@ -100,7 +103,7 @@ struct ProjectWindow: View {
     /// binder serves. One-way counters, never flags written back (tripwire 2).
     @State private var canvasKeyboardRequest = 0
     @State private var treeKeyboardRequest = 0
-    @State private var detailSegment: DetailSegment = .inspector
+    @State private var detailSegment: DetailSegment = .resolve
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
@@ -497,6 +500,7 @@ struct ProjectWindow: View {
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
+            resolveRequest: $resolveRequest,
             subject: subjectBinding,
             restoreOutcome: $restoreOutcome,
             assistant: assistant,
@@ -819,6 +823,9 @@ struct ProjectWindow: View {
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
         @Binding var detailSegment: DetailSegment
+        /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
+        /// beside the segment (`MaughamEvent.resolveFilterKey`).
+        @Binding var resolveRequest: ResolveRequest?
         /// The window's subject. **Going to a place opens its piece**
         /// (`ManuscriptNavigation`): a `[[wiki-link]]`, the Inspector's Links
         /// row, the statistics window's jump and a find result in a piece all
@@ -849,6 +856,14 @@ struct ProjectWindow: View {
                         showInspector: $showInspector,
                         detailSegment: $detailSegment,
                         assistant: assistant)
+                    // The filter half (shell plan 2 Task 7): a key that used
+                    // to open the Annotations, Diagnostics or Tasks pane opens
+                    // To resolve on that pane's filter. Read after the one
+                    // selection act, so the column is revealed and a study
+                    // ended exactly as for any other pane key.
+                    if let filter = ProjectWindow.resolveFilter(in: note.userInfo) {
+                        resolveRequest = .filter(filter)
+                    }
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
@@ -1241,7 +1256,7 @@ struct ProjectWindow: View {
             selectedPaletteCardId: $selectedPaletteCardId,
             showInspector: $showInspector,
             detailSegment: $detailSegment,
-            annotationScopeRequest: $annotationScopeRequest,
+            resolveRequest: $resolveRequest,
             metrics: $metrics,
             currentElement: $currentElement,
             closePaletteWall: { closePaletteWall() },
@@ -1721,7 +1736,8 @@ struct ProjectWindow: View {
             detailColumnWidth: $detailColumnWidth,
             selectedSubject: facesNavigation,
             detailSegment: $detailSegment,
-            annotationScopeRequest: $annotationScopeRequest,
+            resolveRequest: $resolveRequest,
+            lastParsedScript: lastParsedScript,
             compilerModel: $compilerModel,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             openProjectSettings: openProjectSettings,
@@ -2383,6 +2399,15 @@ struct ProjectWindow: View {
         showInspector.wrappedValue = true     // ensure pane is visible
         assistant.dismiss()
         detailSegment.wrappedValue = seg
+    }
+
+    /// **The filter a `.maughamSetDetailSegment` post asks To resolve for**
+    /// (shell plan 2 Task 7) — `MaughamEvent.postResolve`'s payload, or nil
+    /// for a plain segment post. Pure, so the key's spelling on both sides is
+    /// pinned without a window (`ResolveMountingTests`).
+    static func resolveFilter(in userInfo: [AnyHashable: Any]?) -> ResolveKeyFilter? {
+        guard let raw = userInfo?[MaughamEvent.resolveFilterKey] as? String else { return nil }
+        return ResolveKeyFilter(rawValue: raw)
     }
 
     /// Hand the writer to the first reader's statement, once Project Settings

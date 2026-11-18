@@ -247,8 +247,9 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                // ⌘1–⌘4 are unbound (shell p1 Task 6): the window's subject
-                // decides what it shows, and there is no mode to switch to.
+                // ⌘1 is To resolve (shell plan 2 Task 7); ⌘2–⌘4 are unbound
+                // (shell p1 Task 6): the window's subject decides what it
+                // shows, and there is no mode to switch to.
                 Button("Toggle Focus Mode") {
                     MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
                 }
@@ -278,6 +279,9 @@ struct MaughamApp: App {
                 // (SessionAndNavigationModifier sets showInspector = true).
                 // Splitting these across two dispatch paths meant ⌘⌥4–8
                 // silently no-opped with the column closed.
+                // ⌘1: the right column's lead position (shell plan 2 Task 7).
+                Button("To Resolve") { postSegment(.resolve) }
+                    .keyboardShortcut("1", modifiers: .command)
                 Button("Inspector") { postSegment(.inspector) }
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
@@ -296,11 +300,15 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
                 }
                     .keyboardShortcut("o", modifiers: [.command, .option])
-                Button("Annotations") { postSegment(.annotations) }
+                // ⌘⌥A, ⌘⌥D and ⌘⌥T keep their keys (shell plan 2 Task 7):
+                // the three panes they opened are To resolve now, so each
+                // opens it on the filter that pane was — the rounds' notes,
+                // the check's findings, the writer's own to-dos and notes.
+                Button("Annotations") { MaughamEvent.postResolve(.rounds) }
                     .keyboardShortcut("a", modifiers: [.command, .option])
                 Button("History") { postSegment(.history) }
                     .keyboardShortcut("h", modifiers: [.command, .option])
-                Button("Tasks") { postSegment(.tasks) }
+                Button("Tasks") { MaughamEvent.postResolve(.mine) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
                 // ⌘⌥B opens the Inbox in the centre, as a click on its tree
                 // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
@@ -339,7 +347,7 @@ struct MaughamApp: App {
                     .keyboardShortcut("y", modifiers: [.command, .option])
                 Button("Visual Language") { postSegment(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
-                Button("Diagnostics") { postSegment(.diagnostics) }
+                Button("Diagnostics") { MaughamEvent.postResolve(.checks) }
                     .keyboardShortcut("d", modifiers: [.command, .option])
                 // ⌘⌥R is Research's, so References takes the letter §6.3 of the
                 // redesign assigned it: "E references".

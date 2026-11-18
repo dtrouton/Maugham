@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A single row in `TasksPane`. Renders the checkbox toggle, body text,
+/// A single row in the Tasks pane. Renders the checkbox toggle, body text,
 /// source-kind badge, and a kebab menu (Archive + Delete for pane-created).
 /// One click on the source badge dispatches `onJump`; double-click or Return
 /// on the row jumps too, through the pane's List primary action — the row
@@ -56,7 +56,7 @@ struct TaskRow: View {
         // interior — the writer could only drag from the row padding
         // (above/below the body), not from the body text. Jump-to-source is
         // the badge (one click) and the List's primary action (double-click
-        // or Return, in `TasksPane`). The body text carries no tap gesture
+        // or Return, in the Tasks pane). The body text carries no tap gesture
         // either (tripwire 9): a double-tap there ate the row's select click.
     }
 

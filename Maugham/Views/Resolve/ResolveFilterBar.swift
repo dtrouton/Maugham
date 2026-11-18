@@ -22,6 +22,11 @@ struct ResolveFilterBar: View {
     let selectionModeOn: Bool
     /// New To-do, where `TaskCreationScopes` files one anywhere.
     let showsNewTodo: Bool
+    /// A check landed notes the writer has not had in front of them: the
+    /// Checks chip wears the unread dot (shell plan 2 Task 7). The list
+    /// clears it the moment it shows the checks' items, so the dot stands
+    /// only while another filter hides them.
+    var checksUnread: Bool = false
     let onToggle: (ResolveSource) -> Void
     let onToggleSelectionMode: () -> Void
     let onNewTodo: () -> Void
@@ -68,10 +73,21 @@ struct ResolveFilterBar: View {
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .foregroundStyle(on ? Color.white : Color.primary)
                 .background(Capsule().fill(on ? Color.accentColor : Color.secondary.opacity(0.15)))
+                .overlay(alignment: .topTrailing) {
+                    if Self.wearsUnreadDot(chip, checksUnread: checksUnread) {
+                        UnreadDot().offset(x: 2, y: -2)
+                    }
+                }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// Whether `chip` wears the unread dot: the Checks chip, while a check's
+    /// notes are unread. A dot, never a number.
+    static func wearsUnreadDot(_ chip: ResolveSource, checksUnread: Bool) -> Bool {
+        chip == .checks && checksUnread
     }
 
     /// A chip's word. A pass the manifest no longer lists keeps a chip
@@ -87,50 +103,16 @@ struct ResolveFilterBar: View {
     }
 }
 
-// MARK: - New To-do
+// MARK: - The unread dot
 
-/// **New To-do's sheet** — moved from `TasksPane` unchanged, so it outlives
-/// that pane. Offers only the scopes `TaskCreationScopes` files in.
-@MainActor
-struct NewTaskSheet: View {
-    @Binding var taskBody: String
-    @Binding var scope: ResolveTaskScope
-    let canPickDocumentScope: Bool
-    /// Whether the project's own stream takes a task from this Mac (P3c Task
-    /// 8) — false only for a posture that files no task there.
-    var canPickProjectScope: Bool = true
-    let onCommit: () -> Void
-    let onCancel: () -> Void
-
+/// **The unread signal** (shell plan 2 Task 7): a small accent dot, on To
+/// resolve's position in the right column's picker and on its Checks chip.
+/// A dot and never a count — how many is the list's to say.
+struct UnreadDot: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New task")
-                .font(.headline)
-            TextField("Task body", text: $taskBody)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Picker("Scope", selection: $scope) {
-                    if canPickDocumentScope {
-                        Text("Document")
-                            .tag(ResolveTaskScope.document)
-                    }
-                    if canPickProjectScope {
-                        Text("Project").tag(ResolveTaskScope.project)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .disabled(!(canPickDocumentScope && canPickProjectScope))
-                Spacer()
-                Button("Cancel", role: .cancel, action: onCancel)
-                Button("Add", action: onCommit)
-                    .keyboardShortcut(.return)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(taskBody.trimmingCharacters(
-                        in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 380)
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: 6, height: 6)
+            .accessibilityLabel("Unread")
     }
 }

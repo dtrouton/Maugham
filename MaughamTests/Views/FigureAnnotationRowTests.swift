@@ -164,30 +164,9 @@ final class FigureAnnotationRowTests: XCTestCase {
             status: .open, userResponse: nil, resolvedAt: nil, isStale: false))
     }
 
-    /// A piece whose only notes are on its own table still has a section —
-    /// the board's count click-through lands on it — with the figure's
-    /// section right after it, inside its group; only a whole-book figure
-    /// goes under "Figures".
-    func test_aPiecesFigureFollowsItsPiece_andOnlyWholeBookFiguresGoUnderFigures() {
-        let structure = [
-            StructureItem(id: "grp-1", title: "Part", type: .group, children: [
-                StructureItem(id: "doc-a", title: "A", type: .document, path: "a.md"),
-                StructureItem(id: "doc-b", title: "B", type: .document, path: "b.md"),
-            ]),
-        ]
-        let owned = FigureRecord(id: "fig-aaaa1111", name: "cash", kind: .table, piece: "doc-a", path: "figures/cash.csv")
-        let book = FigureRecord(id: "fig-bbbb2222", name: "ledger", kind: .table, piece: nil, path: "figures/ledger.csv")
-        let orphan = FigureRecord(id: "fig-cccc3333", name: "old", kind: .table, piece: "doc-gone", path: "figures/old.csv")
-        let sections = AnnotationScopeSections.build(
-            rows: ReviewBoardRows.derive(structure: structure),
-            annotations: [figureNote(owned.id), figureNote(book.id), figureNote(orphan.id)],
-            figures: [owned, book, orphan])
-        XCTAssertEqual(sections.map(\.id),
-                       ["grp-1", "doc-a", owned.id, AnnotationScopeSections.figuresHeaderId, book.id, orphan.id])
-        XCTAssertEqual(sections[1].annotations, [], "the piece's own section, empty, is the count's landing place")
-        XCTAssertEqual(sections[2].title, "Table: cash")
-        XCTAssertEqual(sections[2].annotations.map(\.id), ["n-\(owned.id)"])
-    }
+    // The Annotations pane's per-piece sections went with that pane (shell
+    // plan 2 Task 7); where a figure's notes file at the Book's scope is
+    // `ResolveGroupingTests.test_figureNotesFollowThePiecesAtBookScope`.
 
     // MARK: - The inspector
 
@@ -345,7 +324,7 @@ final class FigureAnnotationQueueHostTests: XCTestCase {
     /// typed refusal), never swallowed.
     func test_aRefusedAnswerIsSaid() async throws {
         let (store, _, _) = try await openBook()
-        let sentence = AnnotationsPane.sayRefused(FigureNoteError.withdrawn, projectURL: store.projectURL)
+        let sentence = ResolveNoteVerbs.sayRefused(FigureNoteError.withdrawn, projectURL: store.projectURL)
         XCTAssertEqual(sentence, "That note was deleted.")
     }
 }

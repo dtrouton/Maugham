@@ -255,7 +255,7 @@ final class DiagnosticsStore {
     }
 
     /// docIds the writer has told the cold-start offer "Not now" to, on THIS
-    /// device — spec §4's "never re-asked as a nag" (`DiagnosticsPane`'s
+    /// device — spec §4's "never re-asked as a nag" (the Diagnostics pane's
     /// `showsColdStartOffer`). Loaded once here rather than per-doc-lazily
     /// like `FileContent`: a refusal is a single bit with no run, no notes and
     /// no drift ring beside it, and a document can be refused before it has
@@ -317,7 +317,7 @@ final class DiagnosticsStore {
     /// construction newer than the sidecar, which holds the last run that
     /// finished — so re-reading the file mid-stream would put an OLDER answer
     /// on a pane whose header says "Checking…". The real caller is
-    /// `DiagnosticsPane.onAppear`: a writer who presses ⌘R from the editor and
+    /// `CheckNarrative.onAppear`: a writer who presses ⌘R from the editor and
     /// then opens the pane mounts it mid-check, and without this the report
     /// they came to watch blinks back to the previous run until the next
     /// section lands. `discardPreview` is how a preview is deliberately
@@ -501,7 +501,7 @@ final class DiagnosticsStore {
     ///
     /// Does **not** bump `version`: the notes did not change, and a mounted
     /// pane calls this from its own reaction to a version change (see
-    /// `DiagnosticsPane.body`), which a bump here would re-enter.
+    /// `CheckNarrative.body`), which a bump here would re-enter.
     func markRead(docId: String, kind: RunKind) {
         unread[SlotKey(docId: docId, kind: kind)] = nil
     }
@@ -593,7 +593,7 @@ final class DiagnosticsStore {
     ///
     /// So it refuses, in memory as well as on disk: a preview's notes are not
     /// the writer's to dismiss, because the run that raised them has not
-    /// finished raising them. `DiagnosticsPane.offersDurableActions` is why no
+    /// finished raising them. `CheckNarrative.offersDurableActions` is why no
     /// writer can reach this — the refusal here is what makes that a locked
     /// door rather than a hidden handle, and it is the rule any future per-note
     /// mutator inherits.
@@ -743,7 +743,7 @@ final class DiagnosticsStore {
     }
 
     /// Remember the refusal so the offer never renders again for `docId`
-    /// (`DiagnosticsPane.showsColdStartOffer`) — persisted immediately, the
+    /// (`CheckNarrative.showsColdStartOffer`) — persisted immediately, the
     /// same "a decision the writer made must survive a relaunch" discipline
     /// every other write in this store follows. A second refusal of an
     /// already-refused doc is a no-op: nothing changed, nothing to persist

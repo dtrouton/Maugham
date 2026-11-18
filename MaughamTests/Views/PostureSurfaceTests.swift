@@ -711,12 +711,15 @@ final class PostureSurfaceTests: XCTestCase {
                        "premise: not her piece")
 
         // The window shows B — the piece she may NOT answer — so a row judged
-        // by the window's posture would lose A's verbs too.
-        let view = AnnotationsPane(
-            document: docs[1], store: store, documentStore: documentStore,
-            scope: .constant(.project(focusPiece: nil)),
-            onTravel: { _ in }, orchestrator: nil, diagnostics: nil,
-            onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+        // by the window's posture would lose A's verbs too. To resolve at the
+        // Book's scope (the old queue's project scope, shell plan 2 Task 7).
+        let view = ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item("doc-b"), faces: .project),
+            script: nil, diagnostics: nil, orchestrator: nil, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil))
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
         let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
@@ -1017,12 +1020,14 @@ final class PostureSurfaceTests: XCTestCase {
         let diagnostics = DiagnosticsStore(
             projectRoot: projectURL, device: DeviceSlug.make(from: "test-mac"))
         func mount(_ doc: Document) -> NSWindow {
-            let view = AnnotationsPane(
-                document: doc, store: store, documentStore: documentStore,
-                scope: .constant(.document),
-                onTravel: { _ in }, orchestrator: CompilerOrchestrator(),
-                diagnostics: diagnostics,
-                onSetActivePass: { _, _ in }, onSetPassState: { _, _, _ in })
+            // To resolve's head carries the cockpit (shell plan 2 Task 7).
+            let view = ResolvePane(
+                store: store, documentStore: documentStore,
+                subject: WindowSubject(open: .item(doc.docId), faces: .item(doc.docId)),
+                script: nil, diagnostics: diagnostics, orchestrator: CompilerOrchestrator(),
+                world: nil, compilerModel: .standard, onCompilerModelChange: { _ in },
+                onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+                request: .constant(nil))
                 .environment(UserPreferences(
                     defaults: UserDefaults(suiteName: "PostureSurface-\(UUID())")!))
             let window = TestWindow.mount(AnyView(view), size: CGSize(width: 360, height: 700))
@@ -1114,17 +1119,17 @@ final class PostureSurfaceTests: XCTestCase {
             DiagnosticsPostures(document: document, statement: { _, _ in statement })
         }
         let theReviewer = pane(reviewer, reviewerOnAPieceStatement)
-        XCTAssertFalse(DiagnosticsPane.offersDisposal(theReviewer))
-        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: theReviewer))
+        XCTAssertFalse(CheckNarrative.offersDisposal(theReviewer))
+        XCTAssertFalse(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: theReviewer))
         let herPiece = pane(piecesAuthorInA, piecesAuthorOnHerPieceStatement)
-        XCTAssertTrue(DiagnosticsPane.offersDisposal(herPiece))
-        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: herPiece))
+        XCTAssertTrue(CheckNarrative.offersDisposal(herPiece))
+        XCTAssertTrue(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: herPiece))
         let theirPiece = pane(piecesAuthorInB, piecesAuthorOnAnotherPieceStatement)
-        XCTAssertFalse(DiagnosticsPane.offersDisposal(theirPiece))
-        XCTAssertFalse(DiagnosticsPane.offersAnAnswer(docId: "doc-b", posture: theirPiece))
+        XCTAssertFalse(CheckNarrative.offersDisposal(theirPiece))
+        XCTAssertFalse(CheckNarrative.offersAnAnswer(docId: "doc-b", posture: theirPiece))
         let author = pane(bookAuthor, bookAuthor)
-        XCTAssertTrue(DiagnosticsPane.offersDisposal(author))
-        XCTAssertTrue(DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: author))
+        XCTAssertTrue(CheckNarrative.offersDisposal(author))
+        XCTAssertTrue(CheckNarrative.offersAnAnswer(docId: "doc-a", posture: author))
 
         // The answer asks the statement it WRITES — `.document(docId)`'s
         // intent — and nothing else.
@@ -1133,7 +1138,7 @@ final class PostureSurfaceTests: XCTestCase {
             asked.append("\(kind.rawValue)|\(scope.rawValue)")
             return self.bookAuthor
         })
-        _ = DiagnosticsPane.offersAnAnswer(docId: "doc-a", posture: recording)
+        _ = CheckNarrative.offersAnAnswer(docId: "doc-a", posture: recording)
         XCTAssertEqual(asked, ["intent|\(Statement.Scope.document("doc-a").rawValue)"])
     }
 
@@ -1597,10 +1602,10 @@ final class PostureSurfaceTests: XCTestCase {
         // Ruling U: Promote to Task and Accept as task ask `.task` of THIS
         // document.
         let pane = { (doc: Posture) in DiagnosticsPostures(document: doc, statement: { _, _ in doc }) }
-        XCTAssertFalse(DiagnosticsPane.offersATask(pane(reviewer)))
-        XCTAssertFalse(DiagnosticsPane.offersATask(pane(piecesAuthorInB)))
-        XCTAssertTrue(DiagnosticsPane.offersATask(pane(piecesAuthorInA)))
-        XCTAssertTrue(DiagnosticsPane.offersATask(pane(bookAuthor)))
+        XCTAssertFalse(CheckNarrative.offersATask(pane(reviewer)))
+        XCTAssertFalse(CheckNarrative.offersATask(pane(piecesAuthorInB)))
+        XCTAssertTrue(CheckNarrative.offersATask(pane(piecesAuthorInA)))
+        XCTAssertTrue(CheckNarrative.offersATask(pane(bookAuthor)))
     }
 
     /// **The task door**: a task op the stamp refuses is never appended, and
@@ -2169,25 +2174,27 @@ final class PostureSurfaceTests: XCTestCase {
         }
     }
 
-    /// **"Archive all done" asks the SCOPE's own stream** — project scope the
-    /// project stream, never whichever document the window shows.
-    func test_archiveAllDoneAsksTheScopesOwnStream() {
-        typealias Pane = TasksPane
-        XCTAssertTrue(Pane.offersArchiveAllDone(
-            in: .project, document: reviewer, project: bookAuthor),
-            "a reviewer's shown chapter does not hide the project's own archive")
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .project, document: bookAuthor, project: reviewer),
-            "…nor does an allowed chapter lend the project stream its answer")
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .project, document: nil, project: reviewer))
-        XCTAssertTrue(Pane.offersArchiveAllDone(
-            in: .document, document: piecesAuthorInA, project: reviewer))
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .document, document: piecesAuthorInB, project: bookAuthor))
-        XCTAssertFalse(Pane.offersArchiveAllDone(
-            in: .document, document: nil, project: bookAuthor),
-            "no document shown: nothing in document scope")
+    /// **"Archive all done" asks the SCOPE's own stream** — the Book's
+    /// Settled the project stream, the piece's Settled the open piece, never
+    /// whichever document the window shows. Re-pointed from the Tasks pane to
+    /// To resolve's two Settled sections (shell plan 2 Task 7).
+    func test_archiveAllDoneAsksTheScopesOwnStream() throws {
+        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(posture: bookAuthor, doneCount: 2))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: reviewer, doneCount: 2))
+        XCTAssertTrue(ResolveSettled.offersArchiveAllDone(posture: piecesAuthorInA, doneCount: 1))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: piecesAuthorInB, doneCount: 1))
+        XCTAssertFalse(ResolveSettled.offersArchiveAllDone(posture: bookAuthor, doneCount: 0),
+                       "nothing done: nothing to archive")
+        // Each section is handed ITS stream's posture: the Book's the project
+        // stream's, the piece's the open piece's — never the shown chapter's
+        // for the Book, nor the project's for the piece.
+        let pane = try SourceTree.sourceOfType("ResolvePane", under: ["Maugham"])
+        let book = try XCTUnwrap(pane.range(of: "ResolveBookSettledSection("))
+        XCTAssertTrue(pane[book.upperBound...].prefix(400)
+                        .contains("posture: documentStore.posture(forDocId: ProjectStore.projectTasksDocId)"))
+        let piece = try XCTUnwrap(pane.range(of: "ResolveSettledSection("))
+        XCTAssertTrue(pane[piece.upperBound...].prefix(400)
+                        .contains("posture: documentStore.posture(forDocId: acting.docId)"))
     }
 
     /// **Only a collection's window says anything about starting a piece** —
@@ -2225,8 +2232,8 @@ final class PostureSurfaceTests: XCTestCase {
             $0.activePassMemory.record(piece: "doc-a", passId: "line")
         }
         var written: [(String, String, PassState?)] = []
-        func decide(_ docId: String, project: Bool = false) -> AnnotationsPane.PassOrderNudgeDecision? {
-            AnnotationsPane.passOrderNudgeDecision(
+        func decide(_ docId: String, project: Bool = false) -> ResolveHead.PassOrderNudgeDecision? {
+            ResolveHead.passOrderNudgeDecision(
                 isProjectScope: project, docId: docId,
                 memory: h.documentStore.uiState.activePassMemory,
                 passes: h.store.manifest.effectiveReviewPasses,
@@ -2264,14 +2271,11 @@ final class PostureSurfaceTests: XCTestCase {
         try await h.store.setPassState(id: "doc-a", passId: "structural", .done)
         XCTAssertNil(decide("doc-a"), "the earlier pass is closed: the nudge goes")
 
-        // And the pane draws exactly this decision.
-        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
-            encoding: .utf8)
-        let nudge = try XCTUnwrap(pane.range(of: "private var passOrderNudge: some View {"))
-        let body = String(pane[nudge.upperBound...].prefix(600))
-        XCTAssertTrue(body.contains("Self.passOrderNudgeDecision("))
+        // And To resolve's head draws exactly this decision (shell plan 2
+        // Task 7; the Annotations pane that drew it was deleted).
+        let head = try SourceTree.sourceOfType("ResolveHeadView", under: ["Maugham"])
+        let nudge = try XCTUnwrap(head.range(of: "ResolveHead.passOrderNudgeDecision("))
+        let body = String(head[nudge.lowerBound...].prefix(600))
         XCTAssertTrue(body.contains("documentStore.posture(forDocId:"))
     }
 }

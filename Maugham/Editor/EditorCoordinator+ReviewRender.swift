@@ -265,7 +265,7 @@ extension EditorCoordinator {
     /// Records the stet immediately (never blocked), dismisses the actions row,
     /// then holds the card on-screen with a STET treatment for ~2s before
     /// refreshing the marks (which drops the now-stetted annotation out of the
-    /// open set). Mirrors the AnnotationsPane dwell so the gesture reads here too.
+    /// open set). Mirrors the Annotations pane dwell so the gesture reads here too.
     ///
     /// M3 P2 moved the flourish here from reject, where it had been since the
     /// margin card shipped: "stet" means *let it stand*, and a rejected note is

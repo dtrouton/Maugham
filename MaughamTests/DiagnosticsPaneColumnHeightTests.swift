@@ -62,13 +62,13 @@ private struct ThreeColumnHarness<Detail: View>: View {
 private struct UnbreakableSentencePane: View {
     var body: some View {
         VStack(spacing: 0) {
-            Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
+            Text(CheckNarrative.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
                 .font(.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8).padding(.vertical, 6)
             Divider()
             VStack(spacing: 12) {
-                Text(DiagnosticsPane.coldStartOfferSentence)
+                Text(CheckNarrative.coldStartOfferSentence)
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -223,7 +223,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
     /// ideal for the width it is PROPOSED, which is the whole of what the
     /// removed modifier was believed to be providing.
     func test_theOffersSentenceStillWrapsRatherThanTruncating() {
-        assertWraps(DiagnosticsPane.coldStartOfferSentence,
+        assertWraps(CheckNarrative.coldStartOfferSentence,
                     font: .callout, at: 280)
     }
 
@@ -232,7 +232,7 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
     /// told nothing — so it must wrap rather than truncate. It does, without the
     /// modifier: same measurement, same reasoning, the longer sentence.
     func test_theHeadersFailureSentenceStillWraps() {
-        assertWraps(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []),
+        assertWraps(CheckNarrative.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []),
                     font: .caption, at: 240)
     }
 
@@ -290,26 +290,31 @@ final class DiagnosticsPaneColumnHeightTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// The three columns with the REAL `DiagnosticsPane` on the right, showing
-    /// the cold-start offer: a never-run document with more than a stub of prose
-    /// and no refusal on record (`DiagnosticsPane.showsColdStartOffer`).
+    /// The three columns with the REAL cold-start offer on the right, as To
+    /// resolve draws it for a never-run document with more than a stub of
+    /// prose and no refusal on record (`CheckNarrative.showsColdStartOffer`).
+    /// The Diagnostics pane that used to host it was deleted in shell plan 2
+    /// Task 7; `DiagnosticsColdStartOffer` is the site the defect lived in, and
+    /// To resolve mounts it whole (`DetailPaneColumnHeightCensusTests` walks
+    /// the mounted list).
     private func mountWithTheOffer() async throws -> (NSWindow, NSSplitView, NSTableView) {
         let store = try await collection(pieces: 8)
         let document = try await twoParagraphDocument(in: store)
         let diagnostics = DiagnosticsStore(
             projectRoot: store.url, device: DeviceSlug.make(from: "test-mac"))
         XCTAssertTrue(
-            DiagnosticsPane.showsColdStartOffer(
+            CheckNarrative.showsColdStartOffer(
                 state: .neverRun, liveParagraphCount: document.sequence.count,
                 hasRefused: diagnostics.hasRefusedColdStart(docId: document.docId)),
             "premise: this document is one the offer is made for")
 
         let (window, split, table) = try await mount(store: store, detailWidth: 280) {
-            DiagnosticsPane(
-                posture: .everyVerbForTesting,
-                orchestrator: CompilerOrchestrator(), diagnostics: diagnostics,
-                docId: document.docId, currentText: { _ in nil },
-                compilerModel: .standard, activeDocument: { document })
+            VStack(spacing: 0) {
+                DiagnosticsColdStartOffer(
+                    docId: document.docId, diagnostics: diagnostics, otherLoopLine: nil)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         return (window, split, table)
     }

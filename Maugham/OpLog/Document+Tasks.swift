@@ -15,7 +15,7 @@ extension Document {
     /// sourced from the shared `TaskMarkup.lineContainsTaskMarker`
     /// predicate (MaughamCore) — the single source of truth for what
     /// counts as task markup, so this site can't independently drift
-    /// from `TaskAnchorAlignment` or `TasksPane` again.
+    /// from `TaskAnchorAlignment` or the Tasks pane again.
     internal static func changeTouchesTaskMarkup(
         prior: String?, next: String?
     ) -> Bool {
@@ -555,7 +555,7 @@ extension Document {
 
     /// - Parameter suppressUndoStackClear: ONLY for batch callers that have
     ///   already performed the D1 `removeAllActions` themselves, BEFORE opening
-    ///   their undo group (`TasksPane.archiveAllDone`). The per-call clear below
+    ///   their undo group (the Tasks pane's `archiveAllDone`). The per-call clear below
     ///   would otherwise fire INSIDE the caller's open `beginUndoGrouping` —
     ///   `removeAllActions` inside a manual group corrupts NSUndoManager (the
     ///   T5 crash class: unbalanced group, earlier inverses erased). A batch

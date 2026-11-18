@@ -1,0 +1,247 @@
+import XCTest
+import SwiftUI
+import MaughamCore
+@testable import Maugham
+
+/// **To resolve takes the right column** (shell plan 2 Task 7): ⌘1, the three
+/// old pane keys, where it is offered, the unread dot, a retired segment's
+/// decode, and the censuses that the three panes are gone and that a run has
+/// one delivery path. Pure functions and source censuses; nothing is pressed
+/// (tripwire 33).
+@MainActor
+final class ResolveMountingTests: XCTestCase {
+
+    private typealias Toggle = DetailPaneToggle<EmptyView>
+
+    private func source(_ relative: String) throws -> String {
+        try SourceTree.read(relative)
+    }
+
+    /// The shortcut text of the first View-menu item after `item`.
+    private func shortcut(after item: String, in app: String) throws -> String {
+        let at = try XCTUnwrap(app.range(of: item), "no View-menu item contains \(item)")
+        let after = app[at.upperBound...]
+        let key = try XCTUnwrap(after.range(of: ".keyboardShortcut("),
+                                "the item \(item) carries no shortcut at all")
+        return String(after[key.lowerBound...].prefix(60))
+    }
+
+    // MARK: - Keys
+
+    func test_commandOneSelectsToResolve() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        XCTAssertTrue(try shortcut(after: "postSegment(.resolve)", in: app)
+                        .hasPrefix(#".keyboardShortcut("1", modifiers: .command)"#),
+                      "⌘1 is To resolve's, bound on its View-menu item")
+        // A plain segment post carries no filter: ⌘1 opens To resolve as it
+        // stands.
+        XCTAssertNil(ProjectWindow.resolveFilter(
+            in: [MaughamEvent.detailSegmentKey: DetailSegment.resolve.rawValue]))
+        XCTAssertEqual(DetailSegment.pickerOrder.first, .resolve, "To resolve leads the column")
+    }
+
+    func test_eachOldPaneKeyOpensToResolveWithItsFilter() throws {
+        let app = try source("Maugham/MaughamApp.swift")
+        let expected: [(ResolveKeyFilter, String)] = [(.rounds, "a"), (.checks, "d"), (.mine, "t")]
+        for (filter, letter) in expected {
+            XCTAssertTrue(
+                try shortcut(after: "MaughamEvent.postResolve(.\(filter.rawValue))", in: app)
+                    .hasPrefix(#".keyboardShortcut("\#(letter)", modifiers: [.command, .option])"#),
+                "⌘⌥\(letter.uppercased()) opens To resolve on \(filter)")
+        }
+        for gone in ["postSegment(.annotations)", "postSegment(.diagnostics)", "postSegment(.tasks)"] {
+            XCTAssertFalse(app.contains(gone), "\(gone) names a deleted pane")
+        }
+        // The receiver reads the filter the post carries, on the one key.
+        for filter in [ResolveKeyFilter.rounds, .checks, .mine, .questions] {
+            XCTAssertEqual(ProjectWindow.resolveFilter(in: [
+                MaughamEvent.detailSegmentKey: DetailSegment.resolve.rawValue,
+                MaughamEvent.resolveFilterKey: filter.rawValue]), filter)
+        }
+        // The translation round's Open queue asks for Questions.
+        let report = try source("Maugham/Views/Publish/TranslationRoundReportView.swift")
+        XCTAssertTrue(report.contains("MaughamEvent.postResolve(.questions)"))
+        // The receiver: the one selection act, then the request.
+        let receiver = try SourceTree.declaration(
+            named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window)", under: "Maugham")
+        let select = try XCTUnwrap(receiver.range(of: "ProjectWindow.selectDetailSegment("))
+        let request = try XCTUnwrap(receiver.range(of: "resolveRequest = .filter(filter)"))
+        XCTAssertLessThan(select.lowerBound, request.lowerBound,
+                          "the column is revealed before the filter is asked for")
+    }
+
+    // MARK: - Where it is offered
+
+    func test_toResolveIsOfferedWhenTheFacesPieceIsNotOpen() {
+        // The canvas in the centre, the faces on a piece no editor holds.
+        let canvasOverPiece = WindowSubject(open: .canvas, faces: .item("doc-a"), beside: nil)
+        let offered = Toggle.visibleSegments(subject: canvasOverPiece)
+        XCTAssertTrue(offered.contains(.resolve), "To resolve reads a piece without loading it")
+        // Plan 1's stopgap stands for the panes that still read a document.
+        for waiting in [DetailSegment.history, .translation, .references] {
+            XCTAssertFalse(offered.contains(waiting), "\(waiting) keeps `needsADocument`")
+        }
+        // …and To resolve is offered on every other subject too: it says
+        // itself what it is about.
+        for subject in [WindowSubject.book,
+                        WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: nil),
+                        WindowSubject(open: .canvas, faces: .canvas, beside: nil)] {
+            XCTAssertEqual(Toggle.visibleSegments(subject: subject).first, .resolve)
+        }
+        XCTAssertFalse(DetailSegment.needsADocument.contains(.resolve))
+    }
+
+    // MARK: - The unread dot
+
+    func test_theUnreadDotLandsOnToResolve() throws {
+        XCTAssertEqual(Toggle.unreadDotSegment, .resolve)
+        XCTAssertTrue(Toggle.showsUnreadDot(unreadChecks: 3))
+        XCTAssertFalse(Toggle.showsUnreadDot(unreadChecks: 0))
+        let open = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: nil)
+        let segments = Toggle.visibleSegments(subject: open)
+        XCTAssertEqual(Toggle.badgeOffset(of: .resolve, in: segments), segments.count - 1,
+                       "the dot rides To resolve's position, the column's first")
+        // The chip: Checks wears it, nothing else does.
+        XCTAssertTrue(ResolveFilterBar.wearsUnreadDot(.checks, checksUnread: true))
+        XCTAssertFalse(ResolveFilterBar.wearsUnreadDot(.checks, checksUnread: false))
+        for other in [ResolveSource.mine, .questions, .others, .pass("line")] {
+            XCTAssertFalse(ResolveFilterBar.wearsUnreadDot(other, checksUnread: true))
+        }
+        // A dot, never a number: the picker draws `UnreadDot` over To
+        // resolve and no counted badge over it.
+        let toggle = try source("Maugham/Views/DetailPaneToggle.swift")
+        XCTAssertTrue(toggle.contains("unreadDot(over: Self.unreadDotSegment"))
+        XCTAssertTrue(toggle.contains("UnreadDot()"))
+        XCTAssertFalse(toggle.contains("badge(over: .resolve"))
+        XCTAssertFalse(toggle.contains("diagnosticsUnreadCount"))
+        let bar = try source("Maugham/Views/Resolve/ResolveFilterBar.swift")
+        XCTAssertTrue(bar.contains("UnreadDot()"))
+        // The clearing rule the Diagnostics pane kept: showing the checks'
+        // items reads them — on appear, on a filter change, and when notes
+        // land while they are on screen.
+        XCTAssertTrue(ResolveFilter.clearsUnreadChecks(selection: []))
+        XCTAssertTrue(ResolveFilter.clearsUnreadChecks(selection: [.checks, .mine]))
+        XCTAssertFalse(ResolveFilter.clearsUnreadChecks(selection: [.mine]))
+        let pane = try source("Maugham/Views/Resolve/ResolvePane.swift")
+        XCTAssertTrue(pane.contains(".onChange(of: diagnostics?.version) { _, _ in markChecksRead() }"))
+    }
+
+    // MARK: - UIState
+
+    func test_aRetiredSegmentDecodesToToResolve() throws {
+        for retired in ["annotations", "diagnostics", "tasks", "inbox", "outline", "research", "palette"] {
+            let raw = #"{"schemaVersion": 5, "detailSegment": "\#(retired)", "isNoChromeOn": true}"#
+            let decoded = try JSONDecoder().decode(UIState.self, from: Data(raw.utf8))
+            XCTAssertEqual(decoded.detailSegment, .resolve, "\(retired) opens on To resolve")
+            XCTAssertTrue(decoded.isNoChromeOn, "the rest of the file still decodes")
+        }
+        let missing = try JSONDecoder().decode(UIState.self, from: Data(#"{"schemaVersion": 5}"#.utf8))
+        XCTAssertEqual(missing.detailSegment, .resolve)
+        let kept = try JSONDecoder().decode(
+            UIState.self, from: Data(#"{"schemaVersion": 5, "detailSegment": "history"}"#.utf8))
+        XCTAssertEqual(kept.detailSegment, .history, "a live segment is kept")
+        XCTAssertEqual(UIState().detailSegment, .resolve, "a new window opens on To resolve")
+    }
+
+    // MARK: - The callers that used to select a deleted pane
+
+    func test_theBoardsOpenNotesAndAFiguresShowNotesSelectToResolve() throws {
+        let centre = try SourceTree.sourceOfType("CentreColumn", under: ["Maugham"])
+        XCTAssertTrue(centre.contains("detailSegment = .resolve"))
+        XCTAssertTrue(centre.contains("resolveRequest = .focus(groupOwnerId: pieceId)"))
+        let right = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
+        XCTAssertTrue(right.contains("detailSegment = .resolve"))
+        XCTAssertTrue(right.contains("script: lastParsedScript"),
+                      "the window's parse reaches the list for scene grouping")
+        let toggle = try source("Maugham/Views/DetailPaneToggle.swift")
+        for wired in ["onTravel:", "drawsFigure: drawsFigure", "revealFigure: revealFigure",
+                      "revealFigureCell: revealFigureCell", "request: $resolveRequest",
+                      "script: script"] {
+            XCTAssertTrue(toggle.contains(wired), "the mount passes \(wired)")
+        }
+    }
+
+    // MARK: - Censuses
+
+    private static let deletedNames = #"\b(AnnotationsPane|TasksPane|DiagnosticsPane|AnnotationScope|closedPieceReason)\b"#
+
+    /// Every line under `root` naming a deleted pane type.
+    private static func offenders(under root: URL) throws -> [String] {
+        let regex = try NSRegularExpression(pattern: deletedNames)
+        var found: [String] = []
+        let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = walker?.nextObject() as? URL {
+            guard ["swift", "md"].contains(url.pathExtension),
+                  let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            for (n, line) in text.components(separatedBy: "\n").enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                if regex.firstMatch(in: line, range: range) != nil {
+                    found.append("\(url.lastPathComponent):\(n + 1): \(line)")
+                }
+            }
+        }
+        return found
+    }
+
+    func test_noDeletedPaneTypeSurvives() throws {
+        let maugham = SourceTree.repoRoot.appendingPathComponent("Maugham", isDirectory: true)
+        let found = try Self.offenders(under: maugham)
+        XCTAssertEqual(found, [], "a deleted pane type is still named under Maugham/")
+    }
+
+    func test_theDeletedPaneCensusFiresOnAPlantedOffender() throws {
+        let root = TestTemp.root.appendingPathComponent("census", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "struct Fine { let scope: ResolveScope }\n// CheckNarrative, DiagnosticsPaneHeader\n"
+            .write(to: root.appendingPathComponent("Fine.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.offenders(under: root), [],
+                       "a name that merely starts with a deleted one is not an offender")
+        try "/// the queue (`AnnotationsPane.jump`)\n"
+            .write(to: root.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.offenders(under: root).count, 1)
+    }
+
+    /// The files under `Maugham/Views/` allowed to call `runRequested(`:
+    /// the command's receiver, and the window's deferred delivery of a board
+    /// chip's round (`runRoundWhenPieceOpens`).
+    private static let runRequestedCallers: [String: Int] = [
+        "CompilerRunModifier.swift": 1,
+        "ProjectWindow.swift": 1,
+    ]
+
+    private static func runRequestedCalls(under root: URL) throws -> [String: Int] {
+        var counts: [String: Int] = [:]
+        let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let url = walker?.nextObject() as? URL {
+            guard url.pathExtension == "swift",
+                  let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let masked = String(decoding: SourceTree.mask(text), as: UTF8.self)
+            let n = masked.components(separatedBy: "runRequested(").count - 1
+            if n > 0 { counts[url.lastPathComponent, default: 0] += n }
+        }
+        return counts
+    }
+
+    /// **One delivery path for a run** (shell plan 2 Task 7): a view asks for
+    /// a run through the `MaughamEvent` command (`postRun`), whose receiver
+    /// reads the window's open piece — never the orchestrator directly.
+    func test_noViewCallsRunRequestedDirectly() throws {
+        let views = SourceTree.repoRoot.appendingPathComponent("Maugham/Views", isDirectory: true)
+        XCTAssertEqual(try Self.runRequestedCalls(under: views), Self.runRequestedCallers)
+        let offer = try SourceTree.sourceOfType("DiagnosticsColdStartOffer", under: ["Maugham"])
+        XCTAssertTrue(offer.contains("MaughamEvent.postRun(.checkWriting)"),
+                      "the cold-start offer's Read asks the way ⌘R asks")
+    }
+
+    func test_theRunRequestedCensusFiresOnAPlantedOffender() throws {
+        let root = TestTemp.root.appendingPathComponent("runs", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "// orchestrator.runRequested(docId: id, kind: .check) in a comment\nlet s = \"runRequested(\"\n"
+            .write(to: root.appendingPathComponent("Quiet.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.runRequestedCalls(under: root), [:],
+                       "a comment or a string is not a call")
+        try "Button(\"Read\") { orchestrator.runRequested(docId: id, kind: .check) }\n"
+            .write(to: root.appendingPathComponent("Offer.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.runRequestedCalls(under: root), ["Offer.swift": 1])
+    }
+}

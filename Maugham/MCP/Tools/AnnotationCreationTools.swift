@@ -19,7 +19,7 @@ public enum AddCommentTool: MCPTool {
     public static let description =
         "Attach an editorial comment to a manuscript paragraph. Comments do not " +
         "modify the manuscript; the user accepts or rejects them via the " +
-        "Annotations pane. Reject reasoning is captured for future sessions. " +
+        "To resolve list. Reject reasoning is captured for future sessions. " +
         "Optionally pass `quote` (an exact phrase from the paragraph) to anchor " +
         "the comment to a sub-paragraph span; omit it to anchor the whole paragraph. " +
         "Running an editing pass? Call get_help with topic \"editing-pass\" first — " +
@@ -172,7 +172,7 @@ public enum AddQueryTool: MCPTool {
     public static let method = "add_query"
     public static let description =
         "Ask the writer a question about a paragraph (intent, ambiguity, " +
-        "character motivation). The writer replies via the Annotations pane; " +
+        "character motivation). The writer replies in the To resolve list; " +
         "the reply is persisted in the annotation history. Optionally pass " +
         "`quote` (an exact phrase from the paragraph) to anchor the query to a " +
         "sub-paragraph span; omit it to anchor the whole paragraph. During a " +

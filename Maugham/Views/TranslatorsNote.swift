@@ -20,7 +20,7 @@ import MaughamCore
 /// holds INTENT readings, and nothing derives a world from an edition brief.
 ///
 /// **Isolation is per-member, not on the type.** `commit` and `target` touch
-/// `ProjectStore`/`Document`/`DiagnosticsPane` and are `@MainActor`; the two
+/// `ProjectStore`/`Document`/the Diagnostics pane and are `@MainActor`; the two
 /// pure statics and the two value types are not, because
 /// `ProjectActiveSheet`'s synthesized `Hashable` is nonisolated and has to
 /// hash a `Target`.
@@ -99,7 +99,7 @@ enum TranslatorsNote {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return Target(
             docId: docId, paragraphId: paragraphId,
-            excerpt: DiagnosticsPane.truncatedDriftQuote(text),
+            excerpt: CheckNarrative.truncatedDriftQuote(text),
             editions: editions(manifest: manifest, docId: docId, projectURL: projectURL))
     }
 

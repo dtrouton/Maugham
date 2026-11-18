@@ -55,7 +55,7 @@ enum DiagnosticPromotion {
     }
 
     /// The section a note came from, in the pane's own words
-    /// (`DiagnosticsPane`'s `PaneSectionHeader` titles, lowercased). `nil` for
+    /// (the Diagnostics pane's `PaneSectionHeader` titles, lowercased). `nil` for
     /// `kind == nil` — a record from before the sectioned contract had no
     /// section to name.
     private static func sectionLabel(_ kind: DiagnosticKind?) -> String? {

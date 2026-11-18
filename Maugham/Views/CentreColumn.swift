@@ -56,7 +56,9 @@ struct CentreColumn: View {
     @Binding var selectedPaletteCardId: String?
     @Binding var showInspector: Bool
     @Binding var detailSegment: DetailSegment
-    @Binding var annotationScopeRequest: AnnotationScope
+    /// To resolve's next ask (shell plan 2 Task 7) — the board's open-notes
+    /// click focuses the clicked piece's group.
+    @Binding var resolveRequest: ResolveRequest?
     @Binding var metrics: EditorMetrics
     @Binding var currentElement: String?
 
@@ -376,14 +378,15 @@ struct CentreColumn: View {
             // `refreshOpenNotes` and merely READ here.
             openNotes: openNotesCounts,
             unreadableDocIds: openNotesUnreadable,
-            // **A count click widens the QUEUE and moves nothing else.** The
-            // right column goes to the notes, in project scope, pointed at the
-            // piece; the subject is not written here. The chip click is the one
-            // that travels, because opening a chapter is what a chip MEANS.
+            // **A count click points To resolve at the piece and moves
+            // nothing else.** The right column goes to To resolve — the Book's
+            // list, grouped by piece — with the clicked piece's group focused;
+            // the subject is not written here. The chip click is the one that
+            // travels, because opening a chapter is what a chip MEANS.
             onOpenNotes: { pieceId in
                 showInspector = true
-                detailSegment = .annotations
-                annotationScopeRequest = .project(focusPiece: pieceId)
+                detailSegment = .resolve
+                resolveRequest = .focus(groupOwnerId: pieceId)
             },
             // **A chip click is a SUBJECT write and nothing else**, through the
             // click rule: a piece clicked while the Book is open opens it, which

@@ -462,108 +462,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
 
     // MARK: - The empty queue names the piece's own reader (Task 6 fix round)
 
-    /// **An unassigned piece offers NO editor's round, held seat or not** (two
-    /// loops P1 Task 2).
-    ///
-    /// The teaching's whole job is to name the loop the writer is one
-    /// keystroke from, and over an unassigned piece there is no round to
-    /// name: a round is a stage's or it is refused (`RoundEditor`), and the
-    /// press would flash "Set a pass to run a round." The seat reads CHECKS
-    /// now, so offering Le Guin's round here would describe a run this button
-    /// cannot make.
-    ///
-    /// This test asserted the opposite until two loops P1, and the assertion
-    /// was right while one resolution served both verbs. It is inverted rather
-    /// than deleted because the sentence the queue draws is the writer-visible
-    /// half of the refusal.
-    ///
-    /// Driven through the real pane on a document with no notes, so it is the
-    /// wiring under test and not `emptyQueueTeaching`'s own truth table (which
-    /// `test_theEmptyQueueNamesBothWaysItFills` owns).
-    func test_theEmptyQueueOffersNoEditorsRoundOverAnUnassignedPiece() async throws {
-        let fx = try await makeHarness()
-        XCTAssertEqual(fx.store.manifest.effectiveCoach, ReviewPass.coachPreset,
-                       "premise: the seat is held \u{2014} and it makes no "
-                       + "difference to a round")
 
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains { $0.contains(RunCommand.runRound.keyLabel) },
-                      "the keystroke is still named \u{2014} got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains(
-                RoundNarrative.runRoundTitle(editorName: "Le Guin")) },
-            "the queue must not offer a round the press would refuse "
-            + "\u{2014} got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains(
-                RoundNarrative.runRoundTitle(editorName: "Claude")) },
-            "\u{2026}least of all \u{201C}Claude\u{201D}'s, which is a byline "
-            + "and not an editor to invite. Got \(labels)")
-    }
 
-    /// **Control: an assigned piece names its own stage's editor.** The seat
-    /// governs pieces nobody was assigned, and a teaching that named her over
-    /// a piece handed to Gould would be naming the wrong editor entirely.
-    func test_theEmptyQueueNamesTheStagesEditorOnAnAssignedPiece() async throws {
-        let fx = try await makeHarness()
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: fx.document.docId, passId: "copyedit")
-        }
 
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
-        XCTAssertTrue(
-            labels.contains { $0.contains(
-                RoundNarrative.runRoundTitle(editorName: "Gould")) },
-            "got \(labels)")
-        XCTAssertFalse(labels.contains { $0.contains("Le Guin") },
-                       "the seat must not speak over a piece with a stage set. "
-                       + "Got \(labels)")
-    }
-
-    /// **Control: a vacated seat is M2's sentence again.** Nobody reads this
-    /// piece, so there is no editor to name and the teaching falls back to the
-    /// keystroke alone \u{2014} never to "Claude", which is the byline a
-    /// passless run signs with and not a personification to invite.
-    func test_theEmptyQueueNamesNobodyWhenTheSeatIsVacantAndNoPassIsSet() async throws {
-        let fx = try await makeHarness()
-        try await fx.store.setCoachVacated(true)
-        XCTAssertNil(fx.store.manifest.effectiveCoach, "premise: the seat is vacant")
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
-        XCTAssertTrue(labels.contains { $0.contains(RunCommand.runRound.keyLabel) },
-                      "the keystroke is still named \u{2014} got \(labels)")
-        XCTAssertFalse(labels.contains { $0.contains("Le Guin") },
-                       "and nobody is. Got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains(
-                RoundNarrative.runRoundTitle(editorName: "Claude")) },
-            "\u{2026}least of all \u{201C}Claude\u{201D}, which is a byline "
-            + "and not an editor to invite. Got \(labels)")
-    }
-
-    /// The pane offers the round its own STAGE would run, and reads the arm
-    /// that can be nil (two loops P1 Task 2).
-    ///
-    /// Two claims in one census. The offer is derived from `cockpitActivePass`
-    /// — the piece's validated stage, the same value the strip's lane label
-    /// and the Run button read — so the sentence and the press cannot describe
-    /// different rounds. And it is the OPTIONAL that is read:
-    /// `effectiveEditorName` behind a `??` would invent "Run Claude's round"
-    /// for a piece no stage reads, which is exactly the sentence the nil arm
-    /// exists to avoid.
-    func test_theEmptyStateReadsThePiecesStageAndItsNilableArm() throws {
-        let pane = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertFalse(pane.contains("cockpitReader"),
-                       "the check loop's resolution has no business in Review's "
-                       + "queue \u{2014} a round is run by the piece's stage")
-        XCTAssertTrue(
-            pane.contains("editorName: cockpitActivePass?.effectiveEditorName)"),
-            "the offer must read the piece's stage, through the arm that is "
-            + "nil when there is none")
-    }
 
     /// **The Run button's tooltip names the round the press would produce** —
     /// the shared offer plus its number, which is the one thing the empty
@@ -986,37 +887,6 @@ final class ReviewRoundCockpitTests: XCTestCase {
                         "a run in flight must offer a way out")
     }
 
-    /// **The end-to-end pin: the cockpit's Run button drives a real round, and
-    /// the notes it lands are signed by the pass's own editor.**
-    ///
-    /// The whole delivery path, in one test: the real `AnnotationsPane`, the
-    /// real strip inside it, the button pressed the way a click presses it,
-    /// the real `CompilerOrchestrator.runRequested`, the real mint — and
-    /// "Gould", not "Claude", on the notes at the end of it.
-    func test_theRunButtonDrivesARealRoundWhoseNotesTheEditorSigns() async throws {
-        let fx = try await makeHarness()
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: "ch-1", passId: "copyedit")
-        }
-        fx.runner.nextEvent = .resultText(Self.questionAndReport(about: pid))
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let run = try button(labelled: ReviewRoundCockpit.runTitle, in: window)
-        _ = run.perform(NSSelectorFromString("accessibilityPerformPress"))
-
-        await awaitOpenNotes(2, on: fx.document)
-        let notes = fx.document.annotations(filter: AnnotationFilter(statuses: [.open]))
-        XCTAssertEqual(notes.count, 2,
-                       "the cockpit's Run button must reach the same run \u{2318}R "
-                       + "takes \u{2014} got \(notes.map(\.body))")
-        for note in notes {
-            XCTAssertEqual(note.author?.displayName, "Gould",
-                           "the Copyedit pass's editor signs its round's notes")
-            XCTAssertEqual(note.reviewPassId, "copyedit",
-                           "and the round's lane stamps what it wrote")
-        }
-    }
 
     /// **The failure REPLACES the report line rather than sitting beside it.**
     ///
@@ -1085,108 +955,24 @@ final class ReviewRoundCockpitTests: XCTestCase {
         }, "\u{2026}and no lane line, however much the pass memory knows")
     }
 
-    /// **The filtered-empty state names the filter, not a missing round**
-    /// (M4 P2 Task 8, T3 carry). Before this the pane's document-scope empty
-    /// state taught the round-running loop even when a note WAS there —
-    /// stamped for a pass this piece is not currently being reviewed
-    /// through, so the pass filter hides it while the kind/status pool still
-    /// holds it — telling the writer to ask for a round that had, in truth,
-    /// already answered.
-    func test_theFilteredEmptyStateNamesTheFilterRatherThanTeachingARound() async throws {
-        let fx = try await makeHarness()
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        // In the pool (kind/status pass it) but not in the rows (the pass
-        // filter below excludes it): stamped "structural", read through "line".
-        _ = try await fx.document.addAnnotation(
-            kind: .comment, paragraphId: pid, body: "A structural note.",
-            reviewPassId: "structural")
-        fx.documentStore.updateUIState {
-            $0.activePassMemory.record(piece: "ch-1", passId: "line")
-        }
 
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
 
-        XCTAssertTrue(
-            labels.contains { $0.contains("No notes match your filters") },
-            "a hidden note must be named as hidden, not as absent \u{2014} got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains("No annotations") },
-            "the genuinely-empty title must not also draw over a filtered pool")
-    }
 
-    /// **Control: a genuinely empty document still teaches the round**
-    /// (M4 P2 Task 8 review, Minor 2) — the filtered-empty arm reads a wider
-    /// pool than before (every kind, every status), and a wider pool is
-    /// exactly the kind of change that can quietly swallow the ordinary case.
-    /// Nothing added to this document at all, so both the pool and the rows
-    /// are empty and `documentQueueIsGenuinelyEmpty` must say so.
-    func test_aGenuinelyEmptyDocumentStillDrawsTheRoundTeaching() async throws {
-        let fx = try await makeHarness()
+    // MARK: - (retired) The queue's empty-state teaching and its Run press
+    //
+    // The Annotations pane's empty queue taught the round (who reads it,
+    // which key runs it, which filter hides what); To resolve's empty states
+    // are `ResolvePane.emptyState` ("Nothing to resolve.", "Nothing under this
+    // filter.", pinned in `ResolvePaneTests`) and its head says who reads and
+    // offers Run. The cockpit's Run no longer calls the orchestrator: it posts
+    // the run command (`MaughamEvent.postRun`), whose path to a real round is
+    // `CompilerRunCommandTests`' (shell plan 2 Task 7).
 
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
-
-        XCTAssertTrue(
-            labels.contains { $0.contains("No annotations") },
-            "an empty document must still read as empty \u{2014} got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains("No notes match your filters") },
-            "\u{2026}and never claim a filter is hiding something that was "
-            + "never there")
-    }
-
-    /// **The Critical the whole-branch review found: a queue where every
-    /// note is settled must NOT read as filtered** (M4 P2 Task 8 whole-branch
-    /// review). Before this, `pool` counted every status — a writer who
-    /// resolved their last open note had zero open rows and one resolved
-    /// note still sitting in `pool`, so the pane claimed Kind/Author/Triage/
-    /// the pass filter was hiding a note that only the show-resolved toggle
-    /// can reveal, over a queue that was genuinely, correctly empty. This is
-    /// the loop's own SUCCESS state — the same moment Author's Diagnostics
-    /// pane says "You've handled this check's notes." — and it must draw the
-    /// round teaching, never the filter copy.
-    func test_aQueueWhereEveryNoteIsSettledDrawsTheRoundTeachingNotTheFilterCopy() async throws {
-        let fx = try await makeHarness()
-        let pid = try XCTUnwrap(fx.document.sequence.first)
-        let noteId = try await fx.document.addAnnotation(
-            kind: .comment, paragraphId: pid, body: "A note the writer settles.")
-        try await fx.document.archiveAnnotation(id: noteId)
-
-        let window = mountPane(fx, scope: .document, orchestrator: fx.orchestrator)
-        let labels = allLabels(in: window)
-
-        XCTAssertTrue(
-            labels.contains { $0.contains("No annotations") },
-            "a fully-settled queue is the ordinary empty case, not a "
-            + "filtered one \u{2014} got \(labels)")
-        XCTAssertFalse(
-            labels.contains { $0.contains("No notes match your filters") },
-            "no named filter (Kind/Author/Triage/the pass) can reveal a "
-            + "resolved note \u{2014} only show-resolved can, and it is not "
-            + "one of the four this copy names")
-    }
-
-    // MARK: - Pure: the filtered-empty predicate
-
-    /// **`documentQueueIsGenuinelyEmpty` pinned directly, both cases** (M4 P2
-    /// Task 8 review, Minor 2). The mounted tests above exercise it
-    /// end-to-end but assert nothing about the function itself — a change
-    /// that broke the predicate while leaving both mounted scenarios'
-    /// numbers accidentally aligned would still pass every mounted test.
-    func test_documentQueueIsGenuinelyEmpty_bothPoolAndRowsEmpty_isTrue() {
-        XCTAssertTrue(
-            AnnotationsPane.documentQueueIsGenuinelyEmpty(pool: [], visibleRows: []),
-            "no notes anywhere on the document is the genuinely-empty case")
-    }
-
-    func test_documentQueueIsGenuinelyEmpty_poolNonEmptyRowsEmpty_isFalse() {
-        XCTAssertFalse(
-            AnnotationsPane.documentQueueIsGenuinelyEmpty(
-                pool: [Self.fixtureAnnotation()], visibleRows: []),
-            "a non-empty pool with nothing visible is a FILTER hiding notes, "
-            + "not an empty document")
-    }
+    // MARK: - (retired) The filtered-empty predicate
+    //
+    // `documentQueueIsGenuinelyEmpty` went with the Annotations pane (shell
+    // plan 2 Task 7); To resolve's "Nothing under this filter." is
+    // `ResolvePane.emptyState`, pinned in `ResolvePaneTests`.
 
     // MARK: - Census: the seams a mount cannot see
 
@@ -1196,15 +982,14 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// it those would make "resolved" permanently zero under the default
     /// `[.open]` filter and would skew every count under any other.
     func test_theStripIsFedTheUnfilteredQueueAndNotTheVisibleRows() throws {
-        // Two hops since shell plan 2 Task 5: the strip reads through
-        // `ResolveHead.everyState`, the one read To resolve's head makes too.
-        let source = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
-        let hop = try XCTUnwrap(
-            Self.declaration(named: "private var cockpitAnnotations:", in: source),
-            "the strip's annotation read must be a readable declaration")
-        XCTAssertTrue(hop.contains("ResolveHead.everyState(of: document)"),
-                      "the strip reads the one every-state read. Got:\n\(hop)")
+        // To resolve's head (shell plan 2 Task 7) feeds the cockpit through
+        // `ResolveHead.everyState`, the one every-state read.
         let head = try Self.source(of: "Views/Resolve/ResolveHead.swift")
+        let mount = try XCTUnwrap(
+            Self.declaration(named: "private func run(_ docId: String, offers: ResolveHeadOffers,", in: head),
+            "the head's cockpit mount must be a readable declaration")
+        XCTAssertTrue(mount.contains("ResolveHead.everyState(of:"),
+                      "the cockpit is fed the one every-state read. Got:\n\(mount)")
         let read = try XCTUnwrap(
             Self.declaration(named: "static func everyState(of document: Document?)", in: head),
             "the every-state read must be a readable declaration")
@@ -1258,26 +1043,23 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// on the floor — nothing a mounted test can see, since the cockpit's own
     /// gear menu draws whatever it was constructed with either way.
     func test_theAnnotationsPaneThreadsItsOwnCompilerModelToTheCockpit() throws {
-        // Two hops since #116 F11: the pane hands its pair to
-        // `AnnotationsRoundCockpit`, which hands it to the strip.
-        let root = try Self.source(of: "Views/AnnotationsPane.swift")
+        // Since shell plan 2 Task 7 the chain is To resolve's: the list hands
+        // its pair to its head, the head to `RoundCockpitMount`, which hands
+        // it to the cockpit.
+        let list = try Self.source(of: "Views/Resolve/ResolvePane.swift")
         let hop = try XCTUnwrap(
-            Self.mountArguments(of: "AnnotationsRoundCockpit(", in: root),
-            "the pane must still mount its cockpit child")
-        XCTAssertTrue(hop.contains("compilerModel: compilerModel"),
-                      "the pane's own `compilerModel` must reach its cockpit "
-                      + "child \u{2014} got:\n\(hop)")
-        XCTAssertTrue(hop.contains("onCompilerModelChange: onCompilerModelChange"),
-                      "\u{2026}and its own closure \u{2014} got:\n\(hop)")
-        // Three hops since shell plan 2 Task 5: the strip hands its pair to
-        // `RoundCockpitMount`, which hands it to the cockpit.
-        let strip = try Self.source(of: "Views/AnnotationsPaneStrips.swift")
+            Self.mountArguments(of: "ResolveHeadView(", in: list),
+            "the list must still mount its head")
+        XCTAssertTrue(hop.contains("compilerModel: compilerModel")
+                      && hop.contains("onCompilerModelChange: onCompilerModelChange"),
+                      "the list's own pair must reach its head \u{2014} got:\n\(hop)")
+        let head = try Self.source(of: "Views/Resolve/ResolveHead.swift")
         let mount = try XCTUnwrap(
-            Self.mountArguments(of: "RoundCockpitMount(", in: strip),
-            "the strip must still mount the moved cockpit")
+            Self.mountArguments(of: "RoundCockpitMount(", in: head),
+            "the head must still mount the cockpit")
         XCTAssertTrue(mount.contains("compilerModel: compilerModel")
                       && mount.contains("onCompilerModelChange: onCompilerModelChange"),
-                      "the strip's own pair must reach the mount \u{2014} got:\n\(mount)")
+                      "the head's own pair must reach the mount \u{2014} got:\n\(mount)")
         let pane = try Self.source(of: "Views/Resolve/ResolveHead.swift")
         // **Balanced parens, never a character budget** (`mountArguments`'
         // own reasoning): this scan took a fixed 1600-character prefix until
@@ -1303,8 +1085,8 @@ final class ReviewRoundCockpitTests: XCTestCase {
     func test_theDetailPaneToggleThreadsCompilerModelToTheAnnotationsSegment() throws {
         let toggle = try Self.source(of: "Views/DetailPaneToggle.swift")
         let call = try XCTUnwrap(
-            toggle.range(of: "AnnotationsPane("),
-            "the toggle must still construct the annotations segment for this "
+            toggle.range(of: "ResolvePane("),
+            "the toggle must still construct To resolve for this "
             + "census to have a subject")
         let after = String(toggle[call.upperBound...].prefix(1600))
         XCTAssertTrue(after.contains("compilerModel: compilerModel"),
@@ -1406,7 +1188,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             // Author's report draws its dead run from `DiagnosticsPaneCopy`,
             // but a restated arm anywhere in that pane is the same second
             // account, so its entry reads the whole pane (#116 F11).
-            let source = path == "Views/DiagnosticsPaneCopy.swift"
+            let source = path == "Views/Resolve/CheckNarrativeCopy.swift"
                 ? try DiagnosticsPaneSource.surfaceSource()
                 : try Self.source(of: path)
             let violations = Self.oneSpellingViolations(in: source)
@@ -1422,7 +1204,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// drawing one; nothing enforces the converse, which is why the list sits
     /// beside the rule rather than in prose somewhere else.
     static let oneSpellingSurfaces = [
-        "Views/DiagnosticsPaneCopy.swift",
+        "Views/Resolve/CheckNarrativeCopy.swift",
         "Views/Review/ReviewRoundCockpit.swift",
         "Views/Publish/DepartmentRunState.swift",
         "Views/Publish/DepartmentDesignRow.swift",
@@ -1540,20 +1322,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       + "lane, with no fallback to another. Got:\n\(cockpit)")
     }
 
-    func test_theStripLivesBelowTheToolbarAndNotInsideIt() throws {
-        let toolbar = try Self.source(of: "Views/Review/AnnotationsQueueToolbar.swift")
-        XCTAssertFalse(toolbar.contains("ReviewRoundCockpit"),
-                       "the cockpit must not be drawn inside the toolbar")
-
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
-        let body = try XCTUnwrap(Self.declaration(named: "var body: some View {", in: pane))
-        guard let toolbarLine = body.range(of: "toolbar"),
-              let cockpitLine = body.range(of: "roundCockpit") else {
-            return XCTFail("the body must mount the toolbar and then the strip")
-        }
-        XCTAssertTrue(toolbarLine.lowerBound < cockpitLine.lowerBound,
-                      "the strip wraps BELOW the toolbar's divider")
-    }
+    // `test_theStripLivesBelowTheToolbarAndNotInsideIt` retired with the
+    // Annotations pane's toolbar (shell plan 2 Task 7): To resolve's head has
+    // no toolbar; the cockpit sits in the head above the filter bar.
 
     // MARK: - The letter (editorial letter P1 Task 9)
 
@@ -1796,11 +1567,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
             intentSnapshot: nil, passId: "line", round: 2, kind: .round)
 
         XCTAssertEqual(
-            AnnotationsPane.letterVoice(run: stamped, passes: passes), "Lish",
+            ResolveHead.roundLetterVoice(run: stamped, passes: passes), "Lish",
             "the round says which lane it was read in, and that lane's editor "
             + "signed it \u{2014} whatever the writer has selected since")
         XCTAssertEqual(
-            AnnotationsPane.letterVoice(
+            ResolveHead.roundLetterVoice(
                 run: CompilerRun(
                     id: "r-coach", at: Date(), model: "m", lastOpId: nil,
                     deltaSummary: "d", intentSnapshot: nil,
@@ -1809,7 +1580,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             ReviewPass.coachPreset.effectiveEditorName,
             "a round the coach ran is signed with her name, never her schema id")
         XCTAssertEqual(
-            AnnotationsPane.letterVoice(
+            ResolveHead.roundLetterVoice(
                 run: CompilerRun(
                     id: "r-gone", at: Date(), model: "m", lastOpId: nil,
                     deltaSummary: "d", intentSnapshot: nil, passId: "retired",
@@ -1818,7 +1589,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
             AuthorReader.nobody.editorName,
             "a lane this project no longer has leaves nobody to name")
         XCTAssertEqual(
-            AnnotationsPane.letterVoice(run: nil, passes: passes),
+            ResolveHead.roundLetterVoice(run: nil, passes: passes),
             AuthorReader.nobody.editorName,
             "and no standing round names nobody at all")
     }
@@ -1833,12 +1604,11 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// Falsification: put `cockpitActivePass?.effectiveEditorName` back as the
     /// strip's `voice:` and the last assertion fails.
     func test_everyLetterVerbTakesItsVoiceFromTheStandingRound() throws {
-        let source = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
-        let host = try XCTUnwrap(
-            Self.mountArguments(of: "RunLetterSection(", in: source),
-            "the strip must mount the one letter host")
-        XCTAssertTrue(host.contains("voice: letterVoice(run)"),
-                      "the strip hands the host the round's own voice: \(host)")
+        // To resolve's head signs the latest letter by the run's own voice
+        // (shell plan 2 Task 7; the strip that did is deleted).
+        let head = try readSource("Maugham/Views/Resolve/ResolveHead.swift")
+        XCTAssertTrue(head.contains("voice: ResolveHead.letterVoice(run: run, reader: reader, passes: passes)"),
+                      "the head hands the host the run's own voice")
         let section = try XCTUnwrap(
             Self.declaration(
                 named: "struct RunLetterSection: View {",
@@ -1868,15 +1638,9 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// The cockpit's mount and the letter host moved to
     /// `Resolve/ResolveHead.swift` (shell plan 2 Task 5).
     func test_thePaneDerivesTheLineAndDisclosesTheSharedSection() throws {
-        let strip = try readSource("Maugham/Views/AnnotationsPaneStrips.swift")
-        let mount = try XCTUnwrap(
-            Self.mountArguments(of: "RoundCockpitMount(", in: strip),
-            "the strip feeds the moved mount its letter")
-        XCTAssertTrue(mount.contains("letter: cockpitLetter(")
-                      && mount.contains("letterDisclosure:"),
-                      "the strip must feed the line's letter and the disclosure: \(mount)")
-        XCTAssertTrue(strip.contains("RunLetterSection("),
-                      "the disclosure is the one letter host")
+        // To resolve's head draws the latest letter itself, so its cockpit
+        // mount carries none (shell plan 2 Tasks 5 and 7); the shared
+        // section is still the one Author draws.
         let source = try readSource("Maugham/Views/Resolve/ResolveHead.swift")
         let cockpit = try XCTUnwrap(
             Self.mountArguments(of: "ReviewRoundCockpit(", in: source),
@@ -1938,9 +1702,10 @@ final class ReviewRoundCockpitTests: XCTestCase {
             Self.declaration(named: "struct RunLetterSection: View {",
                              in: Self.source(of: "Views/Resolve/ResolveHead.swift")),
             "the one letter host must be a readable declaration")
+        // Since shell plan 2 Task 7 both loops' letters are drawn by To
+        // resolve's head, which mounts the one host.
         let hosts = [
-            ("the AnnotationsPane files", try AnnotationsPaneSource.surfaceSource()),
-            ("the DiagnosticsPane files", try DiagnosticsPaneSource.surfaceSource()),
+            ("To resolve's head", try Self.source(of: "Views/Resolve/ResolveHead.swift")),
         ]
         for (file, pane) in hosts {
             XCTAssertTrue(pane.contains("RunLetterSection("),
@@ -2002,19 +1767,35 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// can be mounted off the same fixture with the store as the ONLY
     /// difference — and so a default could never quietly turn the run-button
     /// test into a test of a strip that was never drawn.
+    /// Where the mounted list is about — the open piece, or the Book (the
+    /// old queue's document and project scopes).
+    private enum PaneScope { case document; case project(focusPiece: String?) }
+
+    /// The real `ResolvePane` — To resolve's head carries the round cockpit
+    /// since shell plan 2 Task 7 deleted the Annotations pane that did.
     private func mountPane(
-        _ fx: Harness, scope: AnnotationScope,
+        _ fx: Harness, scope: PaneScope,
         orchestrator: CompilerOrchestrator?, width: CGFloat = 320
     ) -> NSWindow {
-        mount(AnyView(AnnotationsPane(
-            document: fx.document,
+        let piece = BinderSubject.item(fx.document.docId)
+        let faces: BinderSubject
+        switch scope {
+        case .document: faces = piece
+        case .project: faces = .project
+        }
+        return mount(AnyView(ResolvePane(
             store: fx.store,
             documentStore: fx.documentStore,
-            scope: .constant(scope),
-            onTravel: { _ in },
-            orchestrator: orchestrator,
+            subject: WindowSubject(open: piece, faces: faces),
+            script: nil,
             diagnostics: fx.diagnostics,
-            onSetActivePass: { _, _ in })
+            orchestrator: orchestrator,
+            world: nil,
+            compilerModel: .standard,
+            onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in },
+            onSetActivePass: { _, _ in },
+            request: .constant(nil))
             .environment(UserPreferences(
                 defaults: UserDefaults(suiteName: "Cockpit-\(UUID())")!))),
             width: width)

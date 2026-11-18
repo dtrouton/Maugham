@@ -784,7 +784,7 @@ final class AnnotationBulkActionsTests: XCTestCase {
         }
 
         XCTAssertEqual(callers(of: "AnnotationBulkActions.plan("), [
-            "AnnotationsPaneQueues.swift",  // the bulk bar's honest counts
+            "AnnotationsBulkBar.swift",     // the bulk bar's honest counts
         ])
         XCTAssertEqual(callers(of: "AnnotationBulkActions.perform("), [
             "ResolveNoteVerbs.swift",       // the bar's press, `runBulk`

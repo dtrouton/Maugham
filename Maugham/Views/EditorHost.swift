@@ -280,7 +280,7 @@ struct EditorHost: View {
                 // `setReviewAnnotations`. Reading `doc.annotationsVersion` /
                 // `control.isReviewMode` in these closures is safe (unlike reading
                 // `displayText`): it never feeds the text binding, so the
-                // cursor-race triad (tripwires 6/7) stays closed. An AnnotationsPane
+                // cursor-race triad (tripwires 6/7) stays closed. An Annotations pane
                 // edit bumps `annotationsVersion` on the SAME registered Document
                 // instance, so the first `.onChange` carries it through.
                 .onChange(of: doc.annotationsVersion) { _, _ in
@@ -979,7 +979,7 @@ struct EditorHost: View {
                     // Annotation creation is an op-log append, not a text
                     // mutation — it doesn't write the editor binding, so the
                     // applyExternalText tripwires (6/7) don't apply. The
-                    // AnnotationsPane re-renders automatically off the
+                    // Annotations pane re-renders automatically off the
                     // Document's `annotationsVersion` bump (invalidated
                     // inside addAnnotation). The handler is async so the
                     // coordinator can await this append, then re-pull the
@@ -1054,7 +1054,7 @@ struct EditorHost: View {
                 },
                 reviewRejectHandler: { id in
                     // The card has no reasoning field; the reason-capture sheet
-                    // stays in the AnnotationsPane. A card-reject records no
+                    // stays in the Annotations pane. A card-reject records no
                     // reason (a follow-up could surface the sheet from here).
                     try? await doc.rejectAnnotation(id: id, undoManager: um)
                 },

@@ -20,8 +20,8 @@ import MaughamCore
 /// Everything a test would want to ask — what the rows are, what a row's caption
 /// says, what each verb does to the file and to the undo stack — is a static on
 /// this enum taking what it touches, so it is asked directly rather than through
-/// a mounted row and a synthesized click. That is `DiagnosticsPane`'s shape and
-/// `TasksPane`'s, and it is what makes the undo assertions possible at all:
+/// a mounted row and a synthesized click. That is the Diagnostics pane's shape and
+/// the Tasks pane's, and it is what makes the undo assertions possible at all:
 /// SwiftUI offers no way to press ⌘Z into a hosted view.
 ///
 /// **Rows are addressed by INDEX, never by the id they were built with.** A

@@ -629,8 +629,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "can read")
 
         for expected in ["showInspector = true",
-                         "detailSegment = .annotations",
-                         "annotationScopeRequest = .project(focusPiece: pieceId)"] {
+                         "detailSegment = .resolve",
+                         "resolveRequest = .focus(groupOwnerId: pieceId)"] {
             XCTAssertTrue(closure.contains(expected),
                           "the count's closure does not `\(expected)` — the "
                           + "click has to land the writer IN the queue, in "

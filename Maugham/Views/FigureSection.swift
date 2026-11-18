@@ -143,7 +143,7 @@ extension BinderTreeSectionsState {
 
     /// Whether the section has a row for `figureId` — not parked, in a
     /// project that shows the section — whatever the piece filter hides: a
-    /// figure note's click travels only to one (`AnnotationScopePolicy.click`),
+    /// figure note's click travels only to one (`FigureNoteClick.click`),
     /// so it never lands on a subject the window would repair away, and a
     /// glance filter never makes the click dead (`revealFigure` lifts it).
     func drawsFigure(_ figureId: String, projectType: ProjectType) -> Bool {

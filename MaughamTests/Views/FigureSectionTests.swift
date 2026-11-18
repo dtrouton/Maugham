@@ -204,7 +204,7 @@ final class FigureSectionTests: XCTestCase {
 
     /// The pane reveals before it travels, and the window hands it the tree's reveal.
     func test_theQueuesFigureTravelRevealsTheRowFirst() throws {
-        let pane = try Self.source(of: "Views/AnnotationsPane.swift")
+        let pane = try Self.source(of: "Views/Resolve/ResolvePane.swift")
         XCTAssertTrue(pane.contains("if case .figure(let id) = subject { revealFigure(id) }\n            onTravel(subject)"))
         let window = try Self.source(of: "Views/ProjectWindow.swift")
         XCTAssertTrue(window.contains("revealFigure: { [treeState] in treeState.revealFigure($0) }"))

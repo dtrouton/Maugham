@@ -27,7 +27,7 @@ struct ViewOnlyShareNotice: View {
             // unbreakable minimum height here grows that column, and
             // `NSSplitView` then grows the binder and the right column with it
             // — the whole window laid out taller than the window, which is what
-            // Denver's 2026-08-08 smoke found on the two `DiagnosticsPane`
+            // Denver's 2026-08-08 smoke found on the two Diagnostics pane
             // sites. Measured with the modifier restored, this banner alone
             // took the split view to 866pt inside a 732pt window.
             //

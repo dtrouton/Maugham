@@ -503,14 +503,15 @@ struct TranslationRoundReportView: View {
             }
             HStack {
                 Spacer(minLength: 0)
-                // The round's own notes settle in the same queue every other
-                // note does — this is the door, not a second queue.
+                // The round's own notes settle in To resolve with every other
+                // note — this is the door, not a second queue. A translator's
+                // questions are To resolve's Questions (shell plan 2 Task 7).
                 Button(TranslationRoundReport.openQueueTitle) {
-                    MaughamEvent.postDetailSegment(.annotations)
+                    MaughamEvent.postResolve(.questions)
                 }
                 .controlSize(.small)
-                .help("Open the notes queue, where this round\u{2019}s questions "
-                      + "and every other open note are disposed of.")
+                .help("Open To resolve on its Questions, where this round\u{2019}s "
+                      + "questions are answered beside every other open note.")
             }
         }
     }

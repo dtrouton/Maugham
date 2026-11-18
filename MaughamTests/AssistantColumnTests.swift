@@ -825,7 +825,7 @@ final class AssistantColumnTests: XCTestCase {
     /// for (shell p1 Task 4).
     func test_thePaneRuleIsAskedOverTheProductOfItsInputs() {
         let cases: [(String, DetailSegment, DetailSegment, Bool)] = [
-            ("the writer asked for another pane", .references, .diagnostics, true),
+            ("the writer asked for another pane", .references, .resolve, true),
             ("the picker wrote the pane already showing", .references, .references, false),
             ("the reveal moved the column to the inspector", .references, .inspector, true),
         ]
@@ -843,9 +843,9 @@ final class AssistantColumnTests: XCTestCase {
     ///
     /// `DetailPaneToggle`'s `.onChange(of: segment)` is the only writer of
     /// `UIState.detailSegment`, and it cannot fire for a change that predates
-    /// its own mount. The study column unmounts that view, so ⌘⌥D while
+    /// its own mount. The study column unmounts that view, so ⌘⌥H while
     /// studying went: segment written → the study dismissed → the toggle
-    /// mounted FRESH on `.diagnostics` with nothing left to observe, and the
+    /// mounted FRESH on `.history` with nothing left to observe, and the
     /// project reopened on the pane before the one the writer chose. The mount
     /// now persists what it mounted with.
     ///
@@ -862,9 +862,9 @@ final class AssistantColumnTests: XCTestCase {
         await settleChain()
         XCTAssertEqual(ds.uiState.detailSegment, .inspector, "premise")
 
-        // The writer's ⌘⌥D landed while a reference was up: the segment is
-        // already `.diagnostics` when this view first appears.
-        var segment: DetailSegment = .diagnostics
+        // The writer's ⌘⌥H landed while a reference was up: the segment is
+        // already `.history` when this view first appears.
+        var segment: DetailSegment = .history
         var subject: BinderSubject? = .item("ch-1")
         mount(AnyView(DetailPaneToggle(
             store: store,
@@ -878,7 +878,7 @@ final class AssistantColumnTests: XCTestCase {
             .frame(width: 320, height: 480)))
         await settleChain()
 
-        XCTAssertEqual(ds.uiState.detailSegment, .diagnostics,
+        XCTAssertEqual(ds.uiState.detailSegment, .history,
                        "the pane the writer asked for never reached ui-state, "
                        + "so the project would reopen on the previous one")
     }

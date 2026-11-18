@@ -713,7 +713,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// brief "stet" acknowledgement before it resolves out of the open set. While
     /// set, `ReviewMarginRailView.drawCard` paints the STET treatment on that card
     /// and the mark is deliberately NOT refreshed away. Mirrors the
-    /// AnnotationsPane `stetFlourishIds` dwell so the gesture reads in both
+    /// Annotations pane `stetFlourishIds` dwell so the gesture reads in both
     /// surfaces. (M3 P2 moved it off reject, where the word was a lie: a rejected
     /// note is exactly the one that did NOT stand.)
     var stetReviewCardId: String?
@@ -966,7 +966,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             self?.performFigureTableCommand(command)
         }
         // The former annotation-set-changed notification observer is gone (ADR
-        // 0017): an AnnotationsPane edit/withdraw bumps `annotationsVersion` on the shared
+        // 0017): an Annotations pane edit/withdraw bumps `annotationsVersion` on the shared
         // Document, which EditorHost mirrors into `control.reviewAnnotations` →
         // `applyControl` → `setReviewAnnotations`, recomputing the crafted marks
         // without a notification. The local in-editor create flow still uses

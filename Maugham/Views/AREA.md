@@ -112,19 +112,17 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
 - `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections.
 - `PassLadder.swift` — the inspector's per-piece pass ladder; `offersRulings`.
-- `TasksPane.swift`, `TasksPaneToolbar.swift`, `TaskRow.swift` — the tasks pane; its verbs moved to Resolve.
+- `TaskRow.swift` — one to-do's row, drawn in To resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
 
 ### Annotations queue and Review
-- `AnnotationsPane.swift` — the queue; children `AnnotationsPaneStrips.swift`, `AnnotationsPaneQueues.swift`, `AnnotationListView.swift` (mountable alone), `AnnotationRow.swift`, `AnnotationsPaneStatics.swift`; verbs, dialogs, row host in Resolve.
+- `AnnotationRow.swift` — one note's row, drawn in To resolve.
 - `AnnotationAuthorPresentation.swift` — how an annotation's author is shown; `AnnotationAuthorFilter`.
 - `AnnotationBulkActions.swift` — multiselect's plan, honest counts and executor.
 - `AnnotationQueueOrder.swift` — queue order and `AnnotationTriageFilter`.
 - `PassOrderAdvice.swift` — the advisory nudge.
-- `Maugham/Views/Review/AnnotationsQueueToolbar.swift` — the queue's toolbar, measured to fit its column.
-- `Maugham/Views/Review/AnnotationScope.swift` — This Piece / All Pieces (`AnnotationScope`, `AnnotationScopePolicy`, `AnnotationScopeSections`).
-- `Maugham/Views/Review/AnnotationPassFilter.swift` — the queue's pass filter.
+- `Maugham/Views/Review/AnnotationPassFilter.swift` — the pass filter.
 - `Maugham/Views/Review/ReviewRoundCockpit.swift` — the round cockpit strip; `BoundedHeightLayout`. **→ Compiler**
 - `Maugham/Views/Review/ReviewBoardPane.swift` — Review's pieces × passes board; `ReviewBoardChipVerbs`, `ReviewBoardOpenNotes`.
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
@@ -134,9 +132,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/ResolveGrouping.swift`, `ParagraphOffsets.swift` — grouping by paragraph, scene or piece; display-text offsets placing a closed screenplay's paragraphs among scenes.
 - `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
-- `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift` — a note's verbs and sheets, one note row, a to-do's verbs.
-- `Maugham/Views/Resolve/ResolveHead.swift` — the head; also the shared letter host, cockpit mount and nudge row.
-- `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list, its chips, its Settled section.
+- `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveNoteStatics.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift`, `NewTaskSheet.swift` — note verbs and sheets, one note row, to-do verbs and sheet.
+- `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
+- `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
+- `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), its decisions, chips and Settled section.
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.
@@ -152,7 +151,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FirstReaderRuling.swift` — answer the first reader's note into her statement; `RulingDestination`. **→ Compiler**
 
 ### Compiler surfaces (→ Compiler: "Ingest, the sidecar and the mint", "Streaming and the preview", "The derivation trigger and the bible")
-- `DiagnosticsPane.swift` — Author's compiler report; `DiagnosticsPostures`; children `DiagnosticsPaneHeader.swift`, `DiagnosticsPaneSections.swift`, `DiagnosticsPaneCopy.swift`, `DiagnosticsPaneVerbs.swift`.
+- `Maugham/Views/Resolve/CheckNarrative.swift`, `CheckNarrativeCopy.swift`, `CheckNarrativeVerbs.swift` — the check's statics; `DiagnosticsPaneHeader.swift`, `DiagnosticsPaneSections.swift` — its header, row and cold-start offer.
 - `AskField.swift` — Ask about…, one field shape in two homes.
 - `CompilerModelMenu.swift` — the depth picker in both homes.
 
@@ -310,7 +309,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A pane's growing content is a reason to compress or scroll THAT pane, never to raise the window's minimum height** (`ProjectWindow.windowHeightFloor`, 540): `TreeScrollStabilityTests.test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`. `.doesNotRaiseTheWindowFloor()` measures the first subview only.
 - **A strip in a non-scrolling pane stack demands its height as a MINIMUM**; bound inline content with a ceiling (`BoundedHeightLayout`, `ReviewRoundCockpit.letterDisclosureMaxHeight`) (`ReviewRoundCockpitLetterScrollTests`).
 - **No control on a narrow-column toolbar carries writer-typed text on its critical path; labels are icons**, with the name in `.help`. `.frame(maxWidth:)` does not bound a `.fixedSize()` label's ideal.
-- **Every `ViewThatFits` variant is reachable in range; the last, drawn regardless, fits** (`AnnotationsQueueToolbarWidthTests`). Measure with `NSHostingController.sizeThatFits(in:)`, never a frame walk.
+- **Every `ViewThatFits` variant is reachable in range; the last, drawn regardless, fits** (`RightColumnPaneWidthTests`). Measure with `NSHostingController.sizeThatFits(in:)`, never a frame walk.
 - **Every `DetailPaneToggle` pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
@@ -334,7 +333,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A nil posture draws the fail-closed card**: her own note's Edit and Delete, no disposition.
 - **The standing line is keyed on `reason`, never `isRestricted`**; Edit Anyway is `DocumentStore.overrideYield(docId:)`, per window, per piece, for the session.
 - **Find asks the posture once per document per body pass** (`ProjectSearchView.ReplaceGate`).
-- **A refused press is said in words, never swallowed with `try?`** (`AnnotationsPane.sayRefused`).
+- **A refused press is said in words, never swallowed with `try?`** (`ResolveNoteVerbs.sayRefused`).
 - **No `static let/var <name>IsAvailable` gate is left standing in production**: a constant gate feeding `.disabled(!…)` is dead code dressed as live (`TripwireGrepTests.test_noAvailabilityFlagIsLeftStandingInProduction`).
 
 ### The register's surfaces
@@ -382,7 +381,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
 - **Bulk is document scope only**; project scope reads `listAnnotationsAcrossProject` and refreshes on `noteChanged()`, the document's `annotationsVersion` and `.maughamAnnotationsChanged`.
-- **In project scope, travel writes only `selectedSubject`** (`AnnotationScopeTests`).
+- **A row's click on another piece travels by `selectedSubject` only** (`ResolveNavigation`).
 - **Queue order is `AnnotationQueueOrder.sorted`, pane-side**; it does not change the deriver's projection.
 - **Pane-side filters (triage, author) apply after `AnnotationFilter`**, whose shape reaches MCP and never widens.
 - **The pass filter defaults to following the active pass, a fallback not a write**; a retired pass's selection heals to All Passes.
@@ -391,7 +390,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A held triage mark is checked and disabled**; re-applying appends an op whose ⌘Z undoes nothing visible.
 - **Four resolutions — Accept / Reject… / Stet / Archive — with Stet offered wherever Archive is; triage is a mark, not a resolution.** `AnnotationRow.showsReopen` is an exhaustive switch, so a new status must decide.
 - **A figure note's row acts through the figure's host** (`FigureRowGate`, `withFigureHost`): Reject, Stet, Archive, Reopen, Got it and Reply work; a suggestion's Accept travels to its cell (off once deleted or in Research); ⌘Z only where the window holds the figure. A piece's figures follow its section; the board counts them on `FigureRecord.piece`.
-- **`AnnotationScope` is window state, never persisted**; project scope lays out by the board's rows (`ReviewBoardRows.derive`), skips reference pieces, and never walks twice.
+- **`ResolveScope` is window state, never persisted**; the Book lays out by the board's rows (`ReviewBoardRows.derive`), skips reference pieces, and never walks twice.
 - **The cockpit reaches for the coach's seat nowhere** (`ReviewRoundCockpitTests.test_theProductionMountNeverReachesForTheSeat`); with no pass, both run buttons disable with `noEditorReason`.
 - **A wide pass set scrolls inside the board** (`ReviewBoardPaneTests.test_aWidePassSetScrollsInsideThePaneAndNeverWidensTheWindow`).
 

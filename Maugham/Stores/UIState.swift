@@ -38,7 +38,7 @@ public struct UIState: Codable, Equatable, Sendable {
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
     /// The right column's segment — one remembered for the window, whatever
-    /// the subject.
+    /// the subject. To resolve by default (shell plan 2 Task 7).
     public var detailSegment: DetailSegment
     /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
     /// Per-window, persisted so the posture survives reopen. Additive in
@@ -208,7 +208,7 @@ public struct UIState: Codable, Equatable, Sendable {
         bookView: BookView = .outline,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
-        detailSegment: DetailSegment = .inspector,
+        detailSegment: DetailSegment = .resolve,
         isReviewModeOn: Bool = false,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
@@ -306,7 +306,12 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
-        self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .inspector
+        // A retired segment — `annotations`, `diagnostics`, `tasks` (shell
+        // plan 2 Task 7), `inbox` and every older one — or a missing key opens
+        // on To resolve, which took the three panes' place. The tolerant
+        // decode IS the migration (tripwire 11): no other code reads an old
+        // value.
+        self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .resolve
         if let b = try? c.decode(BookView.self, forKey: .bookView) {
             self.bookView = b
         } else {

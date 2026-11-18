@@ -85,11 +85,15 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `AssistantColumnModel`. Optional so a caller that surfaces no References
     /// segment (the `StatementMountFixture` probes) can omit it.
     let assistant: AssistantColumnModel?
-    /// How wide the annotations queue is looking (M3 P2 Task 7). Window state
-    /// on `ProjectWindow` so Task 9's board click-through can set it from the
-    /// centre column; `.constant(.document)` for the probe callers that mount
-    /// this view without a window behind it.
-    @Binding var annotationScope: AnnotationScope
+    /// **What To resolve is asked to show next** (shell plan 2 Task 7) — a
+    /// filter from ⌘⌥A/⌘⌥D/⌘⌥T or a piece from the board's open-notes click.
+    /// Window state on `ProjectWindow`; `.constant(nil)` for the probe callers
+    /// that mount this view without a window behind it.
+    @Binding var resolveRequest: ResolveRequest?
+    /// The window's parsed screenplay (`ProjectWindow.lastParsedScript`), so
+    /// To resolve groups a script's notes by scene with the editor's own
+    /// parse rather than a second one.
+    let script: FountainScript?
     /// Record which pass a piece is being reviewed through — the round
     /// cockpit's pass picker (M4 P2 Task 3), `(pieceId, passId)`.
     ///
@@ -113,13 +117,13 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// `InspectorView` already takes a closure of this exact shape from the
     /// same host.
     var onOpenProjectSettings: () -> Void = {}
-    /// Whether the tree's Figures section draws a figure — the annotation
-    /// queue's figure click travels only to one (report plan 8a Task 4).
+    /// Whether the tree's Figures section draws a figure — To resolve's
+    /// figure-note click travels only to one (report plan 8a Task 4).
     var drawsFigure: (String) -> Bool = { _ in false }
     /// Shows that figure's row in the tree before the travel lands.
     var revealFigure: (String) -> Void = { _ in }
     /// A figure note's cell selected in the grid holding it, or left for
-    /// the travel's grid (`AnnotationsPane.revealFigureCell`).
+    /// the travel's grid (`ResolvePane.revealFigureCell`).
     var revealFigureCell: (String, CellKey, Bool) -> Bool = { _, _, _ in false }
     @ViewBuilder var inspectorContent: () -> Inspector
 
@@ -153,7 +157,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         compilerModel: CompilerModelChoice = .standard,
         onCompilerModelChange: @escaping (CompilerModelChoice) -> Void = { _ in },
         assistant: AssistantColumnModel? = nil,
-        annotationScope: Binding<AnnotationScope> = .constant(.document),
+        resolveRequest: Binding<ResolveRequest?> = .constant(nil),
+        script: FountainScript? = nil,
         onSetActivePass: @escaping (String, String) -> Void = { _, _ in },
         onSetPassState: @escaping (String, String, PassState?) -> Void = { _, _, _ in },
         onOpenProjectSettings: @escaping () -> Void = {},
@@ -182,7 +187,8 @@ struct DetailPaneToggle<Inspector: View>: View {
         self.compilerModel = compilerModel
         self.onCompilerModelChange = onCompilerModelChange
         self.assistant = assistant
-        self._annotationScope = annotationScope
+        self._resolveRequest = resolveRequest
+        self.script = script
         self.onSetActivePass = onSetActivePass
         self.onSetPassState = onSetPassState
         self.onOpenProjectSettings = onOpenProjectSettings
@@ -345,11 +351,11 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// **Whether the faces' piece is the one the editor has loaded** (shell p1
     /// final fix, I2): the faces name an item and the centre has it open. With
     /// the canvas or an edition in the centre the faces can sit on a piece no
-    /// editor holds, and the panes that read a document (`needsADocument`, the
-    /// Annotations pane's document scope) would show nothing, or — Diagnostics
-    /// — a piece with no paragraph notes when it has them. Those panes wait for
-    /// a store-level read of an unopened piece (plan 2); until then they are
-    /// not offered there, and their empty states stand.
+    /// editor holds, and the panes that read a document (`needsADocument`)
+    /// would show nothing. Those panes wait for a store-level read of an
+    /// unopened piece (plan 3); until then they are not offered there, and
+    /// their empty states stand. To resolve no longer waits (shell plan 2
+    /// Task 7): it reads an unopened piece without loading it.
     static func facesPieceIsOpen(_ subject: WindowSubject) -> Bool {
         guard case .item = subject.faces else { return false }
         return subject.faces == subject.open
@@ -369,8 +375,8 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// different lists. Re-deriving here was how the literal-drift bug got
     /// back in one level up.
     ///
-    /// **Takes the badged segment** (M2 Task 8): Diagnostics and Visual
-    /// Language each carry a badge, and both can be on screen together.
+    /// **Takes the badged segment** (M2 Task 8): To resolve's unread dot and
+    /// Visual Language's badge can both be on screen together.
     static func badgeOffset(of badged: DetailSegment, in segments: [DetailSegment]) -> Int? {
         guard let index = segments.firstIndex(of: badged) else { return nil }
         return segments.count - 1 - index
@@ -390,13 +396,24 @@ struct DetailPaneToggle<Inspector: View>: View {
         segments.contains(proposed) ? proposed : (segments.first ?? fallback)
     }
 
-    /// Notes a compiler run landed for the open document while the writer was
-    /// somewhere else — a discoverability signal, for
-    /// the one pane whose content arrives without being asked for a second
-    /// time. Cleared by `DiagnosticsPane` the moment it is on screen.
-    private var diagnosticsUnreadCount: Int {
-        diagnosticsStore?.unreadCount(docId: activeDocId) ?? 0
+    /// Notes a check landed for the faces' piece while the writer was
+    /// somewhere else — a discoverability signal, for the one list whose
+    /// content arrives without being asked for a second time. Cleared by
+    /// `ResolvePane` the moment it shows the checks' items
+    /// (`ResolveFilter.clearsUnreadChecks`), the rule the Diagnostics pane's
+    /// badge kept: on screen is read.
+    private var checksUnread: Bool {
+        Self.showsUnreadDot(unreadChecks: diagnosticsStore?.unreadCount(docId: activeDocId) ?? 0)
     }
+
+    /// **A dot, never a number** (shell plan 2 Task 7): unread is a signal
+    /// that something came in, and how many is the list's to say. The dot
+    /// sits on To resolve's position in the picker and on its Checks chip.
+    static func showsUnreadDot(unreadChecks: Int) -> Bool { unreadChecks > 0 }
+
+    /// The segment the unread dot sits over — To resolve, the one list the
+    /// check's findings are read in.
+    static var unreadDotSegment: DetailSegment { .resolve }
 
     // MARK: - Picker
 
@@ -459,12 +476,10 @@ struct DetailPaneToggle<Inspector: View>: View {
         // 99+.
         .overlay(alignment: .topTrailing) {
             // Accent rather than red: these are craft notes on prose the
-            // writer chose to have checked, not something wrong. The register
-            // is the same one the pane's own copy keeps.
-            badge(over: .diagnostics, count: diagnosticsUnreadCount, tint: .accentColor,
-                  help: "\(diagnosticsUnreadCount) new "
-                      + "note\(diagnosticsUnreadCount == 1 ? "" : "s") "
-                      + "from the last check (\u{2318}\u{2325}D)")
+            // writer chose to have checked, not something wrong. A dot, not a
+            // count (`showsUnreadDot`).
+            unreadDot(over: Self.unreadDotSegment, shown: checksUnread,
+                      help: Self.unreadDotHelp)
         }
         .overlay(alignment: .topTrailing) {
             // Accent, on the diagnostics badge's own register — a proposal
@@ -483,6 +498,29 @@ struct DetailPaneToggle<Inspector: View>: View {
     /// property on a generic type.
     static var visualLanguageBadgeHelp: String {
         "Claude proposed a visual language — open it to adopt or discard (\u{2318}\u{2325}V)"
+    }
+
+    /// The unread dot's tooltip — carries the key on the badges' convention.
+    static var unreadDotHelp: String {
+        "New notes from the last check (\u{2318}\u{2325}D)"
+    }
+
+    /// The unread dot over `segment`, or nothing when nothing is unread or
+    /// this picker does not render that segment.
+    @ViewBuilder
+    private func unreadDot(over segment: DetailSegment, shown: Bool, help: String) -> some View {
+        if shown, let shift = Self.badgeOffset(of: segment, in: pickerSegments) {
+            GeometryReader { geo in
+                let segmentWidth = geo.size.width / CGFloat(max(pickerSegments.count, 1))
+                UnreadDot()
+                    .padding(.trailing, 10)
+                    .padding(.top, 3)
+                    .allowsHitTesting(false)
+                    .help(help)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .offset(x: -CGFloat(shift) * segmentWidth)
+            }
+        }
     }
 
     /// One unread badge over `segment`, or nothing when the count is zero or
@@ -515,14 +553,12 @@ struct DetailPaneToggle<Inspector: View>: View {
     @ViewBuilder
     private var segmentContent: some View {
         switch segment {
+        case .resolve:
+            resolvePane
         case .inspector:
             inspectorContent()
-        case .annotations:
-            annotationsPane
         case .history:
             historyPane
-        case .tasks:
-            tasksPane
         case .translation:
             translationPane
         case .intent:
@@ -533,8 +569,6 @@ struct DetailPaneToggle<Inspector: View>: View {
             statementPane(kind: .lessons)
         case .firstReader:
             statementPane(kind: .firstReader)
-        case .diagnostics:
-            diagnosticsPane
         case .references:
             referencesPane
         case .department:
@@ -600,65 +634,6 @@ struct DetailPaneToggle<Inspector: View>: View {
                 systemImage: "pin",
                 description: Text("Open a manuscript to see what it's pinned to."))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder
-    private var diagnosticsPane: some View {
-        if let ds = documentStore,
-           let compilerOrchestrator,
-           let diagnosticsStore,
-           activeDocId != BinderSubject.noDocumentSubject,
-           Self.facesPieceIsOpen(subject) {
-            DiagnosticsPane(
-                // The DRAWING door (controller ruling I), read here in `body`
-                // so a demotion re-draws the pane (P3c Task 7).
-                posture: DiagnosticsPostures(
-                    document: ds.posture(forDocId: activeDocId),
-                    statement: { [statements = store.manifest.statements] kind, scope in
-                        ds.posture(ofStatement: kind, scope: scope, statements: statements)
-                    }),
-                orchestrator: compilerOrchestrator,
-                diagnostics: diagnosticsStore,
-                docId: activeDocId,
-                currentText: { [weak ds] paragraphId in
-                    ds?.document(forDocId: activeDocId)?.paragraph(id: paragraphId)
-                },
-                compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange,
-                activeDocument: { [weak ds] in ds?.document(forDocId: activeDocId) },
-                // The answer flow's destination (M2 Task 10). Passed rather
-                // than reached for, so the pane still holds no store of its
-                // own and a caller that has none simply offers no Answer.
-                store: store,
-                // …and the cache that answer invalidates. Without it the next
-                // run checks the writer against a world derived before their
-                // ruling existed, and nothing anywhere says so.
-                world: declaredWorldStore,
-                // **Who reads this piece's CHECKS** — `AuthorReader` (two
-                // loops P1 Task 2). This pane is Author's, and Author checks;
-                // the piece's lane on the review board is the round loop's
-                // fact and is deliberately not read here.
-                //
-                // **The writer's CHOICE, not the default rule** (P2 Task 6):
-                // the same resolution the run makes
-                // (`CompilerEnvironment+Project`'s `authorReader` closure), so
-                // the header can never name a reader the check was not briefed
-                // on. `statementText` is a nil-returning stub because this
-                // header wants the NAME and never the essay — her description
-                // is read per run, at the keystroke, and a copy loaded for a
-                // label would be a second answer to what she knows.
-                reader: store.manifest.authorReader(
-                    choice: ds.uiState.authorReaderChoice,
-                    statementText: { _ in nil }),
-                onChooseReader: { [weak ds] in ds?.setAuthorReaderChoice($0) },
-                onOpenProjectSettings: onOpenProjectSettings)
-        } else {
-            ContentUnavailableView(
-                "Select a document",
-                systemImage: "checkmark.seal",
-                description: Text("Open a manuscript, then press \u{2318}R to check your writing."))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -736,69 +711,46 @@ struct DetailPaneToggle<Inspector: View>: View {
         }
     }
 
+    /// **To resolve** (shell plan 2 Task 7) — the faces' piece's notes, the
+    /// check's findings and the to-dos, in one list. Offered whatever the
+    /// centre shows: it reads an unopened piece without loading it, acts only
+    /// on the open one, and says what it is about when the faces name
+    /// nothing it gathers (`ResolvePane.emptyState`).
     @ViewBuilder
-    private var annotationsPane: some View {
+    private var resolvePane: some View {
         if let ds = documentStore {
-            // The pane renders with NO open document as of M3 P2 Task 7: its
-            // project scope is a view of the whole manuscript, and that is the
-            // state a writer arrives in from the board's open-notes column.
-            // Document scope's "Select a document" empty state moved inside,
-            // so the scope toggle above it stays reachable.
-            // Document scope only for the piece the centre has open
-            // (`facesPieceIsOpen`); otherwise its own empty state.
-            let document = activeDocId == BinderSubject.noDocumentSubject
-                || !Self.facesPieceIsOpen(subject)
-                ? nil : ds.document(forDocId: activeDocId)
-            AnnotationsPane(
-                document: document,
+            ResolvePane(
                 store: store,
                 documentStore: ds,
-                scope: $annotationScope,
+                subject: subject,
+                script: script,
+                // The roster's compiler and its own store, the pair the head
+                // reads the check and the round from; `nil` in a host that
+                // surfaces no compiler, which draws no head of either.
+                diagnostics: diagnosticsStore,
+                orchestrator: compilerOrchestrator,
+                // The letter's Add to intent and a finding's Answer drop the
+                // derivation cache.
+                world: declaredWorldStore,
+                compilerModel: compilerModel,
+                onCompilerModelChange: onCompilerModelChange,
+                onSetPassState: onSetPassState,
+                onSetActivePass: onSetActivePass,
+                request: $resolveRequest,
+                onOpenProjectSettings: onOpenProjectSettings,
                 onTravel: { subject in
-                    // Travelling to a piece is the window's SUBJECT write and
-                    // nothing else: the centre shows the piece, so a writer
-                    // clicking a note about another chapter lands there with
-                    // their notes still beside them (`ManuscriptNavigation`'s ruling, and
-                    // `AnnotationScopeTests`' census over this closure).
+                    // Travelling to a figure is the window's SUBJECT write
+                    // and nothing else (`ManuscriptNavigation`'s ruling).
                     selectedSubject = subject
                 },
                 drawsFigure: drawsFigure,
                 revealFigure: revealFigure,
-                revealFigureCell: revealFigureCell,
-                // The round cockpit's two stores (M4 P2 Task 3) — the same
-                // pair the Diagnostics arm takes, and `nil` in a host that
-                // surfaces no compiler, which draws no strip.
-                orchestrator: compilerOrchestrator,
-                diagnostics: diagnosticsStore,
-                // The letter's Add to intent drops the derivation cache the
-                // same way the Diagnostics arm's Answer does.
-                world: declaredWorldStore,
-                onSetActivePass: onSetActivePass,
-                compilerModel: compilerModel,
-                onCompilerModelChange: onCompilerModelChange,
-                onSetPassState: onSetPassState)
+                revealFigureCell: revealFigureCell)
         } else {
             ContentUnavailableView(
                 "Open a project",
-                systemImage: "doc.text",
-                description: Text("Annotations live with a project's pieces."))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    @ViewBuilder
-    private var tasksPane: some View {
-        if let ds = documentStore {
-            TasksPane(
-                store: store,
-                documentStore: ds,
-                activeDocId: activeDocId,
-                projectURL: projectURL)
-        } else {
-            ContentUnavailableView(
-                "Open a project",
-                systemImage: "checklist",
-                description: Text("Tasks track todos across a project."))
+                systemImage: "tray",
+                description: Text("What is raised on a project's pieces waits here."))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

@@ -11,7 +11,7 @@ import MaughamCore
 /// Diagnostics pane knew the round — and none of it was where the work is.
 ///
 /// **It is a second delivery site for ⌘R, exactly as the cold-start offer's
-/// Read button is** (`DiagnosticsPane.coldStartOffer`): the buttons call
+/// Read button is** (`CheckNarrative.coldStartOffer`): the buttons call
 /// `CompilerOrchestrator.runRequested` directly. They deliberately carry NO
 /// `keyboardShortcut` — ⌘R and ⌘⇧R are `MaughamApp`'s menu commands and the
 /// spec's keystroke-only rule is about there being ONE trigger, not one
@@ -24,7 +24,7 @@ import MaughamCore
 /// docId-scoped run phase, the report line's mutual exclusion and the empty
 /// queue's teaching all be tested without a window — and what keeps Review's
 /// copy from drifting from Author's, which is the whole reason `RoundNarrative`
-/// stopped living on `DiagnosticsPane`.
+/// stopped living on the Diagnostics pane.
 ///
 /// The strip is **document scope only** and the pane's mount is where that is
 /// enforced: it is a statement about ONE piece's pass, round and next run, and
@@ -98,7 +98,7 @@ struct ReviewRoundCockpit: View {
     /// again here or in the pane.
     let onSetActivePass: (_ passId: String) -> Void
     /// End the run in flight — `CompilerOrchestrator.cancel()`, the exact
-    /// verb `DiagnosticsPane`'s own Cancel button calls. Cancel's semantics
+    /// verb the Diagnostics pane's own Cancel button calls. Cancel's semantics
     /// come free: it ends the turn through `.sessionDied(detail: .cancelled)`,
     /// which `CompilerRunFailure.isTheWritersOwnDoing` already routes to
     /// `.idle` before `runState` is ever set (`finish`'s failure arm) — so
@@ -110,14 +110,14 @@ struct ReviewRoundCockpit: View {
     /// ruling) — the two arms where a run holds the window's session.
     let onCancel: () -> Void
 
-    /// **The gear menu's persisted choice** — `DiagnosticsPane`'s own
+    /// **The gear menu's persisted choice** — the Diagnostics pane's own
     /// `compilerModel`, threaded here so Review carries the same control
     /// (editorial letter P1, Task 8). Depth is a per-PROJECT setting, not a
     /// per-surface one: a writer who set Deep in Diagnostics must find Deep here
     /// too, and a change made from either home is the one write.
     let compilerModel: CompilerModelChoice
     /// Reaches `ProjectWindow`'s ONE handler — the same closure
-    /// `DiagnosticsPane` calls, never a second spelling of the persistence.
+    /// the Diagnostics pane calls, never a second spelling of the persistence.
     let onCompilerModelChange: (CompilerModelChoice) -> Void
 
     /// **What the last run's letter says, in one line** (editorial letter P1
@@ -127,7 +127,7 @@ struct ReviewRoundCockpit: View {
     ///
     /// Defaulted so a caller that predates the letter — every probe mount,
     /// and any host with no sidecar behind it — keeps compiling with a strip
-    /// that simply has no letter in it. `AnnotationsPane` is the one
+    /// that simply has no letter in it. the Annotations pane is the one
     /// production caller and passes both (its own census).
     var letterLine: String? = nil
     /// The section the disclosure opens: the host's own `LetterSection`,
@@ -212,7 +212,7 @@ struct ReviewRoundCockpit: View {
     // MARK: - The decisions, pure
 
     /// **The second reader of `orchestrator.runState`, scoped the way the
-    /// first one is** (`DiagnosticsPane.headerState`'s `where runDocId == docId`).
+    /// first one is** (`CheckNarrative.headerState`'s `where runDocId == docId`).
     ///
     /// Drop the scope and a run on chapter 2 makes chapter 1's strip claim it
     /// is being checked, drawing chapter 2's counts as its own round — the
@@ -408,14 +408,14 @@ struct ReviewRoundCockpit: View {
     /// **How tall the opened letter may grow inside the strip** (Denver's
     /// 2026-09-03 Review smoke).
     ///
-    /// `AnnotationsPane.body` stacks this strip above the scrolling queue in a
+    /// the Annotations pane's `body` stacks this strip above the scrolling queue in a
     /// NON-scrolling `VStack`: every strip in it demands its full height as a
     /// MINIMUM (that stack's own note, and `WindowFloorFree.swift`'s). So an
     /// expanded disclosure drawing the host's whole `LetterSection` inline
     /// demanded a letter's worth of height from a pane that had a column's —
     /// SwiftUI cannot compress a minimum, so the letter ran off the bottom of
     /// the pane unread and the queue below it was squeezed to nothing. Author's
-    /// `DiagnosticsPane` never had this: its report is inside a `ScrollView`
+    /// the Diagnostics pane never had this: its report is inside a `ScrollView`
     /// already.
     ///
     /// **A constant rather than a fraction of the pane.** Half the column's
@@ -656,7 +656,7 @@ struct ReviewRoundCockpit: View {
         if let line {
             Text(line)
                 .font(.caption)
-                // Red only for a failure, on `DiagnosticsPane.header`'s
+                // Red only for a failure, on `CheckNarrative.header`'s
                 // rule: the strip's ordinary lines are secondary, and a
                 // colour that never changes is a colour that says nothing.
                 .foregroundStyle(isFailure ? Color.red : Color.secondary)
@@ -715,7 +715,7 @@ struct ReviewRoundCockpit: View {
     /// **What it opens SCROLLS, inside `letterDisclosureMaxHeight`** (Denver's
     /// 2026-09-03 Review smoke). Author's pane has this for free — its whole
     /// report is inside a `ScrollView` — and this strip is the opposite case:
-    /// it lives in `AnnotationsPane.body`'s non-scrolling stack, where its
+    /// it lives in the Annotations pane's `body`'s non-scrolling stack, where its
     /// height is a MINIMUM propagated out to the pane, so an inline letter
     /// demanded a letter's worth of column, ran off the bottom unread, and
     /// squeezed the queue below it to nothing. The bound is a ceiling and not a
@@ -842,7 +842,7 @@ struct ReviewRoundCockpit: View {
     /// review Author's check too — the tracked follow-up from the
     /// failure-visibility review. At the 300s timeout the strip can say
     /// "Checking N paragraphs…" for up to five minutes with nothing to press;
-    /// `DiagnosticsPane`'s header carries the identical control
+    /// the Diagnostics pane's header carries the identical control
     /// (`.bordered`, `.controlSize(.small)`) for the same run, and this is the
     /// strip that launched it. It calls `onCancel` and nothing else — the
     /// writer-caused mapping that returns the strip to idle is the

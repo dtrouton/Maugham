@@ -197,7 +197,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// through.
     ///
     /// The verb here is the one an **answered compiler note** runs
-    /// (`DiagnosticsPane.commitAnswer` → `RulingPerformer.rule`), which is the whole
+    /// (`CheckNarrative.commitAnswer` → `RulingPerformer.rule`), which is the whole
     /// sharpness of it: the writer pressed Answer on a note and does not
     /// experience that as asking for their intent to be rewritten. While a
     /// heading-only section qualified, `render` kept the parsed items and

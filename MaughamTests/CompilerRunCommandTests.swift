@@ -2437,7 +2437,7 @@ final class CompilerRunCommandTests: XCTestCase {
                       "precondition: run 1 briefs the essay")
         XCTAssertEqual(deriver.calls, 1, "precondition: run 1 derived, on an empty cache")
 
-        // The writer answers a note. This is `DiagnosticsPane.commitAnswer`'s
+        // The writer answers a note. This is `CheckNarrative.commitAnswer`'s
         // own call, with its own arguments — the run has no route into a
         // statement and must not grow one (the membrane, AREA.md).
         let ruled = "Kelly heard about the call offstage."
@@ -2480,7 +2480,7 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     /// **The enriched provenance survives the real chain too** (M4 P1 Task 6):
-    /// answering a strain through `DiagnosticsPane.commitAnswer` — the real
+    /// answering a strain through `CheckNarrative.commitAnswer` — the real
     /// pane function, which mints the enriched `«excerpt»` provenance rather
     /// than the bare legacy string `RulingPerformer.rule` is called with
     /// directly above — writes a ruling whose text is exactly the writer's
@@ -2516,7 +2516,7 @@ final class CompilerRunCommandTests: XCTestCase {
             diagnostics: [note], docId: "ch-1")
 
         let ruled = "Kelly heard about the call offstage."
-        let failure = await DiagnosticsPane.commitAnswer(
+        let failure = await CheckNarrative.commitAnswer(
             ruled, to: note, docId: "ch-1", store: fx.store, world: fx.declaredWorld,
             diagnostics: fx.diagnostics)
         XCTAssertNil(failure, "the commit reported: \(failure ?? "")")

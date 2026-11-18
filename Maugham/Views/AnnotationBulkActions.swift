@@ -156,7 +156,7 @@ enum AnnotationBulkActions {
     /// **The posture half of the plan** (P3c Task 5): the notes this Mac may
     /// act on at all, before `applies` asks which the verb honestly reaches.
     /// Accept is an accept; Stet and every triage mark are dispositions. The
-    /// bar runs over ONE document (`AnnotationScopePolicy.showsBulkAffordances`),
+    /// bar runs over ONE document (the old Annotations pane's scope rule),
     /// so its rows share a posture and the drop is all or nothing — and a verb
     /// whose plan the posture empties is not drawn (`offers`), where a verb
     /// whose plan the notes empty stays drawn and disabled, as it always has.

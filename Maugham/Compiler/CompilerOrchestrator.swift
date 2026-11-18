@@ -24,7 +24,7 @@ final class CompilerOrchestrator {
     /// **Every run case names its document and its loop.** The surface is
     /// per-document and this state per-window, and one session serves both
     /// loops, so each surface matches its own `docId` and `RunKind` and names
-    /// the other loop's run (`DiagnosticsPane.otherLoopLine`,
+    /// the other loop's run (`CheckNarrative.otherLoopLine`,
     /// `ReviewRoundCockpit.otherLoopLine`). `.idle` claims nothing.
     enum RunState: Equatable {
         case idle

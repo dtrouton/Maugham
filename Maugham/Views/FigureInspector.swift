@@ -322,7 +322,8 @@ struct FigureInspector: View {
     let window: NSWindow?
     /// The window's subject-picker, for a Used-in link that can only select its piece.
     let select: (BinderSubject) -> Void
-    /// Notes' "Show in Notes": the queue, widened, at this figure.
+    /// Notes' "Show in Notes": To resolve, on this figure's notes (the figure is
+    /// already the faces, so the list is already about it).
     let showNotes: (String) -> Void
 
     @State private var model: FigureInspectorModel

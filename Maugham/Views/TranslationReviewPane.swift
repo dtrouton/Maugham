@@ -555,7 +555,7 @@ struct TranslationReviewPane: View {
     }
 
     private func excerpt(for row: TranslationRoundReport.DepartureRow) -> String {
-        DiagnosticsPane.truncatedDriftQuote(row.source ?? row.gloss)
+        CheckNarrative.truncatedDriftQuote(row.source ?? row.gloss)
     }
 
     /// The project a spot-check reads from. One spelling: the window's own when
@@ -911,7 +911,7 @@ struct TranslationStatusChip: View {
     }
 }
 
-/// Reply sheet for a translator query — mirrors `AnnotationsPane`'s
+/// Reply sheet for a translator query — mirrors the Annotations pane's
 /// `QueryReplySheet` (the writer's answer flows into `acceptAnnotation` as the
 /// `userResponse`).
 ///

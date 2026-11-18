@@ -1,7 +1,8 @@
 import Foundation
 
-/// **The files that hold `DiagnosticsPane`'s code** (#116 F11): the root and
-/// the children Task 2's split gave it — `AnnotationsPaneSource`'s twin.
+/// **The files that hold the check's surface** (#116 F11; re-pointed from the
+/// deleted Diagnostics pane in shell plan 2 Task 7): `CheckNarrative`, the
+/// header and sections To resolve mounts, and the head that draws them.
 ///
 /// A census that BANS or COUNTS a token over the pane reads all of them
 /// (`surfaceSource()`); a census about one declaration reads the file that
@@ -13,11 +14,12 @@ enum DiagnosticsPaneSource {
 
     /// Every name here is a file in `Maugham/Views/`.
     static let surfaceFiles: [String] = [
-        "DiagnosticsPane.swift",
+        "Resolve/CheckNarrative.swift",
+        "Resolve/CheckNarrativeCopy.swift",
+        "Resolve/CheckNarrativeVerbs.swift",
+        "Resolve/ResolveHead.swift",
         "DiagnosticsPaneHeader.swift",
         "DiagnosticsPaneSections.swift",
-        "DiagnosticsPaneCopy.swift",
-        "DiagnosticsPaneVerbs.swift",
     ]
 
     /// The `Diagnostic*.swift` files in `Maugham/Views/` that are NOT the pane.

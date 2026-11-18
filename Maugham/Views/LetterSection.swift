@@ -169,7 +169,7 @@ struct LetterSection: View {
     /// channel. Not in the plan's input list and added deliberately: without
     /// it a ruling the op log refused would leave a button that looks pressed
     /// and an intent that never moved — the silent-refusal defect
-    /// `AnnotationsPane.performAccept`'s named catch exists to prevent.
+    /// the Annotations pane's `performAccept`'s named catch exists to prevent.
     var offerFailure: String? = nil
     /// What Keep this letter said once it had kept one — *Kept as "…"*,
     /// naming the note the store actually made (`LetterKeep.confirmation`).
@@ -356,7 +356,7 @@ struct LetterSection: View {
     }
 
     /// The words a jump chip carries — **never a paragraph id**
-    /// (`DiagnosticsPane.jumpExcerpt`'s rule, one layer out). The live
+    /// (`CheckNarrative.jumpExcerpt`'s rule, one layer out). The live
     /// paragraph when it can be read, the ref's own remembered excerpt when
     /// it cannot, and `nil` when neither has any words in it.
     static func chipRef(
@@ -370,7 +370,7 @@ struct LetterSection: View {
         guard !words.isEmpty else { return nil }
         return Diagnostic.Ref(
             paragraphId: ref.paragraphId,
-            excerpt: DiagnosticsPane.truncatedDriftQuote(words))
+            excerpt: CheckNarrative.truncatedDriftQuote(words))
     }
 
     /// "and N more" for the refs beyond the first. `nil` for a row with one

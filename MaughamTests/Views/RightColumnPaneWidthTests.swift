@@ -100,68 +100,15 @@ final class RightColumnPaneWidthTests: XCTestCase {
             + "its content's overflow from sizeThatFits")
     }
 
-    // MARK: - The Tasks toolbar
+    // MARK: - The Tasks toolbar (retired)
+    //
+    // Its fit claims went with the Tasks pane (shell plan 2 Task 7); To
+    // resolve's filter bar is measured by
+    // `test_theFilterBarFitsTheColumnFloor` (`ResolvePaneTests`).
 
-    /// Every optional control drawn: + and the … menu.
-    private func tasksToolbar(variant: TasksPaneToolbar.Variant? = nil) -> some View {
-        TasksPaneToolbar(
-            scope: .constant(.project),
-            statusFilter: .constant(.open),
-            showsNewTask: true,
-            newTaskDisabled: false,
-            showsBulkMenu: true,
-            onNewTask: {},
-            onArchiveAllDone: {},
-            variant: variant)
-    }
 
-    /// **The headline claim.** At the floor and at the default the toolbar takes
-    /// the width it is offered and no more.
-    func test_theTasksToolbarFitsTheColumn() {
-        for width in Self.paneWidths {
-            let (fits, measured) = Self.fits(tasksToolbar(), in: width)
-            XCTAssertTrue(fits,
-                "the Tasks toolbar wants \(measured)pt in a \(width)pt pane — "
-                + "an over-wide row is cropped by the column (#122)")
-        }
-    }
 
-    /// **`ViewThatFits` draws its last child whether it fits or not**, so the
-    /// two-row fallback must itself fit the floor — with every control in it.
-    func test_theTasksToolbarsLastVariantFitsTheFloor() {
-        let (fits, measured) = Self.fits(tasksToolbar(variant: .twoRows), in: Self.floor)
-        XCTAssertTrue(fits,
-            "the two-row fallback wants \(measured)pt at the \(Self.floor)pt "
-            + "floor; it is drawn there regardless, and cropped")
-    }
 
-    /// **Every variant is reachable inside the column's own range**, and the
-    /// widest really is drawn at the ceiling — otherwise a toolbar that stacked
-    /// at every width would pass the fit claims above.
-    func test_everyTasksToolbarVariantIsReachable() {
-        for variant in TasksPaneToolbar.Variant.allCases {
-            let ideal = Self.idealWidth(of: tasksToolbar(variant: variant))
-            XCTAssertLessThanOrEqual(ideal, Self.ceiling,
-                "\(variant) wants \(ideal)pt and the widest pane is "
-                + "\(Self.ceiling)pt: it can never be drawn")
-        }
-        // …and each fallback is REACHED: the icon row only where the worded
-        // row no longer fits, the two rows only where the icon row does not
-        // fit the floor.
-        let labels = Self.idealWidth(of: tasksToolbar(variant: .oneRowLabels))
-        let icons = Self.idealWidth(of: tasksToolbar(variant: .oneRowIcons))
-        XCTAssertGreaterThan(labels, icons,
-            "the worded row (\(labels)pt) must be wider than the icon row "
-            + "(\(icons)pt), or the icon row is never drawn")
-        XCTAssertGreaterThan(icons, Self.floor,
-            "the icon row (\(icons)pt) fits the \(Self.floor)pt floor, so the "
-            + "two-row fallback is never drawn")
-        let atCeiling = Self.size(of: tasksToolbar(), proposing: Self.ceiling)
-        let stacked = Self.size(of: tasksToolbar(variant: .twoRows), proposing: Self.ceiling)
-        XCTAssertLessThan(atCeiling.height, stacked.height,
-            "at the widest column the toolbar is on one row "
-            + "(\(atCeiling.height)pt), not stacked (\(stacked.height)pt)")
-    }
 
     // MARK: - To resolve's filter bar
 
@@ -299,7 +246,6 @@ final class RightColumnPaneWidthTests: XCTestCase {
 
     /// The right-column panes that hold a `List`.
     private static let rightColumnListFiles = [
-        "Maugham/Views/TasksPane.swift",
         "Maugham/Views/InboxPane.swift",
     ]
 

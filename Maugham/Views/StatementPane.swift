@@ -599,7 +599,7 @@ struct StatementPane: View {
     /// `_ = bible.version` is the observation — `allFacts()` returns an array
     /// the store rebuilds, so nothing in it is observable on its own and a body
     /// that read only the array would render once and never again
-    /// (`DiagnosticsPane.rows`' idiom, and `test_thePaneRerendersWhenEither
+    /// (`CheckNarrative.rows`' idiom, and `test_thePaneRerendersWhenEither
     /// StoreBumpsItsVersion` is what holds it).
     ///
     /// **The bible belongs to the craft intent, and it is asked so directly**

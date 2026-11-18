@@ -153,7 +153,7 @@ final class DriftDetectorTests: XCTestCase {
             [parsed.clauseQuote],
             "the detector must recognise the very status the ingest minted")
         XCTAssertEqual(
-            DiagnosticsPane.statusWord(parsed.status),
+            CheckNarrative.statusWord(parsed.status),
             DiagnosticIngest.SectionField.strains,
             "and the pane must say the same word about the same value")
 

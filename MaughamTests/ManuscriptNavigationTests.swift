@@ -90,9 +90,11 @@ final class ManuscriptNavigationTests: XCTestCase {
         let history = try SourceTree.read("Maugham/Views/HistoryPaneVerbs.swift")
         XCTAssertTrue(history.contains("ManuscriptNavigation.docIdKey: op.docId"),
                       "a history row names its op's document")
-        let tasks = try SourceTree.read("Maugham/Views/TasksPane.swift")
-        XCTAssertTrue(tasks.contains("\"doc_id\": anchor.docId"),
-                      "a task row names its anchor's document under the same key")
+        // To resolve's rows — a to-do's among them — go through the one
+        // navigation (shell plan 2 Task 7; the Tasks pane is deleted).
+        let resolve = try SourceTree.read("Maugham/Views/Resolve/ResolveNavigation.swift")
+        XCTAssertTrue(resolve.contains("ManuscriptNavigation.docIdKey: docId"),
+                      "a To resolve row names its document under the same key")
         XCTAssertEqual(ManuscriptNavigation.docIdKey, "doc_id")
     }
 

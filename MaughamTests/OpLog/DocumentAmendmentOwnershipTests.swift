@@ -789,7 +789,7 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             try await again.reopenAnnotation(id: rootDeletes, undoManager: nil)
             XCTFail("the door refuses the root's Delete")
         } catch {
-            let sentence = AnnotationsPane.sayRefused(error, in: again)
+            let sentence = ResolveNoteVerbs.sayRefused(error, in: again)
             XCTAssertEqual(said, [sentence], "a refused Restore is SAID, not swallowed")
         }
         XCTAssertEqual(again.withdrawnAnnotations().map(\.id).sorted(),
@@ -804,7 +804,7 @@ final class DocumentAmendmentOwnershipTests: XCTestCase {
             .appendingPathComponent("Maugham/Views/Resolve/ResolveNoteVerbs.swift"), encoding: .utf8)
         let start = try XCTUnwrap(pane.range(of: "func reopen(_ document: Document"))
         let body = pane[start.lowerBound...].prefix(400)
-        XCTAssertTrue(body.contains("AnnotationsPane.sayRefused(error, in: document)"),
+        XCTAssertTrue(body.contains("ResolveNoteVerbs.sayRefused(error, in: document)"),
                       "the pane says the refusal")
         XCTAssertFalse(body.contains("try? await document.reopenAnnotation"),
                        "and swallows nothing")

@@ -965,7 +965,7 @@ final class AnnotationsCharacterization: XCTestCase {
         ], "the caller census — update deliberately, never accidentally")
 
         let pane = try String(
-            contentsOf: repoRoot.appendingPathComponent("Maugham/Views/AnnotationsPane.swift"),
+            contentsOf: repoRoot.appendingPathComponent("Maugham/Views/Resolve/ResolvePane.swift"),
             encoding: .utf8)
         XCTAssertTrue(pane.contains("onReopen"),
                       "the pane's Reopen affordance (RULING-29)")

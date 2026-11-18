@@ -223,10 +223,10 @@ final class ResolvePaneTests: XCTestCase {
     /// text; open to-dos alone splice; the first build reads.
     func test_aReadRunsBeforeARegroupAndAScriptAloneOnlyRereads() {
         let read = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
-                                  annotationsToken: 0, openVersions: [], projectTasksVersion: 0,
+                                  annotationsToken: 0, openAnnotationVersions: [], projectTasksVersion: 0,
                                   diagnosticsVersion: 0, passes: [], localName: "Me")
         let moved = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
-                                   annotationsToken: 1, openVersions: [], projectTasksVersion: 0,
+                                   annotationsToken: 1, openAnnotationVersions: [], projectTasksVersion: 0,
                                    diagnosticsVersion: 0, passes: [], localName: "Me")
         let script = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.")
         let key = ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 0)

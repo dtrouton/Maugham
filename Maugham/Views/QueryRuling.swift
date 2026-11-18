@@ -11,7 +11,7 @@ import MaughamCore
 ///
 /// 1. a dated, itemized **ruling** under that edition's brief `## Rulings`,
 ///    carrying the question's own words as its «excerpt» — the shape
-///    `DiagnosticsPane.commitAnswer` gives a conformance strain's answer, for
+///    `CheckNarrative.commitAnswer` gives a conformance strain's answer, for
 ///    the same reason: a decision the next round is checked against has to say
 ///    what it decided *about*; and
 /// 2. the **reply on the thread**, so the question leaves the queue and the
@@ -35,7 +35,7 @@ import MaughamCore
 ///
 /// **Static, taking everything it touches**, so the whole act is drivable
 /// against a real `ProjectStore` and a real `Document` without mounting a pane
-/// — `DiagnosticsPane.commitAnswer`'s shape and `RulingsStratum`'s, and the
+/// — `CheckNarrative.commitAnswer`'s shape and `RulingsStratum`'s, and the
 /// reason `QueryRulingTests` can assert at the op log rather than at a preview.
 @MainActor
 enum QueryRuling {
@@ -85,7 +85,7 @@ enum QueryRuling {
     /// settles.
     ///
     /// The excerpt is the question's own text, trimmed through
-    /// `DiagnosticsPane.truncatedDriftQuote` — the same budget for the same
+    /// `CheckNarrative.truncatedDriftQuote` — the same budget for the same
     /// reason (an excerpt riding inside a provenance line the writer reads for
     /// as long as the decision stands), so this is a CALL rather than a second
     /// spelling of it. Every em-dash is collapsed to a hyphen first:
@@ -100,7 +100,7 @@ enum QueryRuling {
         guard !words.isEmpty else { return "answered a translator query" }
         let sanitized = words.replacingOccurrences(of: "\u{2014}", with: "-")
         return "answered a translator query: "
-            + "\u{00AB}\(DiagnosticsPane.truncatedDriftQuote(sanitized))\u{00BB}"
+            + "\u{00AB}\(CheckNarrative.truncatedDriftQuote(sanitized))\u{00BB}"
     }
 
     // MARK: - The act
@@ -112,7 +112,7 @@ enum QueryRuling {
     /// question and could then lose the doctrine to one refusal — the writer's
     /// decision gone, and the thread closed so nothing asks again. Ruling
     /// first, the worst case is a question the writer answers twice, which they
-    /// can see and undo. It is `DiagnosticsPane.commitAnswer`'s ordering
+    /// can see and undo. It is `CheckNarrative.commitAnswer`'s ordering
     /// argument, one surface over.
     ///
     /// **A failure between the two is said out loud**, naming what did land: a
@@ -177,7 +177,7 @@ enum QueryRuling {
 
 /// The sheet behind "Answer as ruling…" — **one component, both hosts**.
 ///
-/// The queue (`AnnotationsPane`) and the translation pane each draw their own
+/// The queue (the Annotations pane) and the translation pane each draw their own
 /// card, and each opens this: the sentence the writer types is going to two
 /// places, and a second spelling of the sheet is how one of them would
 /// eventually stop saying so.

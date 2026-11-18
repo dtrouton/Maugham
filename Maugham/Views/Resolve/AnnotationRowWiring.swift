@@ -1,58 +1,8 @@
 import SwiftUI
 import MaughamCore
 
-/// **The queue's rows for one stream of notes, mountable on its own** (#116 F11).
-///
-/// `AnnotationsPane` mounts it for the centred document and once per piece in
-/// project scope. Any other host mounts it the same way: the notes in the
-/// order to draw them, a `filter` if it shows fewer, the stream's document
-/// to act through (`nil` unless the piece is the one open in the window's
-/// centre — `AnnotationRowHost.actingDocument`; every row then offers no
-/// `Document` verb), and an `AnnotationRowWiring` saying what each verb does.
-/// Each row is an `AnnotationRowHost`.
-///
-/// A `ForEach` of rows and dividers, not a scroll view: the host supplies the
-/// container, so the rows lay out in the host's own stack.
-@MainActor
-struct AnnotationListView: View {
-    /// The notes, in the order to draw them.
-    let annotations: [Annotation]
-    /// Which of `annotations` to draw. The pane's own rows arrive already
-    /// filtered, so it passes none.
-    var filter: (Annotation) -> Bool = { _ in true }
-    /// The piece these notes belong to — what a click jumps within or travels to.
-    let docId: String
-    /// The piece's live document where this window may act on it, else `nil`.
-    let document: Document?
-    /// The document's live paragraph ids, for Revert's gate.
-    let livePids: Set<String>
-    /// The lessons ledger as the host last read it — read once per pass.
-    let ledgerText: String?
-    /// Selection mode: each row grows its tick.
-    var isSelectable: Bool = false
-    var selection: Set<String> = []
-    /// **The figure these notes are on, when `docId` is a figure's stream**
-    /// (report plan 9c-1 Task 7): its registry title for the anchor line.
-    /// Nil for a document's notes.
-    var figureTitle: String? = nil
-    /// A figure suggestion's cells as text, by note id — the walk's
-    /// `ProjectAnnotationsSnapshot.figureCells`, looked up, never computed here.
-    var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
-    let wiring: AnnotationRowWiring
-
-    var body: some View {
-        ForEach(annotations.filter(filter)) { ann in
-            AnnotationRowHost(
-                annotation: ann, docId: docId, document: document,
-                livePids: livePids, ledgerText: ledgerText,
-                isSelectable: isSelectable,
-                isSelected: selection.contains(ann.id),
-                figureTitle: figureTitle, figureCells: figureCells[ann.id],
-                wiring: wiring)
-            Divider()
-        }
-    }
-}
+// Moved from `AnnotationListView.swift` when the Annotations pane was
+// deleted (shell plan 2 Task 7): every To resolve note row is wired by it.
 
 /// **What a row needs from its host besides the note** — who the local writer
 /// is, which rows wear the stet, the project's identity, which verbs this Mac
@@ -62,14 +12,14 @@ struct AnnotationListView: View {
 /// the host's would answer a note about Chapter Nine by editing whatever is
 /// centred. Keep as lesson takes the row's piece and no document — it files
 /// into the ledger, so it is offered on a piece that is not open too
-/// (`ResolveVerbGate`). `AnnotationsPane.rowWiring` builds the pane's.
+/// (`ResolveVerbGate`). `ResolvePane` builds the list's.
 ///
 /// A host that only SHOWS a stream's notes takes `readOnly(manifest:onJump:)`:
 ///
 /// ```swift
-/// LazyVStack(spacing: 0) {
-///     AnnotationListView(
-///         annotations: notes, docId: docId, document: document,
+/// ForEach(notes) { note in
+///     AnnotationRowHost(
+///         annotation: note, docId: docId, document: document,
 ///         livePids: Set(document?.sequence ?? []), ledgerText: nil,
 ///         wiring: .readOnly(manifest: store.manifest))
 /// }

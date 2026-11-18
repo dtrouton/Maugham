@@ -14,11 +14,12 @@ import MaughamCore
 ///   `.maughamAnnotationsChanged` (the walk's cache is not observable). That
 ///   event also fires for any op-log file change of a closed piece, which is
 ///   what refreshes a closed piece's notes and to-dos.
-/// - `openAnnotationsVersion` / `openTasksVersion`: the SUMS of
-///   `Document.annotationsVersion` / `.tasksVersion` over every open document
-///   (`DocumentStore.allOpenDocuments()`), the open-document half of the task
-///   walk's own cache key — so a to-do typed in the open piece refreshes a
-///   Book or Part list too. Typing a to-do posts no event.
+/// - `openAnnotationsVersion`: the SUM of `Document.annotationsVersion` over
+///   every open document (`DocumentStore.allOpenDocuments()`), so a note added
+///   in any open piece refreshes a Book or Part list too. An open piece's
+///   to-dos are NOT the read's: a keystroke on a to-do line is
+///   `ResolveListKey.openTodos`'s cheap splice, never the project's task walk
+///   (Task 6's fix; the read key's to-do field went in Task 7).
 /// - `projectTasksVersion`: `ProjectStore.projectTasksVersion`, the Book's own
 ///   to-dos (the project op log).
 /// - `diagnosticsVersion`: `DiagnosticsStore.version`.
@@ -29,22 +30,20 @@ struct ResolveReadKey: Equatable {
     let scope: ResolveScope
     let annotationsToken: Int
     let openAnnotationsVersion: Int
-    let openTasksVersion: Int
     let projectTasksVersion: Int
     let diagnosticsVersion: Int
     let passes: [ReviewPass]
     let localName: String
 
-    /// `openVersions` is one `(annotations, tasks)` version pair per open
-    /// document; the key keeps their sums (wrapping, as the task cache does).
+    /// `openAnnotationVersions` is one `annotationsVersion` per open
+    /// document; the key keeps their sum (wrapping, as the task cache does).
     init(scope: ResolveScope, annotationsToken: Int,
-         openVersions: [(annotations: Int, tasks: Int)],
+         openAnnotationVersions: [Int],
          projectTasksVersion: Int, diagnosticsVersion: Int,
          passes: [ReviewPass], localName: String) {
         self.scope = scope
         self.annotationsToken = annotationsToken
-        self.openAnnotationsVersion = openVersions.reduce(0) { $0 &+ $1.annotations }
-        self.openTasksVersion = openVersions.reduce(0) { $0 &+ $1.tasks }
+        self.openAnnotationsVersion = openAnnotationVersions.reduce(0) { $0 &+ $1 }
         self.projectTasksVersion = projectTasksVersion
         self.diagnosticsVersion = diagnosticsVersion
         self.passes = passes

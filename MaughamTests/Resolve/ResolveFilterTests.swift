@@ -429,10 +429,10 @@ final class ResolveFilterTests: XCTestCase {
     // MARK: - The read key and the regroup key
 
     private func readKey(scope: ResolveScope = .piece(docId: "doc-a", includesBookLevel: true),
-                         token: Int = 1, open: [(annotations: Int, tasks: Int)] = [(4, 2), (1, 9)],
+                         token: Int = 1, open: [Int] = [4, 1],
                          project: Int = 3, diagnostics: Int = 7,
                          passes: [ReviewPass]? = nil, localName: String = "Denver") -> ResolveReadKey {
-        ResolveReadKey(scope: scope, annotationsToken: token, openVersions: open,
+        ResolveReadKey(scope: scope, annotationsToken: token, openAnnotationVersions: open,
                        projectTasksVersion: project, diagnosticsVersion: diagnostics,
                        passes: passes ?? self.passes, localName: localName)
     }
@@ -444,11 +444,10 @@ final class ResolveFilterTests: XCTestCase {
             ("scope", readKey(scope: .piece(docId: "doc-a", includesBookLevel: false))),
             ("annotations event", readKey(token: 2)),
             // A note added in ANY open document, faces' piece or not.
-            ("an open document's notes", readKey(open: [(4, 2), (2, 9)])),
-            // A to-do typed in an open piece moves a Book or Part list's key
-            // (typing a to-do posts no event).
-            ("an open document's to-dos", readKey(open: [(4, 3), (1, 9)])),
-            ("a document opened", readKey(open: [(4, 2), (1, 9), (1, 1)])),
+            ("an open document's notes", readKey(open: [4, 2])),
+            // An open piece's to-dos are `ResolveListKey.openTodos`'s, not the
+            // read's (Task 6's fix; `test_aKeystrokeInATodoLineRebuildsNoProjectAggregate`).
+            ("a document opened", readKey(open: [4, 1, 1])),
             ("the Book's own to-dos", readKey(project: 4)),
             ("the diagnostics", readKey(diagnostics: 8)),
             ("a pass added", readKey(passes: passes + [ReviewPass(id: "copy", name: "Copy edit")])),
@@ -460,7 +459,7 @@ final class ResolveFilterTests: XCTestCase {
             XCTAssertNotEqual(base, changed, "\(what) must move the read key")
         }
         // The sums are what count: the same versions spread differently do not move it.
-        XCTAssertEqual(readKey(open: [(4, 2), (1, 9)]), readKey(open: [(1, 9), (4, 2)]))
+        XCTAssertEqual(readKey(open: [4, 1]), readKey(open: [1, 4]))
     }
 
     /// Controller ruling: a new screenplay parse regroups (and re-reads the

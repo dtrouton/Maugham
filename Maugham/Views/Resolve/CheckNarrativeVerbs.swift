@@ -4,7 +4,7 @@ import MaughamCore
 
 // MARK: - The pane's verbs and formatters — windowless, so each is a test without a press
 
-extension DiagnosticsPane {
+extension CheckNarrative {
     /// `notes` in the order their paragraphs appear in the document, with the
     /// ones that name no live paragraph after them.
     ///
@@ -382,7 +382,7 @@ extension DiagnosticsPane {
     /// **The jump, windowless** (tripwire 33, #120) — what every excerpt
     /// chip on the pane reaches through its `onJump`.
     static func jump(toParagraph pid: String) {
-        // Reuses `AnnotationsPane.jump`'s event rather than a copy — span
+        // Reuses the Annotations pane's `jump`'s event rather than a copy — span
         // precision is that pane's alone; a diagnostic anchors a whole
         // paragraph.
         MaughamEvent.post(

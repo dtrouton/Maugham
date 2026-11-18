@@ -450,21 +450,10 @@ final class AnnotationPassStampTests: XCTestCase {
             text.components(separatedBy: "activeReviewPassId(").count - 1, 4)
     }
 
-    /// The pane calls both pure rules. Either one uncalled is a feature that
-    /// passes its own truth table and does nothing on screen.
-    func test_thePaneAppliesTheFilterAndRendersTheNudge() throws {
-        let text = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertTrue(text.contains("AnnotationPassFilter.matches"),
-                      "the pass filter must join the pane's filter chain")
-        XCTAssertTrue(text.contains("AnnotationPassFilter.resolved"),
-                      "the pane's selection must resolve through the one rule")
-        // `advice`, not `openEarlierPass`: the nudge derives from the piece's
-        // recorded active pass, and its entry point takes no filter selection
-        // (fix round 1 — `PassOrderAdviceTests` owns that truth table and the
-        // pane-side census that the two stay uncoupled).
-        XCTAssertTrue(text.contains("PassOrderAdvice.advice("),
-                      "the advisory nudge must be rendered")
-    }
+    /// The queue's pass filter went with the Annotations pane (shell plan 2
+    /// Task 7): To resolve filters by source chips, one per pass
+    /// (`ResolveFilterTests`); the nudge is drawn by its head
+    /// (`PassOrderAdviceTests.test_thePaneNudgeCannotReachTheFilterSelection`).
 
     /// Reading pass states is fine; WRITING them is a closed set
     /// (`PersonaPaneRegistryTests.passStateWritingFiles`), and this file must
@@ -477,8 +466,9 @@ final class AnnotationPassStampTests: XCTestCase {
     /// keeps the file out of the census; the positive half (the closure IS
     /// wired into the nudge) is what keeps the verbs from being dead code.
     func test_theNudgeRoutesItsVerbsThroughTheClosureAndNeverCallsSetPassStateDirectly() throws {
-        let pane = try AnnotationsPaneSource.surfaceSource()
-        XCTAssertFalse(pane.contains("setPassState"),
+        let pane = SourceScan.codeLines(of: try AnnotationsPaneSource.surfaceSource())
+            .joined(separator: "\n")
+        XCTAssertFalse(pane.replacingOccurrences(of: "onSetPassState", with: "").contains("setPassState"),
                        "the queue may let the writer rule on a pass, but only "
                        + "through the host's closure — a direct call here "
                        + "would make this file a fourth member of "

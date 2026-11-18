@@ -82,14 +82,14 @@ enum ResolveHead {
 
     /// **Who signed a standing letter** — each loop's own answer (tripwire
     /// 34). A check's is the reader the run was read under, else today's
-    /// `AuthorReader` (`DiagnosticsPane`'s rule); a round's is its pass's
-    /// editor (`AnnotationsPane.letterVoice`). Neither reads the other's.
+    /// `AuthorReader` (the Diagnostics pane's rule); a round's is its pass's
+    /// editor (`ResolveHead.roundLetterVoice`). Neither reads the other's.
     @MainActor
     static func letterVoice(run: CompilerRun, reader: AuthorReader,
                             passes: [ReviewPass]) -> String {
         switch run.effectiveKind {
         case .check: return run.readerName ?? reader.editorName
-        case .round: return AnnotationsPane.letterVoice(run: run, passes: passes)
+        case .round: return roundLetterVoice(run: run, passes: passes)
         }
     }
 
@@ -298,7 +298,7 @@ struct ResolveHeadView: View {
                         : nil)
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
-            if let nudge = AnnotationsPane.passOrderNudgeDecision(
+            if let nudge = ResolveHead.passOrderNudgeDecision(
                 isProjectScope: false, docId: docId,
                 memory: documentStore.uiState.activePassMemory, passes: passes,
                 passStates: item.passStates,
@@ -389,7 +389,7 @@ struct ResolveHeadView: View {
     }
 
     /// **The check's own header** — its line, Reread, the reader picker and
-    /// Ask. The values `DiagnosticsPane` derives, derived the same way from
+    /// Ask. The values the Diagnostics pane derives, derived the same way from
     /// the same statics, over the snapshot rather than a document.
     private func checkHeader(_ docId: String, offers: ResolveHeadOffers,
                              open: [Annotation]?, orchestrator: CompilerOrchestrator,
@@ -409,17 +409,17 @@ struct ResolveHeadView: View {
             return false
         }.count
         return DiagnosticsPaneHeader(
-            state: DiagnosticsPane.headerState(
+            state: CheckNarrative.headerState(
                 runState: orchestrator.runState, lastRun: check, noteCount: strains,
                 docId: docId, runStartedAt: orchestrator.runStartedAt,
                 runProgress: orchestrator.runProgress),
             // The snapshot is the piece's whole open queue, read without a
             // load, so the queue is always visible here.
-            wetInk: DiagnosticsPane.wetInkStanding(
+            wetInk: CheckNarrative.wetInkStanding(
                 mintedNotes: check?.mintedNotes, queueVisible: true, openNow: openNow),
             visibleQueue: open,
             reviewPasses: passes,
-            otherLoopLine: DiagnosticsPane.otherLoopLine(
+            otherLoopLine: CheckNarrative.otherLoopLine(
                 runState: orchestrator.runState, docId: docId,
                 titleOf: { RoundNarrative.pieceTitle(of: $0, in: store.manifest.structure) }),
             orchestrator: orchestrator, diagnostics: diagnostics, docId: docId,
@@ -578,7 +578,7 @@ struct RoundCockpitMount: View {
 // MARK: - A standing letter (moved from both letter hosts)
 
 /// **A run's letter with its verbs** — the one host `LetterSection` has.
-/// Moved out of `DiagnosticsPane` (the check's letter) and
+/// Moved out of the Diagnostics pane (the check's letter) and
 /// `AnnotationsRoundCockpit` (the round's), which built the same verbs from
 /// the same builders with their own values; each now hands those values here.
 ///
@@ -675,7 +675,7 @@ struct RunLetterSection: View {
 /// **The advisory nudge's row** (pass-order nudge gains its verbs) — its own
 /// view so its width is measurable (`AnnotationsQueueToolbarWidthTests`). The
 /// host supplies the pass and the two closures
-/// (`AnnotationsPane.passOrderNudgeDecision`); this struct owns no store and
+/// (`ResolveHead.passOrderNudgeDecision`); this struct owns no store and
 /// calls neither closure itself.
 ///
 /// The buttons say only "Mark done" / "Skip": the caption already names the

@@ -1405,7 +1405,7 @@ public final class Document {
 
         // Intentionally NO per-keystroke annotation work here. Earlier
         // attempts to invalidate the annotation cache and schedule a sweep
-        // on every keystroke created an observable-write storm: AnnotationsPane
+        // on every keystroke created an observable-write storm: Annotations pane
         // observes `annotations(filter:)`, whose evaluation transitively
         // observes `paragraphs` on the @Observable Document. Bumping
         // `annotationsVersion` on every keystroke triggered cascading

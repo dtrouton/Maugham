@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
 /// **The payload is a bare research item id, and the id space is about to have a
 /// neighbour.** `ResearchRow.swift:64` sends `item.id` through `.draggable`, which
 /// is the app's established pattern — but the binder sends manuscript pieces and
-/// tasks with the *same* raw-id payload (`PieceRow.swift`, `TasksPane.swift`), so
+/// tasks with the *same* raw-id payload (`PieceRow.swift`, the Tasks pane), so
 /// a string arriving here is not necessarily a research item at all. Everything
 /// this router refuses, it refuses by not finding the id in `CanvasItemIndex`;
 /// see `decide`. **A second id space must therefore arrive PREFIXED** — an inbox

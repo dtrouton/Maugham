@@ -90,7 +90,8 @@ final class UIStateSchemaTests: XCTestCase {
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertEqual(decoded.windowSubject,
                        WindowSubject(open: .item("doc-1"), faces: .item("doc-1")))
-        XCTAssertEqual(decoded.detailSegment, .tasks)
+        // "tasks" is a retired segment (shell plan 2 Task 7): To resolve.
+        XCTAssertEqual(decoded.detailSegment, .resolve)
         XCTAssertEqual(decoded.bookView, .cards)
         XCTAssertTrue(decoded.isNoChromeOn)
 
@@ -101,12 +102,12 @@ final class UIStateSchemaTests: XCTestCase {
     }
 
     /// The Inbox stopped being a right-column segment (shell p1 Task 6): a
-    /// stored `"inbox"` falls back to the Inspector rather than failing the
-    /// file.
-    func test_aStoredInboxSegmentFallsBackToTheInspector() throws {
+    /// stored `"inbox"` falls back to To resolve (shell plan 2 Task 7) rather
+    /// than failing the file.
+    func test_aStoredInboxSegmentFallsBackToToResolve() throws {
         let json = Data(#"{"schemaVersion":5,"detailSegment":"inbox","isNoChromeOn":true}"#.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.detailSegment, .inspector)
+        XCTAssertEqual(decoded.detailSegment, .resolve)
         XCTAssertTrue(decoded.isNoChromeOn, "the rest of the file survives")
     }
 
@@ -130,7 +131,7 @@ final class UIStateSchemaTests: XCTestCase {
              "selectedItemId":"doc-1"}
             """.utf8)
             let decoded = try JSONDecoder().decode(UIState.self, from: json)
-            XCTAssertEqual(decoded.detailSegment, .tasks, legacy)
+            XCTAssertEqual(decoded.detailSegment, .resolve, legacy)
             XCTAssertEqual(decoded.windowSubject.open, .item("doc-1"), legacy)
             XCTAssertTrue(decoded.isNoChromeOn, legacy)
         }

@@ -12,7 +12,7 @@ import MaughamCore
 /// that suite could see is whether the right column is SHOWING that inspector:
 /// its probe mounts the inspector arm directly, so it skips the one gate
 /// production has — `DetailPaneToggle` renders `inspectorContent` from its
-/// `.inspector` arm alone, and the writer may be on another pane (`.tasks`
+/// `.inspector` arm alone, and the writer may be on another pane (`.history`
 /// here). Every piece was right and the composition was dead.
 ///
 /// **So this suite's probe mounts the real `DetailPaneToggle`, on a pane that
@@ -66,7 +66,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
         let mount = try await host(store: store, subject: Self.canvas)
-        XCTAssertEqual(mount.probe.detailSegment, .tasks,
+        XCTAssertEqual(mount.probe.detailSegment, .history,
                        "precondition: the right column is on a pane that is not "
                        + "the inspector — the whole point of the case")
 
@@ -128,7 +128,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         pump(0.4)
 
         XCTAssertEqual(
-            mount.probe.detailSegment, .tasks,
+            mount.probe.detailSegment, .history,
             "the window's first subject is `load()`'s seed, and the pane beside "
             + "it was restored verbatim from the same UIState — a reveal there "
             + "would move the writer's last explicit pane choice every reopen")
@@ -274,7 +274,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
         }
         for subject in subjects {
             var showInspector = false
-            var segment = DetailSegment.tasks
+            var segment = DetailSegment.history
             ProjectWindow.revealResearchColumn(
                 subject: subject, showInspector: &showInspector, detailSegment: &segment)
 
@@ -284,7 +284,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
             XCTAssertEqual(showInspector, previews,
                            "\(subject): the reveal fires exactly where the "
                            + "placement previews in the right column")
-            XCTAssertEqual(segment, previews ? .inspector : .tasks,
+            XCTAssertEqual(segment, previews ? .inspector : .history,
                            "\(subject): and it moves the pane in the same cases")
         }
     }
@@ -312,11 +312,11 @@ final class ResearchSubjectRevealTests: XCTestCase {
     func test_aSubjectWithNothingBesideRevealsNothing() {
         for subject in SubjectSamples.everySubject {
             var showInspector = false
-            var segment = DetailSegment.tasks
+            var segment = DetailSegment.history
             ProjectWindow.revealResearchColumn(
                 subject: subject, showInspector: &showInspector, detailSegment: &segment)
             XCTAssertFalse(showInspector, "\(subject.open) open, nothing beside")
-            XCTAssertEqual(segment, .tasks)
+            XCTAssertEqual(segment, .history)
         }
     }
 
@@ -375,12 +375,12 @@ final class ResearchSubjectRevealTests: XCTestCase {
         let probe: ResearchRevealProbe
     }
 
-    /// The probe starts on `.tasks`, a pane that is not the inspector.
+    /// The probe starts on `.history`, a pane that is not the inspector.
     private func host(store: ProjectStore,
                       subject: WindowSubject?) async throws -> Mount {
         let probe = ResearchRevealProbe()
         probe.subject = subject
-        probe.detailSegment = .tasks
+        probe.detailSegment = .history
         let suite = "research-subject-reveal-\(UUID().uuidString)"
         defaultsSuites.append(suite)
         let preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
@@ -437,7 +437,7 @@ final class ResearchSubjectRevealTests: XCTestCase {
 final class ResearchRevealProbe {
     /// `nil` before the window's `load()`, as production's `subjectState` is.
     var subject: WindowSubject?
-    var detailSegment: DetailSegment = .tasks
+    var detailSegment: DetailSegment = .history
     var showInspector = true
     /// The tree's state — the window's since stage-3a Task 4, and this probe
     /// stands in for the window. Held here rather than inside the probe VIEW so

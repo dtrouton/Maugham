@@ -29,7 +29,7 @@ import MaughamCore
 enum ManuscriptNavigation {
 
     /// The payload key a paragraph navigation names its document by
-    /// (`TasksPane`, `HistoryPaneVerbs`, `TranslationReveal.navigatePayload`).
+    /// (the Tasks pane, `HistoryPaneVerbs`, `TranslationReveal.navigatePayload`).
     static let docIdKey = "doc_id"
 
     /// **Going to a document**: its piece takes the centre and the faces;

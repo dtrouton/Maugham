@@ -1,7 +1,8 @@
 import Foundation
 
-/// **The files that hold `AnnotationsPane`'s code** (#116 F11): the root and
-/// the children it builds and mounts.
+/// **The files that hold To resolve's note surface** (#116 F11; re-pointed
+/// from the deleted Annotations pane in shell plan 2 Task 7): the list, its
+/// head, and the note verbs, dialogs and rows it mounts.
 ///
 /// A census that BANS or COUNTS a token over the pane reads all of them
 /// (`surfaceSource()`), so a token that moves into a child is still seen. A
@@ -16,13 +17,15 @@ enum AnnotationsPaneSource {
     /// and row host moved to `Resolve/` (shell plan 2 Task 4) and are still
     /// the pane's until it is deleted.
     static let surfaceFiles: [String] = [
-        "AnnotationsPane.swift",
-        "AnnotationsPaneStatics.swift",
+        "Resolve/ResolvePane.swift",
+        "Resolve/ResolveListDecisions.swift",
+        "Resolve/ResolveHead.swift",
+        "Resolve/ResolveHeadStatics.swift",
         "Resolve/ResolveNoteVerbs.swift",
+        "Resolve/ResolveNoteStatics.swift",
         "Resolve/ResolveDialogs.swift",
-        "AnnotationsPaneStrips.swift",
-        "AnnotationsPaneQueues.swift",
-        "AnnotationListView.swift",
+        "Resolve/AnnotationsBulkBar.swift",
+        "Resolve/AnnotationRowWiring.swift",
         "Resolve/AnnotationRowHost.swift",
         "AnnotationRow.swift",
     ]

@@ -2,10 +2,10 @@ import Foundation
 import MaughamCore
 
 /// The report's own English, in one place — the round narrative both
-/// Diagnostics and the round cockpit read. Moved out of `DiagnosticsPane` (M4 P2 Task 2) so a
+/// Diagnostics and the round cockpit read. Moved out of the Diagnostics pane (M4 P2 Task 2) so a
 /// consumer that must not depend on that view — the round cockpit (Task 3)
-/// — can read the same copy without a Review→DiagnosticsPane dependency.
-/// `DiagnosticsPane` is one caller among others now, not the owner.
+/// — can read the same copy without a Review→Diagnostics pane dependency.
+/// the Diagnostics pane is one caller among others now, not the owner.
 enum RoundNarrative {
 
     /// **The legible wait** (requirement 5). "Checking 14 new paragraphs…",
@@ -383,7 +383,7 @@ enum RoundNarrative {
     /// `CompilerRunFailure.isTheWritersOwnDoing`), so its detail is worth
     /// showing rather than translating away.
     ///
-    /// **Hoisted out of `DiagnosticsPane` (2026-08-18, Denver's smoke) for the
+    /// **Hoisted out of the Diagnostics pane (2026-08-18, Denver's smoke) for the
     /// reason the rest of this file was hoisted: a second surface now says it.**
     /// The round cockpit collapsed `.failed` into `.idle` and drew a timed-out
     /// round exactly like a clean one, so two Structural and Line rounds that

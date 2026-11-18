@@ -7,7 +7,7 @@ import SwiftUI
 /// checked — and one production `ForEach(CompilerModelChoice.allCases` site,
 /// which `TripwireGrepTests` counts.
 ///
-/// Moved verbatim from `DiagnosticsPane.gearMenu` (M2 Task 8): the checkmark
+/// Moved verbatim from `CheckNarrative.gearMenu` (M2 Task 8): the checkmark
 /// on the current choice and the `.help` text naming it are unchanged, so a
 /// writer who already knows this control in Author finds the identical
 /// behaviour in Review.

@@ -4,11 +4,14 @@ import AppKit
 @testable import Maugham
 import MaughamCore
 
-/// **`AnnotationListView` mounted on its own** (#116 F11): its read-only
-/// wiring, and that its rows are still realised lazily inside the document
-/// queue's `LazyVStack` (tripwire 4).
+/// **A note row's wiring, and its rows' laziness** (#116 F11): the read-only
+/// wiring, and that `AnnotationRowHost` rows in a `ForEach` are still realised
+/// lazily inside a `LazyVStack` (tripwire 4) — To resolve's own container.
+/// Re-made from the Annotations pane's `AnnotationListView` tests when that
+/// view was deleted with the pane (shell plan 2 Task 7): the rows are the same
+/// `AnnotationRowHost`s, in To resolve's nested `ForEach`es.
 @MainActor
-final class AnnotationListViewTests: XCTestCase {
+final class AnnotationRowWiringTests: XCTestCase {
 
     private var windows: [NSWindow] = []
 
@@ -51,8 +54,8 @@ final class AnnotationListViewTests: XCTestCase {
     // MARK: - Laziness (tripwire 4)
 
     /// **Five hundred notes realise only the rows on screen.** The list is a
-    /// `ForEach`, so inside the document queue's `ScrollView { LazyVStack }`
-    /// it must stay lazy: `rowVerbs` is asked once per row the stack realises,
+    /// `ForEach`, so inside To resolve's `ScrollView { LazyVStack }` it must
+    /// stay lazy: `rowVerbs` is asked once per row the stack realises,
     /// which makes it the counter. Mounted in the queue's exact container,
     /// with nothing pressed or scrolled.
     func test_fiveHundredNotesRealiseOnlyTheRowsOnScreen() {
@@ -60,16 +63,14 @@ final class AnnotationListViewTests: XCTestCase {
         let notes = (0..<500).map { Self.note("n\($0)") }
         mount(ScrollView {
             LazyVStack(spacing: 0) {
-                AnnotationListView(
-                    annotations: notes, docId: "doc", document: nil,
-                    livePids: [], ledgerText: nil, wiring: counter.wiring)
+                Rows(notes: notes, wiring: counter.wiring)
             }
         })
         XCTAssertGreaterThan(counter.realised.count, 0,
                              "control: the stack realised the rows on screen")
         XCTAssertLessThan(counter.realised.count, 60,
                           "a 400pt viewport realised \(counter.realised.count) of 500 "
-                          + "rows: the list is no longer lazy inside the queue's stack")
+                          + "rows: the list is no longer lazy inside To resolve's stack")
     }
 
     /// **The instrument's control**: the same list in an eager `VStack`
@@ -80,15 +81,27 @@ final class AnnotationListViewTests: XCTestCase {
         let notes = (0..<80).map { Self.note("n\($0)") }
         mount(ScrollView {
             VStack(spacing: 0) {
-                AnnotationListView(
-                    annotations: notes, docId: "doc", document: nil,
-                    livePids: [], ledgerText: nil, wiring: counter.wiring)
+                Rows(notes: notes, wiring: counter.wiring)
             }
         })
         XCTAssertEqual(counter.realised.count, 80)
     }
 
     // MARK: - Fixture
+
+    /// The rows as `ResolvePane` lays them: one `AnnotationRowHost` and a
+    /// divider per note, in a `ForEach`.
+    private struct Rows: View {
+        let notes: [Annotation]
+        let wiring: AnnotationRowWiring
+        var body: some View {
+            ForEach(notes) { note in
+                AnnotationRowHost(annotation: note, docId: "doc", document: nil,
+                                  livePids: [], ledgerText: nil, wiring: wiring)
+                Divider()
+            }
+        }
+    }
 
     /// Counts the rows a stack realises, by the `rowVerbs` question each row
     /// asks once when it is built.

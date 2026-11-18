@@ -1110,12 +1110,14 @@ extension DocumentStorePostureTests {
         return seen
     }
 
-    /// **Ruling AJ: a yielded piece's queue section names whose it is and
-    /// lifts the yield.** The root yields on Sam's piece; the project-scope
-    /// queue's section for it says *Sam's piece* and offers Edit Anyway, which
-    /// is `overrideYield` — after it, the section says nothing. A piece nobody
-    /// yields on says nothing either.
-    func test_aYieldedPiecesQueueSectionNamesWhoseItIsAndOffersEditAnyway() async throws {
+    /// **Ruling AJ, its store half: a yield names whose piece it is, and Edit
+    /// Anyway lifts it.** The root yields on Sam's piece; `overrideYield` —
+    /// Edit Anyway, now offered by the standing line over the editor alone —
+    /// takes the yield away. A piece nobody yields on carries none. (The
+    /// Annotations pane's per-piece section header that also named the yield
+    /// was deleted with that pane, shell plan 2 Task 7: To resolve acts only
+    /// on the open piece, whose standing line says it.)
+    func test_aYieldedPieceNamesWhoseItIsAndEditAnywayLiftsIt() async throws {
         beASigningMac()
         let store = try await DocumentStore.open(url: projectURL)  // this Mac roots the book
         let sam = LocalIdentities.softwareForTesting()
@@ -1124,47 +1126,17 @@ extension DocumentStorePostureTests {
             permit: .author(.pieces([Self.docId])))
         await store.postureSettled()
 
-        let notice = AnnotationScopePolicy.yieldNotice(
-            posture: store.posture(forDocId: Self.docId), docId: Self.docId)
-        XCTAssertEqual(notice, .init(reason: "Sam\u{2019}s piece", docId: Self.docId),
-                       "the rows' reason, and the document Edit Anyway lifts")
-        XCTAssertNil(AnnotationScopePolicy.yieldNotice(
-            posture: store.posture(forDocId: "doc-nobody-names"), docId: "doc-nobody-names"),
-            "a piece nobody yields on carries no notice")
-
-        store.overrideYield(docId: try XCTUnwrap(notice).docId)
-        XCTAssertNil(AnnotationScopePolicy.yieldNotice(
-            posture: store.posture(forDocId: Self.docId), docId: Self.docId),
-            "after Edit Anyway the verbs are back and nothing is said")
-    }
-
-    /// The pure half, both directions: only the YIELD is named and liftable —
-    /// a reviewer's or a pieces author's refusal is a permit, the root's to
-    /// change, never this window's.
-    func test_theYieldNoticeIsTheYieldsAlone() {
-        let reviewer = Posture(LocalWritePermit(
-            permit: .reviewer, actor: .author, documentClass: .piece("doc-a")))
-        let notMine = Posture(LocalWritePermit(
-            permit: .author(.pieces(["doc-a"])), actor: .author, documentClass: .piece("doc-b")))
-        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: reviewer, docId: "doc-a"))
-        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: notMine, docId: "doc-b"))
-        XCTAssertNil(AnnotationScopePolicy.yieldNotice(posture: .author, docId: "doc-a"))
-        XCTAssertEqual(
-            AnnotationScopePolicy.yieldNotice(
-                posture: Posture(.unrestricted, yieldingTo: "Kit"), docId: "doc-a"),
-            .init(reason: "Kit\u{2019}s piece", docId: "doc-a"))
-        // Ruling U (fix wave): the starter's yield says the standing line's
-        // own sentence, and offers the same Edit Anyway.
-        let unsettled = Posture(
-            LocalWritePermit(
-                permit: .bookAuthor, actor: .author, documentClass: .piece("doc-a"),
-                startedHere: false,
-                unsettledStarter: .init(deviceId: "author-kit", name: "Kit")),
-            yieldingTo: "Kit")
-        XCTAssertEqual(
-            AnnotationScopePolicy.yieldNotice(posture: unsettled, docId: "doc-a"),
-            .init(reason: "Kit started this piece \u{2014} it isn\u{2019}t settled "
-                  + "whose it is yet.", docId: "doc-a"))
+        guard case .yielding(let name)? = store.posture(forDocId: Self.docId).reason else {
+            return XCTFail("the root yields on Sam's piece")
+        }
+        XCTAssertEqual(name, "Sam")
+        if case .yielding? = store.posture(forDocId: "doc-nobody-names").reason {
+            XCTFail("a piece nobody yields on carries no yield")
+        }
+        store.overrideYield(docId: Self.docId)
+        if case .yielding? = store.posture(forDocId: Self.docId).reason {
+            XCTFail("after Edit Anyway the yield is lifted")
+        }
     }
 
     /// **The door's `.translation` yield arm is deleted** (unreachable:

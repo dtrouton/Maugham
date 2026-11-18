@@ -143,7 +143,7 @@ enum BibleStratum {
     /// **Bless**: the fact graduates into the writer's layer as a ruling, and
     /// leaves the provisional register in the same act.
     ///
-    /// **The order is the contract, and it is `DiagnosticsPane.answer`'s.**
+    /// **The order is the contract, and it is `CheckNarrative.answer`'s.**
     /// Dismissed first, a refusal would cost the writer both the ruling and the
     /// reading, with nothing left on screen to press again; dismissed after, the
     /// worst case is a fact they bless twice.
@@ -168,7 +168,7 @@ enum BibleStratum {
     /// **Dismiss**: the writer says this is not so. Nothing enters their layer.
     ///
     /// **Not undoable, and that is intended rather than missing** — the
-    /// reasoning is `DiagnosticsPane.promote`'s, verbatim in shape: the bible is
+    /// reasoning is `CheckNarrative.promote`'s, verbatim in shape: the bible is
     /// per-device derived state with no undo of its own, and a fact the
     /// manuscript still establishes is recorded again by the next run
     /// (`BibleStore.record`'s doc says so). A ⌘Z that resurrected it would be

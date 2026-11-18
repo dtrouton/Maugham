@@ -318,7 +318,7 @@ extension Notification.Name {
     /// helper's liveness guard, ADR 0021).
     public static let maughamQuarantineRecordsChanged = Notification.Name(
         "maugham.quarantine.recordsChanged")
-    /// Posted when the AnnotationsPane wants the editor to scroll to/select a paragraph.
+    /// Posted when the Annotations pane wants the editor to scroll to/select a paragraph.
     /// userInfo["paragraph_id"] contains the paragraph id string.
     public static let maughamNavigateToParagraph = Notification.Name(
         "maughamNavigateToParagraph")
@@ -329,7 +329,7 @@ extension Notification.Name {
     /// The key-window `EditorCoordinator` looks the id up in its
     /// `resolvedReviewMarks`: an `absoluteRange` selects the span; otherwise it
     /// falls back to scrolling to the paragraph (the legacy behaviour). Posted
-    /// by `AnnotationsPane.jump(_:)` and by clicking an interactive margin card.
+    /// by `Annotations pane.jump(_:)` and by clicking an interactive margin card.
     public static let maughamNavigateToAnnotation = Notification.Name(
         "maughamNavigateToAnnotation")
     /// Posted by `TreeTravelClickWatcher` for a click on a tree row's LABEL

@@ -35,7 +35,7 @@ extension ProjectStore {
     ///
     /// Plan 1 gave every DOCUMENT's task ops a door (`Document+Tasks`) and left
     /// the project stream's verbs surface-only — `createProjectPaneTask` and
-    /// `TasksPane.archiveProjectTask` wrote whatever reached them. Both are
+    /// the Tasks pane's `archiveProjectTask` wrote whatever reached them. Both are
     /// synchronous, so they ask the DRAWING posture (`posture(forDocId:)`) of
     /// `__project__`: the answer every surface that offered the verb drew from.
     /// `.settling` — the window's table still on its way — refuses and says to

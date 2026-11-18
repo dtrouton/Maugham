@@ -98,7 +98,7 @@ final class TreeScrollStabilityTests: XCTestCase {
         try XCTUnwrap(store.documentStore).updateUIState {
             $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
                                              faces: .item(chapters[25].id))
-            $0.detailSegment = .annotations
+            $0.detailSegment = .resolve
         }
         await waitOut(1.2)   // the 500ms UI-state debounce reaches disk
 
@@ -172,7 +172,7 @@ final class TreeScrollStabilityTests: XCTestCase {
         try XCTUnwrap(store.documentStore).updateUIState {
             $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
                                              faces: .item(chapters[25].id))
-            $0.detailSegment = .annotations
+            $0.detailSegment = .resolve
         }
         await waitOut(1.2)
 
@@ -786,14 +786,15 @@ private struct AnnotationsPaneProbe: View {
     /// minimum instead of the queue's.
     let orchestrator: CompilerOrchestrator?
     let diagnostics: DiagnosticsStore?
-    @State private var scope: AnnotationScope = .document
 
     var body: some View {
-        AnnotationsPane(
-            document: document, store: store, documentStore: documentStore,
-            scope: $scope, onTravel: { _ in },
-            orchestrator: orchestrator, diagnostics: diagnostics,
-            onSetActivePass: { _, _ in })
+        ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item(document.docId), faces: .item(document.docId)),
+            script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil))
         .environment(UserPreferences())
     }
 }
@@ -814,7 +815,6 @@ private struct PassSwapColumnProbe: View {
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var findActive = false
-    @State private var scope: AnnotationScope = .document
 
     var body: some View {
         let current = probe.subject
@@ -832,11 +832,13 @@ private struct PassSwapColumnProbe: View {
         } content: {
             Text("centre").frame(maxWidth: .infinity, maxHeight: .infinity)
         } detail: {
-            AnnotationsPane(
-                document: document, store: store, documentStore: documentStore,
-                scope: $scope, onTravel: { _ in },
-                orchestrator: orchestrator, diagnostics: diagnostics,
-                onSetActivePass: { _, _ in })
+            ResolvePane(
+            store: store, documentStore: documentStore,
+            subject: WindowSubject(open: .item(document.docId), faces: .item(document.docId)),
+            script: nil, diagnostics: diagnostics, orchestrator: orchestrator, world: nil,
+            compilerModel: .standard, onCompilerModelChange: { _ in },
+            onSetPassState: { _, _, _ in }, onSetActivePass: { _, _ in },
+            request: .constant(nil))
         }
         .environment(UserPreferences())
     }

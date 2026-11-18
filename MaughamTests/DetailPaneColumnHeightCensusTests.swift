@@ -230,12 +230,12 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
     func test_thePlantedOffenderIsSeenByTheSameMeasurement() async throws {
         let window = try await mountColumns {
             VStack(spacing: 0) {
-                Text(DiagnosticsPane.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
+                Text(CheckNarrative.headerCopy(for: .failed(.cliNotFound, at: Date()), annotations: [], passes: []))
                     .font(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8).padding(.vertical, 6)
                 Divider()
-                Text(DiagnosticsPane.coldStartOfferSentence)
+                Text(CheckNarrative.coldStartOfferSentence)
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -413,7 +413,7 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
                       "premise: the roster's compiler carries the store the "
                       + "Diagnostics arm reads")
         XCTAssertTrue(
-            DiagnosticsPane.showsColdStartOffer(
+            CheckNarrative.showsColdStartOffer(
                 state: .neverRun, liveParagraphCount: document.sequence.count,
                 hasRefused: false),
             "premise: the census walks a Diagnostics pane in the state that "

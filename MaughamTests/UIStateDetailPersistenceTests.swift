@@ -5,10 +5,10 @@ final class UIStateDetailPersistenceTests: XCTestCase {
     func test_detailSegment_roundTrip() throws {
         let state = UIState(
             isNoChromeOn: false,
-            detailSegment: .annotations)
+            detailSegment: .history)
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(UIState.self, from: data)
-        XCTAssertEqual(decoded.detailSegment, .annotations)
+        XCTAssertEqual(decoded.detailSegment, .history)
     }
 
     /// The legacy `outlineLayout` key is read to seed the Book's view and
@@ -33,7 +33,7 @@ final class UIStateDetailPersistenceTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(
             UIState.self, from: raw.data(using: .utf8)!)
-        XCTAssertEqual(decoded.detailSegment, .inspector)
+        XCTAssertEqual(decoded.detailSegment, .resolve)
         XCTAssertEqual(decoded.bookView, .outline)
     }
 
@@ -41,17 +41,18 @@ final class UIStateDetailPersistenceTests: XCTestCase {
     /// longer exist as `DetailSegment` cases (stage 3a Task 6); a project's
     /// `ui-state.json` written before that still carries one of those raw
     /// strings, and `DetailSegment`'s synthesized decode simply fails for it —
-    /// `UIState`'s own `try?` catches that and falls back to `.inspector`,
-    /// same as any other unreadable field.
-    func test_olderDetailSegment_fallsBackToInspector() throws {
-        for retired in ["outline", "research", "palette", "inbox"] {
+    /// `UIState`'s own `try?` catches that and falls back to `.resolve` (shell
+    /// plan 2 Task 7, which also retired `annotations`, `diagnostics` and
+    /// `tasks`), same as any other unreadable field.
+    func test_olderDetailSegment_fallsBackToToResolve() throws {
+        for retired in ["outline", "research", "palette", "inbox", "annotations", "diagnostics", "tasks"] {
             let raw = """
             {"schemaVersion": 1, "detailSegment": "\(retired)"}
             """
             let decoded = try JSONDecoder().decode(
                 UIState.self, from: raw.data(using: .utf8)!)
-            XCTAssertEqual(decoded.detailSegment, .inspector,
-                           "a stored \"\(retired)\" should fall back to .inspector")
+            XCTAssertEqual(decoded.detailSegment, .resolve,
+                           "a stored \"\(retired)\" should fall back to .resolve")
         }
     }
 }

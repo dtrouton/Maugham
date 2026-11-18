@@ -2,7 +2,7 @@ import Foundation
 import MaughamCore
 
 /// Pure (testable) derivation of how an annotation's author is presented in the
-/// AnnotationsPane. Provenance is source-agnostic on the annotation; a nil
+/// Annotations pane. Provenance is source-agnostic on the annotation; a nil
 /// author is treated as Claude, because historically every annotation was
 /// Claude's (pre-provenance), and Claude-without-author still arrives nil.
 enum AnnotationAuthorPresentation {

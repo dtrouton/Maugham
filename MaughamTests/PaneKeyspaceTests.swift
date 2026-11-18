@@ -4,7 +4,8 @@ import XCTest
 /// Source-text guards on the `⌘⌥` pane keys. These read the real files rather
 /// than exercising SwiftUI, which this repo has no automation for. (The
 /// keyspace suite's persona half — ⌘1–⌘4 bound to the personas — retired with
-/// them in shell p1 Task 6; ⌘1–⌘4 are left unbound.)
+/// them in shell p1 Task 6; ⌘1 is To resolve since shell plan 2 Task 7, pinned
+/// in `ResolveMountingTests`.)
 final class PaneKeyspaceTests: XCTestCase {
     private func source(_ relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
@@ -89,9 +90,9 @@ final class PaneKeyspaceTests: XCTestCase {
         // The control: the same read on a different item must NOT answer ⌘⌥P,
         // or "the next shortcut in the file" would be reporting a constant.
         XCTAssertFalse(
-            try shortcut(after: "postSegment(.tasks)", in: app)
+            try shortcut(after: "postSegment(.history)", in: app)
                 .hasPrefix(#".keyboardShortcut("p", modifiers: [.command, .option])"#),
-            "control: Tasks must not also read as ⌘⌥P")
+            "control: History must not also read as ⌘⌥P")
     }
 
     /// **⌘⌥B opens the Inbox** — the Inbox is a tree row whose centre is the

@@ -47,7 +47,7 @@ enum AnnotationPassFilter {
     /// expressible.
     ///
     /// A selection naming a pass the project no longer has heals to every pass
-    /// — `AnnotationsPane.effectiveAuthorFilter`'s shape, and for its reason: a
+    /// — the Annotations pane's `effectiveAuthorFilter`'s shape, and for its reason: a
     /// stale selection would otherwise hide every stamped note with no control
     /// left on screen to say why.
     static func resolved(

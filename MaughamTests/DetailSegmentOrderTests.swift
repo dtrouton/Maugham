@@ -13,8 +13,8 @@ final class DetailSegmentOrderTests: XCTestCase {
     /// where the order is asserted; every picker below is checked as this
     /// order filtered, never as a literal of its own.
     static let expectedOrder: [DetailSegment] = [
-        .diagnostics, .annotations, .department, .intent, .lessons,
-        .firstReader, .references, .visualLanguage, .tasks, .translation,
+        .resolve, .department, .intent, .lessons,
+        .firstReader, .references, .visualLanguage, .translation,
         .history, .inspector
     ]
 
@@ -60,13 +60,13 @@ final class DetailSegmentOrderTests: XCTestCase {
     }
 
     /// **The planted offender**: the chapter's real panes with History and
-    /// Tasks swapped — same members, same first element. Only the order guard
-    /// sees it.
+    /// Translation swapped — same members, same first element. Only the order
+    /// guard sees it.
     func test_theOrderGuardCatchesAReorderThatKeepsTheFirstElement() throws {
         var offender = Toggle.visibleSegments(subject: Self.chapter)
-        let tasks = try XCTUnwrap(offender.firstIndex(of: .tasks))
+        let translation = try XCTUnwrap(offender.firstIndex(of: .translation))
         let history = try XCTUnwrap(offender.firstIndex(of: .history))
-        offender.swapAt(tasks, history)
+        offender.swapAt(translation, history)
         XCTAssertEqual(offender.first, Toggle.visibleSegments(subject: Self.chapter).first)
         XCTAssertNotEqual(offender, DetailSegment.pickerOrder.filter(Set(offender).contains),
                           "the guard accepted a permutation — it is asserting "
@@ -98,8 +98,8 @@ final class DetailSegmentOrderTests: XCTestCase {
         }
         // The control: the panes that do not need a document stay with the Book.
         let book = Set(Toggle.visibleSegments(subject: .book))
-        for segment in [DetailSegment.annotations, .intent, .lessons, .firstReader,
-                        .visualLanguage, .tasks, .inspector] {
+        for segment in [DetailSegment.resolve, .intent, .lessons, .firstReader,
+                        .visualLanguage, .inspector] {
             XCTAssertTrue(book.contains(segment), "the Book lost \(segment)")
         }
     }
@@ -107,9 +107,9 @@ final class DetailSegmentOrderTests: XCTestCase {
     /// **A pane about one document is not offered for a faces' piece that is
     /// not open** (shell p1 final fix, I2): with the canvas or an edition in
     /// the centre, a piece clicked moves only the faces, and no editor has
-    /// that piece — the panes would show "Select a document", or Diagnostics a
-    /// piece with no paragraph notes. The same piece open in the centre offers
-    /// them all.
+    /// that piece — the panes would show "Select a document". The same piece
+    /// open in the centre offers them all. To resolve is not among them (shell
+    /// plan 2 Task 7): it reads the piece without loading it.
     func test_aDocumentPaneIsNotOfferedForAFacesPieceThatIsNotOpen() {
         for open in [BinderSubject.canvas, .edition(language: "es")] {
             let subject = WindowSubject(open: open, faces: .item("ch-1"))
@@ -118,6 +118,7 @@ final class DetailSegmentOrderTests: XCTestCase {
                 XCTAssertFalse(shown.contains(segment), "\(segment) offered over \(open)")
             }
             XCTAssertFalse(Toggle.facesPieceIsOpen(subject), "\(open)")
+            XCTAssertTrue(shown.contains(.resolve), "To resolve is offered over \(open)")
         }
         let shown = Set(Toggle.visibleSegments(subject: Self.chapter))
         XCTAssertTrue(DetailSegment.needsADocument.isSubset(of: shown),
@@ -125,9 +126,11 @@ final class DetailSegmentOrderTests: XCTestCase {
         XCTAssertTrue(Toggle.facesPieceIsOpen(Self.chapter))
     }
 
-    /// With a chapter open the picker leads with Diagnostics, the check's pane.
-    func test_aChapterLeadsWithDiagnostics() {
-        XCTAssertEqual(Toggle.visibleSegments(subject: Self.chapter).first, .diagnostics)
+    /// Every subject's picker leads with To resolve (shell plan 2 Task 7).
+    func test_everyPickerLeadsWithToResolve() {
+        for subject in Self.subjects {
+            XCTAssertEqual(Toggle.visibleSegments(subject: subject).first, .resolve, "\(subject)")
+        }
     }
 
     // MARK: - A selected segment is carried
@@ -141,7 +144,7 @@ final class DetailSegmentOrderTests: XCTestCase {
     }
 
     func test_aSelectionAlreadyOfferedIsNotDuplicated() {
-        let shown = Toggle.visibleSegments(subject: Self.chapter, including: .tasks)
+        let shown = Toggle.visibleSegments(subject: Self.chapter, including: .history)
         XCTAssertEqual(shown, Toggle.visibleSegments(subject: Self.chapter))
     }
 
@@ -184,8 +187,8 @@ final class DetailSegmentOrderTests: XCTestCase {
         }
         XCTAssertEqual(Toggle.segmentAfterSubjectChange(.department, from: es, to: fr),
                        .department, "edition to edition keeps the desk")
-        XCTAssertEqual(Toggle.segmentAfterSubjectChange(.tasks, from: es, to: .book),
-                       .tasks, "any other selection is carried")
+        XCTAssertEqual(Toggle.segmentAfterSubjectChange(.history, from: es, to: .book),
+                       .history, "any other selection is carried")
         XCTAssertEqual(Toggle.segmentAfterSubjectChange(.department, from: .book, to: Self.chapter),
                        .department,
                        "a desk reached by ⌘⌥K off an edition is the writer's own ask")
@@ -193,7 +196,7 @@ final class DetailSegmentOrderTests: XCTestCase {
 
     /// The menu form's names are the help text up to the dash.
     func test_theMenuFormNamesEachSegment() {
-        XCTAssertEqual(Toggle.title(of: .diagnostics), "Diagnostics")
+        XCTAssertEqual(Toggle.title(of: .resolve), "To resolve")
         XCTAssertEqual(Toggle.title(of: .lessons), "What I've learned")
         for segment in DetailSegment.allCases {
             XCTAssertFalse(Toggle.title(of: segment).contains("\u{2014}"), "\(segment)")
@@ -202,18 +205,18 @@ final class DetailSegmentOrderTests: XCTestCase {
 
     // MARK: - Badges
 
-    /// The badge is drawn `shift` segment-widths left of the trailing edge, so
-    /// the assertion is where it LANDS, under every picker shape.
-    func test_theDiagnosticsBadgeLandsOnDiagnostics() {
+    /// The unread dot is drawn `shift` segment-widths left of the trailing
+    /// edge, so the assertion is where it LANDS, under every picker shape.
+    func test_theUnreadDotLandsOnToResolve() {
         for subject in Self.subjects {
             for selected in [nil] + DetailSegment.allCases.map({ Optional($0) }) {
                 let shown = Toggle.visibleSegments(subject: subject, including: selected)
-                guard let shift = Toggle.badgeOffset(of: .diagnostics, in: shown) else {
-                    XCTAssertFalse(shown.contains(.diagnostics))
+                guard let shift = Toggle.badgeOffset(of: Toggle.unreadDotSegment, in: shown) else {
+                    XCTFail("To resolve is offered under every subject: \(shown)")
                     continue
                 }
-                XCTAssertEqual(shown[shown.count - 1 - shift], .diagnostics,
-                               "badge lands on the wrong segment of \(shown)")
+                XCTAssertEqual(shown[shown.count - 1 - shift], .resolve,
+                               "the dot lands on the wrong segment of \(shown)")
             }
         }
     }
@@ -222,7 +225,8 @@ final class DetailSegmentOrderTests: XCTestCase {
 
     /// Every case is reachable by a View-menu item through `postSegment`,
     /// whatever the subject offers (moved here from the retired keyspace
-    /// suite, shell p1 Task 6).
+    /// suite, shell p1 Task 6). To resolve's is ⌘1; ⌘⌥A/D/T reach it on a
+    /// filter (`ResolveMountingTests`).
     func test_everyDetailSegmentHasAMenuShortcut() throws {
         let app = try SourceTree.read("Maugham/MaughamApp.swift")
         for segment in DetailSegment.allCases {

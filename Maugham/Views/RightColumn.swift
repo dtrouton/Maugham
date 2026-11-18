@@ -72,7 +72,11 @@ struct RightColumn: View {
     @Binding var detailColumnWidth: Double
     @Binding var selectedSubject: BinderSubject?
     @Binding var detailSegment: DetailSegment
-    @Binding var annotationScopeRequest: AnnotationScope
+    /// To resolve's next ask — a filter or a piece to focus (shell plan 2
+    /// Task 7); `ResolvePane` applies it once and sets it back to nil.
+    @Binding var resolveRequest: ResolveRequest?
+    /// The window's parsed screenplay, for To resolve's scene grouping.
+    let lastParsedScript: FountainScript?
     @Binding var compilerModel: CompilerModelChoice
 
     // The window's verbs.
@@ -86,7 +90,7 @@ struct RightColumn: View {
     /// The drawing door's posture for one document.
     let posture: (_ docId: String?) -> Posture
     /// Whether the tree's Figures section draws a figure
-    /// (`BinderTreeSectionsState.drawsFigure`), for the annotation queue.
+    /// (`BinderTreeSectionsState.drawsFigure`), for To resolve's figure click.
     var drawsFigure: (String) -> Bool = { _ in false }
     /// `BinderTreeSectionsState.revealFigure`, before a figure travel lands.
     var revealFigure: (String) -> Void = { _ in }
@@ -273,7 +277,8 @@ struct RightColumn: View {
                 documentStore.updateUIState { $0.compilerModel = newValue }
             },
             assistant: assistant,
-            annotationScope: $annotationScopeRequest,
+            resolveRequest: $resolveRequest,
+            script: lastParsedScript,
             // The round cockpit's pass picker lands on the ONE writer of
             // `UIState.activePassMemory`; a queue writing the memory itself
             // would be a second spelling of the value the RUN reads to mint
@@ -283,12 +288,12 @@ struct RightColumn: View {
             },
             // The pass-order nudge's Mark done / Skip — the same write as the
             // board's chip verb: `PassStateWriterCensusTests.passStateWritingFiles`
-            // is file-scoped, so a call in any `AnnotationsPane` file would be
-            // one more writer.
+            // is file-scoped, so a call in any `Resolve/` file would be one
+            // more writer.
             onSetPassState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             },
-            // The Diagnostics header's "Define a first reader…" — the same
+            // The check header's "Define a first reader…" — the same
             // hand-off `InspectorView`'s "Project Settings…" gets.
             onOpenProjectSettings: openProjectSettings,
             drawsFigure: drawsFigure,
@@ -414,9 +419,10 @@ struct RightColumn: View {
             figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
             figureWindows: figureWindows, figureTree: figureTree, control: editorControl, isLocked: isLocked,
             window: window, select: { selectedSubject = $0 },
-            showNotes: { id in
-                annotationScopeRequest = .project(focusPiece: id)
-                detailSegment = .annotations
+            // Show notes: To resolve, which the figure — already the faces —
+            // scopes to its own notes (shell plan 2 Task 7).
+            showNotes: { _ in
+                detailSegment = .resolve
             })
             .id(figureID)
         if ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID != nil {

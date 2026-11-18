@@ -6,16 +6,16 @@ import MaughamCore
 /// **The pane's header** — the run's one line (a clock while a run is live),
 /// Cancel, Reread, the other loop's line, the reader picker and the Ask field.
 /// Values in and closures out: it owns no state, and every sentence it draws
-/// is one of `DiagnosticsPane`'s pure statics.
+/// is one of the Diagnostics pane's pure statics.
 @MainActor
 struct DiagnosticsPaneHeader: View {
-    /// `DiagnosticsPane.state` — the pane's one reading of the run.
-    let state: DiagnosticsPane.HeaderState
-    let wetInk: DiagnosticsPane.WetInk
-    /// `DiagnosticsPane.visibleQueue`: `nil` when the pane cannot see a queue.
+    /// `CheckNarrative.state` — the pane's one reading of the run.
+    let state: CheckNarrative.HeaderState
+    let wetInk: CheckNarrative.WetInk
+    /// `CheckNarrative.visibleQueue`: `nil` when the pane cannot see a queue.
     let visibleQueue: [Annotation]?
     let reviewPasses: [ReviewPass]
-    /// `DiagnosticsPane.otherLoopLine`, read once by the pane.
+    /// `CheckNarrative.otherLoopLine`, read once by the pane.
     let otherLoopLine: String?
     let orchestrator: CompilerOrchestrator
     let diagnostics: DiagnosticsStore
@@ -73,7 +73,7 @@ struct DiagnosticsPaneHeader: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         // No queue read at 1 Hz: `.running` never reaches
                         // the `.clean` arm the queue feeds.
-                        Text(DiagnosticsPane.headerCopy(
+                        Text(CheckNarrative.headerCopy(
                             for: state, wetInk: wetInk, now: context.date,
                             annotations: [], passes: []))
                             .font(.caption)
@@ -88,7 +88,7 @@ struct DiagnosticsPaneHeader: View {
                 Spacer()
                 // The pane's own check, or Review's round (#77 F7 review
                 // ruling) — one session, one `cancel()`.
-                if DiagnosticsPane.offersCancel(state: state, otherLoopLine: otherLoopLine) {
+                if CheckNarrative.offersCancel(state: state, otherLoopLine: otherLoopLine) {
                     Button("Cancel") { orchestrator.cancel() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -114,7 +114,7 @@ struct DiagnosticsPaneHeader: View {
                 // it cannot open — one delivery path, no second call into the
                 // orchestrator from a view.
                 if offersReread {
-                    Button(DiagnosticsPane.rereadTitle) {
+                    Button(CheckNarrative.rereadTitle) {
                         MaughamEvent.postRun(.reread)
                     }
                         .buttonStyle(.bordered)
@@ -124,7 +124,7 @@ struct DiagnosticsPaneHeader: View {
                         // while the header read `.running` over that round, and
                         // now says whose run it is waiting for.
                         .disabled(isRunningState || otherLoopLine != nil)
-                        .help(otherLoopLine ?? DiagnosticsPane.rereadHelp)
+                        .help(otherLoopLine ?? CheckNarrative.rereadHelp)
                 }
                 if offersModelMenu { gearMenu }
             }
@@ -194,7 +194,7 @@ struct DiagnosticsPaneHeader: View {
     }
 
     private var headerLine: String {
-        DiagnosticsPane.headerCopy(for: state, wetInk: wetInk,
+        CheckNarrative.headerCopy(for: state, wetInk: wetInk,
                         annotations: visibleQueue, passes: reviewPasses)
     }
 
@@ -212,7 +212,7 @@ struct DiagnosticsPaneHeader: View {
         return ""
     }
 
-    private var readerLine: String { DiagnosticsPane.readerCopy(for: reader) }
+    private var readerLine: String { CheckNarrative.readerCopy(for: reader) }
 
     /// **The picker, labelled by the line it replaces** (two loops P2 Task 6).
     ///
@@ -240,21 +240,21 @@ struct DiagnosticsPaneHeader: View {
     private var readerMenu: some View {
         if let manifest = store?.manifest {
             Menu {
-                ForEach(DiagnosticsPane.readerMenuItems(manifest: manifest), id: \.self) { candidate in
+                ForEach(CheckNarrative.readerMenuItems(manifest: manifest), id: \.self) { candidate in
                     Button {
                         onChooseReader(candidate)
                     } label: {
-                        if candidate == DiagnosticsPane.resolvedChoice(for: reader) {
-                            Label(DiagnosticsPane.readerMenuTitle(candidate, manifest: manifest),
+                        if candidate == CheckNarrative.resolvedChoice(for: reader) {
+                            Label(CheckNarrative.readerMenuTitle(candidate, manifest: manifest),
                                   systemImage: "checkmark")
                         } else {
-                            Text(DiagnosticsPane.readerMenuTitle(candidate, manifest: manifest))
+                            Text(CheckNarrative.readerMenuTitle(candidate, manifest: manifest))
                         }
                     }
                 }
-                if !DiagnosticsPane.hasFirstReader(manifest) {
+                if !CheckNarrative.hasFirstReader(manifest) {
                     Divider()
-                    Button(DiagnosticsPane.defineFirstReaderTitle) { onOpenProjectSettings() }
+                    Button(CheckNarrative.defineFirstReaderTitle) { onOpenProjectSettings() }
                 }
             } label: {
                 Text(readerLine)
@@ -280,7 +280,7 @@ struct DiagnosticsPaneHeader: View {
 
 // MARK: - The header's words and the reader menu's items
 
-extension DiagnosticsPane {
+extension CheckNarrative {
     /// Reread's word and its promise. `static let` for `headerCopy`'s reason:
     /// every sentence this pane says is assertable without mounting anything,
     /// and the help text names the keystroke because the button IS the

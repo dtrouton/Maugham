@@ -195,21 +195,22 @@ final class PassOrderAdviceTests: XCTestCase {
     /// `advice` taking no selection makes the coupling unspellable, but the
     /// pane could still re-derive it inline — that is what this catches.
     func test_thePaneNudgeCannotReachTheFilterSelection() throws {
-        let text = try AnnotationsPaneSource.source(of: "AnnotationsPane.swift")
+        // To resolve's head draws the nudge (shell plan 2 Task 7).
+        let text = try AnnotationsPaneSource.source(of: "Resolve/ResolveHead.swift")
         let nudge = try XCTUnwrap(
-            text.range(of: "private var passOrderNudge: some View {"))
+            text.range(of: "private func standing(_ docId: String, offers: ResolveHeadOffers) -> some View {"))
         let body = try XCTUnwrap(
             text.range(of: "// MARK:", range: nudge.upperBound..<text.endIndex))
-        // The mount, and the windowless decision it draws (a static since
-        // #116 F11), read as one: neither may reach for the filter.
-        let statics = try AnnotationsPaneSource.source(of: "AnnotationsPaneStatics.swift")
+        // The mount, and the windowless decision it draws, read as one:
+        // neither may reach for the filter.
+        let statics = try AnnotationsPaneSource.source(of: "Resolve/ResolveHeadStatics.swift")
         let decision = try XCTUnwrap(
             statics.range(of: "static func passOrderNudgeDecision("))
         let decisionEnd = try XCTUnwrap(
             statics.range(of: "\n    }\n", range: decision.upperBound..<statics.endIndex))
         let source = String(text[nudge.upperBound..<body.lowerBound])
             + String(statics[decision.lowerBound..<decisionEnd.upperBound])
-        XCTAssertTrue(source.contains("Self.passOrderNudgeDecision("),
+        XCTAssertTrue(source.contains("ResolveHead.passOrderNudgeDecision("),
                       "the mount draws the windowless decision")
         XCTAssertTrue(source.contains("PassOrderAdvice.advice("),
                       "the nudge derives from the piece's recorded active pass")

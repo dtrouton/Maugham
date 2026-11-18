@@ -324,7 +324,7 @@ struct ResolveNoteVerbs {
             do {
                 try await document.reopenAnnotation(id: id, undoManager: undoManager)
             } catch {
-                AnnotationsPane.sayRefused(error, in: document)
+                ResolveNoteVerbs.sayRefused(error, in: document)
             }
             noteChanged()
         }
@@ -467,7 +467,7 @@ struct ResolveNoteVerbs {
                 }
                 landed = true
             } catch {
-                AnnotationsPane.sayRefused(error, projectURL: store.url)
+                ResolveNoteVerbs.sayRefused(error, projectURL: store.url)
             }
             noteChanged()
             await after(landed)

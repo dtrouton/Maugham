@@ -31,7 +31,7 @@ struct DepartmentPaneHost: View {
     /// one chapter's, and this is the only thing on the pane that says which.
     var subject: BinderSubject? = nil
     /// The window's translator (P2), owned by `ProjectWindow` beside the compiler
-    /// and reached here the way `DiagnosticsPane` reaches the compiler: passed as
+    /// and reached here the way the Diagnostics pane reaches the compiler: passed as
     /// a value, never constructed. Optional so a caller that surfaces no run — the
     /// probe mounts — offers a desk that reads and does not act.
     var translator: TranslatorOrchestrator? = nil

@@ -16,7 +16,7 @@ import SwiftUI
 /// out: the writer's window stays at a size the window itself still considers
 /// legal while the content has quietly decided it needs more, and every height
 /// in the gap lays out short. That is exactly what Denver's Review smoke found
-/// — swapping the review pass made `AnnotationsPane`'s advisory nudge appear,
+/// — swapping the review pass made the Annotations pane's advisory nudge appear,
 /// the pane's minimum height rose with it, and at window heights inside the new
 /// gap the tree was displaced upward out of the column.
 ///
