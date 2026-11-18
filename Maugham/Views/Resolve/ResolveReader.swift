@@ -131,26 +131,66 @@ enum ResolveReader {
                                paragraphText: paragraphs, unreadableDocIds: unreadable)
     }
 
-    /// One read of `scope`: the two project walks (each cached whole by the
-    /// store), the sidecar's live strains, then `snapshot`. Wired to the
-    /// stores; the decisions are `gather`'s.
+    /// One read of `scope` straight from the stores: the two project walks,
+    /// the open pieces off their `Document`s, the sidecar's live strains.
+    /// The view reads through `read(scope:annotations:tasks:live:...)` over
+    /// walks it holds (`ResolveWalkHold`); this is that, with fresh walks.
     @MainActor
     static func read(scope: ResolveScope, store: ProjectStore,
                      documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
         guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
-        let live: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in
+        return read(scope: scope, annotations: store.listAnnotationsAcrossProject(),
+                    tasks: store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open])),
+                    live: ResolvePane.livePieces(scope: scope, documentStore: documentStore),
+                    store: store, documentStore: documentStore, diagnostics: diagnostics)
+    }
+
+    /// **One read of `scope` over walks already held** (review C1): each open
+    /// piece in `live` answers for itself — its notes, to-dos and order off its
+    /// `Document` — and the walks answer for every closed piece and figure.
+    @MainActor
+    static func read(scope: ResolveScope, annotations: ProjectAnnotationsSnapshot,
+                     tasks: [WriterTask], live: [String: ResolveLivePiece], store: ProjectStore,
+                     documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+        guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+        let liveFindings: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in
             { docId, currentText in diagnostics.live(docId: docId, currentText: currentText) }
         }
         return gather(
             scope: scope,
-            annotations: store.listAnnotationsAcrossProject(),
-            tasks: store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open])),
+            annotations: overlaying(annotations, live: live),
+            tasks: overlaying(tasks, live: live),
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
-            liveFindings: live,
+            liveFindings: liveFindings,
             paragraphs: { docId in
-                try currentParagraphState(documentId: docId, store: store,
-                                          documentStore: documentStore, projectURL: store.url).paragraphs
+                if let piece = live[docId] { return piece.paragraphs }
+                return try currentParagraphState(documentId: docId, store: store,
+                                                 documentStore: documentStore, projectURL: store.url).paragraphs
             })
+    }
+
+    /// The walk with each open piece's notes (every status) and order
+    /// replaced by its live `Document`'s. A live piece is never unreadable.
+    static func overlaying(_ walk: ProjectAnnotationsSnapshot,
+                           live: [String: ResolveLivePiece]) -> ProjectAnnotationsSnapshot {
+        guard !live.isEmpty else { return walk }
+        var sequences = walk.sequences
+        var fresh: [ProjectAnnotation] = []
+        for (docId, piece) in live.sorted(by: { $0.key < $1.key }) {
+            sequences[docId] = piece.sequence
+            fresh += piece.notes.map { ProjectAnnotation(docId: docId, annotation: $0) }
+        }
+        return ProjectAnnotationsSnapshot(
+            annotations: walk.annotations.filter { live[$0.docId] == nil } + fresh,
+            unreadableDocIds: walk.unreadableDocIds.filter { live[$0] == nil },
+            sequences: sequences, figureCells: walk.figureCells)
+    }
+
+    /// The task walk with each open piece's to-dos replaced by its live ones.
+    static func overlaying(_ tasks: [WriterTask], live: [String: ResolveLivePiece]) -> [WriterTask] {
+        guard !live.isEmpty else { return tasks }
+        return tasks.filter { live[ResolveItem.todo($0).docId] == nil }
+            + live.sorted(by: { $0.key < $1.key }).flatMap(\.value.todos)
     }
 
     /// **The read's decisions, with its two sources injected** (the seam

@@ -93,8 +93,8 @@ final class ResolvePaneTests: XCTestCase {
     /// Every input that changes what the list shows moves the list's key:
     /// the event token (`.maughamAnnotationsChanged`), a note added to the
     /// open piece, a to-do typed into it, a Book-level to-do and a check's
-    /// sidecar. A typed to-do moves only the cheap half (`openTodos`), never
-    /// the read key that runs the walks.
+    /// sidecar. A typed to-do and a note on the open piece move only the
+    /// cheap half (`openTodos`, `openNotes`), never the read key.
     func test_theRefreshKeyMovesOnEveryInputThatChangesTheList() async throws {
         let (doc, store, documentStore) = try await openDocument()
         let diagnostics = DiagnosticsStore(projectRoot: store.url, device: DeviceSlug.make(from: "test-mac"))
@@ -105,8 +105,9 @@ final class ResolvePaneTests: XCTestCase {
                                 localName: "Me")
         }
         func key(_ token: Int) -> ResolveListKey {
-            ResolveListKey(regroup: ResolveRegroupKey(read: read(token), script: nil),
-                           openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
+            ResolvePane.listKey(scope: scope, annotationsToken: token, store: store,
+                                documentStore: documentStore, diagnostics: diagnostics,
+                                localName: "Me", script: nil)
         }
         let start = key(0)
         XCTAssertEqual(key(0), start, "premise: nothing moved, nothing moves")
@@ -116,7 +117,9 @@ final class ResolvePaneTests: XCTestCase {
         let pid = try XCTUnwrap(doc.sequence.first)
         try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: "a note")
         let afterNote = key(0)
-        XCTAssertNotEqual(afterNote.regroup.read, start.regroup.read, "a note on the open piece")
+        XCTAssertNotEqual(afterNote, start, "a note on the open piece")
+        XCTAssertEqual(afterNote.regroup.read, start.regroup.read,
+                       "and only the live half moved: no walk for the open piece's note (review C1)")
 
         doc.setFullText("Hello.\n\n- [ ] typed to-do")
         let afterTodo = key(0)
@@ -158,8 +161,7 @@ final class ResolvePaneTests: XCTestCase {
                     documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
                 openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
         }
-        var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
-                                         documentStore: documentStore, diagnostics: nil)
+        var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)
         XCTAssertEqual(todoBodies(held), [], "premise: no to-do yet")
         let before = key()
 
@@ -169,8 +171,7 @@ final class ResolvePaneTests: XCTestCase {
         let after = key()
         XCTAssertNotEqual(after, before, "the typed to-do moves the key with no burst flush")
         let step = ResolvePane.refreshStep(after, last: before)
-        held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
-                                     documentStore: documentStore, diagnostics: nil)
+        held = refreshed(held, step: step, scope: scope, store: store, documentStore: documentStore)
         XCTAssertEqual(todoBodies(held), ["fix the dock"], "and the step it triggers lists it")
     }
 
@@ -190,8 +191,7 @@ final class ResolvePaneTests: XCTestCase {
                         documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
                     openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
             }
-            var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
-                                             documentStore: documentStore, diagnostics: nil)
+            var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)
             var last = key()
             let rebuilds = store._debugTasksRebuildCount
             var typed = "- [ ] fix"
@@ -200,9 +200,8 @@ final class ResolvePaneTests: XCTestCase {
                 doc.setFullText("Hello.\n\n" + typed)
                 let now = key()
                 let step = ResolvePane.refreshStep(now, last: last)
-                XCTAssertEqual(step, .todos, "\(scope): a keystroke on a to-do line is the cheap step")
-                held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
-                                             documentStore: documentStore, diagnostics: nil)
+                XCTAssertEqual(step, .live, "\(scope): a keystroke on a to-do line is the cheap step")
+                held = refreshed(held, step: step, scope: scope, store: store, documentStore: documentStore)
                 last = now
             }
             XCTAssertEqual(store._debugTasksRebuildCount, rebuilds,
@@ -214,6 +213,17 @@ final class ResolvePaneTests: XCTestCase {
         }
     }
 
+    /// One refresh step as the view runs it, over a fresh walk hold.
+    private func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, scope: ResolveScope,
+                           store: ProjectStore, documentStore: DocumentStore) -> ResolveSnapshot {
+        var walks = ResolveWalkHold()
+        return ResolvePane.refreshed(
+            held, step: step,
+            key: ResolvePane.readKey(scope: scope, annotationsToken: 0, store: store,
+                                     documentStore: documentStore, diagnostics: nil, localName: "Me"),
+            walks: &walks, store: store, documentStore: documentStore, diagnostics: nil)
+    }
+
     private func todoBodies(_ snapshot: ResolveSnapshot) -> [String] {
         snapshot.items.compactMap { if case .todo(let task) = $0 { return task.body } else { return nil } }
     }
@@ -223,10 +233,10 @@ final class ResolvePaneTests: XCTestCase {
     /// text; open to-dos alone splice; the first build reads.
     func test_aReadRunsBeforeARegroupAndAScriptAloneOnlyRereads() {
         let read = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
-                                  annotationsToken: 0, openAnnotationVersions: [], projectTasksVersion: 0,
+                                  annotationsToken: 0, openPieces: [], projectTasksVersion: 0,
                                   diagnosticsVersion: 0, passes: [], localName: "Me")
         let moved = ResolveReadKey(scope: .piece(docId: "doc-a", includesBookLevel: false),
-                                   annotationsToken: 1, openAnnotationVersions: [], projectTasksVersion: 0,
+                                   annotationsToken: 1, openPieces: [], projectTasksVersion: 0,
                                    diagnosticsVersion: 0, passes: [], localName: "Me")
         let script = FountainTokenizer().parse("INT. KITCHEN - DAY\n\nShe waits.")
         let key = ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 0)
@@ -236,7 +246,7 @@ final class ResolvePaneTests: XCTestCase {
             .reread, "the read key held, the script moved: re-read the text, regroup")
         XCTAssertEqual(ResolvePane.refreshStep(
             ResolveListKey(regroup: ResolveRegroupKey(read: read, script: nil), openTodos: 3), last: key),
-            .todos, "only the open to-dos moved: splice them")
+            .live, "only the open to-dos moved: splice them")
         XCTAssertEqual(ResolvePane.refreshStep(
             ResolveListKey(regroup: ResolveRegroupKey(read: moved, script: script), openTodos: 3), last: key),
             .read, "everything moved: the read, whose text and to-dos the regroup then uses")
@@ -313,7 +323,7 @@ final class ResolvePaneTests: XCTestCase {
     }
 
     /// **Review N1.** Return (no task markup, no refresh), then `- [ ]` in the
-    /// new paragraph: the `.todos` splice refreshes the piece's paragraph
+    /// new paragraph: the `.live` splice refreshes the piece's paragraph
     /// order from its live document, so the to-do groups under its new
     /// paragraph and never under "No longer in the text".
     func test_aTodoTypedIntoANewParagraphGroupsUnderIt() async throws {
@@ -326,16 +336,14 @@ final class ResolvePaneTests: XCTestCase {
                     documentStore: documentStore, diagnostics: nil, localName: "Me"), script: nil),
                 openTodos: ResolvePane.openTodoVersion(scope: scope, documentStore: documentStore))
         }
-        var held = ResolvePane.refreshed(.empty, step: .read, scope: scope, store: store,
-                                         documentStore: documentStore, diagnostics: nil)
+        var held = refreshed(.empty, step: .read, scope: scope, store: store, documentStore: documentStore)
         let before = key()
         doc.setFullText("Hello.\n\n")
         doc.setFullText("Hello.\n\n- [ ] fix the dock")
         let after = key()
         let step = ResolvePane.refreshStep(after, last: before)
-        XCTAssertEqual(step, .todos, "premise: the cheap step, no walk")
-        held = ResolvePane.refreshed(held, step: step, scope: scope, store: store,
-                                     documentStore: documentStore, diagnostics: nil)
+        XCTAssertEqual(step, .live, "premise: the cheap step, no walk")
+        held = refreshed(held, step: step, scope: scope, store: store, documentStore: documentStore)
         let newPid = try XCTUnwrap(doc.sequence.last)
         XCTAssertNotEqual(newPid, doc.sequence.first, "premise: the to-do is in a new paragraph")
         let groups = ResolveGrouping.groups(held, scope: scope, structure: store.manifest.structure,

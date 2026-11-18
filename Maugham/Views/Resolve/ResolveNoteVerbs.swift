@@ -68,7 +68,6 @@ struct ResolveNoteVerbs {
                 verb, on: ids, in: document, undoManager: undoManager,
                 mayWrite: mayWriteText(document))
             bulkInFlight = false
-            noteChanged()
             // Selection hygiene: the run may have taken its own rows off
             // screen. Prune to what is still visible rather than leaving ticks
             // pointing at nothing.
@@ -95,8 +94,10 @@ struct ResolveNoteVerbs {
     // whatever happens to be centred. The pane's own document is just the
     // argument document scope passes.
     //
-    // Every one of them also calls `noteChanged()` when its work lands — see
-    // `projectRefreshToken` (To resolve's `annotationsToken`).
+    // None of them bumps `projectRefreshToken`: a `Document` verb moves the
+    // piece's `annotationsVersion`, which To resolve splices live without a
+    // project walk (review C1). Only a figure's verb, whose stream no
+    // `Document` holds, calls `figureNoteChanged()`.
 
     func accept(_ document: Document, _ ann: Annotation) {
         if ann.kind == .suggestedChange && ann.isStale {
@@ -131,7 +132,6 @@ struct ResolveNoteVerbs {
         } catch {
             documentLog.error("acceptAnnotation failed for \(ann.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
-        noteChanged()
     }
 
     /// Reply to a query — an accept carrying the writer's words.
@@ -142,7 +142,6 @@ struct ResolveNoteVerbs {
             try? await document.acceptAnnotation(
                 id: ann.id, userResponse: reply, undoManager: undoManager,
                 mayWrite: mayWriteText(document))
-            noteChanged()
         }
     }
 
@@ -177,7 +176,6 @@ struct ResolveNoteVerbs {
             case nil:
                 rulingNotice = RulingDestination.noDestinationRefusal
             }
-            noteChanged()
         }
     }
 
@@ -185,7 +183,6 @@ struct ResolveNoteVerbs {
         Task {
             try? await document.rejectAnnotation(
                 id: ann.id, userResponse: reason, undoManager: undoManager)
-            noteChanged()
         }
     }
 
@@ -240,7 +237,6 @@ struct ResolveNoteVerbs {
         stetFlourishIds.insert(ann.id)
         Task {
             try? await document.stetAnnotation(id: ann.id, undoManager: undoManager)
-            noteChanged()
             try? await Task.sleep(nanoseconds: ResolveStetHold.nanoseconds)
             stetFlourishIds.remove(ann.id)
         }
@@ -265,7 +261,6 @@ struct ResolveNoteVerbs {
                 undoManager: undoManager)
             ledgerNotice = refusal
             letterLedgerRevision += 1
-            noteChanged()
             // **A refusal takes the mark off at once** — `runBulk`'s own guard,
             // for its reason: the flourish says "this note has been let
             // stand", and a row wearing it for 2.5s over a note that is still
@@ -299,14 +294,12 @@ struct ResolveNoteVerbs {
         Task {
             try? await document.triageAnnotation(
                 id: ann.id, mark: mark, undoManager: undoManager)
-            noteChanged()
         }
     }
 
     func archive(_ document: Document, _ ann: Annotation) {
         Task {
             try? await document.archiveAnnotation(id: ann.id, undoManager: undoManager)
-            noteChanged()
         }
     }
 
@@ -326,7 +319,6 @@ struct ResolveNoteVerbs {
             } catch {
                 ResolveNoteVerbs.sayRefused(error, in: document)
             }
-            noteChanged()
         }
     }
 
@@ -353,7 +345,6 @@ struct ResolveNoteVerbs {
             try? await document.revertAcceptedAnnotation(
                 id: ann.id, undoManager: undoManager,
                 mayWrite: mayWriteText(document))
-            noteChanged()
         }
     }
 
@@ -371,7 +362,6 @@ struct ResolveNoteVerbs {
                 newSuggestedText: newSuggested,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
-            noteChanged()
             // No explicit editor notify: the edit bumps `annotationsVersion` on
             // the shared Document, which EditorHost mirrors into the control model
             // → `applyControl` → `setReviewAnnotations`, recomputing crafted marks
@@ -386,7 +376,6 @@ struct ResolveNoteVerbs {
                 id: ann.id,
                 authorName: userPreferences.collaboratorDisplayName,
                 undoManager: undoManager)
-            noteChanged()
         }
     }
 
@@ -469,16 +458,15 @@ struct ResolveNoteVerbs {
             } catch {
                 ResolveNoteVerbs.sayRefused(error, projectURL: store.url)
             }
-            noteChanged()
+            figureNoteChanged()
             await after(landed)
         }
     }
 
-    /// Something changed under a row. Bumps the token `projectSnapshot` is
-    /// keyed on, so the cross-document queue re-reads a walk nothing else
-    /// observes (see `projectRefreshToken`). Cheap and unconditional: it costs
-    /// one integer in document scope, where nothing reads it.
-    func noteChanged() {
+    /// A figure's note changed. Bumps the token To resolve's walk is keyed
+    /// on, because a figure's stream is read only by the walk, which nothing
+    /// else observes (see `projectRefreshToken`).
+    func figureNoteChanged() {
         projectRefreshToken &+= 1
     }
 }

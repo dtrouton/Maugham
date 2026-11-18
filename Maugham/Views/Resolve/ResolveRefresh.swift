@@ -2,24 +2,26 @@ import Foundation
 import MaughamCore
 
 /// **When To resolve reads again** (shell plan 2). The view keys its read
-/// `.task(id:)` on this value: the two project walks, the sidecar and the
-/// reader run once per change of it — never per row, never per caret move,
-/// and never for a new screenplay parse alone (that is `ResolveRegroupKey`'s).
+/// `.task(id:)` on this value: the sidecar and the reader run once per change
+/// of it — never per row, never per caret move, never for a new screenplay
+/// parse alone (that is `ResolveRegroupKey`'s), and never for a keystroke, a
+/// burst flush, a note minted on an open piece or a verb on one (review C1:
+/// those are `ResolveListKey`'s cheap splice off the open piece's `Document`).
+///
+/// The project walks themselves run only when `walk` moves (`ResolveWalkHold`):
+/// a read for any other field gathers over the walks it already holds.
 ///
 /// Every field is an integer or a small value the view already holds; making
-/// one is O(open documents) integer adds, no walk and no stat.
+/// one is O(open documents), no walk and no stat.
 ///
 /// - `scope`: what the faces name (`.piece(x, false) != .piece(x, true)`).
-/// - `annotationsToken`: the view's own counter, bumped on
-///   `.maughamAnnotationsChanged` (the walk's cache is not observable). That
-///   event also fires for any op-log file change of a closed piece, which is
-///   what refreshes a closed piece's notes and to-dos.
-/// - `openAnnotationsVersion`: the SUM of `Document.annotationsVersion` over
-///   every open document (`DocumentStore.allOpenDocuments()`), so a note added
-///   in any open piece refreshes a Book or Part list too. An open piece's
-///   to-dos are NOT the read's: a keystroke on a to-do line is
-///   `ResolveListKey.openTodos`'s cheap splice, never the project's task walk
-///   (Task 6's fix; the read key's to-do field went in Task 7).
+/// - `annotationsToken`: the view's own counter, bumped on a
+///   `.maughamAnnotationsChanged` about a document no window holds open — a
+///   closed piece's op log, a figure's stream, a peer's sync
+///   (`ResolvePane.annotationsEventMovesTheWalk`). An open piece's own event
+///   is ignored: its notes come from its live `Document`.
+/// - `openPieces`: the scope's pieces a window holds open, sorted. A piece
+///   opening or closing changes where its notes are read from, so it re-walks.
 /// - `projectTasksVersion`: `ProjectStore.projectTasksVersion`, the Book's own
 ///   to-dos (the project op log).
 /// - `diagnosticsVersion`: `DiagnosticsStore.version`.
@@ -29,25 +31,76 @@ import MaughamCore
 struct ResolveReadKey: Equatable {
     let scope: ResolveScope
     let annotationsToken: Int
-    let openAnnotationsVersion: Int
+    let openPieces: [String]
     let projectTasksVersion: Int
     let diagnosticsVersion: Int
     let passes: [ReviewPass]
     let localName: String
 
-    /// `openAnnotationVersions` is one `annotationsVersion` per open
-    /// document; the key keeps their sum (wrapping, as the task cache does).
-    init(scope: ResolveScope, annotationsToken: Int,
-         openAnnotationVersions: [Int],
+    init(scope: ResolveScope, annotationsToken: Int, openPieces: [String],
          projectTasksVersion: Int, diagnosticsVersion: Int,
          passes: [ReviewPass], localName: String) {
         self.scope = scope
         self.annotationsToken = annotationsToken
-        self.openAnnotationsVersion = openAnnotationVersions.reduce(0) { $0 &+ $1 }
+        self.openPieces = Array(Set(openPieces)).sorted()
         self.projectTasksVersion = projectTasksVersion
         self.diagnosticsVersion = diagnosticsVersion
         self.passes = passes
         self.localName = localName
+    }
+
+    /// What the annotation walk is re-run on: the real cross-piece signals.
+    var walk: ResolveWalkKey {
+        ResolveWalkKey(scope: scope, annotationsToken: annotationsToken, openPieces: openPieces)
+    }
+
+    /// What the task walk is re-run on: those, and the Book's own to-dos.
+    var tasksWalk: ResolveTasksWalkKey {
+        ResolveTasksWalkKey(walk: walk, projectTasksVersion: projectTasksVersion)
+    }
+}
+
+struct ResolveWalkKey: Equatable {
+    let scope: ResolveScope
+    let annotationsToken: Int
+    let openPieces: [String]
+}
+
+struct ResolveTasksWalkKey: Equatable {
+    let walk: ResolveWalkKey
+    let projectTasksVersion: Int
+}
+
+/// **The project walks, held between reads** (review C1). The store's own
+/// caches are keyed on every open document's versions, so asking them after
+/// a keystroke re-derives every closed piece; To resolve asks only when a
+/// real cross-piece signal moved (`ResolveReadKey.walk`), and reads the open
+/// pieces off their `Document`s in between (`ResolvePane.livePieces`).
+struct ResolveWalkHold {
+    private(set) var annotations: ProjectAnnotationsSnapshot?
+    private var annotationsKey: ResolveWalkKey?
+    private(set) var tasks: [WriterTask]?
+    private var tasksKey: ResolveTasksWalkKey?
+
+    /// The annotation walk for `key`: held, or asked of the store when the
+    /// key moved.
+    @MainActor
+    mutating func annotations(for key: ResolveWalkKey, store: ProjectStore) -> ProjectAnnotationsSnapshot {
+        if let annotations, annotationsKey == key { return annotations }
+        let read = store.listAnnotationsAcrossProject()
+        annotations = read
+        annotationsKey = key
+        return read
+    }
+
+    /// The open to-dos of the task walk for `key`, held or asked.
+    @MainActor
+    mutating func tasks(for key: ResolveTasksWalkKey, store: ProjectStore) -> [WriterTask] {
+        if let tasks, tasksKey == key { return tasks }
+        let read = store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open]))
+        tasks = read
+        tasksKey = key
+        return read
     }
 }
 

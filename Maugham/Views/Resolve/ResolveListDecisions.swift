@@ -37,29 +37,42 @@ struct ResolveCaretReader: View {
 extension ResolvePane {
 
     /// **What To resolve's read is keyed on**, from the live stores: the
-    /// scope, the event token, every open document's versions (a typed to-do
-    /// bumps its `tasksVersion` at once), the Book's to-dos, the sidecar, the
-    /// passes and the local name.
+    /// scope, the event token, which of the scope's pieces are open, the
+    /// Book's to-dos, the sidecar, the passes and the local name. No open
+    /// piece's version is in it (review C1): those are the list key's splice.
     static func readKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
                         localName: String) -> ResolveReadKey {
-        ResolveReadKey(
+        let inScope = Set(scope.docIds)
+        return ResolveReadKey(
             scope: scope, annotationsToken: annotationsToken,
-            // Open to-dos are NOT the read's: a keystroke on a to-do line
-            // moves `tasksVersion`, and that is `ResolveListKey.openTodos`'s
-            // cheap splice, never the project's task walk.
-            openAnnotationVersions: documentStore.allOpenDocuments().map(\.annotationsVersion),
+            openPieces: documentStore.allOpenDocuments().map(\.docId).filter(inScope.contains),
             projectTasksVersion: store.projectTasksVersion,
             diagnosticsVersion: diagnostics?.version ?? 0,
             passes: store.manifest.effectiveReviewPasses,
             localName: localName)
     }
 
+    /// The whole key the view's `.task(id:)` runs on.
+    static func listKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
+                        documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
+                        localName: String, script: FountainScript?) -> ResolveListKey {
+        ResolveListKey(
+            regroup: ResolveRegroupKey(
+                read: readKey(scope: scope, annotationsToken: annotationsToken, store: store,
+                              documentStore: documentStore, diagnostics: diagnostics,
+                              localName: localName),
+                script: script),
+            openTodos: openTodoVersion(scope: scope, documentStore: documentStore),
+            openNotes: openNoteVersion(scope: scope, documentStore: documentStore))
+    }
+
     /// **Read before regroup.** A read key that moved runs the read (which
-    /// also reads the piece's text); a script-only change re-reads the text.
+    /// also reads the piece's text); a script-only change re-reads the text;
+    /// an open piece's notes or to-dos alone are the live splice.
     static func refreshStep(_ key: ResolveListKey, last: ResolveListKey?) -> ResolveRefreshStep {
         guard let last, last.regroup.read == key.regroup.read else { return .read }
-        return last.regroup.script == key.regroup.script ? .todos : .reread
+        return last.regroup.script == key.regroup.script ? .live : .reread
     }
 
     /// The sum of `tasksVersion` over the open pieces the scope holds.
@@ -70,60 +83,105 @@ extension ResolvePane {
             .reduce(0) { $0 &+ $1.tasksVersion }
     }
 
-    /// One refresh step's read. `.read` is `ResolveReader.read` (the walks);
-    /// `.reread` the open piece's text, then the live pieces; `.todos` the
-    /// live pieces alone — each open in-scope piece's to-dos, paragraph order
-    /// and (at a `.piece`) text, off its `Document`. Never the walk.
-    static func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, scope: ResolveScope,
-                          store: ProjectStore, documentStore: DocumentStore,
+    /// The sum of `annotationsVersion` over the open pieces the scope holds:
+    /// a burst flush, a minted note or a verb on one moves it.
+    static func openNoteVersion(scope: ResolveScope, documentStore: DocumentStore) -> Int {
+        let inScope = Set(scope.docIds)
+        return documentStore.allOpenDocuments()
+            .filter { inScope.contains($0.docId) }
+            .reduce(0) { $0 &+ $1.annotationsVersion }
+    }
+
+    /// **Whether a `.maughamAnnotationsChanged` re-walks** (review C1): only
+    /// when no window holds the document open — a closed piece's op log, a
+    /// figure's stream, a peer's sync into a closed piece. An open piece's
+    /// event (its own append, a mint, a merge) moves its `annotationsVersion`
+    /// too, which the live splice reads off the `Document`.
+    static func annotationsEventMovesTheWalk(docId: String?, documentStore: DocumentStore) -> Bool {
+        guard let docId else { return true }
+        return documentStore.document(forDocId: docId) == nil
+    }
+
+    /// One refresh step's read. `.read` gathers over the held walks
+    /// (`ResolveWalkHold`, asked again only when `key.walk` moved) with the
+    /// open pieces read live; `.reread` the open piece's text, then the live
+    /// pieces; `.live` the live pieces alone — each open in-scope piece's
+    /// notes, to-dos, paragraph order and (at a `.piece`) text, off its
+    /// `Document`. Neither of the last two asks a walk.
+    static func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, key: ResolveReadKey,
+                          walks: inout ResolveWalkHold, store: ProjectStore,
+                          documentStore: DocumentStore,
                           diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+        let scope = key.scope
+        let live = livePieces(scope: scope, documentStore: documentStore)
         switch step {
         case .read:
-            return ResolveReader.read(scope: scope, store: store,
-                                      documentStore: documentStore, diagnostics: diagnostics)
+            guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+            return ResolveReader.read(
+                scope: scope,
+                annotations: walks.annotations(for: key.walk, store: store),
+                tasks: walks.tasks(for: key.tasksWalk, store: store),
+                live: live, store: store, documentStore: documentStore, diagnostics: diagnostics)
         case .reread:
             let text = ResolveReader.rereadText(held, scope: scope, store: store,
                                                 documentStore: documentStore)
-            return splicing(text, scope: scope,
-                            live: livePieces(scope: scope, documentStore: documentStore))
-        case .todos:
-            return splicing(held, scope: scope,
-                            live: livePieces(scope: scope, documentStore: documentStore))
+            return splicing(text, scope: scope, live: live)
+        case .live:
+            return splicing(held, scope: scope, live: live)
         }
     }
 
-    /// The open in-scope pieces, read off their documents: their open
-    /// to-dos, their paragraph order and their text.
+    /// Every note in the project in every status, as the held walk and the
+    /// open pieces now hold them — what the stet hold and the second-stet
+    /// offer look notes up in, without a walk.
+    static func projectNotes(walks: ResolveWalkHold, scope: ResolveScope,
+                             documentStore: DocumentStore) -> ProjectAnnotationsSnapshot {
+        ResolveReader.overlaying(
+            walks.annotations ?? ProjectAnnotationsSnapshot(annotations: [], unreadableDocIds: [], sequences: [:]),
+            live: livePieces(scope: scope, documentStore: documentStore))
+    }
+
+    /// The open in-scope pieces, read off their documents: their notes (every
+    /// status), their open to-dos, their paragraph order and their text.
     static func livePieces(scope: ResolveScope, documentStore: DocumentStore) -> [String: ResolveLivePiece] {
         var live: [String: ResolveLivePiece] = [:]
         for docId in scope.docIds {
             guard let doc = documentStore.document(forDocId: docId) else { continue }
             live[docId] = ResolveLivePiece(
+                notes: doc.annotations(filter: AnnotationFilter(kinds: nil, statuses: nil)),
                 todos: doc.tasks(filter: TaskFilter(scope: .document(docId: docId), statuses: [.open])),
                 sequence: doc.sequence, paragraphs: doc.paragraphs)
         }
         return live
     }
 
-    /// `held` with each piece in `live` holding exactly its live to-dos and
-    /// its live paragraph order — so a to-do typed into a new paragraph is
-    /// placed there, never under "No longer in the text" — and, at a
-    /// `.piece` scope, that piece's live text (its group titles). Every other
-    /// item, piece and name is untouched.
+    /// `held` with each piece in `live` holding exactly its live open notes,
+    /// its live to-dos and its live paragraph order — so a to-do typed into a
+    /// new paragraph is placed there, never under "No longer in the text" —
+    /// and, at a `.piece` scope, that piece's live text (its group titles).
+    /// Every other item, piece and name is untouched.
     static func splicing(_ held: ResolveSnapshot, scope: ResolveScope,
                          live: [String: ResolveLivePiece]) -> ResolveSnapshot {
         guard !live.isEmpty else { return held }
-        let kept = held.items.filter { item in
-            if case .todo = item { return live[item.docId] == nil }
-            return true
+        func isLive(_ item: ResolveItem) -> Bool {
+            switch item {
+            case .note, .todo: return live[item.docId] != nil
+            case .finding: return false
+            }
         }
-        let fresh = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
+        let freshNotes = scope.docIds.flatMap { docId in
+            (live[docId]?.notes ?? []).filter { $0.status == .open }
+                .map { ResolveItem.note(ProjectAnnotation(docId: docId, annotation: $0)) }
+        }
+        let freshTodos = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
+        let kept = held.items.filter { !isLive($0) }
         var sequences = held.sequences
         for (docId, piece) in live { sequences[docId] = piece.sequence }
         var text = held.paragraphText
         if case .piece(let docId, _) = scope, let piece = live[docId] { text = piece.paragraphs }
-        return ResolveSnapshot(items: kept + fresh, sequences: sequences, paragraphText: text,
-                               unreadableDocIds: held.unreadableDocIds)
+        return ResolveSnapshot(items: freshNotes + kept + freshTodos, sequences: sequences,
+                               paragraphText: text,
+                               unreadableDocIds: held.unreadableDocIds.filter { live[$0] == nil })
     }
 
     /// The window's script, where it is about the scope's piece: a
@@ -306,9 +364,11 @@ extension ResolvePane {
     }
 }
 
-/// **One open piece as its `Document` holds it now** — what a `.todos` step
-/// splices in: its open to-dos, its paragraph order, its text.
+/// **One open piece as its `Document` holds it now** — what a `.live` step
+/// splices in: its notes, its open to-dos, its paragraph order, its text.
 struct ResolveLivePiece: Equatable {
+    /// Every status: the open ones list, the rest serve the stet hold.
+    let notes: [Annotation]
     let todos: [WriterTask]
     let sequence: [String]
     let paragraphs: [String: String]

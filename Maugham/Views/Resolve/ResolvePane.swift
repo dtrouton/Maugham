@@ -14,21 +14,25 @@ enum ResolveRequest: Equatable {
 enum ResolveRefreshStep: Equatable {
     /// The walks and the sidecar: `ResolveReader.read`, then the regroup.
     case read
-    /// A new screenplay parse: the open piece's text and its live to-dos,
-    /// then the regroup.
+    /// A new screenplay parse: the open piece's text and its live notes and
+    /// to-dos, then the regroup.
     case reread
-    /// An open piece's to-dos moved (a keystroke on a to-do line): its live
-    /// to-dos are spliced into what is held, then the regroup. No walk.
-    case todos
+    /// An open piece's notes or to-dos moved (a keystroke on a to-do line, a
+    /// burst flush, a minted note, a verb): its live notes and to-dos are
+    /// spliced into what is held, then the regroup. No walk (review C1).
+    case live
 }
 
 /// **What To resolve refreshes on**: the regroup key (the read key and the
-/// script) plus the open in-scope pieces' `tasksVersion` sum. Typing on a
-/// to-do line moves only `openTodos`, which costs one `Document.tasks` per
-/// open piece in scope and never the project's task walk.
+/// script) plus the open in-scope pieces' `tasksVersion` and
+/// `annotationsVersion` sums. Typing on a to-do line, a burst flush, a note
+/// minted on an open piece and a verb on one move only these, which cost one
+/// `Document.tasks` and one `Document.annotations` per open piece in scope and
+/// never a project walk (review C1).
 struct ResolveListKey: Equatable {
     let regroup: ResolveRegroupKey
     let openTodos: Int
+    var openNotes: Int = 0
 }
 
 /// **A stetted note's flourish** — the old queue's 2.5 seconds. The verbs hold
@@ -142,6 +146,8 @@ struct ResolvePane: View {
 
     @State private var held: ResolveSnapshot = .empty
     @State private var lastKey: ResolveListKey?
+    /// The project walks this list last asked for (review C1).
+    @State private var walks = ResolveWalkHold()
     /// When each stetted note took its mark, and which held rows are there
     /// only for their flourish.
     @State private var stettedAt: [String: Date] = [:]
@@ -157,8 +163,9 @@ struct ResolvePane: View {
     /// The groups the selection leaves, and their items in order.
     @State private var shown: [ResolveGroup] = []
     @State private var visible: [ResolveItem] = []
-    /// Bumped by `.maughamAnnotationsChanged` and by every note verb (the
-    /// walk's cache is not observable).
+    /// Bumped by a `.maughamAnnotationsChanged` about a document no window
+    /// holds open, and by a figure note's verb (the walk's cache is not
+    /// observable). Never by the open piece's own notes (review C1).
     @State private var annotationsToken = 0
 
     // MARK: The writer's
@@ -238,17 +245,10 @@ struct ResolvePane: View {
     private var mayActOnFaces: Bool { pieceDocId.map(mayAct(on:)) ?? false }
 
     private var listKey: ResolveListKey {
-        ResolveListKey(regroup: regroupKey,
-                       openTodos: Self.openTodoVersion(scope: scope, documentStore: documentStore))
-    }
-
-    private var regroupKey: ResolveRegroupKey {
-        ResolveRegroupKey(
-            read: Self.readKey(scope: scope, annotationsToken: annotationsToken, store: store,
-                               documentStore: documentStore, diagnostics: diagnostics,
-                               localName: localName),
-            script: Self.script(for: scope, structure: store.manifest.structure,
-                                openDocId: openDocId, script: script))
+        Self.listKey(scope: scope, annotationsToken: annotationsToken, store: store,
+                     documentStore: documentStore, diagnostics: diagnostics, localName: localName,
+                     script: Self.script(for: scope, structure: store.manifest.structure,
+                                         openDocId: openDocId, script: script))
     }
 
     private var shownSelection: Set<ResolveSource> {
@@ -354,9 +354,15 @@ struct ResolvePane: View {
                 })
         }
         .background(WindowAccessor(window: $window))
-        // A note changed anywhere — a closed piece's file, a peer's sync.
-        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
-            annotationsToken &+= 1
+        // A note changed where no window holds the document — a closed
+        // piece's file, a figure's stream, a peer's sync. An open piece's own
+        // event is its live splice's, never a walk (review C1).
+        .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { note in
+            if Self.annotationsEventMovesTheWalk(
+                docId: note.userInfo?[MaughamEvent.annotationDocIdKey] as? String,
+                documentStore: documentStore) {
+                annotationsToken &+= 1
+            }
         }
         .doesNotRaiseTheWindowFloor()
     }
@@ -682,24 +688,27 @@ struct ResolvePane: View {
     private func refresh(_ key: ResolveListKey) {
         let readScope = key.regroup.read.scope
         let step = Self.refreshStep(key, last: lastKey)
-        let fresh = Self.refreshed(held, step: step, scope: readScope, store: store,
-                                   documentStore: documentStore, diagnostics: diagnostics)
-        if step == .read {
-            // A note just stetted stays for its flourish.
-            let walk = readScope.docIds.isEmpty && !readScope.includesBookLevel
-                ? nil : store.listAnnotationsAcrossProject()
-            var live: [String: ProjectAnnotation] = [:]
-            for note in walk?.annotations ?? [] where stettedAt[note.annotation.id] != nil {
+        var walks = walks
+        let fresh = Self.refreshed(held, step: step, key: key.regroup.read, walks: &walks,
+                                   store: store, documentStore: documentStore, diagnostics: diagnostics)
+        self.walks = walks
+        // A note just stetted stays for its flourish — on every step, since a
+        // stet on the open piece arrives as its live splice. Looked up in the
+        // held walk and the live pieces, never a fresh walk.
+        var live: [String: ProjectAnnotation] = [:]
+        if !stettedAt.isEmpty {
+            let notes = Self.projectNotes(walks: walks, scope: readScope, documentStore: documentStore)
+            for note in notes.annotations where stettedAt[note.annotation.id] != nil {
                 live[ResolveItem.note(note).id] = note
             }
-            let hold = ResolveStetHold.keeping(fresh, previous: held, stettedAt: stettedAt,
-                                               now: Date(), live: live)
-            held = hold.snapshot
-            keptStetted = hold.kept
-            figureCells = walk?.figureCells ?? [:]
+        }
+        let hold = ResolveStetHold.keeping(fresh, previous: held, stettedAt: stettedAt,
+                                           now: Date(), live: live)
+        held = hold.snapshot
+        keptStetted = hold.kept
+        if step == .read {
+            figureCells = walks.annotations?.figureCells ?? [:]
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
-        } else {
-            held = fresh
         }
         lastKey = key
         regroup(scope: readScope, script: key.regroup.script)
@@ -936,7 +945,10 @@ struct ResolvePane: View {
             store: store, documentStore: documentStore, world: world,
             userPreferences: userPreferences, undoManager: undoManager,
             onChoiceOfferChanged: onChoiceOfferChanged,
-            projectSnapshot: { store.listAnnotationsAcrossProject() },
+            // The held walk with the open pieces live: a press asks no walk.
+            projectSnapshot: { [walks] in
+                Self.projectNotes(walks: walks, scope: scope, documentStore: documentStore)
+            },
             visibleAnnotations: { doc in doc.docId == pieceDocId ? bulkRows : [] },
             effectiveSelection: { effectiveSelection(in: $0) },
             staleConfirm: $staleConfirm, anchorLostNotice: $anchorLostNotice,
