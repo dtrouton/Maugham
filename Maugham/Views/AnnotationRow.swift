@@ -471,6 +471,12 @@ struct AnnotationRow: View {
         }
     }
 
+    /// **The mark a row shows read-only**: its triage, wherever the menu is
+    /// not drawn (a settled or stetted row, or a posture that marks nothing).
+    static func readOnlyMark(_ triage: TriageMark?, menuDrawn: Bool) -> TriageMark? {
+        menuDrawn ? nil : triage
+    }
+
     /// The gap the last-resort variant closes to. Small enough to buy back the
     /// points the seven-control row was over by, large enough that two bordered
     /// buttons still read as two.
@@ -500,6 +506,13 @@ struct AnnotationRow: View {
             }
             if offered.dispose, Self.offersTriage(status: annotation.status),
                figure == nil || FigureRowGate.drawsTriage { triageMenu }
+            else if let mark = Self.readOnlyMark(annotation.triage, menuDrawn: false) {
+                // Settled, stetted, or not this Mac's to mark: the mark is
+                // still SAID, read-only (Task 7b).
+                Label(mark.queueLabel, systemImage: mark.symbolName)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .help("Triaged \(mark.queueLabel)")
+            }
             if offered.ownNote {
                 Spacer(minLength: 4)
                 ownAffordances

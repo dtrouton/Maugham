@@ -27,6 +27,10 @@ struct ResolveFilterBar: View {
     /// clears it the moment it shows the checks' items, so the dot stands
     /// only while another filter hides them.
     var checksUnread: Bool = false
+    /// The triage choice, or nil when no note in scope carries a mark — the
+    /// control is then not drawn at all (Task 7b).
+    var triage: ResolveTriageChoice? = nil
+    var onTriage: (ResolveTriageChoice) -> Void = { _ in }
     let onToggle: (ResolveSource) -> Void
     let onToggleSelectionMode: () -> Void
     let onNewTodo: () -> Void
@@ -42,6 +46,9 @@ struct ResolveFilterBar: View {
                 .padding(.vertical, 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let triage {
+                triageMenu(triage)
+            }
             if showsSelectionMode {
                 Button(action: onToggleSelectionMode) {
                     Image(systemName: selectionModeOn
@@ -82,6 +89,41 @@ struct ResolveFilterBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// **The triage control** (Task 7b): a menu behind one icon, so it fits
+    /// the column's floor beside the chips whatever the choice is called; the
+    /// icon fills when a choice narrows the list, and the choice's word is in
+    /// its help and its accessibility label.
+    private func triageMenu(_ choice: ResolveTriageChoice) -> some View {
+        Menu {
+            ForEach(ResolveTriageChoice.allCases) { option in
+                Button {
+                    onTriage(option)
+                } label: {
+                    if option == choice {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: Self.triageSymbol(choice))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Self.triageHelp(choice))
+        .accessibilityLabel(Self.triageHelp(choice))
+    }
+
+    static func triageSymbol(_ choice: ResolveTriageChoice) -> String {
+        choice == .all ? "flag" : "flag.fill"
+    }
+
+    static func triageHelp(_ choice: ResolveTriageChoice) -> String {
+        "Triage: \(choice.label)"
     }
 
     /// Whether `chip` wears the unread dot: the Checks chip, while a check's

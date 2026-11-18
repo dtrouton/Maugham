@@ -200,6 +200,10 @@ struct ResolvePane: View {
     @State private var withdrawConfirm: ResolveNoteTarget?
     @State private var stetFlourishIds: Set<String> = []
     @State private var selectionModeOn = false
+    /// The triage choice (Task 7b): remembered for the life of the view, not
+    /// stored; whether the control is offered, recomputed once per refilter.
+    @State private var triageChoice: ResolveTriageChoice = .all
+    @State private var triageOffered = false
     @State private var selectedIds: Set<String> = []
     @State private var bulkNotice: String?
     @State private var bulkInFlight = false
@@ -308,6 +312,7 @@ struct ResolvePane: View {
             markChecksRead()
         }
         .onChange(of: request, initial: true) { _, new in take(new) }
+        .onChange(of: triageChoice) { _, _ in refilter() }
         .onChange(of: selection) { _, _ in
             refilter()
             markChecksRead()
@@ -362,6 +367,8 @@ struct ResolvePane: View {
             selectionModeOn: selectionModeOn,
             showsNewTodo: creationVerbs.creation.offersAny,
             checksUnread: checksUnread,
+            triage: triageOffered ? triageChoice : nil,
+            onTriage: { triageChoice = $0 },
             onToggle: { selection = ResolveFilter.toggled(shownSelection, $0, dense: dense) },
             onToggleSelectionMode: {
                 selectionModeOn.toggle()
@@ -748,8 +755,14 @@ struct ResolvePane: View {
     /// The selection over the built groups — once per selection change or
     /// rebuild, never per row.
     private func refilter() {
-        let items = ResolveFilter.visible(held.items, selection: shownSelection,
-                                          localName: localName)
+        // The triage control comes and goes with the marks (Task 7b): when the
+        // last one is cleared the choice returns to All with it.
+        triageOffered = ResolveTriage.offered(held.items)
+        if !triageOffered, triageChoice != .all { triageChoice = .all }
+        let items = ResolveFilter.visible(
+            held.items, selection: shownSelection,
+            triage: ResolveTriage.effective(triageChoice, offered: triageOffered),
+            localName: localName)
         let ids = Set(items.map(\.id))
         shown = groups.compactMap { group in
             let kept = group.items.filter { ids.contains($0.id) }

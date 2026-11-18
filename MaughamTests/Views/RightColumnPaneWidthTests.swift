@@ -130,6 +130,27 @@ final class RightColumnPaneWidthTests: XCTestCase {
         }
     }
 
+    /// **With the triage control** (Task 7b): the chips still scroll, and the
+    /// triage menu sits beside them as one icon, so the bar fits the column
+    /// from its floor to its ceiling whatever choice is made.
+    func test_theFilterBarWithTheTriageControlFitsTheNarrowColumn() {
+        let passes = (1...4).map {
+            ReviewPass(id: "p\($0)", name: "A long structural pass number \($0)")
+        }
+        for choice in ResolveTriageChoice.allCases {
+            let bar = ResolveFilterBar(
+                chips: passes.map { .pass($0.id) } + [.mine, .checks, .questions, .others],
+                selection: [.mine], passes: passes,
+                showsSelectionMode: true, selectionModeOn: false, showsNewTodo: true,
+                checksUnread: true, triage: choice,
+                onToggle: { _ in }, onToggleSelectionMode: {}, onNewTodo: {})
+            for width in Self.paneWidths + [Self.ceiling] {
+                let (fits, measured) = Self.fits(bar, in: width)
+                XCTAssertTrue(fits, "with triage \(choice) the bar wants \(measured)pt in a \(width)pt pane")
+            }
+        }
+    }
+
     // MARK: - The census: every pane the right column can show
 
     /// **Every `DetailSegment`, walked off `allCases`**, rendered by the real

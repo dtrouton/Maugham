@@ -211,11 +211,26 @@ struct ResolveArchivedTodos: View {
                             .buttonStyle(.bordered).controlSize(.small)
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 8)
+                .padding(.horizontal, 12).padding(.top, 8)
+                .padding(.bottom, task.kind == .paneCreated ? 8 : 0)
+                if let why = Self.whyNotUnarchived(task) {
+                    Text(why)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12).padding(.bottom, 8)
+                }
                 Divider()
             }
         }
     }
+
+    /// The one quiet line under an archived inline to-do: why it offers no
+    /// Unarchive. Nil for a to-do Unarchive can restore.
+    static func whyNotUnarchived(_ task: WriterTask) -> String? {
+        task.kind == .paneCreated ? nil : inlineArchivedLine
+    }
+
+    static let inlineArchivedLine = "Its line left the text when it was archived."
 
     static let title = "Archived"
     static let unarchiveTitle = "Unarchive"
