@@ -251,8 +251,9 @@ public enum GetAnnotationTool: MCPTool {
         "`figure_anchor`, `orphaned` and, for a suggestion, `suggested_cell`; " +
         "a document's id also finds a note on a figure its text uses. " +
         "`review_pass_id` is the " +
-        "review pass the note was written under; a null one belongs to EVERY " +
-        "pass, not to none. `triage` (do/decline/discuss) and stetting are the " +
+        "review pass the note was written under, or null for a note written " +
+        "under none (filed as the writer's own or another's, never under a " +
+        "pass). `triage` (do/decline/discuss) and stetting are the " +
         "writer's own marks — Claude never sets either."
     public static let inputSchemaJSON =
         #"{"type":"object","properties":{"project_id":{"type":"string"},"document_id":{"type":"string"},"figure":{"type":"string","description":"A figure name or tbl:name / fig:name label (instead of document_id)."},"annotation_id":{"type":"string"}},"required":["project_id","annotation_id"]}"#

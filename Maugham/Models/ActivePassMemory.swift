@@ -57,10 +57,10 @@ public struct ActivePassMemory: Codable, Equatable, Sendable {
     /// prescribes, in its one production spelling (M3 P2 Task 8).
     ///
     /// A stored id that no longer names a pass in `passes` reads as "no active
-    /// pass" and is left exactly where it is: the queue's filter falls back to
-    /// every pass, a note created under it is written unstamped, and restoring
-    /// the pass list restores the writer's place. Every reader — the queue's
-    /// filter default, the creation stamp, the board — calls this rather than
+    /// pass" and is left exactly where it is: a note created under it is
+    /// written unstamped, and restoring the pass list restores the writer's
+    /// place. Every reader — To resolve's Rounds request and head, the
+    /// creation stamp, the board — calls this rather than
     /// re-deriving the check, which `AnnotationPassStampTests`' census keeps
     /// true.
     public func validatedActivePass(

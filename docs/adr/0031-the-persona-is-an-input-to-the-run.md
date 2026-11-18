@@ -86,6 +86,9 @@ mid-run belongs to the next keystroke.
   notes — a reader is not a lane — so a check's annotations are authored
   "Le Guin", or "Claude" over a vacated seat, and being unstamped they show under
   every pass in the queue, which is where a note about the prose belongs.
+  *(Superseded 2026-11-18, ADR 0036: there is no per-pass queue now. To resolve
+  lists a check's notes under Checks, never under a pass; an unstamped note is
+  in no pass.)*
 - **It owns the delta marker.** A check builds its delta `since:` the marker and
   advances the marker on success, including over an empty delta.
 - **`DraftStage` doses it, and only it.** `beginRun` derives a stage for a check

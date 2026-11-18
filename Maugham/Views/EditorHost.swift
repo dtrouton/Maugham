@@ -995,8 +995,8 @@ struct EditorHost: View {
                         authorName: userPreferences.collaboratorDisplayName,
                         // The pass the writer is working this piece through
                         // (M3 P2 Task 8), so the note lands in that pass's
-                        // queue. Nil when no pass is active — an unstamped
-                        // note is in every pass's queue, never in none.
+                        // queue. Nil when no pass is active: the note is the
+                        // writer's own (Mine in To resolve), in no pass.
                         reviewPassId: activeReviewPassId(doc.docId))
                 },
                 reviewParagraphTextProvider: { pid in
