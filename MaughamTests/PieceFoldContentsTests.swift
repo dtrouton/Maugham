@@ -339,3 +339,100 @@ final class PieceFoldContentsTests: XCTestCase {
         return offenders.sorted()
     }
 }
+
+/// The index's production seams over a real `ProjectStore`: `key(store:…)`
+/// reads each signal off the store, and `build` wires the piece's own
+/// `links`, the figure registry and the shelves into `entries`.
+@MainActor
+final class PieceFoldIndexStoreTests: XCTestCase {
+
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = TestTemp.root.appendingPathComponent("piece-fold-index-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    private func project() async throws -> (store: ProjectStore, url: URL) {
+        let url = try await ProjectFactory.createNovelProject(named: "Fold", in: root)
+        return (try await ProjectStore.load(from: url), url)
+    }
+
+    private func attachCanvas(to store: ProjectStore, at url: URL) -> CanvasModel {
+        let model = CanvasModel()
+        model.attach(projectRoot: url)
+        store.liveCanvas = model
+        return model
+    }
+
+    func test_theKeyReadsEachSignalOffTheStore() async throws {
+        let (store, url) = try await project()
+        let k0 = PieceFoldIndex.key(store: store, canvasWrites: 0)
+        XCTAssertEqual(k0, PieceFoldIndex.key(store: store, canvasWrites: 0), "stable at rest")
+
+        store.manifest.modified = store.manifest.modified.addingTimeInterval(5)
+        let k1 = PieceFoldIndex.key(store: store, canvasWrites: 0)
+        XCTAssertNotEqual(k1, k0, "a manifest change moves the key")
+
+        let model = attachCanvas(to: store, at: url)
+        let k2 = PieceFoldIndex.key(store: store, canvasWrites: 0)
+        XCTAssertNotEqual(k2, k1, "a canvas going live moves the key")
+        model.bumpSceneRevision()
+        let k3 = PieceFoldIndex.key(store: store, canvasWrites: 0)
+        XCTAssertNotEqual(k3, k2, "a structural canvas change moves the key")
+
+        XCTAssertNotEqual(PieceFoldIndex.key(store: store, canvasWrites: 1), k3,
+                          "a closed-canvas write from Claude moves the key")
+        withExtendedLifetime(model) {}
+    }
+
+    func test_buildListsAPiecesMaterialAndGroupsPastSix() async throws {
+        let (store, url) = try await project()
+        let note = ResearchItem(id: "res-a", title: "The falls", type: .asset,
+                                kind: .document, path: "research/falls.md")
+        let extra = ResearchItem(id: "res-b", title: "The gorge", type: .asset,
+                                 kind: .document, path: "research/gorge.md")
+        let card = ResearchItem(id: "pal-1", title: "Fog", type: .asset, kind: .document,
+                                path: "research/palette/fog.md")
+        let palette = ResearchItem(id: "res-palette", title: "Palette", type: .group,
+                                   path: PaletteConvention.folderPath, children: [card],
+                                   role: .paletteGroup)
+        store.manifest.research = [note, extra, palette]
+        store.manifest.structure = [
+            StructureItem(id: "ch-a", title: "Alpha", type: .document,
+                          path: "manuscript/a.md", links: ["ch-b"],
+                          linkedResearchIds: ["res-a", "pal-1"]),
+            StructureItem(id: "ch-b", title: "Beta", type: .document,
+                          path: "manuscript/b.md", links: ["ch-a"]),
+        ]
+        store.manifest.figures = [FigureRecord(id: "fig-1", name: "Map", kind: .image,
+                                               piece: "ch-a", path: "figures/map.png")]
+        let model = attachCanvas(to: store, at: url)
+        let scrap = CanvasNodeID("s1")
+        model.mutate("Add") { scene in
+            scene.insert(CanvasNode(id: scrap, kind: .scrap, origin: .zero,
+                                    width: 240, cachedHeight: 80))
+            scene.setBoundPiece("ch-a", for: scrap)
+        }
+
+        let index = PieceFoldIndex.build(store: store, projectRoot: url)
+        let alpha = try XCTUnwrap(index.entries["ch-a"])
+        XCTAssertEqual(alpha.map(\.id), ["research:res-a", "card:s1", "palette:pal-1",
+                                         "figure:fig-1", "link:ch-b", "linkedFrom:ch-b"])
+        XCTAssertEqual(PieceFoldLayout.of(alpha), .rows(alpha), "six entries are rows")
+        XCTAssertEqual(index.entries["ch-b"]?.map(\.id), ["link:ch-a", "linkedFrom:ch-a"])
+
+        // A seventh thing pinned: the fold groups, only the non-empty groups.
+        store.manifest.structure[0].linkedResearchIds = ["res-a", "pal-1", "res-b"]
+        let grown = try XCTUnwrap(PieceFoldIndex.build(store: store, projectRoot: url)
+            .entries["ch-a"])
+        guard case .groups(let runs) = PieceFoldLayout.of(grown) else {
+            return XCTFail("seven entries must group, got \(grown)")
+        }
+        XCTAssertEqual(runs.map(\.group), [.research, .cards, .palette, .figures, .links])
+        XCTAssertEqual(runs.map(\.entries.count), [2, 1, 1, 1, 2])
+        withExtendedLifetime(model) {}
+    }
+}
