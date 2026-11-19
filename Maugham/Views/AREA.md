@@ -7,9 +7,9 @@ The SwiftUI view layer of the project window and the app's other windows. The on
 Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here. **→ Compiler** / **→ Canvas**: that guide's Rules govern the file (search for its name or types).
 
 ### The window family
-- `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
-- `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one exhaustive value (tripwires 6, 27, 30); `CentreItem.swift`, a statement or History as cover.
-- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + the Book's view + one cover), `statusBoard` (the board's one mount) and its open-notes counts, the Inbox (tripwires 2, 6, 30).
+- `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
+- `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover.
+- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms, environment services; `RightColumnContent.swift`, what each position shows.
 - `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
@@ -135,7 +135,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
 - `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
-- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift` (views).
+- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift` (views).
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.
@@ -246,8 +246,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the fourth branch, its one mount (tripwires 27, 30; `RegionBindingTests`); `.inbox` is last.
 - **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline and Status are its associated `BookView`.
 - **`manuscriptEditor`'s `ZStack`: `EditorHost` first and always present, the Book's view second whenever `open` names no document, then at most ONE cover.** Count layers in `ProjectAltitudeCentreTests`' arm scans.
-- **The Book's view is `altitudeView`'s answer**: the Book, a Part (its own chapters, `altitudeScope`) or an edition (never Status there). Status is a view, never a cover; the board's one mount is `statusBoard`.
-- **Every cover is an edition's** (`publishCentre`, whatever the faces are on): problems, then a round, a proposal, the book.
+- **The Book's view is `altitudeView`'s answer**: the Book, a Part (its own chapters, `altitudeScope`) or an edition (never Status). Status is a view, never a cover; the board's one mount is `statusBoard`.
+- **Covers, in order: an edition's** (`publishCentre`, whatever the faces are on: problems, a round, a proposal, the book), then a centre item.
 - **A click on a piece while the canvas or an edition is the centre moves the faces, never `open`** (`ClickRule`).
 - **`showsStatusFooter` shows exactly where `open` is a document** (`PublishPreviewCentreTests`).
 - **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log, never the `.fountain` (tripwire 20).

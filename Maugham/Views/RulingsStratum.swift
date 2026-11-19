@@ -57,6 +57,13 @@ enum RulingsStratum {
     /// A hand-typed ruling has no date and no provenance, and says so by
     /// showing nothing. "Unknown" would be Maugham inventing a fact about the
     /// writer's own record.
+    /// The caption under a row that also names where it was made (the
+    /// Book's Brief): the origin first, then `caption(for:)`.
+    static func caption(for ruling: Ruling, origin: String?) -> String? {
+        let parts = [origin, caption(for: ruling)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     static func caption(for ruling: Ruling) -> String? {
         switch (ruling.ruledOn, ruling.provenance) {
         case let (.some(date), .some(provenance)):
@@ -330,6 +337,10 @@ struct RulingsStratumView: View {
     var displayed: [Ruling]? = nil
     /// Draw the stratum's own title ("Rulings"); Brief draws "Decided".
     var showsTitle: Bool = true
+    /// Where these rows were made, named in each row's caption — the Book's
+    /// Brief gathers decisions from several statements. A piece's origin
+    /// carries `open`, its Brief; nil names nothing (every other mount).
+    var origin: RulingOrigin? = nil
 
     @Environment(\.undoManager) private var undoManager
 
@@ -472,10 +483,22 @@ struct RulingsStratumView: View {
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let caption = RulingsStratum.caption(for: ruling) {
-                Text(caption)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            if let caption = RulingsStratum.caption(for: ruling, origin: origin?.title) {
+                if let open = origin?.open {
+                    // `Button(.plain)` and never `.onTapGesture` (tripwire 9).
+                    Button(action: open) {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
+                    .help(RulingOrigin.openHelp)
+                } else {
+                    Text(caption)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             if StatementSurfaceVerbs.offered(under: posture) {
                 HStack(spacing: 12) {
@@ -557,4 +580,14 @@ struct StratumEditField: View {
             isFocused = true
         }
     }
+}
+
+
+/// Where a row of `RulingsStratumView` was made, and — for a piece — the way
+/// to that piece's Brief (shell plan 3 Task 5).
+struct RulingOrigin {
+    let title: String
+    let open: (() -> Void)?
+
+    static let openHelp = "Open this piece's Brief"
 }

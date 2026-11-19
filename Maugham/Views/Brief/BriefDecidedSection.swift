@@ -24,6 +24,8 @@ struct BriefDecidedSection: View {
     let liveParagraphIds: Set<String>?
     /// Draw the "Decided" heading (a Part draws its pieces' titles instead).
     var showsHeading: Bool = true
+    /// Where these decisions were made, named under each (the Book's Brief).
+    var origin: RulingOrigin? = nil
 
     @State private var showsEarlier = false
 
@@ -65,6 +67,6 @@ struct BriefDecidedSection: View {
         RulingsStratumView(
             rulings: fileOrder, kind: kind, scope: scope, store: store, world: world,
             posture: posture, liveParagraphIds: liveParagraphIds,
-            displayed: rows, showsTitle: false)
+            displayed: rows, showsTitle: false, origin: origin)
     }
 }

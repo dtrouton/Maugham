@@ -42,6 +42,8 @@ struct CentreColumn: View {
     @Bindable var publishCentre: PublishCentreModel
     let designer: DesignerOrchestrator
     let declaredWorld: DeclaredWorldStore?
+    /// The bible a statement in the centre draws its readings from.
+    let bible: BibleStore?
     let window: NSWindow?
 
     // Inputs this column only reads. `isLocked` is the window's Lock
@@ -52,6 +54,10 @@ struct CentreColumn: View {
     // The window's state this column writes — bindings, never copies.
     /// The window's subject: the route's one input about what is open.
     @Binding var subject: WindowSubject
+    /// A statement or a piece's History open in the centre — the
+    /// `.centreItem` cover (shell plan 3 Task 5). The cover's Close writes
+    /// nil; the window clears it when `open` moves.
+    @Binding var centreItem: CentreItem?
     @Binding var bookView: BookView
     @Binding var selectedPaletteCardId: String?
     @Binding var showInspector: Bool
@@ -121,7 +127,8 @@ struct CentreColumn: View {
                                          preview: publishCentre.preview,
                                          proposal: publishCentre.selectedProposal,
                                          round: publishCentre.selectedRound,
-                                         problems: publishCentre.selectedProblems) {
+                                         problems: publishCentre.selectedProblems,
+                                         centreItem: centreItem) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
                               onClose: closePaletteWall, isLocked: isLocked)
@@ -184,8 +191,9 @@ struct CentreColumn: View {
     /// **The manuscript editor, and the one surface drawn over it.** The editor
     /// mounts on whatever document the subject's `open` names (a screenplay's
     /// `.fountain` included), with `CentreRoute`'s layers over it: the Book (or
-    /// a Part) in its view — Cards, Outline or Status — then one cover, an
-    /// edition's (no-book notice, round report, problems, design gate, book).
+    /// a Part) in its view — Cards, Outline or Status — then one cover: an
+    /// edition's (no-book notice, round report, problems, design gate, book),
+    /// else a statement or a piece's History open in the centre.
     ///
     /// **The host is the ZStack's FIRST child and present whatever covers it**
     /// (tripwire 6), and altitude is the SECOND, present whenever `open`
@@ -357,10 +365,14 @@ struct CentreColumn: View {
                     projectURL: store.url,
                     title: store.manifest.title,
                     selectedPublicationID: $publishCentre.selectedPublicationID)
-            // A statement or History in the centre: drawn by shell p3 Task 5,
-            // which also passes the window's centre item; nothing produces
-            // this cover until then.
-            case .centreItem, .none:
+            // **A statement or a piece's History in the centre**, over the
+            // host and the Book's view like every cover, so neither remounts
+            // when it comes or goes. Close clears the window's item.
+            case .centreItem(let item):
+                CentreItemCover(store: store, documentStore: documentStore, item: item,
+                                bible: bible, world: declaredWorld,
+                                onClose: { centreItem = nil })
+            case .none:
                 EmptyView()
             }
         }

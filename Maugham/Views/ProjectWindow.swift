@@ -48,6 +48,11 @@ struct ProjectWindow: View {
     /// how `ResearchRevealModifier` tells the restore from an arrival; read it
     /// through `subject`, which answers the Book until then.
     @State private var subjectState: WindowSubject?
+    /// A statement or a piece's History open in the centre (shell plan 3
+    /// Task 5): the `.centreItem` cover. Window state, never persisted;
+    /// cleared by the cover's Close and by any change of `open`
+    /// (`centreItemAfterOpenChange`).
+    @State private var centreItem: CentreItem?
     /// How the Book (or a Part) is shown: Cards, Outline or Status.
     @State private var bookView: BookView = .outline
     @State private var selectedPaletteCardId: String?
@@ -462,6 +467,12 @@ struct ProjectWindow: View {
             if let script = note.object as? FountainScript {
                 self.lastParsedScript = script
             }
+        }
+        // **The centre item lives exactly as long as `open` holds** — the
+        // move that opened it excepted (`centreItemAfterOpenChange`).
+        .onChange(of: subject.open) { old, new in
+            let kept = Self.centreItemAfterOpenChange(centreItem, from: old, to: new)
+            if kept != centreItem { centreItem = kept }
         }
         .onChange(of: subjectState) { _, newValue in
             guard let newValue else { return }
@@ -1249,9 +1260,10 @@ struct ProjectWindow: View {
             referenceIndex: referenceIndex, figureListing: figureListing,
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
-            declaredWorld: declaredWorld, window: window,
+            declaredWorld: declaredWorld, bible: bible, window: window,
             isLocked: isLocked, researchPreviewVisible: researchPreviewVisible,
             subject: subjectBinding,
+            centreItem: $centreItem,
             bookView: $bookView,
             selectedPaletteCardId: $selectedPaletteCardId,
             showInspector: $showInspector,
@@ -2133,6 +2145,15 @@ struct ProjectWindow: View {
 
     private var subjectBinding: Binding<WindowSubject> {
         Binding(get: { subject }, set: { subject = $0 })
+    }
+
+    /// **Open in Centre for a statement or History** (Brief's Going for, the
+    /// pulled-up view): `open` goes to what the item belongs to and the
+    /// item becomes the centre's cover, in one update. Task 9 wires Brief's
+    /// `onOpenInCentre` here; Task 7 the pulled-up view's.
+    func openInCentre(_ item: CentreItem) {
+        subject = Self.openingInCentre(item, subject: subject)
+        centreItem = item
     }
 
     /// **Going to a thing from outside the tree** — a link, a find result,

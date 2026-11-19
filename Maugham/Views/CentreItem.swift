@@ -25,10 +25,18 @@ extension ProjectWindow {
     }
 
     /// The centre item after `open` moves from `old` to `new`: kept while
-    /// `open` holds, cleared by any change of it.
+    /// `open` holds, cleared by any change of it — except the move that
+    /// opened it. `openInCentre` writes the subject and the item in one
+    /// update, so the window's `.onChange(of: open)` sees that move with the
+    /// item already set; a move that lands on the item's own place
+    /// (`openingInCentre`) is that opening. While an item stands `open` IS
+    /// its place, so no later move can land there without leaving first.
     static func centreItemAfterOpenChange(_ item: CentreItem?, from old: BinderSubject,
                                           to new: BinderSubject) -> CentreItem? {
-        old == new ? item : nil
+        guard let item else { return nil }
+        if old == new { return item }
+        let place = openingInCentre(item, subject: WindowSubject(open: old, faces: old)).open
+        return place == new ? item : nil
     }
 
     /// Whether this statement is the centre's cover — Brief and the pulled-up

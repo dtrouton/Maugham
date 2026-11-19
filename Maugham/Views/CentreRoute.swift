@@ -40,8 +40,8 @@ enum CentreRoute: Equatable {
 
 /// **The one surface drawn over the editor and altitude**, or none — chosen
 /// here rather than by z-order. Every case but `.notice` is opaque and fills
-/// the column. Every case belongs to an edition: Status is a view of the Book,
-/// never a cover.
+/// the column. Every case but `.centreItem` belongs to an edition, and each
+/// outranks it: Status is a view of the Book, never a cover.
 enum CentreCover: Equatable {
     /// An edition with no book: a banner saying WHICH kind of nothing it is,
     /// standing over the Book's view and taking no clicks.

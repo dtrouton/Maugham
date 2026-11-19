@@ -299,6 +299,43 @@ final class CentreRouteTests: XCTestCase {
                        "research beside leaves the piece in the centre")
     }
 
+    /// **A centre item is the last cover** (shell plan 3 Task 5): the
+    /// publish problems, a round, the design gate, the book and a notice
+    /// each outrank it, and it stands only where no publish cover does —
+    /// never over the canvas, the wall, research, a figure, the Inbox or a
+    /// reference piece, which are branches of their own. In use the two never
+    /// meet (a publish cover needs an edition open, and any change of `open`
+    /// clears the item), so the order only decides that an item can never hide
+    /// a problem the writer asked to see.
+    func test_aCentreItemIsTheLastCover() {
+        let item = CentreItem.statement(kind: .intent, scope: .project)
+        let problems = [TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil, message: "Undefined control sequence",
+            contextLines: [], pieceID: nil, paragraphID: nil)]
+        for subject in SubjectSamples.everySubject {
+            for publish in PublishState.allCases {
+                for shown in [nil, problems] {
+                    func route(_ centreItem: CentreItem?) -> CentreRoute {
+                        ProjectWindow.centreRoute(
+                            subject: subject, bookView: .outline, projectType: .novel,
+                            structure: Self.structure, preview: publish.preview,
+                            proposal: publish.proposal, round: publish.round, problems: shown,
+                            centreItem: centreItem)
+                    }
+                    let without = route(nil)
+                    if case .editor(let altitude, nil) = without {
+                        XCTAssertEqual(route(item), .editor(altitude: altitude, cover: .centreItem(item)),
+                                       "\(subject.open), \(publish): the item covers the bare editor")
+                    } else {
+                        XCTAssertEqual(route(item), without,
+                                       "\(subject.open), \(publish), problems \(shown != nil): "
+                                       + "what stood without the item stands with it")
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - The Collection reference arm
 
     /// **A reference piece keeps its own arm, resolved or not**, and the arm
@@ -425,6 +462,7 @@ final class CentreRouteTests: XCTestCase {
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
                 case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: EmptyView()
                 }
             }
@@ -452,6 +490,7 @@ final class CentreRouteTests: XCTestCase {
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
                 case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: EmptyView()
                 }
             }
@@ -477,6 +516,7 @@ final class CentreRouteTests: XCTestCase {
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
                 case .publishProblems(let problems): PublishProblemsView()
+                case .centreItem(let item): CentreItemCover()
                 case .none: ProjectAltitudePane()
                 }
             }
@@ -600,6 +640,7 @@ enum CentreRouteSource {
         ("designGate", "DesignGateView("),
         ("translationRound", "TranslationRoundReportHost("),
         ("publishProblems", "PublishProblemsView("),
+        ("centreItem", "CentreItemCover("),
     ]
 
     /// The routing rules a builder must not ask for itself — each in both

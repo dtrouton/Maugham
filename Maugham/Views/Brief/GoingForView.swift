@@ -12,7 +12,9 @@ enum GoingForMode: Equatable {
     case inTheCentre
 }
 
-/// **Going for** — a piece's intent, in Brief (spec "Brief" §2).
+/// **Going for** — a piece's intent, or the Book's, in Brief (spec "Brief"
+/// §2; the Book's since Task 5, at scope `.project`, where no check reads and
+/// so no mark ever applies).
 ///
 /// Two faces (Denver saw and accepted both): while the latest check's marks
 /// APPLY (`ClauseMarks.applies`) the essay reads as prose with the marks on
@@ -31,7 +33,8 @@ enum GoingForMode: Equatable {
 struct GoingForView: View {
     @Bindable var store: ProjectStore
     let documentStore: DocumentStore
-    let docId: String
+    /// Whose intent: `.document(id)` for a piece, `.project` for the Book.
+    let scope: Statement.Scope
     /// Whether `essay` and `marks` come from a read yet. Until one lands no
     /// face is chosen — the editor's appearance latches `editorHeld`, so a
     /// first frame drawn over nothing would keep the editor over marks.
@@ -56,6 +59,7 @@ struct GoingForView: View {
     static let heading = "Going for"
     static let inTheCentreLine = "Open in the centre"
     static let emptyPrompt = "What is this piece going for? Write it here."
+    static let bookEmptyPrompt = "What is this book going for? Write it here."
     static let noIntentLine = "No intent yet."
     /// The editor's height inside the scrolling pane.
     static let editorHeight: CGFloat = 220
@@ -80,6 +84,30 @@ struct GoingForView: View {
         return .editing
     }
 
+    /// The prompt over an empty intent's editor, by whose intent it is.
+    static func emptyPrompt(for scope: Statement.Scope) -> String {
+        if case .document = scope { return emptyPrompt }
+        return bookEmptyPrompt
+    }
+
+    /// **What each face draws** (Task 5). While the statement is the
+    /// centre's cover, Brief still READS it — the placeholder line over the
+    /// reading view, marks only while they apply to the live text — and
+    /// never mounts an editor: the centre's host holds the `Document`.
+    struct Face: Equatable {
+        let placeholder: Bool
+        let reading: Bool
+        let editor: Bool
+    }
+
+    static func face(_ mode: GoingForMode) -> Face {
+        switch mode {
+        case .inTheCentre: return Face(placeholder: true, reading: true, editor: false)
+        case .reading: return Face(placeholder: false, reading: true, editor: false)
+        case .editing: return Face(placeholder: false, reading: false, editor: true)
+        }
+    }
+
     /// Whether the statement's `Document` is open in a host that is not this
     /// one. `openStatementDocument` is the store-wide registry every host
     /// registers in; ours is in it exactly while `editorHeld`.
@@ -88,7 +116,19 @@ struct GoingForView: View {
     }
 
     private var statementId: String? {
-        store.statement(kind: .intent, scope: .document(docId))?.id
+        store.statement(kind: .intent, scope: scope)?.id
+    }
+
+    /// The essay the reading face draws. While the centre holds the
+    /// statement and no mark applies, the centre's live text, so Brief reads
+    /// along as the writer types there (observed through the live
+    /// `Document`, with no re-read of the scope per keystroke). Marks are
+    /// placed on the read essay, so a face with marks keeps it — they apply
+    /// only while the live text is the text the check read.
+    private var shownEssay: String? {
+        guard inTheCentre, marks.isEmpty, let statementId,
+              let live = store.openStatementDocument(id: statementId) else { return essay }
+        return StatementEssay.half(of: live.displayText)
     }
 
     private var isHeldElsewhere: Bool {
@@ -103,6 +143,11 @@ struct GoingForView: View {
         !(essay ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var strainDocId: String? {
+        if case .document(let docId) = scope { return docId }
+        return nil
+    }
+
     private var mode: GoingForMode {
         Self.mode(hasMarks: !marks.isEmpty, editingRequested: editorHeld,
                   inTheCentre: inTheCentre, hasIntent: hasIntent,
@@ -114,7 +159,7 @@ struct GoingForView: View {
         VStack(alignment: .leading, spacing: 6) {
             header(mode)
             if isRead {
-                face(mode)
+                faceView(mode)
             }
         }
         .accessibilityElement(children: .contain)
@@ -122,17 +167,19 @@ struct GoingForView: View {
     }
 
     @ViewBuilder
-    private func face(_ mode: GoingForMode) -> some View {
-        switch mode {
-        case .inTheCentre:
+    private func faceView(_ mode: GoingForMode) -> some View {
+        let face = Self.face(mode)
+        if face.placeholder {
             quiet(Self.inTheCentreLine)
-        case .reading:
+        }
+        if face.reading {
             reading
-        case .editing:
-            if !hasIntent { quiet(Self.emptyPrompt) }
+        }
+        if face.editor {
+            if !hasIntent { quiet(Self.emptyPrompt(for: scope)) }
             StatementEditorHost(
                 store: store, documentStore: documentStore,
-                kind: .intent, scope: .document(docId), posture: posture)
+                kind: .intent, scope: scope, posture: posture)
                 .frame(height: Self.editorHeight)
                 .onAppear { editorHeld = true }
                 // Whatever takes the editor away (Done, a refusing posture,
@@ -172,7 +219,8 @@ struct GoingForView: View {
 
     @ViewBuilder
     private var reading: some View {
-        if let essay, hasIntent {
+        if let essay = shownEssay,
+           !essay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(Self.paragraphs(of: essay, marks: marks).enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
@@ -187,7 +235,7 @@ struct GoingForView: View {
                 legend
             }
             .environment(\.openURL, OpenURLAction { url in
-                if let quote = Self.strainQuote(for: url, marks: marks) {
+                if let docId = strainDocId, let quote = Self.strainQuote(for: url, marks: marks) {
                     onShowStrain(docId, quote)
                 }
                 return .handled

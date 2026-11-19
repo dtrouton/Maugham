@@ -14,8 +14,11 @@ struct BriefContents: Equatable {
     /// The piece's live paragraph ids, for a directive's orphan verdict; nil
     /// is unknown (no orphan is manufactured).
     var liveParagraphIds: Set<String>? = nil
-    /// Claude's unconfirmed readings for the piece.
+    /// Claude's unconfirmed readings for the piece (or the Book).
     var facts: [BibleFact] = []
+    /// The Book's decisions, grouped by where each was made, in the filter's
+    /// order (`BriefBookView.groups`). Empty for every other scope.
+    var bookGroups: [BriefBookView.Group] = []
     /// False for the placeholder drawn before the first read lands: Going
     /// for decides its face only over a real read, or every piece would open
     /// on the editor for a frame and keep it.
@@ -34,9 +37,8 @@ struct BriefOffers: Equatable {
 }
 
 /// **Brief** — what the faces' subject is held to (shell plan 3, spec
-/// "Brief"). The scope switch: a piece, a Part, a piece that lives in another
-/// project, and the subjects outside the manuscript. The Book and an edition
-/// are Task 5's (`bookOrEdition` is the seam).
+/// "Brief"). The scope switch: a piece, a Part, the Book, an edition, a piece
+/// that lives in another project, and the subjects outside the manuscript.
 ///
 /// **It never loads a manuscript `Document`** (`BriefReader`; the census
 /// `test_noBriefSourceLoadsAManuscriptDocument` reads this folder). The one
@@ -103,8 +105,20 @@ struct BriefPane: View {
                     BriefPartView(store: store, documentStore: documentStore, docIds: docIds,
                                   contents: current, world: world, onOpenBrief: onOpenBrief)
                 }
-            case .book, .edition:
-                bookOrEdition
+            case .book:
+                scrolling {
+                    BriefBookView(
+                        store: store, documentStore: documentStore, contents: current,
+                        bible: bible, world: world, centreItem: centreItem,
+                        onOpenInCentre: onOpenInCentre, onPullUp: onPullUp,
+                        onOpenBrief: onOpenBrief)
+                }
+            case .edition(let language):
+                // Not scrolled: the edition brief's own pane holds an editor
+                // that takes the height it is given.
+                BriefEditionView(store: store, documentStore: documentStore,
+                                 language: language, onPullUp: onPullUp)
+                    .id(language)
             case .elsewhere:
                 quietPane(Self.elsewhereLine)
             case .outside:
@@ -123,13 +137,6 @@ struct BriefPane: View {
     /// change).
     private var current: BriefContents {
         contents.snapshot.scope == scope ? contents : .empty(scope)
-    }
-
-    /// **The Book and an edition: Task 5 draws them here.** Nothing until
-    /// then — this view is not mounted in the window before Task 9.
-    @ViewBuilder
-    private var bookOrEdition: some View {
-        EmptyView()
     }
 
     private func scrolling<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -216,7 +223,19 @@ struct BriefPane: View {
                 contents.fileOrder[docId] = RulingsStratum.currentRows(
                     kind: .intent, forScope: .document(docId), store: store)
             }
-        case .book, .edition, .elsewhere, .outside:
+        case .book:
+            // Once per key, never per row or per filter (tripwire 4): each
+            // origin's file-order rulings are read here, with the grouping.
+            contents.bookGroups = BriefBookView.groups(
+                snapshot.decisions, structure: store.manifest.structure) { origin in
+                    let statement = origin.statement
+                    return RulingsStratum.currentRows(kind: statement.kind,
+                                                      forScope: statement.scope, store: store)
+                }
+            if let bible {
+                contents.facts = BibleStratum.facts(for: .project, in: bible.allFacts())
+            }
+        case .edition, .elsewhere, .outside:
             break
         }
         return contents

@@ -101,11 +101,15 @@ struct TreeEditionRows: View {
     static func rows(store: ProjectStore) -> [Row] {
         let languages = languages(store: store)
         return languages.enumerated().map { index, tag in
-            Row(language: tag,
-                title: Locale.current.localizedString(forLanguageCode: tag)
-                    .map { $0.capitalized(with: Locale.current) } ?? tag,
-                isSource: index == 0)
+            Row(language: tag, title: title(forLanguage: tag), isSource: index == 0)
         }
+    }
+
+    /// An edition's title: its language's name in the writer's locale, else
+    /// its tag. The tree's rows and the Book's Brief name an edition alike.
+    nonisolated static func title(forLanguage tag: String) -> String {
+        Locale.current.localizedString(forLanguageCode: tag)
+            .map { $0.capitalized(with: Locale.current) } ?? tag
     }
 }
 

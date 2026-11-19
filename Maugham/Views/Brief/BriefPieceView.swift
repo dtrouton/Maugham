@@ -53,7 +53,7 @@ struct BriefPieceView: View {
         VStack(alignment: .leading, spacing: 14) {
             line(offers)
             GoingForView(
-                store: store, documentStore: documentStore, docId: docId,
+                store: store, documentStore: documentStore, scope: .document(docId),
                 isRead: contents.isRead, essay: snapshot.intentEssay, marks: contents.marks,
                 mayEdit: offers.editsIntent, inTheCentre: inTheCentre, posture: posture,
                 onOpenInCentre: { onOpenInCentre(.statement(kind: .intent, scope: .document(docId))) },

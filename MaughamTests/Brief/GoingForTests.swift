@@ -77,6 +77,29 @@ final class GoingForTests: XCTestCase {
         }
     }
 
+    /// **What Brief shows while the statement is in the centre** (Task 5):
+    /// the placeholder over the reading view, never an editor — and marks
+    /// only while the live text is still the text the check read.
+    func test_whileTheStatementIsInTheCentreBriefReadsItWithoutAnEditor() {
+        XCTAssertEqual(GoingForView.face(.inTheCentre),
+                       GoingForView.Face(placeholder: true, reading: true, editor: false))
+        XCTAssertEqual(GoingForView.face(.reading),
+                       GoingForView.Face(placeholder: false, reading: true, editor: false))
+        XCTAssertEqual(GoingForView.face(.editing),
+                       GoingForView.Face(placeholder: false, reading: false, editor: true))
+
+        let check = run(snapshot: Self.intent, clauses: Self.clauses)
+        XCTAssertFalse(BriefPane.marks(essay: Self.essay, intentText: Self.intent, run: check).isEmpty,
+                       "unchanged in the centre: Brief's reading keeps its marks")
+        let typedInTheCentre = Self.intent.replacingOccurrences(of: "climax.", with: "climax. Then calm.")
+        XCTAssertEqual(BriefPane.marks(essay: StatementEssay.half(of: typedInTheCentre),
+                                       intentText: typedInTheCentre, run: check), [],
+                       "typed in the centre: Brief reads it without marks")
+
+        XCTAssertEqual(GoingForView.emptyPrompt(for: .document("d")), GoingForView.emptyPrompt)
+        XCTAssertEqual(GoingForView.emptyPrompt(for: .project), GoingForView.bookEmptyPrompt)
+    }
+
     /// The one-host rule, the pure half: a statement another host holds reads
     /// here; our own host holding it is not "elsewhere".
     func test_aStatementHeldByAnotherHostReads() {
