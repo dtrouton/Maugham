@@ -122,8 +122,7 @@ enum StatementProposalGate {
 
         // Each of Adopt's writes carries the manager its undo registers on:
         // the holding editor's own keeps the registration (`StatementWriteUndo`).
-        let forward = StatementWriteUndo.verb(on: undoManager)
-        try await writeEssay(of: proposal, to: statement, store: store, undo: forward)
+        try await writeEssay(of: proposal, to: statement, store: store, undo: .verb(on: undoManager))
 
         // Everything from here to `discard` is one all-or-nothing tail: a
         // throw anywhere in it restores `before` whole and rethrows the
@@ -135,7 +134,7 @@ enum StatementProposalGate {
                 try await RulingPerformer.rule(
                     Ruling.glossaryText(term: entry.term, rendering: entry.rendering, note: entry.note),
                     provenance: Ruling.Provenance.glossary,
-                    kind: kind, forScope: .project, store: store, world: world, undo: forward)
+                    kind: kind, forScope: .project, store: store, world: world, undo: .verb(on: undoManager))
             }
             // Symmetric with `before`: a failed read must not silently become
             // an empty string, because that empty string is exactly what the
@@ -154,7 +153,7 @@ enum StatementProposalGate {
         } catch {
             do {
                 try await store.mutateStatementText(of: statement, session: session,
-                                                    undo: forward) { _ in before }
+                                                    undo: .verb(on: undoManager)) { _ in before }
             } catch let rollbackError {
                 proposalGateLog.error(
                     "Adopt's rollback to `before` failed after a mid-tail failure: \(rollbackError, privacy: .public)")

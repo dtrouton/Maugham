@@ -292,28 +292,46 @@ extension RulingsStratum {
 }
 
 /// **Which undo manager a statement verb pressed in a pane registers on**
-/// (Adopt, Revoke, Edit ruling) — asked ONCE, synchronously, at the press,
-/// and decided by where the keys are, never by who holds the statement.
+/// (Adopt, Revoke, Edit ruling) — asked ONCE, synchronously, at the press:
+/// **the manager ⌘Z will run from where the keys are.**
 ///
 /// A button takes no focus, so the window's first responder at the press is
-/// where the writer's next ⌘Z will come from. If that is the statement's own
-/// editor, ⌘Z there runs that editor's manager (`MaughamTextView.undo:`), and
-/// the verb joins it. From anywhere else — the manuscript, the tree, a field,
-/// another statement's editor — ⌘Z walks to the window, so the verb is the
-/// window's, written plainly (an editor holding the statement then drops its
-/// typing undo on the replace, ADR 0023 D1).
+/// where the writer's next ⌘Z comes from. AppKit sends `undo:` up the
+/// responder chain from there. A statement editor (any statement's — a
+/// second editor with its own stack) answers it itself, on its own manager
+/// (`MaughamTextView.undo:`), so with the keys in one, or in a view inside
+/// one, the verb joins THAT editor's stack — the pressed statement's own
+/// editor or another's. From anywhere else — the manuscript, a research
+/// note's editor, the tree, a field, nothing — the walk reaches the window,
+/// so the verb is the window's. An inline field (Edit ruling) is outside
+/// every editor: the window's while it is open, and the window's after it
+/// commits and closes, when the keys fall to the window itself.
+///
+/// How the verb WRITES is a separate question, answered per write
+/// (`StatementWriteUndo`): undo-coherently only when the chosen manager is
+/// the pressed statement's own holder; plainly on any other.
 @MainActor
 enum StatementVerbUndo {
-    static func manager(kind: Statement.Kind, scope: Statement.Scope, store: ProjectStore,
-                        window: UndoManager?) -> UndoManager? {
-        store.undoManagerForStatementVerb(kind: kind, scope: scope, keys: keys(), window: window)
+    /// `window` is the pane's environment manager, which is its window's;
+    /// that is how the pressed window is found (the key window otherwise —
+    /// a press makes its window key).
+    static func manager(window: UndoManager?) -> UndoManager? {
+        guard let window else { return nil }
+        let host = NSApp.windows.first { $0.undoManager === window } ?? NSApp.keyWindow
+        return manager(firstResponder: host?.firstResponder, window: window)
     }
 
-    /// The manager ⌘Z would run from each window's first responder. The
-    /// statement's editor's manager is private to that one text view, so it
-    /// is among these exactly when that editor has its window's keys.
-    static func keys() -> [UndoManager] {
-        NSApp.windows.compactMap { $0.firstResponder?.undoManager }
+    /// Pure: the first manager the responder chain from `firstResponder`
+    /// offers `undo:` on, else the window's.
+    static func manager(firstResponder: NSResponder?, window: UndoManager?) -> UndoManager? {
+        var responder = firstResponder
+        while let current = responder {
+            if let editor = current as? MaughamTextView, editor.usesPrivateUndoManager {
+                return editor.privateUndoManager
+            }
+            responder = current.nextResponder
+        }
+        return window
     }
 }
 
@@ -546,8 +564,8 @@ struct RulingsStratumView: View {
     }
 
     private func revoke(_ ruling: Ruling, at index: Int) {
-        // Chosen now, at the press, by where the keys are.
-        let undo = StatementVerbUndo.manager(kind: kind, scope: scope, store: store, window: undoManager)
+        // Chosen now, at the press: where ⌘Z will run from the keys.
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             await RulingsStratum.revoke(
                 ruling, at: index, kind: kind, forScope: scope, store: store,
@@ -561,7 +579,7 @@ struct RulingsStratumView: View {
         // `RulingPerformer.edit` refuses it, and closing the field without
         // asking is the honest UI half of that refusal.
         guard !trimmed.isEmpty else { return }
-        let undo = StatementVerbUndo.manager(kind: kind, scope: scope, store: store, window: undoManager)
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             await RulingsStratum.edit(
                 at: index, to: trimmed, kind: kind, forScope: scope, store: store,

@@ -488,8 +488,7 @@ struct StatementPane: View {
         guard !proposalBusy else { return }
         proposalBusy = true
         // Chosen now, at the press, by where the keys are.
-        let undo = StatementVerbUndo.manager(kind: proposal.kind.statementKind, scope: .project,
-                                             store: store, window: undoManager)
+        let undo = StatementVerbUndo.manager(window: undoManager)
         Task { @MainActor in
             defer { proposalBusy = false }
             do {

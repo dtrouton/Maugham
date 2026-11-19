@@ -37,30 +37,18 @@ extension ProjectStore {
         return openStatementDocuments[id]?.undoManager
     }
 
-    /// **Where a statement verb (Adopt, Revoke, Edit ruling) registers its
-    /// undo, decided once, at the press, by where the keys are.** `keys` are
-    /// the managers ⌘Z would run from the first responders (one per window).
-    /// When one is the statement's own editor's, the verb joins that editor's
-    /// stack (one ordered history of its typing and verbs). Otherwise it is
-    /// `window`'s — the keys are in the manuscript, the tree, a field, or
-    /// nothing holds the statement — because that is where ⌘Z will walk, even
-    /// while some editor holds the statement open.
-    func undoManagerForStatementVerb(kind: Statement.Kind, scope: Statement.Scope,
-                                     keys: [UndoManager], window: UndoManager?) -> UndoManager? {
-        guard let id = statement(kind: kind, scope: scope)?.id,
-              let holder = statementUndoManager(forId: id),
-              keys.contains(where: { $0 === holder }) else { return window }
-        return holder
-    }
-
     /// The live arm's write. `undo` is THIS write's own and is read nowhere
-    /// else: when the verb registered on the holding editor's own manager the
-    /// write goes in the accept order (ADR 0023 D1/D2) — the forward verb
-    /// drops the editor's typing, and the apply is flagged undo-coherent so
-    /// the editor keeps the verb's registration across its buffer replace.
-    /// Every other write is plain: the editor drops its stack on the replace
-    /// (D1), and a flag an earlier write left unconsumed is withdrawn, since
-    /// the buffer it vouched for is not the one the editor will now be given.
+    /// else: when the verb registered on the holding editor's own manager —
+    /// the editor whose buffer this write replaces — the write goes in the
+    /// accept order (ADR 0023 D1/D2): the forward verb drops that editor's
+    /// TYPING (the range-based entries; earlier verbs' inverses are
+    /// range-free and stay, so ⌘Z ⌘Z undoes two verbs), and the apply is
+    /// flagged undo-coherent so the editor keeps the stack across its buffer
+    /// replace. Every other write is plain — the verb is on the window's
+    /// manager, or on another editor's — and the holding editor drops its
+    /// whole stack on the replace (D1); a flag an earlier write left
+    /// unconsumed is withdrawn, since the buffer it vouched for is not the
+    /// one the editor will now be given.
     private func mutateLive(_ live: Document, id: String, undo: StatementWriteUndo,
                             _ mutate: (Document) throws -> Void) throws {
         let before = live.displayText
@@ -70,7 +58,11 @@ extension ProjectStore {
             live._undoCoherentApplyPending = false
             return
         }
-        if undo.clearsTyping, !manager.isUndoing, !manager.isRedoing { manager.removeAllActions() }
+        if undo.clearsTyping, !manager.isUndoing, !manager.isRedoing {
+            // By target where the manager can name its typing; else everything.
+            if let typing = manager as? EditorTypingUndoManager { typing.removeTypingActions() }
+            else { manager.removeAllActions() }
+        }
         live._undoCoherentApplyPending = true
     }
 
@@ -914,11 +906,11 @@ final class OpenStatementDocument {
 /// the plain write, after which the editor drops its stack.
 struct StatementWriteUndo {
     weak var registeredOn: UndoManager?
-    /// The forward verb drops the editor's typing first (stale ranges); the
-    /// verb's own undo and redo do not (the stack is the verb's history).
+    /// The forward verb drops the editor's typing (stale ranges); the verb's
+    /// own undo and redo do not (the stack is the verb's history).
     let clearsTyping: Bool
 
-    static let plain = StatementWriteUndo(registeredOn: nil, clearsTyping: false)
+    static var plain: StatementWriteUndo { StatementWriteUndo(registeredOn: nil, clearsTyping: false) }
     /// The forward verb's writes.
     static func verb(on manager: UndoManager?) -> StatementWriteUndo {
         StatementWriteUndo(registeredOn: manager, clearsTyping: true)

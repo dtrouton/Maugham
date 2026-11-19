@@ -355,8 +355,9 @@ struct StatementEditorHost: View {
     /// handed to the surface as its private manager and registered with the
     /// statement `Document` it binds, so the statement's verbs (Adopt, Revoke,
     /// Edit ruling) register on the stack this editor's ⌘Z runs when this
-    /// editor has the keys at the press (`StatementVerbUndo.manager`).
-    @State private var statementUndo = UndoManager()
+    /// editor has the keys at the press (`StatementVerbUndo.manager`), and a
+    /// verb's write drops this editor's typing alone (`EditorTypingUndoManager`).
+    @State private var statementUndo = EditorTypingUndoManager()
     @State private var isDropTargeted = false
     /// Why the last picture did not land, or nil.
     ///

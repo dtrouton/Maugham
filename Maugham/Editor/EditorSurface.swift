@@ -337,6 +337,7 @@ struct EditorSurface: NSViewRepresentable {
         textView.usesPrivateUndoManager = configuration.isSecondEditorInItsWindow
         if configuration.isSecondEditorInItsWindow, let manager = configuration.privateUndoManager {
             textView.privateUndoManager = manager
+            (manager as? EditorTypingUndoManager)?.textView = textView
         }
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
         // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
@@ -1119,5 +1120,28 @@ final class MaughamTextView: NSTextView {
     func removeGutter() {
         gutterView?.removeFromSuperview()
         gutterView = nil
+    }
+}
+
+/// **A second editor's own undo manager that can drop its TYPING alone**
+/// (shell plan 3 Task 5 fix 5). ADR 0023's D1 drops undo entries whose text
+/// RANGES a buffer replace makes stale. Those are the text view's native
+/// typing actions, and `NSTextView` registers them with its TEXT STORAGE as
+/// the target (measured on TextKit 1 and 2: `removeAllActions(withTarget:)`
+/// with the storage removes the typing and nothing else; with the view, the
+/// layout manager or the container it removes nothing). Everything else on a
+/// statement editor's stack is range-free and re-resolves when it fires — a
+/// statement verb's inverse (target: the store), a checkbox flip (the
+/// `Document`, guarded by the paragraph's value), a table visit — so it may
+/// stay across the replace.
+final class EditorTypingUndoManager: UndoManager {
+    /// The editor this manager is private to (`EditorSurface.makeNSView`).
+    weak var textView: NSTextView?
+
+    /// Drop the typing, on both stacks. With no text view to name the
+    /// target, drop everything: the safe side of D1.
+    func removeTypingActions() {
+        guard let storage = textView?.textStorage else { return removeAllActions() }
+        removeAllActions(withTarget: storage)
     }
 }
