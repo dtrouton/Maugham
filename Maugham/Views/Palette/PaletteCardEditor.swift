@@ -106,7 +106,21 @@ struct PaletteCardEditor: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: cardId) { seed() }
+        // **A hand-over settles first** (shell p3 Task 7 fix 2): when another
+        // editor of this card has just let it go — the palette wall releasing
+        // it to the card pulled up beside, or the reverse — its edit may still
+        // be waiting in the note door. The file is read only after that edit
+        // has landed, or this editor would seed stale and its next save write
+        // over the other's last words.
+        .task(id: cardId) {
+            if let documentStore = store.documentStore,
+               documentStore.researchNoteHasPendingSave(itemId: cardId) {
+                draft = nil   // never the last card's draft under this id meanwhile
+                await documentStore.settleResearchNoteEdits(itemId: cardId)
+                if Task.isCancelled { return }
+            }
+            seed()
+        }
         // Shown here: the door hears an outside change to this card only
         // while an editor holds it (let go on a switch or on disappearing).
         .task(id: cardId) { await store.documentStore?.holdResearchNoteOpen(itemId: cardId) }

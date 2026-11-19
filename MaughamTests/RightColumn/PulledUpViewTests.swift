@@ -42,14 +42,12 @@ final class PulledUpViewTests: XCTestCase {
 
     private func face(_ pulled: PulledUp, isLocked: Bool = false, centreItem: CentreItem? = nil,
                       card: PulledUpView.CanvasCardRead? = nil,
-                      open: BinderSubject? = nil, wallCard: String? = nil,
-                      canvasSelection: CanvasSelection? = nil) -> PulledUpView.Face {
+                      open: BinderSubject? = nil, wallCard: String? = nil) -> PulledUpView.Face {
         var subject = open.map { WindowSubject(open: $0, faces: $0) } ?? onAPiece
         subject.beside = pulled
         return PulledUpView.face(
             of: pulled,
-            centre: .init(subject: subject, centreItem: centreItem, paletteWallCard: wallCard,
-                          canvasSelection: canvasSelection),
+            centre: .init(subject: subject, centreItem: centreItem, paletteWallCard: wallCard),
             isLocked: isLocked, card: card)
     }
 
@@ -206,21 +204,12 @@ final class PulledUpViewTests: XCTestCase {
         // A figure in the centre: its inspector, not a second surface.
         XCTAssertEqual(face(.figure("f1"), open: .figure("f1")), .figure(id: "f1", surface: false))
         XCTAssertEqual(face(.figure("f1")), .figure(id: "f1", surface: true), "control")
-        // A canvas card selected on the canvas: the same read-only words.
-        var canvas = WindowSubject(open: .canvas, faces: .canvas)
-        canvas.beside = .canvasScrap(nodeId: "n1")
-        XCTAssertTrue(PulledUpView.centreShows(.canvasScrap(nodeId: "n1"),
-                                               centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("n1"))),
-                                               card: .scrap(text: "Gulls")))
-        XCTAssertEqual(face(.canvasScrap(nodeId: "n1"), card: .scrap(text: "Gulls"), open: .canvas,
-                            canvasSelection: .node(CanvasNodeID("n1"))),
-                       .canvasScrap(text: "Gulls"))
-        XCTAssertTrue(PulledUpView.centreShows(.canvasPhoto(path: "a.png"),
-                                               centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("p1"))),
-                                               card: .photo(path: "a.png", node: CanvasNodeID("p1"))))
+        // A canvas card is read-only words beside whatever the canvas has
+        // selected: no second editor to refuse, so the rule never names it.
         XCTAssertFalse(PulledUpView.centreShows(.canvasScrap(nodeId: "n1"),
-                                                centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("n2"))),
-                                                card: nil), "control: another card selected")
+                                                centre: .init(subject: WindowSubject(open: .canvas, faces: .canvas))))
+        XCTAssertEqual(face(.canvasScrap(nodeId: "n1"), card: .scrap(text: "Gulls"), open: .canvas),
+                       .canvasScrap(text: "Gulls"))
         // A statement or History in the cover: the line, never an editor.
         XCTAssertEqual(face(.lessons, centreItem: .statement(kind: .lessons, scope: .project)),
                        .statementInTheCentre(.lessons))
@@ -526,5 +515,171 @@ private struct PulledUpBesideTheCentre: View {
                 bible: nil, world: nil, onOpenInCentre: { _ in })
                 .frame(width: 340)
         }
+    }
+}
+
+// MARK: - Hand-overs between two editors of one item (fix 2)
+
+/// Which of two places shows an item's editor: the centre side (the palette
+/// wall, the centre's research route) or the pulled-up side.
+@Observable
+@MainActor
+private final class HandOverProbe {
+    var inTheCentre = true
+    init() {}
+}
+
+/// Two editors of one item, exactly one mounted at a time, side by side —
+/// what the window does when the wall takes or releases a card the pulled-up
+/// view also names, or a note moves between beside and the centre.
+@MainActor
+private struct HandOverHost: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let itemId: String
+    /// nil: a palette card; else the note's path.
+    let notePath: String?
+    let probe: HandOverProbe
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Group {
+                if probe.inTheCentre { editor(second: false) } else { Color.clear }
+            }
+            .frame(width: 420)
+            Group {
+                if !probe.inTheCentre { editor(second: true) } else { Color.clear }
+            }
+            .frame(width: 360)
+        }
+    }
+
+    @ViewBuilder
+    private func editor(second: Bool) -> some View {
+        if let notePath {
+            ResearchNoteEditor(store: store, documentStore: documentStore, path: notePath,
+                               itemId: itemId, previewVisible: false, lockEditing: false,
+                               isSecondEditor: second)
+        } else {
+            PaletteCardEditor(store: store, cardId: itemId)
+        }
+    }
+}
+
+/// **The taking editor seeds with the releasing editor's unsaved edit** —
+/// both directions, for a palette card (the wall and the pulled-up view) and
+/// a research note (the centre and the pulled-up view). The edit is typed
+/// into the real editor's text view and is still pending in the note door
+/// when the other editor mounts. Nothing presses a control (tripwire 33).
+@MainActor
+final class EditorHandOverTests: XCTestCase {
+
+    override class func setUp() {
+        super.setUp()
+        FontWarmup.ensure()
+    }
+
+    private var root: URL!
+    private var store: ProjectStore!
+    private var documentStore: DocumentStore!
+    private var preferences: UserPreferences!
+    private var suite = ""
+    private var windows: [NSWindow] = []
+
+    override func setUp() async throws {
+        root = TestTemp.root.appendingPathComponent("hand-over-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = try await ProjectFactory.createNovelProject(named: "HandOver", in: root)
+        store = try await ProjectStore.load(from: url)
+        await store.wordCountPopulationTask?.value
+        documentStore = try await DocumentStore.open(url: url)
+        store.documentStore = documentStore
+        documentStore.projectStore = store
+        suite = "hand-over-\(UUID().uuidString)"
+        preferences = UserPreferences(defaults: UserDefaults(suiteName: suite)!)
+    }
+
+    override func tearDown() async throws {
+        for window in windows { window.contentView = NSView(frame: .zero) }
+        pump(0.05)
+        windows = []
+        await documentStore?.close()
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func test_aPaletteCardHandedBetweenTheWallAndThePulledUpViewKeepsTheUnsavedEdit() async throws {
+        let item = try await store.addPaletteCard(title: "Harbour", kind: .location)
+        try await handOver(itemId: item.id, notePath: nil,
+                           typed: ["Gulls.", " Tar."])
+    }
+
+    func test_aNoteHandedBetweenTheCentreAndThePulledUpViewKeepsTheUnsavedEdit() async throws {
+        let note = try await store.addResearchTextNote(parentId: nil, title: "Tides")
+        let path = try XCTUnwrap(store.findResearchItem(id: note.id, in: store.manifest.research)?.path)
+        try await handOver(itemId: note.id, notePath: path,
+                           typed: ["Neap.", " Spring."])
+    }
+
+    /// Mount the centre side, type, flip to the pulled-up side inside the
+    /// debounce; type there, flip back. Each taking editor shows every word.
+    private func handOver(itemId: String, notePath: String?, typed: [String]) async throws {
+        let probe = HandOverProbe()
+        let window = TestWindow.mount(
+            AnyView(HandOverHost(store: store, documentStore: documentStore, itemId: itemId,
+                                 notePath: notePath, probe: probe).environment(preferences)),
+            size: CGSize(width: 800, height: 700))
+        windows.append(window)
+        await pumpUntil(deadline: 5) { self.textView(in: window, centre: true) != nil }
+        await waitOut(0.2)
+        var expected = try XCTUnwrap(textView(in: window, centre: true),
+                                     "premise: the centre side's editor").string
+        for (index, words) in typed.enumerated() {
+            let side = probe.inTheCentre
+            await pumpUntil(deadline: 5) { self.textView(in: window, centre: side)?.string == expected }
+            let editor = try XCTUnwrap(textView(in: window, centre: side), "the editor seeded")
+            XCTAssertEqual(editor.string, expected,
+                           "hand-over \(index): the taking editor seeds with every word so far")
+            type(words, into: editor)
+            expected += words
+            XCTAssertTrue(documentStore.researchNoteHasPendingSave(itemId: itemId),
+                          "premise: the edit is still waiting in the note door")
+            probe.inTheCentre.toggle()
+        }
+        let side = probe.inTheCentre
+        await pumpUntil(deadline: 5) { self.textView(in: window, centre: side)?.string == expected }
+        XCTAssertEqual(textView(in: window, centre: side)?.string, expected,
+                       "the last taking editor seeds with the releasing editor's unsaved edit")
+    }
+
+    private func type(_ text: String, into textView: NSTextView) {
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: (textView.string as NSString).length, length: 0))
+        for character in text {
+            let s = String(character)
+            let range = textView.selectedRange()
+            guard textView.shouldChangeText(in: range, replacementString: s) else { continue }
+            textView.textStorage?.replaceCharacters(in: range, with: s)
+            textView.setSelectedRange(NSRange(location: range.location + (s as NSString).length, length: 0))
+            textView.didChangeText()
+        }
+        pump(0.1)
+    }
+
+    /// The editable body text view on one side (the card's Notes, or the
+    /// note) — by where it is drawn, so a view on its way out is never read.
+    private func textView(in window: NSWindow, centre: Bool) -> NSTextView? {
+        guard let root = window.contentView else { return nil }
+        var found: [NSTextView] = []
+        func collect(_ view: NSView) {
+            if let hit = view as? NSTextView, hit.isEditable, !hit.isFieldEditor, hit.window != nil {
+                let midX = (hit.enclosingScrollView ?? hit).convert(
+                    (hit.enclosingScrollView ?? hit).bounds, to: nil).midX
+                if (midX < 420) == centre { found.append(hit) }
+            }
+            view.subviews.forEach(collect)
+        }
+        collect(root)
+        return found.first
     }
 }

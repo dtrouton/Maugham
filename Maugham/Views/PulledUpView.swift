@@ -69,7 +69,7 @@ struct PulledUpView: View {
     /// What a pulled-up canvas card reads as.
     enum CanvasCardRead: Equatable {
         case scrap(text: String)
-        case photo(path: String, node: CanvasNodeID)
+        case photo(path: String)
         /// No longer on the canvas.
         case missing
     }
@@ -102,18 +102,19 @@ struct PulledUpView: View {
         var centreItem: CentreItem? = nil
         /// The palette wall's selected card (`ProjectWindow.selectedPaletteCardId`).
         var paletteWallCard: String? = nil
-        /// The canvas's selection.
-        var canvasSelection: CanvasSelection? = nil
     }
 
     /// **Whether the centre already shows the pulled-up thing** — THE rule,
     /// spelled once: never a second editor on the item the centre shows. A
     /// research item open in the centre (the placement's own answer), a card
-    /// selected on the palette wall, a figure in the centre, a canvas card
-    /// selected on the canvas, a statement or History in the centre's cover.
+    /// selected on the palette wall, a figure in the centre, a statement or
+    /// History in the centre's cover. A canvas card is never "shown by the
+    /// centre" here: beside it is read-only words in every case, following the
+    /// canvas's own typing (`liveCard`), so there is no second editor to
+    /// refuse and nothing for the answer to change.
     /// Where it does, the pulled-up view draws the read-only form or the
     /// "open in the centre" line.
-    static func centreShows(_ pulled: PulledUp, centre: Centre, card: CanvasCardRead?) -> Bool {
+    static func centreShows(_ pulled: PulledUp, centre: Centre) -> Bool {
         var subject = centre.subject
         subject.beside = pulled
         switch pulled {
@@ -124,11 +125,8 @@ struct PulledUpView: View {
             return !ProjectWindow.researchSubjectPlacement(subject: subject).previewsInTheRightColumn
         case .figure:
             return ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID == nil
-        case .canvasScrap(let nodeId):
-            return subject.open == .canvas && centre.canvasSelection == .node(CanvasNodeID(nodeId))
-        case .canvasPhoto:
-            guard case .photo(_, let node)? = card else { return false }
-            return subject.open == .canvas && centre.canvasSelection == .node(node)
+        case .canvasScrap, .canvasPhoto:
+            return false
         case .lessons, .firstReader, .visualLanguage, .history:
             return pulled.centreItem != nil && pulled.centreItem == centre.centreItem
         }
@@ -136,7 +134,7 @@ struct PulledUpView: View {
 
     static func face(of pulled: PulledUp, centre: Centre, isLocked: Bool,
                      card: CanvasCardRead?) -> Face {
-        let inTheCentre = centreShows(pulled, centre: centre, card: card)
+        let inTheCentre = centreShows(pulled, centre: centre)
         var subject = centre.subject
         subject.beside = pulled
         switch pulled {
@@ -153,7 +151,7 @@ struct PulledUpView: View {
             // Read-only beside in every case (`PulledUp.isEditableBeside`).
             switch card {
             case .scrap(let text)?: return .canvasScrap(text: text)
-            case .photo(let path, _)?: return .canvasPhoto(path: path)
+            case .photo(let path)?: return .canvasPhoto(path: path)
             case .missing?: return .missingCard
             case nil: return .readingCard
             }
@@ -215,8 +213,7 @@ struct PulledUpView: View {
             guard scene.node(id) != nil else { return .missing }
             return .scrap(text: scraps[id] ?? "")
         case .canvasPhoto(let path):
-            guard let node = photoNode(path, in: scene) else { return .missing }
-            return .photo(path: path, node: node)
+            return photoNode(path, in: scene) == nil ? .missing : .photo(path: path)
         case .research, .figure, .lessons, .firstReader, .visualLanguage, .history:
             return nil
         }
@@ -324,9 +321,7 @@ struct PulledUpView: View {
     @ViewBuilder
     private func content(_ pulled: PulledUp) -> some View {
         let card = Self.liveCard(card, pulled: pulled, model: canvasModel)
-        let centre = Centre(subject: subject, centreItem: centreItem, paletteWallCard: paletteWallCard,
-                            // Observed only while a canvas card is pulled up.
-                            canvasSelection: pulled.isACanvasCard ? canvasModel.selection : nil)
+        let centre = Centre(subject: subject, centreItem: centreItem, paletteWallCard: paletteWallCard)
         switch Self.face(of: pulled, centre: centre, isLocked: isLocked, card: card) {
         case .research(let id, let readOnly, let preview):
             researchInspector(id, showsPreview: preview, readOnly: readOnly)
