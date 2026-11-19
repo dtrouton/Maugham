@@ -102,6 +102,9 @@ struct RightColumn: View {
     /// `ProjectWindow.openInCentre` — Open in Centre on a pulled-up statement
     /// or History.
     var openInCentre: (CentreItem) -> Void = { _ in }
+    /// The palette wall's selected card (`ProjectWindow.selectedPaletteCardId`):
+    /// pulled up while the wall shows it, a card reads beside, never edits.
+    var paletteWallCard: String? = nil
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -361,6 +364,7 @@ struct RightColumn: View {
                 window: window, isLocked: isLocked, figureTree: figureTree,
                 bible: bible, world: declaredWorld,
                 onOpenInCentre: openInCentre,
+                paletteWallCard: paletteWallCard,
                 // Mounted only with something pulled up, so the centre's
                 // details (and `canvasDetails`) are this column's own arms
                 // below until Task 9 mounts the positions.

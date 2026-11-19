@@ -46,18 +46,23 @@ struct BinderPieceFold: View {
         // pile of closures over the same store, and nothing in it varies by
         // item (`ResearchTreeNode` passes the row in at call time).
         let actions = actions
-        // Asked once per fold, not per row: may this piece's links be edited.
-        let mayEditLinks = mayEditLinks
+        // Asked once per fold, not per row: may this piece's links be edited,
+        // the research items the rows draw (one walk, never one per row), and
+        // the piece's own title for its link rows' help.
+        let fold = FoldContext(mayEditLinks: mayEditLinks,
+                               items: Self.researchItems(for: layout, in: store.manifest.research),
+                               pieceTitle: TreeWalk.find(id: documentId, in: store.manifest.structure)?.title
+                                   ?? "")
         switch layout {
         case .rows(let entries):
             ForEach(entries) { entry in
-                row(entry, actions: actions, mayEditLinks: mayEditLinks)
+                row(entry, actions: actions, fold: fold)
             }
         case .groups(let runs):
             ForEach(runs, id: \.group) { run in
                 DisclosureGroup(isExpanded: groupExpansion(run.group)) {
                     ForEach(run.entries) { entry in
-                        row(entry, actions: actions, mayEditLinks: mayEditLinks)
+                        row(entry, actions: actions, fold: fold)
                     }
                 } label: {
                     Text(Self.groupTitle(run))
@@ -69,12 +74,41 @@ struct BinderPieceFold: View {
 
     // MARK: - Rows
 
+    /// What every row of one fold shares, worked out once per fold.
+    private struct FoldContext {
+        let mayEditLinks: Bool
+        let items: [String: ResearchItem]
+        let pieceTitle: String
+    }
+
+    /// The research items a layout's research rows name, by id — one walk of
+    /// the research tree per fold (a 200-item group is not 200 walks).
+    static func researchItems(for layout: PieceFoldLayout,
+                              in research: [ResearchItem]) -> [String: ResearchItem] {
+        let entries: [PieceFoldEntry]
+        switch layout {
+        case .rows(let rows): entries = rows
+        case .groups(let runs): entries = runs.flatMap(\.entries)
+        }
+        var wanted = Set<String>()
+        for case .research(let id, _, _) in entries { wanted.insert(id) }
+        var out: [String: ResearchItem] = [:]
+        func walk(_ items: [ResearchItem]) {
+            for item in items where !wanted.isEmpty {
+                if wanted.remove(item.id) != nil { out[item.id] = item }
+                walk(item.children ?? [])
+            }
+        }
+        walk(research)
+        return out
+    }
+
     @ViewBuilder
     private func row(_ entry: PieceFoldEntry, actions: ResearchTreeActions,
-                     mayEditLinks: Bool) -> some View {
+                     fold: FoldContext) -> some View {
         switch entry {
         case .research(let id, _, let owned):
-            if let item = TreeWalk.find(id: id, in: store.manifest.research) {
+            if let item = fold.items[id] {
                 ResearchTreeNode(
                     item: item,
                     renamingItemId: $state.renamingItemId,
@@ -139,9 +173,9 @@ struct BinderPieceFold: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(incoming ? Self.incomingLinkHelp : Self.outgoingLinkHelp)
+            .help(Self.linkHelp(incoming: incoming, piece: fold.pieceTitle, other: title))
             .contextMenu {
-                if Self.offersRemoveLink(entry, mayEditLinks: mayEditLinks) {
+                if Self.offersRemoveLink(entry, mayEditLinks: fold.mayEditLinks) {
                     Button(Self.removeLinkTitle) { removeLink(to: pieceId) }
                 }
             }
@@ -330,8 +364,12 @@ struct BinderPieceFold: View {
 
     static let outgoingLinkGlyph = "link"
     static let incomingLinkGlyph = "arrow.uturn.backward.circle"
-    static let outgoingLinkHelp = "Links to this piece"
-    static let incomingLinkHelp = "Links here"
+    /// A link row's help, naming both ends so the direction cannot be read
+    /// backwards: an outgoing row is the fold's piece linking to the other,
+    /// an incoming row the other linking here.
+    static func linkHelp(incoming: Bool, piece: String, other: String) -> String {
+        incoming ? "“\(other)” links to “\(piece)”" : "“\(piece)” links to “\(other)”"
+    }
     static let removeLinkTitle = "Remove Link"
 
     /// The tree's own action bundle, with **one verb re-routed**.

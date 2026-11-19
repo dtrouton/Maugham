@@ -1066,6 +1066,10 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
                                                     structure: structure, projectType: .novel))
             XCTAssertEqual(next.open, .item("ch-2"), "the linked piece opens")
         }
+        XCTAssertEqual(BinderPieceFold.linkHelp(incoming: false, piece: "One", other: "Two"),
+                       "“One” links to “Two”", "an outgoing row: this piece links there")
+        XCTAssertEqual(BinderPieceFold.linkHelp(incoming: true, piece: "One", other: "Two"),
+                       "“Two” links to “One”", "an incoming row: the other links here")
         let out = PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: false)
         let into = PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: true)
         XCTAssertTrue(BinderPieceFold.offersRemoveLink(out, mayEditLinks: true))

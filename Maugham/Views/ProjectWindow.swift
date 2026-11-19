@@ -1769,7 +1769,8 @@ struct ProjectWindow: View {
             revealFigure: { [treeState] in treeState.revealFigure($0) },
             figureTree: treeState,
             centreItem: centreItem,
-            openInCentre: { openInCentre($0) })
+            openInCentre: { openInCentre($0) },
+            paletteWallCard: selectedPaletteCardId)
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.

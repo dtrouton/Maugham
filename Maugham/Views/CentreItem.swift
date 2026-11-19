@@ -7,8 +7,12 @@ extension ProjectWindow {
 
     /// The subject an item opens in the centre over: a piece's intent and a
     /// piece's History open that piece; every other statement opens the Book.
-    /// What is pulled up stays (it persists until closed); where the same
-    /// statement is both, the pulled-up view draws a placeholder
+    /// **The item MOVES to the centre**: when it is what is pulled up, the
+    /// pulled-up position empties, exactly as Open in Centre on a research
+    /// note, a figure or a card empties it (controller ruling, shell p3 Task 7
+    /// fix); closing the centre item does not pull it back up. Anything else
+    /// pulled up stays (it persists until closed); a statement pulled up
+    /// afterwards while the cover holds it draws a placeholder
     /// (`statementIsInTheCentre`).
     static func openingInCentre(_ item: CentreItem, subject: WindowSubject) -> WindowSubject {
         let target: BinderSubject
@@ -21,6 +25,7 @@ extension ProjectWindow {
         var next = subject
         next.open = target
         next.faces = target
+        if subject.beside?.centreItem == item { next.beside = nil }
         return next
     }
 

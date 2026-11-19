@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import Observation
 import MaughamCore
 @testable import Maugham
 
@@ -40,11 +41,16 @@ final class PulledUpViewTests: XCTestCase {
     private let onAPiece = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
 
     private func face(_ pulled: PulledUp, isLocked: Bool = false, centreItem: CentreItem? = nil,
-                      card: PulledUpView.CanvasCardRead? = nil) -> PulledUpView.Face {
-        var subject = onAPiece
+                      card: PulledUpView.CanvasCardRead? = nil,
+                      open: BinderSubject? = nil, wallCard: String? = nil,
+                      canvasSelection: CanvasSelection? = nil) -> PulledUpView.Face {
+        var subject = open.map { WindowSubject(open: $0, faces: $0) } ?? onAPiece
         subject.beside = pulled
-        return PulledUpView.face(of: pulled, subject: subject, isLocked: isLocked,
-                                 centreItem: centreItem, card: card)
+        return PulledUpView.face(
+            of: pulled,
+            centre: .init(subject: subject, centreItem: centreItem, paletteWallCard: wallCard,
+                          canvasSelection: canvasSelection),
+            isLocked: isLocked, card: card)
     }
 
     // MARK: - What each kind draws (pure)
@@ -70,8 +76,8 @@ final class PulledUpViewTests: XCTestCase {
         let gone = PulledUp.canvasScrap(nodeId: "n-gone")
         let empty = CanvasScene()
         XCTAssertEqual(PulledUpView.read(gone, scene: empty, scraps: [:]), .missing)
-        XCTAssertEqual(PulledUpView.read(.canvasPhoto(path: "canvas_assets/a.png"), scene: empty, scraps: [:]),
-                       .missing)
+        XCTAssertEqual(PulledUpView.read(.canvasPhoto(path: "canvas_assets/a.png"), scene: empty,
+                                         scraps: [:]), .missing)
         XCTAssertFalse(PulledUpView.cardIsOnTheCanvas(gone, scene: empty))
         XCTAssertEqual(face(gone, card: .missing), .missingCard)
         XCTAssertEqual(PulledUpView.missingCardLine, "This card is no longer on the canvas.")
@@ -120,9 +126,7 @@ final class PulledUpViewTests: XCTestCase {
         for open in [BinderSubject.item("ch-1"), .canvas, .project] {
             var subject = WindowSubject(open: open, faces: open)
             subject.beside = .history(docId: "ch-2")
-            XCTAssertEqual(PulledUpView.face(of: .history(docId: "ch-2"), subject: subject, isLocked: false,
-                                             centreItem: nil, card: nil),
-                           .history(docId: "ch-2"))
+            XCTAssertEqual(face(.history(docId: "ch-2"), open: open), .history(docId: "ch-2"))
             XCTAssertTrue(ProjectWindow.pulledUpIsShownBeside(subject: subject),
                           "the column shows it, whatever the centre")
         }
@@ -155,29 +159,131 @@ final class PulledUpViewTests: XCTestCase {
             let opening = PulledUpView.opening(pulled, subject: subject, structure: structure,
                                                projectType: .novel,
                                                photoNode: { _ in CanvasNodeID("photo-node") })
-            switch pulled {
-            case .research(let id):
-                guard case .subject(let next) = opening else { return XCTFail("\(pulled)") }
+            // Every kind is checked; a wrong case is recorded, never a return.
+            switch (pulled, opening) {
+            case (.research(let id), .subject(let next)):
                 XCTAssertEqual(next.open, .research(id))
                 XCTAssertNil(next.beside, "it leaves the pulled-up position")
-            case .figure(let id):
-                guard case .subject(let next) = opening else { return XCTFail("\(pulled)") }
+            case (.figure(let id), .subject(let next)):
                 XCTAssertEqual(next.open, .figure(id))
-            case .canvasScrap(let nodeId):
-                guard case .canvas(let next, let node) = opening else { return XCTFail("\(pulled)") }
+                XCTAssertNil(next.beside)
+            case (.canvasScrap(let nodeId), .canvas(let next, let node)):
                 XCTAssertEqual(next.open, .canvas, "the canvas opens")
                 XCTAssertEqual(node, CanvasNodeID(nodeId), "and selects the card")
                 XCTAssertNil(next.beside)
-            case .canvasPhoto:
-                guard case .canvas(let next, let node) = opening else { return XCTFail("\(pulled)") }
+            case (.canvasPhoto, .canvas(let next, let node)):
                 XCTAssertEqual(next.open, .canvas)
                 XCTAssertEqual(node, CanvasNodeID("photo-node"))
-            case .lessons, .firstReader, .visualLanguage, .history:
-                XCTAssertEqual(opening, pulled.centreItem.map(PulledUpView.Opening.centreItem),
-                               "the centre's cover")
-                XCTAssertNotNil(pulled.centreItem)
+                XCTAssertNil(next.beside)
+            case (.lessons, .centreItem(let item)), (.firstReader, .centreItem(let item)),
+                 (.visualLanguage, .centreItem(let item)), (.history, .centreItem(let item)):
+                XCTAssertEqual(item, pulled.centreItem, "the centre's cover")
+                // The window's verb moves it: the pulled-up position empties.
+                XCTAssertNil(ProjectWindow.openingInCentre(item, subject: subject).beside,
+                             "\(pulled) moves to the centre")
+            default:
+                XCTFail("\(pulled) opened as \(opening)")
             }
         }
+    }
+
+    /// **Never a second editor on the item the centre shows** — one rule
+    /// (`PulledUpView.centreShows`), every kind.
+    func test_whereTheCentreShowsItThePulledUpViewNeverEdits() {
+        // A research note open in the centre: its panel only, read-only.
+        XCTAssertEqual(face(.research("r1"), open: .research("r1")),
+                       .research(id: "r1", readOnly: true, preview: false))
+        // A palette card on the wall: the read host beside, never the editor.
+        XCTAssertEqual(face(.research("card-1"), open: .palette, wallCard: "card-1"),
+                       .research(id: "card-1", readOnly: true, preview: true))
+        XCTAssertEqual(PaletteCardSurface.of(readOnly: true), .read)
+        XCTAssertEqual(face(.research("card-1"), open: .palette, wallCard: "card-2"),
+                       .research(id: "card-1", readOnly: false, preview: true),
+                       "control: the wall shows another card")
+        XCTAssertEqual(face(.research("card-1"), wallCard: "card-1"),
+                       .research(id: "card-1", readOnly: false, preview: true),
+                       "control: a remembered wall card with the wall closed")
+        // A figure in the centre: its inspector, not a second surface.
+        XCTAssertEqual(face(.figure("f1"), open: .figure("f1")), .figure(id: "f1", surface: false))
+        XCTAssertEqual(face(.figure("f1")), .figure(id: "f1", surface: true), "control")
+        // A canvas card selected on the canvas: the same read-only words.
+        var canvas = WindowSubject(open: .canvas, faces: .canvas)
+        canvas.beside = .canvasScrap(nodeId: "n1")
+        XCTAssertTrue(PulledUpView.centreShows(.canvasScrap(nodeId: "n1"),
+                                               centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("n1"))),
+                                               card: .scrap(text: "Gulls")))
+        XCTAssertEqual(face(.canvasScrap(nodeId: "n1"), card: .scrap(text: "Gulls"), open: .canvas,
+                            canvasSelection: .node(CanvasNodeID("n1"))),
+                       .canvasScrap(text: "Gulls"))
+        XCTAssertTrue(PulledUpView.centreShows(.canvasPhoto(path: "a.png"),
+                                               centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("p1"))),
+                                               card: .photo(path: "a.png", node: CanvasNodeID("p1"))))
+        XCTAssertFalse(PulledUpView.centreShows(.canvasScrap(nodeId: "n1"),
+                                                centre: .init(subject: canvas, canvasSelection: .node(CanvasNodeID("n2"))),
+                                                card: nil), "control: another card selected")
+        // A statement or History in the cover: the line, never an editor.
+        XCTAssertEqual(face(.lessons, centreItem: .statement(kind: .lessons, scope: .project)),
+                       .statementInTheCentre(.lessons))
+        XCTAssertEqual(face(.history(docId: "ch-1"), centreItem: .history(docId: "ch-1")),
+                       .historyInTheCentre(docId: "ch-1"))
+    }
+
+    /// The scrap beside follows the writer's typing on the attached canvas
+    /// through the model's observable `scraps` — no scene revision needed,
+    /// and no editor on the shared storage.
+    func test_aPulledUpScrapFollowsTheTypingOnTheCanvas() throws {
+        let root = TestTemp.root.appendingPathComponent("pulled-up-live-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = CanvasNodeID("n-1")
+        let model = CanvasModel()
+        model.attach(projectRoot: root)
+        model.withScene(persist: false) {
+            $0.insert(CanvasNode(id: id, kind: .scrap, origin: .zero, width: 240, cachedHeight: 80))
+        }
+        model.setScrapText("Gulls", for: id)
+        let read = PulledUpView.CanvasCardRead.scrap(text: "Gulls")
+        let revision = model.sceneRevision
+        model.setScrapText("Gulls at noon", for: id)
+        XCTAssertEqual(PulledUpView.liveCard(read, pulled: .canvasScrap(nodeId: "n-1"), model: model),
+                       .scrap(text: "Gulls at noon"))
+        XCTAssertEqual(model.sceneRevision, revision, "premise: typing moves no scene revision")
+        // A closed canvas: the task's read of the sidecar stands.
+        let closed = CanvasModel()
+        XCTAssertEqual(PulledUpView.liveCard(read, pulled: .canvasScrap(nodeId: "n-1"), model: closed), read)
+        XCTAssertEqual(PulledUpView.liveCard(.missing, pulled: .canvasScrap(nodeId: "n-1"), model: model),
+                       .missing, "a card gone from the scene stays gone")
+        let code = try SourceTree.read("Maugham/Views/PulledUpView.swift")
+        XCTAssertTrue(code.contains("let card = Self.liveCard(card, pulled: pulled, model: canvasModel)"),
+                      "the body draws the live words")
+    }
+
+    /// **Open in Centre moves every kind to the centre** (controller ruling):
+    /// the pulled-up position empties, through the click rule's open-in-centre
+    /// and the centre item's path alike; closing the centre item does not pull
+    /// it back up.
+    func test_openInCentreMovesEveryKindToTheCentre() {
+        for pulled in [PulledUp.research("r1"), .figure("f1"), .canvasScrap(nodeId: "n1"),
+                       .lessons, .firstReader, .visualLanguage, .history(docId: "ch-1")] {
+            var subject = onAPiece
+            subject.beside = pulled
+            let viaClickRule = ProjectWindow.openingBesideInCentre(subject, structure: structure,
+                                                                   projectType: .novel)
+            XCTAssertNil(viaClickRule.beside, "\(pulled): the click rule's open-in-centre")
+            if let item = pulled.centreItem {
+                let opened = ProjectWindow.openingInCentre(item, subject: subject)
+                XCTAssertNil(opened.beside, "\(pulled): the centre item's path")
+                // Close clears the item; the subject is untouched, so nothing returns.
+                XCTAssertNil(ProjectWindow.centreItemAfterOpenChange(item, from: opened.open,
+                                                                     to: .item("ch-2")))
+                XCTAssertNil(opened.beside, "closing does not pull it back up")
+            }
+        }
+        // Anything else pulled up stays.
+        var other = onAPiece
+        other.beside = .firstReader
+        XCTAssertEqual(ProjectWindow.openingInCentre(.statement(kind: .lessons, scope: .project),
+                                                     subject: other).beside, .firstReader)
     }
 
     /// Open in Centre on a pulled-up card SELECTS it on the canvas: at once
@@ -310,6 +416,64 @@ final class PulledUpViewTests: XCTestCase {
         }
     }
 
+    /// **The hand-over, both ways** (review item 4): What I've Learned pulled
+    /// up with its editor bound; Open in Centre (the window's path) → the
+    /// pulled-up position empties and the cover binds, the pulled-up host
+    /// letting go under the gate first (one `Document` at a time); Close →
+    /// the cover lets go and nothing is pulled back up.
+    func test_aPulledUpStatementMovesToTheCentreAndBack() async throws {
+        let f = try await fixture("PulledUpHandOver")
+        let statement = try await f.store.createStatement(kind: .lessons, scope: .project)
+        try await f.store.mutateStatementText(of: statement, session: "pulled-up-test") { _ in
+            "I overwrite endings."
+        }
+        let probe = PulledUpWindowProbe(subject: {
+            var s = onAPiece; s.beside = .lessons; return s
+        }())
+        let window = f.hostView(AnyView(PulledUpBesideTheCentre(f: f, probe: probe)), width: 740)
+        await pumpUntil(deadline: 5) {
+            f.store.openStatementDocument(id: statement.id) != nil && f.firstTextView(in: window) != nil
+        }
+        let first = try XCTUnwrap(f.store.openStatementDocument(id: statement.id),
+                                  "premise: the pulled-up statement holds the ledger")
+        XCTAssertGreaterThan(CentreKeysView.visibleFrame(of: try f.textView(in: window)).midX, 400,
+                             "premise: the editor is the pulled-up one")
+
+        var events: [StatementGateEvent] = []
+        f.store.onStatementGateEvent = { events.append($0) }
+        defer { f.store.onStatementGateEvent = nil }
+        // The window's Open in Centre: `PulledUpView.opening` → `openInCentre`.
+        guard case .centreItem(let item) = PulledUpView.opening(
+            .lessons, subject: probe.subject, structure: f.store.manifest.structure,
+            projectType: f.store.manifest.type, photoNode: { _ in nil }) else {
+            return XCTFail("a statement opens as the centre's cover")
+        }
+        probe.subject = ProjectWindow.openingInCentre(item, subject: probe.subject)
+        probe.centreItem = item
+        XCTAssertNil(probe.subject.beside, "the pulled-up position empties")
+        await pumpUntil(deadline: 5) {
+            guard let now = f.store.openStatementDocument(id: statement.id) else { return false }
+            return now !== first && f.allTextViews(in: window).count == 1
+        }
+        let id = statement.id
+        let closed = try XCTUnwrap(events.firstIndex(of: .closed(id)), "the pulled-up host let go: \(events)")
+        let loading = try XCTUnwrap(events.lastIndex(of: .loading(id)), "the cover loaded: \(events)")
+        XCTAssertLessThan(try XCTUnwrap(events.firstIndex(of: .closing(id))), closed)
+        XCTAssertLessThan(closed, loading, "never two Documents on the ledger: \(events)")
+        XCTAssertTrue(first.isClosed)
+        XCTAssertEqual(f.allTextViews(in: window).count, 1)
+        XCTAssertLessThan(CentreKeysView.visibleFrame(of: try f.textView(in: window)).midX, 400,
+                          "the one editor is the cover's")
+
+        // Close: the cover lets go; nothing returns to the pulled-up position.
+        probe.centreItem = nil
+        await pumpUntil(deadline: 5) { f.store.openStatementDocument(id: statement.id) == nil }
+        await waitOut(0.3)
+        XCTAssertNil(probe.subject.beside)
+        XCTAssertTrue(f.allTextViews(in: window).isEmpty, "no editor left anywhere")
+        XCTAssertNil(f.store.openStatementDocument(id: statement.id))
+    }
+
     // MARK: - Helpers
 
     private func view(_ f: StatementMountFixture, pulled: PulledUp, isLocked: Bool,
@@ -324,5 +488,43 @@ final class PulledUpViewTests: XCTestCase {
             figureWindows: nil, window: nil, isLocked: isLocked, figureTree: nil,
             bible: nil, world: nil, onOpenInCentre: { _ in })
             .environment(f.preferences))
+    }
+}
+
+/// The window's subject and centre item, for the hand-over test.
+@Observable
+@MainActor
+private final class PulledUpWindowProbe {
+    var subject: WindowSubject
+    var centreItem: CentreItem?
+    init(subject: WindowSubject) { self.subject = subject }
+}
+
+/// The centre's cover beside the pulled-up view, as the window lays them out.
+@MainActor
+private struct PulledUpBesideTheCentre: View {
+    let f: StatementMountFixture
+    @Bindable var probe: PulledUpWindowProbe
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ZStack {
+                Color.clear
+                if let item = probe.centreItem {
+                    CentreItemCover(store: f.store, documentStore: f.documentStore, item: item,
+                                    bible: nil, world: nil, window: nil, findIsUp: false,
+                                    onClose: { probe.centreItem = nil })
+                }
+            }
+            .frame(width: 400)
+            PulledUpView(
+                store: f.store, documentStore: f.documentStore,
+                subject: $probe.subject, centreItem: probe.centreItem,
+                canvasModel: CanvasModel(), editorControl: EditorControl(),
+                figureListing: FigureListingModel(), figureGridPresence: FigureGridPresence(),
+                figureWindows: nil, window: nil, isLocked: false, figureTree: nil,
+                bible: nil, world: nil, onOpenInCentre: { _ in })
+                .frame(width: 340)
+        }
     }
 }
