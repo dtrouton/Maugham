@@ -202,7 +202,8 @@ enum RulingPerformer {
     @discardableResult
     static func rule(_ text: String, provenance: String, kind: Statement.Kind,
                      forScope scope: Statement.Scope,
-                     store: ProjectStore, world: DeclaredWorldStore?) async throws -> FiledDestination {
+                     store: ProjectStore, world: DeclaredWorldStore?,
+                     undo: StatementWriteUndo = .plain) async throws -> FiledDestination {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
         // Asked BEFORE the mint as well as before the op: a refused ruling
@@ -225,7 +226,7 @@ enum RulingPerformer {
         // One op, carrying its own prior text. The inverse — when this call is
         // a writer's gesture rather than a run's arrival — is registered by
         // `RulingsStratum`, never here; see the type doc.
-        try await store.mutateStatementText(of: statement, session: session) { markdown in
+        try await store.mutateStatementText(of: statement, session: session, undo: undo) { markdown in
             RulingsSection.appending(words, provenance: provenance, on: now, to: markdown)
         }
         invalidate(scope, in: world)
@@ -239,9 +240,10 @@ enum RulingPerformer {
     /// essay-only file rather than a heading over nothing (`RulingsSection`).
     static func revoke(rulingId: String, kind: Statement.Kind,
                        forScope scope: Statement.Scope,
-                       store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                       store: ProjectStore, world: DeclaredWorldStore?,
+                       undo: StatementWriteUndo = .plain) async throws {
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             guard RulingsSection.parse(markdown).rulings
                 .contains(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -276,7 +278,8 @@ enum RulingPerformer {
     /// markdown.
     static func edit(rulingId: String, newText: String, kind: Statement.Kind,
                      forScope scope: Statement.Scope,
-                     store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                     store: ProjectStore, world: DeclaredWorldStore?,
+                     undo: StatementWriteUndo = .plain) async throws {
         let words = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         // An edit that empties a ruling is a revocation wearing the wrong verb,
         // and silently performing one would delete a line the writer meant to
@@ -284,7 +287,7 @@ enum RulingPerformer {
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
 
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             guard let index = rulings.firstIndex(where: { $0.id == rulingId }) else {
                 throw RulingFailure.unknownRuling(rulingId)
@@ -325,9 +328,10 @@ enum RulingPerformer {
     /// refusal there would lose the line the writer is asking for back.
     static func restore(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
                         forScope scope: Statement.Scope,
-                        store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                        store: ProjectStore, world: DeclaredWorldStore?,
+                        undo: StatementWriteUndo = .plain) async throws {
         try await refuseUnlessTheStatementIsYours(kind, scope, store: store)
-        try await mutate(kind, scope, store: store, world: world) { markdown in
+        try await mutate(kind, scope, store: store, world: world, undo: undo) { markdown in
             let (essay, rulings) = RulingsSection.parse(markdown)
             var updated = rulings
             updated.insert(ruling, at: min(max(index, 0), rulings.count))
@@ -402,6 +406,7 @@ enum RulingPerformer {
     private static func mutate(
         _ kind: Statement.Kind, _ scope: Statement.Scope,
         store: ProjectStore, world: DeclaredWorldStore?,
+        undo: StatementWriteUndo,
         _ transform: (String) throws -> String
     ) async throws {
         guard let statement = store.statement(kind: kind, scope: scope) else {
@@ -411,7 +416,7 @@ enum RulingPerformer {
         // One op each, and the inverse each needs is its own — `RulingsStratum`
         // registers it when the act was a writer's gesture (see the type doc).
         try await store.mutateStatementText(
-            of: statement, session: session, transform: transform)
+            of: statement, session: session, undo: undo, transform: transform)
         invalidate(scope, in: world)
     }
 

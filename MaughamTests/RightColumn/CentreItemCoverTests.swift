@@ -48,6 +48,17 @@ private struct EditorUnderTheCover: View {
     }
 }
 
+/// The tree beside the centre, in small: an outline view that takes the keys
+/// when clicked, as the binder's does.
+private struct TreeStandIn: NSViewRepresentable {
+    /// An empty outline view declines the keys; the binder's, with rows, takes them.
+    final class Outline: NSOutlineView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+    func makeNSView(context: Context) -> Outline { Outline() }
+    func updateNSView(_ view: Outline, context: Context) {}
+}
+
 /// Brief in the right column beside the centre's cover, as the window lays
 /// them out — the cover only while the probe holds an item.
 @MainActor
@@ -263,6 +274,21 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertTrue(CentreKeys.mayClaim(from: NSButton()), "nothing typed in")
         XCTAssertFalse(CentreKeys.mayClaim(from: NSTextView()), "never from the writer's typing elsewhere")
 
+        // What the cover gives back when it goes is only what it held (R3).
+        XCTAssertTrue(CentreKeys.coverHeldTheKeys(nil))
+        let bare = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100),
+                                   contentView: NSView(frame: .zero), present: .unshown)
+        defer { bare.close() }
+        XCTAssertTrue(CentreKeys.coverHeldTheKeys(bare), "the window itself: nothing has the keys")
+        XCTAssertTrue(CentreKeys.coverHeldTheKeys(CentreKeysView()), "the guard")
+        XCTAssertTrue(CentreKeys.coverHeldTheKeys(MaughamTextView()), "the cover's editor, orphaned by its removal")
+        XCTAssertFalse(CentreKeys.coverHeldTheKeys(NSOutlineView()), "the tree, where a click put the keys")
+        XCTAssertFalse(CentreKeys.coverHeldTheKeys(NSButton()))
+        XCTAssertFalse(CentreKeys.coverHeldTheKeys(NSTextView()), "a field the writer is typing in")
+        let handBack = try SourceTree.declaration(named: "static func returnKeysToTheManuscript(", under: "Maugham")
+        XCTAssertTrue(handBack.contains("coverHeldTheKeys(window.firstResponder)"))
+        XCTAssertFalse(handBack.contains("mayClaim("), "the hand-back is not a claim")
+
         // At the one place the centre decides a cover is up.
         let arm = SourceScan.codeLines(of: try CentreRouteSource.editorArm()).joined(separator: "\n")
         XCTAssertTrue(arm.contains(".background(CentreKeys(isCovered: { editorIsCovered(store: store) },"))
@@ -306,6 +332,46 @@ final class CentreItemCoverTests: XCTestCase {
         probe.centreItem = nil
         await pumpUntil(deadline: 5) { window.firstResponder === manuscript }
         XCTAssertTrue(window.firstResponder === manuscript, "the keys go back to the chapter the centre shows")
+    }
+
+    /// **A tree click that clears the cover leaves the keys in the tree**
+    /// (fix 4, R3): the click moved the keys to the outline and changed
+    /// `open`, which cleared the item; the cover's disappearance hands back
+    /// only keys the cover held, so the writer's next keys are the tree's,
+    /// exactly as the same click leaves them with no cover up. A measurement:
+    /// the tree is a stand-in outline view beside the centre, nothing is
+    /// pressed, and the item is cleared as the window's `open` change clears it.
+    func test_aTreeClickThatClearsTheCoverLeavesTheKeysInTheTree() async throws {
+        let f = try await fixture("CentreKeysTree")
+        let docId = f.documentItemId
+        let statement = try await f.store.createStatement(kind: .intent, scope: .document(docId))
+        try await f.store.mutateStatementText(of: statement, session: "centre-test") { _ in "Turns on a lie." }
+        let probe = CentreItemProbe()
+        let window = f.hostView(AnyView(HStack(spacing: 0) {
+            TreeStandIn().frame(width: 60)
+            EditorUnderTheCover(store: f.store, documentStore: f.documentStore, docId: docId, probe: probe)
+        }), width: 660)
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
+        let tree = try XCTUnwrap(CentreKeysView.all(NSOutlineView.self, in: try XCTUnwrap(window.contentView)).first,
+                                 "premise: the stand-in tree is mounted")
+
+        for item in [CentreItem.statement(kind: .intent, scope: .document(docId)), .history(docId: docId)] {
+            window.makeFirstResponder(manuscript)
+            probe.centreItem = item
+            await pumpUntil(deadline: 5) {
+                Self.coverEditor(window.firstResponder) || window.firstResponder is CentreKeysView
+            }
+            XCTAssertFalse(window.firstResponder === manuscript, "premise: the cover took the keys (\(item))")
+
+            XCTAssertTrue(window.makeFirstResponder(tree), "premise: the click gives the tree the keys")
+            XCTAssertTrue(window.firstResponder === tree, "premise: the keys are the tree's")
+            probe.centreItem = nil
+            await waitOut(0.3)   // past the hand-back's hop
+            XCTAssertTrue(window.firstResponder === tree,
+                          "the cover's going took the keys from the tree (\(item)): got "
+                          + String(describing: window.firstResponder))
+        }
     }
 
     /// With a publish surface (or the Book's view) over the editor, the keys

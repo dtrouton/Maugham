@@ -27,7 +27,7 @@ extension ProjectStore {
         openStatementDocuments[id] = OpenStatementDocument(document, undoManager: undoManager)
     }
 
-    // MARK: - A statement's undo (shell plan 3 Task 5 fix 3)
+    // MARK: - A statement's undo (shell plan 3 Task 5 fix 4)
 
     /// **The manager ⌘Z runs for statement `id` from its editor**: the
     /// private manager of the host that holds it open (registered with the
@@ -38,52 +38,40 @@ extension ProjectStore {
     }
 
     /// **Where a statement verb (Adopt, Revoke, Edit ruling) registers its
-    /// undo**: the holding editor's own manager when an editor holds the
-    /// statement — so its stack is one ordered history of the writer's typing
-    /// and verbs, and the editor's ⌘Z (`MaughamTextView.undo:`) finds it —
-    /// else `window`, the window's environment manager: with no editor (a
-    /// reading view), ⌘Z walks to the window, and that is where it looks.
+    /// undo, decided once, at the press, by where the keys are.** `keys` are
+    /// the managers ⌘Z would run from the first responders (one per window).
+    /// When one is the statement's own editor's, the verb joins that editor's
+    /// stack (one ordered history of its typing and verbs). Otherwise it is
+    /// `window`'s — the keys are in the manuscript, the tree, a field, or
+    /// nothing holds the statement — because that is where ⌘Z will walk, even
+    /// while some editor holds the statement open.
     func undoManagerForStatementVerb(kind: Statement.Kind, scope: Statement.Scope,
-                                     window: UndoManager?) -> UndoManager? {
-        statement(kind: kind, scope: scope).flatMap { statementUndoManager(forId: $0.id) } ?? window
+                                     keys: [UndoManager], window: UndoManager?) -> UndoManager? {
+        guard let id = statement(kind: kind, scope: scope)?.id,
+              let holder = statementUndoManager(forId: id),
+              keys.contains(where: { $0 === holder }) else { return window }
+        return holder
     }
 
-    /// **Writes inside `body` are undo-coherent with `manager`** — when
-    /// `manager` is the holding editor's own. A write into the live
-    /// `Document` replaces the editor's buffer, and the editor drops its
-    /// stack on an external replace (stale typing actions are the ⌘Z crash
-    /// class); so the write goes in the accept order instead: clear the
-    /// typing first when `clearing` (the forward verb), write, and flag the
-    /// apply undo-coherent so the editor keeps the registration that
-    /// follows. The verb's own undo and redo write with `clearing: false`
-    /// (the stack is the verb's history there). With any other manager it is
-    /// the plain write.
-    func writingUndoCoherently<T>(statementId: String?, registeredOn manager: UndoManager?,
-                                  clearing: Bool,
-                                  _ body: () async throws -> T) async rethrows -> T {
-        guard let id = statementId, let manager, manager === statementUndoManager(forId: id) else {
-            return try await body()
-        }
-        let previous = statementUndoCoherence[id]
-        statementUndoCoherence[id] = StatementUndoCoherence(manager: manager, clearing: clearing)
-        defer { statementUndoCoherence[id] = previous }
-        return try await body()
-    }
-
-    /// The live arm's write, in the accept order when a verb asked for it.
-    private func mutateLive(_ live: Document, id: String,
+    /// The live arm's write. `undo` is THIS write's own and is read nowhere
+    /// else: when the verb registered on the holding editor's own manager the
+    /// write goes in the accept order (ADR 0023 D1/D2) — the forward verb
+    /// drops the editor's typing, and the apply is flagged undo-coherent so
+    /// the editor keeps the verb's registration across its buffer replace.
+    /// Every other write is plain: the editor drops its stack on the replace
+    /// (D1), and a flag an earlier write left unconsumed is withdrawn, since
+    /// the buffer it vouched for is not the one the editor will now be given.
+    private func mutateLive(_ live: Document, id: String, undo: StatementWriteUndo,
                             _ mutate: (Document) throws -> Void) throws {
-        guard let coherence = statementUndoCoherence[id],
-              let manager = coherence.manager, manager === statementUndoManager(forId: id) else {
-            try mutate(live)
-            return
-        }
-        if coherence.clearing, !manager.isUndoing, !manager.isRedoing { manager.removeAllActions() }
         let before = live.displayText
         try mutate(live)
-        // Armed only when the buffer will change: a pending flag that no
-        // apply consumes would keep a LATER, unrelated replace's stale typing.
-        if live.displayText != before { live._undoCoherentApplyPending = true }
+        guard live.displayText != before else { return }
+        guard let manager = undo.registeredOn, manager === statementUndoManager(forId: id) else {
+            live._undoCoherentApplyPending = false
+            return
+        }
+        if undo.clearsTyping, !manager.isUndoing, !manager.isRedoing { manager.removeAllActions() }
+        live._undoCoherentApplyPending = true
     }
 
     /// Drop a pane's registration. Hygiene rather than correctness — the entry
@@ -753,9 +741,10 @@ extension ProjectStore {
     /// arrive in.
     func mutateStatementText(
         of statement: Statement, session: String,
+        undo: StatementWriteUndo = .plain,
         transform: (String) throws -> String
     ) async throws {
-        try await withStatementDocument(statement, session: session) { document in
+        try await withStatementDocument(statement, session: session, undo: undo) { document in
             // **The door every statement writer passes** (P3c whole-branch fix
             // wave, C1): rulings, proposals, promotion's appends and the
             // picture ingest all reach `setFullText` through here, and a burst's
@@ -790,12 +779,13 @@ extension ProjectStore {
     /// too — left open it would outlive the gate the `defer` releases, and the
     /// next opener would load a second one against it.
     func withStatementDocument(_ statement: Statement, session: String,
+                               undo: StatementWriteUndo = .plain,
                                _ mutate: (Document) throws -> Void) async throws {
         // Every exit, the refusing one included (a bump that changes nothing
         // costs one re-read): after the flush or the awaited close below.
         defer { noteStatementTextChanged() }
         if let live = openStatementDocument(id: statement.id) {
-            try mutateLive(live, id: statement.id, mutate)
+            try mutateLive(live, id: statement.id, undo: undo, mutate)
             // Durable now rather than on the pane's own debounce: a write
             // through here is an act the writer has committed to — a promotion
             // they confirmed, a picture they dropped, a rename they typed — and
@@ -814,7 +804,7 @@ extension ProjectStore {
         // Asked AGAIN inside the gate: a pane can have bound while we queued,
         // and its `Document` is the one that will still be live in a moment.
         if let live = openStatementDocument(id: statement.id) {
-            try mutateLive(live, id: statement.id, mutate)
+            try mutateLive(live, id: statement.id, undo: undo, mutate)
             try? await live.flushBurstNow()
             return
         }
@@ -914,11 +904,29 @@ final class OpenStatementDocument {
     }
 }
 
-/// A verb's request that writes into a statement be undo-coherent with the
-/// manager it registered on (`ProjectStore.writingUndoCoherently`).
-struct StatementUndoCoherence {
-    weak var manager: UndoManager?
-    let clearing: Bool
+/// **How ONE statement write treats the holding editor's undo stack.** A
+/// value passed into that write (`ProjectStore.mutateStatementText(…undo:)`)
+/// and never stored: no write can see another's.
+///
+/// It names the manager the verb registered on. The write is undo-coherent
+/// only when that is the manager of the editor holding the statement at the
+/// moment of the write; with any other (the window's, a dead one, none) it is
+/// the plain write, after which the editor drops its stack.
+struct StatementWriteUndo {
+    weak var registeredOn: UndoManager?
+    /// The forward verb drops the editor's typing first (stale ranges); the
+    /// verb's own undo and redo do not (the stack is the verb's history).
+    let clearsTyping: Bool
+
+    static let plain = StatementWriteUndo(registeredOn: nil, clearsTyping: false)
+    /// The forward verb's writes.
+    static func verb(on manager: UndoManager?) -> StatementWriteUndo {
+        StatementWriteUndo(registeredOn: manager, clearsTyping: true)
+    }
+    /// The writes of that verb's undo and redo.
+    static func replay(on manager: UndoManager?) -> StatementWriteUndo {
+        StatementWriteUndo(registeredOn: manager, clearsTyping: false)
+    }
 }
 
 /// The open gate's order, for a test to read (`ProjectStore.onStatementGateEvent`).

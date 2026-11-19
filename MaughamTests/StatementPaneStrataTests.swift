@@ -735,6 +735,11 @@ final class StatementPaneStrataTests: XCTestCase {
         // "First". Asserted below rather than assumed: if the tree ever hands
         // them back in another order this fails loudly instead of passing over
         // whichever row it found.
+        // The writer's keys are in the statement's editor when Revoke is
+        // pressed (a button takes none): the press asks where the keys are.
+        let editor = try fixture.textView(in: window)
+        window.makeFirstResponder(editor)
+        XCTAssertTrue(window.firstResponder === editor, "premise: the keys are the statement editor's")
         try fixture.pressButton(labelled: "Revoke", in: window)
         await fixture.pumpUntil(deadline: 5) {
             RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 1
@@ -743,13 +748,12 @@ final class StatementPaneStrataTests: XCTestCase {
             RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).map(\.text),
             ["Second"], "pressing Revoke on the mounted row did not revoke it")
 
-        // **Where ⌘Z looks in this pane** (shell plan 3 Task 5 fix 3): the pane's
-        // editor holds the statement, and its ⌘Z runs its own manager
+        // **Where ⌘Z looks in this pane** (shell plan 3 Task 5 fix 3, 4): the
+        // keys are the statement's editor's, and its ⌘Z runs its own manager
         // (`MaughamTextView.undo:`), so the press registers THERE
-        // (`ProjectStore.undoManagerForStatementVerb`) — one ordered history of
-        // the statement's typing and verbs. Asserted through the editor's own
+        // (`StatementVerbUndo.manager`) — one ordered history of the
+        // statement's typing and verbs. Asserted through the editor's own
         // `undo:`, the action AppKit sends.
-        let editor = try fixture.textView(in: window)
         let undoManager = try XCTUnwrap(editor.undoManager)
         XCTAssertFalse(undoManager === window.undoManager, "premise: the editor's own manager")
         XCTAssertTrue(

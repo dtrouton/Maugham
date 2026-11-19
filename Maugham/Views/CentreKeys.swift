@@ -20,8 +20,10 @@ import AppKit
 ///   asynchronously, so the claim is retried on a 30 ms step — the deferral
 ///   tripwires 16 and 27 use), History's cover for itself. A claim never takes
 ///   the keys from a field the writer is typing in elsewhere.
-/// - **Closing a cover hands the keys back** to the manuscript text view when
-///   it is what the centre now shows (`returnKeysToTheManuscript`).
+/// - **A cover going away hands back the keys it held** to the manuscript
+///   text view when it is what the centre now shows
+///   (`returnKeysToTheManuscript`); keys the writer put elsewhere — the tree
+///   row whose click cleared the cover — stay there (`coverHeldTheKeys`).
 ///
 /// "Covered" is read LIVE (`isCovered`, the column's own `centreRoute`), never
 /// a value captured at the last render: a navigation clears the centre item
@@ -90,10 +92,19 @@ struct CentreKeys: NSViewRepresentable {
     /// right-column editor.
     static func mayClaim(from responder: NSResponder?) -> Bool {
         if responder == nil || responder is NSWindow || responder is CentreKeysView { return true }
-        // Orphaned: a view the window no longer holds (the closed cover's editor).
-        if let view = responder as? MaughamTextView, view.window == nil { return true }
         if isInsideTheManuscript(responder) { return true }
         return !CanvasEscapeMonitor.isEditingText(responder)
+    }
+
+    /// **Whether the keys were the cover's to give back** when it goes: no
+    /// responder, the window itself, the guard view, or the cover's own
+    /// editor, orphaned by its removal. Anything else is where the writer
+    /// put the keys — the tree row whose click cleared the cover, a field —
+    /// and they stay there. Pure.
+    static func coverHeldTheKeys(_ responder: NSResponder?) -> Bool {
+        if responder == nil || responder is NSWindow || responder is CentreKeysView { return true }
+        if let view = responder as? MaughamTextView, view.window == nil { return true }
+        return false
     }
 
     /// **Whether the manuscript editor holding `textView` is the editor the
@@ -120,15 +131,15 @@ struct CentreKeys: NSViewRepresentable {
         coverFrame.contains(NSPoint(x: editorFrame.midX, y: editorFrame.midY))
     }
 
-    /// **Closing a cover**: on the next turn, once the cover is gone, the keys
-    /// go back to the manuscript text view — when there is one and nothing
-    /// covers it any longer (the centre now shows it).
+    /// **A cover going away**: on the next turn, once the cover is gone, the
+    /// keys it held go back to the manuscript text view — when there is one
+    /// and nothing covers it any longer (the centre now shows it). Only the
+    /// keys the cover held (`coverHeldTheKeys`): a click on the borderless
+    /// Close takes no focus, a click on a tree row does.
     @MainActor
     static func returnKeysToTheManuscript(in window: NSWindow?) {
         DispatchQueue.main.async { [weak window] in
-            // Never from a field the writer is typing in elsewhere (review N4):
-            // a click on the borderless Close takes no focus.
-            guard let window, mayClaim(from: window.firstResponder),
+            guard let window, coverHeldTheKeys(window.firstResponder),
                   let root = window.contentView else { return }
             let guards: [CentreKeysView] = CentreKeysView.all(CentreKeysView.self, in: root)
             guard !guards.contains(where: { $0.covered }),

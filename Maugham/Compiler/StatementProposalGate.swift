@@ -86,23 +86,6 @@ enum StatementProposalGate {
         return StatementEssay.half(of: proposalMarkdown)
     }
 
-    /// **The pane's Adopt** (shell plan 3 Task 5 fix 3): registered on the
-    /// manager ⌘Z runs for this statement (`ProjectStore.undoManagerForStatementVerb`
-    /// — the holding editor's own, else `window`) and written
-    /// undo-coherently with it, so ⌘Z in the editor undoes the adoption.
-    static func adoptFromAPane(_ proposal: StatementProposalStore.Proposal, store: ProjectStore,
-                               world: DeclaredWorldStore?, window: UndoManager?,
-                               workTaskSink: @escaping (Task<Void, Never>) -> Void) async throws -> Adoption {
-        let kind = proposal.kind.statementKind
-        let um = store.undoManagerForStatementVerb(kind: kind, scope: .project, window: window)
-        return try await store.writingUndoCoherently(
-            statementId: store.statement(kind: kind, scope: .project)?.id,
-            registeredOn: um, clearing: true) {
-            try await adopt(proposal, store: store, world: world, undoManager: um,
-                            workTaskSink: workTaskSink)
-        }
-    }
-
     static func adopt(_ proposal: StatementProposalStore.Proposal, store: ProjectStore,
                       world: DeclaredWorldStore?, undoManager: UndoManager?,
                       workTaskSink: @escaping (Task<Void, Never>) -> Void) async throws -> Adoption {
@@ -137,7 +120,10 @@ enum StatementProposalGate {
         do { before = try store.statementText(of: statement) }
         catch { throw Failure.unreadable(error.localizedDescription) }
 
-        try await writeEssay(of: proposal, to: statement, store: store)
+        // Each of Adopt's writes carries the manager its undo registers on:
+        // the holding editor's own keeps the registration (`StatementWriteUndo`).
+        let forward = StatementWriteUndo.verb(on: undoManager)
+        try await writeEssay(of: proposal, to: statement, store: store, undo: forward)
 
         // Everything from here to `discard` is one all-or-nothing tail: a
         // throw anywhere in it restores `before` whole and rethrows the
@@ -149,7 +135,7 @@ enum StatementProposalGate {
                 try await RulingPerformer.rule(
                     Ruling.glossaryText(term: entry.term, rendering: entry.rendering, note: entry.note),
                     provenance: Ruling.Provenance.glossary,
-                    kind: kind, forScope: .project, store: store, world: world)
+                    kind: kind, forScope: .project, store: store, world: world, undo: forward)
             }
             // Symmetric with `before`: a failed read must not silently become
             // an empty string, because that empty string is exactly what the
@@ -167,7 +153,8 @@ enum StatementProposalGate {
                             before: before, after: after)
         } catch {
             do {
-                try await store.mutateStatementText(of: statement, session: session) { _ in before }
+                try await store.mutateStatementText(of: statement, session: session,
+                                                    undo: forward) { _ in before }
             } catch let rollbackError {
                 proposalGateLog.error(
                     "Adopt's rollback to `before` failed after a mid-tail failure: \(rollbackError, privacy: .public)")
@@ -214,14 +201,15 @@ enum StatementProposalGate {
     /// parseable under it, as if it were a real stratum boundary and keep it
     /// across the replace (`test_adoptingAVisualLanguageReplacesTheWholeText`).
     private static func writeEssay(
-        of proposal: StatementProposalStore.Proposal, to statement: Statement, store: ProjectStore
+        of proposal: StatementProposalStore.Proposal, to statement: Statement, store: ProjectStore,
+        undo: StatementWriteUndo
     ) async throws {
         let essay = adoptedEssay(proposalMarkdown: proposal.markdown, kind: proposal.kind)
         guard StatementEssay.carriesRulings(proposal.kind.statementKind) else {
-            try await store.mutateStatementText(of: statement, session: session) { _ in essay }
+            try await store.mutateStatementText(of: statement, session: session, undo: undo) { _ in essay }
             return
         }
-        try await store.mutateStatementText(of: statement, session: session) { existing in
+        try await store.mutateStatementText(of: statement, session: session, undo: undo) { existing in
             StatementEssay.recomposed(essay: essay, into: existing)
         }
     }
@@ -236,23 +224,19 @@ enum StatementProposalGate {
         OpUndoRegistrar.register(
             undoManager, actionName: StatementProposalCopy.undoActionName, target: store,
             workTaskSink: workTaskSink,
-            // Each write coherent with the manager this registered on: the
-            // holding editor's own keeps its stack across the replace
-            // (`ProjectStore.writingUndoCoherently`); any other, a plain write.
+            // Each write names the manager this registered on: the holding
+            // editor's own keeps its stack across the replace
+            // (`StatementWriteUndo`); any other, a plain write.
             undo: { [weak undoManager] s in
-                await s.writingUndoCoherently(statementId: statement.id, registeredOn: undoManager,
-                                              clearing: false) {
-                    await sayingARefusal(s) {
-                        try await s.mutateStatementText(of: statement, session: session) { _ in before }
-                    }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session,
+                                                    undo: .replay(on: undoManager)) { _ in before }
                 }
             },
             redo: { [weak undoManager] s in
-                await s.writingUndoCoherently(statementId: statement.id, registeredOn: undoManager,
-                                              clearing: false) {
-                    await sayingARefusal(s) {
-                        try await s.mutateStatementText(of: statement, session: session) { _ in after }
-                    }
+                await sayingARefusal(s) {
+                    try await s.mutateStatementText(of: statement, session: session,
+                                                    undo: .replay(on: undoManager)) { _ in after }
                 }
             })
     }

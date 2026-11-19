@@ -354,8 +354,8 @@ struct StatementEditorHost: View {
     /// **This host's editor's own undo manager** (shell plan 3 Task 5 fix 3):
     /// handed to the surface as its private manager and registered with the
     /// statement `Document` it binds, so the statement's verbs (Adopt, Revoke,
-    /// Edit ruling) register on the stack this editor's ⌘Z runs
-    /// (`ProjectStore.undoManagerForStatementVerb`).
+    /// Edit ruling) register on the stack this editor's ⌘Z runs when this
+    /// editor has the keys at the press (`StatementVerbUndo.manager`).
     @State private var statementUndo = UndoManager()
     @State private var isDropTargeted = false
     /// Why the last picture did not land, or nil.
@@ -1239,7 +1239,7 @@ struct StatementEditorHost: View {
             // stack — see `EditorSurfaceConfiguration.isSecondEditorInItsWindow`
             // for what each of those prevents.
             // A verb's write into the bound `Document` keeps the stack its
-            // undo registered on (`ProjectStore.writingUndoCoherently`); every
+            // undo registered on (`StatementWriteUndo`, that write's own); every
             // other replace still drops it.
             consumeUndoCoherentApplyFlag: { [target] in
                 target.document?.consumeUndoCoherentApplyFlag() ?? false

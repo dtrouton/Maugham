@@ -487,13 +487,15 @@ struct StatementPane: View {
         // gate's own pending check before either discards the slot.
         guard !proposalBusy else { return }
         proposalBusy = true
-        let undoManager = undoManager
+        // Chosen now, at the press, by where the keys are.
+        let undo = StatementVerbUndo.manager(kind: proposal.kind.statementKind, scope: .project,
+                                             store: store, window: undoManager)
         Task { @MainActor in
             defer { proposalBusy = false }
             do {
-                let adoption = try await StatementProposalGate.adoptFromAPane(
+                let adoption = try await StatementProposalGate.adopt(
                     proposal, store: store, world: world,
-                    window: undoManager, workTaskSink: { _ in })
+                    undoManager: undo, workTaskSink: { _ in })
                 proposalNotice = StatementProposalCopy.adoptedLine(
                     glossary: adoption.glossaryAppended)
                 if adoption.created {

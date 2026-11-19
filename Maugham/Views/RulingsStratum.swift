@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// The writer's rulings, itemized under their essay — the second stratum of a
@@ -105,7 +106,7 @@ enum RulingsStratum {
         do {
             try await RulingPerformer.revoke(
                 rulingId: ruling.id, kind: kind, forScope: scope, store: store,
-                world: world)
+                world: world, undo: .verb(on: undoManager))
         } catch {
             say(error, in: store)
             return
@@ -114,22 +115,19 @@ enum RulingsStratum {
             undoManager, actionName: "Revoke Ruling", target: store,
             workTaskSink: workTaskSink,
             undo: { [weak undoManager] s in
-                await coherently(s, kind: kind, scope: scope, on: undoManager) {
-                    await refusingLoudly(in: s) {
-                        try await RulingPerformer.restore(
-                            ruling, at: index, kind: kind, forScope: scope, store: s,
-                            world: world)
-                    }
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.restore(
+                        ruling, at: index, kind: kind, forScope: scope, store: s,
+                        world: world, undo: .replay(on: undoManager))
                 }
             },
             redo: { [weak undoManager] s in
                 guard let id = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await coherently(s, kind: kind, scope: scope, on: undoManager) {
-                    await refusingLoudly(in: s) {
-                        try await RulingPerformer.revoke(
-                            rulingId: id, kind: kind, forScope: scope, store: s, world: world)
-                    }
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.revoke(
+                        rulingId: id, kind: kind, forScope: scope, store: s, world: world,
+                        undo: .replay(on: undoManager))
                 }
             })
     }
@@ -152,7 +150,7 @@ enum RulingsStratum {
         do {
             try await RulingPerformer.edit(
                 rulingId: id, newText: newText, kind: kind, forScope: scope,
-                store: store, world: world)
+                store: store, world: world, undo: .verb(on: undoManager))
         } catch {
             say(error, in: store)
             return
@@ -163,23 +161,19 @@ enum RulingsStratum {
             undo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await coherently(s, kind: kind, scope: scope, on: undoManager) {
-                    await refusingLoudly(in: s) {
-                        try await RulingPerformer.edit(
-                            rulingId: now, newText: priorText, kind: kind, forScope: scope,
-                            store: s, world: world)
-                    }
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.edit(
+                        rulingId: now, newText: priorText, kind: kind, forScope: scope,
+                        store: s, world: world, undo: .replay(on: undoManager))
                 }
             },
             redo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await coherently(s, kind: kind, scope: scope, on: undoManager) {
-                    await refusingLoudly(in: s) {
-                        try await RulingPerformer.edit(
-                            rulingId: now, newText: newText, kind: kind, forScope: scope,
-                            store: s, world: world)
-                    }
+                await refusingLoudly(in: s) {
+                    try await RulingPerformer.edit(
+                        rulingId: now, newText: newText, kind: kind, forScope: scope,
+                        store: s, world: world, undo: .replay(on: undoManager))
                 }
             })
     }
@@ -203,46 +197,6 @@ enum RulingsStratum {
     /// Edit menu named the act and the writer pressed it, so the refusal is
     /// said. Every other failure keeps the silence the `try?` it replaced had
     /// (a line gone under a re-parse is nothing to announce over an undo).
-    // MARK: - From a pane: where ⌘Z will find it (shell plan 3 Task 5 fix 3)
-
-    /// **The pane's Revoke**: registered on the manager ⌘Z runs for this
-    /// statement (`ProjectStore.undoManagerForStatementVerb` — the holding
-    /// editor's own, else `window`), and written undo-coherently with it.
-    static func revokeFromAPane(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
-                                forScope scope: Statement.Scope, store: ProjectStore,
-                                world: DeclaredWorldStore?, window: UndoManager?,
-                                workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
-        let um = store.undoManagerForStatementVerb(kind: kind, scope: scope, window: window)
-        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
-                                          registeredOn: um, clearing: true) {
-            await revoke(ruling, at: index, kind: kind, forScope: scope, store: store,
-                         world: world, undoManager: um, workTaskSink: workTaskSink)
-        }
-    }
-
-    /// **The pane's Edit**: as `revokeFromAPane`.
-    static func editFromAPane(at index: Int, to newText: String, kind: Statement.Kind,
-                              forScope scope: Statement.Scope, store: ProjectStore,
-                              world: DeclaredWorldStore?, window: UndoManager?,
-                              workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
-        let um = store.undoManagerForStatementVerb(kind: kind, scope: scope, window: window)
-        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
-                                          registeredOn: um, clearing: true) {
-            await edit(at: index, to: newText, kind: kind, forScope: scope, store: store,
-                       world: world, undoManager: um, workTaskSink: workTaskSink)
-        }
-    }
-
-    /// A verb's undo or redo write, coherent with the manager it registered on
-    /// (the stack is the verb's history: nothing cleared).
-    static func coherently(_ store: ProjectStore, kind: Statement.Kind, scope: Statement.Scope,
-                           on manager: UndoManager?, _ work: () async -> Void) async {
-        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
-                                          registeredOn: manager, clearing: false) {
-            await work()
-        }
-    }
-
     static func refusingLoudly(
         in store: ProjectStore, _ work: @MainActor () async throws -> Void
     ) async {
@@ -334,6 +288,32 @@ extension RulingsStratum {
             }
         }
         return Partition(glossary: glossary, orphans: orphans, others: others)
+    }
+}
+
+/// **Which undo manager a statement verb pressed in a pane registers on**
+/// (Adopt, Revoke, Edit ruling) — asked ONCE, synchronously, at the press,
+/// and decided by where the keys are, never by who holds the statement.
+///
+/// A button takes no focus, so the window's first responder at the press is
+/// where the writer's next ⌘Z will come from. If that is the statement's own
+/// editor, ⌘Z there runs that editor's manager (`MaughamTextView.undo:`), and
+/// the verb joins it. From anywhere else — the manuscript, the tree, a field,
+/// another statement's editor — ⌘Z walks to the window, so the verb is the
+/// window's, written plainly (an editor holding the statement then drops its
+/// typing undo on the replace, ADR 0023 D1).
+@MainActor
+enum StatementVerbUndo {
+    static func manager(kind: Statement.Kind, scope: Statement.Scope, store: ProjectStore,
+                        window: UndoManager?) -> UndoManager? {
+        store.undoManagerForStatementVerb(kind: kind, scope: scope, keys: keys(), window: window)
+    }
+
+    /// The manager ⌘Z would run from each window's first responder. The
+    /// statement's editor's manager is private to that one text view, so it
+    /// is among these exactly when that editor has its window's keys.
+    static func keys() -> [UndoManager] {
+        NSApp.windows.compactMap { $0.firstResponder?.undoManager }
     }
 }
 
@@ -566,11 +546,12 @@ struct RulingsStratumView: View {
     }
 
     private func revoke(_ ruling: Ruling, at index: Int) {
-        let window = undoManager
+        // Chosen now, at the press, by where the keys are.
+        let undo = StatementVerbUndo.manager(kind: kind, scope: scope, store: store, window: undoManager)
         Task { @MainActor in
-            await RulingsStratum.revokeFromAPane(
+            await RulingsStratum.revoke(
                 ruling, at: index, kind: kind, forScope: scope, store: store,
-                world: world, window: window, workTaskSink: { _ in })
+                world: world, undoManager: undo, workTaskSink: { _ in })
         }
     }
 
@@ -580,11 +561,11 @@ struct RulingsStratumView: View {
         // `RulingPerformer.edit` refuses it, and closing the field without
         // asking is the honest UI half of that refusal.
         guard !trimmed.isEmpty else { return }
-        let window = undoManager
+        let undo = StatementVerbUndo.manager(kind: kind, scope: scope, store: store, window: undoManager)
         Task { @MainActor in
-            await RulingsStratum.editFromAPane(
+            await RulingsStratum.edit(
                 at: index, to: trimmed, kind: kind, forScope: scope, store: store,
-                world: world, window: window, workTaskSink: { _ in })
+                world: world, undoManager: undo, workTaskSink: { _ in })
         }
     }
 }
