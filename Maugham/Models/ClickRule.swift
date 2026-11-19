@@ -11,21 +11,24 @@ public enum ClickRule {
                                current: WindowSubject, structure: [StructureItem],
                                projectType: ProjectType) -> WindowSubject {
         var next = current
+        // The row as a pulled-up thing, when it can be one (research, a
+        // figure); compared only when it is, so a row that cannot be pulled up
+        // never matches nothing beside.
+        let pulled = PulledUp(treeSubject: clicked)
         if gesture == .openInCentre {
             next.open = clicked
             next.faces = clicked
-            if next.beside == clicked { next.beside = nil }
+            if let pulled, next.beside == pulled { next.beside = nil }
             return next
         }
         // A click on the row already opened beside puts it away (shell p1
         // Task 3): the tree's own way to dismiss what it pulled up.
-        if current.beside == clicked {
-            next.beside = nil
-            return next
+        if let pulled, current.beside == pulled {
+            return putAway(current: current)
         }
         switch clicked {
-        case .research:
-            next.beside = clicked
+        case .research(let id):
+            next.beside = .research(id)
         case .item(let id) where isPiece(id, in: structure):
             switch current.open {
             case .canvas, .edition:
@@ -52,14 +55,32 @@ public enum ClickRule {
                                 structure: [StructureItem],
                                 projectType: ProjectType) -> WindowSubject {
         let target = target ?? .project
-        if target == current.beside {
+        if let pulled = PulledUp(treeSubject: target), pulled == current.beside {
             var next = current
-            next.beside = target
+            next.beside = pulled
             return next
         }
         guard target != current.lastClicked else { return current }
         return resolve(target, gesture: .click, current: current,
                        structure: structure, projectType: projectType)
+    }
+
+    /// **Pull this up** — the explicit gesture (a row's menu item, a Brief
+    /// link, a ⌘⌥ key; shell p3): `item` goes beside and becomes the part
+    /// clicked last. Pulling up what is already there makes it last again and
+    /// never puts it away — only a click on its own row, or Close, does.
+    /// Nothing else moves.
+    public static func pullUp(_ item: PulledUp, current: WindowSubject) -> WindowSubject {
+        var next = current
+        next.beside = item
+        return next
+    }
+
+    /// **Close** — what is pulled up is put away, and nothing else moves.
+    public static func putAway(current: WindowSubject) -> WindowSubject {
+        var next = current
+        next.beside = nil
+        return next
     }
 
     /// **Opening a piece from a list about the Book or a Part that holds it**

@@ -105,16 +105,31 @@ extension ProjectWindow {
                                       structure: [StructureItem],
                                       projectType: ProjectType) -> WindowSubject {
         guard let beside = subject.beside else { return subject }
-        return ClickRule.resolve(beside, gesture: .openInCentre, current: subject,
-                                 structure: structure, projectType: projectType)
+        if let row = beside.treeSubject {
+            return ClickRule.resolve(row, gesture: .openInCentre, current: subject,
+                                     structure: structure, projectType: projectType)
+        }
+        // Not a tree row: a canvas card opens the canvas, where it is edited
+        // (it is read-only beside, `PulledUp.isEditableBeside`); a statement or
+        // History opens what it belongs to, and the caller draws it as the
+        // centre's cover (`PulledUp.centreItem`, Task 7). Either way it leaves
+        // the pulled-up position, as Open in Centre on a row does.
+        var next: WindowSubject
+        if let item = beside.centreItem {
+            next = openingInCentre(item, subject: subject)
+        } else {
+            next = subject
+            next.open = .canvas
+            next.faces = .canvas
+        }
+        next.beside = nil
+        return next
     }
 
     /// **Close** — the beside view's other control: what is beside is put
     /// away, and nothing else moves.
     static func closingBeside(_ subject: WindowSubject) -> WindowSubject {
-        var next = subject
-        next.beside = nil
-        return next
+        ClickRule.putAway(current: subject)
     }
 
     /// **Showing the column the placement chose** (stage 2b final review's

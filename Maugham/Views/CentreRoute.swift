@@ -55,6 +55,9 @@ enum CentreCover: Equatable {
     case translationRound(TranslationRound)
     /// The desk's publish problems — over a chapter too, as the round is.
     case publishProblems([TectonicLogParser.Diagnostic])
+    /// A statement or a piece's History opened in the centre (shell p3). Last
+    /// in precedence: a publish cover wins while it stands.
+    case centreItem(CentreItem)
 }
 
 extension ProjectWindow {
@@ -67,14 +70,15 @@ extension ProjectWindow {
     /// `figureSubjectPlacement`), the Inbox, the canvas and the Collection
     /// reference (`editorRoute`), and otherwise the editor, with the Book's view
     /// beneath where `open` names no document (`altitudeView`) and an edition's
-    /// one cover (`publishCentre`). Status is a view and never a cover
-    /// (`CentreRouteTests`).
+    /// one cover (`publishCentre`, else the centre item). Status is a view and
+    /// never a cover (`CentreRouteTests`).
     static func centreRoute(subject: WindowSubject, bookView: BookView,
                             projectType: ProjectType, structure: [StructureItem],
                             preview: PublishPreviewResolution,
                             proposal: DesignProposalStore.Proposal? = nil,
                             round: TranslationRound? = nil,
-                            problems: [TectonicLogParser.Diagnostic]? = nil) -> CentreRoute {
+                            problems: [TectonicLogParser.Diagnostic]? = nil,
+                            centreItem: CentreItem? = nil) -> CentreRoute {
         if showsPaletteWallCentre(subject: subject) {
             return .paletteWall
         }
@@ -109,7 +113,7 @@ extension ProjectWindow {
         case .designProposal(let proposal): cover = .designGate(proposal)
         case .books(let publications): cover = .books(publications)
         case .notice(let notice): cover = .notice(notice)
-        case .none: cover = nil
+        case .none: cover = centreItem.map(CentreCover.centreItem)
         }
         return .editor(altitude: altitude, cover: cover)
     }

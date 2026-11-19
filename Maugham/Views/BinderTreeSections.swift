@@ -1444,7 +1444,7 @@ enum BinderTreeSelection {
     /// Whether `stored` is a live research multi-selection: more than one row,
     /// anchored on what is opened beside.
     static func isBatch(_ stored: Set<BinderSubject>, subject: WindowSubject) -> Bool {
-        guard stored.count > 1, let beside = subject.beside else { return false }
+        guard stored.count > 1, let beside = subject.beside?.treeSubject else { return false }
         return stored.contains(beside)
     }
 
@@ -1480,7 +1480,7 @@ enum BinderTreeSelection {
     /// `List` draws neither selected and neither is what is open.
     static func outlined(shown: Set<BinderSubject>,
                          subject: WindowSubject) -> Set<BinderSubject> {
-        Set([subject.faces] + (subject.beside.map { [$0] } ?? []))
+        Set([subject.faces] + (subject.beside?.treeSubject.map { [$0] } ?? []))
             .subtracting(shown).subtracting([subject.open])
     }
 
@@ -1513,7 +1513,7 @@ enum BinderTreeSelection {
             let next = click(row)
             // A click that put the row beside away (controller ruling 2)
             // leaves nothing selected: the note is neither open nor beside.
-            if subject.beside == row, next.beside == nil { return ([], next) }
+            if subject.beside?.treeSubject == row, next.beside == nil { return ([], next) }
             return ([row], next)
         }
         // A modifier click (or the `List` handing back what it was drawing,
@@ -1521,7 +1521,7 @@ enum BinderTreeSelection {
         guard written != shownNow else { return (stored, subject) }
         if written.allSatisfy({ $0.researchID != nil }) {
             // The anchor survives a set it is still in.
-            if let beside = subject.beside, written.contains(beside) {
+            if let beside = subject.beside?.treeSubject, written.contains(beside) {
                 return (written, subject)
             }
             // Otherwise the first of the set, in the order the tree draws it —

@@ -82,7 +82,7 @@ final class BinderTreeMultiselectTests: XCTestCase {
                     "a one-row write is `ClickRule.resolve(_, .click, …)` "
                     + "(subject: \(subject), row: \(written))")
                 // The row put away from beside is left unselected (I1).
-                let dismissed = subject.beside == written
+                let dismissed = subject.beside?.treeSubject == written
                 XCTAssertEqual(out.selection, dismissed ? [] : [written])
             }
         }

@@ -1035,7 +1035,7 @@ struct ReviewCentreProbeView: View {
 
     private var subject: Binding<BinderSubject?> {
         Binding(
-            get: { box.subject.beside ?? box.subject.faces },
+            get: { box.subject.beside?.treeSubject ?? box.subject.faces },
             set: { box.pick($0 ?? .project, in: store) })
     }
 

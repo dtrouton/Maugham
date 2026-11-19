@@ -2173,7 +2173,7 @@ struct ProjectWindow: View {
     @MainActor
     static func validatedSubject(_ subject: WindowSubject, in store: ProjectStore,
                                  parked: Set<String> = []) -> WindowSubject {
-        let parts = [subject.open, subject.faces] + (subject.beside.map { [$0] } ?? [])
+        let parts = [subject.open, subject.faces]
         let languages = parts.contains(where: \.isEdition)
             ? Set(TreeEditionRows.languages(store: store)) : []
         return validatedSubject(subject, structure: store.manifest.structure,

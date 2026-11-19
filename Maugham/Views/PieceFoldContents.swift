@@ -53,6 +53,28 @@ enum PieceFoldEntry: Identifiable, Equatable {
     }
 }
 
+extension PieceFoldEntry {
+    /// **What pulling this row up puts beside** (shell p3): research and a
+    /// palette card are research items; a card is what it holds — a research
+    /// item, a scrap, a canvas-owned picture. A figure opens in the centre and
+    /// a link travels to its piece, so neither is pulled up.
+    var pulledUp: PulledUp? {
+        switch self {
+        case .research(let id, _, _), .palette(let id, _):
+            return .research(id)
+        case .card(let ref, _):
+            switch ref.kind {
+            case .research(let itemId): return .research(itemId)
+            case .palette(let cardId): return .research(cardId)
+            case .scrap(let nodeId): return .canvasScrap(nodeId: nodeId)
+            case .photo(let path): return .canvasPhoto(path: path)
+            }
+        case .figure, .link:
+            return nil
+        }
+    }
+}
+
 /// The fold's kinds, in the order the fold lists them.
 enum PieceFoldGroup: String, CaseIterable {
     case research, cards, palette, figures, links

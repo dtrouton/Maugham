@@ -25,7 +25,8 @@ final class FigureSubjectPlacementTests: XCTestCase {
             XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
                 subject: SubjectSamples.opened(open)), .nothingMoves, "\(open)")
             XCTAssertEqual(ProjectWindow.figureSubjectPlacement(
-                subject: WindowSubject(open: .project, faces: .project, beside: open)),
+                subject: WindowSubject(open: .project, faces: .project,
+                                       beside: PulledUp(treeSubject: open))),
                            .nothingMoves, "\(open) beside")
         }
     }

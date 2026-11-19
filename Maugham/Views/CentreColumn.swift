@@ -357,7 +357,10 @@ struct CentreColumn: View {
                     projectURL: store.url,
                     title: store.manifest.title,
                     selectedPublicationID: $publishCentre.selectedPublicationID)
-            case .none:
+            // A statement or History in the centre: drawn by shell p3 Task 5,
+            // which also passes the window's centre item; nothing produces
+            // this cover until then.
+            case .centreItem, .none:
                 EmptyView()
             }
         }

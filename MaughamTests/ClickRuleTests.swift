@@ -20,7 +20,7 @@ final class ClickRuleTests: XCTestCase {
     }
 
     private func ws(_ open: BinderSubject, _ faces: BinderSubject,
-                    beside: BinderSubject? = nil) -> WindowSubject {
+                    beside: PulledUp? = nil) -> WindowSubject {
         WindowSubject(open: open, faces: faces, beside: beside)
     }
 

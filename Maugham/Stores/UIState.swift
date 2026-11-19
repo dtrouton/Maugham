@@ -40,6 +40,11 @@ public struct UIState: Codable, Equatable, Sendable {
     /// The right column's segment — one remembered for the window, whatever
     /// the subject. To resolve by default (shell plan 2 Task 7).
     public var detailSegment: DetailSegment
+    /// The right column's remembered position (shell p3): To resolve, Brief
+    /// or the pulled-up thing. A missing or unknown value opens on To resolve
+    /// (the tolerant decode, tripwire 11). `detailSegment` stays until the
+    /// picker dies (shell p3 Task 9).
+    public var rightColumnPosition: RightColumnPosition
     /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
     /// Per-window, persisted so the posture survives reopen. Additive in
     /// schema v3; old files default to false.
@@ -209,6 +214,7 @@ public struct UIState: Codable, Equatable, Sendable {
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         detailSegment: DetailSegment = .resolve,
+        rightColumnPosition: RightColumnPosition = .resolve,
         isReviewModeOn: Bool = false,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
@@ -224,6 +230,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.detailSegment = detailSegment
+        self.rightColumnPosition = rightColumnPosition
         self.isReviewModeOn = isReviewModeOn
         self.compilerModel = compilerModel
         self.activePassMemory = activePassMemory
@@ -241,7 +248,8 @@ public struct UIState: Codable, Equatable, Sendable {
         case schemaVersion, windowSubject, bookView, selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
-             researchPreviewVisible, detailSegment, outlineLayout, isReviewModeOn,
+             researchPreviewVisible, detailSegment, rightColumnPosition, outlineLayout,
+             isReviewModeOn,
              compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
              acknowledgedSetAsideRecords, sentRecoveredOpIds
@@ -258,6 +266,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(detailSegment, forKey: .detailSegment)
+        try c.encode(rightColumnPosition, forKey: .rightColumnPosition)
         try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(activePassMemory, forKey: .activePassMemory)
@@ -312,6 +321,8 @@ public struct UIState: Codable, Equatable, Sendable {
         // decode IS the migration (tripwire 11): no other code reads an old
         // value.
         self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .resolve
+        self.rightColumnPosition =
+            (try? c.decode(RightColumnPosition.self, forKey: .rightColumnPosition)) ?? .resolve
         if let b = try? c.decode(BookView.self, forKey: .bookView) {
             self.bookView = b
         } else {

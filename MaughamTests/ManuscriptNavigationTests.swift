@@ -23,7 +23,7 @@ final class ManuscriptNavigationTests: XCTestCase {
     /// faces on it; what is beside stays.
     func test_goingToAParagraphOpensItsPiece() {
         for open in SubjectSamples.everyOpen {
-            for beside in [nil, BinderSubject.research(SubjectSamples.researchID)] {
+            for beside in [nil, PulledUp.research(SubjectSamples.researchID)] {
                 let current = WindowSubject(open: open, faces: open, beside: beside)
                 let next = ManuscriptNavigation.destination(toDocument: other, current: current)
                 XCTAssertEqual(next, WindowSubject(open: .item(other), faces: .item(other),

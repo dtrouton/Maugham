@@ -176,7 +176,7 @@ final class PaletteWallDoorTests: XCTestCase {
         let noteAtWall = ClickRule.resolve(other, gesture: .click, current: atWall,
                                            structure: [], projectType: .novel)
         let closedWithNew = wall.closingWall(noteAtWall)
-        XCTAssertEqual(closedWithNew.beside, other)
+        XCTAssertEqual(closedWithNew.beside?.treeSubject, other)
         XCTAssertEqual(closedWithNew.lastClicked, other, "control: a new note is the part clicked last")
     }
 

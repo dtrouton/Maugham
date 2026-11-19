@@ -163,6 +163,7 @@ final class LockTests: XCTestCase {
         "Maugham/Views/BinderTreeSections.swift": 1,    // offersNewTable
         "Maugham/Views/FigureSubjectColumns.swift": 1,  // centre grid isReviewMode
         "Maugham/Views/Palette/PaletteWallView.swift": 1, // the wall's card arm
+        "Maugham/Models/PulledUp.swift": 1,             // refusesEdits, what is pulled up
     ]
 
     /// **Every lock site asks the one answer.** A site that stopped asking

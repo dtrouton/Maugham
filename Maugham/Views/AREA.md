@@ -8,9 +8,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The window family
 - `ProjectWindow.swift` — the root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, and four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
-- `CentreRoute.swift` — `CentreRoute` and `CentreCover`, and `ProjectWindow.centreRoute(…)`: what the centre column shows, as one exhaustive value (tripwires 6, 27, 30).
+- `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one exhaustive value (tripwires 6, 27, 30); `CentreItem.swift`, a statement or History as cover.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + the Book's view + one cover), `statusBoard` (the board's one mount) and its open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — the right column: resize handle, study arm, inspector arm (`researchOrSubject` → `inspectorRoute`), hidden arm, and its environment's services.
+- `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms, environment services; `RightColumnContent.swift`, what each position shows.
 - `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.

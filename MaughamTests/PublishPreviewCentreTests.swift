@@ -1849,7 +1849,7 @@ struct PublishCentreProbeView: View {
 
     private var subject: Binding<BinderSubject?> {
         Binding(
-            get: { box.subject.beside ?? box.subject.faces },
+            get: { box.subject.beside?.treeSubject ?? box.subject.faces },
             set: { newValue in
                 box.subject = ClickRule.navigate(to: 
                     newValue, current: box.subject,
@@ -1933,7 +1933,7 @@ struct PublishCentreProbeView: View {
             DesignGateView(proposal: proposal, projectURL: store.url,
                            onClose: { box.selectedProposal = nil })
         case .books(let publications): book(publications)
-        case .none: EmptyView()
+        case .centreItem, .none: EmptyView()
         }
     }
 

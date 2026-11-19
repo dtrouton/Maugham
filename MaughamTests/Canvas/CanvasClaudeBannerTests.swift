@@ -201,7 +201,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
         let to = CanvasClaudeArrivalModifier.destination(forRegion: r1)
         XCTAssertEqual(to.open, .canvas)
         for open in SubjectSamples.everyOpen {
-            for beside in [nil, BinderSubject.research(SubjectSamples.researchID)] {
+            for beside in [nil, PulledUp.research(SubjectSamples.researchID)] {
                 let current = WindowSubject(open: open, faces: open, beside: beside)
                 let next = to.subject(from: current)
                 XCTAssertEqual(next, WindowSubject(open: .canvas, faces: .canvas, beside: nil),

@@ -43,7 +43,7 @@ final class TreeTravelDestinationTests: XCTestCase {
         let clicked = ClickRule.resolve(note, gesture: .click, current: .book,
                                         structure: SubjectSamples.structure,
                                         projectType: .novel)
-        XCTAssertEqual(clicked, WindowSubject(open: .project, faces: .project, beside: note),
+        XCTAssertEqual(clicked, WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)),
                        "premise: the click before it opened the note beside")
         XCTAssertEqual(double(note, over: clicked),
                        WindowSubject(open: note, faces: note, beside: nil))
@@ -55,7 +55,7 @@ final class TreeTravelDestinationTests: XCTestCase {
     /// (controller ruling 2).
     func test_aClickOnTheSelectedBesideRowPutsItAway() {
         let note = BinderSubject.research(SubjectSamples.researchID)
-        let beside = WindowSubject(open: .project, faces: .project, beside: note)
+        let beside = WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note))
         func heard(_ row: BinderSubject, selected: Bool, over current: WindowSubject) -> WindowSubject {
             TreeTravel.clickOnTheSelectedRow(row, rowWasSelected: selected, current: current,
                                              structure: SubjectSamples.structure,
@@ -66,12 +66,12 @@ final class TreeTravelDestinationTests: XCTestCase {
                        "a row that was not selected is the `List`'s to deliver")
         // The Book row drawn selected means the Book was clicked after the
         // note (`WindowSubject.besideIsLatest`, shell p1 final fix I1).
-        let bookLatest = WindowSubject(open: .project, faces: .project, beside: note,
+        let bookLatest = WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note),
                                        besideIsLatest: false)
         XCTAssertEqual(heard(.project, selected: true, over: bookLatest), bookLatest,
                        "any other selected row: nothing for the click rule to change")
         XCTAssertEqual(heard(note, selected: true, over: .book),
-                       WindowSubject(open: .project, faces: .project, beside: note),
+                       WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)),
                        "a note still drawn selected after it was put away reopens "
                        + "on the next click (fix round, I1)")
     }
@@ -137,7 +137,7 @@ final class TreeTravelReceiverTests: XCTestCase {
     func test_aPostedClickOnTheSelectedBesideRowPutsItAway() async throws {
         let note = BinderSubject.research("r-1")
         let probe = try await hostReceiver(
-            subject: WindowSubject(open: .project, faces: .project, beside: note))
+            subject: WindowSubject(open: .project, faces: .project, beside: PulledUp(treeSubject: note)))
         MaughamEvent.post(.maughamTreeTravel, to: .keyWindow,
                           payload: [MaughamEvent.treeTravelSubjectKey: note,
                                     MaughamEvent.treeTravelClickCountKey: 1,
