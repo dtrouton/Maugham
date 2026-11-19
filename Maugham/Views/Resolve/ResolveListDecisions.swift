@@ -251,15 +251,21 @@ extension ResolvePane {
         }
     }
 
-    /// The line a mark's jump says when its finding is no longer listed.
+    /// The line a mark's jump says when its finding is no longer listed:
+    /// answered, or replaced by a newer check.
     static let settledFindingLine = "Settled \u{2014} nothing about that sentence waits here now."
+    /// The line for a strain that never had an item (the ingest kept the
+    /// clause's verdict but had nothing to list for it): nothing was settled.
+    static let unlistedStrainLine = "The last check flagged this sentence. There is nothing to act on here."
 
     /// **A strain mark's jump** (shell plan 3 Task 6). The finding's group
     /// opens, the list scrolls to it and its row is marked; a filter that
     /// hides the row gives way as a focus's does (small: everything; dense:
     /// the finding's own source). A finding no longer listed is settled: the
     /// Checks chip (inert when absent) and the piece's own group, if the list
-    /// has one.
+    /// has one, with `settledFindingLine`. A strain that never had an item
+    /// (`itemId == nil`) is not settled: the same chip and group, with
+    /// `unlistedStrainLine`.
     static func focusFinding(docId: String, itemId: String?, groups: [ResolveGroup],
                              chips: [ResolveSource], activePassId: String?, dense: Bool,
                              selection: Set<ResolveSource>, choices: [ResolveGroup.Key: Bool],
@@ -284,7 +290,8 @@ extension ResolvePane {
         let key = focusKey(ownerId: docId, in: groups, figureOwners: [:])
         if let key { opened[key] = true }
         return ResolveRequestOutcome(selection: checks ?? selection, choices: opened,
-                                     scrollTo: key, settled: true)
+                                     scrollTo: key, settled: itemId != nil,
+                                     line: itemId == nil ? unlistedStrainLine : settledFindingLine)
     }
 
     /// The group a piece or a figure owns among the built groups; for a

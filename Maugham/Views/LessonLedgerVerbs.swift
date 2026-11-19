@@ -132,8 +132,9 @@ enum LessonLedgerVerbs {
             kind: .lessons, forScope: .project, store: store, world: world)
     }
 
-    /// The ledger's own place — where a heading that already stands stands.
-    static let ledger = FiledDestination(kind: .lessons, scope: .project)
+    /// The ledger's own place, for a heading that already stands there:
+    /// nothing was written (`alreadyStood`).
+    static let ledger = FiledDestination(kind: .lessons, scope: .project, alreadyStood: true)
 
     /// File a habit as a settled choice — the negative space of a lesson (spec
     /// §6). The marker is `LessonsLedger.choiceText`'s and never a second
@@ -190,7 +191,8 @@ enum LessonLedgerVerbs {
     /// ledger as a whole one. The count of what landed rides on the error
     /// because the act is plural — a writer told only that it failed would not
     /// know whether pressing again duplicates what already went in.
-    /// Returns where the last choice stands (nil for no headings).
+    /// Returns where the choices stand (nil for no headings): "already
+    /// stood" only when every one of them did.
     @discardableResult
     static func makeChoices(
         _ headings: [String], provenance: String,
@@ -200,8 +202,10 @@ enum LessonLedgerVerbs {
         var filed: FiledDestination?
         for heading in headings {
             do {
-                filed = try await makeChoice(
+                let one = try await makeChoice(
                     heading, provenance: provenance, store: store, world: world)
+                // "Already in" only when every choice already stood.
+                if filed == nil || filed?.alreadyStood == true { filed = one }
                 landed += 1
             } catch {
                 throw LessonLedgerFailure.someChoicesFiled(

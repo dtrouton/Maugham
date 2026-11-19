@@ -79,6 +79,14 @@ final class FiledUnderTests: XCTestCase {
         XCTAssertEqual(sentence(destination, faces: .item("doc-a")),
                        "Filed under \u{201C}Breakfast\u{201D}'s intent", "another piece is named")
         XCTAssertEqual(sentence(destination, faces: .item("doc-b")), "Filed under this chapter's intent")
+        // **Review M3.** A piece the structure no longer names is never
+        // "“chapter”'s intent".
+        XCTAssertEqual(sentence(FiledDestination(kind: .intent, scope: .document("doc-gone")), faces: .project),
+                       "Filed under this chapter's intent")
+        XCTAssertEqual(FiledUnder.sentence(FiledDestination(kind: .intent, scope: .document("doc-gone")),
+                                           faces: .project, structure: structure,
+                                           projectType: .collection, firstReaderName: nil),
+                       "Filed under this piece's intent")
     }
 
     /// Every kind the verbs file to has its sentence; none carries the
@@ -248,10 +256,13 @@ final class FiledUnderTests: XCTestCase {
             XCTAssertNil(refusal)
         }
         XCTAssertEqual(filed, [FiledDestination(kind: .lessons, scope: .project),
-                               FiledDestination(kind: .lessons, scope: .project)],
-                       "a heading already standing is where it was asked to go")
+                               FiledDestination(kind: .lessons, scope: .project, alreadyStood: true)],
+                       "the second press found the heading standing and wrote nothing")
         XCTAssertEqual(FiledUnder.filing(filed[0], faces: .item(chapter.id), store: store).sentence,
                        "Filed under What I've Learned")
+        // **Review M2.** Derived from the write's own answer.
+        XCTAssertEqual(FiledUnder.filing(filed[1], faces: .item(chapter.id), store: store).sentence,
+                       "Already in What I've Learned")
     }
 
     // MARK: - Source helpers

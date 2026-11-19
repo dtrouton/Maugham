@@ -61,7 +61,7 @@ final class ResolvePaneTests: XCTestCase {
         -> [ResolveGroup] {
         ResolveGrouping.groups(
             ResolveSnapshot(items: items, sequences: sequences, paragraphText: [:], unreadableDocIds: []),
-            scope: scope, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:])
+            scope: scope, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:], projectType: .novel)
     }
 
     // MARK: - To-do drag-reorder (carried item 11)
@@ -347,7 +347,7 @@ final class ResolvePaneTests: XCTestCase {
         let newPid = try XCTUnwrap(doc.sequence.last)
         XCTAssertNotEqual(newPid, doc.sequence.first, "premise: the to-do is in a new paragraph")
         let groups = ResolveGrouping.groups(held, scope: scope, structure: store.manifest.structure,
-                                            sceneIndex: nil, sceneTitles: [], figureNames: [:])
+                                            sceneIndex: nil, sceneTitles: [], figureNames: [:], projectType: .novel)
         let home = groups.first { group in
             group.items.contains { if case .todo(let task) = $0 { return task.body == "fix the dock" }; return false }
         }
@@ -524,13 +524,13 @@ final class ResolvePaneTests: XCTestCase {
     /// A solid mark asks for its finding by the finding's own item id: the
     /// group holding it opens, the list scrolls there and the row is marked;
     /// a filter hiding the row gives way.
-    func test_aStrainFocusOpensItsFindingsGroup() {
+    func test_aStrainFocusOpensItsFindingsGroup() throws {
         let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
         let strain = finding("s1", pid: "bb22")
         let items = (0..<14).map { note("n\($0)") } + [strain]
         let built = groups(items, piece)
         XCTAssertTrue(ResolveFilter.isDense(items), "premise: dense, so nothing is open by default")
-        let holding = try! XCTUnwrap(built.first { $0.items.contains(strain) })
+        let holding = try XCTUnwrap(built.first { $0.items.contains(strain) })
 
         let outcome = ResolvePane.apply(
             .focusFinding(docId: "doc-a", itemId: strain.id), groups: built,
@@ -565,7 +565,16 @@ final class ResolvePaneTests: XCTestCase {
                 .focusFinding(docId: "doc-b", itemId: itemId), groups: built,
                 chips: [.checks, .others], activePassId: nil, dense: false,
                 selection: [.others], choices: [:])
-            XCTAssertTrue(outcome.settled, "nothing listed for it: settled")
+            if itemId == nil {
+                // **Review I1.** A strain that never had an item was not
+                // settled: the check still flags the sentence.
+                XCTAssertFalse(outcome.settled, "a strain with no item is not settled")
+                XCTAssertEqual(outcome.line,
+                               "The last check flagged this sentence. There is nothing to act on here.")
+            } else {
+                XCTAssertTrue(outcome.settled, "answered or replaced: settled")
+                XCTAssertEqual(outcome.line, ResolvePane.settledFindingLine)
+            }
             XCTAssertNil(outcome.marked, "no row is marked")
             XCTAssertEqual(outcome.selection, [.checks], "the Checks filter")
             XCTAssertEqual(outcome.scrollTo, .piece(docId: "doc-b"), "on that piece's group")
@@ -577,6 +586,27 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(noChecks.selection, [.others], "no Checks chip: the writer's filter stands")
         XCTAssertTrue(noChecks.settled)
         XCTAssertFalse(ResolvePane.settledFindingLine.isEmpty)
+        let found = ResolvePane.apply(
+            .focusFinding(docId: "doc-b", itemId: finding("other", on: "doc-b", pid: "cc33").id),
+            groups: built, chips: [.checks, .others], activePassId: nil, dense: false,
+            selection: [.others], choices: [:])
+        XCTAssertNil(found.line, "a listed finding says nothing: its row is marked")
+    }
+
+    /// **Review M4.** The mark's jump, as `ProjectWindow.showStrain` writes
+    /// it: the column shown, on To resolve, holding the request.
+    func test_aStrainJumpShowsToResolveWithTheRequest() throws {
+        let request = ResolveRequest.focusFinding(docId: "doc-a", itemId: "finding:doc-a/d-1")
+        XCTAssertEqual(ProjectWindow.strainJump(request),
+                       ProjectWindow.StrainJump(showInspector: true, detailSegment: .resolve,
+                                                request: request))
+        let window = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
+        let flat = window.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(flat.contains("let jump = Self.strainJump(request) showInspector = jump.showInspector "
+                                    + "detailSegment = jump.detailSegment resolveRequest = jump.request"),
+                      "showStrain writes exactly the jump's three values")
     }
 
     // MARK: - Bulk inside a Book or Part list (carried from plan 2)
@@ -619,12 +649,11 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(ResolveNoteVerbs.ownIds(["b1", "a1", "b2"], among: ["b1", "b2"]), ["b1", "b2"])
 
         // The verb's own guard, over a real document.
-        let (doc, _, documentStore) = try await openDocument()
+        let (doc, _, _) = try await openDocument()
         let pid = try XCTUnwrap(doc.sequence.first)
         try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: "Mine.")
         let own = try XCTUnwrap(doc.annotations().first).id
         XCTAssertEqual(ResolveNoteVerbs.ownIds([own, "on-another-piece"], of: doc), [own])
-        _ = documentStore
 
         // Every path to a bulk act goes through the bar, and the bar is
         // drawn only over the bulk piece's own `Document`.

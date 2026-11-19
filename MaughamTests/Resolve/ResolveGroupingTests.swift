@@ -51,10 +51,11 @@ final class ResolveGroupingTests: XCTestCase {
 
     private func groups(_ snapshot: ResolveSnapshot, _ scope: ResolveScope,
                         sceneIndex: [String: Int]? = nil, sceneTitles: [String] = [],
-                        figureNames: [String: String] = [:]) -> [ResolveGroup] {
+                        figureNames: [String: String] = [:],
+                        projectType: ProjectType = .novel) -> [ResolveGroup] {
         ResolveGrouping.groups(snapshot, scope: scope, structure: structure,
                                sceneIndex: sceneIndex, sceneTitles: sceneTitles,
-                               figureNames: figureNames)
+                               figureNames: figureNames, projectType: projectType)
     }
 
     private func itemIds(_ group: ResolveGroup) -> [String] { group.items.map(\.id) }
@@ -76,6 +77,14 @@ final class ResolveGroupingTests: XCTestCase {
            text: ["aa11": "First line. <!--t-aaaaaa-->", "bb22": "Second.", "cc33": "Third.", "dd44": "Quiet."])
 
         let result = groups(read, .piece(docId: "doc-a", includesBookLevel: false))
+        // A Collection calls its piece a piece (controller ruling (c)), so the
+        // group agrees with `FiledUnder`'s "this piece's intent".
+        XCTAssertEqual(groups(read, .piece(docId: "doc-a", includesBookLevel: false),
+                              projectType: .collection).first?.title, "Whole piece")
+        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: false, projectType: .novel), "chapter")
+        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: true, projectType: .collection), "script",
+                       "a script in a Collection is still a script")
+        XCTAssertEqual(ResolveGrouping.pieceNoun(isScript: false, projectType: .screenplay), "script")
 
         XCTAssertEqual(result.map(\.key), [
             .wholePiece(docId: "doc-a"),

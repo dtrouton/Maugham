@@ -6,7 +6,7 @@ struct ResolveGroup: Identifiable, Equatable {
     enum Key: Hashable {
         /// The Book's own to-dos ("The book").
         case bookLevel
-        /// Items on a piece as a whole ("Whole chapter"; "Whole script").
+        /// Items on a piece as a whole ("Whole chapter"; "Whole piece" in a Collection; "Whole script").
         case wholePiece(docId: String)
         /// Items on one paragraph, titled by its text.
         case paragraph(docId: String, paragraphId: String)
@@ -66,9 +66,11 @@ enum ResolveGrouping {
     ///   - figureNames: figure id → its name (`FigureRecord.name`), for
     ///     figure group titles. No default on purpose: an omitted map titles
     ///     every figure "Figure", invisible in a green suite.
+    ///   - projectType: names the whole-piece group by what the project calls a
+    ///     piece (`pieceNoun`). No default, for the same reason.
     static func groups(_ snapshot: ResolveSnapshot, scope: ResolveScope, structure: [StructureItem],
                        sceneIndex: [String: Int]?, sceneTitles: [String],
-                       figureNames: [String: String]) -> [ResolveGroup] {
+                       figureNames: [String: String], projectType: ProjectType) -> [ResolveGroup] {
         let isPiece: Bool
         switch scope {
         case .elsewhere, .outside: return []
@@ -107,7 +109,8 @@ enum ResolveGrouping {
             let sections = self.sections(
                 docId: docId, items: items, sequence: snapshot.sequences[docId],
                 paragraphText: snapshot.paragraphText,
-                sceneIndex: isPiece ? sceneIndex : nil, sceneTitles: sceneTitles)
+                sceneIndex: isPiece ? sceneIndex : nil, sceneTitles: sceneTitles,
+                projectType: projectType)
             if isPiece && position == 0 {
                 groups += sections
             } else {
@@ -126,6 +129,16 @@ enum ResolveGrouping {
         return groups
     }
 
+    /// **What a piece is called**: "script" for a screenplay's (or any
+    /// piece read as a script), "piece" in a project that holds pieces (a
+    /// Collection), else "chapter". Asked by capability (tripwire 55). The
+    /// one noun: To resolve's whole-piece group and `FiledUnder`'s "this
+    /// chapter's intent" both say it.
+    static func pieceNoun(isScript: Bool, projectType: ProjectType) -> String {
+        if isScript || projectType.primaryFormat.isScreenplay { return "script" }
+        return projectType.holdsPieces ? "piece" : "chapter"
+    }
+
     // MARK: - One piece
 
     /// One piece's items as sections: whole piece, then paragraphs (or
@@ -134,7 +147,8 @@ enum ResolveGrouping {
     /// in one Position unknown group.
     private static func sections(docId: String, items: [ResolveItem], sequence: [String]?,
                                  paragraphText: [String: String],
-                                 sceneIndex: [String: Int]?, sceneTitles: [String]) -> [ResolveGroup] {
+                                 sceneIndex: [String: Int]?, sceneTitles: [String],
+                                 projectType: ProjectType) -> [ResolveGroup] {
         var position: [String: Int] = [:]
         for (index, pid) in (sequence ?? []).enumerated() where position[pid] == nil {
             position[pid] = index
@@ -157,7 +171,8 @@ enum ResolveGrouping {
         var sections: [ResolveGroup] = []
         if !whole.isEmpty {
             sections.append(ResolveGroup(key: .wholePiece(docId: docId),
-                                         title: sceneIndex == nil ? "Whole chapter" : "Whole script",
+                                         title: "Whole " + pieceNoun(isScript: sceneIndex != nil,
+                                                                     projectType: projectType),
                                          items: ordered(whole, sequence: order)))
         }
         if !unplaced.isEmpty {

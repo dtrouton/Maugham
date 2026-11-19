@@ -10,6 +10,10 @@ import MaughamCore
 struct FiledDestination: Equatable, Sendable {
     let kind: Statement.Kind
     let scope: Statement.Scope
+    /// True when the write found the words already standing there and wrote
+    /// nothing (the ledger's find-or-create, `LessonLedgerVerbs`): the line
+    /// then says "Already in", never "Filed under".
+    var alreadyStood = false
 }
 
 /// What a ruling refused to do, in the writer's words.

@@ -2172,9 +2172,22 @@ struct ProjectWindow: View {
     /// here when Brief is mounted, and the picker's segment becomes
     /// `RightColumnPosition.resolve`.
     func showStrain(_ request: ResolveRequest) {
-        showInspector = true
-        detailSegment = .resolve
-        resolveRequest = request
+        let jump = Self.strainJump(request)
+        showInspector = jump.showInspector
+        detailSegment = jump.detailSegment
+        resolveRequest = jump.request
+    }
+
+    /// What `showStrain` writes, as a value: the column shown, on To
+    /// resolve, holding the request. Pure, so it is pinned without a window.
+    struct StrainJump: Equatable {
+        let showInspector: Bool
+        let detailSegment: DetailSegment
+        let request: ResolveRequest
+    }
+
+    static func strainJump(_ request: ResolveRequest) -> StrainJump {
+        StrainJump(showInspector: true, detailSegment: .resolve, request: request)
     }
 
     /// **Going to a thing from outside the tree** — a link, a find result,

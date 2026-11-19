@@ -98,8 +98,11 @@ struct ResolveRequestOutcome: Equatable {
     let scrollTo: ResolveGroup.Key?
     /// The row a `.focusFinding` marks.
     var marked: String? = nil
-    /// A `.focusFinding` whose finding the list no longer holds.
+    /// A `.focusFinding` whose finding the list no longer holds (answered,
+    /// or replaced by a newer check).
     var settled = false
+    /// What a `.focusFinding` that found no row says, in one quiet line.
+    var line: String? = nil
 }
 
 /// **To resolve** — the right column's one list of what has been raised about
@@ -360,6 +363,8 @@ struct ResolvePane: View {
             figureSettledExpanded = false
             markChecksRead()
             markedItemId = nil
+            // "This chapter" was said of the list it stood over (M1).
+            filedNotice = nil
         }
         // The open piece changed inside a Book or Part list: a selection
         // made over the last one's notes is not this one's.
@@ -838,7 +843,7 @@ struct ResolvePane: View {
         sceneIndex = index
         groups = ResolveGrouping.groups(held, scope: scope, structure: structure,
                                         sceneIndex: index, sceneTitles: titles,
-                                        figureNames: names)
+                                        figureNames: names, projectType: store.manifest.type)
         chips = ResolveFilter.chips(held.items, passes: passes, localName: localName)
         dense = ResolveTriage.isDense(held.items, choice: triageChoice)
         incomplete = Self.incompleteLine(held, structure: structure, figureNames: names)
@@ -888,10 +893,9 @@ struct ResolvePane: View {
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
         markedItemId = outcome.marked
-        if outcome.settled {
+        if let line = outcome.line {
             filedNotice = FiledNotice.after(
-                .filed(FiledNotice.Filing(sentence: Self.settledFindingLine, brief: nil)),
-                current: filedNotice)
+                .filed(FiledNotice.Filing(sentence: line, brief: nil)), current: filedNotice)
         }
         refilter()
     }
