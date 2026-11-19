@@ -324,6 +324,24 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertFalse(window.firstResponder === manuscript, "and keeps turning them away")
     }
 
+    /// Controller rulings (fix 2): a double-click on the open piece's own
+    /// row closes the cover (any other open moves `open` and clears it there);
+    /// an annotation jump closes it even with no paragraph to go to.
+    func test_openingTheOpenPieceOrJumpingToAnAnnotationClosesTheCover() throws {
+        let open = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        XCTAssertTrue(TreeTravelModifier.closesTheCentreItem(.item("ch-1"), clickCount: 2, current: open))
+        XCTAssertFalse(TreeTravelModifier.closesTheCentreItem(.item("ch-1"), clickCount: 1, current: open),
+                       "a single click is not an open")
+        XCTAssertFalse(TreeTravelModifier.closesTheCentreItem(.item("ch-2"), clickCount: 2, current: open),
+                       "another piece moves `open`, which clears the item on its own")
+        let travel = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/TreeTravel.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(travel.contains("Self.closesTheCentreItem(clicked, clickCount: clicks, current: subject)"))
+        let nav = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/ParagraphNavModifier.swift"))
+        let receiver = try XCTUnwrap(nav.firstIndex { $0.contains(".onKeyWindowCommand(.maughamNavigateToAnnotation") })
+        XCTAssertTrue(nav[receiver + 1].contains("if centreItem != nil { centreItem = nil }"))
+    }
+
     // MARK: - Nothing under a cover writes the manuscript (fix 2)
 
     /// **N1: ⌘Z under a cover never runs the window's manager**, where the
