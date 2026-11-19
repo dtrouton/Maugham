@@ -156,9 +156,9 @@ debounced burst flush → op log + autosave → off-main render+write → Docume
 
 ### Two editors in one window
 A statement pane in the right column holds a second `EditorSurface` while the manuscript editor holds the centre (`StatementEditorMountTests` hosts the pair in one window). Both fixes below hang off `EditorSurfaceConfiguration.isSecondEditorInItsWindow`, default false (census: `TripwireGrepTests.test_everyEditorSurfaceMountIsAccountedFor`, over `editorSurfaceMountSites`).
-- **The window's `UndoManager` is shared, and `detach()` clears it**: `MaughamTextView.usesPrivateUndoManager`, set in `makeNSView` before anything registers, gives the second editor its own manager. Do NOT instead make `detach()`'s clear conditional: popping a native action after its text view has gone is the `⌘Z EXC_BAD_ACCESS` class.
+- **The window's `UndoManager` is shared, and `detach()` clears it**: `MaughamTextView.usesPrivateUndoManager`, set in `makeNSView` before anything registers, gives the second editor its own manager, and its own `undo:`/`redo:` (else ⌘Z reaches the window's). Do NOT instead make `detach()`'s clear conditional: popping a native action after its text view has gone is the `⌘Z EXC_BAD_ACCESS` class.
 - **Both coordinators answer the window's commands**: every observer `EditorCoordinator`'s `init` registers is key-window scoped through `receiverContext(.keyWindow)`, and `EditorCoordinator.respondsToWindowCommands` gates them at that one funnel. **Count the `MaughamEvent.observe` calls in that init rather than any sentence about them.**
-- **A third surface asks the same question**: if it can be on screen at the same time as another editor, it is a second editor.
+- **A third surface asks the same question**: on screen beside another editor, it is a second editor.
 
 ### Commands that write text
 - **A command writes through `applyCommandEdit`** (Route A): one `replaceCharacters` behind the membrane, one ⌘Z step, typing undo kept. Never Route B (`setParagraph` wipes typing undo, ADR 0023 D1).

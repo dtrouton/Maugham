@@ -64,7 +64,7 @@ enum InsertMenuGate {
                           manualReview: Bool, shareIsReadOnly: Bool,
                           isTranslationReview: Bool, gridHoldsTheKeys: Bool,
                           route: CentreRoute?) -> Bool {
-        guard !gridHoldsTheKeys, case .editor(altitude: nil, cover: nil)? = route,
+        guard !gridHoldsTheKeys, ProjectWindow.manuscriptIsVisible(route: route),
               let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
             && !manualReview && !isTranslationReview

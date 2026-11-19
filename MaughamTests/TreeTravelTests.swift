@@ -1100,7 +1100,7 @@ private struct TreeTravelReceiverProbeView: View {
     var body: some View {
         Color.clear
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(window: window, subject: probe.binding,
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
                                          store: probe.store))
             .onChange(of: window, initial: true) { _, new in probe.window = new }
     }
@@ -1118,7 +1118,7 @@ private struct BinderTravelProbeView: View {
     var body: some View {
         BinderView(store: store, subject: probe.binding, treeState: treeState)
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(window: window, subject: probe.binding,
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
                                          store: store))
             // The click tests wait on this before driving a double-click: the
             // receiver is `.keyWindow`-scoped and reads the window
@@ -1141,7 +1141,7 @@ private struct CollectionPiecesTravelProbeView: View {
         CollectionPiecesPane(store: store, subject: probe.binding,
                              renamingItemId: $renamingItemId, treeState: treeState)
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(window: window, subject: probe.binding,
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
                                          store: store))
     }
 }
@@ -1165,7 +1165,7 @@ private struct SceneNavigatorTravelProbeView: View {
             treeState: treeState,
             onSelect: { _ in })
             .background(WindowAccessor(window: $window))
-            .modifier(TreeTravelModifier(window: window, subject: probe.binding,
+            .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
                                          store: store))
     }
 }

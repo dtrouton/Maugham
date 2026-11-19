@@ -627,6 +627,48 @@ final class MaughamTextView: NSTextView {
         usesPrivateUndoManager ? privateUndoManager : super.undoManager
     }
 
+    // MARK: - ⌘Z on a second editor's own manager
+
+    /// **A second editor's ⌘Z runs its own manager** (shell plan 3 Task 5
+    /// fix 2, measured). `undoManager` above covers REGISTRATION only: AppKit
+    /// resolves Edit ▸ Undo by walking the responder chain for the first
+    /// object that implements `undo:`, and with none on this view the walk
+    /// reached the window's handler, which runs the window's SHARED manager —
+    /// so ⌘Z in a statement pane (or the centre's statement cover) undid the
+    /// manuscript's typing. `ScrapEditorHost` and `CanvasEventView` answer the
+    /// same walk the same way. The primary editor does not respond, so its
+    /// ⌘Z goes exactly where it always went.
+    override func responds(to aSelector: Selector!) -> Bool {
+        if !usesPrivateUndoManager, Self.undoSelectors.contains(aSelector) { return false }
+        return super.responds(to: aSelector)
+    }
+
+    static let undoSelectors: Set<Selector> = [#selector(undo(_:)), #selector(redo(_:))]
+
+    @objc func undo(_ sender: Any?) {
+        guard usesPrivateUndoManager, privateUndoManager.canUndo else { return }
+        privateUndoManager.undo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        guard usesPrivateUndoManager, privateUndoManager.canRedo else { return }
+        privateUndoManager.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard usesPrivateUndoManager else { return super.validateUserInterfaceItem(item) }
+        switch item.action {
+        case #selector(undo(_:)):
+            (item as? NSMenuItem)?.title = privateUndoManager.undoMenuItemTitle
+            return privateUndoManager.canUndo
+        case #selector(redo(_:)):
+            (item as? NSMenuItem)?.title = privateUndoManager.redoMenuItemTitle
+            return privateUndoManager.canRedo
+        default:
+            return super.validateUserInterfaceItem(item)
+        }
+    }
+
     /// An input method's commit (marked text replaced by its final text) is
     /// handed to the coordinator after it lands, in the same event, so a
     /// figure line it glued text onto is kept apart (whole-branch review I1).

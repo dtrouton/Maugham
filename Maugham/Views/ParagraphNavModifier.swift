@@ -49,6 +49,13 @@ struct ParagraphNavModifier: ViewModifier {
                 ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject,
                                         centreItem: $centreItem)
             }
+            // **An annotation jump closes the centre item's cover** (controller
+            // ruling, shell plan 3 Task 5 fix 2) — even one with no paragraph,
+            // which posts no paragraph navigation for `go` to close it from:
+            // the editor's own receiver selects the annotation under it.
+            .onKeyWindowCommand(.maughamNavigateToAnnotation, window: window) { _ in
+                if centreItem != nil { centreItem = nil }
+            }
             // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
             // window receives it; `openWindow(id:)` for a singleton Window is
             // idempotent (it brings the one Help window forward), so no

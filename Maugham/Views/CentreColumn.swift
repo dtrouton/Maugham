@@ -400,8 +400,9 @@ struct CentreColumn: View {
                                               round: publishCentre.selectedRound,
                                               problems: publishCentre.selectedProblems,
                                               centreItem: centreItem)
-        guard case .editor(let altitude, let cover) = route else { return false }
-        return ProjectWindow.coverHidesTheEditor(cover: cover, altitude: altitude)
+        // Not the editor at all: `EditorHost` is not mounted, nothing to cover.
+        guard case .editor = route else { return false }
+        return !ProjectWindow.manuscriptIsVisible(route: route)
     }
 
     /// **Close** (the cover's button, or Esc): the item goes, and the keys go

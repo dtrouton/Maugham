@@ -959,7 +959,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         }
         figureTableCommandObserver = MaughamEvent.observe(
             .maughamFigureTableCommand,
-            context: { [weak self] in self?.receiverContext(.keyWindow) }
+            context: { [weak self] in self?.manuscriptCommandContext() }
         ) { [weak self] note in
             guard let command = note.userInfo?[MaughamEvent.figureTableCommandKey] as? FigureTableCommand
             else { return }

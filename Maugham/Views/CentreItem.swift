@@ -39,16 +39,19 @@ extension ProjectWindow {
         return place == new ? item : nil
     }
 
-    /// **Whether what covers the editor hides it**: the Book's view, or any
-    /// cover but the no-book notice (which stands over the Book's view and
-    /// takes no clicks). While it does, the manuscript's text view never
-    /// holds the keys (`CentreKeys`). Pure.
-    static func coverHidesTheEditor(cover: CentreCover?, altitude: BookView?) -> Bool {
-        if altitude != nil { return true }
-        switch cover {
-        case .none, .notice: return false
-        case .books, .designGate, .translationRound, .publishProblems, .centreItem: return true
-        }
+    /// **Whether the manuscript is the editor the writer can see** — THE
+    /// question every manuscript-writing entry point that does not come
+    /// through the text view's own keys asks before it acts (shell plan 3
+    /// Task 5 fix 2): true only for the bare editor, `.editor(altitude: nil,
+    /// cover: nil)`. False under the centre item's cover, under any other
+    /// cover, under the Book's view, and for every centre that is not the
+    /// editor (the canvas, research, a figure, the wall, the Inbox, a
+    /// reference piece). Asked by the Insert menu's gate, the Format ▸ Table
+    /// publication, `CentreKeys` (and through it the editor's own commands,
+    /// `EditorCoordinator.manuscriptCommandContext`). Pure.
+    static func manuscriptIsVisible(route: CentreRoute?) -> Bool {
+        if case .editor(altitude: nil, cover: nil)? = route { return true }
+        return false
     }
 
     /// Whether this statement is the centre's cover — Brief and the pulled-up

@@ -231,6 +231,19 @@ extension EditorCoordinator {
     /// view (the binder), still answers.
     func insertCommandContext() -> EventReceiverContext? {
         guard answersInsertCommands, !anotherTextInputHasTheFocus else { return nil }
+        return manuscriptCommandContext()
+    }
+
+    /// **The context of every command that writes into the manuscript
+    /// without coming through its own keys** (shell plan 3 Task 5 fix 2): the
+    /// key-window context, and only while this manuscript is the editor the
+    /// writer can see (`CentreKeys.manuscriptIsVisible(holding:)`, the door
+    /// to `ProjectWindow.manuscriptIsVisible(route:)`). Under the centre
+    /// item's cover, any other cover or the Book's view the command reaches
+    /// nothing — as it does with no document open.
+    /// `EditorWriteCommandCensusTests` names every observer that must use it.
+    func manuscriptCommandContext() -> EventReceiverContext? {
+        guard let textView, CentreKeys.manuscriptIsVisible(holding: textView) else { return nil }
         return receiverContext(.keyWindow)
     }
 

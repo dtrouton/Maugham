@@ -62,14 +62,54 @@ struct CentreKeys: NSViewRepresentable {
         (responder as? MaughamTextView)?.coordinator?.respondsToWindowCommands == true
     }
 
+    /// **Whether `responder` is the manuscript's, by ANCESTRY** (review N3):
+    /// the manuscript text view itself, or any view inside it or its scroll
+    /// view — the expanded figure grid and its cell editor, the review
+    /// composer's field, the find bar (whose Replace edits the text). A field
+    /// editor answers for the field it is editing (its delegate). A walk up
+    /// the responder's own superviews: no window search, cheap per focus change.
+    static func isInsideTheManuscript(_ responder: NSResponder?) -> Bool {
+        var view: NSView?
+        if let text = responder as? NSText, text.isFieldEditor, let field = text.delegate as? NSView {
+            view = field
+        } else {
+            view = responder as? NSView
+        }
+        while let current = view {
+            if isManuscriptEditor(current) { return true }
+            if let scroll = current as? NSScrollView, isManuscriptEditor(scroll.documentView) { return true }
+            view = current.superview
+        }
+        return false
+    }
+
     /// Whether a cover's claim may take the keys from `responder`: from
-    /// nothing, from the covered manuscript, from this view, and from anything
-    /// that is not a field being typed in. Never from the writer's own typing
-    /// elsewhere — the find field, a rename, a right-column editor.
+    /// nothing, from anything inside the covered manuscript, from this view,
+    /// and from anything that is not a field being typed in. Never from the
+    /// writer's own typing elsewhere — the find field, a rename, a
+    /// right-column editor.
     static func mayClaim(from responder: NSResponder?) -> Bool {
         if responder == nil || responder is NSWindow || responder is CentreKeysView { return true }
-        if isManuscriptEditor(responder) { return true }
+        if isInsideTheManuscript(responder) { return true }
         return !CanvasEscapeMonitor.isEditingText(responder)
+    }
+
+    /// **Whether the manuscript editor holding `textView` is the editor the
+    /// writer can see** — the editor-side door to
+    /// `ProjectWindow.manuscriptIsVisible(route:)`, asked by every
+    /// manuscript-writing command that does not come through the text view's
+    /// own keys (`EditorCoordinator.manuscriptCommandContext`). Asks the
+    /// window's live `CentreKeysView` behind the centre column the text view
+    /// sits in; with none (a window that mounts no centre column, a test
+    /// harness), nothing covers it.
+    @MainActor
+    static func manuscriptIsVisible(holding textView: NSView) -> Bool {
+        guard let window = textView.window, let root = window.contentView else { return true }
+        let shown = CentreKeysView.visibleFrame(of: textView)
+        let centre = NSPoint(x: shown.midX, y: shown.midY)
+        let guards = CentreKeysView.all(CentreKeysView.self, in: root)
+            .filter { $0.convert($0.bounds, to: nil).contains(centre) }
+        return !guards.contains { $0.covered }
     }
 
     /// Whether `editorFrame` (window coordinates) belongs to the surface over
@@ -84,7 +124,10 @@ struct CentreKeys: NSViewRepresentable {
     @MainActor
     static func returnKeysToTheManuscript(in window: NSWindow?) {
         DispatchQueue.main.async { [weak window] in
-            guard let window, let root = window.contentView else { return }
+            // Never from a field the writer is typing in elsewhere (review N4):
+            // a click on the borderless Close takes no focus.
+            guard let window, mayClaim(from: window.firstResponder),
+                  let root = window.contentView else { return }
             let guards: [CentreKeysView] = CentreKeysView.all(CentreKeysView.self, in: root)
             guard !guards.contains(where: { $0.covered }),
                   let manuscript = CentreKeysView.all(MaughamTextView.self, in: root)
@@ -97,9 +140,19 @@ struct CentreKeys: NSViewRepresentable {
 
 /// The AppKit half of `CentreKeys`: a zero-content view behind the centre's
 /// stack that watches the window's first responder.
-final class CentreKeysView: NSView {
+final class CentreKeysView: NSView, NSUserInterfaceValidations {
 
     override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - ⌘Z under a cover (review N1)
+
+    /// **This view owns undo while it holds the keys.** Without these two,
+    /// `undo:` walks past it to `NSWindow`, whose own `undo:` runs the
+    /// window's shared manager — where the covered manuscript keeps its
+    /// typing undo — and rewrites text nobody can see (`CanvasEventView`'s
+    /// measured walk). Nothing under a cover is undone; both validate off.
+    @objc func undo(_ sender: Any?) {}
+    @objc func redo(_ sender: Any?) {}
 
     private var isCovered: () -> Bool = { false }
     private var claim: CentreKeys.Claim?
@@ -145,12 +198,22 @@ final class CentreKeysView: NSView {
         enforceSoon()
     }
 
-    /// On the next turn, if the editor is still covered and the manuscript has
-    /// the keys, move them to the cover's editor or to this view.
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)), #selector(redo(_:)): return false
+        default: return true
+        }
+    }
+
+    /// On the next turn, if anything inside the manuscript has the keys and
+    /// the editor is still covered, move them to the cover's editor or to this
+    /// view. The cheap ancestry test first; the route only when it says yes
+    /// (review N5).
     private func enforceSoon() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window, self.isCovered(),
-                  CentreKeys.isManuscriptEditor(window.firstResponder) else { return }
+            guard let self, let window = self.window,
+                  CentreKeys.isInsideTheManuscript(window.firstResponder),
+                  self.isCovered() else { return }
             window.makeFirstResponder(self.coverEditor(in: window) ?? self)
         }
     }

@@ -29,11 +29,14 @@ import AppKit
 /// before the canvas dim**, because the column is something the writer opened on
 /// purpose one gesture ago and the dim is a consequence of a selection they made
 /// earlier. One Escape sends the studied reference back; the next lifts the dim.
-/// That is the same answer in both arming orders, which is the whole point.
+/// That is the same answer in both arming orders, which is the whole point. The
+/// centre item's cover (shell plan 3) sits between them: after the column,
+/// beside it and opened one gesture ago, and before the dim, which never stands
+/// with it (the canvas is its own branch of the centre).
 ///
 /// A consumer that declines (`claim()` returning false) passes the offer down
 /// the list, and an Escape nobody claims **travels on** — a great many responders
-/// above these two want that key, and `CanvasEscapeMonitor.disposition`'s three
+/// above these consumers want that key, and `CanvasEscapeMonitor.disposition`'s three
 /// refusals (not Escape, not this window, a text responder is editing) are
 /// applied once, here, before any consumer is asked.
 @MainActor

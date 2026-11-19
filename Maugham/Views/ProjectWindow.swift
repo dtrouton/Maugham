@@ -538,6 +538,7 @@ struct ProjectWindow: View {
         // type-check ceiling).
         .modifier(TreeTravelModifier(window: window,
                                      subject: subjectBinding,
+                                     centreItem: $centreItem,
                                      store: store))
         .modifier(FocusPostureModifier(
             window: window,
@@ -684,7 +685,8 @@ struct ProjectWindow: View {
                                  preview: publishCentre.preview,
                                  proposal: publishCentre.selectedProposal,
                                  round: publishCentre.selectedRound,
-                                 problems: publishCentre.selectedProblems)
+                                 problems: publishCentre.selectedProblems,
+                                 centreItem: centreItem)
             })
     }
 

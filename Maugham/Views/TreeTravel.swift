@@ -351,7 +351,19 @@ struct TreeTravelModifier: ViewModifier {
     let window: NSWindow?
     /// The window's subject; a double-click writes it through the click rule.
     @Binding var subject: WindowSubject
+    /// The centre item's cover: opening the open piece's own row closes it.
+    @Binding var centreItem: CentreItem?
     let store: ProjectStore?
+
+    /// **A double-click on the row of the piece already open closes the
+    /// centre item's cover** (controller ruling, shell plan 3 Task 5 fix 2):
+    /// the writer asked to see that piece, and `open` does not move, so
+    /// `centreItemAfterOpenChange` would leave the cover up. Any other open
+    /// moves `open` and clears it there. Pure.
+    static func closesTheCentreItem(_ clicked: BinderSubject, clickCount: Int,
+                                    current: WindowSubject) -> Bool {
+        clickCount >= 2 && clicked == current.open
+    }
 
     func body(content: Content) -> some View {
         content
@@ -366,7 +378,12 @@ struct TreeTravelModifier: ViewModifier {
                 let structure = store?.manifest.structure ?? []
                 let type = store?.manifest.type ?? .novel
                 let next: WindowSubject
-                if (note.userInfo?[MaughamEvent.treeTravelClickCountKey] as? Int ?? 2) >= 2 {
+                let clicks = note.userInfo?[MaughamEvent.treeTravelClickCountKey] as? Int ?? 2
+                if centreItem != nil,
+                   Self.closesTheCentreItem(clicked, clickCount: clicks, current: subject) {
+                    centreItem = nil
+                }
+                if clicks >= 2 {
                     next = TreeTravel.openInCentre(clicked, current: subject,
                                                    structure: structure, projectType: type)
                 } else {

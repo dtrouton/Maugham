@@ -220,14 +220,33 @@ final class CentreItemCoverTests: XCTestCase {
     // MARK: - The keys under a cover (review C1)
 
     func test_whatCoversTheEditorHidesItAndTheCentreItemAsksForTheKeys() throws {
-        XCTAssertFalse(ProjectWindow.coverHidesTheEditor(cover: nil, altitude: nil), "the bare editor")
-        XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: nil, altitude: .cards), "the Book's view")
-        XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: .notice(.neverCompiled), altitude: .cards))
-        XCTAssertFalse(ProjectWindow.coverHidesTheEditor(cover: .notice(.neverCompiled), altitude: nil))
+        // The one question: only the bare editor is the editor the writer sees.
+        XCTAssertTrue(ProjectWindow.manuscriptIsVisible(route: .editor(altitude: nil, cover: nil)))
+        XCTAssertFalse(ProjectWindow.manuscriptIsVisible(route: .editor(altitude: .cards, cover: nil)),
+                       "the Book's view")
+        XCTAssertFalse(ProjectWindow.manuscriptIsVisible(
+            route: .editor(altitude: .cards, cover: .notice(.neverCompiled))))
         for cover: CentreCover in [.books([]), .publishProblems([]),
                                    .centreItem(.history(docId: "ch-1"))] {
-            XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: cover, altitude: nil), "\(cover)")
+            XCTAssertFalse(ProjectWindow.manuscriptIsVisible(route: .editor(altitude: nil, cover: cover)),
+                           "\(cover)")
         }
+        for route: CentreRoute in [.canvas, .inbox, .paletteWall, .research(id: "r"), .figure(id: "f")] {
+            XCTAssertFalse(ProjectWindow.manuscriptIsVisible(route: route), "\(route)")
+        }
+        XCTAssertFalse(ProjectWindow.manuscriptIsVisible(route: nil))
+        // The Insert menu asks it, with the window's centre item.
+        XCTAssertFalse(InsertMenuGate.isEnabled(
+            posture: .author, format: DocumentFormat.ofManuscript(path: "a.md"), manualReview: false,
+            shareIsReadOnly: false, isTranslationReview: false, gridHoldsTheKeys: false,
+            route: route(WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
+                         centreItem: .history(docId: "ch-1"))),
+                       "Insert is disabled under the History cover")
+        XCTAssertTrue(InsertMenuGate.isEnabled(
+            posture: .author, format: DocumentFormat.ofManuscript(path: "a.md"), manualReview: false,
+            shareIsReadOnly: false, isTranslationReview: false, gridHoldsTheKeys: false,
+            route: route(WindowSubject(open: .item("ch-1"), faces: .item("ch-1")), centreItem: nil)),
+                      "premise: enabled over the bare chapter")
         let intent = CentreItem.statement(kind: .intent, scope: .document("ch-1"))
         XCTAssertEqual(CentreItemCover.claim(for: .centreItem(intent))?.prefersEditor, true,
                        "a statement: its own editor")
@@ -245,7 +264,7 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertTrue(arm.contains(".background(CentreKeys(isCovered: { editorIsCovered(store: store) },"))
         XCTAssertTrue(arm.contains("claim: CentreItemCover.claim(for: cover)"))
         let covered = try SourceTree.declaration(named: "func editorIsCovered(", under: "Maugham")
-        XCTAssertTrue(covered.contains("ProjectWindow.coverHidesTheEditor(cover: cover, altitude: altitude)"))
+        XCTAssertTrue(covered.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
     }
 
     /// The writer types in the chapter, opens the intent in the centre and
@@ -303,6 +322,123 @@ final class CentreItemCoverTests: XCTestCase {
         window.makeFirstResponder(manuscript)
         await pumpUntil(deadline: 5) { !(window.firstResponder === manuscript) }
         XCTAssertFalse(window.firstResponder === manuscript, "and keeps turning them away")
+    }
+
+    // MARK: - Nothing under a cover writes the manuscript (fix 2)
+
+    /// **N1: ⌘Z under a cover never runs the window's manager**, where the
+    /// covered manuscript keeps its undo. Under History the guard view holds
+    /// the keys and owns undo, validated off; under a statement the
+    /// statement's editor answers on its own manager. A stand-in action on
+    /// the window's manager is what a manuscript step would be; the control
+    /// is the bare chapter, where the same ⌘Z runs it.
+    func test_undoUnderACoverNeverReachesTheManuscript() async throws {
+        let f = try await fixture("CentreUndo")
+        let docId = f.documentItemId
+        let statement = try await f.store.createStatement(kind: .intent, scope: .document(docId))
+        try await f.store.mutateStatementText(of: statement, session: "centre-test") { _ in "Turns on a lie." }
+        let probe = CentreItemProbe()
+        let window = f.hostView(AnyView(EditorUnderTheCover(
+            store: f.store, documentStore: f.documentStore, docId: docId, probe: probe)), width: 600)
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
+        let shared = try XCTUnwrap(manuscript.undoManager, "premise: the manuscript's manager")
+        XCTAssertTrue(shared === window.undoManager, "premise: it is the window's shared manager")
+        var ran = 0
+        // A turn after registering, so the manager's by-event group closes.
+        func registerAStep() async {
+            shared.registerUndo(withTarget: manuscript) { _ in ran += 1 }
+            await waitOut(0.1)
+        }
+        let undo = Selector(("undo:"))
+        let item = NSMenuItem(title: "Undo", action: undo, keyEquivalent: "z")
+
+        // Control: the bare chapter's ⌘Z runs the step.
+        await registerAStep()
+        window.makeFirstResponder(manuscript)
+        XCTAssertTrue(manuscript.tryToPerform(undo, with: nil))
+        XCTAssertEqual(ran, 1, "premise: ⌘Z over the chapter undoes it")
+
+        // History's cover: the guard view holds the keys and owns undo.
+        await registerAStep()
+        probe.centreItem = .history(docId: docId)
+        await pumpUntil(deadline: 5) { window.firstResponder is CentreKeysView }
+        let guardView = try XCTUnwrap(window.firstResponder as? CentreKeysView, "the cover holds the keys")
+        XCTAssertTrue(guardView.responds(to: undo), "⌘Z stops here, short of the window")
+        XCTAssertFalse(guardView.validateUserInterfaceItem(item), "and is greyed out")
+        XCTAssertTrue(guardView.tryToPerform(undo, with: nil))
+        XCTAssertEqual(ran, 1, "⌘Z under History undid the hidden chapter")
+
+        // A statement's cover: its own editor answers, on its own manager.
+        probe.centreItem = .statement(kind: .intent, scope: .document(docId))
+        await pumpUntil(deadline: 5) { Self.coverEditor(window.firstResponder) }
+        let coverEditor = try XCTUnwrap(window.firstResponder as? MaughamTextView)
+        XCTAssertFalse(coverEditor.undoManager === shared, "the statement's ⌘Z is the statement's")
+        _ = coverEditor.tryToPerform(undo, with: nil)
+        XCTAssertEqual(ran, 1, "⌘Z under the statement undid the hidden chapter")
+    }
+
+    /// **N2: an Insert command under a cover writes nothing**: the
+    /// manuscript's coordinator asks `manuscriptCommandContext` and does not
+    /// answer, as with no document open. The control (the bare chapter) takes
+    /// the same post. A key window: the command is `.keyWindow`-scoped.
+    func test_anInsertCommandUnderACoverWritesNothing() async throws {
+        let f = try await fixture("CentreInsert")
+        let docId = f.documentItemId
+        let probe = CentreItemProbe()
+        let window = TestWindow.mount(
+            AnyView(EditorUnderTheCover(store: f.store, documentStore: f.documentStore,
+                                        docId: docId, probe: probe).environment(f.preferences)),
+            size: CGSize(width: 600, height: 700), as: KeyTestWindow.self)
+        defer { window.close() }
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
+        window.makeFirstResponder(manuscript)
+        let before = manuscript.string
+        MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
+        await pumpUntil(deadline: 5) { manuscript.string != before }
+        XCTAssertNotEqual(manuscript.string, before, "premise: the bare chapter takes the footnote")
+
+        probe.centreItem = .history(docId: docId)
+        await pumpUntil(deadline: 5) { !CentreKeys.manuscriptIsVisible(holding: manuscript) }
+        XCTAssertFalse(CentreKeys.manuscriptIsVisible(holding: manuscript), "the editor asks: covered")
+        let covered = manuscript.string
+        MaughamEvent.post(.maughamInsertFootnote, to: .keyWindow)
+        MaughamEvent.post(.maughamInsertTable, to: .keyWindow)
+        await waitOut(0.4)
+        XCTAssertEqual(manuscript.string, covered, "an Insert under the History cover wrote the hidden chapter")
+    }
+
+    /// **N3: a view inside the manuscript loses the keys to the cover** — a
+    /// field the manuscript hosts (as the figure grid's cell editor, the
+    /// review composer and the find bar are), identified by ancestry.
+    func test_aFieldInsideTheManuscriptLosesTheKeysToTheCover() async throws {
+        let f = try await fixture("CentreKeysInside")
+        let docId = f.documentItemId
+        let statement = try await f.store.createStatement(kind: .intent, scope: .document(docId))
+        try await f.store.mutateStatementText(of: statement, session: "centre-test") { _ in "Turns on a lie." }
+        let probe = CentreItemProbe()
+        let window = f.hostView(AnyView(EditorUnderTheCover(
+            store: f.store, documentStore: f.documentStore, docId: docId, probe: probe)), width: 600)
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
+        let cell = NSTextField(frame: NSRect(x: 20, y: 20, width: 120, height: 22))
+        manuscript.addSubview(cell)
+        window.makeFirstResponder(cell)
+        XCTAssertTrue(CentreKeys.isInsideTheManuscript(window.firstResponder),
+                      "premise: the field's editor is inside the manuscript, got \(String(describing: window.firstResponder))")
+        XCTAssertFalse(CentreKeys.isManuscriptEditor(window.firstResponder),
+                       "premise: and is not the manuscript text view itself")
+        XCTAssertFalse(CentreKeys.isInsideTheManuscript(NSTextField()), "a field elsewhere is not")
+
+        probe.centreItem = .statement(kind: .intent, scope: .document(docId))
+        await pumpUntil(deadline: 5) { Self.coverEditor(window.firstResponder) }
+        XCTAssertTrue(Self.coverEditor(window.firstResponder),
+                      "the hidden field kept the keys: \(String(describing: window.firstResponder))")
+        // And a re-assertion inside the manuscript (the grid re-taking its keys).
+        window.makeFirstResponder(cell)
+        await pumpUntil(deadline: 5) { Self.coverEditor(window.firstResponder) }
+        XCTAssertTrue(Self.coverEditor(window.firstResponder), "turned away")
     }
 
     private static func manuscript(in window: NSWindow, _ f: StatementMountFixture) -> MaughamTextView? {
