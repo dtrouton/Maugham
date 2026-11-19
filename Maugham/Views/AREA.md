@@ -135,7 +135,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
 - `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
-- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift` (views).
+- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift`, `FiledUnder.swift` (views).
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.

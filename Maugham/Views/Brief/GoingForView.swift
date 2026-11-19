@@ -27,8 +27,8 @@ enum GoingForMode: Equatable {
 /// It is drawn from `ClauseMark.Kind` alone — a solid underline for
 /// `strains`, a dotted one for `silent` — over the WRITER's own characters;
 /// its legend is the two app constants below. The check's quote is never
-/// drawn: it travels only to `onShowStrain`, which Task 6 turns into a jump to
-/// the To resolve item where what the check said is shown
+/// drawn: a solid mark's click asks `onShowStrain` for its finding's To
+/// resolve item (`ClauseMarks.jump`), where what the check said is shown
 /// (`BriefPaneTests.test_aMarkCarriesNoModelText`).
 struct GoingForView: View {
     @Bindable var store: ProjectStore
@@ -47,7 +47,7 @@ struct GoingForView: View {
     let inTheCentre: Bool
     let posture: Posture
     let onOpenInCentre: () -> Void
-    let onShowStrain: (_ docId: String, _ clauseQuote: String) -> Void
+    let onShowStrain: (ResolveRequest) -> Void
 
     /// The writer is in the editor HERE: set by Edit, and by the editor's own
     /// appearance (so a check landing mid-sentence never takes the editor
@@ -235,8 +235,9 @@ struct GoingForView: View {
                 legend
             }
             .environment(\.openURL, OpenURLAction { url in
-                if let docId = strainDocId, let quote = Self.strainQuote(for: url, marks: marks) {
-                    onShowStrain(docId, quote)
+                if let docId = strainDocId, let mark = Self.strainMark(for: url, marks: marks),
+                   let request = ClauseMarks.jump(for: mark, docId: docId) {
+                    onShowStrain(request)
                 }
                 return .handled
             })
@@ -442,9 +443,14 @@ struct GoingForView: View {
     /// The check's quote a clicked mark asks To resolve for — a SOLID mark's
     /// only; a dotted mark carries no link, and anything else is nil.
     static func strainQuote(for url: URL, marks: [ClauseMark]) -> String? {
+        strainMark(for: url, marks: marks)?.clauseQuote
+    }
+
+    /// The SOLID mark a clicked link names, or nil.
+    static func strainMark(for url: URL, marks: [ClauseMark]) -> ClauseMark? {
         guard url.scheme == markScheme,
               let index = Int(url.absoluteString.dropFirst(markScheme.count + 1)),
               marks.indices.contains(index), marks[index].kind == .strains else { return nil }
-        return marks[index].clauseQuote
+        return marks[index]
     }
 }

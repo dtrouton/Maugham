@@ -277,11 +277,12 @@ extension TranslationRoundActions {
 
         actions.makeRule = { [weak store] round, text in
             guard let store else { return .refused(TranslationRoundReport.notWired) }
+            let destination: FiledDestination
             do {
                 // Unanchored on purpose: a rule made from a round is doctrine
                 // for the edition, not a directive about one paragraph. An
                 // empty one is refused by `RulingPerformer` in its own words.
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     text,
                     provenance: TranslationRoundReport.provenance(round: round,
                                                                   verb: "make it a rule"),
@@ -290,7 +291,12 @@ extension TranslationRoundActions {
             } catch {
                 return .refused(error.localizedDescription)
             }
-            return .done(nil, TranslationRoundReport.ruledLine(language: round.language))
+            // **Where it went, read off the write** (shell plan 3 Task 6): the
+            // report draws this sentence under the row's own section.
+            return .done(nil, FiledUnder.sentence(
+                destination, faces: .edition(language: round.language),
+                structure: store.manifest.structure, projectType: store.manifest.type,
+                firstReaderName: FirstReaderRuling.readerName(in: store.manifest)))
         }
 
         // MARK: The translator was right

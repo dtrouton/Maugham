@@ -57,7 +57,7 @@ final class BriefPaneTests: XCTestCase {
         BriefPane(store: f.store, documentStore: f.documentStore, scope: scope,
                   diagnostics: diagnostics, bible: bible, world: nil, centreItem: centreItem,
                   onOpenInCentre: { _ in }, onPullUp: { _ in },
-                  onShowStrain: { _, _ in }, onOpenBrief: { _ in })
+                  onShowStrain: { _ in }, onOpenBrief: { _ in })
     }
 
     // MARK: - The order (mounted)
@@ -293,7 +293,7 @@ final class BriefPaneTests: XCTestCase {
                                      fileOrder: [docId: snapshot.decisions.map(\.ruling)], isRead: true)
         let piece = BriefPieceView(store: f.store, documentStore: f.documentStore, docId: docId,
                                    contents: contents, bible: nil, world: nil, inTheCentre: false,
-                                   onOpenInCentre: { _ in }, onShowStrain: { _, _ in })
+                                   onOpenInCentre: { _ in }, onShowStrain: { _ in })
             .padding(.horizontal, 12)
 
         let title = String(repeating: "A", count: 200)

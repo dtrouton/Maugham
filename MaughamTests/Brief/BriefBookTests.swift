@@ -88,7 +88,7 @@ final class BriefBookTests: XCTestCase {
             BriefPane(store: f.store, documentStore: f.documentStore, scope: .book,
                       diagnostics: nil, bible: bible, world: nil, centreItem: nil,
                       onOpenInCentre: { _ in }, onPullUp: { _ in },
-                      onShowStrain: { _, _ in }, onOpenBrief: { _ in })))
+                      onShowStrain: { _ in }, onOpenBrief: { _ in })))
         await pumpUntil(deadline: 5) {
             f.shows("no flashbacks", in: window) && !f.allTextViews(in: window).isEmpty
         }

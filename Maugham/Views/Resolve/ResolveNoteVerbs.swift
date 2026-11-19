@@ -37,6 +37,9 @@ struct ResolveNoteVerbs {
     @Binding var bulkNotice: String?
     @Binding var letterLedgerRevision: Int
     @Binding var projectRefreshToken: Int
+    /// Where an Answer, a choice or a Keep as lesson filed, once it landed —
+    /// the host says so (`FiledNotice`, shell plan 3 Task 6).
+    var onFiledUnder: (FiledDestination) -> Void = { _ in }
 
     /// Run one verb over the planned ids.
     ///
@@ -57,6 +60,10 @@ struct ResolveNoteVerbs {
         _ verb: AnnotationBulkActions.BulkVerb, on ids: [String],
         in document: Document
     ) {
+        // **Only the document's own notes** (shell plan 3 Task 6): bulk acts
+        // through the open piece's `Document` and on nothing else, whatever
+        // path pressed it.
+        let ids = Self.ownIds(ids, of: document)
         guard !ids.isEmpty, !bulkInFlight else { return }
         bulkInFlight = true
         // The same flourish a single Stet wears, at scale: the rows stay put
@@ -84,6 +91,15 @@ struct ResolveNoteVerbs {
                 stetFlourishIds.subtract(outcome.succeeded)
             }
         }
+    }
+
+    /// The planned ids that are `document`'s own notes, in order.
+    static func ownIds(_ ids: [String], of document: Document) -> [String] {
+        ownIds(ids, among: Set(document.annotations(filter: AnnotationFilter(statuses: nil)).map(\.id)))
+    }
+
+    static func ownIds(_ ids: [String], among own: Set<String>) -> [String] {
+        ids.filter(own.contains)
     }
 
     // MARK: - The verbs
@@ -168,11 +184,11 @@ struct ResolveNoteVerbs {
             case .editionBrief:
                 rulingNotice = await QueryRuling.commit(
                     answer, answering: ann, in: document, store: store,
-                    undoManager: undoManager)
+                    undoManager: undoManager, filedUnder: onFiledUnder)
             case .firstReader:
                 rulingNotice = await FirstReaderRuling.commit(
                     answer, answering: ann, in: document, store: store,
-                    undoManager: undoManager)
+                    undoManager: undoManager, filedUnder: onFiledUnder)
             case nil:
                 rulingNotice = RulingDestination.noDestinationRefusal
             }
@@ -258,7 +274,7 @@ struct ResolveNoteVerbs {
         Task {
             let refusal = await QueueLedgerVerbs.makeChoice(
                 ann, in: document, store: store, world: world,
-                undoManager: undoManager)
+                undoManager: undoManager, filedUnder: onFiledUnder)
             ledgerNotice = refusal
             letterLedgerRevision += 1
             // **A refusal takes the mark off at once** — `runBulk`'s own guard,
@@ -282,7 +298,8 @@ struct ResolveNoteVerbs {
     func keepAsLesson(_ ann: Annotation, heading: String) -> Task<Void, Never> {
         Task {
             ledgerNotice = await QueueLedgerVerbs.keepAsLesson(
-                heading, from: ann, store: store, world: world)
+                heading, from: ann, store: store, world: world,
+                filedUnder: onFiledUnder)
             letterLedgerRevision += 1
         }
     }

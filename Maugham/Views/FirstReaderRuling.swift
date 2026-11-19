@@ -176,7 +176,8 @@ enum FirstReaderRuling {
     ///   the two, because they are separate acts against separate logs.
     static func commit(
         _ text: String, answering annotation: Annotation,
-        in document: Document, store: ProjectStore, undoManager: UndoManager?
+        in document: Document, store: ProjectStore, undoManager: UndoManager?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         // Unreachable from the queue — no row draws the affordance for a
         // project that has named nobody — and it refuses rather than asserting,
@@ -185,8 +186,9 @@ enum FirstReaderRuling {
         guard let name = readerName(in: store.manifest) else { return unnamedRefusal }
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let destination: FiledDestination
         do {
-            try await RulingPerformer.rule(
+            destination = try await RulingPerformer.rule(
                 words, provenance: provenance(for: annotation, name: name),
                 kind: .firstReader, forScope: .project,
                 store: store, world: nil)
@@ -203,6 +205,7 @@ enum FirstReaderRuling {
                 + error.localizedDescription
                 + " The note is still open — reply to it without ruling again."
         }
+        filedUnder(destination)
         return nil
     }
 

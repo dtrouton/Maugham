@@ -41,6 +41,8 @@ struct BriefBookView: View {
     /// The filter: nil is All. Remembered for the life of the view.
     @State private var filter: BriefDecision.Origin?
     @State private var showsReadings = false
+    /// Where a Confirm filed (shell plan 3 Task 6).
+    @State private var filedNotice: FiledNotice.Filing?
 
     static let allTitle = "All"
     static let bookTitle = "The book"
@@ -161,7 +163,7 @@ struct BriefBookView: View {
                     kind: .intent, scope: .project, centreItem: centreItem),
                 posture: posture,
                 onOpenInCentre: { onOpenInCentre(.statement(kind: .intent, scope: .project)) },
-                onShowStrain: { _, _ in })
+                onShowStrain: { _ in })
             decided
             BriefPullUpLines(store: store, lines: Self.pullUpLines, onPullUp: onPullUp)
             readings(posture)
@@ -229,9 +231,17 @@ struct BriefBookView: View {
                 if showsReadings {
                     BibleStratumView(
                         facts: contents.facts, scope: .project, store: store,
-                        bible: bible, world: world, posture: posture)
+                        bible: bible, world: world, posture: posture,
+                        onFiled: { destination in
+                            filedNotice = FiledNotice.after(
+                                .filed(FiledUnder.filing(destination, faces: .project, store: store)),
+                                current: filedNotice)
+                        })
                 }
             }
+        }
+        if filedNotice != nil {
+            FiledNotice(filing: $filedNotice)
         }
     }
 }

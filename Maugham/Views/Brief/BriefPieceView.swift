@@ -19,12 +19,15 @@ struct BriefPieceView: View {
     let world: DeclaredWorldStore?
     let inTheCentre: Bool
     let onOpenInCentre: (CentreItem) -> Void
-    let onShowStrain: (_ docId: String, _ clauseQuote: String) -> Void
+    let onShowStrain: (ResolveRequest) -> Void
 
     @State private var lineDraft = ""
     @FocusState private var lineFocused: Bool
     @State private var showsBook = false
     @State private var showsReadings = false
+    /// Where a Confirm (or a Correct) filed — one quiet line under the
+    /// readings (shell plan 3 Task 6).
+    @State private var filedNotice: FiledNotice.Filing?
 
     static let linePrompt = "A line for the cards and the outline — optional"
     static let fromTheBook = "From the book"
@@ -140,9 +143,19 @@ struct BriefPieceView: View {
                 if showsReadings {
                     BibleStratumView(
                         facts: contents.facts, scope: .document(docId), store: store,
-                        bible: bible, world: world, posture: posture)
+                        bible: bible, world: world, posture: posture,
+                        onFiled: { destination in
+                            filedNotice = FiledNotice.after(
+                                .filed(FiledUnder.filing(destination, faces: .item(docId), store: store)),
+                                current: filedNotice)
+                        })
                 }
             }
+        }
+        // Outside the readings, so the line outlives the last reading the
+        // Confirm took away.
+        if filedNotice != nil {
+            FiledNotice(filing: $filedNotice)
         }
     }
 }

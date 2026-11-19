@@ -225,6 +225,9 @@ struct ResolveHeadView: View {
     /// `(piece, passId, state)` — threaded from `RightColumn`, whose closure
     /// is `ProjectStore.setPassState` (`PassStateWriterCensusTests`).
     let onSetPassState: (String, String, PassState?) -> Void
+    /// Where the letter's Add to intent or Keep as lesson filed, once it
+    /// landed — the list says so under the head (shell plan 3 Task 6).
+    var onFiledUnder: (FiledDestination) -> Void = { _ in }
 
     @Environment(\.undoManager) private var undoManager
 
@@ -346,7 +349,8 @@ struct ResolveHeadView: View {
                         parentTaskId: nil,
                         paragraphId: habit.refs.first?.paragraphId,
                         undoManager: undoManager)
-                } : nil)
+                } : nil,
+                onFiledUnder: onFiledUnder)
                 // **Keyed by piece and run** (fix round 1, I1): a piece switch
                 // or the check's letter giving way to the round's mounts a
                 // fresh block, so no refusal outlives its letter.
@@ -452,6 +456,7 @@ struct HeadLetterBlock: View {
     let currentText: (String) -> String?
     let onJump: (String) -> Void
     let onAcceptExercise: ((Letter.Habit) -> Void)?
+    var onFiledUnder: (FiledDestination) -> Void = { _ in }
 
     @State private var turnClauseFiledForRun: String?
     @State private var offerFailure: String?
@@ -471,7 +476,8 @@ struct HeadLetterBlock: View {
             keptLetter: $keptLetter,
             keepFailure: $keepFailure,
             ledgerFailure: $ledgerFailure,
-            ledgerRevision: $ledgerRevision)
+            ledgerRevision: $ledgerRevision,
+            onFiledUnder: onFiledUnder)
     }
 }
 
@@ -609,6 +615,9 @@ struct RunLetterSection: View {
     /// Bumped by a ledger write so the ledger text re-reads; nothing else
     /// observes it.
     @Binding var ledgerRevision: Int
+    /// Where Add to intent, Keep as lesson or *These are all choices* filed
+    /// (shell plan 3 Task 6).
+    var onFiledUnder: (FiledDestination) -> Void = { _ in }
 
     var body: some View {
         let ledger = ledgerHandlers()
@@ -655,7 +664,8 @@ struct RunLetterSection: View {
             voice: voice,
             postureOf: postureOf,
             onFiled: { ledgerRevision += 1 },
-            onFailure: { ledgerFailure = $0 })
+            onFailure: { ledgerFailure = $0 },
+            filedUnder: onFiledUnder)
     }
 
     /// The offer, decided and written by `TurnClauseOffer`.
@@ -666,7 +676,8 @@ struct RunLetterSection: View {
             filedRunId: turnClauseFiledForRun,
             postureOf: postureOf,
             onFiled: { turnClauseFiledForRun = $0 },
-            onFailure: { offerFailure = $0 })
+            onFailure: { offerFailure = $0 },
+            filedUnder: onFiledUnder)
     }
 }
 

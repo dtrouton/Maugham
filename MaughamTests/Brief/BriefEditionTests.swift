@@ -35,7 +35,7 @@ final class BriefEditionTests: XCTestCase {
                           scope: .edition(language: language),
                           diagnostics: nil, bible: nil, world: nil, centreItem: nil,
                           onOpenInCentre: { _ in }, onPullUp: { _ in },
-                          onShowStrain: { _, _ in }, onOpenBrief: { _ in }))
+                          onShowStrain: { _ in }, onOpenBrief: { _ in }))
     }
 
     func test_anEditionsBriefIsItsBriefGlossaryCastAndVisualLanguage() async throws {
@@ -103,7 +103,7 @@ final class BriefEditionTests: XCTestCase {
         let wired = f.hostView(AnyView(BriefPane(
             store: f.store, documentStore: f.documentStore, scope: .edition(language: "es"),
             diagnostics: nil, bible: nil, world: nil, centreItem: nil,
-            onOpenInCentre: { _ in }, onPullUp: { _ in }, onShowStrain: { _, _ in },
+            onOpenInCentre: { _ in }, onPullUp: { _ in }, onShowStrain: { _ in },
             onOpenBrief: { _ in }, onOpenDesk: { opened.append($0) }).frame(height: 800)))
         await pumpUntil(deadline: 5) { f.shows(BriefEditionView.castHeading, in: wired) }
         XCTAssertTrue(f.shows(BriefEditionView.openTheDesk, in: wired))

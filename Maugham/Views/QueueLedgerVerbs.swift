@@ -250,13 +250,17 @@ enum QueueLedgerVerbs {
     /// refused ruling has changed nothing, and a refused stet has left a
     /// decision in the ledger with the note still open — a writer told only
     /// "that didn't work" would press again and file the row twice.
+    ///
+    /// `filedUnder` hears where the choice went, once both acts landed.
     static func makeChoice(
         _ annotation: Annotation, in document: Document,
-        store: ProjectStore, world: DeclaredWorldStore?, undoManager: UndoManager?
+        store: ProjectStore, world: DeclaredWorldStore?, undoManager: UndoManager?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         guard let heading = heading(of: annotation) else { return headinglessRefusal }
+        let destination: FiledDestination
         do {
-            try await LessonLedgerVerbs.makeChoice(
+            destination = try await LessonLedgerVerbs.makeChoice(
                 heading, provenance: provenance(for: annotation, store: store),
                 store: store, world: world)
         } catch {
@@ -270,6 +274,7 @@ enum QueueLedgerVerbs {
                 + "let stand: \(error.localizedDescription) "
                 + "It is still open \u{2014} stet it without filing again."
         }
+        filedUnder(destination)
         return nil
     }
 
@@ -285,16 +290,17 @@ enum QueueLedgerVerbs {
     /// entry that reads as the writer's commitment to nothing.
     static func keepAsLesson(
         _ heading: String, from annotation: Annotation,
-        store: ProjectStore, world: DeclaredWorldStore?
+        store: ProjectStore, world: DeclaredWorldStore?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         let words = heading.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else {
             return RulingFailure.emptyRuling.localizedDescription
         }
         do {
-            try await LessonLedgerVerbs.keepAsLesson(
+            filedUnder(try await LessonLedgerVerbs.keepAsLesson(
                 words, provenance: provenance(for: annotation, store: store),
-                store: store, world: world)
+                store: store, world: world))
         } catch {
             return error.localizedDescription
         }

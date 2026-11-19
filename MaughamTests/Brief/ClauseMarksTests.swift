@@ -159,4 +159,55 @@ final class ClauseMarksTests: XCTestCase {
                        [nil, ResolveItem.finding(docId: "doc-a", strain).id],
                        "in text order: dotted carries none; solid carries the To resolve item's id")
     }
+
+
+    // MARK: - A mark's item, and its jump (shell plan 3 Task 6)
+
+    /// A solid mark's item is the sidecar strain THIS run minted from that
+    /// clause; a strain of another run, or a finding of another kind, is
+    /// never its item; two clauses with one quote take one finding each.
+    func test_aSolidMarkMapsToTheStrainItsRunMinted() {
+        let essay = "Kelly never lies. The harbour stays shut."
+        let intent = essay
+        var checked = run(snapshot: intent)
+        checked.clauseStatuses = [clause("Kelly never lies.", "strains"),
+                                  clause("The harbour stays shut.", "silent")]
+        func strain(_ id: String, runId: String, kind: DiagnosticKind = .conformanceStrain) -> Diagnostic {
+            Diagnostic(id: id, docId: "doc-a", anchor: nil, body: "pulls", category: nil,
+                       runId: runId, kind: kind, refs: [], clauseQuote: "Kelly never lies.")
+        }
+        let mine = strain("d-mine", runId: checked.id)
+        let older = strain("d-older", runId: "run-0")
+        let question = strain("d-q", runId: checked.id, kind: .continuity)
+
+        let marks = BriefPane.marks(essay: essay, intentText: intent, run: checked,
+                                    findings: [older, question, mine], docId: "doc-a")
+        XCTAssertEqual(marks.first { $0.kind == .strains }?.resolveItemId,
+                       ResolveItem.finding(docId: "doc-a", mine).id, "this run's strain, and no other")
+        XCTAssertNil(marks.first { $0.kind == .silent }?.resolveItemId, "a dotted mark has no item")
+        XCTAssertNil(BriefPane.marks(essay: essay, intentText: intent, run: checked,
+                                     findings: [older], docId: "doc-a")
+                        .first { $0.kind == .strains }?.resolveItemId,
+                     "a strain only an older run minted is not this mark's item")
+
+        let twice = ClauseMarks.placement(
+            in: "Kelly never lies. Kelly never lies.",
+            clauses: [clause("Kelly never lies.", "strains"), clause("Kelly never lies.", "strains")],
+            findings: [strain("d-1", runId: "r"), strain("d-2", runId: "r")], docId: "doc-a")
+        XCTAssertEqual(Set(twice.marks.compactMap(\.resolveItemId)).count, 2, "one finding per mark")
+    }
+
+    /// The click: a solid mark asks To resolve for its item (or, with none,
+    /// for the settled line); a dotted mark asks nothing.
+    func test_aSolidMarksJumpAsksToResolveAndADottedOneDoesNothing() {
+        let solid = ClauseMark(kind: .strains, range: NSRange(location: 0, length: 5),
+                               clauseQuote: "Kelly", resolveItemId: "finding:doc-a/d-1")
+        XCTAssertEqual(ClauseMarks.jump(for: solid, docId: "doc-a"),
+                       .focusFinding(docId: "doc-a", itemId: "finding:doc-a/d-1"))
+        let noItem = ClauseMark(kind: .strains, range: NSRange(location: 0, length: 5), clauseQuote: "Kelly")
+        XCTAssertEqual(ClauseMarks.jump(for: noItem, docId: "doc-a"),
+                       .focusFinding(docId: "doc-a", itemId: nil), "To resolve then says it is settled")
+        let dotted = ClauseMark(kind: .silent, range: NSRange(location: 0, length: 5), clauseQuote: "Kelly")
+        XCTAssertNil(ClauseMarks.jump(for: dotted, docId: "doc-a"))
+    }
 }

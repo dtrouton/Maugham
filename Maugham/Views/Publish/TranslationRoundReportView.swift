@@ -73,6 +73,12 @@ struct TranslationRoundReportView: View {
     /// against.
     @State private var notice: String?
 
+    /// **Where Make it a rule filed** (shell plan 3 Task 6), drawn under the
+    /// section the row was pressed in (`filedSection`, its heading) rather
+    /// than in the header, for `FiledUnder.lingers`.
+    @State private var filedNotice: FiledNotice.Filing?
+    @State private var filedSection: String?
+
     /// **How many verbs are out.** Every verb writes somewhere durable — the
     /// round's own record, a ruling, an annotation — so a second press mid-write
     /// is a second write, and a disabled control is a cheaper answer than a
@@ -144,6 +150,7 @@ struct TranslationRoundReportView: View {
         // the one thing telling the writer what happened.
         .onChange(of: roundIdentity) { _, _ in
             notice = nil
+            filedNotice = nil
             expanded = []
             settled = []
         }
@@ -568,7 +575,9 @@ struct TranslationRoundReportView: View {
                 seed: seed, language: round.language,
                 onCommit: { text in
                     self.sheet = nil
-                    run(settling: id) { await actions.makeRule(round, text) }
+                    run(settling: id, filedIn: ruleSection(of: id)) {
+                        await actions.makeRule(round, text)
+                    }
                 },
                 onCancel: { self.sheet = nil })
         case .answer(let annotation):
@@ -601,7 +610,7 @@ struct TranslationRoundReportView: View {
     /// Translator's right) and so needs no `settled` guard. On `.done` that
     /// row joins `settled`, which is what stops a second press from filing the
     /// same ruling twice.
-    private func run(settling rowId: String? = nil,
+    private func run(settling rowId: String? = nil, filedIn section: String? = nil,
                      _ action: @escaping () async -> TranslationRoundActions.Outcome) {
         notice = nil
         // **Counted before the `Task` exists, not inside it.** The container
@@ -619,7 +628,16 @@ struct TranslationRoundReportView: View {
                 // the round: the record the verb produced is on disk, and the
                 // window's own value is what this surface reads.
                 if let updated { onRoundChanged(updated) }
-                notice = sentence
+                if let section {
+                    // A filing says where it went under its own section.
+                    filedSection = section
+                    filedNotice = FiledNotice.after(
+                        .filed(FiledNotice.Filing(sentence: sentence,
+                                                  brief: .edition(language: round.language))),
+                        current: filedNotice)
+                } else {
+                    notice = sentence
+                }
                 if let rowId { settled.insert(rowId) }
             case .refused(let sentence):
                 notice = sentence
@@ -663,7 +681,18 @@ struct TranslationRoundReportView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             content()
+            if filedNotice != nil, filedSection == heading {
+                FiledNotice(filing: $filedNotice)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The section a Make it a rule row sits in: a departure's, else a
+    /// disagreement's.
+    private func ruleSection(of rowId: String) -> String {
+        departureRows.contains { $0.id == rowId }
+            ? TranslationRoundReport.changedHeading
+            : TranslationRoundReport.disagreementsHeading
     }
 }

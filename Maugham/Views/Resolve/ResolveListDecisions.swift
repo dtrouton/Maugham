@@ -244,7 +244,47 @@ extension ResolvePane {
                     : []
             }
             return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key)
+        case .focusFinding(let docId, let itemId):
+            return focusFinding(docId: docId, itemId: itemId, groups: groups, chips: chips,
+                                activePassId: activePassId, dense: dense, selection: selection,
+                                choices: choices, figureOwners: figureOwners, localName: localName)
         }
+    }
+
+    /// The line a mark's jump says when its finding is no longer listed.
+    static let settledFindingLine = "Settled \u{2014} nothing about that sentence waits here now."
+
+    /// **A strain mark's jump** (shell plan 3 Task 6). The finding's group
+    /// opens, the list scrolls to it and its row is marked; a filter that
+    /// hides the row gives way as a focus's does (small: everything; dense:
+    /// the finding's own source). A finding no longer listed is settled: the
+    /// Checks chip (inert when absent) and the piece's own group, if the list
+    /// has one.
+    static func focusFinding(docId: String, itemId: String?, groups: [ResolveGroup],
+                             chips: [ResolveSource], activePassId: String?, dense: Bool,
+                             selection: Set<ResolveSource>, choices: [ResolveGroup.Key: Bool],
+                             figureOwners: [String: String?] = [:],
+                             localName: String = "") -> ResolveRequestOutcome {
+        if let itemId,
+           let group = groups.first(where: { $0.items.contains { $0.id == itemId } }),
+           let item = group.items.first(where: { $0.id == itemId }) {
+            var opened = choices
+            opened[group.key] = true
+            var shown = selection
+            let standing = ResolveFilter.normalized(selection, chips: chips, dense: dense)
+            if ResolveFilter.visible([item], selection: standing, localName: localName).isEmpty {
+                shown = dense ? [ResolveFilter.source(of: item, localName: localName)] : []
+            }
+            return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: group.key,
+                                         marked: itemId)
+        }
+        let checks = ResolveFilter.selection(for: .checks, chips: chips,
+                                             activePassId: activePassId, dense: dense)
+        var opened = choices
+        let key = focusKey(ownerId: docId, in: groups, figureOwners: [:])
+        if let key { opened[key] = true }
+        return ResolveRequestOutcome(selection: checks ?? selection, choices: opened,
+                                     scrollTo: key, settled: true)
     }
 
     /// The group a piece or a figure owns among the built groups; for a

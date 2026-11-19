@@ -4,10 +4,17 @@ import MaughamCore
 
 /// **What a key or another surface asks To resolve to do** — applied once,
 /// then cleared. `.filter` selects a source's chip (inert when the chip is
-/// absent); `.focus` scrolls to and opens a piece's or a figure's group.
+/// absent); `.focus` scrolls to and opens a piece's or a figure's group;
+/// `.focusFinding` opens the group holding one finding and marks its row —
+/// Brief's solid mark asks this (`ClauseMarks.jump`). `itemId` is the
+/// finding's `ResolveItem.id`, nil when the strain had none; a finding the
+/// list no longer holds (answered, replaced by a newer check, or dropped
+/// when its anchor text changed) is settled: the Checks chip on that piece,
+/// and one quiet line.
 enum ResolveRequest: Equatable {
     case filter(ResolveKeyFilter)
     case focus(groupOwnerId: String)
+    case focusFinding(docId: String, itemId: String?)
 }
 
 /// What one refresh does (`ResolvePane.refreshStep`).
@@ -89,6 +96,10 @@ struct ResolveRequestOutcome: Equatable {
     let selection: Set<ResolveSource>
     let choices: [ResolveGroup.Key: Bool]
     let scrollTo: ResolveGroup.Key?
+    /// The row a `.focusFinding` marks.
+    var marked: String? = nil
+    /// A `.focusFinding` whose finding the list no longer holds.
+    var settled = false
 }
 
 /// **To resolve** — the right column's one list of what has been raised about
@@ -219,6 +230,12 @@ struct ResolvePane: View {
     @State private var bulkInFlight = false
     @State private var letterLedgerRevision = 0
     @State private var window: NSWindow?
+    /// Where the last answer was filed — one quiet line under the head
+    /// (shell plan 3 Task 6). Also what a mark's jump says when its finding
+    /// is settled.
+    @State private var filedNotice: FiledNotice.Filing?
+    /// The row a strain mark's jump marked (`.focusFinding`).
+    @State private var markedItemId: String?
 
     // MARK: - Derived per render (no walk)
 
@@ -246,6 +263,20 @@ struct ResolvePane: View {
 
     /// May this window act on the faces' piece?
     private var mayActOnFaces: Bool { pieceDocId.map(mayAct(on:)) ?? false }
+
+    /// **The piece bulk acts over**: the open piece, at its own scope or
+    /// inside the Book or Part list it was opened in (`ResolveVerbGate`).
+    private var bulkDocId: String? {
+        ResolveVerbGate.bulkDocId(scope: scope, openDocId: openDocId,
+                                  isRegistered: { documentStore.document(forDocId: $0) != nil })
+    }
+
+    /// Say where an answer was filed, seen from the faces.
+    private func filed(_ destination: FiledDestination) {
+        filedNotice = FiledNotice.after(
+            .filed(FiledUnder.filing(destination, faces: subject.faces, store: store)),
+            current: filedNotice)
+    }
 
     /// **The piece whose caret the list follows**: the open piece, wherever
     /// the faces' scope holds it — the piece's own list, or the Book or Part
@@ -289,7 +320,13 @@ struct ResolvePane: View {
                 onChooseReader: { documentStore.setAuthorReaderChoice($0) },
                 onOpenProjectSettings: onOpenProjectSettings,
                 onSetActivePass: onSetActivePass,
-                onSetPassState: onSetPassState)
+                onSetPassState: onSetPassState,
+                onFiledUnder: { filed($0) })
+            if filedNotice != nil {
+                // Task 9 passes `onOpenBrief` (the right column's Brief).
+                FiledNotice(filing: $filedNotice)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+            }
             if hasList {
                 filterBar
                 Divider()
@@ -322,6 +359,13 @@ struct ResolvePane: View {
             bookSettledExpanded = false
             figureSettledExpanded = false
             markChecksRead()
+            markedItemId = nil
+        }
+        // The open piece changed inside a Book or Part list: a selection
+        // made over the last one's notes is not this one's.
+        .onChange(of: bulkDocId) { _, _ in
+            selectionModeOn = false
+            selectedIds = []
         }
         .onChange(of: request, initial: true) { _, new in take(new) }
         .onChange(of: triageChoice) { _, new in
@@ -398,10 +442,10 @@ struct ResolvePane: View {
             onNewTodo: presentCreateSheet)
     }
 
-    /// Selection mode's door: a `.piece` scope on the open piece with notes,
-    /// where its posture leaves a bulk verb to press.
+    /// Selection mode's door: the open piece's notes — at its own scope or
+    /// inside a Book or Part list — where its posture leaves a bulk verb.
     private var showsSelectionMode: Bool {
-        guard mayActOnFaces, let docId = pieceDocId, !bulkRows.isEmpty else { return false }
+        guard let docId = bulkDocId, !bulkRows.isEmpty else { return false }
         return ResolveNoteVerbs.bulkOffersAVerb(posture: documentStore.posture(forDocId: docId))
     }
 
@@ -415,7 +459,7 @@ struct ResolvePane: View {
         let wiring = rowWiring
         let open = ResolveFilter.expanded(shown, cursor: caretGroup, dense: dense, choices: choices)
         let reorders = reordersHere
-        let piece = pieceDocId
+        let bulk = bulkDocId
         let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
                                     hasVisible: !shown.isEmpty,
                                     offersColdStart: offersColdStart)
@@ -437,7 +481,7 @@ struct ResolvePane: View {
                                 .id(group.key)
                             if open.contains(group.key) {
                                 ForEach(group.items) { item in
-                                    row(item, acting: acting, piece: piece, wiring: wiring, reorders: reorders)
+                                    row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
                                     Divider()
                                 }
                             }
@@ -484,7 +528,9 @@ struct ResolvePane: View {
                                        groups: shown, caretGroup: $caretGroup)
                 }
             }
-            if selectionModeOn, mayActOnFaces, let acting, acting.docId == pieceDocId,
+            // Over the open piece's notes only: `acting` is the open piece's
+            // `Document`, and bulk is drawn only where it is the bulk piece.
+            if selectionModeOn, let bulk, let acting, acting.docId == bulk,
                !bulkRows.isEmpty,
                ResolveNoteVerbs.bulkOffersAVerb(posture: documentStore.posture(forDocId: acting.docId)) {
                 Divider()
@@ -562,7 +608,7 @@ struct ResolvePane: View {
     // MARK: - A row
 
     @ViewBuilder
-    private func row(_ item: ResolveItem, acting: Document?, piece: String?,
+    private func row(_ item: ResolveItem, acting: Document?, bulk: String?,
                      wiring: AnnotationRowWiring, reorders: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if let caption = Self.caption(for: item, localName: localName) {
@@ -577,7 +623,7 @@ struct ResolvePane: View {
                     annotation: note.annotation, docId: note.docId,
                     document: note.docId == acting?.docId ? acting : nil,
                     livePids: [], ledgerText: ledgerText,
-                    isSelectable: selectionModeOn && note.docId == piece,
+                    isSelectable: selectionModeOn && note.docId == bulk,
                     isSelected: selectedIds.contains(note.annotation.id),
                     figureTitle: figureNames[note.docId],
                     figureCells: figureCells[note.annotation.id],
@@ -589,6 +635,13 @@ struct ResolvePane: View {
                 todoRow(task, acting: acting, reorders: reorders)
             }
         }
+        // A strain mark's jump marks its row (`.focusFinding`).
+        .background(alignment: .leading) {
+            if item.id == markedItemId {
+                Rectangle().fill(Color.accentColor).frame(width: 3)
+            }
+        }
+        .accessibilityAddTraits(item.id == markedItemId ? .isSelected : [])
     }
 
     /// The check's note's one-gesture decline (`offersNotThis`), and what a
@@ -834,6 +887,12 @@ struct ResolvePane: View {
         selection = outcome.selection
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
+        markedItemId = outcome.marked
+        if outcome.settled {
+            filedNotice = FiledNotice.after(
+                .filed(FiledNotice.Filing(sentence: Self.settledFindingLine, brief: nil)),
+                current: filedNotice)
+        }
         refilter()
     }
 
@@ -907,7 +966,7 @@ struct ResolvePane: View {
         Task {
             let failure = await CheckNarrative.commitAnswer(
                 text, to: finding, docId: docId, store: store, world: world,
-                diagnostics: diagnostics)
+                diagnostics: diagnostics, filedUnder: { filed($0) })
             answering.remove(finding.id)
             answerFailures[finding.id] = failure
         }
@@ -956,10 +1015,11 @@ struct ResolvePane: View {
 
     // MARK: - Notes: bulk, wiring, verbs
 
-    /// The open piece's visible notes — what bulk acts over.
+    /// The open piece's visible notes — what bulk acts over, in its own list
+    /// or a Book or Part list that holds it.
     private var bulkRows: [Annotation] {
-        guard let pieceDocId else { return [] }
-        return Self.bulkRows(visible, pieceDocId: pieceDocId, heldForFlourish: keptStetted)
+        guard let bulkDocId else { return [] }
+        return Self.bulkRows(visible, pieceDocId: bulkDocId, heldForFlourish: keptStetted)
     }
 
     /// The open piece's visible notes, less any row held only for its stet
@@ -994,7 +1054,7 @@ struct ResolvePane: View {
             projectSnapshot: { [walks] in
                 Self.projectNotes(walks: walks, scope: scope, documentStore: documentStore)
             },
-            visibleAnnotations: { doc in doc.docId == pieceDocId ? bulkRows : [] },
+            visibleAnnotations: { doc in doc.docId == bulkDocId ? bulkRows : [] },
             effectiveSelection: { effectiveSelection(in: $0) },
             staleConfirm: $staleConfirm, anchorLostNotice: $anchorLostNotice,
             revertConfirm: $revertConfirm, rulingNotice: $rulingNotice,
@@ -1002,7 +1062,8 @@ struct ResolvePane: View {
             stetFlourishIds: $stetFlourishIds, bulkInFlight: $bulkInFlight,
             selectedIds: $selectedIds, bulkNotice: $bulkNotice,
             letterLedgerRevision: $letterLedgerRevision,
-            projectRefreshToken: $annotationsToken)
+            projectRefreshToken: $annotationsToken,
+            onFiledUnder: { filed($0) })
     }
 
     private var rowWiring: AnnotationRowWiring {

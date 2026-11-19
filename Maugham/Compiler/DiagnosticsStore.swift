@@ -607,6 +607,14 @@ final class DiagnosticsStore {
         version += 1
     }
 
+    /// **The standing check's findings for `docId`, unjudged** — `live`'s
+    /// list before its anchor filter. Brief maps a solid clause mark to its
+    /// finding through this (`ClauseMarks.placement`); whether To resolve
+    /// still lists that finding is To resolve's own read to answer.
+    func checkFindings(docId: String) -> [Diagnostic] {
+        byDoc[docId]?[.check]?.diagnostics ?? []
+    }
+
     /// **What the check's ⌘R last said about `docId`** — the standing check
     /// (two loops P1 Task 5). What the Diagnostics pane reports on.
     func lastCheck(docId: String) -> CompilerRun? {

@@ -134,7 +134,8 @@ enum QueryRuling {
     /// the reply keeps the doctrine they wrote.
     static func commit(
         _ text: String, answering annotation: Annotation,
-        in document: Document, store: ProjectStore, undoManager: UndoManager?
+        in document: Document, store: ProjectStore, undoManager: UndoManager?,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
         // Unreachable from either surface — no row without an edition draws the
         // affordance — and it refuses rather than asserting, because a caller
@@ -145,8 +146,9 @@ enum QueryRuling {
         guard let language = language(of: annotation) else { return editionlessRefusal }
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let destination: FiledDestination
         do {
-            try await RulingPerformer.rule(
+            destination = try await RulingPerformer.rule(
                 words, provenance: provenance(for: annotation),
                 kind: .editionBrief(language), forScope: .project,
                 store: store, world: nil)
@@ -164,6 +166,7 @@ enum QueryRuling {
                 + error.localizedDescription
                 + " The question is still open — reply to it without ruling again."
         }
+        filedUnder(destination)
         return nil
     }
 

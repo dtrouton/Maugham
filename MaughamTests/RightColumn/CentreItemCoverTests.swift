@@ -69,7 +69,7 @@ private struct BriefBesideTheCentre: View {
             BriefPane(store: store, documentStore: documentStore, scope: .piece(docId: docId),
                       diagnostics: nil, bible: nil, world: nil, centreItem: probe.centreItem,
                       onOpenInCentre: { _ in }, onPullUp: { _ in },
-                      onShowStrain: { _, _ in }, onOpenBrief: { _ in })
+                      onShowStrain: { _ in }, onOpenBrief: { _ in })
                 .frame(width: 320)
         }
     }

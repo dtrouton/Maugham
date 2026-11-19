@@ -56,7 +56,10 @@ struct BriefPane: View {
     let centreItem: CentreItem?
     let onOpenInCentre: (CentreItem) -> Void
     let onPullUp: (PulledUp) -> Void
-    let onShowStrain: (_ docId: String, _ clauseQuote: String) -> Void
+    /// A solid mark's click: To resolve's request for its finding
+    /// (`ClauseMarks.jump`). Task 9 moves the right column to To resolve
+    /// and hands the request over (`ProjectWindow.showStrain`).
+    let onShowStrain: (ResolveRequest) -> Void
     let onOpenBrief: (BinderSubject) -> Void
     /// The Department desk for an edition — where its cast is changed. Nil
     /// draws no way there (Task 9 wires the right column's position).
@@ -69,7 +72,7 @@ struct BriefPane: View {
          centreItem: CentreItem?,
          onOpenInCentre: @escaping (CentreItem) -> Void,
          onPullUp: @escaping (PulledUp) -> Void,
-         onShowStrain: @escaping (_ docId: String, _ clauseQuote: String) -> Void,
+         onShowStrain: @escaping (ResolveRequest) -> Void,
          onOpenBrief: @escaping (BinderSubject) -> Void,
          onOpenDesk: ((_ language: String) -> Void)? = nil) {
         self.store = store
@@ -215,7 +218,9 @@ struct BriefPane: View {
             let rulings = RulingsStratum.currentRows(kind: .intent, forScope: .document(docId), store: store)
             contents.fileOrder = [docId: rulings]
             contents.marks = marks(essay: snapshot.intentEssay, intentText: snapshot.intentText,
-                                   run: diagnostics?.lastCheck(docId: docId))
+                                   run: diagnostics?.lastCheck(docId: docId),
+                                   findings: diagnostics?.checkFindings(docId: docId) ?? [],
+                                   docId: docId)
             if rulings.contains(where: { $0.paragraphId != nil }),
                let state = try? currentParagraphState(documentId: docId, store: store,
                                                       documentStore: documentStore, projectURL: store.url) {
@@ -249,10 +254,15 @@ struct BriefPane: View {
 
     /// The marks to draw: none unless the check read exactly this intent
     /// (`ClauseMarks.applies`), else its strains and silent clauses placed on
-    /// the WHOLE essay (so ranges are essay offsets).
-    static func marks(essay: String?, intentText: String?, run: CompilerRun?) -> [ClauseMark] {
+    /// the WHOLE essay (so ranges are essay offsets). Each solid mark carries
+    /// its To resolve finding: the sidecar strain THIS run minted from that
+    /// clause (`findings` from another run answer nothing).
+    static func marks(essay: String?, intentText: String?, run: CompilerRun?,
+                      findings: [Diagnostic] = [], docId: String? = nil) -> [ClauseMark] {
         guard let essay, let run, ClauseMarks.applies(run: run, statementText: intentText) else { return [] }
-        return ClauseMarks.placement(in: essay, clauses: run.clauseStatuses ?? []).marks
+        return ClauseMarks.placement(in: essay, clauses: run.clauseStatuses ?? [],
+                                     findings: findings.filter { $0.runId == run.id },
+                                     docId: docId).marks
     }
 
     // MARK: - What is offered (pure)

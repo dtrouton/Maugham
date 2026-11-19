@@ -519,6 +519,132 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertNil(mine.scrollTo)
     }
 
+    // MARK: - A strain mark's jump (shell plan 3 Task 6)
+
+    /// A solid mark asks for its finding by the finding's own item id: the
+    /// group holding it opens, the list scrolls there and the row is marked;
+    /// a filter hiding the row gives way.
+    func test_aStrainFocusOpensItsFindingsGroup() {
+        let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
+        let strain = finding("s1", pid: "bb22")
+        let items = (0..<14).map { note("n\($0)") } + [strain]
+        let built = groups(items, piece)
+        XCTAssertTrue(ResolveFilter.isDense(items), "premise: dense, so nothing is open by default")
+        let holding = try! XCTUnwrap(built.first { $0.items.contains(strain) })
+
+        let outcome = ResolvePane.apply(
+            .focusFinding(docId: "doc-a", itemId: strain.id), groups: built,
+            chips: [.checks, .others], activePassId: nil, dense: true,
+            selection: [.others], choices: [:])
+        XCTAssertEqual(outcome.marked, strain.id, "the row is marked")
+        XCTAssertFalse(outcome.settled)
+        XCTAssertEqual(outcome.scrollTo, holding.key)
+        XCTAssertEqual(ResolveFilter.expanded(built, cursor: nil, dense: true, choices: outcome.choices),
+                       [holding.key], "its group opens, and only it")
+        XCTAssertEqual(outcome.selection, [.checks], "dense: Others hid it, so its own source shows")
+
+        let small = ResolvePane.apply(
+            .focusFinding(docId: "doc-a", itemId: strain.id), groups: groups([note("n1"), strain], piece),
+            chips: [.checks, .others], activePassId: nil, dense: false,
+            selection: [.others], choices: [:])
+        XCTAssertEqual(small.selection, [], "small: the filter gives way to everything")
+        XCTAssertEqual(small.marked, strain.id)
+    }
+
+    /// A strain the list no longer holds — answered, replaced by a newer
+    /// check, or dropped when its anchor text changed — or one that never had
+    /// an item is settled: the Checks chip on that piece, and the line.
+    func test_aStrainWithNoFindingFallsBackToChecks() {
+        let book = ResolveScope.pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: true)
+        let built = groups([note("a1"), finding("other", on: "doc-b", pid: "cc33")], book)
+        let gone = ResolveItem.finding(docId: "doc-b", Diagnostic(
+            id: "answered", docId: "doc-b", anchor: nil, body: "x", category: nil,
+            runId: "run-1", kind: .conformanceStrain)).id
+        for itemId in [gone, nil] as [String?] {
+            let outcome = ResolvePane.apply(
+                .focusFinding(docId: "doc-b", itemId: itemId), groups: built,
+                chips: [.checks, .others], activePassId: nil, dense: false,
+                selection: [.others], choices: [:])
+            XCTAssertTrue(outcome.settled, "nothing listed for it: settled")
+            XCTAssertNil(outcome.marked, "no row is marked")
+            XCTAssertEqual(outcome.selection, [.checks], "the Checks filter")
+            XCTAssertEqual(outcome.scrollTo, .piece(docId: "doc-b"), "on that piece's group")
+            XCTAssertEqual(outcome.choices[.piece(docId: "doc-b")], true)
+        }
+        let noChecks = ResolvePane.apply(
+            .focusFinding(docId: "doc-a", itemId: gone), groups: groups([note("a1")], book),
+            chips: [.others], activePassId: nil, dense: false, selection: [.others], choices: [:])
+        XCTAssertEqual(noChecks.selection, [.others], "no Checks chip: the writer's filter stands")
+        XCTAssertTrue(noChecks.settled)
+        XCTAssertFalse(ResolvePane.settledFindingLine.isEmpty)
+    }
+
+    // MARK: - Bulk inside a Book or Part list (carried from plan 2)
+
+    /// With the Book or a Part on the faces and a piece open in the centre,
+    /// bulk is offered over the OPENED piece's notes, as at piece scope.
+    func test_theBulkBarIsOfferedOverTheOpenPieceInsideABookList() {
+        let book = ResolveScope.pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: true)
+        let part = ResolveScope.pieces(docIds: ["doc-b"], includesBookLevel: false)
+        let registered: (String) -> Bool = { $0 == "doc-b" }
+        XCTAssertEqual(ResolveVerbGate.bulkDocId(scope: book, openDocId: "doc-b", isRegistered: registered),
+                       "doc-b")
+        XCTAssertEqual(ResolveVerbGate.bulkDocId(scope: part, openDocId: "doc-b", isRegistered: registered),
+                       "doc-b")
+        XCTAssertEqual(ResolveVerbGate.bulkDocId(
+            scope: .piece(docId: "doc-b", includesBookLevel: false), openDocId: "doc-b",
+            isRegistered: registered), "doc-b", "and at the piece's own scope, as before")
+        let visible = [note("a1"), note("b1", on: "doc-b", pid: "cc33"), note("b2", on: "doc-b", pid: "cc33"),
+                       finding("s1", on: "doc-b", pid: "cc33")]
+        XCTAssertEqual(ResolvePane.bulkRows(visible, pieceDocId: "doc-b", heldForFlourish: []).map(\.id),
+                       ["b1", "b2"], "the opened piece's notes, and only its notes")
+    }
+
+    /// Bulk never reaches a piece that is not the open one, through any
+    /// path: no bulk piece off the open one; the bar is drawn only over the
+    /// open piece's `Document`; and the verb drops any id that is not that
+    /// document's own note before acting.
+    func test_theBulkBarNeverActsOnAPieceThatIsNotOpen() async throws {
+        let book = ResolveScope.pieces(docIds: ["doc-a", "doc-b"], includesBookLevel: true)
+        let all: (String) -> Bool = { _ in true }
+        XCTAssertNil(ResolveVerbGate.bulkDocId(scope: book, openDocId: nil, isRegistered: all),
+                     "the canvas in the centre: no piece is open")
+        XCTAssertNil(ResolveVerbGate.bulkDocId(scope: book, openDocId: "doc-z", isRegistered: all),
+                     "a piece open outside the list")
+        XCTAssertNil(ResolveVerbGate.bulkDocId(scope: book, openDocId: "doc-a", isRegistered: { _ in false }),
+                     "a piece whose document has not loaded")
+        XCTAssertNil(ResolveVerbGate.bulkDocId(
+            scope: .piece(docId: "doc-a", includesBookLevel: false), openDocId: "doc-b",
+            isRegistered: all), "the faces' piece while another is open")
+        XCTAssertEqual(ResolveNoteVerbs.ownIds(["b1", "a1", "b2"], among: ["b1", "b2"]), ["b1", "b2"])
+
+        // The verb's own guard, over a real document.
+        let (doc, _, documentStore) = try await openDocument()
+        let pid = try XCTUnwrap(doc.sequence.first)
+        try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: "Mine.")
+        let own = try XCTUnwrap(doc.annotations().first).id
+        XCTAssertEqual(ResolveNoteVerbs.ownIds([own, "on-another-piece"], of: doc), [own])
+        _ = documentStore
+
+        // Every path to a bulk act goes through the bar, and the bar is
+        // drawn only over the bulk piece's own `Document`.
+        let pane = try Self.paneSource()
+        XCTAssertTrue(pane.contains("if selectionModeOn, let bulk, let acting, acting.docId == bulk,"),
+                      "the bar is drawn only over the open piece's document")
+        XCTAssertEqual(pane.components(separatedBy: "AnnotationsBulkBar(").count - 1, 1,
+                       "one bar, at one place")
+        XCTAssertFalse(pane.contains("runBulk("), "no other path into a bulk act in the list")
+        XCTAssertTrue(pane.contains("isSelectable: selectionModeOn && note.docId == bulk,"),
+                      "only the open piece's rows can be ticked")
+    }
+
+    private static func paneSource() throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent("Maugham/Views/Resolve/ResolvePane.swift"),
+                          encoding: .utf8)
+    }
+
     // MARK: - The caret (carried item 9)
 
     /// Only the open piece has a caret group: off it the caret is never even

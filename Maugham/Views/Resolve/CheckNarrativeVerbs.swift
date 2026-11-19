@@ -171,18 +171,24 @@ extension CheckNarrative {
     /// per-device derived state with no undo of its own — a ⌘Z that resurrected
     /// the note would claim the compiler had re-checked something it has not
     /// looked at since.
+    ///
+    /// `filedUnder` hears where the answer went (the statement the ruling was
+    /// written to), after the note is dismissed.
     static func commitAnswer(
         _ text: String, to diagnostic: Diagnostic, docId: String,
-        store: ProjectStore, world: DeclaredWorldStore?, diagnostics: DiagnosticsStore
+        store: ProjectStore, world: DeclaredWorldStore?, diagnostics: DiagnosticsStore,
+        filedUnder: (FiledDestination) -> Void = { _ in }
     ) async -> String? {
+        let destination: FiledDestination
         do {
-            try await RulingPerformer.rule(
+            destination = try await RulingPerformer.rule(
                 text, provenance: answeredNoteProvenance(for: diagnostic),
                 kind: .intent, forScope: .document(docId), store: store, world: world)
         } catch {
             return error.localizedDescription
         }
         diagnostics.dismiss(diagnostic.id, docId: docId)
+        filedUnder(destination)
         return nil
     }
 }

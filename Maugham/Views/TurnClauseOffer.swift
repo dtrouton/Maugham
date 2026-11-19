@@ -117,7 +117,7 @@ enum TurnClauseOffer {
     static func provenance(voice: String) -> String { "from \(voice)'s letter" }
 
     /// The whole builder: `nil` when the offer does not stand, else the
-    /// closure that files it.
+    /// closure that files it. `filedUnder` hears where the clause went.
     ///
     /// `onFailure(nil)` is sent first, so a second attempt does not read under
     /// the first one's refusal. The write itself is `RulingPerformer.rule` —
@@ -131,7 +131,8 @@ enum TurnClauseOffer {
         voice: String, filedRunId: String?,
         postureOf: (Statement.Kind, Statement.Scope) -> Posture,
         onFiled: @escaping (String) -> Void,
-        onFailure: @escaping (String?) -> Void
+        onFailure: @escaping (String?) -> Void,
+        filedUnder: @escaping (FiledDestination) -> Void = { _ in }
     ) -> (() -> Void)? {
         guard isOffered(letter: letter, run: run, docId: docId,
                         store: store, filedRunId: filedRunId),
@@ -151,12 +152,13 @@ enum TurnClauseOffer {
             onFailure(nil)
             Task {
                 do {
-                    try await RulingPerformer.rule(
+                    let filed = try await RulingPerformer.rule(
                         LetterSection.turnClauseRuling,
                         provenance: provenance(voice: voice),
                         kind: .intent, forScope: destination,
                         store: store, world: world)
                     onFiled(run.id)
+                    filedUnder(filed)
                 } catch {
                     documentLog.error("\u{201C}\(title, privacy: .public)\u{201D} refused for \(docId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     onFailure(error.localizedDescription)

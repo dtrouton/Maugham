@@ -44,6 +44,19 @@ enum ResolveVerbGate {
         openDocId == docId && isRegistered(docId)
     }
 
+    /// **The one piece bulk may act over** (shell plan 3 Task 6, carried
+    /// from plan 2): the piece open in the centre, wherever the faces' list
+    /// holds it — its own list, or the Book or Part list it was opened
+    /// inside — and only while its document is registered. Nil anywhere
+    /// else: bulk never reaches a piece that is not open.
+    static func bulkDocId(scope: ResolveScope, openDocId: String?,
+                          isRegistered: (String) -> Bool) -> String? {
+        guard let openDocId, scope.docIds.contains(openDocId),
+              mayAct(onDocId: openDocId, openDocId: openDocId, isRegistered: isRegistered)
+        else { return nil }
+        return openDocId
+    }
+
     /// A note's verbs: the posture's answer on the open piece; off it, only
     /// Keep as lesson, and only where the lessons ledger's posture offered it.
     static func noteVerbs(_ decided: AnnotationRowVerbs, mayAct: Bool) -> AnnotationRowVerbs {

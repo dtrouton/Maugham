@@ -37,6 +37,16 @@ enum ClauseMarks {
     /// sentence the check never saw.
     ///
     /// `statementText` is the WHOLE statement (the snapshot is the whole).
+    /// **A mark's click** (shell plan 3 Task 6): a solid mark asks To
+    /// resolve to open its finding's group and mark the row — or, where the
+    /// strain has no item or the list no longer holds it, to say it is
+    /// settled. A dotted mark asks nothing. The right column moves to To
+    /// resolve with it (`RightColumnPosition.resolve`).
+    static func jump(for mark: ClauseMark, docId: String) -> ResolveRequest? {
+        guard mark.kind == .strains else { return nil }
+        return .focusFinding(docId: docId, itemId: mark.resolveItemId)
+    }
+
     static func applies(run: CompilerRun?, statementText: String?) -> Bool {
         guard let snapshot = run?.intentSnapshot, let statementText else { return false }
         return DerivedWorld.sourceHash(of: snapshot) == DerivedWorld.sourceHash(of: statementText)
@@ -72,7 +82,11 @@ enum ClauseMarks {
     /// - `holds` gives no mark and is never counted. An empty quote matches
     ///   nothing and is counted.
     /// - `findings` (the check's sidecar strains for `docId`) give each solid
-    ///   mark its To resolve item, matched by exact `clauseQuote`.
+    ///   mark its To resolve item. A strain's finding is the one the ingest
+    ///   minted from that very clause: same run, a conformance strain, the
+    ///   same `clauseQuote` string the clause carries (the ingest writes one
+    ///   value into both; there is no other identity). Each finding answers
+    ///   one mark; a finding of another run or kind answers none.
     ///
     /// Marks come back in text order.
     static func placement(in text: String, clauses: [DiagnosticIngest.ClauseStatus],
@@ -88,6 +102,7 @@ enum ClauseMarks {
 
         var placed: [ClauseMark] = []
         var skipped = 0
+        var unclaimed = findings.filter { $0.kind == .conformanceStrain }
         for candidate in ordered {
             let clause = candidate.clause, needle = candidate.needle
             let kind: ClauseMark.Kind = clause.status == DiagnosticIngest.SectionField.strains
@@ -105,8 +120,8 @@ enum ClauseMarks {
             }
             var resolveItemId: String?
             if kind == .strains, let docId,
-               let finding = findings.first(where: { $0.clauseQuote == clause.clauseQuote }) {
-                resolveItemId = ResolveItem.finding(docId: docId, finding).id
+               let index = unclaimed.firstIndex(where: { $0.clauseQuote == clause.clauseQuote }) {
+                resolveItemId = ResolveItem.finding(docId: docId, unclaimed.remove(at: index)).id
             }
             placed.append(ClauseMark(kind: kind, range: range, clauseQuote: clause.clauseQuote,
                                      resolveItemId: resolveItemId))

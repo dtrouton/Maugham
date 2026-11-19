@@ -1,6 +1,17 @@
 import Foundation
 import MaughamCore
 
+/// **Where a ruling was filed** — the `(kind, scope)` of the statement
+/// `RulingPerformer.rule` actually wrote, read off that statement after the
+/// write rather than assumed from what the caller asked for. Every verb that
+/// files something the writer decided (Answer, Add to intent, Keep as lesson,
+/// a choice, Make it a rule, Confirm) hands this to its caller on success, and
+/// the caller says where it went (`FiledUnder`, shell plan 3 Task 6).
+struct FiledDestination: Equatable, Sendable {
+    let kind: Statement.Kind
+    let scope: Statement.Scope
+}
+
 /// What a ruling refused to do, in the writer's words.
 ///
 /// The two an append had — nothing to say, and a destination that cannot be
@@ -181,9 +192,13 @@ enum RulingPerformer {
     /// changed, and the symptom surfaces a run later with nothing red. A
     /// defaulted parameter would let a new call site skip it in silence; `nil`
     /// has to be written and meant.
+    ///
+    /// Returns where the ruling went: the written statement's own kind and
+    /// scope (`FiledDestination`).
+    @discardableResult
     static func rule(_ text: String, provenance: String, kind: Statement.Kind,
                      forScope scope: Statement.Scope,
-                     store: ProjectStore, world: DeclaredWorldStore?) async throws {
+                     store: ProjectStore, world: DeclaredWorldStore?) async throws -> FiledDestination {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { throw RulingFailure.emptyRuling }
         // Asked BEFORE the mint as well as before the op: a refused ruling
@@ -210,6 +225,7 @@ enum RulingPerformer {
             RulingsSection.appending(words, provenance: provenance, on: now, to: markdown)
         }
         invalidate(scope, in: world)
+        return FiledDestination(kind: statement.kind, scope: statement.scope)
     }
 
     // MARK: - revoke

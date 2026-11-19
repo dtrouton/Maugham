@@ -2162,6 +2162,19 @@ struct ProjectWindow: View {
         centreItem = item
     }
 
+    /// **A strain mark's jump** (shell plan 3 Task 6): the right column moves
+    /// to To resolve and To resolve takes the request
+    /// (`ClauseMarks.jump` → `ResolveRequest.focusFinding`) — the board
+    /// count's one mechanism: a position change plus a request To resolve
+    /// already applies. **Task 9 seam:** Brief's `onShowStrain` is wired
+    /// here when Brief is mounted, and the picker's segment becomes
+    /// `RightColumnPosition.resolve`.
+    func showStrain(_ request: ResolveRequest) {
+        showInspector = true
+        detailSegment = .resolve
+        resolveRequest = request
+    }
+
     /// **Going to a thing from outside the tree** — a link, a find result,
     /// Claude's Show, a command that made a piece: `ClickRule.navigate`, which
     /// leaves a thing already beside or in the faces where it is.
