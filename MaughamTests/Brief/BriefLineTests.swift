@@ -100,10 +100,9 @@ final class BriefLineTests: XCTestCase {
         "ProjectStore+Statements.swift:withStatementDocument",
         // A pane drops its registration (a carried intent forgotten too).
         "ProjectStore+Statements.swift:forgetStatementDocument",
-        // A pane's Document closed after its burst flushed: onDisappear and willTerminate,
-        // reconcile's prior close, a refused binding's deposit.
-        "StatementEditorHost.swift:body",
-        "StatementEditorHost.swift:reconcile",
+        // A refused binding's deposit closed. (A pane's own close — teardown,
+        // willTerminate, reconcile's prior close — is `closeStatementDocument`,
+        // which bumps through the gate's release above.)
         "StatementEditorHost.swift:load",
         // A statement op log moved on disk: a peer's sync, a merge, our own append.
         "DocumentStore.swift:presenterDidChangeSubitem",

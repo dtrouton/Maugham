@@ -235,9 +235,23 @@ struct BriefPane: View {
     /// What Brief offers under the piece intent's posture. Whether the piece
     /// is open in the centre does not enter: every one of these is a manifest
     /// or a statement write, never the piece's manuscript.
-    static func offers(posture: Posture) -> BriefOffers {
+    ///
+    /// **The line is a manifest field, not the statement**, so it asks the
+    /// tree's door for a piece's manifest fields — `mayWriteTheLine`, from
+    /// `TreeStructureVerbs.mayRestructure` on the piece (what Rename asks) —
+    /// and the intent, its decisions and Confirm ask the intent's posture.
+    static func offers(posture: Posture, mayWriteTheLine: Bool) -> BriefOffers {
         let edits = StatementSurfaceVerbs.offered(under: posture)
-        return BriefOffers(editsLine: edits, editsIntent: edits, confirms: edits)
+        return BriefOffers(editsLine: mayWriteTheLine, editsIntent: edits, confirms: edits)
+    }
+
+    /// Whether the piece's line may be written: the tree's own question for
+    /// a piece's manifest fields (`TreeStructureVerbs.mayRestructure`).
+    @MainActor
+    static func mayWriteTheLine(docId: String, store: ProjectStore,
+                                documentStore: DocumentStore) -> Bool {
+        guard let item = TreeWalk.find(id: docId, in: store.manifest.structure) else { return false }
+        return TreeStructureVerbs.mayRestructure(item, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// Which quiet lines show: From the book when the Book's intent has an

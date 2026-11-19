@@ -145,6 +145,57 @@ final class GoingForTests: XCTestCase {
                      "nothing in To resolve corresponds to a silent clause")
     }
 
+    /// The reading view draws the editor's blocks: a heading without its
+    /// `#`s, emphasis without its markers — and a mark still lands on exactly
+    /// the words it covers.
+    func test_theReadingViewRendersBlocksAndMarksStillLandOnTheirWords() throws {
+        let essay = "# The *harbour* book\n\nKelly *never* lies to **anyone** at all. Then rain."
+        let intent = essay
+        let clauses = [
+            DiagnosticIngest.ClauseStatus(clauseQuote: "Kelly *never* lies to **anyone** at all.",
+                                          status: "strains", refs: []),
+            DiagnosticIngest.ClauseStatus(clauseQuote: "*harbour*", status: "silent", refs: []),
+        ]
+        let marks = BriefPane.marks(essay: essay, intentText: intent, run: run(snapshot: intent, clauses: clauses))
+        XCTAssertEqual(marks.count, 2, "premise: both clauses are placed")
+        let drawn = GoingForView.paragraphs(of: essay, marks: marks)
+        XCTAssertEqual(drawn.map { String($0.characters) },
+                       ["The harbour book", "Kelly never lies to anyone at all. Then rain."],
+                       "no #, no emphasis markers")
+
+        let heading = drawn[0]
+        let dotted = heading.runs.filter { $0[GoingForView.Underline.self] != nil }
+        XCTAssertEqual(dotted.map { String(heading[$0.range].characters) }, ["harbour"])
+
+        let prose = drawn[1]
+        let solid = prose.runs.filter { $0[GoingForView.Underline.self] != nil }
+            .map { String(prose[$0.range].characters) }.joined()
+        XCTAssertEqual(solid, "Kelly never lies to anyone at all", "the mark covers its sentence (the quote's trailing stop is trimmed), no more")
+        let italic = prose.runs.filter { $0.inlinePresentationIntent == .emphasized }
+            .map { String(prose[$0.range].characters) }
+        XCTAssertEqual(italic, ["never"])
+        let bold = prose.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }
+            .map { String(prose[$0.range].characters) }
+        XCTAssertEqual(bold, ["anyone"])
+    }
+
+    /// A mark is a line, never a tint: nothing sets a colour on the writer's
+    /// words, and the view keeps the link (the click target) in the prose's
+    /// own ink.
+    func test_aSolidMarkDoesNotRecolourTheWritersWords() throws {
+        let marks = BriefPane.marks(essay: Self.essay, intentText: Self.intent,
+                                    run: run(snapshot: Self.intent, clauses: Self.clauses))
+        for paragraph in GoingForView.paragraphs(of: Self.essay, marks: marks) {
+            XCTAssertTrue(paragraph.runs.allSatisfy {
+                $0[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] == nil
+                    && $0[AttributeScopes.AppKitAttributes.ForegroundColorAttribute.self] == nil
+                    && $0[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] == nil
+            })
+        }
+        let source = try Self.source("Maugham/Views/Brief/GoingForView.swift")
+        XCTAssertTrue(source.contains(".tint(Color.primary)"), "links draw in the prose's own ink")
+    }
+
     // MARK: - Census helpers
 
     static func source(_ path: String) throws -> String {

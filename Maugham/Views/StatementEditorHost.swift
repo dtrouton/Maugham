@@ -534,15 +534,11 @@ struct StatementEditorHost: View {
             // close) flushes the pending typing burst. `Document.close()` is
             // idempotent, so a spurious fire costs nothing.
             //
-            // The registration goes first: a `Document` on its way to being
-            // closed must stop being the one a promotion writes into, and the
-            // close below is asynchronous.
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            if let document = target.document {
-                // The bump AFTER the close: the burst is on disk by then, so a
-                // closed-statement reader keyed on it reads the typing.
-                Task { await document.close(); store.noteStatementTextChanged() }
-            }
+            // Under the open gate, as one step (`closeStatementDocument`): the
+            // registration is withdrawn only once the gate is held, the close
+            // flushes, and the gate's release says the text changed. A host
+            // loading this statement meanwhile waits for the close to return.
+            store.releaseStatementDocument(target.document, id: target.statementID)
             leave()
         }
         // The manuscript's belt, worn here too: `DocumentStore.close()` closes
@@ -554,12 +550,7 @@ struct StatementEditorHost: View {
         // close, nothing waits for it: this is fire-and-forget. The real
         // crash-safety net for both is `PendingBuffer`'s 750ms disk mirror.
         .onGlobalEvent(.maughamAppWillTerminate) { _ in
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            if let document = target.document {
-                // The bump AFTER the close: the burst is on disk by then, so a
-                // closed-statement reader keyed on it reads the typing.
-                Task { await document.close(); store.noteStatementTextChanged() }
-            }
+            store.releaseStatementDocument(target.document, id: target.statementID)
             leave()
         }
     }
@@ -726,11 +717,14 @@ struct StatementEditorHost: View {
         // a refusal that is not cleared here follows the writer to the next scope.
         pictureMessage = nil
         if let prior = target.document {
-            // Withdrawn BEFORE the close, so no window exists in which the
-            // registry offers a `Document` that is on its way to being a husk.
-            if let id = target.statementID { store.forgetStatementDocument(id: id) }
-            await prior.close()
-            store.noteStatementTextChanged()
+            // Under the gate (`closeStatementDocument`): withdrawn once the
+            // gate is held, closed, then released — so no opener, this host's
+            // next load included, can open the path while it flushes.
+            if let id = target.statementID {
+                await store.closeStatementDocument(prior, id: id)
+            } else {
+                await prior.close()
+            }
         }
         // A cancelled reconcile has been superseded by another scope change; its
         // own task will do the work. Leaving `resolvedScope` stale keeps the
@@ -777,7 +771,7 @@ struct StatementEditorHost: View {
                 // ours to withdraw.
                 let mintedHere = store.statement(kind: kind, scope: scope) == nil
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                let bound = await load(created, for: wanted)
+                let bound = await load(created, for: wanted, waitsForRelease: false)
                 // **A mint that neither bound nor deposited leaves nothing**
                 // (issue #29, S5's residue). Issue #21 made every arm of a
                 // superseded mint deliver the words it was started for; this is
@@ -848,7 +842,8 @@ struct StatementEditorHost: View {
     /// only when there are words waiting, so a refusal with nothing to deliver
     /// still costs no file I/O.
     @discardableResult
-    private func load(_ statement: Statement, for wanted: String) async -> Bool {
+    private func load(_ statement: Statement, for wanted: String,
+                      waitsForRelease: Bool = true) async -> Bool {
         // **Held across the load AND the registration**, so that the window
         // between "the registry says nobody has this" and "I have registered
         // mine" is not one a transient writer can open a second `Document` in.
@@ -856,6 +851,26 @@ struct StatementEditorHost: View {
         // so this is released as soon as the registry can answer for us.
         await store.lockStatementOpen(statement.id)
         defer { store.unlockStatementOpen(statement.id) }
+        // **Another host holds this statement** (open, or closing — a close
+        // withdraws its registration only under this gate): never load beside
+        // it (shell plan 3 Task 4 fix, I1). `reconcile` waits, gate released,
+        // for that host to let go, and loads then — the placeholder stays up
+        // meanwhile, never an editor over a second `Document`. The mint has
+        // words in hand and cannot wait on a pane that may never close: it
+        // puts them into the live `Document` that already holds the statement,
+        // which is where they were going.
+        while store.statementIsHeld(statement.id, byAnotherThan: target.document) {
+            guard waitsForRelease else {
+                if let live = store.openStatementDocument(id: statement.id) {
+                    target.deposit(into: live, for: wanted)
+                }
+                return true
+            }
+            store.unlockStatementOpen(statement.id)
+            await store.waitForStatementRelease(statement.id, notHeldBy: target.document)
+            await store.lockStatementOpen(statement.id)
+            if Task.isCancelled { return false }
+        }
         // **Asked AGAIN now that the gate is ours**, because waiting for it is
         // a suspension like any other and the box may have been filled while we
         // queued — by this host's OTHER load, which is the only other thing that
@@ -895,6 +910,7 @@ struct StatementEditorHost: View {
         case .refuse:
             guard target.hasWordsWaiting(for: wanted) else { return false }
         }
+        store.onStatementGateEvent?(.loading(statement.id))
         do {
             let document = try await Document.load(
                 url: try store.resolvedProjectPath(statement.path),

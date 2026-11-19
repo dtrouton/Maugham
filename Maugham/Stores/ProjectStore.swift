@@ -312,6 +312,14 @@ public final class ProjectStore {
     @ObservationIgnored internal var statementOpensInFlight: Set<String> = []
     @ObservationIgnored internal var statementOpenWaiters:
         [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Loads waiting for another host to let go of a statement's `Document`
+    /// (`waitForStatementRelease`). Woken on every forget, and on a release
+    /// of the open gate that leaves nothing registered; each re-asks.
+    @ObservationIgnored internal var statementReleaseWaiters:
+        [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// A test's view of the gate's order (`StatementGateEvent`); nil in
+    /// production.
+    @ObservationIgnored internal var onStatementGateEvent: ((StatementGateEvent) -> Void)?
 
     /// **The Research items whose files a structural verb is moving now**
     /// (#142 T2), counted, so two verbs over one item each hold it until

@@ -34,6 +34,78 @@ extension ProjectStore {
         // The live key loses this pane's text, so readers fall to the derived
         // cache; a pane's own close bumps again once its burst is on disk.
         noteStatementTextChanged()
+        wakeStatementReleaseWaiters(id)
+    }
+
+    // MARK: - Letting go of one, under the gate
+
+    /// **The one way a host lets go of its statement `Document`** (shell
+    /// plan 3 Task 4 fix, I1): take the open gate, withdraw the registration,
+    /// close (which flushes the typing burst), and only then release the gate
+    /// — whose release says the text changed.
+    ///
+    /// **Why the gate, and why the registration stays until it is held.** A
+    /// close is a suspension (the burst's write), and it used to run detached
+    /// and outside the gate with the registration already withdrawn, so a
+    /// second host's load found nothing in its way and opened a second
+    /// `Document` on the path while the first was still flushing: a pending
+    /// mirror folded twice, a stale paragraph written over the flushed one, a
+    /// forked chain. Now every opener (`StatementEditorHost.load`, the
+    /// transient writers) queues on the gate until this close has returned,
+    /// and until the gate is taken the registry still names the live
+    /// `Document`, so a load arriving first waits for its release
+    /// (`waitForStatementRelease`) rather than loading beside it.
+    ///
+    /// `document == nil` only withdraws. A registration that is no longer
+    /// this `Document` is not this caller's to withdraw.
+    func closeStatementDocument(_ document: Document?, id: String) async {
+        await lockStatementOpen(id)
+        if document == nil || openStatementDocuments[id]?.document === document {
+            forgetStatementDocument(id: id)
+        }
+        onStatementGateEvent?(.closing(id))
+        if let document { await document.close() }
+        onStatementGateEvent?(.closed(id))
+        unlockStatementOpen(id)
+    }
+
+    /// `closeStatementDocument` from a view's teardown (`.onDisappear`,
+    /// `willTerminate`), which cannot await: one detached `Task`, every step
+    /// inside it under the gate.
+    func releaseStatementDocument(_ document: Document?, id: String?) {
+        guard let id else {
+            if let document { Task { await document.close() } }
+            return
+        }
+        Task { @MainActor in await closeStatementDocument(document, id: id) }
+    }
+
+    /// Whether a live `Document` other than `own` is registered for `id` —
+    /// another host holds the statement (open, or still closing: the
+    /// registration is withdrawn only under the gate, before its close).
+    func statementIsHeld(_ id: String, byAnotherThan own: Document?) -> Bool {
+        guard let live = openStatementDocument(id: id) else { return false }
+        return live !== own
+    }
+
+    /// Wait until another host lets go of `id` (its forget, or a release of
+    /// the gate with nothing registered), or until this task is cancelled. Returns at once when
+    /// nothing else holds it. The caller re-asks `statementIsHeld` after.
+    func waitForStatementRelease(_ id: String, notHeldBy own: Document?) async {
+        guard statementIsHeld(id, byAnotherThan: own) else { return }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume(); return }
+                statementReleaseWaiters[id, default: []].append(continuation)
+            }
+        } onCancel: {
+            Task { @MainActor in self.wakeStatementReleaseWaiters(id) }
+        }
+    }
+
+    func wakeStatementReleaseWaiters(_ id: String) {
+        let waiters = statementReleaseWaiters.removeValue(forKey: id) ?? []
+        for waiter in waiters { waiter.resume() }
     }
 
     /// Say that a statement's text may have changed where no observer could see
@@ -186,6 +258,10 @@ extension ProjectStore {
         statementOpensInFlight.remove(id)
         let waiters = statementOpenWaiters.removeValue(forKey: id) ?? []
         for waiter in waiters { waiter.resume() }
+        // A `Document` closed without a forget reads as released too. Only
+        // when nothing holds it: two loads waiting on one holder must not wake
+        // each other in turn through their own unlocks.
+        if openStatementDocument(id: id) == nil { wakeStatementReleaseWaiters(id) }
     }
 
     /// The statement for a scope, or nil. **Absence is valid**: this mints
@@ -758,4 +834,14 @@ extension ProjectStore {
 final class OpenStatementDocument {
     weak var document: Document?
     init(_ document: Document) { self.document = document }
+}
+
+/// The open gate's order, for a test to read (`ProjectStore.onStatementGateEvent`).
+enum StatementGateEvent: Equatable {
+    /// A host's `Document` is about to close, the gate held.
+    case closing(String)
+    /// It has closed; the gate is released next.
+    case closed(String)
+    /// A host is about to `Document.load` the statement, the gate held.
+    case loading(String)
 }

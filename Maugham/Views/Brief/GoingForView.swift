@@ -135,6 +135,9 @@ struct GoingForView: View {
                 kind: .intent, scope: .document(docId), posture: posture)
                 .frame(height: Self.editorHeight)
                 .onAppear { editorHeld = true }
+                // Whatever takes the editor away (Done, a refusing posture,
+                // the centre's cover), it is no longer held here.
+                .onDisappear { editorHeld = false }
         }
     }
 
@@ -174,6 +177,10 @@ struct GoingForView: View {
                 ForEach(Array(Self.paragraphs(of: essay, marks: marks).enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(.callout)
+                        // A solid mark is a link (its click target); the
+                        // writer's words keep their own ink — a mark is a
+                        // line, never a tint.
+                        .tint(Color.primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -224,27 +231,68 @@ struct GoingForView: View {
         [ClauseMark.Kind.strains, .silent].filter { kind in marks.contains { $0.kind == kind } }
     }
 
-    /// The essay as paragraphs (split on blank lines), each the WRITER's own
-    /// characters with the marks that fall in it underlined: solid for
-    /// `strains` (a `maugham-mark:<index>` link), dotted for `silent` (no
-    /// link). Nothing is added to the text; a mark spanning a paragraph break
-    /// marks each part in its own paragraph.
+    /// **The essay as the statement editor's blocks**, each the WRITER's own
+    /// words with the marks that fall in it underlined: solid for `strains`
+    /// (a `maugham-mark:<index>` link), dotted for `silent` (no link).
+    ///
+    /// Blocks come from `MarkdownBlockParser` (the parser the editor and
+    /// publishing share): a heading draws without its `#`s and bold, a fence
+    /// in monospace without its fence lines, and `*emphasis*` / `**strong**`
+    /// as italic / bold without their markers. Only those ASCII markers are
+    /// dropped, and every drawn unit remembers its offset in the essay, so a
+    /// mark's essay range lands on exactly the words it covers. Nothing is
+    /// added; nothing is recoloured (the solid mark's link keeps the prose's
+    /// ink — the view tints links `.primary`).
     static func paragraphs(of essay: String, marks: [ClauseMark]) -> [AttributedString] {
         let whole = essay as NSString
+        let lines = essay.components(separatedBy: "\n")
+        var lineStarts: [Int] = []
+        var offset = 0
+        for line in lines {
+            lineStarts.append(offset)
+            offset += (line as NSString).length + 1
+        }
+        func lineRange(_ index: Int) -> NSRange {
+            NSRange(location: lineStarts[index], length: (lines[index] as NSString).length)
+        }
+
         var result: [AttributedString] = []
-        var cursor = 0
-        for piece in essay.components(separatedBy: "\n\n") {
-            let length = (piece as NSString).length
-            let range = NSRange(location: cursor, length: length)
-            cursor += length + 2
-            let trimmed = piece.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            var attributed = AttributedString(whole.substring(with: range))
+        for (block, span) in MarkdownBlockParser.parseWithLineRanges(essay) where !span.isEmpty {
+            var segments: [NSRange] = span.map(lineRange)
+            var style: BlockStyle = .prose
+            switch block {
+            case .heading:
+                style = .heading
+                if let first = segments.first {
+                    let text = whole.substring(with: first) as NSString
+                    let prefix = text.range(of: #"^\s{0,3}#{1,6}\s*"#, options: .regularExpression)
+                    let cut = prefix.location == NSNotFound ? 0 : prefix.length
+                    segments = [NSRange(location: first.location + cut, length: first.length - cut)]
+                }
+            case .fence:
+                style = .code
+                segments = segments.filter {
+                    !whole.substring(with: $0).trimmingCharacters(in: .whitespaces).hasPrefix("```")
+                }
+            case .paragraph, .list, .table, .blockquote, .thematicBreak, .soloImage:
+                break
+            }
+            guard let rendered = Rendered(whole, segments: segments, emphasis: style != .code),
+                  !rendered.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            var attributed = AttributedString(rendered.text)
+            switch style {
+            case .heading: attributed.inlinePresentationIntent = .stronglyEmphasized
+            case .code: attributed.inlinePresentationIntent = .code
+            case .prose: break
+            }
+            for (range, intent) in rendered.emphasis {
+                if let local = rendered.output(of: range), let span = Range(local, in: attributed) {
+                    attributed[span].inlinePresentationIntent = intent
+                }
+            }
             for (index, mark) in marks.enumerated() {
-                let overlap = NSIntersectionRange(mark.range, range)
-                guard overlap.length > 0 else { continue }
-                let local = NSRange(location: overlap.location - range.location, length: overlap.length)
-                guard let span = Range(local, in: attributed) else { continue }
+                guard let local = rendered.output(of: mark.range),
+                      let span = Range(local, in: attributed) else { continue }
                 switch mark.kind {
                 case .strains:
                     attributed[span][Underline.self] = Text.LineStyle.single
@@ -256,6 +304,68 @@ struct GoingForView: View {
             result.append(attributed)
         }
         return result
+    }
+
+    private enum BlockStyle { case prose, heading, code }
+
+    /// A block's drawn text, and for each drawn UTF-16 unit its offset in the
+    /// essay — the map a mark's essay range is carried through.
+    private struct Rendered {
+        let text: String
+        let map: [Int]
+        /// Essay ranges of emphasised content, and how to draw each.
+        var emphasis: [(NSRange, InlinePresentationIntent)] = []
+
+        private static let strong = try! NSRegularExpression(
+            pattern: #"(?<![\w*_])(\*\*|__)(?=\S)(.+?)(?<=\S)\1(?![\w*_])"#)
+        private static let emphasised = try! NSRegularExpression(
+            pattern: #"(?<![\w*_])(\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*_])"#)
+
+        init?(_ whole: NSString, segments: [NSRange], emphasis: Bool) {
+            var units: [unichar] = []
+            var map: [Int] = []
+            for (n, segment) in segments.enumerated() {
+                if n > 0, let last = map.last { units.append(10); map.append(last) }
+                var dropped = Set<Int>()
+                if emphasis {
+                    let line = whole.substring(with: segment)
+                    let ns = line as NSString
+                    var taken = IndexSet()
+                    for (regex, intent) in [(Self.strong, InlinePresentationIntent.stronglyEmphasized),
+                                            (Self.emphasised, InlinePresentationIntent.emphasized)] {
+                        for match in regex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+                            let whole = match.range
+                            guard !taken.intersects(integersIn: whole.location..<NSMaxRange(whole)) else { continue }
+                            taken.insert(integersIn: whole.location..<NSMaxRange(whole))
+                            let marker = match.range(at: 1).length
+                            for i in 0..<marker {
+                                dropped.insert(segment.location + whole.location + i)
+                                dropped.insert(segment.location + NSMaxRange(whole) - 1 - i)
+                            }
+                            let content = match.range(at: 2)
+                            self.emphasis.append((NSRange(location: segment.location + content.location,
+                                                          length: content.length), intent))
+                        }
+                    }
+                }
+                for i in segment.location..<NSMaxRange(segment) where !dropped.contains(i) {
+                    units.append(whole.character(at: i))
+                    map.append(i)
+                }
+            }
+            guard !units.isEmpty else { return nil }
+            self.text = String(utf16CodeUnits: units, count: units.count)
+            self.map = map
+        }
+
+        /// The drawn range covering the essay range `range`, or nil when none
+        /// of its units is drawn here.
+        func output(of range: NSRange) -> NSRange? {
+            guard let first = map.firstIndex(where: { $0 >= range.location && $0 < NSMaxRange(range) }),
+                  let last = map.lastIndex(where: { $0 >= range.location && $0 < NSMaxRange(range) })
+            else { return nil }
+            return NSRange(location: first, length: last - first + 1)
+        }
     }
 
     /// The check's quote a clicked mark asks To resolve for — a SOLID mark's

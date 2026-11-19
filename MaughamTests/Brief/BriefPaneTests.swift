@@ -104,15 +104,30 @@ final class BriefPaneTests: XCTestCase {
     // MARK: - What is offered
 
     func test_theLineFieldHidesUnderARefusingPosture() {
-        XCTAssertEqual(BriefPane.offers(posture: .author),
+        XCTAssertEqual(BriefPane.offers(posture: .author, mayWriteTheLine: true),
                        BriefOffers(editsLine: true, editsIntent: true, confirms: true))
         let refusing = Posture(.unrestricted, yieldingTo: "Sam")
         XCTAssertFalse(refusing.allows(.editStatement), "premise: the posture refuses statement edits")
-        XCTAssertEqual(BriefPane.offers(posture: refusing),
+        XCTAssertEqual(BriefPane.offers(posture: refusing, mayWriteTheLine: false),
                        BriefOffers(editsLine: false, editsIntent: false, confirms: false))
         XCTAssertEqual(GoingForView.mode(hasMarks: false, editingRequested: false, inTheCentre: false,
                                          hasIntent: true, mayEdit: false), .reading,
                        "the intent's editor is hidden, not locked")
+    }
+
+    /// The line is a manifest field: it asks the tree's door for the piece
+    /// (`TreeStructureVerbs.mayRestructure`, what Rename asks), not the
+    /// intent's posture. A posture that may edit the intent but not the
+    /// piece's structure hides the line's editing and keeps the intent's.
+    func test_theLineAsksThePiecesStructureDoorNotTheIntents() {
+        let piece = StructureItem(id: "doc-a", title: "A", type: .document, path: "a.md")
+        let refusing = Posture(.unrestricted, yieldingTo: "Sam")
+        let intentPosture = Posture.author
+        let mayWrite = TreeStructureVerbs.mayRestructure(piece, postureOf: { $0 == "doc-a" ? refusing : .author })
+        XCTAssertFalse(mayWrite, "premise: the piece's structure is refused")
+        XCTAssertEqual(BriefPane.offers(posture: intentPosture, mayWriteTheLine: mayWrite),
+                       BriefOffers(editsLine: false, editsIntent: true, confirms: true))
+        XCTAssertTrue(TreeStructureVerbs.mayRestructure(piece, postureOf: { _ in .author }))
     }
 
     func test_committingAnUnchangedLineWritesNothing() {
@@ -122,6 +137,8 @@ final class BriefPaneTests: XCTestCase {
         XCTAssertTrue(BriefPieceView.lineNeedsCommitting(draft: "A new line.", stored: "A line."))
         XCTAssertTrue(BriefPieceView.lineNeedsCommitting(draft: "", stored: "A line."), "clearing is a write")
         XCTAssertTrue(BriefPieceView.lineNeedsCommitting(draft: "First.", stored: nil))
+        XCTAssertFalse(BriefPieceView.lineNeedsCommitting(draft: "A line.", stored: "A line.  "),
+                       "an old line stored with trailing spaces is not rewritten on every blur")
     }
 
     /// Review Focus 2: the piece is not open, and its intent is editable here.

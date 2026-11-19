@@ -39,8 +39,17 @@ struct BriefPieceView: View {
 
     private var snapshot: BriefSnapshot { contents.snapshot }
 
+    private var offers: BriefOffers {
+        BriefPane.offers(posture: posture, mayWriteTheLine: BriefPane.mayWriteTheLine(
+            docId: docId, store: store, documentStore: documentStore))
+    }
+
+    /// The line this view last wrote, until the next read shows it — so a
+    /// submit followed by a blur writes once.
+    @State private var lineWritten: String?
+
     var body: some View {
-        let offers = BriefPane.offers(posture: posture)
+        let offers = self.offers
         VStack(alignment: .leading, spacing: 14) {
             line(offers)
             GoingForView(
@@ -58,6 +67,7 @@ struct BriefPieceView: View {
         }
         .onAppear { lineDraft = snapshot.line ?? "" }
         .onChange(of: snapshot.line) { _, stored in
+            lineWritten = nil
             if !lineFocused { lineDraft = stored ?? "" }
         }
         .onChange(of: lineFocused) { _, focused in
@@ -88,19 +98,24 @@ struct BriefPieceView: View {
 
     /// Whether the field holds something other than what is stored. Pure:
     /// committing an unchanged line writes nothing.
+    /// Both sides trimmed: an old line stored with trailing spaces is not
+    /// rewritten on every blur.
     static func lineNeedsCommitting(draft: String, stored: String?) -> Bool {
-        draft.trimmingCharacters(in: .whitespacesAndNewlines) != (stored ?? "")
+        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            != (stored ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func commitLine() {
-        guard BriefPane.offers(posture: posture).editsLine,
-              Self.lineNeedsCommitting(draft: lineDraft, stored: snapshot.line) else { return }
+        guard offers.editsLine,
+              Self.lineNeedsCommitting(draft: lineDraft, stored: lineWritten ?? snapshot.line) else { return }
         let words = lineDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        lineWritten = words
         let id = docId
         Task { @MainActor in
             do {
                 try await store.updateInspector(id: id, synopsis: words)
             } catch {
+                lineWritten = nil
                 MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
             }
         }

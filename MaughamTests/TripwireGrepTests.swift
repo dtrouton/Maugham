@@ -7428,6 +7428,10 @@ final class TripwireGrepTests: XCTestCase {
         "ProjectStore+StatementAdoption.swift:adopt",
         "ProjectStore+CollectionPieces.swift:promotePieceToProject",
         "StatementEditorHost.swift:load",
+        // A host letting go of its Document: forget, close, release under the
+        // gate, so no opener loads the path while the close flushes (shell
+        // plan 3 Task 4 fix, I1).
+        "ProjectStore+Statements.swift:closeStatementDocument",
     ]
 
     private static let statementOpenGateToken = "lockStatementOpen("
