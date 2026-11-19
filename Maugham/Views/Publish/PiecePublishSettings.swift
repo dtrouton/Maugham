@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Inspector subsection exposing per-section publish overrides for the
-/// currently-selected piece. Writes back via `PublishConfigStore` so MCP
+/// Per-section publish overrides for one piece — the old Inspector's
+/// Publishing section, unchanged, opened since shell p3 Task 8 by the piece's
+/// row menu ("Publishing…", `PieceRowMenus`) in a sheet. Writes back via `PublishConfigStore` so MCP
 /// callers see the same state.
 ///
 /// `PublishConfigStore` is an `actor`, so `load()` / `save(_:)` are awaited.
@@ -11,7 +12,7 @@ import SwiftUI
 /// by capturing the requested `pieceID` and bailing if `selectedPieceID`
 /// has moved on by the time the load completes.
 @MainActor
-struct InspectorPublishSection: View {
+struct PiecePublishSettings: View {
 
     let projectURL: URL
     let selectedPieceID: String?

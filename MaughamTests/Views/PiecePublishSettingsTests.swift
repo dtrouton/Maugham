@@ -1,11 +1,11 @@
 import XCTest
 @testable import Maugham
 
-/// `InspectorPublishSection` is a SwiftUI view whose state is driven by
+/// `PiecePublishSettings` is a SwiftUI view whose state is driven by
 /// `PublishConfigStore`. We test the persistence contract directly: a piece's
 /// `Section` override round-trips through save/load, and absent overrides
 /// default to `Section()`.
-final class InspectorPublishSectionTests: XCTestCase {
+final class PiecePublishSettingsTests: XCTestCase {
 
     private func makeProject() throws -> URL {
         let tmp = TestTemp.root

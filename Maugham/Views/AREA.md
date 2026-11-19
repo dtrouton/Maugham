@@ -99,7 +99,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectAltitudePane.swift` — the project at altitude (corkboard / outline) in the centre column.
 - `CorkboardGrid.swift`, `OutlineTable.swift` — altitude's two layouts; `OutlineTable` reads the writers once.
 - `ReferencePlaceholderCard.swift` — the centre's placeholder for a Collection's reference piece.
-- `EditorStatusFooter.swift` — the status row under the editor.
+- `EditorStatusFooter.swift`, `PieceTargetMenu.swift` — the status row under the editor, its target menu.
 - `ReferenceIndexHost.swift` — the window's cached `ReferenceIndex`, its token listing and parse off the main thread; the window owns it, `EditorHost` is handed it.
 - `ReferenceIndexWiring.swift` — attaches the window's index and carries its project edges with no editor mounted; `FigureListingModel`, the Figures rows.
 - `FigureCardCache.swift` — the window's figure cards, filled off the typing path and read from memory only; `EditorHost` owns it.
@@ -107,11 +107,10 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The right column's panes
 - `DetailPaneToggle.swift` — the pane picker and `segmentContent`, the exhaustive per-`DetailSegment` arm.
-- `InspectorView.swift` — the selected document's inspector.
-- `PieceInspector.swift` — a Collection loose piece's inspector.
+- `InspectorView.swift`, `PieceInspector.swift` — the two inspectors.
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
-- `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections.
-- `PassLadder.swift` — the inspector's per-piece pass ladder; `offersRulings`.
+- `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections; `PieceRowMenus.swift` opens three in sheets.
+- `PassLadder.swift` — the per-piece pass ladder; `offersRulings`.
 - `TaskRow.swift` — one to-do's row, drawn in To resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
@@ -166,7 +165,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
 - `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row reveals its paragraph.
 - `Maugham/Views/Publish/ExportsListView.swift` — the tree's Exports footer.
-- `Maugham/Views/Publish/InspectorPublishSection.swift` — per-piece publish overrides in the inspector.
+- `Maugham/Views/Publish/PiecePublishSettings.swift` — per-piece publish overrides from row menus.
 - `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
 
 ### Translation

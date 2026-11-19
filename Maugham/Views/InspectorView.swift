@@ -120,7 +120,7 @@ struct InspectorView: View {
                 }
                 if PublishStarter.isInitialized(in: store.url) {
                     Section("Publishing") {
-                        InspectorPublishSection(
+                        PiecePublishSettings(
                             projectURL: store.url,
                             selectedPieceID: item.id)
                     }
@@ -247,11 +247,7 @@ struct InspectorView: View {
     }
 
     private var tagSuggestions: [String] {
-        var pool = Set<String>()
-        for item in TreeWalk.collect(in: store.manifest.structure, where: { _ in true }) {
-            for t in item.tags ?? [] { pool.insert(t) }
-        }
-        return Array(pool).sorted()
+        PieceRowMenus.tagSuggestions(in: store.manifest.structure)
     }
 
     @ViewBuilder

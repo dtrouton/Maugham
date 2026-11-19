@@ -1309,7 +1309,8 @@ struct ProjectWindow: View {
                         sessionWords: sessionWordsForFooter,
                         sessionStart: sessionStartForFooter,
                         paragraphId: paragraphIdForFooter,
-                        elementLabel: elementLabelForFooter)
+                        elementLabel: elementLabelForFooter,
+                        target: statusFooterTarget, store: store)
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -2318,11 +2319,30 @@ struct ProjectWindow: View {
         return Self.selectionIsDocument(subject, in: store.manifest.structure)
     }
 
-    private var goalIndicatorState: GoalIndicatorState {
-        guard let store else { return .empty }
-        let currentDoc = activeItemID.flatMap {
+    /// **The piece the status line measures: the one open in the centre**
+    /// (shell p3 Task 8). The count is the open editor's, so its target is the
+    /// open piece's too — it used to be the faces', which named no target (or
+    /// another piece's) while the Book was the faces over an open chapter.
+    private var statusFooterPiece: StructureItem? {
+        guard let store else { return nil }
+        return subject.open.itemID.flatMap {
             TreeWalk.find(id: $0, in: store.manifest.structure)
         }
+    }
+
+    /// The status line's target menu (`PieceTargetMenu`), asked of the
+    /// window's posture door; nil draws the plain label.
+    private var statusFooterTarget: PieceTargetMenu? {
+        guard let store else { return nil }
+        return PieceTargetMenu.decide(
+            piece: statusFooterPiece, projectType: store.manifest.type,
+            projectPageTarget: store.manifest.targets?.pageTarget,
+            postureOf: { postureDrawn(forDocId: $0) })
+    }
+
+    private var goalIndicatorState: GoalIndicatorState {
+        guard let store else { return .empty }
+        let currentDoc = statusFooterPiece
 
         // A project that `holdsPieces` derives isScreenplay from the active
         // piece, not the project. Reference pieces hide the goal indicator.

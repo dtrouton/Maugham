@@ -201,6 +201,8 @@ struct CollectionPiecesPane: View {
                         MaughamEvent.post(.maughamPromotePiece, to: .keyWindow, payload: ["piece_id": piece.id])
                     }
                 }
+                // Tags…, Add Link…, Publishing… (shell p3 Task 8).
+                PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState)
                 if verbs.delete {
                     Divider()
                     Button("Delete", role: .destructive) {

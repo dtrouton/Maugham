@@ -9,7 +9,6 @@ struct InspectorLinksSection: View {
     let onNavigate: (String) -> Void
 
     @State private var showingAddPopover: Bool = false
-    @State private var addSearch: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -20,7 +19,6 @@ struct InspectorLinksSection: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
-                        addSearch = ""
                         showingAddPopover = true
                     } label: {
                         Image(systemName: "plus.circle")
@@ -96,19 +94,53 @@ struct InspectorLinksSection: View {
         }
     }
 
+    /// The add-link search — `PieceLinkSearch`, the one search, which the
+    /// tree's row menu ("Add Link…") also opens (shell p3 Task 8).
     private var addLinkPopover: some View {
+        PieceLinkSearch(
+            store: store, currentItemId: currentItemId, existing: draftLinks,
+            onPick: { id in
+                if !draftLinks.contains(id) {
+                    draftLinks.append(id)
+                    onCommit()
+                }
+                showingAddPopover = false
+            })
+    }
+
+    private var backlinks: [StructureItem] {
+        PieceLinks.linkedFrom(currentItemId, in: store.manifest.structure)
+    }
+
+    private func linkedTitle(id: String) -> String {
+        TreeWalk.find(id: id, in: store.manifest.structure)?.title
+            ?? "(missing)"
+    }
+}
+
+/// **The add-link search** — a document title filter over every other
+/// document not already linked; a pick hands the id back. Moved out of
+/// `InspectorLinksSection`'s popover (shell p3 Task 8) so the tree's "Add
+/// Link…" sheet opens this search and not a second one.
+struct PieceLinkSearch: View {
+    @Bindable var store: ProjectStore
+    let currentItemId: String
+    let existing: [String]
+    let onPick: (String) -> Void
+
+    @State private var search: String = ""
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Search documents…", text: $addSearch)
+            TextField("Search documents…", text: $search)
                 .textFieldStyle(.roundedBorder)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(linkableDocuments, id: \.id) { item in
+                    ForEach(Self.candidates(
+                        in: store.manifest.structure, currentItemId: currentItemId,
+                        existing: existing, query: search), id: \.id) { item in
                         Button {
-                            if !draftLinks.contains(item.id) {
-                                draftLinks.append(item.id)
-                                onCommit()
-                            }
-                            showingAddPopover = false
+                            onPick(item.id)
                         } label: {
                             HStack {
                                 Image(systemName: "doc.text")
@@ -129,21 +161,15 @@ struct InspectorLinksSection: View {
         .frame(width: 260)
     }
 
-    private var linkableDocuments: [StructureItem] {
-        let all = TreeWalk.collect(in: store.manifest.structure, where: { _ in true })
+    /// Every document but this one and those already linked, filtered by a
+    /// case-insensitive title match.
+    static func candidates(in structure: [StructureItem], currentItemId: String,
+                           existing: [String], query: String) -> [StructureItem] {
+        let all = TreeWalk.collect(in: structure, where: { _ in true })
             .filter { $0.type == .document && $0.id != currentItemId }
-            .filter { !draftLinks.contains($0.id) }
-        let q = addSearch.trimmingCharacters(in: .whitespaces).lowercased()
+            .filter { !existing.contains($0.id) }
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return all }
         return all.filter { $0.title.lowercased().contains(q) }
-    }
-
-    private var backlinks: [StructureItem] {
-        PieceLinks.linkedFrom(currentItemId, in: store.manifest.structure)
-    }
-
-    private func linkedTitle(id: String) -> String {
-        TreeWalk.find(id: id, in: store.manifest.structure)?.title
-            ?? "(missing)"
     }
 }

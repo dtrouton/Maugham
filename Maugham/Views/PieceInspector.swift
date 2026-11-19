@@ -1,37 +1,8 @@
 import SwiftUI
 import MaughamCore
 
-/// The inspector's Mac-only strings and ranges for a piece's format —
-/// UI copy, so it stays out of Core. Exhaustive: a new format answers each.
-fileprivate extension DocumentFormat {
-    var kindLabel: String {
-        switch self {
-        case .markdown: return "Prose"
-        case .fountain: return "Screenplay"  // kind-name-ok: a piece's FORMAT label, not a project's kind
-        }
-    }
-
-    var targetLabel: String {
-        switch self {
-        case .markdown: return "Word target"
-        case .fountain: return "Page target"
-        }
-    }
-
-    var targetRange: ClosedRange<Int> {
-        switch self {
-        case .markdown: return 0...100_000
-        case .fountain: return 0...500
-        }
-    }
-
-    var targetStep: Int {
-        switch self {
-        case .markdown: return 100
-        case .fountain: return 1
-        }
-    }
-}
+// The format labels and ranges this arm reads moved to `PieceTargetMenu.swift`
+// (shell p3 Task 8), the status line's target menu.
 
 struct PieceInspector: View {
     @Bindable var store: ProjectStore
@@ -60,7 +31,7 @@ struct PieceInspector: View {
                     statusSection(piece: piece)
                     targetSection(piece: piece)
                     intentSection(piece: piece)
-                    InspectorPublishSection(
+                    PiecePublishSettings(
                         projectURL: store.url,
                         selectedPieceID: piece.id)
                     Spacer(minLength: 0)

@@ -170,6 +170,64 @@ enum ResolveHead {
 }
 
 /// What a Book or Part holds open (`ResolveHead.bookCount`).
+extension ResolveHead {
+    /// The "whose piece this is" line for `docId`: `PieceWriters`' sentence,
+    /// nil where the book names nobody for it (one writer, or whole-book
+    /// co-authors) — the old Inspector's rule, unchanged.
+    static func whoseLine(_ writers: PieceWriters, docId: String) -> String? {
+        writers.sentence(for: docId)
+    }
+}
+
+/// **The head's "Written by" line and its one registry read** — a view of its
+/// own, so the head holds no state (`ResolveHeadView`'s letter rule). Read
+/// once per project in `.task(id: store.url)`, the old Inspector's rule: who
+/// may write in this book is a fact about the folder, so moving between
+/// chapters costs no registry read, and nothing reads it in `body`
+/// (tripwire 4).
+struct ResolveWhoseLineHost: View {
+    let store: ProjectStore
+    let docId: String
+
+    @State private var writers: PieceWriters = .none
+
+    var body: some View {
+        // A stack, not a `Group`: an empty `Group` hands its `.task` to no
+        // child, and the read would never run.
+        VStack(alignment: .leading, spacing: 0) {
+            if let by = ResolveHead.whoseLine(writers, docId: docId) {
+                ResolveWhoseLine(sentence: by)
+            }
+        }
+        .task(id: store.url) {
+            writers = await PieceWriters.read(
+                projectURL: store.url,
+                pieces: PermitControl.pieces(in: store.manifest.structure))
+        }
+    }
+}
+
+/// The head's "Written by" line: the title over the names, wrapping in a
+/// narrow column. Identified by `PieceWriters.rowIdentifier`, as the
+/// Inspector's row was.
+struct ResolveWhoseLine: View {
+    let sentence: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(PieceWriters.rowTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(sentence)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(PieceWriters.rowIdentifier)
+    }
+}
+
 struct ResolveBookCount: Equatable {
     let pieces: Int
     let bookTodos: Int
@@ -299,6 +357,10 @@ struct ResolveHeadView: View {
                     onSet: offers.rulesOnPasses
                         ? { passId, state in onSetPassState(docId, passId, state) }
                         : nil)
+                // **Whose piece this is**, under the ladder (shell p3 Task 8,
+                // from the old Inspector) — only where `PieceWriters` draws a
+                // sentence: a book whose permits name pieces.
+                ResolveWhoseLineHost(store: store, docId: docId)
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             if let nudge = ResolveHead.passOrderNudgeDecision(

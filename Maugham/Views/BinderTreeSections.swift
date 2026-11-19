@@ -867,6 +867,13 @@ final class BinderTreeSectionsState {
     /// mounts. `nil` means closed; a document id names both that the picker
     /// is open and which document it is linking against.
     var linkPickerDocumentId: String?
+    /// **The piece row sheet open now** — Tags…, Add Link… or Publishing…
+    /// (shell p3 Task 8, `PieceRowMenus`), set by a row's menu and mounted in
+    /// `BinderTreeSectionsPresentations` for `linkPickerDocumentId`'s reason.
+    var pieceRowSheet: PieceRowSheet?
+    /// Whether the project has publishing set up — read with the Editions
+    /// rows, once per manifest change, so a row menu never reads the disk.
+    var publishingIsSetUp = false
     /// Palette cards, parsed from disk once per manifest change (tripwire 4).
     var cards: [PaletteCard] = []
     /// **The Editions rows** (shell p1 Task 3), read off disk once per
@@ -1354,6 +1361,16 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                             subject: $subject).perform)
                 }
             }
+            // **A piece row's Tags…, Add Link… and Publishing…** (shell p3
+            // Task 8) — the old Inspector's controls, mounted here for the
+            // reason every presentation here is.
+            .sheet(item: $state.pieceRowSheet) { sheet in
+                PieceRowSheetView(
+                    store: store, sheet: sheet,
+                    perform: BinderTreeVerbs(
+                        store: store, state: state, subject: $subject).perform,
+                    onDone: { state.pieceRowSheet = nil })
+            }
             // **⌘V lands in shared research** (stage-2b Task 4) — the table is
             // `ResearchPasteImporter`'s, which is `ResearchView`'s moved, and
             // whether this window's paste is research's at all is
@@ -1381,6 +1398,7 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                                      translations: state.translationRevision,
                                      publishing: PublishStarter.isInitialized(in: store.url))) {
                 state.editionRows = TreeEditionRows.rows(store: store)
+                state.publishingIsSetUp = PublishStarter.isInitialized(in: store.url)
                 state.projectHasInbox = InboxStore.projectHasInbox(projectURL: store.url)
             }
             .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: nil) { _ in

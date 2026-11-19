@@ -81,6 +81,15 @@ struct OutlineTable: View {
                     .truncationMode(.tail)
                     .foregroundStyle(.secondary)
             }
+            // **Tags** (shell p3 Task 8, from the old Inspector): the
+            // manifest value the row already has, joined — no per-row work
+            // (tripwire 4). Set from the tree's row menu ("Tags…").
+            TableColumn(Self.tagsColumnTitle) { item in
+                Text(Self.tagsCell(item))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.secondary)
+            }
             TableColumn("Words") { item in
                 if let count = store.cachedWordCount(for: item.id) {
                     Text("\(count)")
@@ -115,6 +124,13 @@ struct OutlineTable: View {
         }
         .task(id: store.url) { await loadWriters() }
         .task(id: BriefLine.refreshKey(store: store)) { lines = BriefLine.index(store: store) }
+    }
+
+    static let tagsColumnTitle = "Tags"
+
+    /// A row's Tags cell: its tags, comma-joined; empty for none.
+    static func tagsCell(_ item: StructureItem) -> String {
+        (item.tags ?? []).joined(separator: ", ")
     }
 
     /// The one registry read this table makes — one per project, off the main

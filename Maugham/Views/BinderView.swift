@@ -350,6 +350,9 @@ struct BinderView: View {
                 Divider()
                 Button("Link Research…", action: openLinkPicker)
             }
+            // Tags…, Add Link…, Publishing… (shell p3 Task 8): the old
+            // Inspector's controls, offered by the same verbs.
+            PieceRowMenuButtons(item: item, verbs: verbs, state: treeState)
             if verbs.tidy, item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {
