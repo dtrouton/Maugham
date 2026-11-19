@@ -322,7 +322,18 @@ struct GoingForView: View {
                 segments = segments.filter {
                     !whole.substring(with: $0).trimmingCharacters(in: .whitespaces).hasPrefix("```")
                 }
-            case .paragraph, .list, .table, .blockquote, .thematicBreak, .soloImage:
+            case .paragraph:
+                // A `~~~` fence is not one the parser knows (it splits only
+                // on backticks): drawn as the code it is, fence lines dropped.
+                if let first = segments.first,
+                   whole.substring(with: first).trimmingCharacters(in: .whitespaces).hasPrefix("~~~") {
+                    style = .code
+                    segments = segments.filter {
+                        !whole.substring(with: $0).trimmingCharacters(in: .whitespaces).hasPrefix("~~~")
+                    }
+                }
+            case .list, .table, .blockquote, .thematicBreak, .soloImage:
+                // As the editor shows them: a list keeps its markers.
                 break
             }
             guard let rendered = Rendered(whole, segments: segments, emphasis: style != .code),
@@ -368,6 +379,9 @@ struct GoingForView: View {
             pattern: #"(?<![\w*_])(\*\*|__)(?=\S)(.+?)(?<=\S)\1(?![\w*_])"#)
         private static let emphasised = try! NSRegularExpression(
             pattern: #"(?<![\w*_])(\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*_])"#)
+        /// `[[target]]` draws `target`; `[[target|label]]` draws `label`.
+        private static let wikiLink = try! NSRegularExpression(
+            pattern: #"\[\[([^\]|\n]+?)(?:\|([^\]\n]+?))?\]\]"#)
 
         init?(_ whole: NSString, segments: [NSRange], emphasis: Bool) {
             var units: [unichar] = []
@@ -379,6 +393,15 @@ struct GoingForView: View {
                     let line = whole.substring(with: segment)
                     let ns = line as NSString
                     var taken = IndexSet()
+                    for match in Self.wikiLink.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+                        let outer = match.range
+                        let shown = match.range(at: 2).location != NSNotFound ? match.range(at: 2) : match.range(at: 1)
+                        for i in outer.location..<NSMaxRange(outer)
+                        where !(shown.location..<NSMaxRange(shown)).contains(i) {
+                            dropped.insert(segment.location + i)
+                        }
+                        taken.insert(integersIn: outer.location..<NSMaxRange(outer))
+                    }
                     for (regex, intent) in [(Self.strong, InlinePresentationIntent.stronglyEmphasized),
                                             (Self.emphasised, InlinePresentationIntent.emphasized)] {
                         for match in regex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {

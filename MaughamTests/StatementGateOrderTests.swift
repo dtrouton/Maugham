@@ -122,4 +122,49 @@ final class StatementGateOrderTests: XCTestCase {
         let bound = try XCTUnwrap(f.store.openStatementDocument(id: statement.id))
         XCTAssertFalse(bound === other)
     }
+
+    /// **N1: the mint finds the statement already held.** Two hosts on one
+    /// undeclared scope: the second resolved "no statement" and mounted an
+    /// empty editor, then the first minted and holds the `Document`. Typing in
+    /// the second puts the words into the first's `Document` exactly once, and
+    /// the second shows the placeholder (no unbound editor eating keystrokes)
+    /// until the first lets go — then binds, with those words.
+    func test_aMintThatFindsTheStatementHeldWaitsAndBindsWithTheWordsOnce() async throws {
+        let f = try await StatementMountFixture.novel(named: "GateMintHeld")
+        fixtures.append(f)
+        let scope = Statement.Scope.document(f.documentItemId)
+        let window = f.hostView(AnyView(StatementEditorHost(
+            store: f.store, documentStore: f.documentStore,
+            kind: .intent, scope: scope, posture: .author)))
+        await pumpUntil(deadline: 5) { f.firstTextView(in: window) != nil }
+        let editor = try f.textView(in: window)
+        XCTAssertNil(f.store.statement(kind: .intent, scope: scope), "premise: an undeclared scope")
+
+        // The other host mints and holds the statement.
+        let statement = try await f.store.createStatement(kind: .intent, scope: scope)
+        let holder = try await Document.load(
+            url: f.store.resolvedProjectPath(statement.path), actor: .author,
+            session: "other-host", presenter: nil)
+        f.store.noteStatementDocumentOpened(holder, id: statement.id)
+
+        await f.type("Kelly never lies.", into: editor)
+        await pumpUntil(deadline: 5) { holder.displayText.contains("Kelly never lies.") }
+        await pumpUntil(deadline: 5) { f.allTextViews(in: window).isEmpty }
+
+        XCTAssertEqual(holder.displayText.components(separatedBy: "Kelly never lies.").count - 1, 1,
+                       "the words reached the holder exactly once: \(holder.displayText)")
+        XCTAssertTrue(f.allTextViews(in: window).isEmpty,
+                      "the minting pane waits on its placeholder, not as an unbound editor")
+
+        await f.store.closeStatementDocument(holder, id: statement.id)
+        await pumpUntil(deadline: 5) {
+            guard let bound = f.store.openStatementDocument(id: statement.id) else { return false }
+            return bound !== holder && !f.allTextViews(in: window).isEmpty
+        }
+        let bound = try XCTUnwrap(f.store.openStatementDocument(id: statement.id), "the pane bound once the holder let go")
+        XCTAssertFalse(bound === holder)
+        XCTAssertEqual(bound.displayText.components(separatedBy: "Kelly never lies.").count - 1, 1,
+                       "the pane binds with the words, once: \(bound.displayText)")
+        XCTAssertEqual(f.allTextViews(in: window).count, 1)
+    }
 }

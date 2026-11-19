@@ -578,6 +578,9 @@ struct StatementEditorHost: View {
         // `openStatementDocuments` that nothing is left to close. See
         // `loadMayBind`.
         target.wantedScope = nil
+        // A load of this scope waiting on another host re-asks now, finds the
+        // pane gone, and stops waiting (`load`).
+        if let id = statement?.id { store.wakeStatementReleaseWaiters(id) }
     }
 
     private var loadingPlaceholder: some View {
@@ -737,7 +740,7 @@ struct StatementEditorHost: View {
             // the scope counts as resolved only if its Document really loaded. A
             // failed load leaves the placeholder up rather than an empty editor
             // whose first keystroke would mint a draft over the writer's prose.
-            guard await load(statement, for: key) else { return }
+            guard await load(statement, for: key) == .bound else { return }
         }
         guard !Task.isCancelled else { return }
         resolvedScope = key
@@ -771,7 +774,22 @@ struct StatementEditorHost: View {
                 // ours to withdraw.
                 let mintedHere = store.statement(kind: kind, scope: scope) == nil
                 let created = try await store.createStatement(kind: kind, scope: scope)
-                let bound = await load(created, for: wanted, waitsForRelease: false)
+                let outcome = await load(created, for: wanted, waitsForRelease: false)
+                if outcome == .deliveredElsewhere {
+                    // **Another host held the statement** (fix 2, N1): the
+                    // words went into its `Document`, and this pane must not
+                    // stay an unbound editor — every keystroke would mint,
+                    // find and deposit again, a fragment at a time, while the
+                    // writer's text vanished from the pane they typed in. It
+                    // does what `reconcile` does instead: the placeholder,
+                    // then the waiting load, bound once the holder lets go.
+                    if target.wantedScope == wanted { resolvedScope = nil }
+                    if await load(created, for: wanted) == .bound, target.wantedScope == wanted {
+                        resolvedScope = wanted
+                    }
+                    return
+                }
+                let bound = outcome == .bound
                 // **A mint that neither bound nor deposited leaves nothing**
                 // (issue #29, S5's residue). Issue #21 made every arm of a
                 // superseded mint deliver the words it was started for; this is
@@ -806,6 +824,13 @@ struct StatementEditorHost: View {
             }
         }
     }
+
+    /// What a `load` came to. `bound`: this host's box holds the statement's
+    /// `Document`. `deliveredElsewhere`: another host holds the statement, and
+    /// the words waiting here went into ITS live `Document` (the mint only).
+    /// `notBound`: refused, cancelled, superseded or failed — any words were
+    /// still delivered to their own file.
+    enum LoadOutcome: Equatable { case bound, deliveredElsewhere, notBound }
 
     /// `Document.load` is the contract surface — it is what reaches
     /// `Bootstrap.run`, and no other way of constructing a `Document` is
@@ -843,7 +868,7 @@ struct StatementEditorHost: View {
     /// still costs no file I/O.
     @discardableResult
     private func load(_ statement: Statement, for wanted: String,
-                      waitsForRelease: Bool = true) async -> Bool {
+                      waitsForRelease: Bool = true) async -> LoadOutcome {
         // **Held across the load AND the registration**, so that the window
         // between "the registry says nobody has this" and "I have registered
         // mine" is not one a transient writer can open a second `Document` in.
@@ -863,13 +888,18 @@ struct StatementEditorHost: View {
             guard waitsForRelease else {
                 if let live = store.openStatementDocument(id: statement.id) {
                     target.deposit(into: live, for: wanted)
+                    // Durable now, as `withStatementDocument`'s live arm makes
+                    // a write into a pane's `Document` (fix 2, N4).
+                    try? await live.flushBurstNow()
                 }
-                return true
+                return .deliveredElsewhere
             }
             store.unlockStatementOpen(statement.id)
             await store.waitForStatementRelease(statement.id, notHeldBy: target.document)
             await store.lockStatementOpen(statement.id)
-            if Task.isCancelled { return false }
+            // Cancelled (a scope change), or the pane has left or moved on
+            // (`leave` wakes the wait): nothing to bind.
+            if Task.isCancelled || target.wantedScope != wanted { return .notBound }
         }
         // **Asked AGAIN now that the gate is ours**, because waiting for it is
         // a suspension like any other and the box may have been filled while we
@@ -906,9 +936,9 @@ struct StatementEditorHost: View {
         case .load: break
         case .alreadyBound:
             if let bound = target.document { target.deposit(into: bound, for: wanted) }
-            return true
+            return .bound
         case .refuse:
-            guard target.hasWordsWaiting(for: wanted) else { return false }
+            guard target.hasWordsWaiting(for: wanted) else { return .notBound }
         }
         store.onStatementGateEvent?(.loading(statement.id))
         do {
@@ -927,7 +957,7 @@ struct StatementEditorHost: View {
                 target.deposit(into: document, for: wanted)
                 await document.close()
                 store.noteStatementTextChanged()
-                return false
+                return .notBound
             }
             target.bind(document, id: statement.id, for: wanted)
             // **Announce it, or a promotion opens a second `Document` on this
@@ -936,11 +966,11 @@ struct StatementEditorHost: View {
             // the writer is typing into. Registered AFTER `bind`, so the
             // registry never names a `Document` the pane has not taken.
             store.noteStatementDocumentOpened(document, id: statement.id)
-            return true
+            return .bound
         } catch {
             _statementEditorLog.error(
                 "Could not load statement \(statement.id, privacy: .public): \(error, privacy: .public)")
-            return false
+            return .notBound
         }
     }
 

@@ -219,6 +219,22 @@ final class GoingForTests: XCTestCase {
         XCTAssertTrue(source.contains(".tint(Color.primary)"), "links draw in the prose's own ink")
     }
 
+    /// `[[links]]` draw their target or label, a `~~~` fence its code, and a
+    /// mark over a link still lands on the drawn words.
+    func test_wikiLinksAndTildeFencesDrawAsTheEditorShowsThem() {
+        let essay = "See [[Kelly]] and [[harbour-master|the harbourmaster]] tonight.\n\n~~~\nlet x = 1\n~~~"
+        let clauses = [DiagnosticIngest.ClauseStatus(
+            clauseQuote: "[[harbour-master|the harbourmaster]] tonight", status: "silent", refs: [])]
+        let marks = BriefPane.marks(essay: essay, intentText: essay, run: run(snapshot: essay, clauses: clauses))
+        let drawn = GoingForView.paragraphs(of: essay, marks: marks)
+        XCTAssertEqual(drawn.map { String($0.characters) },
+                       ["See Kelly and the harbourmaster tonight.", "let x = 1"])
+        let dotted = drawn[0].runs.filter { $0[GoingForView.Underline.self] != nil }
+            .map { String(drawn[0][$0.range].characters) }.joined()
+        XCTAssertEqual(dotted, "the harbourmaster tonight")
+        XCTAssertTrue(drawn[1].runs.allSatisfy { $0.inlinePresentationIntent == .code })
+    }
+
     // MARK: - Census helpers
 
     static func source(_ path: String) throws -> String {

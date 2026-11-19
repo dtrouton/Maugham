@@ -7285,6 +7285,12 @@ final class TripwireGrepTests: XCTestCase {
         "body",
         "reconcile",
         "leave",
+        // WRITES it only, as `reconcile` does (shell plan 3 Task 4 fix 2, N1):
+        // a mint that found another host holding the statement drops the
+        // editor to the placeholder and re-mounts after its waiting load
+        // binds. Each write is gated on the named destination
+        // (`target.wantedScope == wanted`), never on the marker.
+        "mintAndBind",
     ]
 
     /// Which members of a Swift file mention `token` in CODE, keyed by the

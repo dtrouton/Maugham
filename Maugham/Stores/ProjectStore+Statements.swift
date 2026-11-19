@@ -58,6 +58,13 @@ extension ProjectStore {
     ///
     /// `document == nil` only withdraws. A registration that is no longer
     /// this `Document` is not this caller's to withdraw.
+    ///
+    /// **The gate is always released**: `Document.close()` does not throw, so
+    /// every return reaches the unlock. A close that never returned would hold
+    /// the gate, and every opener of this statement would queue behind it —
+    /// deliberately: a close that has not finished flushing is exactly when a
+    /// second `Document` must not open. No timer guesses at "too long"; a
+    /// hung close is a defect in the close, not something to route around.
     func closeStatementDocument(_ document: Document?, id: String) async {
         await lockStatementOpen(id)
         if document == nil || openStatementDocuments[id]?.document === document {
@@ -72,6 +79,11 @@ extension ProjectStore {
     /// `closeStatementDocument` from a view's teardown (`.onDisappear`,
     /// `willTerminate`), which cannot await: one detached `Task`, every step
     /// inside it under the gate.
+    ///
+    /// At quit this close queues behind any load holding the gate, so it may
+    /// not run before the process exits. Nothing is lost by that: the
+    /// `Document`'s pending mirror holds the un-flushed burst on disk, and the
+    /// next load folds it (`Maugham/OpLog/AREA.md`, the pending mirror).
     func releaseStatementDocument(_ document: Document?, id: String?) {
         guard let id else {
             if let document { Task { await document.close() } }

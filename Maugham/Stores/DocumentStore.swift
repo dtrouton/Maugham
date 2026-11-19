@@ -2379,14 +2379,32 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // **A statement's log moved** — a peer's sync, a merge, or our own
             // append (no `Document` here holds one, so nothing else notices a
             // closed statement change). One bump; readers re-derive by token.
-            // **Not while a pane holds it open**: that is the pane's own
-            // debounced flush, whose text already feeds the readers' keys
-            // (`BriefLine.RefreshKey`), and a bump here would restart the
-            // corkboard and outline index on every flush of typing.
+            //
+            // **While a pane holds it open, the open `Document` re-reads**,
+            // through the manuscript's own re-read (`reReadAfterExternalChange`
+            // → `Document.handleExternalLogChange`: un-bursted typing flushed
+            // first, the merged log re-derived, the display recomputed — which
+            // reaches the pane's editor through its one binding and
+            // `EditorSurface`'s one `applyExternalText`). Without it the pane
+            // kept the stale paragraphs, and the writer's next keystroke in a
+            // paragraph a peer had changed wrote over the peer's words, or a
+            // sequence op from the stale order dropped their paragraph (shell
+            // plan 3 Task 4 fix 2, item 5). A statement is in no registry here,
+            // so the re-read's word count is skipped (no path), as it should be.
+            // Our own flush is the re-read's echo (nothing new): no bump, so
+            // the corkboard's index does not restart per burst; a foreign
+            // arrival bumps once it is applied.
             if let store = projectStore,
-               store.manifest.statements.contains(where: { $0.id == docId }),
-               store.openStatementDocument(id: docId) == nil {
-                store.noteStatementTextChanged()
+               store.manifest.statements.contains(where: { $0.id == docId }) {
+                if let live = store.openStatementDocument(id: docId) {
+                    Task { @MainActor in
+                        let applied = live.externalChangesApplied
+                        try? await self.reReadAfterExternalChange(live)
+                        if live.externalChangesApplied != applied { store.noteStatementTextChanged() }
+                    }
+                } else {
+                    store.noteStatementTextChanged()
+                }
             }
             // **A figure's stream** (report plan 6a Task 7): the cache forgets
             // it, an open figure re-reads, and it and every table whose
