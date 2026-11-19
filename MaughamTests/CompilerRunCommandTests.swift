@@ -2636,7 +2636,7 @@ final class CompilerRunCommandTests: XCTestCase {
             + "to press, and the assertion after run 2 would pass over an empty pane")
 
         // 2. The writer blesses it, through the button they press.
-        try fixture.pressButton(labelled: "Bless", in: window)
+        try fixture.pressButton(labelled: BibleStratum.confirmTitle, in: window)
         await fixture.pumpUntil(deadline: 5) { bible.allFacts().isEmpty }
         let ruled = "Kelly is a nurse."
         let statement = try XCTUnwrap(

@@ -323,6 +323,13 @@ struct RulingsStratumView: View {
     /// `RulingsStratum.partition`'s doc comment for why that must never read
     /// as "orphaned". `StatementPane` resolves this in a `.task`.
     var liveParagraphIds: Set<String>? = nil
+    /// The rows to draw, in the order to draw them — a subset of `rulings`
+    /// (Brief's Decided draws newest first and folds the rest). Nil draws
+    /// every ruling in file order. The verbs still address a row by its
+    /// position in `rulings`, so `rulings` stays the statement's whole list.
+    var displayed: [Ruling]? = nil
+    /// Draw the stratum's own title ("Rulings"); Brief draws "Decided".
+    var showsTitle: Bool = true
 
     @Environment(\.undoManager) private var undoManager
 
@@ -350,13 +357,15 @@ struct RulingsStratumView: View {
     }
 
     var body: some View {
-        let partition = RulingsStratum.partition(rulings, liveParagraphIds: liveParagraphIds)
+        let partition = RulingsStratum.partition(displayed ?? rulings, liveParagraphIds: liveParagraphIds)
         VStack(alignment: .leading, spacing: 0) {
-            Text(Self.title(for: kind))
-                .font(.caption).bold()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+            if showsTitle {
+                Text(Self.title(for: kind))
+                    .font(.caption).bold()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
             if !partition.glossary.isEmpty {
                 glossarySection(partition.glossary)
                 Divider()

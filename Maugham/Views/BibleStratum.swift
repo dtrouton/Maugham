@@ -29,6 +29,11 @@ import MaughamCore
 @MainActor
 enum BibleStratum {
 
+    /// The verb that graduates a reading into the writer's ruling — the
+    /// design's word ("Confirm"; it said "Bless" before shell plan 3). The
+    /// verb itself (`bless`) is unchanged.
+    static let confirmTitle = "Confirm"
+
     // MARK: - Reading
 
     /// Which statements have a bible under them at all.
@@ -285,7 +290,7 @@ struct BibleStratumView: View {
                 .foregroundStyle(.tertiary)
             HStack(spacing: 12) {
                 if StatementSurfaceVerbs.offered(under: posture) {
-                    Button("Bless") { bless(fact) }
+                    Button(BibleStratum.confirmTitle) { bless(fact) }
                         .buttonStyle(.plain)
                     Button("Correct") { correctingId = fact.id }
                         .buttonStyle(.plain)

@@ -51,7 +51,7 @@ actually heard" — and once it firms up it belongs on its own line rather than
 buried in a paragraph. **Rulings are made by pressing something, not by typing
 a heading.** Answering a check's note (see
 [Checking Your Writing](compiler.md)) files your sentence as a ruling on that
-piece, dated and marked with where it came from; so do **Bless** and
+piece, dated and marked with where it came from; so do **Confirm** and
 **Correct**, the two buttons on an entry in the paler strip below — the things
 Claude has read off the manuscript, which are its readings until you say
 otherwise. Each ruling appears in its own strip beneath the editor with

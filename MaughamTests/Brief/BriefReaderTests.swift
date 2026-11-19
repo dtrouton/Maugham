@@ -294,6 +294,31 @@ final class BriefReaderTests: XCTestCase {
         XCTAssertEqual(f.store.statementTextRevision, before, "a manuscript log is not a statement's")
     }
 
+    /// The presenter arm skips our own pane's flush: an open intent's
+    /// debounced typing reaching its log restarts no corkboard or outline
+    /// index (the pane's text already feeds the key); a CLOSED statement's
+    /// log arriving still bumps.
+    func test_anOpenPanesOwnFlushRestartsNoIndexAndAClosedArrivalStillBumps() async throws {
+        let f = try await makeFixture()
+        let intent = try XCTUnwrap(f.store.statement(kind: .intent, scope: .document("doc-a")))
+        let log = try XCTUnwrap(OpLogStore.opLogFileURLs(forDocId: intent.id, in: f.root).first,
+                                "premise: the statement has an op log")
+        let pane = try await Document.load(
+            url: f.store.resolvedProjectPath(intent.path), actor: .author, session: "brief-test", presenter: nil)
+        f.store.noteStatementDocumentOpened(pane, id: intent.id)
+        let key = BriefLine.refreshKey(store: f.store)
+        let revision = f.store.statementTextRevision
+        f.ds.presenterDidChangeSubitem(at: log)
+        XCTAssertEqual(f.store.statementTextRevision, revision, "the open pane's own flush bumps nothing")
+        XCTAssertEqual(BriefLine.refreshKey(store: f.store), key, "so the index is not rebuilt")
+
+        f.store.forgetStatementDocument(id: intent.id)
+        await pane.close()
+        let closed = f.store.statementTextRevision
+        f.ds.presenterDidChangeSubitem(at: log)
+        XCTAssertGreaterThan(f.store.statementTextRevision, closed, "a closed statement's arrival still bumps")
+    }
+
     func test_theMCPListingCarriesTheLine() async throws {
         let f = try await makeFixture()
         let reg = ProjectRegistry()

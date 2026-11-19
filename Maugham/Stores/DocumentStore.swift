@@ -2379,8 +2379,13 @@ extension DocumentStore: ProjectFolderPresenterDelegate {
             // **A statement's log moved** — a peer's sync, a merge, or our own
             // append (no `Document` here holds one, so nothing else notices a
             // closed statement change). One bump; readers re-derive by token.
+            // **Not while a pane holds it open**: that is the pane's own
+            // debounced flush, whose text already feeds the readers' keys
+            // (`BriefLine.RefreshKey`), and a bump here would restart the
+            // corkboard and outline index on every flush of typing.
             if let store = projectStore,
-               store.manifest.statements.contains(where: { $0.id == docId }) {
+               store.manifest.statements.contains(where: { $0.id == docId }),
+               store.openStatementDocument(id: docId) == nil {
                 store.noteStatementTextChanged()
             }
             // **A figure's stream** (report plan 6a Task 7): the cache forgets

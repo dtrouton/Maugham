@@ -138,6 +138,25 @@ final class StatementMountFixture: RunLoopPumping {
             .filter { $0.contains(substring) }
     }
 
+    /// Any view, in a window the column's width, with the fixture's
+    /// preferences — for a surface that may mount no editor at all (Brief's
+    /// reading face), so nothing here waits for one.
+    @discardableResult
+    func hostView(_ view: AnyView, width: CGFloat = 320) -> NSWindow {
+        let window = TestWindow.mount(AnyView(view.environment(preferences)),
+                                      size: CGSize(width: width, height: 900))
+        windows.append(window)
+        pump()
+        return window
+    }
+
+    /// Every accessibility value or label in the window, in tree order.
+    func allStaticTexts(in window: NSWindow) throws -> [String] {
+        try axTree(in: window)
+            .compactMap { axAttribute($0, "accessibilityValue") as? String
+                ?? axAttribute($0, "accessibilityLabel") as? String }
+    }
+
     /// `staticTexts` as a predicate, for polling. Swallows the unavailable-tree
     /// skip on purpose — a `pumpUntil` condition cannot throw, and the
     /// assertion after the wait is what reports the skip.

@@ -446,12 +446,12 @@ you have already checked, however that check turned out.
 Every check reads the wet ink and, without asking, notices what your prose
 establishes — what a character knows and since when, what's physically true,
 a voice. These land in the Intent pane's paler strip beneath your rulings —
-*What Claude has read* — with three actions: **Bless** (graduate it to a
+*What Claude has read* — with three actions: **Confirm** (graduate it to a
 ruling, in your own words), **Correct** (edit it before it becomes one), and
 **Dismiss** (it may return if the manuscript re-establishes it). Nothing there
 is truth until you act on it; it is inspected, never tended.
 
-Blessing or correcting is permanent in a way dismissing is not: once a reading
+Confirming or correcting is permanent in a way dismissing is not: once a reading
 is a ruling of yours, later checks never offer it again, even when you rewrite
 the scene that established it. Dismissing says *not so*, and your manuscript is
 allowed to argue back. See [The Right
@@ -576,7 +576,7 @@ Checks use your own Claude account.
 
 It reads your manuscript and writes nothing into it. It cannot edit your prose,
 your research, your palette, or your intent — including the rulings and the
-bible it reads you against, which only you, through **Answer**, **Bless**, and
+bible it reads you against, which only you, through **Answer**, **Confirm**, and
 **Correct**, can add to. It never writes your lessons ledger either. A check can
 notice a habit and say it found no instance of a lesson you're carrying, but
 every entry in that ledger got there because you pressed something.
