@@ -125,12 +125,41 @@ final class ManuscriptNavigationTests: XCTestCase {
         var writes = 0
         var stored = SubjectSamples.opened(.item(piece))
         let binding = Binding(get: { stored }, set: { stored = $0; writes += 1 })
-        ManuscriptNavigation.go(to: stored, subject: binding)
+        var item: CentreItem?
+        let noItem = Binding(get: { item }, set: { item = $0 })
+        ManuscriptNavigation.go(to: stored, subject: binding, centreItem: noItem)
         XCTAssertEqual(writes, 0)
         ManuscriptNavigation.go(
             to: ManuscriptNavigation.destination(toDocument: other, current: stored),
-            subject: binding)
+            subject: binding, centreItem: noItem)
         XCTAssertEqual(writes, 1)
         XCTAssertEqual(stored.open, .item(other))
+    }
+
+    /// **A place closes the centre item's cover first** (shell plan 3 Task 5
+    /// fix, C1) — even one in the piece already open, whose subject does not
+    /// change: a paragraph shown under a cover is a paragraph nobody can see.
+    func test_aPlaceClosesTheCentreItemFirst() throws {
+        var stored = SubjectSamples.opened(.item(piece))
+        let binding = Binding(get: { stored }, set: { stored = $0 })
+        var item: CentreItem? = .statement(kind: .intent, scope: .document(piece))
+        let itemBinding = Binding(get: { item }, set: { item = $0 })
+        ManuscriptNavigation.go(to: stored, subject: binding, centreItem: itemBinding)
+        XCTAssertNil(item, "a paragraph in the open piece: the cover goes, the subject stays")
+        XCTAssertEqual(stored.open, .item(piece))
+        item = .history(docId: piece)
+        ManuscriptNavigation.go(
+            to: ManuscriptNavigation.destination(toDocument: other, current: stored),
+            subject: binding, centreItem: itemBinding)
+        XCTAssertNil(item)
+        XCTAssertEqual(stored.open, .item(other))
+
+        // The translation reveal onto the chapter already up never calls
+        // `go`; it closes the cover itself.
+        let reveal = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("TranslationReviewModifier", under: ["Maugham"]))
+        let now = try XCTUnwrap(reveal.firstIndex { $0.contains("case .now:") })
+        XCTAssertTrue(reveal[now + 1].contains("if centreItem != nil { centreItem = nil }"),
+                      "\(reveal[now + 1])")
     }
 }

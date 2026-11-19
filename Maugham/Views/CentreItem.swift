@@ -39,6 +39,18 @@ extension ProjectWindow {
         return place == new ? item : nil
     }
 
+    /// **Whether what covers the editor hides it**: the Book's view, or any
+    /// cover but the no-book notice (which stands over the Book's view and
+    /// takes no clicks). While it does, the manuscript's text view never
+    /// holds the keys (`CentreKeys`). Pure.
+    static func coverHidesTheEditor(cover: CentreCover?, altitude: BookView?) -> Bool {
+        if altitude != nil { return true }
+        switch cover {
+        case .none, .notice: return false
+        case .books, .designGate, .translationRound, .publishProblems, .centreItem: return true
+        }
+    }
+
     /// Whether this statement is the centre's cover — Brief and the pulled-up
     /// view then draw a placeholder, so two `StatementEditorHost`s never bind
     /// one statement.

@@ -22,6 +22,9 @@ struct BriefEditionView: View {
     let documentStore: DocumentStore
     let language: String
     let onPullUp: (PulledUp) -> Void
+    /// The way to the Department desk, where the cast is changed; nil draws
+    /// none.
+    var onOpenDesk: (() -> Void)? = nil
 
     /// The book's own language, once read; nil until then (nothing is drawn
     /// over a guess, so the source edition never mounts a brief's editor).
@@ -31,6 +34,7 @@ struct BriefEditionView: View {
     static let noBriefPrompt = "This edition has no brief yet. Write how it should read here."
     static let castHeading = "Cast"
     static let castOnTheDesk = "The cast is changed on the Department desk."
+    static let openTheDesk = "Open the desk"
     static let noCastLine = "No one is cast for this edition yet."
 
     // MARK: - Pure
@@ -165,6 +169,12 @@ struct BriefEditionView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let onOpenDesk {
+                Button(Self.openTheDesk, action: onOpenDesk)
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Change who is cast for this edition")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)

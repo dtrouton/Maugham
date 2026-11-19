@@ -58,6 +58,9 @@ struct BriefPane: View {
     let onPullUp: (PulledUp) -> Void
     let onShowStrain: (_ docId: String, _ clauseQuote: String) -> Void
     let onOpenBrief: (BinderSubject) -> Void
+    /// The Department desk for an edition — where its cast is changed. Nil
+    /// draws no way there (Task 9 wires the right column's position).
+    let onOpenDesk: ((_ language: String) -> Void)?
 
     @State private var contents: BriefContents
 
@@ -67,7 +70,8 @@ struct BriefPane: View {
          onOpenInCentre: @escaping (CentreItem) -> Void,
          onPullUp: @escaping (PulledUp) -> Void,
          onShowStrain: @escaping (_ docId: String, _ clauseQuote: String) -> Void,
-         onOpenBrief: @escaping (BinderSubject) -> Void) {
+         onOpenBrief: @escaping (BinderSubject) -> Void,
+         onOpenDesk: ((_ language: String) -> Void)? = nil) {
         self.store = store
         self.documentStore = documentStore
         self.scope = scope
@@ -79,6 +83,7 @@ struct BriefPane: View {
         self.onPullUp = onPullUp
         self.onShowStrain = onShowStrain
         self.onOpenBrief = onOpenBrief
+        self.onOpenDesk = onOpenDesk
         _contents = State(initialValue: .empty(scope))
     }
 
@@ -117,7 +122,8 @@ struct BriefPane: View {
                 // Not scrolled: the edition brief's own pane holds an editor
                 // that takes the height it is given.
                 BriefEditionView(store: store, documentStore: documentStore,
-                                 language: language, onPullUp: onPullUp)
+                                 language: language, onPullUp: onPullUp,
+                                 onOpenDesk: onOpenDesk.map { open in { open(language) } })
                     .id(language)
             case .elsewhere:
                 quietPane(Self.elsewhereLine)

@@ -159,8 +159,26 @@ final class BriefBookTests: XCTestCase {
             XCTAssertEqual(layout.showing.count, BriefDecisions.showing)
             XCTAssertEqual(layout.earlierTitle, "197 earlier")
         }
-        let source = try? GoingForTests.source("Maugham/Views/Brief/BriefBookView.swift")
-        XCTAssertTrue(source?.contains("LazyVStack") == true, "the groups are laid out lazily")
+    }
+
+    /// **One read per key, never per row or per filter** (tripwire 4): the
+    /// groups and their file orders are built only in `BriefPane.read`, which
+    /// runs only in the pane's `.task(id: readKey)`; the Book's view reads no
+    /// statement and groups nothing itself — a filter change re-reads nothing.
+    func test_theBooksDecisionsAreReadOncePerKey() throws {
+        let book = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/Brief/BriefBookView.swift"))
+        let body = try XCTUnwrap(book.firstIndex { $0.contains("var body: some View") })
+        let drawn = book[body...].joined(separator: "\n")
+        for reader in ["groups(", "currentRows(", "statementText(", "BriefReader.read("] {
+            XCTAssertFalse(drawn.contains(reader), "the Book's view calls \(reader) while drawing")
+        }
+        let pane = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/Brief/BriefPane.swift"))
+            .joined(separator: "\n")
+        XCTAssertEqual(pane.components(separatedBy: "BriefBookView.groups(").count - 1, 1,
+                       "grouped in one place")
+        XCTAssertEqual(pane.components(separatedBy: "Self.read(scope:").count - 1, 1)
+        XCTAssertTrue(pane.contains(".task(id: readKey) { contents = Self.read(scope: scope"),
+                      "and that place runs once per key, in `.task`")
     }
 
     // MARK: - A decision's origin

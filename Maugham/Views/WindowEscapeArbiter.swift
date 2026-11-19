@@ -46,6 +46,11 @@ final class WindowEscapeArbiter {
     enum Consumer: Int, CaseIterable, Sendable {
         /// A reference the writer promoted into the assistant column.
         case assistantColumn
+        /// A statement or History open in the centre (shell plan 3 Task 5).
+        /// After the column, for the column's reason (opened one gesture
+        /// ago, and beside the cover rather than under it); before the dim,
+        /// which never stands with it (the canvas is its own branch).
+        case centreItem
         /// The planning canvas dimmed by a tree selection (§4.1, slice 3).
         case canvasDim
     }

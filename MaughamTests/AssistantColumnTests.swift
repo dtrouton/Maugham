@@ -624,7 +624,7 @@ final class AssistantColumnTests: XCTestCase {
     /// `offerEscape` walks.
     func test_theEscapePriorityOrderIsTheDeclaredOne() {
         XCTAssertEqual(WindowEscapeArbiter.Consumer.allCases,
-                       [.assistantColumn, .canvasDim],
+                       [.assistantColumn, .centreItem, .canvasDim],
                        "the assistant column precedes the canvas dim: the column is "
                        + "something the writer opened one gesture ago, the dim is a "
                        + "consequence of a selection made earlier. A new consumer needs "

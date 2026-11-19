@@ -582,7 +582,6 @@ struct StratumEditField: View {
     }
 }
 
-
 /// Where a row of `RulingsStratumView` was made, and — for a piece — the way
 /// to that piece's Brief (shell plan 3 Task 5).
 struct RulingOrigin {

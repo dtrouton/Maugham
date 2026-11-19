@@ -22,6 +22,8 @@ struct TranslationReviewModifier: ViewModifier {
     /// piece opens whatever the centre was. The round report or problems list
     /// the row was clicked in is dismissed by its own `onReveal`.
     @Binding var subject: WindowSubject
+    /// The centre item's cover: a reveal closes it, as every place does.
+    @Binding var centreItem: CentreItem?
     /// For the pending reveal's one question: has that chapter's `Document`
     /// registered yet? The enter-review post reaches an `EditorCoordinator` that
     /// does not exist until it has.
@@ -74,12 +76,14 @@ struct TranslationReviewModifier: ViewModifier {
                 guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
                 switch TranslationReveal.plan(reveal, subject: subject) {
                 case .now:
+                    // The chapter is up; a cover over it goes first.
+                    if centreItem != nil { centreItem = nil }
                     startReveal(reveal, waitingForDocument: false)
                 case .afterSelecting:
                     pendingReveal = reveal
                     ManuscriptNavigation.go(
                         to: TranslationReveal.destination(reveal, current: subject),
-                        subject: $subject)
+                        subject: $subject, centreItem: $centreItem)
                 }
             }
             // The chosen language belongs to the doc that was active when it was

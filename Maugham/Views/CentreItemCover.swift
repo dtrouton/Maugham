@@ -28,7 +28,13 @@ struct CentreItemCover: View {
     let item: CentreItem
     let bible: BibleStore?
     let world: DeclaredWorldStore?
+    /// The window, for the Escape arbiter.
+    let window: NSWindow?
+    /// The tree's find overlay is up: Esc closes it first.
+    let findIsUp: Bool
     let onClose: () -> Void
+
+    @State private var escape = CentreItemEscape()
 
     /// What the cover mounts for an item. Pure.
     enum Content: Equatable {
@@ -62,6 +68,17 @@ struct CentreItemCover: View {
 
     static let closeTitle = "Close"
 
+    /// **The keys this cover asks for when it appears** (`CentreKeys`): a
+    /// statement's own editor once its host binds; History, the cover. Nil
+    /// for every other cover. Pure.
+    static func claim(for cover: CentreCover?) -> CentreKeys.Claim? {
+        guard case .centreItem(let item) = cover else { return nil }
+        switch content(of: item) {
+        case .statement: return .init(id: String(describing: item), prefersEditor: true)
+        case .history: return .init(id: String(describing: item), prefersEditor: false)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -74,7 +91,8 @@ struct CentreItemCover: View {
                     Label(Self.closeTitle, systemImage: "xmark")
                 }
                 .buttonStyle(.borderless)
-                .keyboardShortcut(.cancelAction)
+                // Esc through the window's one arbiter, never a key
+                // equivalent (`CentreItemEscape`).
                 .help("Close, and show what the centre showed (Esc)")
             }
             .padding(.horizontal, 16)
@@ -84,6 +102,16 @@ struct CentreItemCover: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        // Registered exactly while the cover is mounted, which is exactly
+        // while the route draws it.
+        .onAppear { syncEscape() }
+        .onChange(of: window) { _, _ in syncEscape() }
+        .onChange(of: findIsUp) { _, _ in syncEscape() }
+        .onDisappear { escape.stop() }
+    }
+
+    private func syncEscape() {
+        escape.sync(window: window, findIsUp: findIsUp, close: onClose)
     }
 
     @ViewBuilder
@@ -106,5 +134,56 @@ struct CentreItemCover: View {
                 documentStore: documentStore)
                 .id(String(describing: item))
         }
+    }
+}
+
+/// **Escape closes the centre item's cover, as a consumer of the window's one
+/// `WindowEscapeArbiter`** (review I1) — never a `.keyboardShortcut(.cancelAction)`,
+/// a key equivalent AppKit consults before the responder chain, which would
+/// take Esc from a ruling's edit field in the cover, the binder's inline
+/// rename and the find bar (`AssistantColumnEscape`'s note).
+///
+/// Through the arbiter the cover inherits `CanvasEscapeMonitor.disposition`'s
+/// refusals: while a field or a text view is being typed in (the cover's own
+/// `StratumEditField`, the rename, the find field — and the statement's own
+/// editor), Esc travels on to it. The claim also declines while the tree's
+/// find overlay is up, whose Esc is its own. Only then does Esc close the cover.
+@MainActor
+final class CentreItemEscape {
+    private weak var arbiter: WindowEscapeArbiter?
+    private var findIsUp = false
+    private var close: (() -> Void)?
+
+    var isInstalled: Bool {
+        guard let arbiter else { return false }
+        return arbiter.isRegistered(.centreItem) && arbiter.isArmed
+    }
+
+    func sync(window: NSWindow?, findIsUp: Bool, close: @escaping () -> Void) {
+        self.findIsUp = findIsUp
+        self.close = close
+        guard let window else {
+            stop()
+            return
+        }
+        let target = WindowEscapeArbiter.arbiter(for: window)
+        if let previous = arbiter, previous !== target { previous.resign(.centreItem) }
+        target.register(.centreItem, claim: { [weak self] in self?.performEscape() ?? false })
+        arbiter = target
+    }
+
+    func stop() {
+        arbiter?.resign(.centreItem)
+        arbiter = nil
+        close = nil
+    }
+
+    /// The arbiter's offer: close the cover and claim the key, or decline (the
+    /// find overlay is up, or the cover has gone) so the offer passes on.
+    @discardableResult
+    func performEscape() -> Bool {
+        guard let close, !findIsUp else { return false }
+        close()
+        return true
     }
 }

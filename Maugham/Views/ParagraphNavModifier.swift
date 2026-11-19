@@ -14,6 +14,8 @@ struct ParagraphNavModifier: ViewModifier {
     /// a diagnostic or a figure's Used-in link all end with the piece in the
     /// centre and the faces, whatever the centre was.
     @Binding var subject: WindowSubject
+    /// The centre item's cover: a navigation closes it before it lands.
+    @Binding var centreItem: CentreItem?
     /// The project's structure, read at post time to tell a piece on the faces
     /// from a Part.
     let structure: () -> [StructureItem]
@@ -28,7 +30,8 @@ struct ParagraphNavModifier: ViewModifier {
                 // The editor's own receiver (`EditorCoordinator`) scrolls to the
                 // paragraph when it has the piece; this one puts the piece in
                 // the centre, and holds the place for the editor that loads it.
-                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject)
+                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject,
+                                        centreItem: $centreItem)
             }
             // **The screenplay's own navigation.** A slugline click posts this from
             // `SceneNavigatorPane`'s `onSelect` after that pane has put the script
@@ -43,7 +46,8 @@ struct ParagraphNavModifier: ViewModifier {
             // (`EditorControl.pendingPlace`): a later click replaces it, so a
             // quick A-then-B lands on B.
             .onKeyWindowCommand(.maughamNavigateToScene, window: window) { note in
-                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject)
+                ManuscriptNavigation.go(to: holdingThePlace(note), subject: $subject,
+                                        centreItem: $centreItem)
             }
             // `.maughamShowHelp` is `.allWindows` scoped, so every live-or-zombie
             // window receives it; `openWindow(id:)` for a singleton Window is

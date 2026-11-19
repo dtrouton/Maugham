@@ -8,7 +8,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The window family
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
-- `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover.
+- `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms, environment services; `RightColumnContent.swift`, what each position shows.
 - `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
@@ -242,15 +242,16 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`ProjectWindow.detailColumn` frames its content to the width it declares**: one width, bound once, from `detailColumnWidth` (the persisted wish, written only by the resize handle, clamped to `UIState.detailColumnWidthRange`, 240–480).
 
 ### The centre column
-- **`centreRoute` answers once, from the window's `subject: WindowSubject`, as a value; `CentreColumn` renders it with one `switch` per level, never by layer order** (`CentreRouteTests`, every `open` × `BookView` × publish state).
+- **`centreRoute` answers once, from the window's `subject: WindowSubject`, as a value; `CentreColumn` renders it with one `switch` per level, never by layer order** (`CentreRouteTests`).
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the fourth branch, its one mount (tripwires 27, 30; `RegionBindingTests`); `.inbox` is last.
-- **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline and Status are its associated `BookView`.
-- **`manuscriptEditor`'s `ZStack`: `EditorHost` first and always present, the Book's view second whenever `open` names no document, then at most ONE cover.** Count layers in `ProjectAltitudeCentreTests`' arm scans.
-- **The Book's view is `altitudeView`'s answer**: the Book, a Part (its own chapters, `altitudeScope`) or an edition (never Status). Status is a view, never a cover; the board's one mount is `statusBoard`.
+- **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline, Status are its `BookView`.
+- **`manuscriptEditor`'s `ZStack`: `EditorHost` first and always present, the Book's view second whenever `open` names no document, then at most ONE cover** (`ProjectAltitudeCentreTests`).
+- **The Book's view is `altitudeView`'s answer**: the Book, a Part (`altitudeScope`) or an edition (never Status). Status is a view, never a cover; the board's one mount is `statusBoard`.
 - **Covers, in order: an edition's** (`publishCentre`, whatever the faces are on: problems, a round, a proposal, the book), then a centre item.
+- **A covered editor never holds the keys** (`CentreKeys`); a place closes the centre item first.
 - **A click on a piece while the canvas or an edition is the centre moves the faces, never `open`** (`ClickRule`).
-- **`showsStatusFooter` shows exactly where `open` is a document** (`PublishPreviewCentreTests`).
-- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log, never the `.fountain` (tripwire 20).
+- **`showsStatusFooter` shows where `open` is a document** (`PublishPreviewCentreTests`).
+- **`ScreenplayScriptSource` is a second PRODUCER of `lastParsedScript`, never a second value** (tripwire 6): `needsDerivation` is false once anything has parsed. It derives from the op log (tripwire 20).
 
 ### The subject decides, never a mode
 - **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.

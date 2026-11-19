@@ -513,6 +513,7 @@ struct ProjectWindow: View {
             detailSegment: $detailSegment,
             resolveRequest: $resolveRequest,
             subject: subjectBinding,
+            centreItem: $centreItem,
             restoreOutcome: $restoreOutcome,
             assistant: assistant,
             mcpBanner: flashes.mcpBanner,
@@ -528,6 +529,7 @@ struct ProjectWindow: View {
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
+                                       centreItem: $centreItem,
                                        structure: { store?.manifest.structure ?? [] },
                                        editorControl: editorControl))
         // A double-click on a tree row opens it in the centre — the click
@@ -567,6 +569,7 @@ struct ProjectWindow: View {
             window: window,
             projectURL: url,
             subject: subjectBinding,
+            centreItem: $centreItem,
             documentStore: documentStore,
             editorControl: $editorControl))
         .modifier(PaletteWallModifier(
@@ -843,6 +846,8 @@ struct ProjectWindow: View {
         /// end with that piece in the centre and the faces. Closing find moves
         /// nobody.
         @Binding var subject: WindowSubject
+        /// The centre item's cover: a place closes it (`ManuscriptNavigation.go`).
+        @Binding var centreItem: CentreItem?
         /// What ⌘⌥Z has to say when it cannot restore a deletion whole
         /// (RULING-40), or when a restore gave back less than was deleted
         /// (RULING-42).
@@ -895,7 +900,7 @@ struct ProjectWindow: View {
                         ManuscriptNavigation.go(
                             to: ManuscriptNavigation.destination(
                                 toDocument: id, current: subject),
-                            subject: $subject)
+                            subject: $subject, centreItem: $centreItem)
                     }
                 }
                 .onKeyWindowCommand(.maughamAddResearchFile, window: window) { _ in
@@ -976,7 +981,7 @@ struct ProjectWindow: View {
                         ManuscriptNavigation.go(
                             to: ManuscriptNavigation.destination(
                                 toDocument: id, current: subject),
-                            subject: $subject)
+                            subject: $subject, centreItem: $centreItem)
                     } else {
                         navigate(target)
                     }
@@ -1262,6 +1267,7 @@ struct ProjectWindow: View {
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, bible: bible, window: window,
             isLocked: isLocked, researchPreviewVisible: researchPreviewVisible,
+            treeFindActive: treeFindActive,
             subject: subjectBinding,
             centreItem: $centreItem,
             bookView: $bookView,

@@ -157,8 +157,15 @@ enum ManuscriptNavigation {
     /// `CanvasClaudeArrivalModifier`'s Show: that takes the writer to something
     /// the RIGHT column names; this takes them to the centre, and reopening a
     /// column they closed with `⌘⌥I` would be a side effect nobody asked for.
+    ///
+    /// **A place closes the centre item's cover first** (shell plan 3 Task 5
+    /// fix, C1): the writer asked to read a paragraph, and a statement or
+    /// History over the editor would hide it — and leave the editor's caret
+    /// landing on text nobody can see. Required, so no receiver can forget it.
     @MainActor
-    static func go(to destination: WindowSubject, subject: Binding<WindowSubject>) {
+    static func go(to destination: WindowSubject, subject: Binding<WindowSubject>,
+                   centreItem: Binding<CentreItem?>) {
+        if centreItem.wrappedValue != nil { centreItem.wrappedValue = nil }
         if destination != subject.wrappedValue { subject.wrappedValue = destination }
     }
 }

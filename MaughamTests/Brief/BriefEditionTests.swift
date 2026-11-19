@@ -95,6 +95,25 @@ final class BriefEditionTests: XCTestCase {
                      "and nothing was minted for it")
     }
 
+    /// The cast leads to the desk where it is changed — once the window wires
+    /// the way there (Task 9); unwired, no dead control is drawn.
+    func test_theCastLeadsToTheDesk() async throws {
+        let f = try await fixture("BriefEditionDesk")
+        var opened: [String] = []
+        let wired = f.hostView(AnyView(BriefPane(
+            store: f.store, documentStore: f.documentStore, scope: .edition(language: "es"),
+            diagnostics: nil, bible: nil, world: nil, centreItem: nil,
+            onOpenInCentre: { _ in }, onPullUp: { _ in }, onShowStrain: { _, _ in },
+            onOpenBrief: { _ in }, onOpenDesk: { opened.append($0) }).frame(height: 800)))
+        await pumpUntil(deadline: 5) { f.shows(BriefEditionView.castHeading, in: wired) }
+        XCTAssertTrue(f.shows(BriefEditionView.openTheDesk, in: wired))
+        XCTAssertTrue(opened.isEmpty, "premise: nothing pressed")
+
+        let unwired = f.hostView(AnyView(pane(f, language: "es").frame(height: 800)))
+        await pumpUntil(deadline: 5) { f.shows(BriefEditionView.castHeading, in: unwired) }
+        XCTAssertFalse(f.shows(BriefEditionView.openTheDesk, in: unwired), "hidden, never a dead control")
+    }
+
     /// The cast is read here and changed on the desk: no cast sheet, no
     /// minting role lookup, no manifest write in this file.
     func test_theCastIsReadNotWritten() throws {

@@ -50,6 +50,9 @@ struct CentreColumn: View {
     // (`WindowLock`): research, palette cards and figures read, never edit.
     let isLocked: Bool
     let researchPreviewVisible: Bool
+    /// The tree's find overlay is up: Esc is its own, before the centre
+    /// item's cover (`CentreItemEscape`).
+    let treeFindActive: Bool
 
     // The window's state this column writes — bindings, never copies.
     /// The window's subject: the route's one input about what is open.
@@ -310,7 +313,7 @@ struct CentreColumn: View {
                                     revealing: piece, current: subject,
                                     structure: store.manifest.structure,
                                     projectType: store.manifest.type),
-                                subject: $subject)
+                                subject: $subject, centreItem: $centreItem)
                         }
                     })
             case .translationRound(let round):
@@ -371,11 +374,41 @@ struct CentreColumn: View {
             case .centreItem(let item):
                 CentreItemCover(store: store, documentStore: documentStore, item: item,
                                 bible: bible, world: declaredWorld,
-                                onClose: { centreItem = nil })
+                                window: window, findIsUp: treeFindActive,
+                                onClose: { closeCentreItem() })
             case .none:
                 EmptyView()
             }
         }
+        // **The keys under a cover** (review C1): while altitude or an opaque
+        // cover hides the host, its text view never holds the keys; the centre
+        // item's cover claims them for its own editor (or itself).
+        .background(CentreKeys(isCovered: { editorIsCovered(store: store) },
+                               claim: CentreItemCover.claim(for: cover)))
+    }
+
+    /// **Whether the editor is covered now** — the route asked again, live,
+    /// at focus time (a navigation clears the centre item and lands its caret
+    /// in one turn, before a redraw). The same call `editorPane` switches on.
+    private func editorIsCovered(store: ProjectStore) -> Bool {
+        let route = ProjectWindow.centreRoute(subject: subject,
+                                              bookView: bookView,
+                                              projectType: store.manifest.type,
+                                              structure: store.manifest.structure,
+                                              preview: publishCentre.preview,
+                                              proposal: publishCentre.selectedProposal,
+                                              round: publishCentre.selectedRound,
+                                              problems: publishCentre.selectedProblems,
+                                              centreItem: centreItem)
+        guard case .editor(let altitude, let cover) = route else { return false }
+        return ProjectWindow.coverHidesTheEditor(cover: cover, altitude: altitude)
+    }
+
+    /// **Close** (the cover's button, or Esc): the item goes, and the keys go
+    /// back to the manuscript editor if the centre now shows it.
+    private func closeCentreItem() {
+        centreItem = nil
+        CentreKeys.returnKeysToTheManuscript(in: window)
     }
 
     /// **The Book's Status view: the passes board** — over the Book's pieces,

@@ -10,7 +10,40 @@ import MaughamCore
 @MainActor
 final class CentreItemProbe {
     var centreItem: CentreItem?
+    /// Stands for a publish cover or the Book's view over the editor.
+    var coveredByAnotherSurface = false
     init() {}
+}
+
+/// `manuscriptEditor`'s stack in small: the host underneath, the cover over
+/// it, and `CentreKeys` behind both, with the production views. (The real
+/// stack's shape is censused in `test_whatCoversTheEditor…`.)
+@MainActor
+private struct EditorUnderTheCover: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let docId: String
+    let probe: CentreItemProbe
+    @State private var control = EditorControl()
+    @State private var referenceIndex = ReferenceIndexHost()
+
+    var body: some View {
+        ZStack {
+            EditorHost(store: store, documentStore: documentStore,
+                       selectedItemId: docId, control: control, referenceIndex: referenceIndex)
+            if probe.coveredByAnotherSurface {
+                Color(nsColor: .windowBackgroundColor)
+            }
+            if let item = probe.centreItem {
+                CentreItemCover(store: store, documentStore: documentStore, item: item,
+                                bible: nil, world: nil, window: nil, findIsUp: false,
+                                onClose: { probe.centreItem = nil })
+            }
+        }
+        .background(CentreKeys(
+            isCovered: { probe.centreItem != nil || probe.coveredByAnotherSurface },
+            claim: CentreItemCover.claim(for: probe.centreItem.map(CentreCover.centreItem))))
+    }
 }
 
 /// Brief in the right column beside the centre's cover, as the window lays
@@ -28,7 +61,8 @@ private struct BriefBesideTheCentre: View {
                 Color.clear
                 if let item = probe.centreItem {
                     CentreItemCover(store: store, documentStore: documentStore, item: item,
-                                    bible: nil, world: nil, onClose: { probe.centreItem = nil })
+                                    bible: nil, world: nil, window: nil, findIsUp: false,
+                                    onClose: { probe.centreItem = nil })
                 }
             }
             .frame(width: 500)
@@ -132,9 +166,151 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertTrue(window.contains("Self.centreItemAfterOpenChange(centreItem, from: old, to: new)"))
         let arm = try XCTUnwrap(CentreRouteSource.switchArms(
             in: try CentreRouteSource.editorArm(), over: "switch cover")).arm("centreItem")
-        XCTAssertTrue(arm.contains("onClose: { centreItem = nil }"), "Close clears the window's item")
-        let cover = try GoingForTests.source("Maugham/Views/CentreItemCover.swift")
-        XCTAssertTrue(cover.contains(".keyboardShortcut(.cancelAction)"), "Esc closes it too")
+        XCTAssertTrue(arm.contains("onClose: { closeCentreItem() }"), "Close is the column's one close")
+        let close = try SourceTree.declaration(named: "func closeCentreItem(", under: "Maugham")
+        XCTAssertTrue(close.contains("centreItem = nil"), "Close clears the window's item")
+        XCTAssertTrue(close.contains("CentreKeys.returnKeysToTheManuscript(in: window)"),
+                      "and hands the keys back to the manuscript")
+    }
+
+    // MARK: - Esc, through the window's one arbiter (review I1)
+
+    func test_escapeClosesTheCoverThroughTheArbiterInItsPlace() throws {
+        XCTAssertEqual(WindowEscapeArbiter.Consumer.allCases, [.assistantColumn, .centreItem, .canvasDim])
+        let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                     contentView: NSView(frame: .zero), present: .unshown)
+        defer { window.close() }
+        var closed = 0
+        let escape = CentreItemEscape()
+        escape.sync(window: window, findIsUp: false, close: { closed += 1 })
+        XCTAssertTrue(escape.isInstalled)
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+
+        // The assistant column, opened beside, takes Esc first.
+        var dismissed = 0
+        arbiter.register(.assistantColumn, claim: { dismissed += 1; return true })
+        XCTAssertTrue(arbiter.offerEscape())
+        XCTAssertEqual(dismissed, 1)
+        XCTAssertEqual(closed, 0, "the column's Esc is not the cover's")
+        arbiter.resign(.assistantColumn)
+
+        XCTAssertTrue(arbiter.offerEscape(), "then Esc closes the cover")
+        XCTAssertEqual(closed, 1)
+
+        // The find overlay's Esc is its own: the cover declines and the key travels on.
+        escape.sync(window: window, findIsUp: true, close: { closed += 1 })
+        XCTAssertFalse(arbiter.offerEscape())
+        XCTAssertEqual(closed, 1)
+
+        // A field or a text view being typed in keeps Esc before any consumer
+        // is asked: a ruling's edit field, the rename, the statement's editor.
+        XCTAssertTrue(CanvasEscapeMonitor.isEditingText(NSTextField()))
+        XCTAssertTrue(CanvasEscapeMonitor.isEditingText(NSTextView()))
+
+        escape.stop()
+        XCTAssertFalse(escape.isInstalled)
+        XCTAssertFalse(arbiter.isArmed, "nothing left watching")
+
+        let cover = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/CentreItemCover.swift"))
+            .joined(separator: "\n")
+        XCTAssertFalse(cover.contains(".keyboardShortcut("), "Esc is never a key equivalent here")
+        XCTAssertTrue(cover.contains(".onDisappear { escape.stop() }"), "registered only while the cover stands")
+    }
+
+    // MARK: - The keys under a cover (review C1)
+
+    func test_whatCoversTheEditorHidesItAndTheCentreItemAsksForTheKeys() throws {
+        XCTAssertFalse(ProjectWindow.coverHidesTheEditor(cover: nil, altitude: nil), "the bare editor")
+        XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: nil, altitude: .cards), "the Book's view")
+        XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: .notice(.neverCompiled), altitude: .cards))
+        XCTAssertFalse(ProjectWindow.coverHidesTheEditor(cover: .notice(.neverCompiled), altitude: nil))
+        for cover: CentreCover in [.books([]), .publishProblems([]),
+                                   .centreItem(.history(docId: "ch-1"))] {
+            XCTAssertTrue(ProjectWindow.coverHidesTheEditor(cover: cover, altitude: nil), "\(cover)")
+        }
+        let intent = CentreItem.statement(kind: .intent, scope: .document("ch-1"))
+        XCTAssertEqual(CentreItemCover.claim(for: .centreItem(intent))?.prefersEditor, true,
+                       "a statement: its own editor")
+        XCTAssertEqual(CentreItemCover.claim(for: .centreItem(.history(docId: "ch-1")))?.prefersEditor, false,
+                       "History: the cover itself")
+        XCTAssertNil(CentreItemCover.claim(for: .books([])), "a publish cover asks for nothing; the guard holds")
+        XCTAssertNil(CentreItemCover.claim(for: nil))
+
+        XCTAssertTrue(CentreKeys.mayClaim(from: nil))
+        XCTAssertTrue(CentreKeys.mayClaim(from: NSButton()), "nothing typed in")
+        XCTAssertFalse(CentreKeys.mayClaim(from: NSTextView()), "never from the writer's typing elsewhere")
+
+        // At the one place the centre decides a cover is up.
+        let arm = SourceScan.codeLines(of: try CentreRouteSource.editorArm()).joined(separator: "\n")
+        XCTAssertTrue(arm.contains(".background(CentreKeys(isCovered: { editorIsCovered(store: store) },"))
+        XCTAssertTrue(arm.contains("claim: CentreItemCover.claim(for: cover)"))
+        let covered = try SourceTree.declaration(named: "func editorIsCovered(", under: "Maugham")
+        XCTAssertTrue(covered.contains("ProjectWindow.coverHidesTheEditor(cover: cover, altitude: altitude)"))
+    }
+
+    /// The writer types in the chapter, opens the intent in the centre and
+    /// keeps typing: the keys are the cover's editor's, not the covered
+    /// manuscript's; a load re-asserting the manuscript under the cover is
+    /// turned away; Close hands them back. A measurement: nothing is pressed.
+    func test_theCoversEditorTakesTheKeysAndCloseGivesThemBack() async throws {
+        let f = try await fixture("CentreKeys")
+        let docId = f.documentItemId
+        let statement = try await f.store.createStatement(kind: .intent, scope: .document(docId))
+        try await f.store.mutateStatementText(of: statement, session: "centre-test") { _ in "Turns on a lie." }
+        let probe = CentreItemProbe()
+        let window = f.hostView(AnyView(EditorUnderTheCover(
+            store: f.store, documentStore: f.documentStore, docId: docId, probe: probe)), width: 600)
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f), "premise: the chapter is open")
+        window.makeFirstResponder(manuscript)
+        XCTAssertTrue(window.firstResponder === manuscript, "premise: the writer is typing in the chapter")
+
+        probe.centreItem = .statement(kind: .intent, scope: .document(docId))
+        await pumpUntil(deadline: 5) { Self.coverEditor(window.firstResponder) }
+        XCTAssertTrue(Self.coverEditor(window.firstResponder),
+                      "the keys are the cover's statement editor's, got \(String(describing: window.firstResponder))")
+        XCTAssertFalse(window.firstResponder === manuscript)
+        XCTAssertNotNil(f.store.openStatementDocument(id: statement.id), "and it is the bound statement's")
+
+        // Something under the cover (a load's caret, a navigation's) takes the keys back.
+        window.makeFirstResponder(manuscript)
+        await pumpUntil(deadline: 5) { !(window.firstResponder === manuscript) }
+        XCTAssertTrue(Self.coverEditor(window.firstResponder), "turned away to the cover's editor")
+
+        // Close: the column's one close.
+        probe.centreItem = nil
+        CentreKeys.returnKeysToTheManuscript(in: window)
+        await pumpUntil(deadline: 5) { window.firstResponder === manuscript }
+        XCTAssertTrue(window.firstResponder === manuscript, "the keys go back to the chapter the centre shows")
+    }
+
+    /// With a publish surface (or the Book's view) over the editor, the keys
+    /// are never the manuscript's.
+    func test_anOpaqueCoverKeepsTheKeysOffTheManuscript() async throws {
+        let f = try await fixture("CentreKeysPublish")
+        let probe = CentreItemProbe()
+        let window = f.hostView(AnyView(EditorUnderTheCover(
+            store: f.store, documentStore: f.documentStore, docId: f.documentItemId, probe: probe)), width: 600)
+        await pumpUntil(deadline: 5) { Self.manuscript(in: window, f) != nil }
+        let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
+        window.makeFirstResponder(manuscript)
+        XCTAssertTrue(window.firstResponder === manuscript, "premise")
+
+        probe.coveredByAnotherSurface = true
+        await pumpUntil(deadline: 5) { !(window.firstResponder === manuscript) }
+        XCTAssertFalse(window.firstResponder === manuscript, "the covered manuscript lost the keys")
+        XCTAssertTrue(window.firstResponder is CentreKeysView, "the guard holds them")
+        window.makeFirstResponder(manuscript)
+        await pumpUntil(deadline: 5) { !(window.firstResponder === manuscript) }
+        XCTAssertFalse(window.firstResponder === manuscript, "and keeps turning them away")
+    }
+
+    private static func manuscript(in window: NSWindow, _ f: StatementMountFixture) -> MaughamTextView? {
+        f.allTextViews(in: window).first { CentreKeys.isManuscriptEditor($0) }
+    }
+
+    private static func coverEditor(_ responder: NSResponder?) -> Bool {
+        responder is MaughamTextView && !CentreKeys.isManuscriptEditor(responder)
     }
 
     func test_theCoverMountsTodaysPanes() {
@@ -217,6 +393,27 @@ final class CentreItemCoverTests: XCTestCase {
         await pumpUntil(deadline: 5) { f.shows(GoingForView.inTheCentreLine, in: window) }
         XCTAssertTrue(f.shows(GoingForView.inTheCentreLine, in: window))
         XCTAssertTrue(f.shows("More words.", in: window), "Brief reads the statement the centre holds")
+
+        // **And back** (review M1): typed in the cover, then Close. The
+        // cover's host lets go under the gate before Brief's loads, and
+        // Brief's editor has every key.
+        await f.type(" And a storm.", into: try f.textView(in: window))
+        XCTAssertTrue(second.displayText.contains("And a storm."), "premise: the typing reached the cover's host")
+        events.removeAll()
+        probe.centreItem = nil
+        await pumpUntil(deadline: 5) {
+            guard let now = f.store.openStatementDocument(id: statement.id) else { return false }
+            return now !== second && f.allTextViews(in: window).count == 1
+        }
+        let backClosed = try XCTUnwrap(events.firstIndex(of: .closed(id)), "the cover let go: \(events)")
+        let backLoading = try XCTUnwrap(events.lastIndex(of: .loading(id)), "Brief loaded: \(events)")
+        XCTAssertLessThan(try XCTUnwrap(events.firstIndex(of: .closing(id))), backClosed)
+        XCTAssertLessThan(backClosed, backLoading, "Brief loaded beside the cover's open Document: \(events)")
+        XCTAssertTrue(second.isClosed)
+        let third = try XCTUnwrap(f.store.openStatementDocument(id: statement.id))
+        XCTAssertTrue(third.displayText.contains("And a storm."), "no key lost on the way back")
+        XCTAssertEqual(f.allTextViews(in: window).count, 1, "one editor: Brief's")
+        XCTAssertFalse(f.shows(GoingForView.inTheCentreLine, in: window))
     }
 
     /// Review Focus 3: What I've Learned in the centre and pulled up at once.
@@ -234,19 +431,40 @@ final class CentreItemCoverTests: XCTestCase {
                       "the pulled-up view's question answers placeholder")
         XCTAssertEqual(PulledUp.lessons.centreItem, lessons, "and the pulled-up thing names the same item")
 
+        // The pulled-up view as Task 7 builds it: it asks, and draws a
+        // placeholder while the centre holds the ledger.
+        let pulledUpAsks = ProjectWindow.statementIsInTheCentre(kind: .lessons, scope: .project,
+                                                                centreItem: lessons)
         let window = f.hostView(AnyView(HStack(spacing: 0) {
             CentreItemCover(store: f.store, documentStore: f.documentStore, item: lessons,
-                            bible: nil, world: nil, onClose: {})
+                            bible: nil, world: nil, window: nil, findIsUp: false, onClose: {})
                 .frame(width: 400)
-            StatementEditorHost(store: f.store, documentStore: f.documentStore,
-                                kind: .lessons, scope: .project, posture: .author)
-                .frame(width: 300)
+            Group {
+                if pulledUpAsks {
+                    Text(GoingForView.inTheCentreLine)
+                } else {
+                    StatementEditorHost(store: f.store, documentStore: f.documentStore,
+                                        kind: .lessons, scope: .project, posture: .author)
+                }
+            }
+            .frame(width: 300)
         }), width: 700)
         await pumpUntil(deadline: 5) { f.store.openStatementDocument(id: statement.id) != nil }
-        await waitOut(0.5)
-
+        await waitOut(0.3)
         XCTAssertEqual(f.allTextViews(in: window).count, 1, "exactly one host binds the ledger")
-        XCTAssertNotNil(f.store.openStatementDocument(id: statement.id))
+        let editor = try XCTUnwrap(f.firstTextView(in: window))
+        XCTAssertLessThan(CentreKeysView.visibleFrame(of: editor).midX, 400,
+                          "the cover's host holds the ledger; the pulled-up view reads a placeholder")
+
+        // A host that did not ask still never opens a second Document beside
+        // the cover's: whichever loads first holds it, the other waits.
+        let rogue = f.hostView(AnyView(StatementEditorHost(
+            store: f.store, documentStore: f.documentStore,
+            kind: .lessons, scope: .project, posture: .author)), width: 300)
+        let held = try XCTUnwrap(f.store.openStatementDocument(id: statement.id))
+        await waitOut(0.5)
+        XCTAssertTrue(f.allTextViews(in: rogue).isEmpty, "the late host waits; no second editor")
+        XCTAssertTrue(f.store.openStatementDocument(id: statement.id) === held, "one Document throughout")
     }
 
     // MARK: - Helpers
