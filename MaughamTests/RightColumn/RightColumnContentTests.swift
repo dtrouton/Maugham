@@ -116,6 +116,20 @@ final class RightColumnContentTests: XCTestCase {
         XCTAssertEqual(after(.brief, from: withNote,
                              to: ClickRule.pullUp(.research("r-2"), current: withNote)),
                        .pulledUp, "a different thing")
+        // "Show me this" on the note already pulled up, after a piece was
+        // clicked: it is the part clicked last again, and the column shows it.
+        let pieceAfter = ClickRule.resolve(.item("ch-2"), gesture: .click, current: withNote,
+                                           structure: structure, projectType: .novel)
+        XCTAssertFalse(pieceAfter.besideIsLatest, "premise: the piece was clicked last")
+        let shown = ClickRule.navigate(to: .research("r-1"), current: pieceAfter,
+                                       structure: structure, projectType: .novel)
+        XCTAssertEqual(shown.beside, .research("r-1"), "premise: still the same note")
+        XCTAssertEqual(after(.brief, from: pieceAfter, to: shown), .pulledUp)
+        XCTAssertEqual(after(.brief, from: pieceAfter,
+                             to: ClickRule.pullUp(.research("r-1"), current: pieceAfter)),
+                       .pulledUp, "a key on what is already there")
+        // Agrees with the reveal it replaces.
+        XCTAssertTrue(ResearchRevealModifier.isAnArrival(from: pieceAfter, to: shown))
         // The same thing staying beside across a click is no arrival.
         let moved = ClickRule.resolve(.item("ch-2"), gesture: .click, current: withNote,
                                       structure: structure, projectType: .novel)

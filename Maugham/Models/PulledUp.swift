@@ -122,13 +122,6 @@ public enum PulledUp: Hashable, Codable, Sendable {
         }
     }
 
-    /// **Lock's half of "may this be edited beside?"**, asked beside the
-    /// posture and never in its place (`WindowLock`). A statement's posture is
-    /// asked of `statement` through `StatementEditorHost.postureDocId`.
-    func refusesEdits(isLocked: Bool) -> Bool {
-        !isEditableBeside || (lockApplies && WindowLock.refusesEdits(isLocked: isLocked))
-    }
-
     /// The statement this is, for its posture and its one editor; nil for
     /// everything that is not a statement.
     var statement: (kind: Statement.Kind, scope: Statement.Scope)? {
@@ -147,4 +140,15 @@ public enum PulledUp: Hashable, Codable, Sendable {
         if case .history(let docId) = self { return .history(docId: docId) }
         return nil
     }
+}
+
+/// **A statement or a piece's History opened in the centre** (shell plan 3):
+/// drawn as a cover over the editor route (`CentreCover.centreItem`), where a
+/// publish cover wins while it stands. Not a subject: the subject opens the
+/// piece (or the Book) the item belongs to (`ProjectWindow.openingInCentre`),
+/// and the item clears on any later change of what is open
+/// (`centreItemAfterOpenChange`).
+enum CentreItem: Equatable {
+    case statement(kind: Statement.Kind, scope: Statement.Scope)
+    case history(docId: String)
 }

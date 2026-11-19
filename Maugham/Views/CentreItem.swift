@@ -1,16 +1,7 @@
 import Foundation
 import MaughamCore
 
-/// **A statement or a piece's History opened in the centre** (shell plan 3):
-/// drawn as a cover over the editor route (`CentreCover.centreItem`), where a
-/// publish cover wins while it stands. Not a subject: the subject opens the
-/// piece (or the Book) the item belongs to (`ProjectWindow.openingInCentre`),
-/// and the item clears on any later change of what is open
-/// (`centreItemAfterOpenChange`).
-enum CentreItem: Equatable {
-    case statement(kind: Statement.Kind, scope: Statement.Scope)
-    case history(docId: String)
-}
+// `CentreItem` itself is a model type, beside `PulledUp` (Models/PulledUp.swift).
 
 extension ProjectWindow {
 

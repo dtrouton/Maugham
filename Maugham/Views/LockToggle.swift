@@ -25,6 +25,15 @@ enum WindowLock {
     static func refusesEdits(isLocked: Bool) -> Bool { isLocked }
 }
 
+extension PulledUp {
+    /// **Lock's half of "may this be edited beside?"**, asked beside the
+    /// posture and never in its place (`WindowLock`). A statement's posture is
+    /// asked of `statement` through `StatementEditorHost.postureDocId`.
+    func refusesEdits(isLocked: Bool) -> Bool {
+        !isEditableBeside || (lockApplies && WindowLock.refusesEdits(isLocked: isLocked))
+    }
+}
+
 /// The toolbar's Lock: `lock` when locked, `lock.open` when not. It rides the
 /// window toolbar, so `⌘\` focus mode hides it with the
 /// toolbar (`ProjectWindow.TopChromeModifier`).

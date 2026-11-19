@@ -90,7 +90,10 @@ enum RightColumnContent: Equatable {
 
     /// **The position a subject change leaves the column on**, first matching
     /// rule:
-    /// 1. something new pulled up → the pulled-up position;
+    /// 1. something new pulled up, or what is already pulled up made the part
+    ///    clicked last again ("show me this": a find result, a board chip, a
+    ///    key on what is already there — `ClickRule.navigate`, `pullUp`) → the
+    ///    pulled-up position (`ResearchRevealModifier.isAnArrival`'s rule);
     /// 2. the pulled-up position left with nothing to show (what was pulled up
     ///    put away with no centre details under it, or the centre moving off
     ///    its details) → `previousFace`, the face before it;
@@ -106,7 +109,10 @@ enum RightColumnContent: Equatable {
                                            previousFace: RightColumnPosition,
                                            structure: [StructureItem],
                                            projectType: ProjectType) -> RightColumnPosition {
-        if let beside = new.beside, beside != old.beside { return .pulledUp }
+        if let beside = new.beside,
+           beside != old.beside || (new.besideIsLatest && !old.besideIsLatest) {
+            return .pulledUp
+        }
         if position == .pulledUp,
            !offersPulledUp(new, structure: structure, projectType: projectType) {
             return previousFace == .pulledUp ? .resolve : previousFace
