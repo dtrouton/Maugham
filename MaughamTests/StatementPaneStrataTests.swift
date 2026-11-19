@@ -702,14 +702,15 @@ final class StatementPaneStrataTests: XCTestCase {
     ///
     /// Production the whole way: the real `StatementPane`, the real stratum
     /// mounted inside it, the real `Button` pressed through the accessibility
-    /// tree, and `window.undoManager` — the object AppKit hands the writer's
-    /// ⌘Z — driven directly.
+    /// tree, and the manager the pane's statement editor's ⌘Z runs — the
+    /// object AppKit's `undo:` reaches in this pane (fix 3 of shell plan 3
+    /// Task 5; before it the window's) — driven through the editor's `undo:`.
     ///
     /// **`canUndo` is asserted before `undo()` on purpose.** Without it a
     /// no-op manager and a working one look identical: nothing happens, the
     /// ruling is still gone, and the failure reads as "the undo did not
     /// restore" rather than "nothing was ever registered here".
-    func test_pressingRevokeOnTheMountedRowIsUndoneByTheWindowsOwnUndoManager() async throws {
+    func test_pressingRevokeOnTheMountedRowIsUndoneByTheStatementEditorsUndo() async throws {
         let fixture = try await StatementMountFixture.novel(named: "revoke-delivery")
         defer { fixture.tearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
@@ -742,18 +743,21 @@ final class StatementPaneStrataTests: XCTestCase {
             RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).map(\.text),
             ["Second"], "pressing Revoke on the mounted row did not revoke it")
 
-        let undoManager = try XCTUnwrap(
-            window.undoManager,
-            "the window has no undo manager at all, so nothing a pane registers "
-            + "can ever be reached by ⌘Z")
+        // **Where ⌘Z looks in this pane** (shell plan 3 Task 5 fix 3): the pane's
+        // editor holds the statement, and its ⌘Z runs its own manager
+        // (`MaughamTextView.undo:`), so the press registers THERE
+        // (`ProjectStore.undoManagerForStatementVerb`) — one ordered history of
+        // the statement's typing and verbs. Asserted through the editor's own
+        // `undo:`, the action AppKit sends.
+        let editor = try fixture.textView(in: window)
+        let undoManager = try XCTUnwrap(editor.undoManager)
+        XCTAssertFalse(undoManager === window.undoManager, "premise: the editor's own manager")
         XCTAssertTrue(
             undoManager.canUndo,
-            "the mounted row's Revoke registered nothing on the WINDOW's undo "
-            + "manager — `@Environment(\\.undoManager)` in this pane is not the "
-            + "manager AppKit hands ⌘Z, and every ⌘Z assertion in this suite is "
-            + "proving a path the writer cannot reach")
+            "the mounted row's Revoke registered nothing where the statement editor's "
+            + "⌘Z runs, so ⌘Z cannot reach it")
 
-        undoManager.undo()
+        XCTAssertTrue(editor.tryToPerform(Selector(("undo:")), with: nil))
         await fixture.pumpUntil(deadline: 5) {
             RulingsStratum.currentRows(kind: .intent, forScope: scope, store: fixture.store).count == 2
         }

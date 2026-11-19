@@ -113,11 +113,16 @@ final class EditorWriteCommandCensusTests: XCTestCase {
                       "the gate's route sees the centre item")
         let covered = try SourceTree.declaration(named: "func editorIsCovered(", under: "Maugham")
         XCTAssertTrue(covered.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
+        // ⌘Z under the centre item's cover (fix 3): the cover's arrival drops
+        // the hidden chapter's typing through the one spelling `detach` uses,
+        // and the guard does not swallow ⌘Z.
         let keys = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/CentreKeys.swift"))
             .joined(separator: "\n")
-        for line in ["@objc func undo(_ sender: Any?) {}", "@objc func redo(_ sender: Any?) {}",
-                     "case #selector(undo(_:)), #selector(redo(_:)): return false"] {
-            XCTAssertTrue(keys.contains(line), "the guard owns ⌘Z: \(line)")
-        }
+        XCTAssertTrue(keys.contains("if claim != nil { dropTheCoveredManuscriptsUndo() }"))
+        XCTAssertTrue(keys.contains("editor.coordinator?.dropTheUndoStack()"))
+        XCTAssertFalse(keys.contains("func undo("), "the guard answers no ⌘Z of its own")
+        XCTAssertFalse(keys.contains("removeAllActions"), "no second spelling of the drop")
+        let detach = try SourceTree.declaration(named: "func dropTheUndoStack(", under: "Maugham")
+        XCTAssertTrue(detach.contains("(undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()"))
     }
 }

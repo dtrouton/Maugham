@@ -26,6 +26,7 @@ private struct EditorUnderTheCover: View {
     let probe: CentreItemProbe
     @State private var control = EditorControl()
     @State private var referenceIndex = ReferenceIndexHost()
+    @State private var window: NSWindow?
 
     var body: some View {
         ZStack {
@@ -36,10 +37,11 @@ private struct EditorUnderTheCover: View {
             }
             if let item = probe.centreItem {
                 CentreItemCover(store: store, documentStore: documentStore, item: item,
-                                bible: nil, world: nil, window: nil, findIsUp: false,
+                                bible: nil, world: nil, window: window, findIsUp: false,
                                 onClose: { probe.centreItem = nil })
             }
         }
+        .background(WindowAccessor(window: $window))
         .background(CentreKeys(
             isCovered: { probe.centreItem != nil || probe.coveredByAnotherSurface },
             claim: CentreItemCover.claim(for: probe.centreItem.map(CentreCover.centreItem))))
@@ -169,8 +171,10 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertTrue(arm.contains("onClose: { closeCentreItem() }"), "Close is the column's one close")
         let close = try SourceTree.declaration(named: "func closeCentreItem(", under: "Maugham")
         XCTAssertTrue(close.contains("centreItem = nil"), "Close clears the window's item")
-        XCTAssertTrue(close.contains("CentreKeys.returnKeysToTheManuscript(in: window)"),
-                      "and hands the keys back to the manuscript")
+        let coverSource = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/CentreItemCover.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(coverSource.contains("CentreKeys.returnKeysToTheManuscript(in: window)"),
+                      "the cover's disappearance hands the keys back to the manuscript")
     }
 
     // MARK: - Esc, through the window's one arbiter (review I1)
@@ -214,7 +218,7 @@ final class CentreItemCoverTests: XCTestCase {
         let cover = SourceScan.codeLines(of: try GoingForTests.source("Maugham/Views/CentreItemCover.swift"))
             .joined(separator: "\n")
         XCTAssertFalse(cover.contains(".keyboardShortcut("), "Esc is never a key equivalent here")
-        XCTAssertTrue(cover.contains(".onDisappear { escape.stop() }"), "registered only while the cover stands")
+        XCTAssertTrue(cover.contains(".onDisappear {\n            escape.stop()"), "registered only while the cover stands")
     }
 
     // MARK: - The keys under a cover (review C1)
@@ -296,9 +300,10 @@ final class CentreItemCoverTests: XCTestCase {
         await pumpUntil(deadline: 5) { !(window.firstResponder === manuscript) }
         XCTAssertTrue(Self.coverEditor(window.firstResponder), "turned away to the cover's editor")
 
-        // Close: the column's one close.
+        // Close with the cover's editor still holding the keys (review N4's
+        // gap): the hand-back runs from the cover's own disappearance.
+        XCTAssertTrue(Self.coverEditor(window.firstResponder), "premise: the cover's editor has the keys")
         probe.centreItem = nil
-        CentreKeys.returnKeysToTheManuscript(in: window)
         await pumpUntil(deadline: 5) { window.firstResponder === manuscript }
         XCTAssertTrue(window.firstResponder === manuscript, "the keys go back to the chapter the centre shows")
     }
@@ -344,13 +349,15 @@ final class CentreItemCoverTests: XCTestCase {
 
     // MARK: - Nothing under a cover writes the manuscript (fix 2)
 
-    /// **N1: ⌘Z under a cover never runs the window's manager**, where the
-    /// covered manuscript keeps its undo. Under History the guard view holds
-    /// the keys and owns undo, validated off; under a statement the
-    /// statement's editor answers on its own manager. A stand-in action on
-    /// the window's manager is what a manuscript step would be; the control
-    /// is the bare chapter, where the same ⌘Z runs it.
-    func test_undoUnderACoverNeverReachesTheManuscript() async throws {
+    /// **⌘Z under a cover** (fix 3, controller ruling): the centre item's
+    /// cover arriving drops the hidden chapter's typing undo from the window's
+    /// stack (as `detach` does when a piece leaves the centre), so ⌘Z from
+    /// the guard — or the tree, or a right-column field — has nothing of the
+    /// chapter's to undo; a Rewind done from the History cover registers on
+    /// the window's manager after that and IS undone by ⌘Z (ADR 0023); under
+    /// a statement the statement's editor answers on its own manager. The
+    /// control is the bare chapter, where the same ⌘Z runs the chapter's step.
+    func test_undoUnderACover() async throws {
         let f = try await fixture("CentreUndo")
         let docId = f.documentItemId
         let statement = try await f.store.createStatement(kind: .intent, scope: .document(docId))
@@ -362,38 +369,61 @@ final class CentreItemCoverTests: XCTestCase {
         let manuscript = try XCTUnwrap(Self.manuscript(in: window, f))
         let shared = try XCTUnwrap(manuscript.undoManager, "premise: the manuscript's manager")
         XCTAssertTrue(shared === window.undoManager, "premise: it is the window's shared manager")
-        var ran = 0
-        // A turn after registering, so the manager's by-event group closes.
-        func registerAStep() async {
-            shared.registerUndo(withTarget: manuscript) { _ in ran += 1 }
-            await waitOut(0.1)
-        }
         let undo = Selector(("undo:"))
-        let item = NSMenuItem(title: "Undo", action: undo, keyEquivalent: "z")
 
-        // Control: the bare chapter's ⌘Z runs the step.
-        await registerAStep()
+        // Control: the bare chapter's own ⌘Z path is unchanged — typing, then ⌘Z.
         window.makeFirstResponder(manuscript)
+        let original = manuscript.string
+        manuscript.setSelectedRange(NSRange(location: (original as NSString).length, length: 0))
+        manuscript.insertText(" Typed.", replacementRange: manuscript.selectedRange())
+        await waitOut(0.2)
+        XCTAssertTrue(manuscript.string.hasSuffix(" Typed."), "premise: the typing landed")
+        XCTAssertTrue(shared.canUndo, "premise: the typing is on the window's stack")
         XCTAssertTrue(manuscript.tryToPerform(undo, with: nil))
-        XCTAssertEqual(ran, 1, "premise: ⌘Z over the chapter undoes it")
+        await pumpUntil(deadline: 2) { manuscript.string == original }
+        XCTAssertEqual(manuscript.string, original, "⌘Z over the bare chapter undoes the typing")
 
-        // History's cover: the guard view holds the keys and owns undo.
-        await registerAStep()
+        // A place in the piece's history to Rewind to later: the op log as it
+        // stands before the next typing.
+        let doc = try XCTUnwrap(f.documentStore.document(forDocId: docId))
+        try await doc.flushBurstNow()
+        let history = try await doc.opLog()
+        let mark = try XCTUnwrap(history.last?.opId, "premise: the piece has a history")
+
+        // Typing again, then the History cover arrives: the chapter's typing goes.
+        manuscript.insertText(" Typed again.", replacementRange: manuscript.selectedRange())
+        await waitOut(0.2)
+        XCTAssertTrue(shared.canUndo, "premise: typing on the stack before the cover")
         probe.centreItem = .history(docId: docId)
         await pumpUntil(deadline: 5) { window.firstResponder is CentreKeysView }
-        let guardView = try XCTUnwrap(window.firstResponder as? CentreKeysView, "the cover holds the keys")
-        XCTAssertTrue(guardView.responds(to: undo), "⌘Z stops here, short of the window")
-        XCTAssertFalse(guardView.validateUserInterfaceItem(item), "and is greyed out")
-        XCTAssertTrue(guardView.tryToPerform(undo, with: nil))
-        XCTAssertEqual(ran, 1, "⌘Z under History undid the hidden chapter")
+        XCTAssertFalse(shared.canUndo, "the cover's arrival dropped the hidden chapter's typing undo")
+        let typed = manuscript.string
+        let guardView = try XCTUnwrap(window.firstResponder as? CentreKeysView)
+        XCTAssertFalse(guardView.responds(to: undo), "the guard does not swallow ⌘Z")
+        _ = guardView.tryToPerform(undo, with: nil)
+        await waitOut(0.2)
+        XCTAssertEqual(manuscript.string, typed, "⌘Z under History reached nothing of the chapter's")
+
+        // A Rewind from the History cover: the window's environment manager, as
+        // `RewindModifier` passes it. ⌘Z from the guard undoes it.
+        try await doc.flushBurstNow()
+        _ = try await doc.restoreToOpUndoable(opId: mark, undoManager: window.undoManager)
+        await waitOut(0.2)
+        XCTAssertTrue(shared.canUndo, "premise: the Rewind registered on the window's manager")
+        let rewound = doc.displayText
+        XCTAssertNotEqual(rewound, typed, "premise: the Rewind moved the text")
+        XCTAssertTrue(guardView.tryToPerform(undo, with: nil), "⌘Z under the cover reaches the window's manager")
+        await doc.awaitPendingUndoWork()
+        await pumpUntil(deadline: 3) { doc.displayText != rewound }
+        XCTAssertNotEqual(doc.displayText, rewound, "⌘Z undid the Rewind (ADR 0023)")
+        XCTAssertTrue(shared.canRedo)
 
         // A statement's cover: its own editor answers, on its own manager.
         probe.centreItem = .statement(kind: .intent, scope: .document(docId))
         await pumpUntil(deadline: 5) { Self.coverEditor(window.firstResponder) }
         let coverEditor = try XCTUnwrap(window.firstResponder as? MaughamTextView)
         XCTAssertFalse(coverEditor.undoManager === shared, "the statement's ⌘Z is the statement's")
-        _ = coverEditor.tryToPerform(undo, with: nil)
-        XCTAssertEqual(ran, 1, "⌘Z under the statement undid the hidden chapter")
+        XCTAssertTrue(coverEditor.responds(to: undo))
     }
 
     /// **N2: an Insert command under a cover writes nothing**: the

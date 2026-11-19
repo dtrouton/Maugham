@@ -86,6 +86,23 @@ enum StatementProposalGate {
         return StatementEssay.half(of: proposalMarkdown)
     }
 
+    /// **The pane's Adopt** (shell plan 3 Task 5 fix 3): registered on the
+    /// manager ⌘Z runs for this statement (`ProjectStore.undoManagerForStatementVerb`
+    /// — the holding editor's own, else `window`) and written
+    /// undo-coherently with it, so ⌘Z in the editor undoes the adoption.
+    static func adoptFromAPane(_ proposal: StatementProposalStore.Proposal, store: ProjectStore,
+                               world: DeclaredWorldStore?, window: UndoManager?,
+                               workTaskSink: @escaping (Task<Void, Never>) -> Void) async throws -> Adoption {
+        let kind = proposal.kind.statementKind
+        let um = store.undoManagerForStatementVerb(kind: kind, scope: .project, window: window)
+        return try await store.writingUndoCoherently(
+            statementId: store.statement(kind: kind, scope: .project)?.id,
+            registeredOn: um, clearing: true) {
+            try await adopt(proposal, store: store, world: world, undoManager: um,
+                            workTaskSink: workTaskSink)
+        }
+    }
+
     static func adopt(_ proposal: StatementProposalStore.Proposal, store: ProjectStore,
                       world: DeclaredWorldStore?, undoManager: UndoManager?,
                       workTaskSink: @escaping (Task<Void, Never>) -> Void) async throws -> Adoption {
@@ -219,14 +236,23 @@ enum StatementProposalGate {
         OpUndoRegistrar.register(
             undoManager, actionName: StatementProposalCopy.undoActionName, target: store,
             workTaskSink: workTaskSink,
-            undo: { s in
-                await sayingARefusal(s) {
-                    try await s.mutateStatementText(of: statement, session: session) { _ in before }
+            // Each write coherent with the manager this registered on: the
+            // holding editor's own keeps its stack across the replace
+            // (`ProjectStore.writingUndoCoherently`); any other, a plain write.
+            undo: { [weak undoManager] s in
+                await s.writingUndoCoherently(statementId: statement.id, registeredOn: undoManager,
+                                              clearing: false) {
+                    await sayingARefusal(s) {
+                        try await s.mutateStatementText(of: statement, session: session) { _ in before }
+                    }
                 }
             },
-            redo: { s in
-                await sayingARefusal(s) {
-                    try await s.mutateStatementText(of: statement, session: session) { _ in after }
+            redo: { [weak undoManager] s in
+                await s.writingUndoCoherently(statementId: statement.id, registeredOn: undoManager,
+                                              clearing: false) {
+                    await sayingARefusal(s) {
+                        try await s.mutateStatementText(of: statement, session: session) { _ in after }
+                    }
                 }
             })
     }

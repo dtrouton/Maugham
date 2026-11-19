@@ -1198,7 +1198,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // would stay poppable (the ⌘Z crash family's residual). Cross-doc
         // undo is not a thing: text edits are per-doc, and op-log-level
         // accept actions target the by-then-husked Document anyway.
-        (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
+        dropTheUndoStack()
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
@@ -1206,6 +1206,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         textView = nil
         selectionToolbar = nil
         completionList = nil
+    }
+
+    /// **This editor's typing undo goes** — the one spelling, for the two
+    /// moments the writer leaves a manuscript's text: `detach` (the piece left
+    /// the centre), and the centre item's cover arriving over it (shell plan 3
+    /// Task 5 fix 3, `CentreKeysView`), the only state that keeps a hidden
+    /// piece bound with its typing on the window's stack. ADR 0023: no
+    /// cross-subject undo.
+    func dropTheUndoStack() {
+        (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the

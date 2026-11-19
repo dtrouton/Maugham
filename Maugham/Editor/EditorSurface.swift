@@ -237,6 +237,11 @@ struct EditorSurfaceConfiguration {
     /// Fixed for the lifetime of a mount, so it is applied in
     /// `makeCoordinator`/`makeNSView` and nowhere else.
     var isSecondEditorInItsWindow: Bool = false
+    /// A second editor's own manager, handed in by its host rather than made
+    /// by the text view, so the host's other writers can register beside the
+    /// typing (a statement's Adopt, Revoke, Edit ruling; shell plan 3 Task 5
+    /// fix 3). Nil makes one. Ignored for a primary editor.
+    var privateUndoManager: UndoManager? = nil
     /// Whether this surface answers the Insert menu (Table, Footnote, Figure…;
     /// plan 3a Task 4). **`EditorHost` is the one file that may set it**, and
     /// it says true only for a Markdown manuscript; a research note, a
@@ -330,6 +335,9 @@ struct EditorSurface: NSViewRepresentable {
         // than sharing — and clearing — the manuscript's. See
         // `EditorSurfaceConfiguration.isSecondEditorInItsWindow`.
         textView.usesPrivateUndoManager = configuration.isSecondEditorInItsWindow
+        if configuration.isSecondEditorInItsWindow, let manager = configuration.privateUndoManager {
+            textView.privateUndoManager = manager
+        }
         // Pin the editor to TextKit 1. On recent macOS a fresh NSTextView is
         // TextKit 2, whose caret is a private `NSTextInsertionIndicator` we can't
         // resize — so the empty-line caret renders at the full line-fragment
@@ -617,12 +625,15 @@ final class MaughamTextView: NSTextView {
     /// editor in one window must not share.
     var usesPrivateUndoManager = false
 
-    private lazy var privateUndoManager = UndoManager()
+    /// The second editor's own manager. Its host may hand one in
+    /// (`EditorSurfaceConfiguration.privateUndoManager`) so the verbs about
+    /// the same text register where this view's ⌘Z runs (a statement's).
+    lazy var privateUndoManager = UndoManager()
 
-    /// `NSTextView` registers its typing undo with `self.undoManager`, and the
-    /// responder chain reads the first responder's — so overriding here covers
-    /// both registration and ⌘Z, and leaves the primary editor on exactly the
-    /// manager it has always used.
+    /// `NSTextView` registers its typing undo with `self.undoManager`, so
+    /// overriding here moves REGISTRATION onto the private manager and leaves
+    /// the primary editor on exactly the manager it has always used. ⌘Z is
+    /// not covered by this: see `undo(_:)` below.
     override var undoManager: UndoManager? {
         usesPrivateUndoManager ? privateUndoManager : super.undoManager
     }
@@ -639,7 +650,7 @@ final class MaughamTextView: NSTextView {
     /// same walk the same way. The primary editor does not respond, so its
     /// ⌘Z goes exactly where it always went.
     override func responds(to aSelector: Selector!) -> Bool {
-        if !usesPrivateUndoManager, Self.undoSelectors.contains(aSelector) { return false }
+        if !usesPrivateUndoManager, let aSelector, Self.undoSelectors.contains(aSelector) { return false }
         return super.responds(to: aSelector)
     }
 

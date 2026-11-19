@@ -491,9 +491,9 @@ struct StatementPane: View {
         Task { @MainActor in
             defer { proposalBusy = false }
             do {
-                let adoption = try await StatementProposalGate.adopt(
+                let adoption = try await StatementProposalGate.adoptFromAPane(
                     proposal, store: store, world: world,
-                    undoManager: undoManager, workTaskSink: { _ in })
+                    window: undoManager, workTaskSink: { _ in })
                 proposalNotice = StatementProposalCopy.adoptedLine(
                     glossary: adoption.glossaryAppended)
                 if adoption.created {

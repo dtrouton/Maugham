@@ -90,6 +90,8 @@ struct CentreKeys: NSViewRepresentable {
     /// right-column editor.
     static func mayClaim(from responder: NSResponder?) -> Bool {
         if responder == nil || responder is NSWindow || responder is CentreKeysView { return true }
+        // Orphaned: a view the window no longer holds (the closed cover's editor).
+        if let view = responder as? MaughamTextView, view.window == nil { return true }
         if isInsideTheManuscript(responder) { return true }
         return !CanvasEscapeMonitor.isEditingText(responder)
     }
@@ -140,19 +142,16 @@ struct CentreKeys: NSViewRepresentable {
 
 /// The AppKit half of `CentreKeys`: a zero-content view behind the centre's
 /// stack that watches the window's first responder.
-final class CentreKeysView: NSView, NSUserInterfaceValidations {
+final class CentreKeysView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    // MARK: - ⌘Z under a cover (review N1)
-
-    /// **This view owns undo while it holds the keys.** Without these two,
-    /// `undo:` walks past it to `NSWindow`, whose own `undo:` runs the
-    /// window's shared manager — where the covered manuscript keeps its
-    /// typing undo — and rewrites text nobody can see (`CanvasEventView`'s
-    /// measured walk). Nothing under a cover is undone; both validate off.
-    @objc func undo(_ sender: Any?) {}
-    @objc func redo(_ sender: Any?) {}
+    // ⌘Z under a cover is the window's, by design (shell plan 3 Task 5 fix 3,
+    // controller ruling): the covered chapter's typing was dropped from the
+    // window's stack when the centre item's cover arrived (`update`), as
+    // `detach` drops it whenever a piece leaves the centre, so what ⌘Z finds
+    // there is what was done under the cover — a Rewind from History, a verb
+    // registered on the window's manager — and it must stay undoable.
 
     private var isCovered: () -> Bool = { false }
     private var claim: CentreKeys.Claim?
@@ -173,7 +172,16 @@ final class CentreKeysView: NSView, NSUserInterfaceValidations {
     func update(isCovered: @escaping () -> Bool, claim: CentreKeys.Claim?) {
         self.isCovered = isCovered
         let covered = isCovered()
-        if covered, !wasCovered { enforceSoon() }
+        if covered, !wasCovered {
+            // **The centre item's cover arriving drops the hidden chapter's
+            // typing undo**, exactly as `detach` does when a piece leaves the
+            // centre: ⌘Z under the cover, from wherever the keys are, then
+            // has nothing of the chapter's to undo. Only the centre item's
+            // cover: a publish cover and the Book's views stand over an
+            // editor that holds no document.
+            if claim != nil { dropTheCoveredManuscriptsUndo() }
+            enforceSoon()
+        }
         wasCovered = covered
         if claim != self.claim {
             self.claim = claim
@@ -198,17 +206,20 @@ final class CentreKeysView: NSView, NSUserInterfaceValidations {
         enforceSoon()
     }
 
-    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        switch item.action {
-        case #selector(undo(_:)), #selector(redo(_:)): return false
-        default: return true
-        }
-    }
-
     /// On the next turn, if anything inside the manuscript has the keys and
     /// the editor is still covered, move them to the cover's editor or to this
     /// view. The cheap ancestry test first; the route only when it says yes
     /// (review N5).
+    private func dropTheCoveredManuscriptsUndo() {
+        guard let root = window?.contentView else { return }
+        let mine = convert(bounds, to: nil)
+        for editor in Self.all(MaughamTextView.self, in: root)
+        where CentreKeys.isManuscriptEditor(editor)
+            && CentreKeys.lies(Self.visibleFrame(of: editor), within: mine) {
+            editor.coordinator?.dropTheUndoStack()
+        }
+    }
+
     private func enforceSoon() {
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window,

@@ -320,6 +320,9 @@ public final class ProjectStore {
     /// A test's view of the gate's order (`StatementGateEvent`); nil in
     /// production.
     @ObservationIgnored internal var onStatementGateEvent: ((StatementGateEvent) -> Void)?
+    /// Statement ids whose writes are, for the moment, undo-coherent with the
+    /// manager a verb registered on (`writingUndoCoherently`).
+    @ObservationIgnored internal var statementUndoCoherence: [String: StatementUndoCoherence] = [:]
 
     /// **The Research items whose files a structural verb is moving now**
     /// (#142 T2), counted, so two verbs over one item each hold it until

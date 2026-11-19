@@ -107,7 +107,13 @@ struct CentreItemCover: View {
         .onAppear { syncEscape() }
         .onChange(of: window) { _, _ in syncEscape() }
         .onChange(of: findIsUp) { _, _ in syncEscape() }
-        .onDisappear { escape.stop() }
+        .onDisappear {
+            escape.stop()
+            // **The keys go back once the cover has gone** (review N4's gap):
+            // driven by the cover's own disappearance, after its editor has
+            // left the window, whatever closed it (Close, Esc, a place).
+            CentreKeys.returnKeysToTheManuscript(in: window)
+        }
     }
 
     private func syncEscape() {

@@ -113,19 +113,23 @@ enum RulingsStratum {
         OpUndoRegistrar.register(
             undoManager, actionName: "Revoke Ruling", target: store,
             workTaskSink: workTaskSink,
-            undo: { s in
-                await refusingLoudly(in: s) {
-                    try await RulingPerformer.restore(
-                        ruling, at: index, kind: kind, forScope: scope, store: s,
-                        world: world)
+            undo: { [weak undoManager] s in
+                await coherently(s, kind: kind, scope: scope, on: undoManager) {
+                    await refusingLoudly(in: s) {
+                        try await RulingPerformer.restore(
+                            ruling, at: index, kind: kind, forScope: scope, store: s,
+                            world: world)
+                    }
                 }
             },
-            redo: { s in
+            redo: { [weak undoManager] s in
                 guard let id = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await refusingLoudly(in: s) {
-                    try await RulingPerformer.revoke(
-                        rulingId: id, kind: kind, forScope: scope, store: s, world: world)
+                await coherently(s, kind: kind, scope: scope, on: undoManager) {
+                    await refusingLoudly(in: s) {
+                        try await RulingPerformer.revoke(
+                            rulingId: id, kind: kind, forScope: scope, store: s, world: world)
+                    }
                 }
             })
     }
@@ -156,22 +160,26 @@ enum RulingsStratum {
         OpUndoRegistrar.register(
             undoManager, actionName: "Edit Ruling", target: store,
             workTaskSink: workTaskSink,
-            undo: { s in
+            undo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await refusingLoudly(in: s) {
-                    try await RulingPerformer.edit(
-                        rulingId: now, newText: priorText, kind: kind, forScope: scope,
-                        store: s, world: world)
+                await coherently(s, kind: kind, scope: scope, on: undoManager) {
+                    await refusingLoudly(in: s) {
+                        try await RulingPerformer.edit(
+                            rulingId: now, newText: priorText, kind: kind, forScope: scope,
+                            store: s, world: world)
+                    }
                 }
             },
-            redo: { s in
+            redo: { [weak undoManager] s in
                 guard let now = currentId(at: index, kind: kind, forScope: scope, store: s)
                 else { return }
-                await refusingLoudly(in: s) {
-                    try await RulingPerformer.edit(
-                        rulingId: now, newText: newText, kind: kind, forScope: scope,
-                        store: s, world: world)
+                await coherently(s, kind: kind, scope: scope, on: undoManager) {
+                    await refusingLoudly(in: s) {
+                        try await RulingPerformer.edit(
+                            rulingId: now, newText: newText, kind: kind, forScope: scope,
+                            store: s, world: world)
+                    }
                 }
             })
     }
@@ -195,6 +203,46 @@ enum RulingsStratum {
     /// Edit menu named the act and the writer pressed it, so the refusal is
     /// said. Every other failure keeps the silence the `try?` it replaced had
     /// (a line gone under a re-parse is nothing to announce over an undo).
+    // MARK: - From a pane: where ⌘Z will find it (shell plan 3 Task 5 fix 3)
+
+    /// **The pane's Revoke**: registered on the manager ⌘Z runs for this
+    /// statement (`ProjectStore.undoManagerForStatementVerb` — the holding
+    /// editor's own, else `window`), and written undo-coherently with it.
+    static func revokeFromAPane(_ ruling: Ruling, at index: Int, kind: Statement.Kind,
+                                forScope scope: Statement.Scope, store: ProjectStore,
+                                world: DeclaredWorldStore?, window: UndoManager?,
+                                workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
+        let um = store.undoManagerForStatementVerb(kind: kind, scope: scope, window: window)
+        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
+                                          registeredOn: um, clearing: true) {
+            await revoke(ruling, at: index, kind: kind, forScope: scope, store: store,
+                         world: world, undoManager: um, workTaskSink: workTaskSink)
+        }
+    }
+
+    /// **The pane's Edit**: as `revokeFromAPane`.
+    static func editFromAPane(at index: Int, to newText: String, kind: Statement.Kind,
+                              forScope scope: Statement.Scope, store: ProjectStore,
+                              world: DeclaredWorldStore?, window: UndoManager?,
+                              workTaskSink: @escaping (Task<Void, Never>) -> Void) async {
+        let um = store.undoManagerForStatementVerb(kind: kind, scope: scope, window: window)
+        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
+                                          registeredOn: um, clearing: true) {
+            await edit(at: index, to: newText, kind: kind, forScope: scope, store: store,
+                       world: world, undoManager: um, workTaskSink: workTaskSink)
+        }
+    }
+
+    /// A verb's undo or redo write, coherent with the manager it registered on
+    /// (the stack is the verb's history: nothing cleared).
+    static func coherently(_ store: ProjectStore, kind: Statement.Kind, scope: Statement.Scope,
+                           on manager: UndoManager?, _ work: () async -> Void) async {
+        await store.writingUndoCoherently(statementId: store.statement(kind: kind, scope: scope)?.id,
+                                          registeredOn: manager, clearing: false) {
+            await work()
+        }
+    }
+
     static func refusingLoudly(
         in store: ProjectStore, _ work: @MainActor () async throws -> Void
     ) async {
@@ -518,11 +566,11 @@ struct RulingsStratumView: View {
     }
 
     private func revoke(_ ruling: Ruling, at index: Int) {
-        let um = undoManager
+        let window = undoManager
         Task { @MainActor in
-            await RulingsStratum.revoke(
+            await RulingsStratum.revokeFromAPane(
                 ruling, at: index, kind: kind, forScope: scope, store: store,
-                world: world, undoManager: um, workTaskSink: { _ in })
+                world: world, window: window, workTaskSink: { _ in })
         }
     }
 
@@ -532,11 +580,11 @@ struct RulingsStratumView: View {
         // `RulingPerformer.edit` refuses it, and closing the field without
         // asking is the honest UI half of that refusal.
         guard !trimmed.isEmpty else { return }
-        let um = undoManager
+        let window = undoManager
         Task { @MainActor in
-            await RulingsStratum.edit(
+            await RulingsStratum.editFromAPane(
                 at: index, to: trimmed, kind: kind, forScope: scope, store: store,
-                world: world, undoManager: um, workTaskSink: { _ in })
+                world: world, window: window, workTaskSink: { _ in })
         }
     }
 }

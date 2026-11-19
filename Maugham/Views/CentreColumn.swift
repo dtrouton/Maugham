@@ -405,11 +405,11 @@ struct CentreColumn: View {
         return !ProjectWindow.manuscriptIsVisible(route: route)
     }
 
-    /// **Close** (the cover's button, or Esc): the item goes, and the keys go
-    /// back to the manuscript editor if the centre now shows it.
+    /// **Close** (the cover's button, or Esc): the item goes. The keys go back
+    /// to the manuscript editor from the cover's own disappearance
+    /// (`CentreItemCover`'s `.onDisappear`), once its editor has left.
     private func closeCentreItem() {
         centreItem = nil
-        CentreKeys.returnKeysToTheManuscript(in: window)
     }
 
     /// **The Book's Status view: the passes board** — over the Book's pieces,

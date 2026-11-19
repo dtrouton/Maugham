@@ -351,6 +351,12 @@ struct StatementEditorHost: View {
     /// `loadMayBind` can be true for at most one of them.
     @State private var mintingScopes: Set<String> = []
     @State private var editorControl = EditorControl()
+    /// **This host's editor's own undo manager** (shell plan 3 Task 5 fix 3):
+    /// handed to the surface as its private manager and registered with the
+    /// statement `Document` it binds, so the statement's verbs (Adopt, Revoke,
+    /// Edit ruling) register on the stack this editor's ⌘Z runs
+    /// (`ProjectStore.undoManagerForStatementVerb`).
+    @State private var statementUndo = UndoManager()
     @State private var isDropTargeted = false
     /// Why the last picture did not land, or nil.
     ///
@@ -965,7 +971,7 @@ struct StatementEditorHost: View {
             // by design, so this is the only way anything else can find the one
             // the writer is typing into. Registered AFTER `bind`, so the
             // registry never names a `Document` the pane has not taken.
-            store.noteStatementDocumentOpened(document, id: statement.id)
+            store.noteStatementDocumentOpened(document, id: statement.id, undoManager: statementUndo)
             return .bound
         } catch {
             _statementEditorLog.error(
@@ -1232,6 +1238,13 @@ struct StatementEditorHost: View {
             // none of the window's manuscript commands and keeps its own undo
             // stack — see `EditorSurfaceConfiguration.isSecondEditorInItsWindow`
             // for what each of those prevents.
-            isSecondEditorInItsWindow: true)
+            // A verb's write into the bound `Document` keeps the stack its
+            // undo registered on (`ProjectStore.writingUndoCoherently`); every
+            // other replace still drops it.
+            consumeUndoCoherentApplyFlag: { [target] in
+                target.document?.consumeUndoCoherentApplyFlag() ?? false
+            },
+            isSecondEditorInItsWindow: true,
+            privateUndoManager: statementUndo)
     }
 }
