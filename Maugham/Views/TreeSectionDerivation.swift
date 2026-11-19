@@ -34,7 +34,11 @@ enum TreeSectionDerivation {
         }
     }
 
-    /// The per-piece research fold shown under a manuscript document's row.
+    /// A piece's own research, as a fold: the research SOURCE of the tree's
+    /// piece fold (`PieceFoldIndex.entries` reads which research a piece owns
+    /// from it; `reveal` and `foldOwner` ask it too). What the fold DRAWS —
+    /// research, cards, palette, figures, links — is `PieceFoldIndex`'s (shell
+    /// p3 Task 7).
     struct PieceFold: Equatable {
         /// What kind of fold this is, independent of whether it happens to be
         /// empty right now — an empty `.contained`/`.linked` fold is still a
@@ -51,8 +55,9 @@ enum TreeSectionDerivation {
 
         static let empty = PieceFold(items: [], semantic: .none)
 
-        /// Whether the tree draws this piece's row as a `DisclosureGroup`
-        /// (Task 6). **Two questions, and the tree asks both**: a document
+        /// Whether this research fold has anything in it. The tree's chevron
+        /// asks the fold index instead (shell p3 Task 7), whose entries hold
+        /// more than research. **Two questions**: a document
         /// that cannot fold at all (`.none`) and one that folds onto nothing
         /// yet are different facts about the manifest, but they are the same
         /// row on screen — a chevron opening onto nothing is noise, and on a

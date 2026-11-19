@@ -104,8 +104,12 @@ enum PieceFoldLayout: Equatable {
 
     /// `entries` must already be in `PieceFoldGroup` order (`PieceFoldIndex`
     /// produces them so); a group holding nothing is omitted.
-    static func of(_ entries: [PieceFoldEntry]) -> PieceFoldLayout {
-        guard entries.count > groupsAbove else { return .rows(entries) }
+    ///
+    /// `alwaysGroups`: a single-document project's one piece, whose fold is
+    /// every research asset in the project (the shelf's rule) — never a long
+    /// flat list there, groups with counts at any size (shell p3 Task 7).
+    static func of(_ entries: [PieceFoldEntry], alwaysGroups: Bool = false) -> PieceFoldLayout {
+        guard alwaysGroups || entries.count > groupsAbove else { return .rows(entries) }
         return .groups(PieceFoldGroup.allCases.compactMap { group in
             let run = entries.filter { $0.group == group }
             return run.isEmpty ? nil : PieceFoldGroupRun(group: group, entries: run)
@@ -149,6 +153,23 @@ struct PieceFoldIndex: Equatable {
     /// docId → that piece's entries, in `PieceFoldGroup` order. A piece absent
     /// here has an empty fold.
     let entries: [String: [PieceFoldEntry]]
+    /// docId → how its fold is drawn, worked out once with the entries, so a
+    /// row looks its layout up and computes nothing (tripwire 4).
+    let layouts: [String: PieceFoldLayout]
+
+    /// - Parameter alwaysGrouped: the pieces whose fold groups at any size
+    ///   (`PieceFoldLayout.of(_:alwaysGroups:)`).
+    init(entries: [String: [PieceFoldEntry]], alwaysGrouped: Set<String> = []) {
+        self.entries = entries
+        var layouts: [String: PieceFoldLayout] = [:]
+        for (docId, rows) in entries where !rows.isEmpty {
+            layouts[docId] = PieceFoldLayout.of(rows, alwaysGroups: alwaysGrouped.contains(docId))
+        }
+        self.layouts = layouts
+    }
+
+    /// The layout of `docId`'s fold; nil for an empty fold (no chevron).
+    func layout(of docId: String) -> PieceFoldLayout? { layouts[docId] }
 
     static let empty = PieceFoldIndex(entries: [:])
 
@@ -175,7 +196,14 @@ struct PieceFoldIndex: Equatable {
             forDocIds: documents.map(\.id), store: store, projectRoot: projectRoot)
         let figures = manifest.figures ?? []
         var out: [String: [PieceFoldEntry]] = [:]
+        var grouped = Set<String>()
         for item in documents {
+            // A single-document project's piece holds every research asset:
+            // its fold groups at any size.
+            if case .sharedOnly? = try? ProjectStore.researchRouting(
+                for: item, projectType: manifest.type) {
+                grouped.insert(item.id)
+            }
             let fold = TreeSectionDerivation.pieceFold(
                 for: item, structure: manifest.structure,
                 research: manifest.research, projectType: manifest.type)
@@ -185,7 +213,7 @@ struct PieceFoldIndex: Equatable {
                                structure: manifest.structure, research: manifest.research)
             if !rows.isEmpty { out[item.id] = rows }
         }
-        return PieceFoldIndex(entries: out)
+        return PieceFoldIndex(entries: out, alwaysGrouped: grouped)
     }
 
     /// One piece's fold, from values. Pure.

@@ -283,6 +283,25 @@ final class PieceFoldContentsTests: XCTestCase {
         XCTAssertEqual(try Self.offendingBuildSites(in: Self.appSourceDir), [],
                        "PieceFoldIndex.build( runs once per key inside a tree host's .task, "
                        + "never from a row or a body (tripwire 4)")
+        // **The census reads the real call** (shell p3 Task 7): exactly one
+        // build, inside the `.task` keyed on the fold key with the host's count
+        // of closed-canvas writes, and that count moved by the event.
+        let fold = try SourceTree.read("Maugham/Views/BinderPieceFold.swift")
+        XCTAssertEqual(fold.components(separatedBy: "PieceFoldIndex.build(").count - 1, 1)
+        XCTAssertTrue(fold.contains(
+            ".task(id: PieceFoldIndex.key(store: store, canvasWrites: state.foldCanvasWrites)) {\n"
+            + "                state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)"),
+            "the build is the .task's body, keyed on the fold key")
+        XCTAssertTrue(fold.contains(
+            ".onProjectEvent(.maughamCanvasNodesAdded, url: store.url, window: window) { _ in\n"
+            + "                state.foldCanvasWrites += 1"),
+            "a closed-canvas write moves the key")
+        // Both fold hosts attach it, to the list their folds are drawn in.
+        for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift"] {
+            let text = try SourceTree.read(host)
+            XCTAssertEqual(text.components(separatedBy: ".pieceFoldIndex(store: store, state: treeState)")
+                            .count - 1, 1, "\(host) builds the window's fold index once")
+        }
     }
 
     /// The planted offenders, without which the census could be scanning
@@ -296,14 +315,15 @@ final class PieceFoldContentsTests: XCTestCase {
         ])
         XCTAssertEqual(Set(planted), ["BinderView.swift#planted", "SomeRow.swift"])
         let allowed = try Self.offendingBuildSites(in: Self.appSourceDir, plus: [
-            "CollectionPiecesPane.swift#planted":
+            "BinderPieceFold.swift#planted":
                 ".task(id: PieceFoldIndex.key(store: store, canvasWrites: n)) {\n"
                 + "    state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: url)\n",
         ])
         XCTAssertEqual(allowed, [], "a call inside a host's .task is allowed")
     }
 
-    static let buildHosts: Set<String> = ["BinderView.swift", "CollectionPiecesPane.swift"]
+    /// The one host: `PieceFoldIndexing`, which both fold trees attach.
+    static let buildHosts: Set<String> = ["BinderPieceFold.swift"]
     static let declaringFile = "PieceFoldContents.swift"
     /// How far above a call its `.task` may open.
     static let taskReach = 4

@@ -82,11 +82,14 @@ public struct WindowSubject: Equatable, Codable, Sendable {
 
     /// Any part naming something that no longer exists becomes the Book (open,
     /// faces) or nil (beside). A pulled-up History whose piece is gone is put
-    /// away; a canvas card and a statement are kept (a missing card is the
-    /// pulled-up view's own empty state).
+    /// away, and so is a canvas card `canvasCardExists` says is no longer on
+    /// the canvas (shell p3 Task 7; the default keeps it, for a caller that
+    /// has not read the canvas — the pulled-up view then shows its own
+    /// missing state). A statement is kept.
     public func validated(structure: [StructureItem], researchIDs: Set<String>,
                           figureIDs: Set<String>,
-                          editionLanguages: Set<String>) -> WindowSubject {
+                          editionLanguages: Set<String>,
+                          canvasCardExists: (PulledUp) -> Bool = { _ in true }) -> WindowSubject {
         func lives(_ s: BinderSubject) -> Bool {
             switch s {
             case .project, .inbox, .canvas, .palette: return true
@@ -105,7 +108,9 @@ public struct WindowSubject: Equatable, Codable, Sendable {
                     return pulled.treeSubject.map(lives) == true ? pulled : nil
                 case .history(let docId):
                     return TreeWalk.contains(id: docId, in: structure) ? pulled : nil
-                case .canvasScrap, .canvasPhoto, .lessons, .firstReader, .visualLanguage:
+                case .canvasScrap, .canvasPhoto:
+                    return canvasCardExists(pulled) ? pulled : nil
+                case .lessons, .firstReader, .visualLanguage:
                     return pulled
                 }
             },

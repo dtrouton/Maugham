@@ -102,6 +102,7 @@ struct CollectionPiecesPane: View {
             }
             .binderTreeSections(store: store, state: treeState,
                                 subject: $subject)
+            .pieceFoldIndex(store: store, state: treeState)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()
@@ -218,10 +219,9 @@ struct CollectionPiecesPane: View {
     /// `pieces/<slug>/research/`, so a group in there is a group of this
     /// piece's research and expands like one. A *reference* piece never folds —
     /// its research lives in its own project — and that is not decided here:
-    /// `TreeSectionDerivation.pieceFold` asks `ProjectStore.researchRouting`,
-    /// the one rule, which refuses a reference piece outright.
+    /// `PieceFoldIndex` gives a reference piece no entries (it has no fold).
     ///
-    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`) — a
+    /// **An empty fold gets no chevron** (the index holds no layout for it) — a
     /// triangle onto nothing on every piece of a new Collection. The row is
     /// still where the first item lands (Task 7's drop target).
     ///
@@ -237,19 +237,16 @@ struct CollectionPiecesPane: View {
     /// rows are stepped by the outline's per-level indent on top of this one.
     @ViewBuilder
     private func pieceEntry(for piece: StructureItem) -> some View {
-        let fold = TreeSectionDerivation.pieceFold(
-            for: piece,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        if fold.showsDisclosure {
+        // Looked up in the window's fold index (shell p3 Task 7), never
+        // computed per row (tripwire 4).
+        if let layout = treeState.foldIndex.layout(of: piece.id) {
             // Bound for `BinderView.documentEntry`'s reason exactly (stage-3b
             // Task 7): the window's reveal opens a piece's fold, and it can
             // only open a flag it can reach.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: piece.id)) {
                 BinderPieceFold(store: store, state: treeState,
                                 subject: $subject,
-                                documentId: piece.id, fold: fold)
+                                documentId: piece.id, layout: layout)
             } label: {
                 pieceRow(for: piece)
             }

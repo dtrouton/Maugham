@@ -3642,11 +3642,13 @@ final class TripwireGrepTests: XCTestCase {
     static let editorSurfaceMountSites: Set<String> = [
         // The manuscript editor. Primary in its window.
         "EditorHost.swift",
-        // A research note in the centre column. Primary in its window — it
-        // replaces the manuscript editor rather than sitting beside it.
+        // A research note: primary in the centre column, where it replaces
+        // the manuscript editor; a SECOND editor when pulled up in the right
+        // column (`isSecondEditor: true` from `ResearchSubjectInspector`,
+        // shell p3 Task 7), which sets the flag.
         "ResearchNoteEditor.swift",
-        // M1A's Intent / Visual Language panes, in the right column. The only
-        // one that is a SECOND editor, and the only one setting the flag.
+        // M1A's Intent / Visual Language panes, in the right column — always
+        // a second editor, always setting the flag.
         "StatementEditorHost.swift",
     ]
 

@@ -30,8 +30,31 @@ struct ResearchRow: View {
     /// Returns whether the drop was accepted — see `onDrop`.
     let onExternalDrop: (_ providers: [NSItemProvider], _ position: DropIntent.Position) -> Bool
 
+    /// **Drawn as a link to shared research, not as research this piece
+    /// owns** (shell p3 Task 7): a novel chapter's fold lists the chapter's
+    /// links into the shared Research section, a Collection piece's fold the
+    /// research in its own folder, and the two must not look alike — a quieter
+    /// title, a trailing link glyph and the help say "this lives elsewhere".
+    var linkedFromResearch: Bool = false
+
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
+
+    /// How a row is drawn as owned or linked. Pure, so a test reads it.
+    struct Look: Equatable {
+        let trailingGlyph: String?
+        let help: String?
+        let quietTitle: Bool
+
+        static let linkedGlyph = "link"
+        static let linkedHelp = "Linked from Research"
+
+        static func of(linkedFromResearch: Bool) -> Look {
+            linkedFromResearch
+                ? Look(trailingGlyph: linkedGlyph, help: linkedHelp, quietTitle: true)
+                : Look(trailingGlyph: nil, help: nil, quietTitle: false)
+        }
+    }
 
     var body: some View {
         // .draggable on the container intercepts pointer/keyboard input on
@@ -65,17 +88,26 @@ struct ResearchRow: View {
             }
             .contentShape(Rectangle())
         } else {
+            let look = Look.of(linkedFromResearch: linkedFromResearch)
             HStack(spacing: 6) {
                 icon
                 Text(item.title)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .foregroundStyle(look.quietTitle ? .secondary : .primary)
                     // The LABEL LEAF only (tripwire 9), and a mark rather than
                     // a gesture — see BinderRow's twin and TreeTravel.swift.
                     .treeTravelOnDoubleClick(.research(item.id))
                 Spacer()
+                if let glyph = look.trailingGlyph {
+                    Image(systemName: glyph)
+                        .imageScale(.small)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel(look.help ?? "")
+                }
             }
             .contentShape(Rectangle())
+            .help(look.help ?? "")
             .draggable(item.id) {
                 Text(item.title)
                     .padding(6)

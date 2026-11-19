@@ -92,9 +92,8 @@ final class ResearchNewTableTests: XCTestCase {
             store: store, state: state,
             subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })),
             documentId: documentId,
-            fold: TreeSectionDerivation.pieceFold(
-                forDocumentId: documentId, structure: store.manifest.structure,
-                research: store.manifest.research, projectType: store.manifest.type))
+            // The verbs do not depend on what the fold draws.
+            layout: .rows([]))
     }
 
     /// Asserts `item` is a blank table — three columns, a header row and

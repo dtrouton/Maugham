@@ -126,6 +126,22 @@ extension ProjectWindow {
         return next
     }
 
+    /// **Whether the right column shows what is pulled up** (`PulledUpView`):
+    /// a research item or a figure by its placement (never the item the centre
+    /// shows), and every other kind — a canvas card, a statement, History —
+    /// whenever it is pulled up. One answer for the column and its reveal.
+    static func pulledUpIsShownBeside(subject: WindowSubject) -> Bool {
+        guard let pulled = subject.beside else { return false }
+        switch pulled {
+        case .research:
+            return researchSubjectPlacement(subject: subject).previewsInTheRightColumn
+        case .figure:
+            return figureSubjectPlacement(subject: subject).besideFigureID != nil
+        case .canvasScrap, .canvasPhoto, .lessons, .firstReader, .visualLanguage, .history:
+            return true
+        }
+    }
+
     /// **Close** — the beside view's other control: what is beside is put
     /// away, and nothing else moves.
     static func closingBeside(_ subject: WindowSubject) -> WindowSubject {
@@ -153,9 +169,7 @@ extension ProjectWindow {
     static func revealResearchColumn(subject: WindowSubject,
                                      showInspector: inout Bool,
                                      detailSegment: inout DetailSegment) {
-        guard researchSubjectPlacement(subject: subject).previewsInTheRightColumn
-            || figureSubjectPlacement(subject: subject).besideFigureID != nil
-        else { return }
+        guard pulledUpIsShownBeside(subject: subject) else { return }
         showInspector = true
         detailSegment = .inspector
     }
@@ -331,6 +345,11 @@ struct ResearchSubjectInspector: View {
     /// Format ▸ Table presence, armed while the grid has the keys.
     var window: NSWindow? = nil
     var presence: FigureGridPresence? = nil
+    /// **A note is EDITED in the preview half** — the pulled-up view's
+    /// (shell p3 Task 7): `ResearchNoteEditor` as a second editor, locked by
+    /// `readOnly`, where it previewed read-only before. Needs `documentStore`
+    /// (the note door); without one, or false, a note previews.
+    var editsNotes: Bool = false
 
     var body: some View {
         if let itemID, let item = TreeWalk.find(id: itemID, in: store.manifest.research) {
@@ -398,7 +417,23 @@ struct ResearchSubjectInspector: View {
             } else {
                 ResearchPreview(projectURL: store.url, item: item)
             }
-        case .note(let item, _), .preview(let item):
+        case .note(let item, let path):
+            if editsNotes, let documentStore {
+                // Pulled up beside the manuscript: a SECOND editor (its own
+                // undo stack, none of the window's commands), read-only under
+                // Lock or a view-only share exactly as in the centre. Never the
+                // note the centre shows — this half is drawn only where the
+                // placement is `.beside`.
+                ResearchNoteEditor(
+                    store: store, documentStore: documentStore, path: path,
+                    itemId: item.id, previewVisible: false,
+                    lockEditing: readOnly, shareIsReadOnly: shareIsReadOnly,
+                    isSecondEditor: true)
+                    .id(item.id)
+            } else {
+                ResearchPreview(projectURL: store.url, item: item)
+            }
+        case .preview(let item):
             ResearchPreview(projectURL: store.url, item: item)
         case .missing:
             // Unreachable — the caller found this item in the same manifest the

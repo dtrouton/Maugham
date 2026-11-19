@@ -1767,7 +1767,9 @@ struct ProjectWindow: View {
                 treeState.drawsFigure($0, projectType: store.manifest.type)
             },
             revealFigure: { [treeState] in treeState.revealFigure($0) },
-            figureTree: treeState)
+            figureTree: treeState,
+            centreItem: centreItem,
+            openInCentre: { openInCentre($0) })
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.
@@ -2231,10 +2233,21 @@ struct ProjectWindow: View {
         let parts = [subject.open, subject.faces]
         let languages = parts.contains(where: \.isEdition)
             ? Set(TreeEditionRows.languages(store: store)) : []
+        // A pulled-up canvas card is checked against whichever canvas is real
+        // (the live model, else the sidecar) — read only when one is pulled up.
+        var cardExists: (PulledUp) -> Bool = { _ in true }
+        switch subject.beside {
+        case .canvasScrap?, .canvasPhoto?:
+            let scene = CanvasClaudeWrite.readScene(store: store, projectRoot: store.url).scene
+            cardExists = { PulledUpView.cardIsOnTheCanvas($0, scene: scene) }
+        default:
+            break
+        }
         return validatedSubject(subject, structure: store.manifest.structure,
                                 research: store.manifest.research,
                                 figures: store.manifest.figures ?? [],
-                                parked: parked, editionLanguages: languages)
+                                parked: parked, editionLanguages: languages,
+                                canvasCardExists: cardExists)
     }
 
     /// The same repair over plain values — `WindowSubject.validated`, with a
@@ -2242,12 +2255,14 @@ struct ProjectWindow: View {
     static func validatedSubject(_ subject: WindowSubject, structure: [StructureItem],
                                  research: [ResearchItem], figures: [FigureRecord],
                                  parked: Set<String>,
-                                 editionLanguages: Set<String>) -> WindowSubject {
+                                 editionLanguages: Set<String>,
+                                 canvasCardExists: (PulledUp) -> Bool = { _ in true }) -> WindowSubject {
         subject.validated(
             structure: structure,
             researchIDs: Set(TreeWalk.collectIds(in: research)),
             figureIDs: Set(figures.map(\.id)).subtracting(parked),
-            editionLanguages: editionLanguages)
+            editionLanguages: editionLanguages,
+            canvasCardExists: canvasCardExists)
     }
 
     /// Remember that `piece` was last looked at through `passId` —

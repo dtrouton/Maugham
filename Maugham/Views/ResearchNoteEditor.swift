@@ -36,6 +36,12 @@ struct ResearchNoteEditor: View {
     /// A view-only iCloud share: typing is refused exactly as Review's lock
     /// refuses it (selection, scroll and copy survive).
     var shareIsReadOnly: Bool = false
+    /// **A second editor in its window** (shell p3 Task 7): pulled up in the
+    /// right column beside the manuscript's editor, the note answers none of
+    /// the window's manuscript commands and keeps its own undo stack
+    /// (`EditorSurfaceConfiguration.isSecondEditorInItsWindow`). False in the
+    /// centre, where it replaces the manuscript editor.
+    var isSecondEditor: Bool = false
     @Environment(UserPreferences.self) private var userPreferences
 
     /// Review's posture or a view-only share: the editor takes no typing.
@@ -157,7 +163,8 @@ struct ResearchNoteEditor: View {
                             // so Paste's image affordance itself goes away in
                             // Review rather than accepting a paste that then
                             // silently drops the ref.
-                            imagePasteHandler: locked ? nil : makeImagePasteHandler()))
+                            imagePasteHandler: locked ? nil : makeImagePasteHandler()),
+                        isSecondEditorInItsWindow: isSecondEditor)
                 )
                 .id(path)
             } else {

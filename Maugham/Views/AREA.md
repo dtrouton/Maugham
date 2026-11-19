@@ -10,7 +10,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms, environment services; `RightColumnContent.swift`, what each position shows.
+- `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms; `RightColumnContent.swift`, what each position shows; `PulledUpView.swift`, the pulled-up thing.
 - `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
@@ -59,7 +59,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
 - `BinderTreeSections.swift` — the Figures, Research, Palette (a row, the wall's door) and Editions sections; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
-- `BinderPieceFold.swift` — a piece row's research fold; `PieceFoldContents.swift`, its whole contents (`PieceFoldIndex`).
+- `BinderPieceFold.swift` — a piece's fold; `PieceFoldContents.swift`, its whole contents (`PieceFoldIndex`).
 - `TreeSectionDerivation.swift` — pure: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
 - `BinderTreeDrops.swift` — performs what `TreeDropIntent` decided (the `route…Drop` family).
@@ -292,7 +292,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Research subjects and the palette wall
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
 - **A subject may only reach a column the writer can point somewhere else again from**: `ProjectSubjectReachabilityTests.test_aNoteBesideCanBePutAwayFromItsOwnRow`.
-- **A research item `beside` previews in the right column whatever the centre, with Open in Centre and close; `open` takes the centre** (`ResearchSubjectRoutingTests`).
+- **A research item `beside` shows in the right column whatever the centre, with Open in Centre and close; `open` takes the centre** (`ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **A locked window's research and figures are read-only** off `WindowLock.refusesEdits`, beside the posture (`LockTests` names the sites).
 - **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject arrives beside; a restore does not.

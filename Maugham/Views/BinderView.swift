@@ -108,6 +108,7 @@ struct BinderView: View {
             }
             .binderTreeSections(store: store, state: treeState,
                                 subject: $subject)
+            .pieceFoldIndex(store: store, state: treeState)
             // Root context menu — attached at the binder level so it's
             // available even when the structure is empty (right-clicking
             // a row gives the per-row menu instead, no overlap).
@@ -236,31 +237,23 @@ struct BinderView: View {
     /// already uses — the `.tag` and the inset go on the `DisclosureGroup` so
     /// the children move with the row they belong to (see `outline`).
     ///
-    /// **An empty fold gets no chevron** (`PieceFold.showsDisclosure`): a
-    /// triangle onto nothing is noise on every chapter of a novel whose writer
-    /// has linked nothing yet. The row is still where the first item lands —
-    /// Task 7 makes it a drop target.
+    /// **An empty fold gets no chevron**: a triangle onto nothing is noise on
+    /// every chapter of a novel whose writer has linked nothing yet. The row is
+    /// still where the first item lands — it is a drop target.
     ///
-    /// **Derived per render, from the manifest** (tripwire 4): the fold is a
-    /// manifest walk, never a read. Deliberately no cache — a parallel copy of
-    /// the manifest is a second source of truth for what a chapter's research
-    /// is, and `manifest.modified` is the key it would have to be built on if
-    /// profiling ever asks for one.
+    /// **Looked up, never computed** (tripwire 4): the fold's contents and
+    /// layout are `PieceFoldIndex`'s, built once per key in `.task`
+    /// (`pieceFoldIndex(store:state:)` on the list) — shell p3 Task 7.
     @ViewBuilder
     private func documentEntry(for item: StructureItem, indent: CGFloat) -> some View {
-        let fold = TreeSectionDerivation.pieceFold(
-            for: item,
-            structure: store.manifest.structure,
-            research: store.manifest.research,
-            projectType: store.manifest.type)
-        if fold.showsDisclosure {
+        if let layout = treeState.foldIndex.layout(of: item.id) {
             // Bound rather than SwiftUI-private (stage-3b Task 7): a
             // piece-scoped research id is revealed by OPENING this fold, and a
             // flag the window cannot reach is a fold the reveal cannot open.
             DisclosureGroup(isExpanded: treeState.foldExpansion(of: item.id)) {
                 BinderPieceFold(store: store, state: treeState,
                                 subject: $subject,
-                                documentId: item.id, fold: fold)
+                                documentId: item.id, layout: layout)
             } label: {
                 row(for: item)
             }

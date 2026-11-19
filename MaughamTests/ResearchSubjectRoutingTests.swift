@@ -121,7 +121,8 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     /// drawn as visible buttons** — read from the source, because pressing a
     /// mounted control and waiting is tripwire 33's shape.
     func test_theBesideViewCarriesOpenInCentreAndClose() throws {
-        let source = try SourceTree.read("Maugham/Views/RightColumn.swift")
+        // The pulled-up view's header (shell p3 Task 7 moved it there).
+        let source = try SourceTree.read("Maugham/Views/PulledUpView.swift")
         let code = SourceScan.codeLines(of: source).joined(separator: "\n")
         XCTAssertTrue(code.contains("ProjectWindow.openingBesideInCentre("),
                       "Open in Centre is the click rule's openInCentre")

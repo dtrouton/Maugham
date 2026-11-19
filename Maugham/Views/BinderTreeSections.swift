@@ -1206,6 +1206,9 @@ final class BinderTreeSectionsState {
         if let ownerId = Self.foldOwner(of: itemId, structure: structure,
                                         research: research, projectType: projectType) {
             expandedPieceFolds.insert(ownerId)
+            // A fold past six entries draws its research in a collapsed
+            // group (shell p3 Task 7): the reveal opens that too.
+            expandedFoldGroups.insert(PieceFoldGroupKey(docId: ownerId, group: .research))
             openAncestorGroups(of: itemId, in: research)
             return .item(ownerId)
         }

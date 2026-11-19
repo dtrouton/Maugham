@@ -122,6 +122,10 @@ struct ResearchTreeNode<Tag: Hashable>: View {
     /// Propagated to every descendant in `childNodes` — a nested item three
     /// groups down is exactly as reachable as a root one.
     var appliesScrollIdentity: Bool = false
+    /// The row is a piece's LINK to shared research, drawn as one
+    /// (`ResearchRow.linkedFromResearch`, shell p3 Task 7). A root's answer;
+    /// a linked fold renders flat, so it has no children to propagate to.
+    var linkedFromResearch: Bool = false
 
     @ViewBuilder
     var body: some View {
@@ -209,7 +213,8 @@ struct ResearchTreeNode<Tag: Hashable>: View {
             },
             onExternalDrop: { providers, position in
                 actions.externalDrop(providers, position, item)
-            })  // both pass the bundle's accept/refuse straight back to the row
+            },  // both pass the bundle's accept/refuse straight back to the row
+            linkedFromResearch: linkedFromResearch)
             .tag(tagFor(item))
             .contextMenu {
                 Button("New Note") {

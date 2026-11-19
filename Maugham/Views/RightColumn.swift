@@ -96,6 +96,12 @@ struct RightColumn: View {
     var revealFigure: (String) -> Void = { _ in }
     /// The window's tree, whose cards pace the figure inspector's pin reads.
     var figureTree: BinderTreeSectionsState? = nil
+    /// The window's centre item: a pulled-up statement the cover holds reads
+    /// a placeholder (`PulledUpView`).
+    var centreItem: CentreItem? = nil
+    /// `ProjectWindow.openInCentre` — Open in Centre on a pulled-up statement
+    /// or History.
+    var openInCentre: (CentreItem) -> Void = { _ in }
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -344,15 +350,21 @@ struct RightColumn: View {
     private func researchOrSubject(store: ProjectStore) -> some View {
         let placement = ProjectWindow.researchSubjectPlacement(subject: subject)
         let figurePlacement = ProjectWindow.figureSubjectPlacement(subject: subject)
-        if let figureID = figurePlacement.besideFigureID {
-            besideView(title: figureListing.row(forFigureId: figureID)?.name ?? "", store: store) {
-                figureSubject(figureID, store: store)
-            }
-        } else if placement.previewsInTheRightColumn, let id = placement.inspectedItemID {
-            besideView(title: TreeWalk.find(id: id, in: store.manifest.research)?.title ?? "",
-                       store: store) {
-                researchInspector(id, showsPreview: true, store: store)
-            }
+        if ProjectWindow.pulledUpIsShownBeside(subject: subject) {
+            // What is pulled up, whatever the centre (shell p3 Task 7) —
+            // hosted where `beside` showed until Task 9 mounts the positions.
+            PulledUpView(
+                store: store, documentStore: documentStore, subject: $subject,
+                centreItem: centreItem, canvasModel: canvasModel,
+                editorControl: editorControl, figureListing: figureListing,
+                figureGridPresence: figureGridPresence, figureWindows: figureWindows,
+                window: window, isLocked: isLocked, figureTree: figureTree,
+                bible: bible, world: declaredWorld,
+                onOpenInCentre: openInCentre,
+                // Mounted only with something pulled up, so the centre's
+                // details (and `canvasDetails`) are this column's own arms
+                // below until Task 9 mounts the positions.
+                onShowNotes: { _ in detailSegment = .resolve })
         } else if let figureID = figurePlacement.centreFigureID {
             figureSubject(figureID, store: store)
         } else if let id = placement.inspectedItemID {
@@ -387,35 +399,12 @@ struct RightColumn: View {
             window: window, presence: figureGridPresence)
     }
 
-    /// **The beside view**: what the writer pulled up, under a header that
-    /// carries its two controls — Open in Centre (the click rule's
-    /// `.openInCentre`, `ProjectWindow.openingBesideInCentre`) and close
-    /// (`ProjectWindow.closingBeside`). Both are always drawn here, because
-    /// both always apply to something beside; nothing beside, no header.
-    private func besideView<Content: View>(title: String, store: ProjectStore,
-                                           @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            BesideHeader(
-                title: title,
-                openInCentre: {
-                    subject = ProjectWindow.openingBesideInCentre(
-                        subject, structure: store.manifest.structure,
-                        projectType: store.manifest.type)
-                },
-                close: { subject = ProjectWindow.closingBeside(subject) })
-            Divider()
-            content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// **A figure subject's arm** (report plan 8a Task 7): its inspector. A
-    /// figure opened beside shows itself above, in this column, with its
-    /// inspector beneath, each taking half; a figure in the centre leaves the
-    /// inspector the column.
+    /// **A figure subject's arm** (report plan 8a Task 7): a figure in the
+    /// centre leaves its inspector the column. A figure pulled up beside is
+    /// `PulledUpView`'s (shell p3 Task 7).
     @ViewBuilder
     private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
-        let inspector = FigureInspector(
+        FigureInspector(
             figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
             figureWindows: figureWindows, figureTree: figureTree, control: editorControl, isLocked: isLocked,
             window: window, select: { selectedSubject = $0 },
@@ -425,19 +414,6 @@ struct RightColumn: View {
                 detailSegment = .resolve
             })
             .id(figureID)
-        if ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID != nil {
-            VStack(spacing: 0) {
-                FigureSubjectSurface(
-                    figureID: figureID, store: store, documentStore: documentStore, figureWindows: figureWindows,
-                    presence: figureGridPresence, listing: figureListing, control: editorControl,
-                    isLocked: isLocked, window: window)
-                    .frame(maxHeight: .infinity)
-                Divider()
-                inspector.frame(maxHeight: .infinity)
-            }
-        } else {
-            inspector
-        }
     }
 
     @ViewBuilder
@@ -492,44 +468,5 @@ struct RightColumn: View {
             // A region's member list names item nodes too, so the pane resolves a
             // title through the same index the canvas draws from.
             itemIndex: ProjectWindow.canvasItemIndex(in: store))
-    }
-}
-
-/// **The beside view's header** (shell p1 Task 4): the pulled-up item's title,
-/// truncated in the middle with the whole of it in its tooltip, then two plain
-/// visible buttons — **Open in Centre** and close. A view of its own so the
-/// labels the buttons, their help and a test read are one spelling.
-struct BesideHeader: View {
-    let title: String
-    let openInCentre: () -> Void
-    let close: () -> Void
-
-    static let openInCentreLabel = "Open in Centre"
-    static let closeLabel = "Close"
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(Self.openInCentreLabel, action: openInCentre)
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .lineLimit(1)
-                .fixedSize()
-                .help("Open \(title) in the centre")
-            Button(action: close) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help(Self.closeLabel)
-            .accessibilityLabel(Self.closeLabel)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 }

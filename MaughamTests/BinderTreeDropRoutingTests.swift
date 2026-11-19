@@ -88,16 +88,13 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let tides = try XCTUnwrap(research(named: "Tides", in: store))
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         try await store.linkResearch(researchId: tides.id, toDocumentId: chapter.id)
-        let fold = TreeSectionDerivation.pieceFold(
-            forDocumentId: chapter.id, structure: store.manifest.structure,
-            research: store.manifest.research, projectType: store.manifest.type)
 
         // The fold's own bundle — the one difference from the section's is the
         // document it carries, and this is the assertion that it carries it.
         let actions = BinderPieceFold(
             store: store, state: BinderTreeSectionsState(),
             subject: .constant(.book),
-            documentId: chapter.id, fold: fold).actions
+            documentId: chapter.id, layout: .rows([])).actions
         let accepted = actions.internalDrop(ships.id, .middle, tides)
 
         XCTAssertTrue(accepted)
@@ -353,15 +350,12 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         let ships = try XCTUnwrap(research(named: "Ships", in: store))
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         try await store.linkResearch(researchId: ships.id, toDocumentId: chapter.id)
-        let fold = TreeSectionDerivation.pieceFold(
-            forDocumentId: chapter.id, structure: store.manifest.structure,
-            research: store.manifest.research, projectType: store.manifest.type)
         let file = try makeFile(named: "charts.md", contents: "# Charts")
 
         let actions = BinderPieceFold(
             store: store, state: state(for: store),
             subject: .constant(.book),
-            documentId: chapter.id, fold: fold).actions
+            documentId: chapter.id, layout: .rows([])).actions
         XCTAssertTrue(actions.externalDrop([provider(for: file)], .bottom, ships))
 
         await settle(store) {
