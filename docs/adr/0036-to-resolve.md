@@ -8,7 +8,7 @@ After [ADR 0035](0035-the-subject-not-the-persona.md) the window's right column 
 
 ## Decision
 
-**To resolve** (`DetailSegment.resolve`, `Maugham/Views/Resolve/`) is one list of everything raised on the faces' subject that waits on the writer: open notes, a check's conformance strains (findings) and open to-dos. It replaced the three panes. It is first in the picker and bound to ⌘1.
+**To resolve** (`RightColumnPosition.resolve` since [ADR 0037](0037-brief-and-the-pulled-up-thing.md); `Maugham/Views/Resolve/`) is one list of everything raised on the faces' subject that waits on the writer: open notes, a check's conformance strains (findings) and open to-dos. It replaced the three panes. It is the first of the right column's positions and bound to ⌘1.
 
 ### Show without loading; act only on the open piece
 
@@ -50,7 +50,7 @@ A collapsed last section, read only when opened. On the open piece (`.piece` sco
 
 ### Refresh
 
-Three keys. The **read key** (`ResolveReadKey`: scope, the annotations token, which of the scope's pieces are open, the project task version, the diagnostics version, the passes and local name) re-runs the sidecar and the reader. **The project walks run only on real cross-piece signals** (`ResolveWalkHold`, review C1): an annotations event about a document no window holds open (a closed piece's op log, a figure's stream, a peer's sync), a piece in scope opening or closing, a scope change, the Book's own to-dos; any other read gathers over the walks it holds. The **list key** (`ResolveListKey`) adds the open in-scope pieces' `annotationsVersion` and `tasksVersion`: a keystroke, a burst flush, a note minted on an open piece (a round's arrival, MCP `add_note`) and a verb on one splice that piece's live notes, to-dos and order off its `Document` and run no walk (`ResolveTypingPathTests`; measured on 30 closed pieces, a burst flush or a mint went from both walks, about 51 ms, to under 0.3 ms). The **regroup key** adds the window's parsed screenplay: a new parse re-reads only the open piece's paragraph state and regroups what is held. A note just stetted is **held for its 2.5 s flourish** on the live stetted note (the row offers Reopen alone), then leaves.
+Three keys. The **read key** (`ResolveReadKey`: scope, the annotations token, which of the scope's pieces are open, the project task version, the diagnostics version, the passes and local name) re-runs the sidecar and the reader. **The project walks run only on real cross-piece signals** (`ResolveWalkHold`, review C1): an annotations event about a document no window holds open (a closed piece's op log, a figure's stream, a peer's sync), a piece in scope opening or closing, a scope change, the Book's own to-dos; any other read gathers over the walks it holds. The **list key** (`ResolveListKey`) adds the open in-scope pieces' `annotationsVersion` and `tasksVersion`: a keystroke, a burst flush, a note minted on an open piece (a round's arrival, or MCP `add_comment`, `add_suggested_change`, `add_query` or `add_craft_note`) and a verb on one splice that piece's live notes, to-dos and order off its `Document` and run no walk (`ResolveTypingPathTests`; measured on 30 closed pieces, a burst flush or a mint went from both walks, about 51 ms, to under 0.3 ms). The **regroup key** adds the window's parsed screenplay: a new parse re-reads only the open piece's paragraph state and regroups what is held. A note just stetted is **held for its 2.5 s flourish** on the live stetted note (the row offers Reopen alone), then leaves.
 
 ### What was deleted, and what moved
 
@@ -66,18 +66,17 @@ Three keys. The **read key** (`ResolveReadKey`: scope, the annotations token, wh
 
 ## Not yet built
 
-- The Brief; the pulled-up thing and the fold; ⌘2 and ⌘3.
-- **The check's holds and silent-clause readings**: shown nowhere until the Brief (the owner accepted the gap, 2026-11-18).
+- Built in [ADR 0037](0037-brief-and-the-pulled-up-thing.md): the Brief, the pulled-up thing and the fold, ⌘2 and ⌘3, and the check's strains and silent-clause readings (drawn as marks on the intent in Brief; a clause the draft holds draws nothing).
 - The translator's letter at the head (a `TranslationRound`, kept per language) and edition scope. The translator's changes (the design lists "questions and changes"; only questions, a note carrying a `language`, are built).
 - Glossary proposals, design proposals, compile problems and figure source-changed items in To resolve.
-- Status views; the margin setting; the rewrite of the guide, the welcome tour and Claude's help text (`docs/guide/annotations-and-suggestions.md` and others still describe the old panes).
+- Status views; the margin setting; the rewrite of the guide, the welcome tour and Claude's help text (`docs/guide/annotations-and-suggestions.md` and others still describe the old panes). The translation round report's interim pane still uses the old "ruled" sentence.
 
 ## Consequences
 
 - One question, one list; the right column no longer needs the piece open to show what is raised on it.
 - A writer on the canvas sees a piece's raised items but must open the piece (one click on a row) to act: the cost of never loading a second document.
 - Known limits: a note on another piece lands the click on its paragraph, not the exact span; a warm check has no Check Writing button.
-- A Book or Part list survives a row click (decision 24), so the subject can now be a piece open in the centre with the Book or a Part on the faces; the tree outlines the faces as what was clicked last.
+- A Book or Part list survives a row click (decision 24), so the subject can now be a piece open in the centre with the Book or a Part on the faces; the tree draws the faces' row selected, as what was clicked last.
 
 ## Decisions made during the build
 

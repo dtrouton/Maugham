@@ -55,7 +55,7 @@ Run is four explicit commands in the File menu, each naming its own `RunKind` (`
 
 ### The right column
 
-The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one remembered segment in `UIState`. **To resolve** ([ADR 0036](0036-to-resolve.md)) is its first member (⌘1) and replaced the Annotations, Diagnostics and Tasks panes; it reads the faces' piece without the editor (a store-level read, no `Document.load`), so it shows the faces with the canvas in the centre. The Department pane is offered only while an edition is open, and a pane that needs a document (References, Translation and History) only while the faces' piece is the one the centre has open (`DetailPaneToggle.facesPieceIsOpen`); a segment reached by key or already selected is carried. With the canvas or an edition in the centre those panes show their empty states, and a run there answers with the `.pieceWouldNotOpen` flash rather than doing nothing. At narrow widths the picker falls back from normal to small to a menu; the menu form carries no unread badges. The picker is transitional: the pulled-up thing and the fold replace it in a later plan, and References, Translation and History still stand on the stopgap above.
+The right column has three positions in one order, To resolve (⌘1), Brief (⌘2) and Pulled up (⌘3), with one remembered in `UIState` (`RightColumnPosition`). [ADR 0036](0036-to-resolve.md) built To resolve; [ADR 0037](0037-brief-and-the-pulled-up-thing.md) built Brief, the pulled-up thing and the fold, and with them the pane picker, `DetailSegment` and the Inspector, References, study and per-statement panes went. What the right column shows is a function of the faces and `beside` (`RightColumnContent.of`), so it needs no piece open: To resolve and Brief read store-level sources, and History pulls up for a piece that is not open. The Department desk and the translation review pane are To resolve's interim answers while an edition is the faces and while translation review is on.
 
 ### What was deleted
 
@@ -66,29 +66,25 @@ The picker is `DetailSegment.pickerOrder` filtered, never reordered, with one re
 - One answer to "what is this window about", asked of one value, instead of a mode and a subject that could disagree.
 - ADRs 0005, 0025 and 0031 are superseded in part (each carries a line saying which part); their bodies are history.
 - A window state file written before this has no `windowSubject`: `UIState` seeds it from the old selection keys and `outlineLayout`, and the persona keys are no longer read.
-- Known limits, in this plan: a narrow column hides the picker's unread badges; there is no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains); every edition shows the same book in preview.
+- Known limits, in this plan: there is no capture-to-canvas drag within one window (Inbox takes the centre; Send to Canvas remains); every edition shows the same book in preview.
 
 ## Not yet built
 
 Later plans of the same milestone. None of these exist; nothing above depends on them.
 
-- The Brief. (To resolve is built: [ADR 0036](0036-to-resolve.md).)
-- The pulled-up thing and the fold.
-- ⌘2 and ⌘3 (no key is bound to these now; ⌘1 is To resolve).
+- Built since: To resolve ([ADR 0036](0036-to-resolve.md)); Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)). The rest of this list is what remains.
 - Status views beyond the board.
 - Per-language preview: every edition shows the same book today.
 - Round letters per piece.
 - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
 - The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
 - A drop on the tree's Canvas row as the capture-to-canvas route, with the spec's open decision on the Inbox at scale.
-- **The faces' piece readable without the editor, for References, Translation and History.** To resolve has the store-level read ([ADR 0036](0036-to-resolve.md)); those panes still need the piece open and are not offered, and a run flashes, for a faces' piece the centre does not have open.
+- **The faces' piece readable without the editor, for Translation.** To resolve, Brief and History have it; the translation review pane still needs the piece open, and a run flashes for a faces' piece the centre does not have open.
 - The tree's stage dot (`ReviewStatus`) and its one "to resolve" dot on rows; only the Inbox dot exists.
 - The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
 - Drop-target feedback on the tree that says which drop is about to happen.
-- The old inspector's dispersal: word and page targets to the status line, tags to Outline, links to the fold, publishing settings to the edition's Status; and the line above the prose opening Brief on click.
+- Per-piece publishing settings in the edition's Status view (they are "Publishing…" in a piece's row menu until then).
 - An edition's centre scrolling the book to a piece clicked in the tree, and the separate translation-review mode going.
-- The Canvas centre's right column (the selected card's or region's details).
-- The spec's open decision on what each ⌘⌥ pane shortcut maps to.
 
 ## Decisions made during the build
 
@@ -102,8 +98,8 @@ Each was a ruling taken in the build ledger on the agent's authority, not Denver
 6. The Lock wording in `FigureGridGate` and `FigureGridStrip` is changed with the editor-side fix ("The window is locked — the table can be read, not changed.").
 7. The two "is running" lines, which were Denver's verbatim wording of 2026-10-17 and named a persona, are **amended 2026-11-17** and need Denver's choice of words. Diagnostics: "Review's round is running — ⌘R waits until it finishes." became "A round is running — ⌘R waits until it finishes." Cockpit: "Author's check is running — Run waits until it finishes." became "A check is running — Run waits until it finishes."
 8. The Inbox row shows one dot when captures are waiting, never a number.
-9. Leaving an edition coerces a selected Department pane to the first visible segment.
-10. The picker falls back normal, small, menu, with no badges in the menu form (transitional).
+9. Leaving an edition coerces a selected Department pane to the first visible segment. (Gone with the picker: the desk is To resolve's own answer while an edition is the faces, [ADR 0037](0037-brief-and-the-pulled-up-thing.md).)
+10. The picker falls back normal, small, menu, with no badges in the menu form (transitional; gone with the picker).
 11. There is no capture-to-canvas drag in one window; Send to Canvas remains.
 12. The word ceiling of `docs/tripwires.md` is raised by 10 for the `NoPersonaCensusTests` line.
 13. `NoPersonaCensusTests` greps `\bPersona\b` and `\bpersona\b` only.
