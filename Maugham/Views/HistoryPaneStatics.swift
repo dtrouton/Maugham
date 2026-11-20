@@ -653,6 +653,30 @@ extension HistoryPane {
         posture?.allows(.writeText) ?? false
     }
 
+    /// **Whether this History offers Rewind at all** (shell p3 final wave,
+    /// C1): where the text may be written AND its piece is the one open in
+    /// the editor. A pulled-up History keeps its piece while the faces move;
+    /// a rewind of a piece that is not open would either reach the wrong
+    /// sheet or do nothing, so the toolbar's Rewind… and every row's
+    /// *Rewind to before this…* are not drawn. The project's History has no
+    /// piece and offers none; its checkpoint Revert is the picker's.
+    static func offersRewind(_ posture: Posture?, documentIsOpen: Bool) -> Bool {
+        documentIsOpen && offersRewind(posture)
+    }
+
+    /// **What every rewind post carries** — its own piece, as `jump` does,
+    /// and for a row the moment to open at. The one builder: the receiver
+    /// presents for the piece named here, never for the window's faces
+    /// (`RewindModifier.rewindTarget`).
+    static func rewindPayload(docId: String, before: Op?) -> [String: Any] {
+        var payload: [String: Any] = [ManuscriptNavigation.docIdKey: docId]
+        if let before {
+            payload["scrub_op_id"] = before.opId
+            payload["scrub_op_at"] = before.at
+        }
+        return payload
+    }
+
     /// **Whether a checkpoint row offers *Revert here…*** — only where the
     /// picker it opens would list at least one document this Mac may write
     /// (`PartialRestorePicker.offeredDocIds`), asked through the picker's own

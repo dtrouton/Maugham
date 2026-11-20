@@ -170,8 +170,7 @@ struct CheckpointModifier: ViewModifier {
                 documentStore: documentStore,
                 store: store,
                 window: window,
-                url: url,
-                selectedItemId: selectedItemId))
+                url: url))
     }
 
     private func activeDocument(

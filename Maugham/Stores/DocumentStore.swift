@@ -370,6 +370,19 @@ public final class DocumentStore {
     /// run their own autosave internally (see `Document.performAutosave`).
     private var fileSaveScheduler: DebounceScheduler<FileSavePayload>!
 
+    /// Brief's pending lines by piece (`scheduleBriefLine`), and their one
+    /// debounce. Not observed: nothing draws from them.
+    @ObservationIgnored private var pendingBriefLines: [String: String] = [:]
+    @ObservationIgnored private var _briefLineScheduler: DebounceScheduler<Int>?
+    private var briefLineScheduler: DebounceScheduler<Int> {
+        if let existing = _briefLineScheduler { return existing }
+        let scheduler = DebounceScheduler<Int>(delay: .milliseconds(500)) { [weak self] _ in
+            await self?.writePendingBriefLines()
+        }
+        _briefLineScheduler = scheduler
+        return scheduler
+    }
+
     /// The synced paths a debounced save has already refused and logged
     /// (tripwire 58): a note whose manifest path leaves the project is
     /// refused on every save, and said once, not once per typing pause.
@@ -938,6 +951,36 @@ public final class DocumentStore {
         researchNoteDoor.schedule(itemId, text: text, in: self)
     }
 
+    /// **Brief's line, saved 500 ms after the last edit** (shell p3 final
+    /// wave, I1) — the old Inspector's debounce, kept by the field that
+    /// replaced it. One pending line per piece: scheduling piece B never drops
+    /// piece A's. `flushPendingSave` writes whatever is pending, so ⌘S, a
+    /// window's close and ⌘Q (`ProjectSession.closeForQuit` → `close`) land a
+    /// line the writer typed and never left — the field's own commit (blur,
+    /// Return, disappear) flushes the same slot.
+    func scheduleBriefLine(docId: String, line: String) {
+        pendingBriefLines[docId] = line
+        briefLineScheduler.schedule(0)
+    }
+
+    /// Write every pending Brief line now.
+    func flushBriefLines() async {
+        await _briefLineScheduler?.flush()
+    }
+
+    private func writePendingBriefLines() async {
+        let lines = pendingBriefLines
+        pendingBriefLines = [:]
+        guard let store = projectStore else { return }
+        for (docId, line) in lines.sorted(by: { $0.key < $1.key }) {
+            do {
+                try await store.updateInspector(id: docId, synopsis: line)
+            } catch {
+                MaughamEvent.postNotice(error.localizedDescription, projectURL: projectURL)
+            }
+        }
+    }
+
     /// Flush any pending `scheduleFileSave`/`scheduleNoteSave` immediately, and
     /// wait for every note save in flight — and every open
     /// Research table's pending save (`researchTables`). `commitOpenEdits`
@@ -956,6 +999,9 @@ public final class DocumentStore {
         // `saveResearchNote`) landed before the flush returns: ⌘S, the typed
         // mover and the close all wait for them.
         await researchNoteDoor.settle(in: self)
+        // And Brief's line (final wave, I1): a manifest write, so it lands
+        // before the close removes the presenter.
+        await flushBriefLines()
     }
 
     /// **Research item `itemId`'s table, for a grid** — the one this store
@@ -2050,7 +2096,7 @@ public final class DocumentStore {
         }
         registrySettlesForTesting += 1
         invalidateTrust()
-        for document in openDocuments.values {
+        for document in everyOpenDocument() {
             do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
@@ -2297,7 +2343,7 @@ public final class DocumentStore {
         }.value
 
         invalidateTrust()
-        for document in openDocuments.values {
+        for document in everyOpenDocument() {
             do { try await reReadAfterExternalChange(document) }
             catch {
                 documentStoreLog.error(
@@ -2322,7 +2368,7 @@ public final class DocumentStore {
         // Every posture this window holds was answered off the table being
         // forgotten here (P3c Task 2).
         postureTrustChanged()
-        for document in openDocuments.values { document.opStore.invalidateTrust() }
+        for document in everyOpenDocument() { document.opStore.invalidateTrust() }
         // **And the closed pieces' words** (F7 final round, I1). The derived
         // cache keys on op-log file mtimes, and a trust change moves no file:
         // after *Theirs*, an admission or a revocation the same log derives to
@@ -2364,6 +2410,18 @@ public final class DocumentStore {
     /// `ProjectStore.projectTasksOpLog()` instead.
     public func allOpenDocuments() -> [Document] {
         Array(openDocuments.values)
+    }
+
+    /// **Every open `Document` a trust change must reach** — the manuscript
+    /// registry and the statements a pane holds open (shell p3 final wave,
+    /// I4). A statement is deliberately in no registry here
+    /// (`StatementEditorHost`), so a loop over `allOpenDocuments()` alone
+    /// left an open intent judging by the old table and showing the old
+    /// words until reopened. The one spelling: forgetting a table, re-reading
+    /// after a trust change and re-stamping a posture all iterate this
+    /// (`TrustReReadsStatementsTests`' census).
+    func everyOpenDocument() -> [Document] {
+        allOpenDocuments() + (projectStore?.liveStatementDocuments ?? [])
     }
 }
 

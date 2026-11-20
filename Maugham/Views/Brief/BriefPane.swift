@@ -373,3 +373,16 @@ struct BriefPane: View {
         }
     }
 }
+
+extension BriefPane {
+    /// **Whether `(kind, scope)`'s statement would not read in this
+    /// snapshot** (RULING-54; final wave, I2): named in `unreadable`, never
+    /// drawn as empty.
+    static func statementIsUnreadable(kind: Statement.Kind, scope: Statement.Scope,
+                                      snapshot: BriefSnapshot, statements: [Statement]) -> Bool {
+        guard !snapshot.unreadable.isEmpty,
+              let id = StatementLookup.statement(in: statements, kind: kind, scope: scope)?.id
+        else { return false }
+        return snapshot.unreadable.contains(id)
+    }
+}

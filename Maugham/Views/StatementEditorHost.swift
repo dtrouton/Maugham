@@ -366,6 +366,10 @@ struct StatementEditorHost: View {
     /// `.id()`), so every `@State` here outlives one. A refusal left behind is a
     /// sentence about a file the writer dropped on another scope's editor.
     @State private var pictureMessage: String?
+    /// Bumped when the bound `Document` was withdrawn from under this host
+    /// (`wasWithdrawn`): part of the reconcile task's id, so the scope is
+    /// resolved again — under the gate, after whoever took it lets go.
+    @State private var rebindGeneration = 0
 
     /// Session id stable for the lifetime of this app launch, stamped onto every
     /// op. Declared here rather than shared with `EditorHost`, whose pair is
@@ -407,6 +411,18 @@ struct StatementEditorHost: View {
     /// than through a race — `StatementPaneTests` drives it directly.
     static func shouldMount(resolvedScope: String?, scopeKey: String) -> Bool {
         resolvedScope == scopeKey
+    }
+
+    /// **Whether this host's `Document` was withdrawn from under it** (shell
+    /// p3 final wave, I3): the editor is mounted over a bound `Document` that
+    /// is no longer the one the store's registry names for the statement —
+    /// another act (a promotion) took it under the gate and closed it. The
+    /// host's own closes unmount first (`reconcile` and `leave` clear
+    /// `resolvedScope` before the close), so they never read as one; an empty
+    /// editor before its mint holds nothing to lose. Pure.
+    static func wasWithdrawn(bound: Document?, registered: Document?, mounted: Bool) -> Bool {
+        guard mounted, let bound else { return false }
+        return registered !== bound
     }
 
     /// Whether a `Document` that has just finished loading may be bound into the
@@ -535,7 +551,15 @@ struct StatementEditorHost: View {
         }
         // ONE task per scope, and the only place a Document is opened or closed
         // while the pane lives. See `reconcile`.
-        .task(id: scopeKey) { await reconcile() }
+        .task(id: ReconcileKey(scope: scopeKey, generation: rebindGeneration)) { await reconcile() }
+        // **A `Document` withdrawn from under the editor** (final wave, I3):
+        // the placeholder goes up at once — no keystroke reaches a husk — and
+        // the scope is resolved again under the gate.
+        .onChange(of: boundDocumentWithdrawn) { _, withdrawn in
+            guard withdrawn else { return }
+            resolvedScope = nil
+            rebindGeneration &+= 1
+        }
         .onDisappear {
             // Leaving the pane (a segment switch, a subject change, window
             // close) flushes the pending typing burst. `Document.close()` is
@@ -588,6 +612,22 @@ struct StatementEditorHost: View {
         // A load of this scope waiting on another host re-asks now, finds the
         // pane gone, and stops waiting (`load`).
         if let id = statement?.id { store.wakeStatementReleaseWaiters(id) }
+    }
+
+    /// What `.task` is keyed on: the scope, and a rebind after a withdrawal.
+    private struct ReconcileKey: Equatable {
+        let scope: String
+        let generation: Int
+    }
+
+    /// `wasWithdrawn` over this host's state. Read in `body`; every forget
+    /// bumps `statementTextRevision`, which is observed.
+    private var boundDocumentWithdrawn: Bool {
+        _ = store.statementTextRevision
+        return Self.wasWithdrawn(
+            bound: target.document,
+            registered: target.statementID.flatMap { store.openStatementDocument(id: $0) },
+            mounted: canMount)
     }
 
     private var loadingPlaceholder: some View {

@@ -800,7 +800,7 @@ extension DocumentStore {
     /// press again over a device that is already revoked.
     private func settle(after verb: String, _ subject: String) async {
         invalidateTrust()
-        for document in allOpenDocuments() {
+        for document in everyOpenDocument() {
             do { try await reReadAfterExternalChange(document) }
             catch {
                 registryVerbLog.error(

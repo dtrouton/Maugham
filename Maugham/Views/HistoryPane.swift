@@ -327,17 +327,30 @@ struct HistoryPane: View {
                 selection: $filter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
-            Button {
-                MaughamEvent.post(.maughamOpenRewind, to: .project(for: projectURL))
-            } label: {
-                Image(systemName: "clock.arrow.circlepath")
+            if rewindIsOffered {
+                Button {
+                    MaughamEvent.post(
+                        .maughamOpenRewind, to: .project(for: projectURL),
+                        payload: HistoryPane.rewindPayload(docId: activeDocId, before: nil))
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Rewind…")
+                .disabled(ops.isEmpty || (ops.count == 1 && ops[0].kind == .bootstrap))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Rewind…")
-            .disabled(ops.isEmpty || (ops.count == 1 && ops[0].kind == .bootstrap))
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
+    }
+
+    /// Whether Rewind is drawn here — the text may be written and this
+    /// History's piece is the one open (final wave, C1). Asked once per body
+    /// pass by the toolbar and by the timeline's rows.
+    var rewindIsOffered: Bool {
+        HistoryPane.offersRewind(
+            documentStore?.posture(forDocId: activeDocId),
+            documentIsOpen: documentStore?.document(forDocId: activeDocId) != nil)
     }
 
     /// The holders this document is currently holding lines under, as one

@@ -143,6 +143,28 @@ struct BriefBookView: View {
         RightColumnContent.pulledUp(for: request, subject: .book, structure: structure)
     }
 
+    // MARK: - What would not read (final wave, I2)
+
+    /// **The statements this read could not read, as the writer names their
+    /// origin** (RULING-54): the Book, or the piece. Pure.
+    static func unreadableTitles(snapshot: BriefSnapshot, statements: [Statement],
+                                 structure: [StructureItem]) -> [String] {
+        snapshot.unreadable.compactMap { id in
+            guard let statement = statements.first(where: { $0.id == id }) else { return nil }
+            switch statement.scope {
+            case .project: return bookTitle
+            case .document(let docId): return TreeWalk.find(id: docId, in: structure)?.title ?? docId
+            case .unknown: return ArtifactIndex.statementTitle(statement, documentTitle: { _ in nil })
+            }
+        }
+    }
+
+    /// Decided's one line naming what would not read; nil when everything read.
+    static func unreadableLine(titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        return "Decisions that can\u{2019}t be read: \(titles.joined(separator: ", "))."
+    }
+
     // MARK: - The view
 
     private var posture: Posture {
@@ -161,6 +183,9 @@ struct BriefBookView: View {
                 mayEdit: StatementSurfaceVerbs.offered(under: posture),
                 inTheCentre: ProjectWindow.statementIsInTheCentre(
                     kind: .intent, scope: .project, centreItem: centreItem),
+                isUnreadable: BriefPane.statementIsUnreadable(
+                    kind: .intent, scope: .project, snapshot: contents.snapshot,
+                    statements: store.manifest.statements),
                 posture: posture,
                 onOpenInCentre: { onOpenInCentre(.statement(kind: .intent, scope: .project)) },
                 onShowStrain: { _ in })
@@ -174,12 +199,21 @@ struct BriefBookView: View {
     private var decided: some View {
         let groups = contents.bookGroups
         let items = Self.filterItems(groups)
-        if !items.isEmpty {
+        let unreadableLine = Self.unreadableLine(titles: Self.unreadableTitles(
+            snapshot: contents.snapshot, statements: store.manifest.statements,
+            structure: store.manifest.structure))
+        if !items.isEmpty || unreadableLine != nil {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     BriefPane.sectionHeading(BriefDecidedSection.heading)
                     Spacer(minLength: 0)
-                    filterMenu(items)
+                    if !items.isEmpty { filterMenu(items) }
+                }
+                if let unreadableLine {
+                    Text(unreadableLine)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(Self.shown(groups, filter: filter)) { group in

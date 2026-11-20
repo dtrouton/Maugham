@@ -758,7 +758,7 @@ extension DocumentStore {
                     book.lastKnown[key] = permit
                 }
             }
-            for document in postureRestampedDocuments() {
+            for document in everyOpenDocument() {
                 document.stamp(localWritePermit: permitFromTheBuilder(
                     forDocId: document.docId, as: document.localWritePermit.actor))
             }
@@ -776,16 +776,6 @@ extension DocumentStore {
         // the yield at the question), so the second bump keeps the cache.
         bumpPostureEpoch(clearing: false)
         book.refreshesLanded += 1
-    }
-
-    /// **Every `Document` a refresh re-stamps** — the manuscript registry and
-    /// the open statement editors (whole-branch fix wave, I1). A statement is
-    /// deliberately in no `DocumentStore` registry (`StatementEditorHost`), so
-    /// `allOpenDocuments()` alone left a statement editor LOCKED by its
-    /// surface over a Document still stamped as before: its pending file and
-    /// its task-anchor question kept the load's answer until reopen.
-    private func postureRestampedDocuments() -> [Document] {
-        allOpenDocuments() + (projectStore?.liveStatementDocuments ?? [])
     }
 
     /// **Who this device, as the root, yields to on which piece.** One

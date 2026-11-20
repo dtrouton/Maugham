@@ -10,6 +10,10 @@ enum GoingForMode: Equatable {
     case editing
     /// The intent is the centre's cover: one quiet line, never a second host.
     case inTheCentre
+    /// The statement would not read (RULING-54): one line says so — never
+    /// "No intent yet.", never an empty prompt, and no editor to type over
+    /// a file nobody could read (shell p3 final wave, I2).
+    case unreadable
 }
 
 /// **Going for** — a piece's intent, or the Book's, in Brief (spec "Brief"
@@ -45,6 +49,8 @@ struct GoingForView: View {
     let marks: [ClauseMark]
     let mayEdit: Bool
     let inTheCentre: Bool
+    /// The statement is named in the read's `unreadable` (RULING-54).
+    var isUnreadable: Bool = false
     let posture: Posture
     let onOpenInCentre: () -> Void
     let onShowStrain: (ResolveRequest) -> Void
@@ -61,6 +67,7 @@ struct GoingForView: View {
     static let emptyPrompt = "What is this piece going for? Write it here."
     static let bookEmptyPrompt = "What is this book going for? Write it here."
     static let noIntentLine = "No intent yet."
+    static let unreadableLine = "This intent can\u{2019}t be read."
     /// The editor's height inside the scrolling pane.
     static let editorHeight: CGFloat = 220
     static let markScheme = "maugham-mark"
@@ -70,6 +77,7 @@ struct GoingForView: View {
     /// **Which face Going for shows.** Pure.
     ///
     /// - The centre's cover wins outright (Review Focus 3).
+    /// - A statement that would not read says so, and nothing else (I2).
     /// - A posture that refuses `.editStatement`, or another host holding the
     ///   statement, reads — never a second editor, never a disabled one.
     /// - Marks that apply read, until the writer asks to edit.
@@ -77,8 +85,9 @@ struct GoingForView: View {
     ///   that mints on the first keystroke, as the old pane did).
     static func mode(hasMarks: Bool, editingRequested: Bool, inTheCentre: Bool,
                      hasIntent: Bool, mayEdit: Bool = true,
-                     heldElsewhere: Bool = false) -> GoingForMode {
+                     heldElsewhere: Bool = false, isUnreadable: Bool = false) -> GoingForMode {
         if inTheCentre { return .inTheCentre }
+        if isUnreadable { return .unreadable }
         if !mayEdit || heldElsewhere { return .reading }
         if hasMarks && !editingRequested { return .reading }
         return .editing
@@ -105,6 +114,7 @@ struct GoingForView: View {
         case .inTheCentre: return Face(placeholder: true, reading: true, editor: false)
         case .reading: return Face(placeholder: false, reading: true, editor: false)
         case .editing: return Face(placeholder: false, reading: false, editor: true)
+        case .unreadable: return Face(placeholder: false, reading: false, editor: false)
         }
     }
 
@@ -151,7 +161,7 @@ struct GoingForView: View {
     private var mode: GoingForMode {
         Self.mode(hasMarks: !marks.isEmpty, editingRequested: editorHeld,
                   inTheCentre: inTheCentre, hasIntent: hasIntent,
-                  mayEdit: mayEdit, heldElsewhere: isHeldElsewhere)
+                  mayEdit: mayEdit, heldElsewhere: isHeldElsewhere, isUnreadable: isUnreadable)
     }
 
     var body: some View {
@@ -169,6 +179,9 @@ struct GoingForView: View {
     @ViewBuilder
     private func faceView(_ mode: GoingForMode) -> some View {
         let face = Self.face(mode)
+        if mode == .unreadable {
+            quiet(Self.unreadableLine)
+        }
         if face.placeholder {
             quiet(Self.inTheCentreLine)
         }
@@ -205,7 +218,9 @@ struct GoingForView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if mode != .inTheCentre {
+            // Not over a statement that would not read: the centre would
+            // offer an editor over it (I2).
+            if mode != .inTheCentre, mode != .unreadable {
                 Button { onOpenInCentre() } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                 }

@@ -354,13 +354,21 @@ extension ProjectStore {
         // begins after we release re-materialises from the op log left behind and
         // recreates the file at the old path. That is the piece's own manuscript's
         // window too, and it costs a stray file rather than the writer's words.
+        //
+        // **Held to the end of the promotion, success or failure** (shell p3
+        // final wave, I3). The host whose `Document` this closes sees it
+        // withdrawn (`StatementEditorHost.wasWithdrawn`), puts its placeholder
+        // up and loads again — and that load queues here until the promotion
+        // is over: after a failure it binds the statement the rollback put
+        // back, after a success it finds the statement gone from the manifest.
+        // Released any earlier, the host re-bound the file the next step moves.
         if let carriedIntent {
             await lockStatementOpen(carriedIntent.id)
-            defer { unlockStatementOpen(carriedIntent.id) }
-            if let live = openStatementDocument(id: carriedIntent.id) {
-                forgetStatementDocument(id: carriedIntent.id)
-                await live.close()
-            }
+        }
+        defer { if let carriedIntent { unlockStatementOpen(carriedIntent.id) } }
+        if let carriedIntent, let live = openStatementDocument(id: carriedIntent.id) {
+            forgetStatementDocument(id: carriedIntent.id)
+            await live.close()
         }
 
         // 2. Stage the new project under a sibling .maugham-staging-* folder.

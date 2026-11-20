@@ -20,27 +20,37 @@ struct BriefPartView: View {
         let docId: String
         let title: String
         let decisions: [Ruling]
+        /// The chapter's intent would not read: its section says so
+        /// (RULING-54; final wave, I2).
+        var unreadable: Bool = false
         var id: String { docId }
     }
 
     /// The chapters with decisions, in manuscript order, each newest first;
-    /// a chapter with none has no section.
+    /// a chapter with none has no section — unless its intent would not read
+    /// (`unreadable`), which keeps a section saying so.
     static func sections(docIds: [String], decisions: [BriefDecision],
-                         structure: [StructureItem]) -> [Section] {
+                         structure: [StructureItem], unreadable: Set<String> = []) -> [Section] {
         docIds.compactMap { docId in
             let mine = decisions.filter { $0.origin == .piece(docId: docId) }.map(\.ruling)
-            guard !mine.isEmpty else { return nil }
+            let unread = unreadable.contains(docId)
+            guard !mine.isEmpty || unread else { return nil }
             return Section(docId: docId,
                            title: TreeWalk.find(id: docId, in: structure)?.title ?? docId,
-                           decisions: BriefDecisions.newestFirst(mine))
+                           decisions: BriefDecisions.newestFirst(mine), unreadable: unread)
         }
     }
 
     static let emptyLine = "No chapter in this Part has decided anything yet."
 
     var body: some View {
+        let statements = store.manifest.statements
+        let unreadable = Set(docIds.filter {
+            BriefPane.statementIsUnreadable(kind: .intent, scope: .document($0),
+                                            snapshot: contents.snapshot, statements: statements)
+        })
         let sections = Self.sections(docIds: docIds, decisions: contents.snapshot.decisions,
-                                     structure: store.manifest.structure)
+                                     structure: store.manifest.structure, unreadable: unreadable)
         VStack(alignment: .leading, spacing: 14) {
             if sections.isEmpty {
                 Text(Self.emptyLine)
@@ -63,7 +73,7 @@ struct BriefPartView: View {
                         decisions: section.decisions,
                         kind: .intent, scope: .document(section.docId), store: store, world: world,
                         posture: posture(of: section.docId), liveParagraphIds: nil,
-                        showsHeading: false)
+                        showsHeading: false, isUnreadable: section.unreadable)
                 }
             }
             if BriefPane.quietLines(contents.snapshot).fromTheBook {

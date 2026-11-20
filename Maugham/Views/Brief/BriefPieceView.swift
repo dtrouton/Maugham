@@ -48,6 +48,12 @@ struct BriefPieceView: View {
 
     private var snapshot: BriefSnapshot { contents.snapshot }
 
+    /// The piece's intent would not read (`BriefSnapshot.unreadable`).
+    private var intentIsUnreadable: Bool {
+        BriefPane.statementIsUnreadable(kind: .intent, scope: .document(docId),
+                                        snapshot: snapshot, statements: store.manifest.statements)
+    }
+
     private var offers: BriefOffers {
         BriefPane.offers(posture: posture, mayWriteTheLine: BriefPane.mayWriteTheLine(
             docId: docId, store: store, documentStore: documentStore))
@@ -70,14 +76,16 @@ struct BriefPieceView: View {
             GoingForView(
                 store: store, documentStore: documentStore, scope: .document(docId),
                 isRead: contents.isRead, essay: snapshot.intentEssay, marks: contents.marks,
-                mayEdit: offers.editsIntent, inTheCentre: inTheCentre, posture: posture,
+                mayEdit: offers.editsIntent, inTheCentre: inTheCentre,
+                isUnreadable: intentIsUnreadable, posture: posture,
                 onOpenInCentre: { onOpenInCentre(.statement(kind: .intent, scope: .document(docId))) },
                 onShowStrain: onShowStrain)
             BriefDecidedSection(
                 fileOrder: contents.fileOrder[docId] ?? [],
                 decisions: snapshot.decisions.map(\.ruling),
                 kind: .intent, scope: .document(docId), store: store, world: world,
-                posture: posture, liveParagraphIds: contents.liveParagraphIds)
+                posture: posture, liveParagraphIds: contents.liveParagraphIds,
+                isUnreadable: intentIsUnreadable)
             quietLines(offers)
         }
         .onAppear { lineDraft = snapshot.line ?? "" }
@@ -87,6 +95,11 @@ struct BriefPieceView: View {
         }
         .onChange(of: lineFocused) { _, focused in
             if !focused { commitLine() }
+        }
+        // Saved 500 ms after the last edit too (final wave, I1): at ⌘Q no
+        // view disappears, and the store's close flushes the pending line.
+        .onChange(of: lineDraft) { _, _ in
+            if lineFocused { scheduleLine() }
         }
         .onDisappear { commitLine() }
     }
@@ -120,20 +133,25 @@ struct BriefPieceView: View {
             != (stored ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func commitLine() {
+    /// Hand the line to the store's debounced slot (`scheduleBriefLine`),
+    /// which writes it 500 ms after the last edit, or at once when flushed.
+    /// Nothing is scheduled for an unchanged line. Answers whether it
+    /// scheduled.
+    @discardableResult
+    private func scheduleLine() -> Bool {
         guard offers.editsLine,
-              Self.lineNeedsCommitting(draft: lineDraft, stored: lineWritten ?? snapshot.line) else { return }
+              Self.lineNeedsCommitting(draft: lineDraft, stored: lineWritten ?? snapshot.line) else { return false }
         let words = lineDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         lineWritten = words
-        let id = docId
-        Task { @MainActor in
-            do {
-                try await store.updateInspector(id: id, synopsis: words)
-            } catch {
-                lineWritten = nil
-                MaughamEvent.postNotice(error.localizedDescription, projectURL: store.url)
-            }
-        }
+        documentStore.scheduleBriefLine(docId: docId, line: words)
+        return true
+    }
+
+    /// Blur, Return, disappear: the pending line is written now, through the
+    /// same slot (a failure is said by the store's notice).
+    private func commitLine() {
+        scheduleLine()
+        Task { @MainActor in await documentStore.flushBriefLines() }
     }
 
     // MARK: - The two quiet lines

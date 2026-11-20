@@ -26,10 +26,21 @@ struct BriefDecidedSection: View {
     var showsHeading: Bool = true
     /// Where these decisions were made, named under each (the Book's Brief).
     var origin: RulingOrigin? = nil
+    /// The statement would not read: one line, no rows.
+    var isUnreadable: Bool = false
 
     @State private var showsEarlier = false
 
     static let heading = "Decided"
+    /// Said where the statement holding the decisions would not read
+    /// (RULING-54; final wave, I2) — never drawn as "none decided".
+    static let unreadableLine = "These decisions can\u{2019}t be read."
+
+    /// Whether Decided draws at all: its decisions, or the line saying they
+    /// would not read. Pure.
+    static func shows(decisions: [Ruling], isUnreadable: Bool) -> Bool {
+        isUnreadable || !decisions.isEmpty
+    }
 
     /// What Decided draws: nothing when empty; else the newest few, the rest
     /// folded under a title naming how many. Pure.
@@ -49,7 +60,17 @@ struct BriefDecidedSection: View {
 
     var body: some View {
         let layout = Self.layout(decisions)
-        if !layout.isEmpty {
+        if isUnreadable {
+            VStack(alignment: .leading, spacing: 4) {
+                if showsHeading { BriefPane.sectionHeading(Self.heading) }
+                Text(Self.unreadableLine)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("brief.decided")
+        } else if !layout.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 if showsHeading { BriefPane.sectionHeading(Self.heading) }
                 stratum(layout.showing)

@@ -27,6 +27,9 @@ struct HistoryRow: View {
     /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
     /// modal only on the window on that project.
     let projectURL: URL
+    /// The piece this History is of — what the row's Rewind post names, so
+    /// the sheet opens for it and never for the faces (final wave, C1).
+    let docId: String
 
     /// For lifecycle ops (claudeAccept/claudeReject/claudeArchive) the body
     /// of interest is on the CREATION op (claudeComment/claudeSuggestion/
@@ -75,8 +78,7 @@ struct HistoryRow: View {
                 Button {
                     MaughamEvent.post(
                         .maughamOpenRewind, to: .project(for: projectURL),
-                        payload: ["scrub_op_id": before.opId,
-                                  "scrub_op_at": before.at])
+                        payload: HistoryPane.rewindPayload(docId: docId, before: before))
                 } label: {
                     Label("Rewind to before this…", systemImage: "arrow.uturn.backward")
                         .labelStyle(.iconOnly)

@@ -85,7 +85,8 @@ struct HistoryTimeline: View {
                 // pass (P3c whole-branch fix wave, C1): a reviewer reads
                 // every row and is offered no rewind and no revert.
                 let offersRewind = HistoryPane.offersRewind(
-                    documentStore?.posture(forDocId: activeDocId))
+                    documentStore?.posture(forDocId: activeDocId),
+                    documentIsOpen: documentStore?.document(forDocId: activeDocId) != nil)
                 let offersRevert = HistoryPane.offersRevert(
                     for: rows, docIds: allDocIds,
                     mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
@@ -129,7 +130,8 @@ struct HistoryTimeline: View {
                                 },
                                 offersRewind: offersRewind,
                                 offersRevert: offersRevert,
-                                projectURL: projectURL)
+                                projectURL: projectURL,
+                                docId: activeDocId)
                             Divider()
                         }
                     }
