@@ -281,9 +281,9 @@ final class CanvasModel {
         onRevealRequested(target)
     }
 
-    /// A card to select once the scene that holds it is attached — Open in
-    /// Centre on a canvas card pulled up beside (shell p3 Task 7).
-    @ObservationIgnored private var pendingSelection: CanvasNodeID?
+    /// A card or region to select once the scene that holds it is attached —
+    /// Open in Centre on a canvas card or region pulled up beside (shell p3).
+    @ObservationIgnored private var pendingSelection: CanvasRevealTarget?
 
     /// **Bring a card into sight and select it** — Open in Centre on a canvas
     /// card pulled up in the right column. The selection lands only against
@@ -291,15 +291,23 @@ final class CanvasModel {
     /// when `load()` takes the parked reveal after `attach`. Never mid-gesture
     /// territory: it is asked from another column's button.
     func revealAndSelect(_ id: CanvasNodeID) {
-        pendingSelection = id
+        revealAndSelect(.node(id))
+    }
+
+    /// The same for a card or a region (a region pulled up beside).
+    func revealAndSelect(_ target: CanvasRevealTarget) {
+        pendingSelection = target
         if isAttached { applyPendingSelection() }
-        reveal(.node(id))
+        reveal(target)
     }
 
     private func applyPendingSelection() {
         defer { pendingSelection = nil }
-        guard let id = pendingSelection, scene.node(id) != nil else { return }
-        selection = .node(id)
+        switch pendingSelection {
+        case .node(let id)? where scene.node(id) != nil: selection = .node(id)
+        case .region(let id)? where scene.region(id) != nil: selection = .region(id)
+        case .node?, .region?, nil: break
+        }
     }
 
     /// Consume the parked request. `CanvasView.load()` calls this after `attach`,

@@ -63,6 +63,10 @@ struct PinnedReference: Identifiable, Equatable, Sendable {
 struct PinnedSection: Equatable, Sendable {
     let title: String?
     let references: [PinnedReference]
+    /// The bound region this run is, nil for the research run and the loose
+    /// cards. What tells a region from the loose cards, never the title: a
+    /// region the writer titled "Cards" is still a region.
+    var regionId: CanvasRegionID? = nil
 }
 
 /// **What a document is pinned to, grouped the way the writer arranged it.**
@@ -183,10 +187,10 @@ enum PinnedReferences {
         /// which is what makes "no loose cards" and "a region whose every card
         /// is a visitor" come out as an absent heading rather than a heading
         /// over nothing.
-        func close(titled title: String?) {
+        func close(titled title: String?, region: CanvasRegionID? = nil) {
             defer { out = [] }
             guard !out.isEmpty else { return }
-            sections.append(PinnedSection(title: title, references: out))
+            sections.append(PinnedSection(title: title, references: out, regionId: region))
         }
 
         // **The piece's bound regions are resolved BEFORE the untitled run**,
@@ -244,12 +248,11 @@ enum PinnedReferences {
                 // has the material.
                 take(promoted)
             } else {
-                for id in Promotion.readingOrder(
-                    CanvasMembership.residents(of: region.id, in: scene), in: scene) {
+                for id in readingOrder(ofRegion: region.id, in: scene) {
                     take(pin(for: id, in: scene, scraps: scraps, items: items))
                 }
             }
-            close(titled: Promotion.regionTitle(region))
+            close(titled: Promotion.regionTitle(region), region: region.id)
         }
 
         // A card the writer tied to the piece ITSELF. `seen` is what keeps one
@@ -263,6 +266,15 @@ enum PinnedReferences {
         close(titled: PinnedShelf.looseCardsTitle)
 
         return PinnedShelf(sections: sections)
+    }
+
+    /// **A region's cards in the canvas's visual order** — its residents
+    /// (never a visitor), top to bottom, then left to right. The one ordering
+    /// of a region's cards: the shelf, the fold and a region pulled up beside
+    /// (`PulledUpRegionView`) all read it.
+    static func readingOrder(ofRegion region: CanvasRegionID,
+                             in scene: CanvasScene) -> [CanvasNodeID] {
+        Promotion.readingOrder(CanvasMembership.residents(of: region, in: scene), in: scene)
     }
 
     /// The piece's regions in the order the shelf shows them: by the title the

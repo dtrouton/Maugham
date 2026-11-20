@@ -82,8 +82,8 @@ public struct WindowSubject: Equatable, Codable, Sendable {
 
     /// Any part naming something that no longer exists becomes the Book (open,
     /// faces) or nil (beside). A pulled-up History whose piece is gone is put
-    /// away, and so is a canvas card `canvasCardExists` says is no longer on
-    /// the canvas (shell p3 Task 7; the default keeps it, for a caller that
+    /// away, and so is a canvas card or region `canvasCardExists` says is no
+    /// longer on the canvas (shell p3 Task 7; the default keeps it, for a caller that
     /// has not read the canvas — the pulled-up view then shows its own
     /// missing state). A statement is kept.
     public func validated(structure: [StructureItem], researchIDs: Set<String>,
@@ -110,7 +110,7 @@ public struct WindowSubject: Equatable, Codable, Sendable {
                     // The project's History names no piece that could go.
                     return pulled.isProjectHistory || TreeWalk.contains(id: docId, in: structure)
                         ? pulled : nil
-                case .canvasScrap, .canvasPhoto:
+                case .canvasScrap, .canvasPhoto, .canvasRegion:
                     return canvasCardExists(pulled) ? pulled : nil
                 case .lessons, .firstReader, .visualLanguage:
                     return pulled

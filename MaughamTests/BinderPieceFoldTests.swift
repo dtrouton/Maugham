@@ -979,7 +979,7 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
     ]
 
     private func scrap(_ id: String) -> PieceFoldEntry {
-        .card(PinnedReference(id: id, kind: .scrap(nodeId: id), title: "A scrap"), regionTitle: nil)
+        .card(PinnedReference(id: id, kind: .scrap(nodeId: id), title: "A scrap"))
     }
 
     func test_aFoldWithSevenEntriesShowsGroupsWithCounts() {
@@ -1053,6 +1053,33 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
         XCTAssertEqual(BinderPieceFold.clicked(scrap("n2"), subject: up, structure: structure,
                                                projectType: .novel).beside,
                        .canvasScrap(nodeId: "n2"))
+    }
+
+    /// **A region's row pulls the region up** by the route a card row takes
+    /// (`ClickRule.pullUp`), a second click puts it away, and its cards are
+    /// rows of their own under its chevron, each pulling its card up.
+    func test_aRegionRowPullsTheRegionUpAndItsCardsAreRowsOfTheirOwn() {
+        let start = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        let cards = [PinnedReference(id: "n1", kind: .scrap(nodeId: "n1"), title: "A scrap")]
+        let region = PieceFoldEntry.region(id: "rg-1", title: "Fog", cards: cards)
+        XCTAssertEqual(BinderPieceFold.act(of: region), .pullUp(.canvasRegion(id: "rg-1")))
+        let up = BinderPieceFold.clicked(region, subject: start, structure: structure, projectType: .novel)
+        XCTAssertEqual(up, ClickRule.pullUp(.canvasRegion(id: "rg-1"), current: start),
+                       "the card row's route, exactly")
+        XCTAssertTrue(BinderPieceFold.isPulledUp(region, subject: up))
+        XCTAssertNil(BinderPieceFold.clicked(region, subject: up, structure: structure,
+                                             projectType: .novel).beside,
+                     "a second click puts it away")
+        XCTAssertNil(BinderPieceFold.doubleClickSubject(of: region), "no tree row: Open in Centre is the menu's")
+        XCTAssertEqual(region.regionCards, [scrap("n1")])
+        XCTAssertEqual(BinderPieceFold.clicked(region.regionCards[0], subject: up, structure: structure,
+                                               projectType: .novel).beside,
+                       .canvasScrap(nodeId: "n1"), "a card under the region swaps what is up")
+        // Its glyph is the index's, resolved once, and so are its cards'.
+        let index = PieceFoldIndex(entries: ["ch-1": [region]])
+        XCTAssertEqual(index.glyph(of: region), PieceFoldIndex.regionGlyph)
+        XCTAssertEqual(index.glyph(of: scrap("n1")), PieceFoldIndex.scrapGlyph)
+        XCTAssertEqual(BinderPieceFold.regionCount(cards.count), "1")
     }
 
     func test_aLinkRowGoesToThePiece() {

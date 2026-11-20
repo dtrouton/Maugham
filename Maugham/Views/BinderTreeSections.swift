@@ -1106,6 +1106,9 @@ final class BinderTreeSectionsState {
     /// keyed per piece — the open-ids-only spelling `expandedPieceFolds` uses,
     /// for its reasons. Not persisted.
     var expandedFoldGroups: Set<PieceFoldGroupKey> = []
+    /// **The region rows of a fold that are OPEN**, keyed per piece, the same
+    /// spelling as the groups above. Not persisted.
+    var expandedFoldRegions: Set<PieceFoldRegionKey> = []
     /// **The manuscript's structure groups (Parts) that are OPEN**, by group
     /// id — the open-ids-only spelling of the sets above, for their reasons
     /// (shell p3 final wave): every structure `DisclosureGroup` takes

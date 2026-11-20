@@ -10,7 +10,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing; `PulledUpEscape.swift`, its Esc.
+- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc.
 - `PaletteWallState.swift` — the wall's window state as one value (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
@@ -240,7 +240,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`centreRoute` answers once, from the window's `subject: WindowSubject`, as a value; `CentreColumn` renders it with one `switch` per level, never by layer order** (`CentreRouteTests`).
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the fourth branch, its one mount (tripwires 27, 30; `RegionBindingTests`); `.inbox` is last.
 - **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline, Status are its `BookView`.
-- **`manuscriptEditor`'s `ZStack`: `EditorHost` first and always present, the Book's view second whenever `open` names no document, then at most ONE cover** (`ProjectAltitudeCentreTests`).
+- **`manuscriptEditor`'s `ZStack`: `EditorHost` first, always; the Book's view second whenever `open` names no document, then at most ONE cover** (`ProjectAltitudeCentreTests`).
 - **The Book's view is `altitudeView`'s answer**: the Book, a Part (`altitudeScope`) or an edition (never Status). Status is a view, never a cover; the board's one mount is `statusBoard`.
 - **Covers, in order: an edition's** (`publishCentre`, whatever the faces are on: problems, a round, a proposal, the book), then a centre item.
 - **A covered editor never holds the keys** (`CentreKeys`); a place closes the centre item first.
@@ -252,28 +252,28 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.
 - **The right column is three positions in one order** (`RightColumnMountingTests`): the pulled-up one hidden while it would show nothing. One remembered position in `UIState`.
 - **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
-- **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver (the translation reveal included) routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
+- **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
 ### Brief, the pulled-up thing and the fold
 - **Brief never loads a manuscript `Document`** (`BriefReaderTests.test_noBriefSourceLoadsAManuscriptDocument`), so it edits a piece that is not open: the line asks `TreeStructureVerbs.mayRestructure`, the intent and decisions the intent's own posture.
 - **Clause marks are drawn only in Brief's Going for**: never in the centre cover, never on `IntentStrip`. A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
 - **A verb that files into a statement says where** (`FiledUnder`, from the write's own `FiledDestination`); the line links to any Brief it names.
 - **A statement host asks `statementIsInTheCentre` before it mounts**: the placeholder is decided before the mount (`Maugham/Stores/AREA.md`, the gate).
-- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind and empties the position; a canvas card is read-only beside the text (`PulledUpViewTests`, `PulledUpTests`).
+- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind and empties the position; a canvas card or region is read-only beside the text (`PulledUpViewTests`, `PulledUpTests`).
 - **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`; Esc declines while covered.
-- **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; its rows are `List` tags or `Button(.plain)` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
+- **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs` (`PieceRowMenusTests`, `PieceTargetMenuTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone** (`RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
-- **The tree binds the window's `WindowSubject`**: a click is `ClickRule.resolve(_, .click)` and nothing else. The `List` selects the row last clicked; the open row is tinted, the faces or `beside` outlined. Clicking the row beside puts it away.
+- **The tree binds the window's `WindowSubject`**: a click is `ClickRule.resolve(_, .click)`. The `List` selects the row last clicked; the open row is tinted, the faces or `beside` outlined. Clicking the row beside puts it away.
 - **A verb pointing the window somewhere** uses `ClickRule.navigate`, which never dismisses.
 - **Every tree's `List` selects through `BinderTreeSelection`, never the subject directly** (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`). A double-click is `.openInCentre` (`TreeTravelModifier`), posting the row's own tag, never `state.selection`.
 - **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`** (`PromotionCommandTests`, `PlanBinderTabTests`).
 - **A live research multi-selection is the one set**, anchored on `beside`; `SubjectValidationModifier` is the one rule about dead ids.
 - **Only a homogeneous research selection batches**.
-- **The five dead strip spellings — `BinderSegment`, `binderSegments(`, `binderHome(`, `findActive`, `selectedResearchId` — never return to production code**: `TripwireGrepTests.test_noProductionSpellingOfTheDeadStripSurvives`.
+- **The dead strip spellings never return to production code**: `TripwireGrepTests.test_noProductionSpellingOfTheDeadStripSurvives`.
 - **Find is `ProjectWindow.treeFindActive`, window `@State`**; `ProjectSearchView.close()` is its one exit.
 - **⌘⌥O selects the project row; ⌘⌥R / ⌘⌥P reveal the tree's Research / Palette sections** (`AltitudeKeyspaceTests.test_cmdOptOStillActsWhileFindCoversTheColumn`).
 

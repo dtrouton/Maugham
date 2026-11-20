@@ -2351,11 +2351,11 @@ struct ProjectWindow: View {
         let parts = [subject.open, subject.faces]
         let languages = parts.contains(where: \.isEdition)
             ? Set(TreeEditionRows.languages(store: store)) : []
-        // A pulled-up canvas card is checked against whichever canvas is real
+        // A pulled-up canvas card or region is checked against whichever canvas is real
         // (the live model, else the sidecar) — read only when one is pulled up.
         var cardExists: (PulledUp) -> Bool = { _ in true }
         switch subject.beside {
-        case .canvasScrap?, .canvasPhoto?:
+        case .canvasScrap?, .canvasPhoto?, .canvasRegion?:
             let scene = CanvasClaudeWrite.readScene(store: store, projectRoot: store.url).scene
             cardExists = { PulledUpView.cardIsOnTheCanvas($0, scene: scene) }
         default:

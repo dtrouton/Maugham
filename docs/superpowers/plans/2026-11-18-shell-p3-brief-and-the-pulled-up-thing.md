@@ -607,7 +607,8 @@ enum FiledUnder {
 30. Narrow the right column to its minimum with a long-titled note pulled up: the three positions still fit; the title shortens in the middle.
 31. The word target is on the status line under the text; tags are a column in the Outline view and in a chapter's right-click menu; links and Publishing… are in that menu.
 32. Try each old ⌘⌥ key and say whether it lands where you expect (see Open question 3).
-33. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
+33. Bind a canvas region to a chapter: the chapter's fold shows it as one row with a count, its chevron opening to its cards top to bottom; click the row and the region is pulled up, its scraps in full, pictures at column width, notes as titles you can click.
+34. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
 
 ## Open questions for Denver
 

@@ -211,6 +211,7 @@ enum RightColumnFixture {
             case .figure: return "pulledUp.figure"
             case .canvasScrap: return "pulledUp.canvasScrap"
             case .canvasPhoto: return "pulledUp.canvasPhoto"
+            case .canvasRegion: return "pulledUp.canvasRegion"
             case .lessons: return "pulledUp.lessons"
             case .firstReader: return "pulledUp.firstReader"
             case .visualLanguage: return "pulledUp.visualLanguage"
@@ -234,6 +235,7 @@ enum RightColumnFixture {
         "resolve", "translationReview", "desk",
         "brief.piece", "brief.part", "brief.book", "brief.edition", "brief.elsewhere", "brief.outside",
         "pulledUp.research", "pulledUp.figure", "pulledUp.canvasScrap", "pulledUp.canvasPhoto",
+        "pulledUp.canvasRegion",
         "pulledUp.lessons", "pulledUp.firstReader", "pulledUp.visualLanguage", "pulledUp.history",
         "details.canvas", "details.figure", "details.research", "details.referencePiece",
         "nothingPulledUp",
@@ -278,6 +280,8 @@ enum RightColumnFixture {
                 subject: pulling(.canvasScrap(nodeId: "gone"))),
             Arm(name: "a canvas picture pulled up", position: .pulledUp,
                 subject: pulling(.canvasPhoto(path: "canvas_assets/gone.png"))),
+            Arm(name: "a canvas region pulled up", position: .pulledUp,
+                subject: pulling(.canvasRegion(id: "gone"))),
             Arm(name: "What I've Learned pulled up", position: .pulledUp, subject: pulling(.lessons)),
             Arm(name: "First Reader pulled up", position: .pulledUp, subject: pulling(.firstReader)),
             Arm(name: "Visual Language pulled up", position: .pulledUp,

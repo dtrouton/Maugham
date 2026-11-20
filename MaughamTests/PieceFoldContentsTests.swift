@@ -136,32 +136,74 @@ final class PieceFoldContentsTests: XCTestCase {
                        "the group root is the row; its asset is inside it, not beside it")
     }
 
-    func test_aCardInARegionCarriesTheRegionsTitle() {
+    /// **A bound region is one group row holding its cards in the canvas's
+    /// visual order; a card bound to the piece itself stays a plain row**
+    /// (owner, 2026-11-20).
+    func test_aBoundRegionIsOneGroupWithItsCardsInOrderThenTheLooseCards() {
         var s = CanvasScene()
-        let inRegion = CanvasNodeID("a")
-        let loose = CanvasNodeID("b")
-        for id in [inRegion, loose] {
-            s.insert(CanvasNode(id: id, kind: .scrap, origin: .zero, width: 240, cachedHeight: 80))
-        }
+        // Placed out of id order, so reading order is what the test sees.
+        let lower = CanvasNodeID("a")
+        let upper = CanvasNodeID("b")
+        let loose = CanvasNodeID("c")
+        s.insert(CanvasNode(id: lower, kind: .scrap, origin: CGPoint(x: 0, y: 200),
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: upper, kind: .scrap, origin: CGPoint(x: 0, y: 0),
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: loose, kind: .scrap, origin: .zero, width: 240, cachedHeight: 80))
         let region = CanvasRegionID("r1")
         s.insertRegion(CanvasRegion(id: region, label: "Act II fog",
                                     frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
         RegionBinding.bind(region, toPiece: novelChapter, in: &s)
-        CanvasMembership.join(inRegion, home: region, in: &s)
+        CanvasMembership.join(lower, home: region, in: &s)
+        CanvasMembership.join(upper, home: region, in: &s)
         s.setBoundPiece(novelChapter, for: loose)
 
         let out = entries(for: novelChapter, structure: [chapter(novelChapter, "One")],
                           research: [], projectType: .novel, scene: s,
-                          scraps: [inRegion: "in the fog", loose: "on its own"])
+                          scraps: [lower: "lower", upper: "upper", loose: "on its own"])
         guard out.count == 2,
-              case .card(let first, let firstRegion) = out[0],
-              case .card(let second, let secondRegion) = out[1] else {
-            return XCTFail("expected two cards, got \(out)")
+              case .region(let id, let title, let cards) = out[0],
+              case .card(let single) = out[1] else {
+            return XCTFail("expected one region and one loose card, got \(out)")
         }
-        XCTAssertEqual(first.id, inRegion.raw)
-        XCTAssertEqual(firstRegion, "Act II fog")
-        XCTAssertEqual(second.id, loose.raw)
-        XCTAssertNil(secondRegion, "a loose card belongs to no region")
+        XCTAssertEqual(id, region.raw)
+        XCTAssertEqual(title, "Act II fog")
+        XCTAssertEqual(cards.map(\.id), [upper.raw, lower.raw],
+                       "the region's cards in the canvas's visual order, top to bottom")
+        XCTAssertEqual(cards.map(\.id),
+                       PinnedReferences.readingOrder(ofRegion: region, in: s).map(\.raw),
+                       "the one ordering, the shelf's")
+        XCTAssertEqual(single.id, loose.raw, "a card bound to the piece itself is a plain row")
+        XCTAssertEqual(out.map(\.group), [.cards, .cards], "a region lives in the Cards group")
+        XCTAssertEqual(out[0].pulledUp, .canvasRegion(id: region.raw), "its row pulls the region up")
+        XCTAssertEqual(out[0].regionCards, cards.map(PieceFoldEntry.card))
+    }
+
+    /// A region is told from the loose cards by its id, never its title: a
+    /// region the writer titled "Cards" is still a region.
+    func test_aRegionTitledCardsIsStillARegion() {
+        var s = CanvasScene()
+        let inRegion = CanvasNodeID("a")
+        s.insert(CanvasNode(id: inRegion, kind: .scrap, origin: .zero, width: 240, cachedHeight: 80))
+        let region = CanvasRegionID("r1")
+        s.insertRegion(CanvasRegion(id: region, label: PinnedShelf.looseCardsTitle,
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 400)))
+        RegionBinding.bind(region, toPiece: novelChapter, in: &s)
+        CanvasMembership.join(inRegion, home: region, in: &s)
+        let out = entries(for: novelChapter, structure: [chapter(novelChapter, "One")],
+                          research: [], projectType: .novel, scene: s, scraps: [inRegion: "x"])
+        XCTAssertEqual(out.map(\.id), ["region:r1"])
+    }
+
+    /// A region counts as one entry toward the six past which the fold groups.
+    func test_aRegionIsOneEntryTowardTheGroupingRule() {
+        let cards = (0..<5).map { PinnedReference(id: "n\($0)", kind: .scrap(nodeId: "n\($0)"), title: "S") }
+        let six: [PieceFoldEntry] = researchEntries(5) + [.region(id: "r1", title: "Fog", cards: cards)]
+        XCTAssertEqual(PieceFoldLayout.of(six), .rows(six), "five notes and a five-card region are six rows")
+        let seven = six + [.link(pieceId: "ch-2", title: "Two", incoming: false)]
+        guard case .groups(let runs) = PieceFoldLayout.of(seven) else { return XCTFail("seven group") }
+        XCTAssertEqual(runs.map(\.group), [.research, .cards, .links])
+        XCTAssertEqual(runs[1].entries.map(\.id), ["region:r1"], "the region row lives inside Cards")
     }
 
     func test_aFigureOwnedByThePieceIsInItsFold() {
@@ -373,7 +415,7 @@ final class PieceFoldContentsTests: XCTestCase {
     }
 
     private func cardEntry(_ id: String, _ kind: PinnedReference.Kind) -> PieceFoldEntry {
-        .card(PinnedReference(id: id, kind: kind, title: id), regionTitle: nil)
+        .card(PinnedReference(id: id, kind: kind, title: id))
     }
 
     /// **A fold row's glyph is `CanvasItemFacts`' — the canvas's own table,
@@ -393,7 +435,7 @@ final class PieceFoldContentsTests: XCTestCase {
         for (entry, glyph) in expected {
             XCTAssertEqual(PieceFoldIndex.glyph(for: entry, in: items), glyph, entry.id)
             // …and it is the very answer the canvas gives for the same item.
-            if case .card(let ref, _) = entry, case .research(let id) = ref.kind {
+            if case .card(let ref) = entry, case .research(let id) = ref.kind {
                 XCTAssertEqual(glyph, CanvasItemFacts.resolve(.project(id: id), in: items).glyph)
             }
         }
@@ -444,8 +486,8 @@ final class PieceFoldContentsTests: XCTestCase {
             XCTAssertFalse(fold.contains("\"\(literal)\""),
                            "the fold spells the item glyph \"\(literal)\" itself")
         }
-        XCTAssertEqual(fold.components(separatedBy: "state.foldIndex.glyph(of: entry)").count - 1, 2,
-                       "the card row and the palette row both ask the index")
+        XCTAssertEqual(fold.components(separatedBy: "state.foldIndex.glyph(of: entry)").count - 1, 3,
+                       "the card row, the region row and the palette row each ask the index")
         XCTAssertFalse(fold.contains("CanvasThumbnails") || fold.contains("thumbnailPath"),
                        "no thumbnail is drawn in the tree")
     }

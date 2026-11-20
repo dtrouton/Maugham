@@ -137,7 +137,8 @@ extension ProjectWindow {
             return researchSubjectPlacement(subject: subject).previewsInTheRightColumn
         case .figure:
             return figureSubjectPlacement(subject: subject).besideFigureID != nil
-        case .canvasScrap, .canvasPhoto, .lessons, .firstReader, .visualLanguage, .history:
+        case .canvasScrap, .canvasPhoto, .canvasRegion, .lessons, .firstReader, .visualLanguage,
+             .history:
             return true
         }
     }

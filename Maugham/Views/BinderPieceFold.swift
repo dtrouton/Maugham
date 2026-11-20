@@ -21,9 +21,10 @@ import AppKit
 /// renamed here — its twin in the Research section is where it lives.
 ///
 /// **How each row acts** (`act(of:)`, the click rule): research is a `List`
-/// tag, as anywhere in the tree; a card or a palette pin is reference
-/// material, pulled up beside by a `Button(.plain)` (tripwire 9), and a
-/// second click on the one pulled up puts it away; a figure is a `List` tag
+/// tag, as anywhere in the tree; a card, a region or a palette pin is
+/// reference material, pulled up beside by a `Button(.plain)` (tripwire 9),
+/// and a second click on the one pulled up puts it away (a region's chevron
+/// opens to its cards); a figure is a `List` tag
 /// that takes the centre; a link travels to its piece. A double-click, or the
 /// row's Open in Centre, always opens it in the centre.
 ///
@@ -135,9 +136,19 @@ struct BinderPieceFold: View {
                     expandedGroups: $state.expandedResearchGroups,
                     linkedFromResearch: !owned)
             }
-        case .card(let ref, let regionTitle):
-            pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: ref.title,
-                      caption: regionTitle, doubleClick: Self.doubleClickSubject(of: entry))
+        case .card(let ref):
+            cardRow(entry, ref: ref)
+        case .region(let id, let title, let cards):
+            // A group row (owner, 2026-11-20): its chevron opens its cards in
+            // the shelf's order; its label pulls the region up beside.
+            DisclosureGroup(isExpanded: regionExpansion(id)) {
+                ForEach(entry.regionCards) { card in
+                    if case .card(let ref) = card { cardRow(card, ref: ref) }
+                }
+            } label: {
+                pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title,
+                          caption: Self.regionCount(cards.count), doubleClick: nil)
+            }
         case .palette(_, let title):
             pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title, caption: nil,
                       doubleClick: Self.doubleClickSubject(of: entry))
@@ -182,8 +193,15 @@ struct BinderPieceFold: View {
         }
     }
 
-    /// A card or a palette pin: pulled up beside by a click, put away by a
-    /// second click on the one pulled up, and drawn outlined while it is.
+    /// A card row, in the fold or under its region's chevron.
+    private func cardRow(_ entry: PieceFoldEntry, ref: PinnedReference) -> some View {
+        pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: ref.title,
+                  caption: nil, doubleClick: Self.doubleClickSubject(of: entry))
+    }
+
+    /// A card, a region or a palette pin: pulled up beside by a click, put
+    /// away by a second click on the one pulled up, and drawn outlined while
+    /// it is.
     private func pullUpRow(_ entry: PieceFoldEntry, glyph: String, title: String,
                            caption: String?, doubleClick: BinderSubject?) -> some View {
         Button {
@@ -238,6 +256,17 @@ struct BinderPieceFold: View {
             })
     }
 
+    /// A region row's chevron, remembered as the groups' are.
+    private func regionExpansion(_ regionId: String) -> Binding<Bool> {
+        let key = PieceFoldRegionKey(docId: documentId, regionId: regionId)
+        return Binding(
+            get: { state.expandedFoldRegions.contains(key) },
+            set: { open in
+                if open { state.expandedFoldRegions.insert(key) }
+                else { state.expandedFoldRegions.remove(key) }
+            })
+    }
+
     /// Whether this piece's links may be edited here: the piece's structure
     /// door, as Rename and Brief's line ask (`TreeStructureVerbs.mayRestructure`).
     private var mayEditLinks: Bool {
@@ -267,9 +296,9 @@ struct BinderPieceFold: View {
         switch opening {
         case .subject(let next):
             subject = next
-        case .canvas(let next, let node):
+        case .canvas(let next, let target):
             subject = next
-            if let node { store.liveCanvas?.revealAndSelect(node) }
+            if let target { store.liveCanvas?.revealAndSelect(target) }
         case .centreItem:
             // No fold row pulls up a statement or History.
             break
@@ -294,8 +323,8 @@ struct BinderPieceFold: View {
         case .research(let id, _, _): return .listTag(.research(id))
         case .figure(let id, _): return .listTag(.figure(id))
         case .link(let pieceId, _, _): return .navigate(.item(pieceId))
-        case .card, .palette:
-            // Both always name something to pull up (`PieceFoldEntry.pulledUp`).
+        case .card, .region, .palette:
+            // Each always names something to pull up (`PieceFoldEntry.pulledUp`).
             return entry.pulledUp.map(Act.pullUp) ?? .navigate(.project)
         }
     }
@@ -347,6 +376,9 @@ struct BinderPieceFold: View {
         case .links: return "Links"
         }
     }
+
+    /// A region row's count of its cards.
+    static func regionCount(_ count: Int) -> String { "\(count)" }
 
     /// "Research (3)".
     static func groupTitle(_ run: PieceFoldGroupRun) -> String {

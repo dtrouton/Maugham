@@ -18,6 +18,8 @@ import MaughamCore
 ///   never an editor on the canvas's shared text storage (tripwires 26–28);
 ///   a picture is `ImagePreview`. Open in Centre opens the canvas and selects
 ///   the card (`CanvasModel.revealAndSelect`);
+/// - a canvas region is `PulledUpRegionView`, a leaf with its own header: its
+///   cards in the canvas's visual order, read-only, following the canvas;
 /// - a statement is `StatementPane` — another `StatementEditorHost`, ordered
 ///   by the load-level gate — unless the centre's cover holds it
 ///   (`ProjectWindow.statementIsInTheCentre`), when this draws the placeholder
@@ -85,6 +87,8 @@ struct PulledUpView: View {
         case figure(id: String, surface: Bool)
         case canvasScrap(text: String)
         case canvasPhoto(path: String)
+        /// `PulledUpRegionView`, which reads the canvas itself.
+        case canvasRegion(id: String)
         /// A canvas card not read yet: nothing, for the one frame.
         case readingCard
         case missingCard
@@ -128,7 +132,7 @@ struct PulledUpView: View {
             return !ProjectWindow.researchSubjectPlacement(subject: subject).previewsInTheRightColumn
         case .figure:
             return ProjectWindow.figureSubjectPlacement(subject: subject).besideFigureID == nil
-        case .canvasScrap, .canvasPhoto:
+        case .canvasScrap, .canvasPhoto, .canvasRegion:
             return false
         case .lessons, .firstReader, .visualLanguage, .history:
             return pulled.centreItem != nil && pulled.centreItem == centre.centreItem
@@ -158,6 +162,8 @@ struct PulledUpView: View {
             case .missing?: return .missingCard
             case nil: return .readingCard
             }
+        case .canvasRegion(let id):
+            return .canvasRegion(id: id)
         case .lessons, .firstReader, .visualLanguage:
             guard let statement = pulled.statement else {
                 preconditionFailure("every statement case names its statement")
@@ -184,8 +190,8 @@ struct PulledUpView: View {
     enum Opening: Equatable {
         /// The click rule's open-in-centre (a research item, a figure).
         case subject(WindowSubject)
-        /// The canvas opens, and selects this card when it names one.
-        case canvas(WindowSubject, node: CanvasNodeID?)
+        /// The canvas opens, and selects this card or region when it names one.
+        case canvas(WindowSubject, select: CanvasRevealTarget?)
         /// The centre's cover (`ProjectWindow.openInCentre`).
         case centreItem(CentreItem)
     }
@@ -200,8 +206,9 @@ struct PulledUpView: View {
         let next = ProjectWindow.openingBesideInCentre(current, structure: structure,
                                                        projectType: projectType)
         switch pulled {
-        case .canvasScrap(let nodeId): return .canvas(next, node: CanvasNodeID(nodeId))
-        case .canvasPhoto(let path): return .canvas(next, node: photoNode(path))
+        case .canvasScrap(let nodeId): return .canvas(next, select: .node(CanvasNodeID(nodeId)))
+        case .canvasPhoto(let path): return .canvas(next, select: photoNode(path).map { .node($0) })
+        case .canvasRegion(let id): return .canvas(next, select: .region(CanvasRegionID(id)))
         case .research, .figure, .lessons, .firstReader, .visualLanguage, .history:
             return .subject(next)
         }
@@ -217,15 +224,16 @@ struct PulledUpView: View {
             return .scrap(text: scraps[id] ?? "")
         case .canvasPhoto(let path):
             return photoNode(path, in: scene) == nil ? .missing : .photo(path: path)
-        case .research, .figure, .lessons, .firstReader, .visualLanguage, .history:
+        case .research, .figure, .canvasRegion, .lessons, .firstReader, .visualLanguage, .history:
             return nil
         }
     }
 
-    /// Whether a pulled-up canvas card is still on the canvas (true for every
-    /// other kind) — `WindowSubject.validated`'s answer.
+    /// Whether a pulled-up canvas card or region is still on the canvas (true
+    /// for every other kind) — `WindowSubject.validated`'s answer.
     static func cardIsOnTheCanvas(_ pulled: PulledUp, scene: CanvasScene) -> Bool {
-        read(pulled, scene: scene, scraps: [:]) != .missing
+        if case .canvasRegion(let id) = pulled { return scene.region(CanvasRegionID(id)) != nil }
+        return read(pulled, scene: scene, scraps: [:]) != .missing
     }
 
     /// **The centre's own research details under Lock** (its citation, tags
@@ -245,7 +253,7 @@ struct PulledUpView: View {
 
     /// The header's title for a pulled-up thing.
     @MainActor
-    static func title(of pulled: PulledUp, store: ProjectStore) -> String {
+    static func title(of pulled: PulledUp, store: ProjectStore, regionTitle: String? = nil) -> String {
         switch pulled {
         case .research(let id):
             return TreeWalk.find(id: id, in: store.manifest.research)?.title ?? ""
@@ -253,6 +261,9 @@ struct PulledUpView: View {
             return (store.manifest.figures ?? []).first { $0.id == id }?.name ?? ""
         case .canvasScrap: return canvasCardTitle
         case .canvasPhoto: return CanvasItemFacts.ownedTitle
+        // The store alone cannot name it (the scene is read in a task, never
+        // in a body): its readers pass the region's title they read.
+        case .canvasRegion: return regionTitle ?? canvasRegionTitle
         case .lessons: return BriefBookView.lessonsTitle
         case .firstReader: return BriefBookView.firstReaderTitle
         case .visualLanguage: return BriefBookView.visualLanguageTitle
@@ -261,7 +272,17 @@ struct PulledUpView: View {
         }
     }
 
+    /// A pulled-up region's title off whichever canvas is real (the live
+    /// model, else the sidecar); nil for a region no longer on it. Call it
+    /// from a `.task`, never a body: a closed canvas is a disk read.
+    @MainActor
+    static func regionTitle(_ id: String, store: ProjectStore) -> String? {
+        CanvasClaudeWrite.readScene(store: store, projectRoot: store.url).scene
+            .region(CanvasRegionID(id)).map(Promotion.regionTitle)
+    }
+
     static let canvasCardTitle = "Canvas card"
+    static let canvasRegionTitle = "Canvas region"
     static let missingCardLine = "This card is no longer on the canvas."
     static let readOnlyCardLine = "Read-only here. Open in Centre to edit it on the canvas."
     static let historyInTheCentreLine = "Open in the centre"
@@ -291,8 +312,18 @@ struct PulledUpView: View {
         }
     }
 
-    /// The pulled-up thing under its header.
+    /// The pulled-up thing under its header; a region draws its own, from
+    /// its own read.
+    @ViewBuilder
     private func pulledUpFace(_ pulled: PulledUp) -> some View {
+        if case .canvasRegion = pulled {
+            content(pulled)
+        } else {
+            headedFace(pulled)
+        }
+    }
+
+    private func headedFace(_ pulled: PulledUp) -> some View {
         VStack(spacing: 0) {
             BesideHeader(
                 title: Self.title(of: pulled, store: store),
@@ -328,9 +359,9 @@ struct PulledUpView: View {
         switch opening {
         case .subject(let next):
             subject = next
-        case .canvas(let next, let node):
+        case .canvas(let next, let target):
             subject = next
-            if let node { canvasModel.revealAndSelect(node) }
+            if let target { canvasModel.revealAndSelect(target) }
         case .centreItem(let item):
             // The cover takes it, and it leaves the pulled-up position in the
             // same update (`ProjectWindow.openingInCentre`), as every kind does.
@@ -375,6 +406,13 @@ struct PulledUpView: View {
             if let url = try? SafeRelativePath.resolve(path, under: store.url) {
                 ImagePreview(fileURL: url)
             }
+        case .canvasRegion(let id):
+            PulledUpRegionView(
+                store: store, model: canvasModel, regionId: id,
+                openInCentre: { openInCentre(pulled) },
+                close: { subject = ProjectWindow.closingBeside(subject) },
+                pullUp: { subject = ClickRule.pullUp($0, current: subject) })
+                .id(id)
         case .readingCard:
             Color.clear
         case .missingCard:
@@ -504,7 +542,8 @@ extension PulledUp {
     var isACanvasCard: Bool {
         switch self {
         case .canvasScrap, .canvasPhoto: return true
-        case .research, .figure, .lessons, .firstReader, .visualLanguage, .history: return false
+        case .research, .figure, .canvasRegion, .lessons, .firstReader, .visualLanguage, .history:
+            return false
         }
     }
 }

@@ -30,6 +30,9 @@ struct RightColumnControl: View {
     /// `unreadDocId(subject:store:)`, resolved once per subject change, never
     /// per render: at the Book `ResolveScope.of` walks the tree (tripwire 4).
     @State private var unreadDocId: String?
+    /// A pulled-up region's title, read in a `.task` keyed on the canvas's
+    /// structural revision: the scene is never read in a body (tripwires 4, 30).
+    @State private var regionTitle: String?
 
     // MARK: - The decisions, pure
 
@@ -56,8 +59,9 @@ struct RightColumnControl: View {
 
     /// The pulled-up thing's title, nil with nothing pulled up.
     @MainActor
-    static func pulledUpTitle(subject: WindowSubject, store: ProjectStore) -> String? {
-        subject.beside.map { PulledUpView.title(of: $0, store: store) }
+    static func pulledUpTitle(subject: WindowSubject, store: ProjectStore,
+                              regionTitle: String? = nil) -> String? {
+        subject.beside.map { PulledUpView.title(of: $0, store: store, regionTitle: regionTitle) }
     }
 
     /// Which position carries a dot. A proposal's dot is Brief's (the Book's
@@ -107,7 +111,7 @@ struct RightColumnControl: View {
     }
 
     var body: some View {
-        let title = Self.pulledUpTitle(subject: subject, store: store)
+        let title = Self.pulledUpTitle(subject: subject, store: store, regionTitle: regionTitle)
         let drawsTitle = Self.showsTitle(title, paneWidth: width)
         let offered = Self.segments(
             offersPulledUp: RightColumnContent.offersPulledUp(
@@ -131,9 +135,23 @@ struct RightColumnControl: View {
         .onChange(of: subject, initial: true) { _, new in
             unreadDocId = Self.unreadDocId(subject: new, store: store)
         }
+        .task(id: regionTitleKey) {
+            regionTitle = regionTitleKey.flatMap { PulledUpView.regionTitle($0.regionId, store: store) }
+        }
         .background(WindowAccessor(window: $window))
         .modifier(VisualLanguageProposalModifier(
             projectURL: store.url, window: window, proposed: $visualLanguageProposed))
+    }
+
+    private struct RegionTitleKey: Equatable {
+        let regionId: String
+        let sceneRevision: Int?
+    }
+
+    /// Only a pulled-up region observes the canvas's revision.
+    private var regionTitleKey: RegionTitleKey? {
+        guard case .canvasRegion(let id)? = subject.beside else { return nil }
+        return RegionTitleKey(regionId: id, sceneRevision: store.liveCanvas?.sceneRevision)
     }
 
     private func segment(_ segment: RightColumnPosition, title: String?,

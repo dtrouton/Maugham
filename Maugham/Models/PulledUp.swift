@@ -22,6 +22,9 @@ public enum PulledUp: Hashable, Codable, Sendable {
     case canvasScrap(nodeId: String)
     /// A picture the canvas owns (`canvas_assets/`), by project-relative path.
     case canvasPhoto(path: String)
+    /// A canvas region, by its id: its cards read down the column in the
+    /// canvas's visual order (owner, 2026-11-20). Read-only, as a card is.
+    case canvasRegion(id: String)
     /// The Book's statements that are not its intent.
     case lessons, firstReader, visualLanguage
     /// A piece's history — or the project's (`projectHistory`).
@@ -47,6 +50,8 @@ public enum PulledUp: Hashable, Codable, Sendable {
             try c.encode("canvasScrap", forKey: .kind); try c.encode(nodeId, forKey: .id)
         case .canvasPhoto(let path):
             try c.encode("canvasPhoto", forKey: .kind); try c.encode(path, forKey: .path)
+        case .canvasRegion(let id):
+            try c.encode("canvasRegion", forKey: .kind); try c.encode(id, forKey: .id)
         case .lessons: try c.encode("lessons", forKey: .kind)
         case .firstReader: try c.encode("firstReader", forKey: .kind)
         case .visualLanguage: try c.encode("visualLanguage", forKey: .kind)
@@ -62,6 +67,7 @@ public enum PulledUp: Hashable, Codable, Sendable {
         case "figure": self = .figure(try c.decode(String.self, forKey: .id))
         case "canvasScrap": self = .canvasScrap(nodeId: try c.decode(String.self, forKey: .id))
         case "canvasPhoto": self = .canvasPhoto(path: try c.decode(String.self, forKey: .path))
+        case "canvasRegion": self = .canvasRegion(id: try c.decode(String.self, forKey: .id))
         case "lessons": self = .lessons
         case "firstReader": self = .firstReader
         case "visualLanguage": self = .visualLanguage
@@ -89,7 +95,8 @@ public enum PulledUp: Hashable, Codable, Sendable {
         switch self {
         case .research(let id): return .research(id)
         case .figure(let id): return .figure(id)
-        case .canvasScrap, .canvasPhoto, .lessons, .firstReader, .visualLanguage, .history:
+        case .canvasScrap, .canvasPhoto, .canvasRegion, .lessons, .firstReader, .visualLanguage,
+             .history:
             return nil
         }
     }
@@ -109,13 +116,14 @@ public enum PulledUp: Hashable, Codable, Sendable {
     /// table and a figure are edited beside, under Lock as in the centre. A
     /// canvas card is READ-ONLY beside, with Open in Centre: its words live in
     /// the canvas's shared text storage, and a second editor on them is the
-    /// tripwires 26–28 risk (open question 4: either answer is this one line).
+    /// tripwires 26–28 risk (open question 4: either answer is this one line);
+    /// a region is its cards, so it is read-only for the same reason.
     /// A statement is its own `StatementEditorHost`, asked of its posture.
     /// History is a record, never edited.
     var isEditableBeside: Bool {
         switch self {
         case .research, .figure, .lessons, .firstReader, .visualLanguage: return true
-        case .canvasScrap, .canvasPhoto, .history: return false
+        case .canvasScrap, .canvasPhoto, .canvasRegion, .history: return false
         }
     }
 
@@ -124,7 +132,8 @@ public enum PulledUp: Hashable, Codable, Sendable {
     var lockApplies: Bool {
         switch self {
         case .research, .figure: return true
-        case .canvasScrap, .canvasPhoto, .lessons, .firstReader, .visualLanguage, .history:
+        case .canvasScrap, .canvasPhoto, .canvasRegion, .lessons, .firstReader, .visualLanguage,
+             .history:
             return false
         }
     }
@@ -136,7 +145,7 @@ public enum PulledUp: Hashable, Codable, Sendable {
         case .lessons: return (.lessons, .project)
         case .firstReader: return (.firstReader, .project)
         case .visualLanguage: return (.visualLanguage, .project)
-        case .research, .figure, .canvasScrap, .canvasPhoto, .history: return nil
+        case .research, .figure, .canvasScrap, .canvasPhoto, .canvasRegion, .history: return nil
         }
     }
 

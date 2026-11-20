@@ -21,8 +21,8 @@ final class PulledUpTests: XCTestCase {
 
     private let everyKind: [PulledUp] = [
         .research("r-1"), .figure("f-1"), .canvasScrap(nodeId: "n-1"),
-        .canvasPhoto(path: "canvas_assets/a.png"), .lessons, .firstReader, .visualLanguage,
-        .history(docId: "ch-1"),
+        .canvasPhoto(path: "canvas_assets/a.png"), .canvasRegion(id: "rg-1"), .lessons,
+        .firstReader, .visualLanguage, .history(docId: "ch-1"),
     ]
 
     func test_aResearchAndAFigureRoundTripThroughTheTreeSubject() {
@@ -41,6 +41,7 @@ final class PulledUpTests: XCTestCase {
 
     func test_aStatementOrHistoryPulledUpIsNotWhatTheTreeSelects() {
         for pulled in [PulledUp.canvasScrap(nodeId: "n-1"), .canvasPhoto(path: "p.png"),
+                       .canvasRegion(id: "rg-1"),
                        .lessons, .firstReader, .visualLanguage, .history(docId: "ch-1")] {
             XCTAssertNil(pulled.treeSubject, "\(pulled)")
             XCTAssertNil(pulled.researchID)
@@ -150,6 +151,26 @@ final class PulledUpTests: XCTestCase {
         }
     }
 
+    /// **A region pulled up is stored in the shape every kind is**, under the
+    /// key a previous build ignores; that build reads it as nothing beside
+    /// (tripwire 11) and keeps the rest of the subject.
+    func test_aPulledUpRegionIsStoredAndAPreviousBuildReadsNothingBeside() throws {
+        let pulled = PulledUp.canvasRegion(id: "rg-1")
+        let data = try JSONEncoder().encode(pulled)
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: data) as? [String: String],
+                       ["kind": "canvasRegion", "id": "rg-1"])
+        XCTAssertEqual(try JSONDecoder().decode(PulledUp.self, from: data), pulled)
+        // The file a build without regions wrote still reads, unchanged.
+        XCTAssertEqual(try JSONDecoder().decode(PulledUp.self,
+                                                from: Data(#"{"kind":"canvasScrap","id":"n1"}"#.utf8)),
+                       .canvasScrap(nodeId: "n1"))
+        // And the build before this one throws on the new kind: nothing beside.
+        let subject = WindowSubject(open: .canvas, faces: .item("ch-2"), beside: pulled)
+        let stored = try JSONEncoder().encode(subject)
+        let raw = try XCTUnwrap(String(data: stored, encoding: .utf8))
+        XCTAssertTrue(raw.contains(#""pulledUp""#), "not under the key a tree-row reader reads: \(raw)")
+    }
+
     /// **The downgrade**: the previous commit decodes `beside` as a
     /// `BinderSubject`. A pulled-up tree row is written there in that shape;
     /// anything else goes under `pulledUp`, which that decoder never reads,
@@ -186,6 +207,14 @@ final class PulledUpTests: XCTestCase {
         // empty state.
         XCTAssertEqual(validated(.canvasScrap(nodeId: "not-on-the-canvas")),
                        .canvasScrap(nodeId: "not-on-the-canvas"))
+        // A region the canvas no longer holds is put away where the canvas
+        // was read, as a card is; kept where it was not.
+        let gone = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                                 beside: .canvasRegion(id: "rg-gone"))
+        XCTAssertNil(gone.validated(structure: structure, researchIDs: [], figureIDs: [],
+                                    editionLanguages: [],
+                                    canvasCardExists: { PulledUpView.cardIsOnTheCanvas($0, scene: CanvasScene()) })
+                        .beside)
     }
 
     /// The owner's rule (2026-11-16): research and a palette card are edited
@@ -195,6 +224,9 @@ final class PulledUpTests: XCTestCase {
         XCTAssertTrue(PulledUp.figure("f-1").isEditableBeside)
         XCTAssertFalse(PulledUp.canvasScrap(nodeId: "n").isEditableBeside)
         XCTAssertFalse(PulledUp.canvasPhoto(path: "p").isEditableBeside)
+        XCTAssertFalse(PulledUp.canvasRegion(id: "rg").isEditableBeside, "a region is its cards")
+        XCTAssertTrue(PulledUp.canvasRegion(id: "rg").refusesEdits(isLocked: false))
+        XCTAssertFalse(PulledUp.canvasRegion(id: "rg").lockApplies, "read-only already: Lock adds nothing")
         XCTAssertFalse(PulledUp.history(docId: "ch-1").isEditableBeside)
         XCTAssertFalse(PulledUp.research("r").refusesEdits(isLocked: false))
         XCTAssertTrue(PulledUp.research("r").refusesEdits(isLocked: true), "Lock covers it")
@@ -208,11 +240,12 @@ final class PulledUpTests: XCTestCase {
     }
 
     func test_openInCentreOnAThingThatIsNoRow() {
-        let canvasCard = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
-                                       beside: .canvasScrap(nodeId: "n"))
-        XCTAssertEqual(ProjectWindow.openingBesideInCentre(canvasCard, structure: structure,
-                                                           projectType: .novel),
-                       WindowSubject(open: .canvas, faces: .canvas))
+        for pulled in [PulledUp.canvasScrap(nodeId: "n"), .canvasRegion(id: "rg")] {
+            let canvasCard = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"), beside: pulled)
+            XCTAssertEqual(ProjectWindow.openingBesideInCentre(canvasCard, structure: structure,
+                                                               projectType: .novel),
+                           WindowSubject(open: .canvas, faces: .canvas), "\(pulled)")
+        }
         let history = WindowSubject(open: .canvas, faces: .canvas,
                                     beside: .history(docId: "ch-2"))
         XCTAssertEqual(ProjectWindow.openingBesideInCentre(history, structure: structure,
@@ -226,7 +259,7 @@ final class PulledUpTests: XCTestCase {
 
     func test_aFoldEntryPullsUpWhatItNames() {
         func card(_ kind: PinnedReference.Kind) -> PieceFoldEntry {
-            .card(PinnedReference(id: "c", kind: kind, title: "C"), regionTitle: nil)
+            .card(PinnedReference(id: "c", kind: kind, title: "C"))
         }
         XCTAssertEqual(PieceFoldEntry.research(id: "r-1", title: "R", owned: true).pulledUp,
                        .research("r-1"))
@@ -236,6 +269,8 @@ final class PulledUpTests: XCTestCase {
         XCTAssertEqual(card(.scrap(nodeId: "n-1")).pulledUp, .canvasScrap(nodeId: "n-1"))
         XCTAssertEqual(card(.photo(path: "canvas_assets/a.png")).pulledUp,
                        .canvasPhoto(path: "canvas_assets/a.png"))
+        XCTAssertEqual(PieceFoldEntry.region(id: "rg-1", title: "Fog", cards: []).pulledUp,
+                       .canvasRegion(id: "rg-1"))
         XCTAssertNil(PieceFoldEntry.figure(id: "f-1", name: "F").pulledUp)
         XCTAssertNil(PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: false).pulledUp)
     }

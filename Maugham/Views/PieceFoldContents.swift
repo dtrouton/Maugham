@@ -21,9 +21,14 @@ enum PieceFoldEntry: Identifiable, Equatable {
     /// shared research the piece links to. The two are drawn differently.
     case research(id: String, title: String, owned: Bool)
     /// A scrap, an owned picture, or a research card the canvas holds for the
-    /// piece. `regionTitle` is the bound region's title; nil for a card bound
-    /// to the piece itself.
-    case card(PinnedReference, regionTitle: String?)
+    /// piece: bound to the piece itself, or one of a region's `cards`.
+    case card(PinnedReference)
+    /// **A canvas region bound to the piece** (owner, 2026-11-20): one row,
+    /// its title and count, opening to its cards in the shelf's order
+    /// (`PinnedReferences.readingOrder(ofRegion:in:)`). Its row pulls the
+    /// region up; each card row pulls that card up. One entry in the count
+    /// past which the fold groups, inside the Cards group.
+    case region(id: String, title: String, cards: [PinnedReference])
     case palette(id: String, title: String)
     case figure(id: String, name: String)
     /// `incoming`: the other piece links HERE ("Linked from").
@@ -34,7 +39,8 @@ enum PieceFoldEntry: Identifiable, Equatable {
     var id: String {
         switch self {
         case .research(let id, _, _): return "research:\(id)"
-        case .card(let ref, _): return "card:\(ref.id)"
+        case .card(let ref): return "card:\(ref.id)"
+        case .region(let id, _, _): return "region:\(id)"
         case .palette(let id, _): return "palette:\(id)"
         case .figure(let id, _): return "figure:\(id)"
         case .link(let pieceId, _, let incoming):
@@ -45,7 +51,7 @@ enum PieceFoldEntry: Identifiable, Equatable {
     var group: PieceFoldGroup {
         switch self {
         case .research: return .research
-        case .card: return .cards
+        case .card, .region: return .cards
         case .palette: return .palette
         case .figure: return .figures
         case .link: return .links
@@ -56,13 +62,16 @@ enum PieceFoldEntry: Identifiable, Equatable {
 extension PieceFoldEntry {
     /// **What pulling this row up puts beside** (shell p3): research and a
     /// palette card are research items; a card is what it holds — a research
-    /// item, a scrap, a canvas-owned picture. A figure opens in the centre and
-    /// a link travels to its piece, so neither is pulled up.
+    /// item, a scrap, a canvas-owned picture; a region is the region. A figure
+    /// opens in the centre and a link travels to its piece, so neither is
+    /// pulled up.
     var pulledUp: PulledUp? {
         switch self {
         case .research(let id, _, _), .palette(let id, _):
             return .research(id)
-        case .card(let ref, _):
+        case .region(let id, _, _):
+            return .canvasRegion(id: id)
+        case .card(let ref):
             switch ref.kind {
             case .research(let itemId): return .research(itemId)
             case .palette(let cardId): return .research(cardId)
@@ -72,6 +81,15 @@ extension PieceFoldEntry {
         case .figure, .link:
             return nil
         }
+    }
+}
+
+extension PieceFoldEntry {
+    /// A region's cards as the rows its chevron opens to; empty for every
+    /// other entry.
+    var regionCards: [PieceFoldEntry] {
+        guard case .region(_, _, let cards) = self else { return [] }
+        return cards.map(PieceFoldEntry.card)
     }
 }
 
@@ -85,6 +103,13 @@ enum PieceFoldGroup: String, CaseIterable {
 struct PieceFoldGroupKey: Hashable {
     let docId: String
     let group: PieceFoldGroup
+}
+
+/// One region row's open/closed state in one piece's fold — the open-ids-only
+/// spelling `PieceFoldGroupKey` uses (`BinderTreeSectionsState`).
+struct PieceFoldRegionKey: Hashable {
+    let docId: String
+    let regionId: String
 }
 
 /// A non-empty group of a grouped fold; its count is `entries.count`.
@@ -171,6 +196,10 @@ struct PieceFoldIndex: Equatable {
         var glyphs: [String: String] = [:]
         for row in entries.values.joined() {
             if let glyph = Self.glyph(for: row, in: items) { glyphs[row.id] = glyph }
+            // A region's cards are rows too, under the region's own chevron.
+            for card in row.regionCards {
+                if let glyph = Self.glyph(for: card, in: items) { glyphs[card.id] = glyph }
+            }
         }
         self.glyphs = glyphs
         var layouts: [String: PieceFoldLayout] = [:]
@@ -183,6 +212,8 @@ struct PieceFoldIndex: Equatable {
     /// **A scrap is not an item and has no `CanvasItemKind`** — it is words
     /// typed onto the board. Its one glyph of its own, never an item kind's.
     static let scrapGlyph = "note.text"
+    /// A region's row: the glyph the region inspector draws for a region.
+    static let regionGlyph = "square.dashed"
 
     /// The glyph of a card or palette row, through `CanvasItemFacts`; nil for
     /// the rows that are not canvas items (research rows are `ResearchRow`'s,
@@ -190,7 +221,9 @@ struct PieceFoldIndex: Equatable {
     /// draws none.
     static func glyph(for entry: PieceFoldEntry, in items: CanvasItemIndex) -> String? {
         switch entry {
-        case .card(let ref, _):
+        case .region:
+            return regionGlyph
+        case .card(let ref):
             switch ref.kind {
             // One arm for both: a palette card IS a research item, told apart
             // by position, and `CanvasItemFacts` reads that off the entry.
@@ -269,7 +302,8 @@ struct PieceFoldIndex: Equatable {
     ///   named. Research a `.contained` fold holds is listed by the fold, as the
     ///   tree draws it (a group root is one row, its contents inside it), and
     ///   is `owned`; everything else is linked.
-    /// - Cards: the shelf's bound regions in its order, then loose cards.
+    /// - Cards: one `.region` per bound region in the shelf's order, holding
+    ///   its cards in the shelf's order, then the loose cards.
     /// - Palette: palette cards wherever the shelf met them.
     /// - Figures: the piece's own (`ProjectStore.figureNoteOwners`), by name.
     /// - Links: `links` in order, then the pieces linking here; a link to a
@@ -291,12 +325,10 @@ struct PieceFoldIndex: Equatable {
         var palette: [PieceFoldEntry] = []
         var shelfResearch: [PinnedReference] = []
 
-        // The shelf closes the loose cards' section last, under one fixed title.
-        let looseIndex = shelf.sections.lastIndex {
-            $0.title != nil && $0.title == PinnedShelf.looseCardsTitle
-        }
-        for (index, section) in shelf.sections.enumerated() {
-            let regionTitle = index == looseIndex ? nil : section.title
+        // A section is a region by its id, never by its title: a region the
+        // writer titled "Cards" is not the loose cards.
+        for section in shelf.sections {
+            var regionCards: [PinnedReference] = []
             for ref in section.references {
                 switch ref.kind {
                 case .palette(let cardId):
@@ -306,10 +338,17 @@ struct PieceFoldIndex: Equatable {
                 case .research where section.title == nil:
                     shelfResearch.append(ref)
                 case .research, .scrap, .photo:
-                    if claimed.insert(ref.id).inserted {
-                        cards.append(.card(ref, regionTitle: regionTitle))
+                    guard claimed.insert(ref.id).inserted else { continue }
+                    if section.regionId != nil {
+                        regionCards.append(ref)
+                    } else {
+                        cards.append(.card(ref))
                     }
                 }
+            }
+            if let region = section.regionId, !regionCards.isEmpty {
+                cards.append(.region(id: region.raw, title: section.title ?? "",
+                                     cards: regionCards))
             }
         }
 

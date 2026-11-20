@@ -149,8 +149,8 @@ final class PulledUpViewTests: XCTestCase {
 
     func test_everyPulledUpKindHasOpenInCentre() {
         let kinds: [PulledUp] = [.research("r1"), .figure("f1"), .canvasScrap(nodeId: "n1"),
-                                 .canvasPhoto(path: "canvas_assets/a.png"), .lessons, .firstReader,
-                                 .visualLanguage, .history(docId: "ch-2")]
+                                 .canvasPhoto(path: "canvas_assets/a.png"), .canvasRegion(id: "rg-1"),
+                                 .lessons, .firstReader, .visualLanguage, .history(docId: "ch-2")]
         for pulled in kinds {
             var subject = onAPiece
             subject.beside = pulled
@@ -167,12 +167,16 @@ final class PulledUpViewTests: XCTestCase {
                 XCTAssertNil(next.beside)
             case (.canvasScrap(let nodeId), .canvas(let next, let node)):
                 XCTAssertEqual(next.open, .canvas, "the canvas opens")
-                XCTAssertEqual(node, CanvasNodeID(nodeId), "and selects the card")
+                XCTAssertEqual(node, .node(CanvasNodeID(nodeId)), "and selects the card")
                 XCTAssertNil(next.beside)
             case (.canvasPhoto, .canvas(let next, let node)):
                 XCTAssertEqual(next.open, .canvas)
-                XCTAssertEqual(node, CanvasNodeID("photo-node"))
+                XCTAssertEqual(node, .node(CanvasNodeID("photo-node")))
                 XCTAssertNil(next.beside)
+            case (.canvasRegion(let id), .canvas(let next, let target)):
+                XCTAssertEqual(next.open, .canvas, "the canvas opens")
+                XCTAssertEqual(target, .region(CanvasRegionID(id)), "and selects the region")
+                XCTAssertNil(next.beside, "it leaves the pulled-up position")
             case (.lessons, .centreItem(let item)), (.firstReader, .centreItem(let item)),
                  (.visualLanguage, .centreItem(let item)), (.history, .centreItem(let item)):
                 XCTAssertEqual(item, pulled.centreItem, "the centre's cover")
@@ -307,6 +311,150 @@ final class PulledUpViewTests: XCTestCase {
         gone.attach(projectRoot: root)
         gone.revealAndSelect(CanvasNodeID("n-gone"))
         XCTAssertNil(gone.selection, "a card the scene lacks is never selected")
+
+        // A region pulled up: Open in Centre selects the region, now or at load.
+        let region = CanvasRegionID("rg-1")
+        func withRegion(_ m: CanvasModel) {
+            m.withScene(persist: false) {
+                $0.insertRegion(CanvasRegion(id: region, label: "Fog",
+                                             frame: CGRect(x: 0, y: 0, width: 400, height: 300)))
+            }
+        }
+        let liveRegion = CanvasModel()
+        liveRegion.attach(projectRoot: root)
+        withRegion(liveRegion)
+        liveRegion.revealAndSelect(.region(region))
+        XCTAssertEqual(liveRegion.selection, .region(region))
+        let closedRegion = CanvasModel()
+        closedRegion.revealAndSelect(.region(region))
+        XCTAssertNil(closedRegion.selection)
+        closedRegion.attach(projectRoot: root)
+        withRegion(closedRegion)
+        XCTAssertEqual(closedRegion.takePendingReveal(), .region(region))
+        XCTAssertEqual(closedRegion.selection, .region(region), "selected when the canvas loads")
+        let goneRegion = CanvasModel()
+        goneRegion.attach(projectRoot: root)
+        goneRegion.revealAndSelect(.region(CanvasRegionID("rg-gone")))
+        XCTAssertNil(goneRegion.selection, "a region the scene lacks is never selected")
+    }
+
+    // MARK: - A region pulled up (owner, 2026-11-20)
+
+    /// A scene with one region "Fog" holding, out of id order: a scrap low
+    /// down, a research note's card at the top, a picture in between; and a
+    /// scrap that is not a member.
+    private func regionScene() -> (scene: CanvasScene, region: CanvasRegionID,
+                                   scraps: [CanvasNodeID: String], items: CanvasItemIndex) {
+        var s = CanvasScene()
+        let region = CanvasRegionID("rg-1")
+        s.insertRegion(CanvasRegion(id: region, label: "Fog",
+                                    frame: CGRect(x: 0, y: 0, width: 600, height: 900)))
+        let low = CanvasNodeID("a-scrap")
+        let note = CanvasNodeID("b-note")
+        let picture = CanvasNodeID("c-picture")
+        let outside = CanvasNodeID("d-outside")
+        s.insert(CanvasNode(id: low, kind: .scrap, origin: CGPoint(x: 0, y: 600),
+                            width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: note, kind: .item(.project(id: "res-note")),
+                            origin: CGPoint(x: 0, y: 0), width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: picture, kind: .item(.owned(path: "canvas_assets/p.png")),
+                            origin: CGPoint(x: 0, y: 300), width: 240, cachedHeight: 80))
+        s.insert(CanvasNode(id: outside, kind: .scrap, origin: .zero, width: 240, cachedHeight: 80))
+        for id in [low, note, picture] { CanvasMembership.join(id, home: region, in: &s) }
+        let items = CanvasItemIndex.over(research: [
+            ResearchItem(id: "res-note", title: "The falls", type: .asset, kind: .document,
+                         path: "research/falls.md")])
+        return (s, region, [low: "Low words\nand more", outside: "not a member"], items)
+    }
+
+    /// **The region's cards in the canvas's visual order** — the shelf's own
+    /// ordering — a scrap as its whole words, a picture as a picture, a
+    /// research card as a title row that pulls the item up.
+    func test_aPulledUpRegionReadsItsCardsInTheCanvassOrder() {
+        let r = regionScene()
+        let read = PulledUpRegionView.read(r.region.raw, scene: r.scene, scraps: r.scraps, items: r.items)
+        XCTAssertEqual(read, .region(title: "Fog", members: [
+            .item(id: "res-note", title: "The falls", glyph: CanvasItemKind.researchNote.glyph,
+                  resolves: true),
+            .picture(path: "canvas_assets/p.png"),
+            .scrap(nodeId: "a-scrap", text: "Low words\nand more"),
+        ]), "top to bottom; a non-member is not read")
+        guard case .region(_, let members) = read else { return XCTFail("\(read)") }
+        let memberOfNode = ["b-note": "item:res-note", "c-picture": "picture:canvas_assets/p.png",
+                            "a-scrap": "scrap:a-scrap"]
+        XCTAssertEqual(members.map(\.id),
+                       PinnedReferences.readingOrder(ofRegion: r.region, in: r.scene)
+                           .map { memberOfNode[$0.raw] ?? "?" },
+                       "the shelf's one ordering")
+        XCTAssertEqual(members[0].pulledUp, .research("res-note"), "a title row pulls its item up")
+        XCTAssertNil(members[1].pulledUp, "a picture is drawn, not pulled up")
+        XCTAssertNil(members[2].pulledUp, "a scrap is drawn, not pulled up")
+        XCTAssertEqual(PulledUpRegionView.title(of: read), "Fog")
+        // The title row's click is the click rule's pull-up: the item replaces the region.
+        let up = ClickRule.pullUp(.research("res-note"),
+                                  current: WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                                                         beside: .canvasRegion(id: r.region.raw)))
+        XCTAssertEqual(up.beside, .research("res-note"))
+        // An item the project no longer holds is a title row that is no control.
+        let gone = PulledUpRegionView.read(r.region.raw, scene: r.scene, scraps: r.scraps, items: .empty)
+        guard case .region(_, let goneMembers) = gone else { return XCTFail("\(gone)") }
+        XCTAssertEqual(goneMembers[0], .item(id: "res-note", title: CanvasItemFacts.missingTitle,
+                                             glyph: CanvasItemKind.missingGlyph, resolves: false))
+        XCTAssertNil(goneMembers[0].pulledUp)
+    }
+
+    /// **A region no longer on the canvas says so, with Close**, as a missing
+    /// card does; the sweep puts it away.
+    func test_aMissingRegionSaysSoAndCloses() {
+        let empty = CanvasScene()
+        XCTAssertEqual(PulledUpRegionView.read("rg-gone", scene: empty, scraps: [:], items: .empty),
+                       .missing)
+        XCTAssertEqual(PulledUpRegionView.title(of: .missing), PulledUpView.canvasRegionTitle)
+        XCTAssertEqual(PulledUpRegionView.title(of: nil), PulledUpView.canvasRegionTitle)
+        XCTAssertFalse(PulledUpView.cardIsOnTheCanvas(.canvasRegion(id: "rg-gone"), scene: empty))
+        XCTAssertTrue(PulledUpView.cardIsOnTheCanvas(.canvasRegion(id: regionScene().region.raw),
+                                                     scene: regionScene().scene), "control")
+        let code = (try? SourceTree.read("Maugham/Views/PulledUpRegionView.swift")) ?? ""
+        XCTAssertTrue(code.contains("Button(BesideHeader.closeLabel, action: close)"),
+                      "the missing state offers Close")
+    }
+
+    /// **A scrap beside follows the canvas's own typing**, as a pulled-up
+    /// scrap does; a closed canvas keeps the task's read.
+    func test_aPulledUpRegionsScrapFollowsTheCanvassTyping() throws {
+        let r = regionScene()
+        let read = PulledUpRegionView.read(r.region.raw, scene: r.scene, scraps: r.scraps, items: r.items)
+        let closed = CanvasModel()
+        XCTAssertEqual(PulledUpRegionView.live(read, model: closed), read, "no canvas attached: the read")
+        let root = TestTemp.root.appendingPathComponent("pulled-up-region-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let live = CanvasModel()
+        live.attach(projectRoot: root)
+        live.setScrapText("Typed just now", for: CanvasNodeID("a-scrap"))
+        guard case .region(_, let members)? = PulledUpRegionView.live(read, model: live) else {
+            return XCTFail("a region")
+        }
+        XCTAssertEqual(members.last, .scrap(nodeId: "a-scrap", text: "Typed just now"))
+    }
+
+    /// The region's face and the rules every pulled-up kind shares: never a
+    /// second editor, shown beside, Esc and the canvas's cover generic.
+    func test_aPulledUpRegionIsReadOnlyBesideAndShownInEveryCentre() {
+        let pulled = PulledUp.canvasRegion(id: "rg-1")
+        XCTAssertEqual(face(pulled), .canvasRegion(id: "rg-1"))
+        XCTAssertEqual(face(pulled, open: .canvas), .canvasRegion(id: "rg-1"))
+        XCTAssertFalse(PulledUpView.centreShows(pulled, centre: .init(subject: onAPiece)),
+                       "never 'shown by the centre': there is no editor beside to refuse")
+        var subject = onAPiece
+        subject.beside = pulled
+        XCTAssertTrue(ProjectWindow.pulledUpIsShownBeside(subject: subject))
+        XCTAssertEqual(RightColumnContent.of(position: .pulledUp, subject: subject,
+                                             translationLanguage: nil, structure: structure,
+                                             projectType: .novel),
+                       .pulledUp(pulled))
+        XCTAssertTrue(PulledUpEscapeModifier.claims(pulledUp: pulled, position: .pulledUp,
+                                                    showInspector: true, isNoChromeOn: false))
     }
 
     // MARK: - Mounted measurements
