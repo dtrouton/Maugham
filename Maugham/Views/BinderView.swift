@@ -109,6 +109,8 @@ struct BinderView: View {
             .binderTreeSections(store: store, state: treeState,
                                 subject: $subject)
             .pieceFoldIndex(store: store, state: treeState)
+            // A picture row's thumbnail is resolved under this project.
+            .environment(\.rowThumbnailRoot, store.url)
             // Root context menu — attached at the binder level so it's
             // available even when the structure is empty (right-clicking
             // a row gives the per-row menu instead, no overlap).

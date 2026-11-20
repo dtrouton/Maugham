@@ -187,6 +187,9 @@ struct PieceFoldIndex: Equatable {
     /// research glyph table is not spelled again here: a pinned PDF, recording
     /// or picture draws in the fold what it draws on the board.
     let glyphs: [String: String]
+    /// Entry id → the project-relative picture its row draws as a thumbnail
+    /// (`thumbnailPath(for:in:)`), resolved with the glyphs.
+    let thumbnails: [String: String]
 
     /// - Parameter alwaysGrouped: the pieces whose fold groups at any size
     ///   (`PieceFoldLayout.of(_:alwaysGroups:)`).
@@ -194,14 +197,14 @@ struct PieceFoldIndex: Equatable {
          items: CanvasItemIndex = .empty) {
         self.entries = entries
         var glyphs: [String: String] = [:]
-        for row in entries.values.joined() {
+        var thumbnails: [String: String] = [:]
+        // A region's cards are rows too, under the region's own chevron.
+        for row in entries.values.joined().flatMap({ [$0] + $0.regionCards }) {
             if let glyph = Self.glyph(for: row, in: items) { glyphs[row.id] = glyph }
-            // A region's cards are rows too, under the region's own chevron.
-            for card in row.regionCards {
-                if let glyph = Self.glyph(for: card, in: items) { glyphs[card.id] = glyph }
-            }
+            if let path = Self.thumbnailPath(for: row, in: items) { thumbnails[row.id] = path }
         }
         self.glyphs = glyphs
+        self.thumbnails = thumbnails
         var layouts: [String: PieceFoldLayout] = [:]
         for (docId, rows) in entries where !rows.isEmpty {
             layouts[docId] = PieceFoldLayout.of(rows, alwaysGroups: alwaysGrouped.contains(docId))
@@ -217,8 +220,7 @@ struct PieceFoldIndex: Equatable {
 
     /// The glyph of a card or palette row, through `CanvasItemFacts`; nil for
     /// the rows that are not canvas items (research rows are `ResearchRow`'s,
-    /// figures and links draw their own). No thumbnail is resolved: the tree
-    /// draws none.
+    /// figures and links draw their own).
     static func glyph(for entry: PieceFoldEntry, in items: CanvasItemIndex) -> String? {
         switch entry {
         case .region:
@@ -240,6 +242,26 @@ struct PieceFoldIndex: Equatable {
             return nil
         }
     }
+
+    /// **Which fold rows show a thumbnail**: a card that is a picture — a
+    /// canvas-owned picture, or a research image the canvas holds — through
+    /// `CanvasItemFacts`, which the canvas draws its own pictures from. A
+    /// research row's is `ResearchRow`'s; a scrap, a region, a palette pin, a
+    /// figure and a link have none.
+    static func thumbnailPath(for entry: PieceFoldEntry, in items: CanvasItemIndex) -> String? {
+        guard case .card(let ref) = entry else { return nil }
+        switch ref.kind {
+        case .research(let id):
+            return CanvasItemFacts.resolve(.project(id: id), in: items).thumbnailPath
+        case .photo(let path):
+            return CanvasItemFacts.resolve(.owned(path: path), in: items).thumbnailPath
+        case .palette, .scrap:
+            return nil
+        }
+    }
+
+    /// The picture `entry`'s row draws, if any, as resolved with the index.
+    func thumbnail(of entry: PieceFoldEntry) -> String? { thumbnails[entry.id] }
 
     /// The glyph `entry`'s row draws, as resolved when the index was built.
     func glyph(of entry: PieceFoldEntry) -> String {

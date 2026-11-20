@@ -37,6 +37,7 @@ struct ResearchRow: View {
     /// title, a trailing link glyph and the help say "this lives elsewhere".
     var linkedFromResearch: Bool = false
 
+    @Environment(\.rowThumbnailRoot) private var thumbnailRoot
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -136,20 +137,28 @@ struct ResearchRow: View {
         }
     }
 
-    @ViewBuilder
+    /// The kind's glyph, or an image's thumbnail in its place — in the same
+    /// fixed box for every row, so titles align and a picture arriving moves
+    /// nothing.
     private var icon: some View {
-        if item.type == .group {
-            Image(systemName: "folder")
-                .imageScale(.small)
-                .foregroundStyle(.secondary)
-        } else {
-            Image(systemName: kindIconName)
-                .imageScale(.small)
-                .foregroundStyle(.secondary)
-        }
+        RowThumbnail(
+            source: thumbnailRoot.flatMap { root in
+                Self.thumbnailPath(of: item).map { RowThumbnails.Source(path: $0, root: root) }
+            },
+            glyph: Self.glyphName(of: item), side: RowThumbnail.treeSide)
     }
 
-    private var kindIconName: String {
+    /// **Which research rows show a thumbnail**: an image asset, by its
+    /// project-relative path. A group, a PDF, a note, a table, a recording
+    /// and a link keep their glyph.
+    static func thumbnailPath(of item: ResearchItem) -> String? {
+        guard item.type != .group, item.kind == .image,
+              let path = item.path, !path.isEmpty else { return nil }
+        return path
+    }
+
+    static func glyphName(of item: ResearchItem) -> String {
+        if item.type == .group { return "folder" }
         switch item.kind {
         case .image:    return "photo"
         case .pdf:      return "doc.richtext"

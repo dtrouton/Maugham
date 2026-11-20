@@ -608,7 +608,8 @@ enum FiledUnder {
 31. The word target is on the status line under the text; tags are a column in the Outline view and in a chapter's right-click menu; links and Publishing… are in that menu.
 32. Try each old ⌘⌥ key and say whether it lands where you expect (see Open question 3).
 33. Bind a canvas region to a chapter: the chapter's fold shows it as one row with a count, its chevron opening to its cards top to bottom; click the row and the region is pulled up, its scraps in full, pictures at column width, notes as titles you can click.
-34. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
+34. Pictures show thumbnails: a picture on the canvas bound to a chapter (and one inside a region), and an image in Research, show a small picture in the tree in place of the photo glyph, with rows no taller than their neighbours; a PDF still shows its glyph. Photo captures in the Inbox (and in its Trash) show a larger one. Replace an image file in Finder, then fold and unfold: the new picture shows.
+35. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
 
 ## Open questions for Denver
 

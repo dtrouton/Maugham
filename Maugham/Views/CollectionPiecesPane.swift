@@ -103,6 +103,8 @@ struct CollectionPiecesPane: View {
             .binderTreeSections(store: store, state: treeState,
                                 subject: $subject)
             .pieceFoldIndex(store: store, state: treeState)
+            // A picture row's thumbnail is resolved under this project.
+            .environment(\.rowThumbnailRoot, store.url)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()

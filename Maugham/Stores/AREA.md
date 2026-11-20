@@ -72,7 +72,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
 
 ### The inbox
-- `InboxStore.swift` — the capture inbox (`.maugham/inbox/`): verified chained read, sealed appends, bylines, held-row counts, promote/send verbs; a counted caller of `createResearchNote(` (`TripwireGrepTests.test_filingAResearchNoteHasAKnownSetOfCallers`). Tripwires 17, 24.
+- `InboxStore.swift` — the capture inbox (`.maugham/inbox/`): verified chained read, sealed appends, bylines, held-row counts, promote/send verbs, photo `thumbnailSource`; counted caller of `createResearchNote(` (`TripwireGrepTests.test_filingAResearchNoteHasAKnownSetOfCallers`). Tripwires 17, 24.
 - `InboxTranscriptionWorker.swift` — serial worker running an injected `Transcriber`; `WhisperKitTranscriber.swift` is production (Apple Silicon only).
 
 ### The `.maugham/` layout

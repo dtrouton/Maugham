@@ -1,6 +1,6 @@
 # Views — area guide
 
-The SwiftUI view layer of the project window and the app's other windows. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52 and 55.
+The SwiftUI views of every window. The one rule from CLAUDE.md: **ask `Posture` what to offer; never compare a permit rung (tripwires 47, 51).** The area carries tripwires 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52 and 55.
 
 ## Map
 
@@ -52,7 +52,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
 - `BinderRow.swift`, `PieceRow.swift`, `ResearchRow.swift` — the tree's row views; the inline-rename shape (tripwire 16).
 - `ProjectRowLabel.swift` — every project row's label.
-- `FigureSection.swift` — the Figures section (shown when a figure is not parked or a legacy line exists) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `PendingFigureSend`/`TreeAlert`), `FigureSectionWiring` (the tree's own card cache).
+- `FigureSection.swift` — the Figures section (shown unless parked with no legacy line) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `PendingFigureSend`/`TreeAlert`), `FigureSectionWiring` (the tree's own card cache).
 - `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `windowRefusesWrites` gate the writes.
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
@@ -109,6 +109,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `PassLadder.swift` — the per-piece pass ladder; `offersRulings`.
 - `TaskRow.swift` — one to-do's row, drawn in To resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
+- `RowThumbnails.swift` — the row-thumbnail cache (tree, Inbox) and `RowThumbnail`.
 - `AdaptiveFilterRow.swift` — the filter row that degrades labels to icons.
 
 ### Annotations queue and Review
@@ -261,7 +262,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A statement host asks `statementIsInTheCentre` before it mounts**: the placeholder is decided before the mount (`Maugham/Stores/AREA.md`, the gate).
 - **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind and empties the position; a canvas card or region is read-only beside the text (`PulledUpViewTests`, `PulledUpTests`).
 - **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`; Esc declines while covered.
-- **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
+- **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs` (`PieceRowMenusTests`, `PieceTargetMenuTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone** (`RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays`).
 
@@ -422,7 +423,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The cockpit letter's voice is the standing round's own pass**, never the selected one (`ReviewRoundCockpitTests.test_theLettersVoiceIsTheStandingRoundsOwnEditor`).
 - **`DraftStage.laneWord` is read in `LetterKeep.swift` and `LetterSection.swift` only**: `TripwireGrepTests.test_theStageWordIsReadFromTwoViewFilesOnly`.
 - **On-screen copy is the writer's register, never the schema's.**
-- **A text field that writes a file commits on submit, focus loss, Done and `.onDisappear`, never per keystroke**, behind a trimmed `nameNeedsCommitting` guard. `AskField` likewise, takes its verbs as one `AskField.Input`, and never starts a run.
+- **A text field that writes a file commits on submit, focus loss, Done and `.onDisappear`, never per keystroke**, behind a trimmed `nameNeedsCommitting` guard; `AskField` likewise, taking its verbs as one `AskField.Input`, never starting a run.
 - **The coach's Vacate / Restore calls `setCoachVacated` directly; the coach is never in `setReviewPasses`'s array.**
 - **A `ReviewPass.id` never changes on rename**; a deleted pass's `passStates` linger and reappear on re-add.
 - **`DocumentStore.setAuthorReaderChoice` is the reader choice's one writer.** Describe… asks the manifest's statement, never `FirstReader.statement`.
@@ -479,7 +480,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ## Recipes
 
 ### Add a centre route
-1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer for `open`.
+1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer for `open`.
 2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named question about the window's subject (composed with `altitudeView` if it is Book-level), never a mode.
 3. `Maugham/Views/CentreColumn.swift` — draw it in `editorPane`'s switch, or for a cover in `manuscriptEditor`'s cover switch. Pass values and closures; reach no store from the surface's body.
 4. `Maugham/Views/ProjectWindow.swift` — `showsStatusFooter` if the surface hides the document.

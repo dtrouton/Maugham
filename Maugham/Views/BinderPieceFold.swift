@@ -36,6 +36,7 @@ struct BinderPieceFold: View {
     @Bindable var store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
     @Binding var subject: WindowSubject
+    @Environment(\.rowThumbnailRoot) private var thumbnailRoot
     /// The document this fold hangs under — and the *scope* a note made from a
     /// row in it belongs to. See `actions`.
     let documentId: String
@@ -210,9 +211,9 @@ struct BinderPieceFold: View {
                                    projectType: store.manifest.type)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: glyph)
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
+                // A picture's thumbnail in the glyph's place, one line high.
+                RowThumbnail(source: thumbnailSource(of: entry), glyph: glyph,
+                             side: RowThumbnail.treeSide)
                 Text(title)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -244,6 +245,11 @@ struct BinderPieceFold: View {
         .contextMenu {
             Button(BesideHeader.openInCentreLabel) { openInCentre(entry) }
         }
+    }
+
+    private func thumbnailSource(of entry: PieceFoldEntry) -> RowThumbnails.Source? {
+        guard let thumbnailRoot, let path = state.foldIndex.thumbnail(of: entry) else { return nil }
+        return RowThumbnails.Source(path: path, root: thumbnailRoot)
     }
 
     private func groupExpansion(_ group: PieceFoldGroup) -> Binding<Bool> {

@@ -1063,6 +1063,23 @@ final class InboxStore {
         }
     }
 
+    /// **Which captures show a thumbnail in the pane**: a photo, by its asset's
+    /// name under the image folder — the same name and folder `assetURL(for:)`
+    /// resolves, left for the thumbnail cache to resolve through
+    /// `SafeRelativePath` off the main actor. Text and voice keep their glyph.
+    /// Pure: touches no disk.
+    nonisolated static func thumbnailSource(for entry: InboxEntry,
+                                            inboxDir: URL) -> RowThumbnails.Source? {
+        guard entry.kind == .image, let name = entry.sourceFilename, !name.isEmpty,
+              let dir = InboxConvention.assetDir(for: entry.kind, inboxDir: inboxDir)
+        else { return nil }
+        return RowThumbnails.Source(path: name, root: dir)
+    }
+
+    func thumbnailSource(for entry: InboxEntry) -> RowThumbnails.Source? {
+        Self.thumbnailSource(for: entry, inboxDir: inboxDir)
+    }
+
     /// Absolute URL of an entry's asset file (image/audio), or nil for inline
     /// text. Used by the pane for playback and by promote/trash for relocation.
     /// Resolves via `InboxConvention` (MaughamCore) — the single source of

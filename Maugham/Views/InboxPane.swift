@@ -434,9 +434,7 @@ struct InboxPane: View {
         } else {
             List(store.trashedEntries) { entry in
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: icon(for: entry.kind))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
+                    leading(entry)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title(for: entry)).lineLimit(2)
                         // RULING-53: the same clock the project trash shows —
@@ -480,10 +478,9 @@ struct InboxPane: View {
                 }
                 .buttonStyle(.borderless)
                 .help(audio.isPlaying(entry.id) ? "Pause" : "Play recording")
+                .frame(width: RowThumbnail.inboxSide)
             } else {
-                Image(systemName: icon(for: entry.kind))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
+                leading(entry)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title(for: entry)).lineLimit(2)
@@ -681,6 +678,21 @@ struct InboxPane: View {
     }
 
     // MARK: - Row presentation
+
+    /// A row's leading column: a photo's thumbnail (its glyph until the
+    /// picture arrives), or the kind's glyph — one width for every row, so
+    /// the titles line up whichever the row is.
+    @ViewBuilder
+    private func leading(_ entry: InboxEntry) -> some View {
+        if let source = store.thumbnailSource(for: entry) {
+            RowThumbnail(source: source, glyph: icon(for: entry.kind),
+                         side: RowThumbnail.inboxSide, glyphScale: .medium)
+        } else {
+            Image(systemName: icon(for: entry.kind))
+                .foregroundStyle(.secondary)
+                .frame(width: RowThumbnail.inboxSide)
+        }
+    }
 
     private func icon(for kind: InboxEntry.Kind) -> String {
         switch kind {
