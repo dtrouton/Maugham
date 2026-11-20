@@ -402,10 +402,14 @@ struct StatementEditorHost: View {
     /// intermediate state was real and simply never rendered. That is timing,
     /// not a guarantee: `saveManifest` writes and coordinates the whole manifest.)
     ///
-    /// `resolvedScope` cannot flicker: the mint does not touch it, so once a
-    /// scope is mounted it stays mounted until the SCOPE ITSELF changes — which
-    /// is the one case that genuinely wants a fresh `Document`, and which
-    /// `reconcile` handles by closing the outgoing one first.
+    /// `resolvedScope` does not flicker over an ordinary mint: once a scope is
+    /// mounted it stays mounted until the SCOPE ITSELF changes — which
+    /// `reconcile` handles by closing the outgoing one first. Two other
+    /// writers retract it on purpose, each to the placeholder: `mintAndBind`,
+    /// when the statement is held by another host and its load must wait
+    /// (re-mounting once that load binds, gated on `target.wantedScope`), and
+    /// `body`'s withdrawal arm, when the bound `Document` was taken from
+    /// under the editor (`wasWithdrawn`).
     ///
     /// Static and pure so the invariant is asserted deterministically rather
     /// than through a race — `StatementPaneTests` drives it directly.

@@ -16,7 +16,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
-- `RewindModifier.swift` — the `.maughamOpenRewind` receiver and the rewind sheet.
+- `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph` / `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
@@ -467,7 +467,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The pane auto-opens; the banner only offers a reopen**: an open read-only view is never yanked away.
 - **Both minted recovery actions check `recoveryActionIsCurrent` before acting** (`EditorHostRecoveryActionGuardTests`).
 - **Writer-facing recovery copy never says "quarantine"** (`RecoveryPaneModelTests.test_thePaneSaysSetAside_neverQuarantine`).
-- **Rewind snapshots the op log at open time, and its restore is per-doc**; `PartialRestorePicker` never trusts a checkpoint's `activeDoc` to name a document (`CheckpointCapture.documentSubject(of:in:)`).
+- **Rewind snapshots the op log at open time, and restores only the post's open piece**; `PartialRestorePicker` never trusts a checkpoint's `activeDoc` to name a document (`CheckpointCapture.documentSubject(of:in:)`).
 - **Row rendering branches on the `SynthesisSource` enum, never strings** (tripwire 12).
 
 ### Statistics

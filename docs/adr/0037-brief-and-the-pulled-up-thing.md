@@ -1,6 +1,6 @@
 # ADR 0037 — Brief, the pulled-up thing and the fold: what the right column is about, and what hangs under a piece
 
-**Date:** 2026-11-20 · **Status:** Accepted (plan 3 of a multi-plan milestone; see "Not yet built") · **Milestone:** shell-p3-brief-and-the-pulled-up-thing (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md` ("Brief", "The pulled-up thing", "The fold") · **Builds on:** [ADR 0035](0035-the-subject-not-the-persona.md), [ADR 0036](0036-to-resolve.md) · **Cited by:** the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1 (plan 5)
+**Date:** 2026-11-20 · **Status:** Accepted (plan 3 of a multi-plan milestone; see "Not yet built"; brought true at the final fix wave) · **Milestone:** shell-p3-brief-and-the-pulled-up-thing (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md` ("Brief", "The pulled-up thing", "The fold") · **Builds on:** [ADR 0035](0035-the-subject-not-the-persona.md), [ADR 0036](0036-to-resolve.md) · **Cited by:** the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1 (plan 5)
 
 ## Context
 
@@ -46,6 +46,10 @@ Brief shows what the faces' subject is **held to**, in the writer's own words (`
 
 **Showing a Brief mints nothing.** The intent's empty editor mints the statement on the first keystroke.
 
+**The line saves without a blur** (final wave): on Return, focus loss and the view leaving, and also 500 ms after the last edit, through `DocumentStore.scheduleBriefLine`. A pending line is written by `flushPendingSave`, the door ⌘S, a window's close and ⌘Q (`ProjectSession.closeForQuit`) already settle every debounced editor through, so a line typed and never left survives ⌘Q.
+
+**What will not read is said** (RULING-54; final wave). An intent whose read throws is named in `BriefSnapshot.unreadable`, and Going for draws one line, "This intent can't be read.", with no editor and no Open in Centre over it; never "No intent yet." and never the empty prompt. Decided says the same for that statement, a Part keeps a section for that chapter saying so, and the Book's Decided names every origin that would not read.
+
 ### The clause marks (owner's ruling, 2026-11-16)
 
 The check reads each clause of the intent and says that the draft holds it, strains against it or is silent on it. Brief draws that reading on the writer's own sentences in Going for: a **solid underline** where the draft strains, a **dotted underline** where it is silent, nothing where it holds. Denver ruled these marks to be **within constitution must-not #2 and [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1**, on four terms that this ADR makes the test:
@@ -77,11 +81,11 @@ A piece's row in the tree has a fold holding what the piece owns or draws on (`P
 - **Linked and owned look different.** A Collection piece's fold holds research in the piece's own folder, drawn as the Research section draws it. A novel chapter's fold holds links to shared research, quieter, with a trailing link glyph, flat and never renamed there.
 - **A row acts by one rule.** Research and figures are `List` tags that take the centre as anywhere in the tree; a card or palette pin is pulled up beside by a `Button(.plain)` (tripwire 9) and a second click puts it away; a link travels to its piece; a double-click or Open in Centre always opens in the centre. The chevron shows only when the piece has entries.
 - **A single-document project keeps its fold** (a short story's one document: chevron and grouped counts), because the fold is where a piece's material lives in every project type. Cost: one chevron on a single row; one line to remove.
-- ⌘⌥E opens the faces' piece's fold in the tree and scrolls it into view.
+- ⌘⌥E opens the faces' piece's fold in the tree (else the open piece's), opens the Parts above it (`BinderTreeSectionsState.expandedStructureGroups`, `groupExpansion(of:)`; not persisted, as the folds are not), shows a hidden tree, and scrolls the row into view. Its menu item is disabled with no piece.
 
 ### The pulled-up thing
 
-One thing at a time is pulled up beside the centre (`PulledUp`, `WindowSubject.beside`, widened from a research item): a research item (note, table, PDF, palette card), a figure, a canvas card (a scrap or a picture), What I've Learned, First Reader, Visual Language, or a piece's History. It persists across subject changes until closed (Close, or Esc through `WindowEscapeArbiter`, ahead of the centre item's cover; `PulledUpEscape`). Pulling a second thing up replaces the first.
+One thing at a time is pulled up beside the centre (`PulledUp`, `WindowSubject.beside`, widened from a research item): a research item (note, table, PDF, palette card), a figure, a canvas card (a scrap or a picture), What I've Learned, First Reader, Visual Language, a piece's History, or the project's History (where no piece is faced or open). It persists across subject changes until closed (Close, or Esc through `WindowEscapeArbiter`, ahead of the centre item's cover; `PulledUpEscape`). Pulling a second thing up replaces the first.
 
 - **Open in Centre MOVES it.** The pulled-up position empties, for every kind: a research note, a figure, a card, a statement, History. Closing the centre item does not pull it back up; to read an intent beside the text again the writer pulls it up again. (The first reading kept a placeholder behind; one rule for every kind is cheaper to carry.) A statement or History opens in the centre as a cover (below), over the piece it names, or the Book.
 - **Never a second editor on what the centre shows** (`PulledUpView.centreShows`, the one spelling). Where the centre already shows the item, the pulled-up view draws the read-only form or the "open in the centre" line. A card on the palette wall is never edited beside it too, and the pulled-up editor and the wall's editor settle a card's pending edit before the other seeds (`EditorHandOverTests`).
@@ -98,7 +102,8 @@ A piece's intent, a Book statement or a piece's History can be opened in the cen
 - **A place closes the cover first.** `ManuscriptNavigation.go` closes the centre item before any place lands; an annotation jump with no paragraph and a double-click on the open piece's own row close it too.
 - **One question: is the manuscript the editor the writer can see?** (`ProjectWindow.manuscriptIsVisible(route:)`, reached by an editor through `CentreKeys.manuscriptIsVisible(holding:)`). Every manuscript-writing entry point that does not go through the text view's own keys asks it: the Insert commands and Format ▸ Table through `manuscriptCommandContext`. `EditorWriteCommandCensusTests` classifies each editor observer as a writer or not by name, with a planted offender, so a new one cannot be added unasked. Only the centre item's cover had the hole; every other cover stands where `EditorHost` has no document or is unmounted.
 - **Esc does not close the cover while the keys are in its statement editor** (the arbiter's text-editing rule): the Close button is the way out.
-- **Every new statement host asks `statementIsInTheCentre`** before mounting, so the placeholder is decided before the mount, never discovered by a refusal.
+- **Every statement host that can stand beside a centre cover asks `statementIsInTheCentre`** before mounting (Brief's Going for, the pulled-up statement), so the placeholder is decided before the mount, never discovered by a refusal. An edition brief's host (`BriefEditionView`) does not ask: an edition brief is never a centre item.
+- **History's Rewind acts only on the open piece** (final wave, C1). A pulled-up History keeps its piece while the faces move, so every rewind post carries its piece (`HistoryPane.rewindPayload`, as `jump` already did) and the receiver presents for that piece only while its `Document` is the one open (`RewindModifier.rewindTarget`), never for the faces. Rewind… and each row's *Rewind to before this…* are hidden where the History's piece is not open; a Restore pressed after its piece closed under the sheet says so. The project's History offers no Rewind (it has no piece) and keeps its checkpoint Revert, the picker's own verb.
 
 ### The undo model, as built
 
@@ -127,15 +132,17 @@ Brief's intent, the centre cover and a pulled-up statement can name one statemen
 | ⌘⌥A, ⌘⌥D, ⌘⌥T | To resolve on Rounds, Checks, Mine |
 | ⌘⌥I, ⌘⌥N | Brief |
 | ⌘⌥G, ⌘⌥Y, ⌘⌥V | pull up What I've Learned, First Reader, Visual Language |
-| ⌘⌥H | pull up the faces' piece's History |
-| ⌘⌥E | open the faces' piece's fold in the tree |
-| ⌘⌥L, ⌘⌥K | To resolve (where translation review and the desk show) |
+| ⌘⌥H | pull up the faces' piece's History, or the project's where no piece is faced or open |
+| ⌘⌥E | open the faces' piece's fold in the tree (and the Parts above it; shows a hidden tree) |
+| ⌘⌥L, ⌘⌥K | To resolve (where translation review and the desk show); ⌘⌥L outside review adds one line saying how review is entered, which stands until the writer moves on |
 
 `RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays` and `test_everyPositionAndPullUpHasAMenuShortcut` pin the map.
 
 ### Interim homes
 
 Until plan 4 builds an edition's faces and the piece-in-a-language view, the Department desk shows in To resolve while an edition is the faces, and the translation review pane shows there while translation review is on: today's views, mounted unchanged in the position the design gives their successors (owner's answer, 2026-11-18). Without them publishing and translation review would have no home.
+
+**The interim loss** (owner's decision, recorded at the final wave): while the desk or the review shows in that position, To resolve's own list is unreachable, so ⌘⌥A, ⌘⌥D and ⌘⌥T select the position and DROP their filter (never left to fire on a later mount, `ProjectWindow.positionAsk`). Plan 4 closes it.
 
 ### Where each old Inspector field went
 
@@ -155,7 +162,7 @@ Until plan 4 builds an edition's faces and the piece-in-a-language view, the Dep
 | A reference piece, research, figure, canvas details | Pulled up with nothing pulled up (the centre's details) |
 | A group's caption ("Select a document inside this group…") | gone with the pane; a Part's Brief has its own empty states |
 
-The target field is a String that commits what was typed on Set, Return and focus loss: a numeric field commits only on Return or focus loss, so Set alone would have written the pre-edit value. The status line measures the piece **open** in the centre, not the faces' piece (it took the target from the faces before, so a Book on the faces over an open chapter showed the editor's count against no target).
+The target field is a String that commits what was typed on Set, Return and focus loss, and Escape cancels (noted by a key-down observer before the popover's own Escape closes it, so the disappearance does not commit; `PieceTargetField.EscapeNote`): a numeric field commits only on Return or focus loss, so Set alone would have written the pre-edit value. The status line measures the piece **open** in the centre, not the faces' piece (it took the target from the faces before, so a Book on the faces over an open chapter showed the editor's count against no target).
 
 ### The permission change
 
@@ -170,22 +177,29 @@ The target field is a String that commits what was typed on Set, Return and focu
 - The pane picker and `DetailSegment`, with `DetailPaneToggle`, `postDetailSegment` and `UIState.detailSegment`.
 - The Inspector (`InspectorView`, `PieceInspector`, `IntentAffordanceRow`, `InspectorLinksSection`): each field has a home above.
 - The Intent, Visual Language, What I've Learned and First Reader panes as picker members: they are Brief's Going for and the long statements pulled up or opened in the centre. The "Open Intent" row is gone because Brief shows the intent itself.
-- The References pane and its empty state naming two ways to pin: the shelf is a piece's fold, and an empty fold has no chevron.
+- The References pane and its empty state naming two ways to pin: the shelf is a piece's fold, and an empty fold has no chevron. The shelf's thumbnails too: a tree row is one line (tripwire 4), and an image is seen by pulling it up; the fold's rows take `CanvasItemFacts`' glyphs.
 - The study column (`AssistantColumn`): one pin, read-only, ended by any newer act. The pulled-up thing persists until closed, and a research note or palette card is editable there.
 - The History, Translation and Department panes as pickers: History is pulled up, the other two are To resolve's interim answers.
 - A selected group showing the project's intent: it shows the Part's Brief.
-- The Inspector's debounced draft (it saved every field together 500 ms after any edit): each home writes once, on its own commit.
+- The Inspector's debounced draft (it saved every field together 500 ms after any edit): each home writes on its own commit. Brief's line keeps the 500 ms debounce of its own (above), so ⌘Q never loses it.
 - The retired picker, study-column, References and Inspector suites: each assertion that policed behaviour that still ships moved onto the live code (the mapping is in the task report), and the presentation rule is `RightColumnMountingTests.test_escapeClosesThePulledUpThing`.
 
-## Parked
+## Parked, then triaged at the final wave
 
-Each was adjudicated after the undo work's last allowed round, as real but not load-bearing; the whole-branch review's final wave triages them.
+**Done in the final wave:** a failed promotion no longer leaves a statement host over a closed `Document` (the promotion holds the intent's open gate to its end; a host whose `Document` is withdrawn from under it drops to its placeholder and loads again under the gate, `StatementEditorHost.wasWithdrawn`); a trust change (admission, revocation, *Theirs*, a registry arrival) forgets the table of, and re-reads, open statements as well as manuscripts (`DocumentStore.everyOpenDocument()`, the one union, census in `TrustReReadsStatementsTests`); the verb-undo tests use `groupsByEvent = false` and explicit groups instead of a private selector; `StatementVerbUndo.manager(window: nil)` asks the key window's chain; a test pins that another statement's typing survives a verb and its undo.
 
-- **A replay can re-arm the `Document`'s one-shot undo-coherent flag over a foreign plain write** landing in the same apply pass, leaving a stale redo entry (misplaced text, or the stale-range crash class). Very low reach; the flag's mechanism predates the plan and statement `Document`s' exposure to it is new. The fix is `Document`-wide (the flag must vouch for a specific `displayText`).
-- **A plain write drops the holding editor's earlier verbs** (a verb in X's editor, then another on X from elsewhere, and the first's ⌘Z is gone). That is ADR 0023 D1 on the line the manuscript shares; clearing by target there would split the manuscript's figure-birth undo groups. A narrow loss against what shipped.
-- **Keys in a figure-grid cell, the canvas's editor or a scrap** (each with its own undo stack) send a statement verb to the window's manager, so it is unreachable from those keys until they move. Identical to shipped for the canvas; minor for the grid.
-- **The verb-undo tests draw undo event boundaries with the private selector `_endTopLevelGroupings`** (`StatementVerbUndoTests`). Three tests go red, with no crash, if a future macOS removes it. Swap for `groupsByEvent = false` and explicit groups.
-- Also noted, not built: a peer's arrival clears an open statement pane's undo stack, a pure append included; an open statement document does not re-read on a registry change or admission (only `openDocuments` does); `ProjectStore+CollectionPieces.swift` closes a host's live statement document on a failed promotion and leaves the host mounted over the closed `Document`, so each keystroke is dropped without a placeholder (pre-existing, Important); two statement-area tests failed once each and passed on rerun (`StatementImageIngestTests.test_anImagePastedIntoVisualLanguageLandsInItsOwnWell`, `test_aStatementMarkOpensBriefOrPullsUp`, a file read while `.maugham/people/events` was written) and the whole-branch review traces them.
+**The two intermittents:** `test_aStatementMarkOpensBriefOrPullsUp` (four failures in a row, then none) was test isolation: a fixture's store was never closed while its folder went away, and a registry read raced the removal. The fixture now closes its store before removing the folder, in order (`StatementMountFixture.closeAndTearDown`, awaited at every call site), and `RegistryReader.files` reads a directory gone between check and list as the empty directory it already read an absent one as. `StatementImageIngestTests.test_anImagePastedIntoVisualLanguageLandsInItsOwnWell` (one failure) is undetermined and stays on watch.
+
+**Dropped on merit**, each with its reason:
+
+- **A replay can re-arm the `Document`'s one-shot undo-coherent flag over a foreign plain write** (Task 5 N2), leaving a stale redo entry. It needs ⌘Z and a foreign write to the same statement in one main-actor pass, then ⇧⌘Z twice; the fix is in the manuscript's own undo flag (it must vouch for a specific `displayText`), the seam where five rounds each made a new defect.
+- **A plain write drops the holding editor's earlier verbs** (a verb in X's editor, then another on X from elsewhere, and the first's ⌘Z is gone). ADR 0023 D1 on the line the manuscript shares; clearing by target there would split the manuscript's figure-birth undo groups. The writer loses a ⌘Z, never text.
+- **Keys in a figure-grid cell, the canvas's editor or a scrap** send a statement verb to the window's manager, unreachable from those keys until they move. Identical to shipped for the canvas; delayed, not lost, for the grid.
+- **A peer's arrival clears an open statement pane's undo stack**, a pure append included: the safe direction.
+- **The reading view's edge cases** (emphasis around a link draws its `*`; a `~~~` block with a blank line splits): display only.
+- **A peer op landing while a pane loads is missed until the next arrival**: the manuscript's own window; the next arrival heals it.
+- **A keystroke during the mint's flush can duplicate the draft**: never a loss.
+- **A region titled "Cards", and Task 1's refresh minors.**
 
 ## Not yet built
 
@@ -196,10 +210,6 @@ Plans 4 and 5 of the same milestone. Nothing above depends on them.
 - **The margin setting** and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1, which cites this ADR for the marks.
 - **The guide, the welcome tour and Claude's help text.** They still describe the old panes and ⌘⌥ keys; the branch does not ship before they are rewritten.
 - **A collection script's grouped Scenes fold.** Not built (owner saw this and did not object).
-- **Three rulings of the final wave, not built at this commit:**
-  - The View menu's titles still say Inspector, Intent, History, References, Translation and Department. They are to be renamed to what the keys now do (To Resolve, Brief, "Pull Up What I've Learned / First Reader / Visual Language / History", "Open the Piece's Fold", the filter-opening items named for their filter), with the doc-sync test in step. A menu naming things that no longer exist is wrong; today it is wrong.
-  - ⌘⌥H with the Book, or no piece, on the faces is inert today. The ruling is that it pulls up the **project's** History (the checkpoints, as the old pane showed), so no capability is lost.
-  - ⌘⌥L outside translation review shows To resolve and no longer explains how to enter review. The ruling is that To resolve's empty state for that request keeps a one-line explanation.
 
 ## Consequences
 
@@ -246,5 +256,9 @@ Plans 1 and 2's hand checks stand; this plan adds:
 9. Try each ⌘⌥ key against the table above.
 10. **Undo (focus at the click is unmeasurable from source, so by hand, also with keyboard navigation on):** in an intent's editor type, click Revoke; the caret stays and Edit ▸ Undo reads "Undo Revoke Ruling"; type a character, ⌘Z ⌘Z ⌘Z is the character, then the Revoke, then greyed. Two Revokes then ⌘Z ⌘Z ⇧⌘Z ⇧⌘Z. Type in a chapter, Revoke in Decided, ⌘Z once undoes only the Revoke. Revoke in Brief with the keys in another intent's editor, then ⌘Z.
 11. **To confirm:** the narrower permission for tags, targets, links and Publishing…; the Core change that can mark a translation stale once; opening an intent or History in the centre clearing the chapter's typing undo.
-12. The three final-wave rulings above are not built: the View menu's titles, ⌘⌥H on the Book and ⌘⌥L outside review will read as they did until that wave lands.
-13. Smoke: launch, New project, Novel, "Smoke", type a sentence, ⌘Q, relaunch, open from Recents, sentence intact.
+12. The three final-wave rulings, built: the View menu's titles say what the keys do (To Resolve, Brief, Pull Up …, Open the Piece's Fold); ⌘⌥H on the Book pulls up the project's History; ⌘⌥L from Brief shows To resolve with the one-line explanation, and it goes when you move on.
+13. **History of a chapter pulled up, then another chapter opened:** the pulled-up History offers no Rewind; open its chapter again and Rewind returns and rewinds that chapter only.
+14. **Brief's line at ⌘Q:** type a line, do not press Return or click away, ⌘Q, relaunch: the line is there.
+15. **Tags…:** type a tag and press Return: the tag lands and the sheet stays. **Target popover:** type a number, press Esc: nothing is written.
+16. **⌘⌥E** on a chapter inside a closed Part: the Part opens and the fold shows.
+17. Smoke: launch, New project, Novel, "Smoke", type a sentence, ⌘Q, relaunch, open from Recents, sentence intact.

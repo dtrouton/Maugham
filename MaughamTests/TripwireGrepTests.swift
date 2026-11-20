@@ -7267,9 +7267,14 @@ final class TripwireGrepTests: XCTestCase {
     /// - `showsPictureWell` — the same, for the drop well's visibility. It
     ///   carries no correctness: `take` does not consult it.
     /// - `canMount` / `body` — the mount condition, which is what the marker is
-    ///   FOR.
-    /// - `reconcile` — the one place it is derived.
-    /// - `leave` — the one place it is retracted.
+    ///   FOR; `body` also retracts it when the bound `Document` was withdrawn
+    ///   from under the editor (`wasWithdrawn`), synchronously.
+    /// - `reconcile` — where it is derived for a scope.
+    /// - `leave` — where it is retracted on the way out.
+    /// - `mintAndBind` — drops to the placeholder while a held statement's
+    ///   load waits, and re-mounts once it binds; both writes are gated on the
+    ///   named destination (`target.wantedScope == wanted`), never on the
+    ///   marker.
     ///
     /// An async member appearing here is the regression: anything that resumes
     /// after a suspension must name what it is acting on, not ask a marker.

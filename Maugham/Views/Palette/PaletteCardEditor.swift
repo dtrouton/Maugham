@@ -41,6 +41,10 @@ struct PaletteCardEditor: View {
     let cardId: String
 
     @State private var draft: PaletteCard?
+    /// The card this editor last read (`seed`). Until it is `cardId` — a
+    /// hand-over still settling, or the first read not yet made — the editor
+    /// is loading, never "unavailable" (shell p3 final wave).
+    @State private var seededCardId: String?
     /// The title the draft was last in sync with the store at (seed / last
     /// persist). `persist` treats the draft title as a *rename intent* only when
     /// it has diverged from this baseline — see `reconciledTitle` (finding E2).
@@ -97,6 +101,10 @@ struct PaletteCardEditor: View {
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if Self.isLoading(seededCardId: seededCardId, cardId: cardId) {
+                ProgressView("Loading\u{2026}")
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView(
                     "Card unavailable",
@@ -116,6 +124,7 @@ struct PaletteCardEditor: View {
             if let documentStore = store.documentStore,
                documentStore.researchNoteHasPendingSave(itemId: cardId) {
                 draft = nil   // never the last card's draft under this id meanwhile
+                seededCardId = nil   // loading meanwhile, not "unavailable"
                 await documentStore.settleResearchNoteEdits(itemId: cardId)
                 if Task.isCancelled { return }
             }
@@ -513,8 +522,16 @@ struct PaletteCardEditor: View {
 
     // MARK: - Seed / persist / thumbnails
 
+    /// **Loading, not unavailable**, until this card has been read: a
+    /// hand-over settles the other editor's last edit before the read, and
+    /// "Card unavailable" over that wait was the wrong words. Pure.
+    static func isLoading(seededCardId: String?, cardId: String) -> Bool {
+        seededCardId != cardId
+    }
+
     private func seed() {
         let card = store.loadPaletteCards().first { $0.researchItemId == cardId }
+        seededCardId = cardId
         draft = card
         baselineTitle = card?.title
         Self.markRead(cardId, in: store)

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// A piece's format's Mac-only strings and ranges — UI copy, so it stays out of
@@ -186,6 +187,13 @@ struct PieceTargetField: View {
     /// Escape was pressed: no later commit (the focus loss and the
     /// disappearance that follow it) writes.
     @State private var cancelled = false
+    /// **Escape, noted before the popover acts on it** (shell p3 final
+    /// wave). A popover's own Escape can close it before `onExitCommand`
+    /// reaches the field, and the disappearance would then commit what was
+    /// typed. The note watches key-downs while the field is up and only
+    /// RECORDS an Escape — it never consumes one, so Escape still closes the
+    /// popover, the sheet, or whatever the window's arbiter gives it to.
+    @State private var escapeNote = EscapeNote()
     @FocusState private var focused: Bool
 
     init(menu: PieceTargetMenu, onSet: @escaping (Int) -> Void, onDone: @escaping () -> Void = {}) {
@@ -223,14 +231,18 @@ struct PieceTargetField: View {
         .onChange(of: focused) { _, isFocused in
             if !isFocused { commit() }
         }
+        .onAppear { escapeNote.start() }
         // A click outside dismisses a popover without the field ever
         // reporting a focus change.
-        .onDisappear { commit() }
+        .onDisappear {
+            commit()
+            escapeNote.stop()
+        }
     }
 
     private func commit() {
         guard let value = menu.commitValue(text: text, lastWritten: lastWritten,
-                                           cancelled: cancelled) else { return }
+                                           cancelled: cancelled || escapeNote.pressed) else { return }
         lastWritten = value
         onSet(value)
     }
@@ -238,5 +250,37 @@ struct PieceTargetField: View {
     private func cancel() {
         cancelled = true
         onDone()
+    }
+}
+
+extension PieceTargetField {
+    /// Records an Escape key-down while the field is up; never consumes it.
+    @MainActor
+    final class EscapeNote {
+        private(set) var pressed = false
+        private var token: Any?
+
+        /// The key code AppKit gives Escape.
+        static let escapeKeyCode: UInt16 = 53
+
+        /// Pure: whether a key-down marks the edit cancelled.
+        static func cancels(keyCode: UInt16) -> Bool { keyCode == escapeKeyCode }
+
+        func note(keyCode: UInt16) {
+            if Self.cancels(keyCode: keyCode) { pressed = true }
+        }
+
+        func start() {
+            guard token == nil else { return }
+            token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.note(keyCode: event.keyCode)
+                return event   // observed, never consumed
+            }
+        }
+
+        func stop() {
+            if let token { NSEvent.removeMonitor(token) }
+            token = nil
+        }
     }
 }

@@ -194,12 +194,23 @@ struct PieceRowSheetView: View {
             }
             HStack {
                 Spacer()
+                // Not the default where the sheet's field takes Return
+                // itself: Return in Tags… adds the tag and keeps the sheet
+                // (final wave), and the target field's Set is its own.
                 Button("Done", action: onDone)
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(Self.doneIsDefault(for: sheet) ? .defaultAction : nil)
             }
         }
         .padding(16)
         .frame(width: 340)
+    }
+
+    /// Whether Done answers Return: only where no field of the sheet does.
+    static func doneIsDefault(for sheet: PieceRowSheet) -> Bool {
+        switch sheet {
+        case .tags, .target: return false
+        case .addLink, .publishing: return true
+        }
     }
 
     private func commitTags(_ id: String) {

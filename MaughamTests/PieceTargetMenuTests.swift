@@ -183,7 +183,8 @@ final class PieceTargetMenuTests: XCTestCase {
                        + "write the number from before the edit")
         for token in ["TextField(\"\", text: $text)", ".onSubmit { commit(); onDone() }",
                       "Button(\"Set\") { commit(); onDone() }",
-                      "if !isFocused { commit() }", ".onDisappear { commit() }",
+                      "if !isFocused { commit() }", ".onDisappear {", "escapeNote.start()",
+                      "cancelled: cancelled || escapeNote.pressed)",
                       ".onExitCommand { cancel() }", "cancelled = true",
                       "menu.commitValue(text: text, lastWritten: lastWritten,"] {
             XCTAssertTrue(code.contains(token), "the field lost \(token)")
