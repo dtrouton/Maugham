@@ -2576,7 +2576,7 @@ final class CompilerRunCommandTests: XCTestCase {
     /// fact and once as the ruling's derived clause (assertion 6).
     func test_theBibleLoopConvergesAcrossRunsWithABlessInTheMiddle() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bible-loop")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let docId = fixture.documentItemId
         let device = DeviceSlug.make(from: "test-mac")
         let bible = BibleStore(projectRoot: fixture.projectURL, device: device)

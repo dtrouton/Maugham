@@ -1128,7 +1128,7 @@ final class PostureSurfaceTests: XCTestCase {
     /// or absent, never pressed (tripwire 33).
     func test_theRulingsStratumDrawsItsRowsAndHidesItsVerbs() async throws {
         let fixture = try await StatementMountFixture.novel(named: "posture-rulings")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let rulings = [Ruling(id: "r1", text: "No flashbacks.", ruledOn: nil,
                               provenance: nil)]
         func mount(_ posture: Posture) -> NSWindow {

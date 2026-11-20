@@ -210,7 +210,8 @@ struct BinderView: View {
         let indent = depth == 0 ? ProjectRowLabel.childIndent : 0
         return ForEach(items) { item in
             if item.type == .group, let children = item.children {
-                DisclosureGroup {
+                // Bound, so ⌘⌥E can open the Parts above the chapter it shows.
+                DisclosureGroup(isExpanded: treeState.groupExpansion(of: item.id)) {
                     AnyView(outline(items: children, depth: depth + 1))
                 } label: {
                     row(for: item)

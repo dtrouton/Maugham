@@ -44,17 +44,26 @@ final class StatementVerbUndoTests: XCTestCase {
 
     /// **The boundary between two of the writer's acts.** The app's event loop
     /// closes each event's undo group (`groupsByEvent`); the test host's body
-    /// runs inside one run-loop callout, so no group ever closes on its own
-    /// and two acts would fold into one ⌘Z (measured: the level stays 1
-    /// across run-loop turns, and `endUndoGrouping()` on an event group
-    /// aborts). This is AppKit's own end-of-event call, which closes every
-    /// manager's open event group.
-    private func endTheEvent(_ managers: UndoManager...) {
-        let closer = NSSelectorFromString("_endTopLevelGroupings")
-        let type: AnyObject = UndoManager.self
-        guard type.responds(to: closer) else { return XCTFail("premise: AppKit's end-of-event call is gone") }
-        _ = type.perform(closer)
-        for manager in managers { XCTAssertEqual(manager.groupingLevel, 0, "premise: the event's group closed") }
+    /// runs inside one run-loop callout, so no event group ever closes on its
+    /// own and two acts would fold into one ⌘Z (measured: the level stays 1
+    /// across run-loop turns). So the managers an act lands on have
+    /// `groupsByEvent` off (`ownGroups`), and each act brackets itself
+    /// (`act`) — public API only (shell p3 final wave; it used AppKit's
+    /// private end-of-event call before).
+    private func ownGroups(_ managers: UndoManager...) {
+        for manager in managers { manager.groupsByEvent = false }
+    }
+
+    /// One act as one undo step: a group opened on each manager and closed
+    /// after `body` — over its awaits, because a verb registers in a task
+    /// continuation. ⌘Z and ⇧⌘Z are not acts: `undo()` groups its own redo.
+    private func act(on managers: UndoManager..., do body: () async throws -> Void) async rethrows {
+        for manager in managers { manager.beginUndoGrouping() }
+        try await body()
+        for manager in managers {
+            manager.endUndoGrouping()
+            XCTAssertEqual(manager.groupingLevel, 0, "premise: the act's group closed")
+        }
     }
 
     private func ruling(_ text: String) -> Ruling {
@@ -206,15 +215,18 @@ final class StatementVerbUndoTests: XCTestCase {
         XCTAssertTrue(f.store.statementUndoManager(forId: statement.id) === statementUndo,
                       "premise: Going-for's editor holds the statement open")
 
+        ownGroups(windowUndo)
+
         // The writer types in the chapter.
         window.makeFirstResponder(manuscript)
         manuscript.setSelectedRange(NSRange(location: (manuscript.string as NSString).length, length: 0))
-        manuscript.insertText(" Typed.", replacementRange: manuscript.selectedRange())
-        await waitOut(0.2)
+        await act(on: windowUndo) {
+            manuscript.insertText(" Typed.", replacementRange: manuscript.selectedRange())
+            await waitOut(0.2)
+        }
         let typed = manuscript.string
         XCTAssertTrue(typed.hasSuffix(" Typed."), "premise: the typing landed")
         XCTAssertTrue(windowUndo.canUndo, "premise: the chapter's typing is on the window's stack")
-        endTheEvent(windowUndo)   // the press is a later event than the typing
 
         // Revoke, from Decided: the keys are still the manuscript's.
         XCTAssertTrue(window.firstResponder === manuscript, "premise: the keys are in the manuscript")
@@ -223,9 +235,11 @@ final class StatementVerbUndoTests: XCTestCase {
                       "the verb goes where the keys' ⌘Z walks, not onto the holding editor's stack")
         var tasks: [Task<Void, Never>] = []
         let row = try XCTUnwrap(RulingsStratum.currentRows(kind: .intent, forScope: scope, store: f.store).first)
-        await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
-                                    world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
-        await waitOut(0.3)
+        await act(on: windowUndo) {
+            await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
+                                        world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
+            await waitOut(0.3)
+        }
         XCTAssertEqual(rulings(f, scope), [], "premise: revoked")
         XCTAssertEqual(windowUndo.undoActionName, "Revoke Ruling")
         XCTAssertFalse(statementUndo.canUndo, "nothing of it on Going-for's stack")
@@ -238,7 +252,6 @@ final class StatementVerbUndoTests: XCTestCase {
         await waitOut(0.2)
         XCTAssertEqual(rulings(f, scope), ["no flashbacks"], "⌘Z from the manuscript undid the Revoke")
         XCTAssertEqual(manuscript.string, typed, "and not the chapter's older typing")
-        endTheEvent(windowUndo)
         XCTAssertTrue(manuscript.tryToPerform(undo, with: nil))
         await waitOut(0.2)
         XCTAssertFalse(manuscript.string.hasSuffix(" Typed."), "which the next ⌘Z undoes")
@@ -314,15 +327,17 @@ final class StatementVerbUndoTests: XCTestCase {
         window.makeFirstResponder(nil)
         XCTAssertFalse(window.firstResponder === editor, "premise: the keys are not the statement editor's")
 
+        ownGroups(windowUndo)
         var tasks: [Task<Void, Never>] = []
         for _ in 0..<2 {
             let chosen = StatementVerbUndo.manager(window: windowUndo)
             XCTAssertTrue(chosen === windowUndo, "the keys are elsewhere: the window's")
             let row = try XCTUnwrap(RulingsStratum.currentRows(kind: .intent, forScope: scope, store: f.store).first)
-            await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
-                                        world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
-            await waitOut(0.2)
-            endTheEvent(windowUndo)   // each press is its own event
+            await act(on: windowUndo) {   // each press is its own step
+                await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
+                                            world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
+                await waitOut(0.2)
+            }
         }
         XCTAssertEqual(rulings(f, scope), [], "premise: both revoked")
 
@@ -475,7 +490,12 @@ final class StatementVerbUndoTests: XCTestCase {
         let inside = NSTextField()
         second.addSubview(inside)
         XCTAssertTrue(chosen(inside) === second.privateUndoManager, "a view inside one: the walk stops at that editor")
-        XCTAssertNil(StatementVerbUndo.manager(window: nil))
+        // No environment manager (Task 5 M1): the key window's chain decides,
+        // as for any press — never nil while a statement editor has the keys.
+        let key = NSApp.keyWindow
+        XCTAssertTrue(StatementVerbUndo.manager(window: nil)
+                      === StatementVerbUndo.manager(firstResponder: key?.firstResponder,
+                                                    window: key?.undoManager))
     }
 
     /// The keys are in statement Y's editor (the book's visual language);
@@ -507,14 +527,27 @@ final class StatementVerbUndoTests: XCTestCase {
         let yEditor = try XCTUnwrap(f.allTextViews(in: window).first { $0.undoManager === yUndo })
         window.makeFirstResponder(yEditor)
         XCTAssertTrue(window.firstResponder === yEditor, "premise: the keys are in the other statement's editor")
+        ownGroups(yUndo)
+
+        // The writer types in Y first (Task 5 M2): that typing must survive
+        // the verb on X and its undo.
+        yEditor.setSelectedRange(NSRange(location: 0, length: 0))
+        await act(on: yUndo) {
+            yEditor.insertText("Bold ", replacementRange: yEditor.selectedRange())
+            await waitOut(0.2)
+        }
+        XCTAssertEqual(yEditor.string, "Bold Serif.", "premise: Y's typing landed")
+        XCTAssertEqual(yUndo.undoActionName, "Typing", "premise: on Y's own stack")
 
         let chosen = StatementVerbUndo.manager(window: window.undoManager)
         XCTAssertTrue(chosen === yUndo, "the verb goes on the stack ⌘Z runs from the keys: the other editor's")
         var tasks: [Task<Void, Never>] = []
         let row = try XCTUnwrap(RulingsStratum.currentRows(kind: .intent, forScope: scope, store: f.store).first)
-        await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
-                                    world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
-        await waitOut(0.3)
+        await act(on: yUndo) {
+            await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
+                                        world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
+            await waitOut(0.3)
+        }
         XCTAssertEqual(rulings(f, scope), [], "premise: revoked")
         XCTAssertEqual(yUndo.undoActionName, "Revoke Ruling")
         XCTAssertFalse(xUndo.canUndo, "a plain write: the pressed statement's own editor keeps nothing")
@@ -524,7 +557,13 @@ final class StatementVerbUndoTests: XCTestCase {
         for task in tasks { await task.value }
         await waitOut(0.2)
         XCTAssertEqual(rulings(f, scope), ["no flashbacks"], "⌘Z from the other statement's editor undid the Revoke")
-        XCTAssertEqual(yEditor.string, "Serif.", "and that editor's own text was never touched")
+        XCTAssertEqual(yEditor.string, "Bold Serif.", "and that editor's own text was never touched")
+
+        // M2: Y's own typing, below the verb, still undoes — and range-valid.
+        XCTAssertEqual(yUndo.undoActionName, "Typing", "Y's typing survived the verb on X and its undo")
+        XCTAssertTrue(yEditor.tryToPerform(undo, with: nil), "⌘Z again in Y")
+        await waitOut(0.2)
+        XCTAssertEqual(yEditor.string, "Serif.", "the next ⌘Z undid Y's own typing, exactly")
     }
 
     /// The same with a research note pulled up beside the manuscript (a
@@ -623,7 +662,7 @@ final class StatementVerbUndoTests: XCTestCase {
     /// Each Revoke's write drops the editor's TYPING (D1: its ranges are
     /// stale) and nothing else, so ⌘Z ⌘Z undoes both Revokes, latest first,
     /// ⇧⌘Z ⇧⌘Z redoes both, and the typing done before the first is not
-    /// brought back. Each act is its own event (`endTheEvent`).
+    /// brought back. Each act is its own step (`act`).
     func test_twoVerbsInTheStatementsEditorAreUndoneAndRedoneInOrder() async throws {
         let f = try await fixture("VerbUndoTwoVerbs")
         let scope = Statement.Scope.document(f.documentItemId)
@@ -641,11 +680,14 @@ final class StatementVerbUndoTests: XCTestCase {
         window.makeFirstResponder(editor)
         let statementUndo = try XCTUnwrap(editor.undoManager)
 
+        ownGroups(statementUndo)
+
         // The writer types in the statement.
         editor.setSelectedRange(NSRange(location: 0, length: 0))
-        editor.insertText("Typed. ", replacementRange: editor.selectedRange())
-        await waitOut(0.2)
-        endTheEvent(statementUndo)
+        await act(on: statementUndo) {
+            editor.insertText("Typed. ", replacementRange: editor.selectedRange())
+            await waitOut(0.2)
+        }
         XCTAssertEqual(statementUndo.undoActionName, "Typing", "premise: the typing is on the editor's stack")
         let typedText = try f.store.statementText(of: statement)
         XCTAssertTrue(typedText.contains("Typed. "), "premise: the typing reached the statement")
@@ -656,10 +698,11 @@ final class StatementVerbUndoTests: XCTestCase {
             let chosen = StatementVerbUndo.manager(window: window.undoManager)
             XCTAssertTrue(chosen === statementUndo, "premise: the keys are the statement's editor's")
             let row = try XCTUnwrap(RulingsStratum.currentRows(kind: .intent, forScope: scope, store: f.store).first)
-            await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
-                                        world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
-            await waitOut(0.3)
-            endTheEvent(statementUndo)
+            await act(on: statementUndo) {
+                await RulingsStratum.revoke(row, at: 0, kind: .intent, forScope: scope, store: f.store,
+                                            world: nil, undoManager: chosen, workTaskSink: { tasks.append($0) })
+                await waitOut(0.3)
+            }
             XCTAssertEqual(rulings(f, scope), expected, "premise: revoked")
         }
 
@@ -669,15 +712,18 @@ final class StatementVerbUndoTests: XCTestCase {
             XCTAssertTrue(editor.tryToPerform(selector, with: nil))
             for task in tasks { await task.value }
             await waitOut(0.3)
-            endTheEvent(statementUndo)
         }
         XCTAssertEqual(statementUndo.undoActionName, "Revoke Ruling")
         await press(undo)
         XCTAssertEqual(rulings(f, scope), ["second"], "the first ⌘Z undid the later Revoke")
-        XCTAssertTrue(statementUndo.canUndo, "the earlier Revoke's undo survived the later Revoke")
+        XCTAssertEqual(statementUndo.undoActionName, "Revoke Ruling",
+                       "the earlier Revoke's undo survived the later Revoke")
         await press(undo)
         XCTAssertEqual(rulings(f, scope), ["first", "second"], "the second ⌘Z undid the earlier Revoke")
-        XCTAssertFalse(statementUndo.canUndo, "the typing before the first verb is not resurrected (D1)")
+        // `canUndo` answers true over an empty stack once `groupsByEvent` is
+        // off (measured), so what is left is read by name.
+        XCTAssertEqual(statementUndo.undoActionName, "",
+                       "the typing before the first verb is not resurrected (D1)")
         XCTAssertTrue(try f.store.statementText(of: statement).contains("Typed. "), "and what was typed stays typed")
 
         // ⇧⌘Z ⇧⌘Z: both again, in order.

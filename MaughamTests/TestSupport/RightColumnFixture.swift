@@ -64,7 +64,7 @@ enum RightColumnFixture {
         showStrain: @escaping (ResolveRequest) -> Void = { _ in },
         openBrief: @escaping (BinderSubject) -> Void = { _ in },
         openInCentre: @escaping (CentreItem) -> Void = { _ in },
-        translationReviewHint: Binding<Bool> = .constant(false)
+        translationReviewHint: Binding<RightColumn.HintGround?> = .constant(nil)
     ) -> RightColumn {
         RightColumn(
             store: store, documentStore: documentStore, projectRoot: store.url,

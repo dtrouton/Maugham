@@ -151,7 +151,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// a fix that kept the text but still replaced the buffer passes the first.
     func test_typingTheRulingsHeadingIntoTheEssayEditorLeavesItWhereTheWriterPutIt() async throws {
         let fixture = try await StatementMountFixture.novel(named: "typed-heading")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
 
@@ -205,7 +205,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// bytes deleted with nothing red, which is constitution must #1's shape.
     func test_aRulingDoesNotDeleteProseTheWriterTypedUnderTheirOwnHeading() async throws {
         let fixture = try await StatementMountFixture.novel(named: "prose-under-heading")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
@@ -291,7 +291,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// text target for the keystroke.
     func test_aRulingLandedMidEditSurvivesTheEssaySave() async throws {
         let fixture = try await StatementMountFixture.novel(named: "mid-edit")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
 
@@ -340,7 +340,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// which is its own kind of loss.
     func test_anAppendLandsInTheEssayRatherThanUnderTheRulings() async throws {
         let fixture = try await StatementMountFixture.novel(named: "append-essay")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
 
@@ -365,7 +365,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// rulings section by the time the mint's load gets there.
     func test_aDraftIsDepositedIntoTheEssayNotUnderTheRulings() async throws {
         let fixture = try await StatementMountFixture.novel(named: "deposit-essay")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let statement = try await fixture.store.createStatement(kind: .intent, scope: scope)
         try await fixture.store.appendToStatement("Existing essay.", to: statement, session: "s")
@@ -472,7 +472,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// both rows).
     func test_theGlossaryDrawsAsATableWithBothEntriesAndTheHeading() async throws {
         let fixture = try await StatementMountFixture.novel(named: "glossary-grid")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let rulings = [
             Ruling(id: "g1",
@@ -507,7 +507,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// shows as an orphan once the pane's own `.task` lands.
     func test_theStatementPaneShowsAnOrphanForADirectiveOnAParagraphThatNoLongerExists() async throws {
         let fixture = try await StatementMountFixture.novel(named: "orphan-intent")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
@@ -530,7 +530,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// → `currentParagraphState` each), not one document's.
     func test_anEditionBriefShowsAnOrphanForADirectiveOnAParagraphThatDoesNotExistInTheBook() async throws {
         let fixture = try await StatementMountFixture.novel(named: "orphan-brief")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.project
         _ = try await fixture.store.createStatement(kind: .editionBrief("es"), scope: scope)
         let statement = try XCTUnwrap(fixture.store.statement(kind: .editionBrief("es"), scope: scope))
@@ -566,7 +566,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// and checks the caption clears again, still with no remount.
     func test_anOrphanAppearsWhenTheOpenManuscriptLosesTheDirectedParagraphAndClearsWhenRestored() async throws {
         let fixture = try await StatementMountFixture.novel(named: "live-orphan-open-doc")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
 
         let window = await fixture.hostBesideAManuscriptEditor(kind: .intent)
@@ -617,7 +617,7 @@ final class StatementPaneStrataTests: XCTestCase {
 
     func test_revokingARowTakesExactlyThatLineAndOneUndoPutsItBack() async throws {
         let fixture = try await StatementMountFixture.novel(named: "revoke-undo")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let ruled = Date(timeIntervalSince1970: 1_786_060_800)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
@@ -656,7 +656,7 @@ final class StatementPaneStrataTests: XCTestCase {
 
     func test_editingARowKeepsItsPlaceAndOneUndoRestoresTheOldWords() async throws {
         let fixture = try await StatementMountFixture.novel(named: "edit-undo")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let ruled = Date(timeIntervalSince1970: 1_786_060_800)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
@@ -712,7 +712,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// restore" rather than "nothing was ever registered here".
     func test_pressingRevokeOnTheMountedRowIsUndoneByTheStatementEditorsUndo() async throws {
         let fixture = try await StatementMountFixture.novel(named: "revoke-delivery")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let ruled = Date(timeIntervalSince1970: 1_786_060_800)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
@@ -780,7 +780,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// at the moment it writes.
     func test_aRowsIdenityIsReDerivedAfterAnEdit() async throws {
         let fixture = try await StatementMountFixture.novel(named: "id-redirve")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
@@ -815,7 +815,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// keyed and invalidated at all.
     func test_theVerbsInvalidateTheDerivationForTheirOwnScope() async throws {
         let fixture = try await StatementMountFixture.novel(named: "invalidate")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let world = DeclaredWorldStore(projectRoot: fixture.projectURL,
                                        device: DeviceSlug.make(from: "test-mac"))
@@ -924,7 +924,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// only that the walk read nothing at all.
     func test_noParagraphIdIsRenderedOnTheBibleStratum() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bible-ids")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let anchored = "wnse"
         let unexcerpted = "a1b2"
         let bible = BibleStore(projectRoot: fixture.projectURL,
@@ -972,7 +972,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// bless it twice, and a departed fact with no ruling loses it.
     func test_blessingLandsARulingAndTheFactLeavesTheBible() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bless")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1006,7 +1006,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// opposite) fixes the rule; this one says `bless` is what reaches it.
     func test_aFactBlessedHereIsNotRecordedAgainByALaterRun() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bless-converges")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1034,7 +1034,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// rule and a reader who finds one alone will think it is.
     func test_correctingGraduatesClaudesReading() async throws {
         let fixture = try await StatementMountFixture.novel(named: "correct-converges")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1071,7 +1071,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// `markGraduated` from `BibleStratum.graduate`.
     func test_correctingAlsoGraduatesTheWritersOwnRuling() async throws {
         let fixture = try await StatementMountFixture.novel(named: "correct-both")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1100,7 +1100,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// ledger having moved.
     func test_blessingMarksOneKeyAndWritesOnce() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bless-one-key")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1122,7 +1122,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// never a `BibleFact`.
     func test_correctingLandsTheWritersWordsAndTheFactLeaves() async throws {
         let fixture = try await StatementMountFixture.novel(named: "correct")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1145,7 +1145,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// reading, and the writer would have nothing left to press.
     func test_aRefusedBlessLeavesTheFactInTheRegister() async throws {
         let fixture = try await StatementMountFixture.novel(named: "bless-refused")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
         let fact = makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
@@ -1193,7 +1193,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// nothing at all.
     func test_theStripQuotesTheEssayAndNeverARuling() async throws {
         let fixture = try await StatementMountFixture.novel(named: "strip-essay")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         _ = try await fixture.store.createStatement(kind: .intent, scope: scope)
         let statement = try XCTUnwrap(fixture.store.statement(kind: .intent, scope: scope))
@@ -1267,7 +1267,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// store itself can see.
     func test_thePaneRerendersWhenEitherStoreBumpsItsVersion() async throws {
         let fixture = try await StatementMountFixture.novel(named: "rerender")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
         let world = DeclaredWorldStore(projectRoot: fixture.projectURL,
@@ -1303,7 +1303,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// the pure rule (`memory/project_milestone_mode_ux_redesign.md`'s lesson).
     func test_aRulingReachesTheMountedPane() async throws {
         let fixture = try await StatementMountFixture.novel(named: "mounted-ruling")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let scope = Statement.Scope.document(fixture.documentItemId)
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
@@ -1343,7 +1343,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// own `adopt` learns that the adoption CREATED one.
     func test_aStagedProposalReachesTheMountedPaneAndAdoptWritesTheEssay() async throws {
         let fixture = try await StatementMountFixture.novel(named: "mounted-proposal")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let window = await fixture.host(kind: .visualLanguage, subject: .project)
         let title = StatementProposalCopy.bannerTitle(.init(
             kind: .visualLanguage, markdown: "x", rationale: nil,
@@ -1393,7 +1393,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// pane's own undo stack with it.
     func test_adoptOverABoundDocumentWritesThroughItWithNoRemount() async throws {
         let fixture = try await StatementMountFixture.novel(named: "mounted-bound-adopt")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let statement = try await fixture.store.createStatement(
             kind: .visualLanguage, scope: .project)
         try await fixture.store.mutateStatementText(
@@ -1439,7 +1439,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// other verb, through the same mounted button.
     func test_discardClearsTheGateAndLeavesTheStatementAlone() async throws {
         let fixture = try await StatementMountFixture.novel(named: "mounted-discard")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let statement = try await fixture.store.createStatement(kind: .visualLanguage, scope: .project)
         try await fixture.store.mutateStatementText(
             of: statement, session: "test") { _ in "The writer's own look." }
@@ -1493,7 +1493,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// `StatementPane.bibleFacts`: the brief's assertion goes red.
     func test_aBriefRefusesTheBibleEvenWithAStoreThreadedThroughIt() async throws {
         let fixture = try await StatementMountFixture.novel(named: "brief-no-bible")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let bible = BibleStore(projectRoot: fixture.projectURL,
                                device: DeviceSlug.make(from: "test-mac"))
         bible.record([makeFact(id: "f1", subject: "Kelly", fact: "Kelly is a nurse.",
@@ -1557,7 +1557,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// checks the one that was not addressed as well as the one that was.
     func test_theRulingsVerbsActOnTheStatementTheyAreGivenAndNotOnIntent() async throws {
         let fixture = try await StatementMountFixture.novel(named: "brief-verbs")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let brief = Statement.Kind.editionBrief("es")
         let ruled = Date(timeIntervalSince1970: 1_786_060_800)
         let (intentStatement, briefStatement) = try await seedBothStatements(
@@ -1642,7 +1642,7 @@ final class StatementPaneStrataTests: XCTestCase {
     /// through the accessibility tree.
     func test_pressingRevokeOnTheMountedBriefTakesTheBriefsRulingAndNotTheBooks() async throws {
         let fixture = try await StatementMountFixture.novel(named: "brief-revoke")
-        defer { fixture.tearDown() }
+        addTeardownBlock { await fixture.closeAndTearDown() }
         let brief = Statement.Kind.editionBrief("es")
         let ruled = Date(timeIntervalSince1970: 1_786_060_800)
         let (intentStatement, _) = try await seedBothStatements(in: fixture, ruled: ruled)

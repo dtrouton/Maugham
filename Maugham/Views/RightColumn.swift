@@ -92,9 +92,10 @@ struct RightColumn: View {
     /// `ProjectWindow.pullUpItem` — Brief's pull-up links, through the one
     /// pull-up act (the position moves even when the item is already beside).
     var pullUp: (PulledUp) -> Void = { _ in }
-    /// ⌘⌥L was pressed outside translation review: To resolve says how
-    /// review is entered. Cleared here on the next move.
-    @Binding var translationReviewHint: Bool
+    /// ⌘⌥L was pressed outside translation review: the ground it was asked
+    /// over, and To resolve says how review is entered while that ground
+    /// stands. Cleared here on the next move (`hint(asked:groundNow:)`).
+    @Binding var translationReviewHint: HintGround?
     /// Whether the tree's Figures section draws a figure
     /// (`BinderTreeSectionsState.drawsFigure`), for To resolve's figure click.
     var drawsFigure: (String) -> Bool = { _ in false }
@@ -266,10 +267,12 @@ struct RightColumn: View {
         .onChange(of: editorControl.translationLanguage) { _, lang in
             if lang != nil { position = .resolve }
         }
-        // ⌘⌥L's explanation stands until the writer moves on.
+        // ⌘⌥L's explanation stands until the writer moves on — and not
+        // before: the key's own position change is the ground it was asked
+        // over (final wave, Task 9's re-review A).
         .onChange(of: Self.hintStandsOver(position: position, subject: subject,
-                                          translationLanguage: editorControl.translationLanguage)) { _, _ in
-            translationReviewHint = false
+                                          translationLanguage: editorControl.translationLanguage)) { _, now in
+            translationReviewHint = Self.hint(asked: translationReviewHint, groundNow: now)
         }
     }
 
@@ -279,7 +282,9 @@ struct RightColumn: View {
         "Not in translation review. Choose View ▸ Translation Review… to see a "
         + "paragraph's source text and reply to translator queries."
 
-    /// What ⌘⌥L's explanation stands over: any change of it clears the line.
+    /// What ⌘⌥L's explanation stands over: the receiver records the ground
+    /// it asked over (the position it just selected, the subject, not in
+    /// review), and any later ground other than that one clears the line.
     struct HintGround: Equatable {
         let position: RightColumnPosition
         let subject: WindowSubject
@@ -291,10 +296,21 @@ struct RightColumn: View {
         HintGround(position: position, subject: subject, inReview: translationLanguage != nil)
     }
 
-    /// Whether the explanation is drawn: asked for, and To resolve's own list
-    /// is what shows (never over the review itself, or the desk).
-    static func showsTranslationReviewHint(_ asked: Bool, shown: RightColumnContent) -> Bool {
-        asked && shown == .resolve
+    /// **The explanation after the ground moved** — kept while the ground is
+    /// the one it was asked over, gone for good on any other. The receiver
+    /// writes the position and the hint in one handler, and the column's
+    /// `onChange` sees that position change after it: a hint cleared on ANY
+    /// change was cleared in the update that showed it. Pure.
+    static func hint(asked: HintGround?, groundNow: HintGround) -> HintGround? {
+        asked == groundNow ? asked : nil
+    }
+
+    /// Whether the explanation is drawn: asked for over the ground that
+    /// stands now, and To resolve's own list is what shows (never over the
+    /// review itself, or the desk).
+    static func showsTranslationReviewHint(_ asked: HintGround?, ground: HintGround,
+                                           shown: RightColumnContent) -> Bool {
+        asked == ground && shown == .resolve
     }
 
     /// What the column shows now — the table's one answer.
@@ -311,7 +327,11 @@ struct RightColumn: View {
     private var content: some View {
         switch shown {
         case .resolve:
-            if Self.showsTranslationReviewHint(translationReviewHint, shown: shown) {
+            if Self.showsTranslationReviewHint(
+                translationReviewHint,
+                ground: Self.hintStandsOver(position: position, subject: subject,
+                                            translationLanguage: editorControl.translationLanguage),
+                shown: shown) {
                 Text(Self.translationReviewHintLine)
                     .font(.callout)
                     .foregroundStyle(.secondary)

@@ -701,10 +701,13 @@ final class RightColumnMountingTests: XCTestCase {
             in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explainsTranslationReview,
             "⌘1 explains nothing")
 
-        XCTAssertTrue(RightColumn.showsTranslationReviewHint(true, shown: .resolve))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(false, shown: .resolve))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(true, shown: .translationReview))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(true, shown: .brief(.book)))
+        let asked = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
+                                               translationLanguage: nil)
+        XCTAssertTrue(RightColumn.showsTranslationReviewHint(asked, ground: asked, shown: .resolve))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(nil, ground: asked, shown: .resolve))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(asked, ground: asked,
+                                                              shown: .translationReview))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(asked, ground: asked, shown: .brief(.book)))
         XCTAssertTrue(RightColumn.translationReviewHintLine.contains("Translation Review…"),
                       "the line names the menu item that enters review")
 
@@ -734,12 +737,60 @@ final class RightColumnMountingTests: XCTestCase {
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
             under: "Maugham"))
         XCTAssertTrue(receiver.contains("translationReviewHint = ask.explainsTranslationReview"))
+        XCTAssertTrue(receiver.contains("RightColumn.hintStandsOver(position: asked,"),
+                      "the receiver records the ground it asked over")
         let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
-        for token in ["if Self.showsTranslationReviewHint(translationReviewHint, shown: shown) {",
+        for token in ["if Self.showsTranslationReviewHint(",
                       "Text(Self.translationReviewHintLine)",
-                      "translationReviewHint = false"] {
+                      "translationReviewHint = Self.hint(asked: translationReviewHint, groundNow: now)"] {
             XCTAssertTrue(column.contains(token), "the column lost \(token)")
         }
+    }
+
+    /// **⌘⌥L's line survives the position change that shows it** (final
+    /// wave; Task 9's re-review A). The receiver selects To resolve and sets
+    /// the hint in one handler; the column's `onChange(of: hintStandsOver…)`
+    /// then sees the position change. Modelled in that order through the
+    /// column's own reducer: from Brief (the common path) the line shows, and
+    /// the next move clears it for good.
+    func test_theTranslationKeysLineSurvivesThePositionChangeThatShowsIt() {
+        func ground(_ position: RightColumnPosition, _ subject: WindowSubject = Self.piece,
+                    review: String? = nil) -> RightColumn.HintGround {
+            RightColumn.hintStandsOver(position: position, subject: subject, translationLanguage: review)
+        }
+        var position: RightColumnPosition = .brief
+        var hint: RightColumn.HintGround? = nil
+        var lastGround = ground(position)
+        // The column's `onChange`: fires only when the ground changed.
+        func columnObserves() {
+            let now = ground(position)
+            guard now != lastGround else { return }
+            lastGround = now
+            hint = RightColumn.hint(asked: hint, groundNow: now)
+        }
+
+        // ⌘⌥L on Brief: the receiver's two writes, then the column's update.
+        position = .resolve
+        hint = ground(.resolve)
+        columnObserves()
+        XCTAssertTrue(RightColumn.showsTranslationReviewHint(hint, ground: ground(position),
+                                                             shown: .resolve),
+                      "the line shows after the position change that it came with")
+
+        // The writer moves on: gone, and it does not come back on return.
+        position = .brief
+        columnObserves()
+        XCTAssertNil(hint)
+        position = .resolve
+        columnObserves()
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(hint, ground: ground(position),
+                                                              shown: .resolve))
+
+        // A subject change, and entering review, clear it too.
+        hint = ground(.resolve)
+        lastGround = ground(.resolve)
+        XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, .book)))
+        XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, review: "es")))
     }
 
     /// ⌘⌥E opens the fold of the faces' piece, else the open one — History's

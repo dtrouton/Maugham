@@ -100,17 +100,12 @@ final class StatementMountFixture: RunLoopPumping {
         temp.cleanup()
     }
 
-    /// The synchronous form, for a `defer`: the close and the folder's
-    /// removal follow in order on the main actor, after the test body.
-    func tearDown() {
-        takeTheWindowsDown()
-        let documentStore = documentStore
-        let temp = temp
-        Task { @MainActor in
-            await documentStore.close()
-            temp.cleanup()
-        }
-    }
+    // No synchronous form (shell p3 final wave; Task 9's re-review B): one
+    // closed the store on an unordered `Task` that could run after
+    // `TestTempSession` removed the root, writing into a deleted tree. Every
+    // caller awaits `closeAndTearDown()` — from an async `tearDown`, or
+    // `addTeardownBlock { await fixture.closeAndTearDown() }`, which XCTest
+    // runs before the test is reported finished.
 
     private func takeTheWindowsDown() {
         for window in windows { window.contentView = NSView(frame: .zero) }

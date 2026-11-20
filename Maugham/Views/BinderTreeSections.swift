@@ -1102,6 +1102,14 @@ final class BinderTreeSectionsState {
     /// keyed per piece — the open-ids-only spelling `expandedPieceFolds` uses,
     /// for its reasons. Not persisted.
     var expandedFoldGroups: Set<PieceFoldGroupKey> = []
+    /// **The manuscript's structure groups (Parts) that are OPEN**, by group
+    /// id — the open-ids-only spelling of the sets above, for their reasons
+    /// (shell p3 final wave): every structure `DisclosureGroup` takes
+    /// `groupExpansion(of:)`, so ⌘⌥E can open the Parts above a chapter it
+    /// shows. Before, a Part's open/closed flag was SwiftUI's own and ⌘⌥E
+    /// on a chapter inside a closed Part showed nothing. Not persisted, as
+    /// the folds are not.
+    var expandedStructureGroups: Set<String> = []
 
     /// **A one-shot scroll request** (stage-3b Task 8) — set by ⌘⌥R/⌘⌥P (a
     /// section header) and by the two forced-reveal entries plus a find
@@ -1146,6 +1154,28 @@ final class BinderTreeSectionsState {
                 if open { self.expandedPieceFolds.insert(documentId) }
                 else { self.expandedPieceFolds.remove(documentId) }
             })
+    }
+
+    /// One structure group's flag, projected out of the set of open ids
+    /// (`foldExpansion(of:)`'s shape).
+    func groupExpansion(of groupId: String) -> Binding<Bool> {
+        Binding(
+            get: { [weak self] in self?.expandedStructureGroups.contains(groupId) ?? false },
+            set: { [weak self] open in
+                guard let self else { return }
+                if open { self.expandedStructureGroups.insert(groupId) }
+                else { self.expandedStructureGroups.remove(groupId) }
+            })
+    }
+
+    /// Every structure group between `itemId` and the top, opened — a group
+    /// is an ancestor when it CONTAINS the item (`openAncestorGroups`' own
+    /// spelling, over the manuscript). It only ever opens.
+    func openStructureAncestors(of itemId: String, in structure: [StructureItem]) {
+        for group in TreeWalk.collect(in: structure, where: { $0.type == .group })
+        where TreeWalk.contains(id: itemId, in: group.children ?? []) {
+            expandedStructureGroups.insert(group.id)
+        }
     }
 
     /// **Open whatever it takes for `itemId`'s row to be on screen** — the

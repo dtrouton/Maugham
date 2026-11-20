@@ -35,7 +35,7 @@ final class StatementOpenGateTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        fixture.tearDown()
+        await fixture.closeAndTearDown()
         fixture = nil
     }
 

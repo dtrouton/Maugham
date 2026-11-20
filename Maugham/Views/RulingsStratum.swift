@@ -316,7 +316,13 @@ enum StatementVerbUndo {
     /// that is how the pressed window is found (the key window otherwise —
     /// a press makes its window key).
     static func manager(window: UndoManager?) -> UndoManager? {
-        guard let window else { return nil }
+        // No environment manager: the key window is the pressed one (a press
+        // makes its window key), and its first responder still decides — the
+        // statement editor holding the keys keeps its own stack (Task 5 M1).
+        guard let window else {
+            let key = NSApp.keyWindow
+            return manager(firstResponder: key?.firstResponder, window: key?.undoManager)
+        }
         let host = NSApp.windows.first { $0.undoManager === window } ?? NSApp.keyWindow
         return manager(firstResponder: host?.firstResponder, window: window)
     }

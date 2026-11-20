@@ -116,9 +116,10 @@ struct ProjectWindow: View {
     /// when the pulled-up position is left with nothing to show
     /// (`RightColumnContent.positionAfterSubjectChange`).
     @State private var previousFace: RightColumnPosition = .resolve
-    /// ⌘⌥L was pressed outside translation review: To resolve says, in one
-    /// line, how review is entered. Cleared by the column on the next move.
-    @State private var translationReviewHint = false
+    /// ⌘⌥L was pressed outside translation review: the ground it was asked
+    /// over, and To resolve says in one line how review is entered while
+    /// that ground stands. Cleared by the column on the next move.
+    @State private var translationReviewHint: RightColumn.HintGround?
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
@@ -465,6 +466,9 @@ struct ProjectWindow: View {
                                           structure: store?.manifest.structure ?? []) else { return }
             // Every key reveals what it acts on: a hidden tree is shown.
             columnVisibility = Self.revealingTheTree(columnVisibility)
+            // The Parts above it, opened: a chapter inside a closed Part has
+            // no row to scroll to.
+            treeState.openStructureAncestors(of: id, in: store?.manifest.structure ?? [])
             treeState.expandedPieceFolds.insert(id)
             treeState.scrollRequest = .row(.item(id))
         }
@@ -870,7 +874,7 @@ struct ProjectWindow: View {
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
         /// ⌘⌥L outside translation review (`RightColumn` draws the line).
-        @Binding var translationReviewHint: Bool
+        @Binding var translationReviewHint: RightColumn.HintGround?
         /// The editor's review language, for what To resolve shows now.
         let translationLanguage: String?
         /// The window's subject. **Going to a place opens its piece**
@@ -914,7 +918,13 @@ struct ProjectWindow: View {
                             structure: store?.manifest.structure ?? [],
                             projectType: store?.manifest.type ?? .novel))
                     if let request = ask.request { resolveRequest = request }
+                    // The ground it is asked over: the position just
+                    // selected, so the column's clear on that very change
+                    // keeps it (`RightColumn.hint(asked:groundNow:)`).
                     translationReviewHint = ask.explainsTranslationReview
+                        ? RightColumn.hintStandsOver(position: asked, subject: subject,
+                                                     translationLanguage: translationLanguage)
+                        : nil
                 }
                 // The line above the prose, clicked: the open piece's Brief.
                 .onKeyWindowCommand(.maughamShowOpenPieceBrief, window: window) { _ in
