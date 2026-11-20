@@ -615,7 +615,8 @@ struct ProjectWindow: View {
         // nothing.
         .modifier(PulledUpEscapeModifier(
             window: window, isNoChromeOn: isNoChromeOn, showInspector: showInspector,
-            position: rightColumnPosition, subject: subjectBinding))
+            position: rightColumnPosition, subject: subjectBinding,
+            canvasHasASelection: canvasHasASelection))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
@@ -2008,6 +2009,12 @@ struct ProjectWindow: View {
             if let path = item.path { result[item.id] = path }
         }
         return result
+    }
+
+    /// Whether the canvas has a selection — a CLOSURE, called by the pulled-up
+    /// Escape at event time, so this body never reads `canvasModel` (tripwire 30).
+    private var canvasHasASelection: () -> Bool {
+        { [canvasModel] in canvasModel.selection != nil }
     }
 
     /// The pieces both canvas pickers offer — the region's and the card's. Ids,

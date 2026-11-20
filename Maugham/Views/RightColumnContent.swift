@@ -80,6 +80,19 @@ enum RightColumnContent: Equatable {
         return nil
     }
 
+    /// **Whether the canvas's details cover the pulled-up thing** (owner,
+    /// 2026-11-20): with the canvas the centre and something pulled up, the
+    /// position shows the canvas's selected card, region or line while there is
+    /// one, and the pulled-up thing again once the selection clears. Covering
+    /// is drawing only: `subject.beside` is never touched, so the
+    /// `.pulledUp(_)` answer above stands and the control keeps its title.
+    /// Asked by `CanvasDetailsCover` (the drawing) and `PulledUpEscape` (an
+    /// Escape over the cover is not the hidden thing's). Pure.
+    static func canvasDetailsCover(canvasIsTheCentre: Bool, somethingIsPulledUp: Bool,
+                                   canvasHasASelection: Bool) -> Bool {
+        canvasIsTheCentre && somethingIsPulledUp && canvasHasASelection
+    }
+
     /// Whether the pulled-up position is offered (hidden, never disabled,
     /// otherwise — Global Constraints).
     static func offersPulledUp(_ subject: WindowSubject, structure: [StructureItem],

@@ -22,6 +22,10 @@ final class PulledUpEscape {
     /// Read at EVENT time, refreshed by every `sync`.
     private var isPresented = false
     private var close: () -> Void = {}
+    /// Whether the canvas's details cover the pulled-up thing NOW
+    /// (`RightColumnContent.canvasDetailsCover`), read at event time: the
+    /// selection changes on a click the modifier never sees.
+    private var isCovered: () -> Bool = { false }
     /// The arbiter this consumer is registered with. Held weakly: the table
     /// in `WindowEscapeArbiter` owns them, keyed by window.
     private weak var arbiter: WindowEscapeArbiter?
@@ -34,9 +38,11 @@ final class PulledUpEscape {
 
     /// Register or resign to match the pulled-up thing's presentation.
     /// Idempotent in both directions.
-    func sync(isPresented: Bool, window: NSWindow?, close: @escaping () -> Void) {
+    func sync(isPresented: Bool, window: NSWindow?, close: @escaping () -> Void,
+              isCovered: @escaping () -> Bool = { false }) {
         self.isPresented = isPresented
         self.close = close
+        self.isCovered = isCovered
         guard isPresented, let window else {
             stop()
             return
@@ -61,7 +67,9 @@ final class PulledUpEscape {
     /// an `NSEvent`.
     @discardableResult
     func performEscape() -> Bool {
-        guard isPresented else { return false }
+        // Covered, the thing is not on screen: closing it would spend the
+        // key on nothing the writer can see, so the offer passes down.
+        guard isPresented, !isCovered() else { return false }
         close()
         return true
     }
@@ -77,6 +85,9 @@ struct PulledUpEscapeModifier: ViewModifier {
     let showInspector: Bool
     let position: RightColumnPosition
     @Binding var subject: WindowSubject
+    /// Whether the canvas has a selection, asked at event time only — never
+    /// in a body, so the window does not observe the canvas model.
+    var canvasHasASelection: () -> Bool = { false }
 
     @State private var escape = PulledUpEscape()
 
@@ -104,6 +115,11 @@ struct PulledUpEscapeModifier: ViewModifier {
     private func sync() {
         escape.sync(isPresented: presented, window: window, close: {
             subject = ProjectWindow.closingBeside(subject)
+        }, isCovered: { [canvasHasASelection] in
+            RightColumnContent.canvasDetailsCover(
+                canvasIsTheCentre: subject.open == .canvas,
+                somethingIsPulledUp: subject.beside != nil,
+                canvasHasASelection: canvasHasASelection())
         })
     }
 }

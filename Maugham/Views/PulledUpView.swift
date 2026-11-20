@@ -31,7 +31,9 @@ import MaughamCore
 /// **With nothing pulled up** it shows the details of what the centre holds
 /// (`RightColumnContent.centreDetails`): the canvas's selected card or region,
 /// a figure's inspector, a research item's panel, a Collection reference
-/// piece; else "Nothing pulled up".
+/// piece; else "Nothing pulled up". **With the canvas the centre**, its
+/// selection's details cover what is pulled up while there is a selection
+/// (`CanvasDetailsCover`); what is pulled up stays pulled up.
 struct PulledUpView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
@@ -58,7 +60,8 @@ struct PulledUpView: View {
     var onShowNotes: (String) -> Void = { _ in }
     /// The canvas's details (the selected region or card), drawn by the
     /// host — `RightColumn.canvasInspector`, the one `RegionInspectorPane`
-    /// mount. Nil shows "Nothing pulled up" where the canvas has the centre.
+    /// mount. Nil shows "Nothing pulled up" where the canvas has the centre,
+    /// and nothing covers what is pulled up.
     var canvasDetails: (() -> AnyView)? = nil
 
     /// A pulled-up canvas card, read off the body path.
@@ -268,17 +271,13 @@ struct PulledUpView: View {
 
     var body: some View {
         Group {
-            if let pulled = subject.beside {
-                VStack(spacing: 0) {
-                    BesideHeader(
-                        title: Self.title(of: pulled, store: store),
-                        openInCentre: { openInCentre(pulled) },
-                        close: { subject = ProjectWindow.closingBeside(subject) })
-                    Divider()
-                    content(pulled)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if let pulled = subject.beside, let canvasDetails {
+                // The selection is read one leaf down, never here.
+                CanvasDetailsCover(model: canvasModel,
+                                   canvasIsTheCentre: subject.open == .canvas,
+                                   details: canvasDetails) { pulledUpFace(pulled) }
+            } else if let pulled = subject.beside {
+                pulledUpFace(pulled)
             } else {
                 centreDetails
             }
@@ -290,6 +289,20 @@ struct PulledUpView: View {
             let read = CanvasClaudeWrite.readScene(store: store, projectRoot: store.url)
             card = Self.read(pulled, scene: read.scene, scraps: read.scraps)
         }
+    }
+
+    /// The pulled-up thing under its header.
+    private func pulledUpFace(_ pulled: PulledUp) -> some View {
+        VStack(spacing: 0) {
+            BesideHeader(
+                title: Self.title(of: pulled, store: store),
+                openInCentre: { openInCentre(pulled) },
+                close: { subject = ProjectWindow.closingBeside(subject) })
+            Divider()
+            content(pulled)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private struct CardReadKey: Equatable {
@@ -533,5 +546,33 @@ struct BesideHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// **The canvas's details over the pulled-up thing** (owner, 2026-11-20):
+/// `RightColumnContent.canvasDetailsCover` decides; this leaf only supplies
+/// the one value the column must not read.
+///
+/// **It reads `model.selection` and nothing else.** The selection is its own
+/// stored property, written on a click, a drop, a key or a delete — never per
+/// drag frame — so this leaf is not a dependency of the drag loop the way a
+/// read of `scene` would make it (tripwire 30). A selection an undo left
+/// dangling is cleared by the model itself (`clearSelectionIfItNoLongerResolves`),
+/// so "non-nil" is "names something on the canvas".
+struct CanvasDetailsCover<PulledUpFace: View>: View {
+    let model: CanvasModel
+    let canvasIsTheCentre: Bool
+    /// `RightColumn.canvasInspector`, the one `RegionInspectorPane` mount.
+    let details: () -> AnyView
+    @ViewBuilder let pulledUp: () -> PulledUpFace
+
+    var body: some View {
+        if RightColumnContent.canvasDetailsCover(canvasIsTheCentre: canvasIsTheCentre,
+                                                 somethingIsPulledUp: true,
+                                                 canvasHasASelection: model.selection != nil) {
+            details()
+        } else {
+            pulledUp()
+        }
     }
 }

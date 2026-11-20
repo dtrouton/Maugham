@@ -350,6 +350,10 @@ struct BinderTreeSections: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            // A section header runs wider than a row: without this its `+`
+            // sits outside the Palette row's `+` (owner's hand check,
+            // 2026-11-20). 14pt is the row's trailing inset, measured.
+            .padding(.trailing, 14)
         }
         .contentShape(Rectangle())
         .contextMenu(menuItems: menu)

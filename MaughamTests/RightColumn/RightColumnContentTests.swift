@@ -155,6 +155,29 @@ final class RightColumnContentTests: XCTestCase {
         XCTAssertEqual(content(.pulledUp, closed), .centreDetails(.canvas))
     }
 
+    /// **The canvas's details cover what is pulled up while the canvas has a
+    /// selection** (owner, 2026-11-20: a region selected under a pulled-up
+    /// note, and ⌘3 "did nothing"). Only all three together cover; the
+    /// column's answer is still the pulled-up thing, which nothing closes.
+    func test_theCanvasSelectionCoversThePulledUpThingOnlyWhileTheCanvasIsTheCentre() {
+        for canvas in [true, false] {
+            for pulled in [true, false] {
+                for selection in [true, false] {
+                    XCTAssertEqual(
+                        RightColumnContent.canvasDetailsCover(
+                            canvasIsTheCentre: canvas, somethingIsPulledUp: pulled,
+                            canvasHasASelection: selection),
+                        canvas && pulled && selection,
+                        "canvas \(canvas), pulled up \(pulled), selection \(selection)")
+                }
+            }
+        }
+        // Drawing only: the answer and the subject are what they were.
+        let covered = ws(.canvas, beside: .research("r-1"))
+        XCTAssertEqual(content(.pulledUp, covered), .pulledUp(.research("r-1")))
+        XCTAssertEqual(covered.beside, .research("r-1"))
+    }
+
     func test_clickingTheCanvasRowShowsItsDetails() {
         let piece = ws(.item("ch-1"))
         let canvas = ClickRule.resolve(.canvas, gesture: .click, current: piece,

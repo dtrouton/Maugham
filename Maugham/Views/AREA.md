@@ -226,7 +226,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The window body and its family
 - **When `ProjectWindow.body` hits "unable to type-check this expression in reasonable time", extract a `ViewModifier`**: window behaviour lives in modifiers and a column arm is a call.
-- **A census reading "the window's code" reads the family BY TYPE**: `SourceTree.windowFamilyTypes` names the members, so moving a modifier between files never shrinks what a census reads; a member nothing declares throws. Absence checks still widen to the directory.
+- **A census reading "the window's code" reads the family BY TYPE**: `SourceTree.windowFamilyTypes` names the members: a member nothing declares throws. Absence checks still widen to the directory.
 - **`CentreColumn` and `RightColumn` are mounted once each, as the content and detail columns' roots**, so `EditorHost` and the canvas keep their identities across every route change.
 - **A column reads values and takes verbs as closures**; `CentreColumn` owns one piece of state, the board's open-notes counts.
 - **`canvasModel` is a `let`, and nothing in the window or columns reads `.scene`** (tripwire 30): `CanvasModel` rewrites its scene on every drag frame. `RegionInspectorPane` resolves the region one leaf down.
@@ -256,17 +256,18 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### Brief, the pulled-up thing and the fold
 - **Brief never loads a manuscript `Document`** (`BriefReaderTests.test_noBriefSourceLoadsAManuscriptDocument`), so it edits a piece that is not open: the line asks `TreeStructureVerbs.mayRestructure`, the intent and decisions the intent's own posture.
-- **Clause marks are drawn only in Brief's Going for, in the right column**: never in the centre cover, never on `IntentStrip` (a String and a Bool). A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
+- **Clause marks are drawn only in Brief's Going for**: never in the centre cover, never on `IntentStrip`. A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
 - **A verb that files into a statement says where** (`FiledUnder`, from the write's own `FiledDestination`); the line links to any Brief it names.
 - **A statement host asks `statementIsInTheCentre` before it mounts**: the placeholder is decided before the mount (`Maugham/Stores/AREA.md`, the gate).
 - **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind and empties the position; a canvas card is read-only beside the text (`PulledUpViewTests`, `PulledUpTests`).
+- **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`; Esc declines while covered.
 - **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; its rows are `List` tags or `Button(.plain)` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs` (`PieceRowMenusTests`, `PieceTargetMenuTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone** (`RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
-- **The tree binds the window's `WindowSubject`**: a click is `ClickRule.resolve(_, .click)` and nothing else. The `List` selects the row last clicked (measured); the open row is tinted, the faces or `beside` outlined. Clicking the row beside puts it away.
+- **The tree binds the window's `WindowSubject`**: a click is `ClickRule.resolve(_, .click)` and nothing else. The `List` selects the row last clicked; the open row is tinted, the faces or `beside` outlined. Clicking the row beside puts it away.
 - **A verb pointing the window somewhere** uses `ClickRule.navigate`, which never dismisses.
 - **Every tree's `List` selects through `BinderTreeSelection`, never the subject directly** (`BinderTreeSectionsTests.test_clickingAnEmptySectionsPlaceholderLeavesTheSubjectAlone`). A double-click is `.openInCentre` (`TreeTravelModifier`), posting the row's own tag, never `state.selection`.
 - **Plan's Tab from the tree reaches the canvas only through `TreeCanvasKeyboard`** (`PromotionCommandTests`, `PlanBinderTabTests`).

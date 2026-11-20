@@ -162,6 +162,40 @@ final class PulledUpEscapeTests: XCTestCase {
         escape.stop()
     }
 
+    /// **Covered by the canvas's details, the pulled-up thing is not on
+    /// screen**, and Escape is not its (owner, 2026-11-20): the key passes on
+    /// and the note waits under the cover. Asked at EVENT time — the canvas
+    /// selection changes on a click the modifier never sees — so one claim
+    /// declines while covered and closes once the selection clears.
+    func test_escapeOverTheCanvasDetailsLeavesTheCoveredThingPulledUp() {
+        let window = makeWindow()
+        let arbiter = WindowEscapeArbiter.arbiter(for: window)
+        let escape = PulledUpEscape()
+        let held = Held()
+        held.subject = WindowSubject(open: .canvas, faces: .canvas, beside: .research("r-1"))
+        var selected = true
+        var dimLifted = 0
+        arbiter.register(.canvasDim, claim: { dimLifted += 1; return true })
+
+        escape.sync(isPresented: true, window: window, close: held.close, isCovered: {
+            RightColumnContent.canvasDetailsCover(
+                canvasIsTheCentre: held.subject.open == .canvas,
+                somethingIsPulledUp: held.subject.beside != nil,
+                canvasHasASelection: selected)
+        })
+        XCTAssertTrue(arbiter.offerEscape())
+        XCTAssertEqual(held.subject.beside, .research("r-1"),
+                       "an Escape over the canvas's details put away a note the writer could not see")
+        XCTAssertEqual(dimLifted, 1, "and the key passes on down the order")
+
+        selected = false
+        XCTAssertTrue(escape.performEscape(), "uncovered, the note is on screen and Escape is its")
+        XCTAssertNil(held.subject.beside)
+
+        escape.stop()
+        arbiter.resign(.canvasDim)
+    }
+
     // MARK: - Several overlays, one window, a decided order
 
     /// **One Escape puts the pulled-up thing away and leaves the dim alone;
@@ -360,6 +394,9 @@ final class PulledUpEscapeTests: XCTestCase {
             ".onChange(of: window) { _, _ in sync() }",
             ".onDisappear { escape.stop() }",
             "subject = ProjectWindow.closingBeside(subject)",
+            "RightColumnContent.canvasDetailsCover( canvasIsTheCentre: subject.open == .canvas, "
+                + "somethingIsPulledUp: subject.beside != nil, "
+                + "canvasHasASelection: canvasHasASelection())",
         ] {
             XCTAssertTrue(flat.contains(token), "the mount lost \(token): \(flat)")
         }
@@ -368,7 +405,8 @@ final class PulledUpEscapeTests: XCTestCase {
             .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
         XCTAssertTrue(windowFlat.contains(
             ".modifier(PulledUpEscapeModifier( window: window, isNoChromeOn: isNoChromeOn, "
-            + "showInspector: showInspector, position: rightColumnPosition, subject: subjectBinding))"),
+            + "showInspector: showInspector, position: rightColumnPosition, subject: subjectBinding, "
+            + "canvasHasASelection: canvasHasASelection))"),
             "Esc's one mount line on the window's body is gone")
     }
 }
