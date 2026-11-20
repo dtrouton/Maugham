@@ -25,7 +25,16 @@ final class PieceRowMenusTests: XCTestCase {
         XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: mine, publishingIsSetUp: false),
                        [.tags, .addLink], "the inspector drew Publishing only once it was set up")
         XCTAssertEqual(PieceRowMenus.Item.allCases.map(\.title),
-                       ["Tags…", "Add Link…", "Publishing…"])
+                       ["Tags…", "Add Link…", "Target…", "Publishing…"])
+        // Target… where the status line would offer one — so a target can be
+        // set with the status bar hidden — between the links and Publishing.
+        XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: mine, publishingIsSetUp: true,
+                                           offersTarget: true),
+                       [.tags, .addLink, .target, .publishing])
+        XCTAssertEqual(PieceRowSheet(.target, pieceId: "doc-a"), .target("doc-a"))
+        XCTAssertEqual(PieceRowSheet.target("doc-a").pieceId, "doc-a")
+        XCTAssertEqual(Set(PieceRowMenus.Item.allCases.map { PieceRowSheet($0, pieceId: "doc-a").id }).count,
+                       PieceRowMenus.Item.allCases.count, "each sheet has an identity of its own")
 
         // A Collection's loose piece: the same three.
         var loose = StructureItem(id: "pc01", title: "One", type: .document, path: "pieces/one/one.md")
@@ -47,22 +56,70 @@ final class PieceRowMenusTests: XCTestCase {
     }
 
     /// Hidden, never disabled: the verbs a reviewer (or an undecided posture)
-    /// gets offer no Rename, and so none of the three.
-    func test_aRefusingPostureHidesTheMenuItems() {
+    /// gets offer no Rename, and so none of the items.
+    func test_aRefusingPostureHidesTheMenuItems() throws {
         XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: .none, publishingIsSetUp: true), [])
         XCTAssertEqual(PieceRowMenus.items(for: chapter, verbs: verbs(.settling, for: chapter),
                                            publishingIsSetUp: true), [])
-        // Both trees draw the items through the one view, handed the verbs
-        // the row already decided.
-        for file in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift"] {
-            let code = try? SourceTree.read(file)
-            XCTAssertTrue(code?.contains("PieceRowMenuButtons(item:") == true,
+        // Every tree draws the items through the one view, handed the verbs
+        // the row already decided — a screenplay's script row included.
+        for file in Self.rowFiles {
+            let code = try SourceTree.read(file)
+            XCTAssertTrue(code.contains("PieceRowMenuButtons("),
                           "\(file) offers the row menu's items")
-            XCTAssertFalse(code?.contains(".sheet(") == true,
+            XCTAssertTrue(code.contains("offersTarget: PieceRowMenus.target(for:"),
+                          "\(file) asks the status line's own decision for Target…")
+            XCTAssertFalse(code.contains(".sheet("),
                            "\(file): a row sheet is presented from the sections, never a row")
         }
-        let sections = try? SourceTree.read("Maugham/Views/BinderTreeSections.swift")
-        XCTAssertTrue(sections?.contains(".sheet(item: $state.pieceRowSheet)") == true)
+        let sections = try SourceTree.read("Maugham/Views/BinderTreeSections.swift")
+        XCTAssertTrue(sections.contains(".sheet(item: $state.pieceRowSheet)"))
+    }
+
+    /// The files whose rows carry the piece menu: both trees, and the
+    /// screenplay's navigator (its one script row).
+    static let rowFiles = ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift",
+                           "Maugham/Views/SceneNavigatorPane.swift"]
+
+    /// **A screenplay's script row offers Tags…, Target… and Publishing… by
+    /// posture** (Task 8's review: the old Inspector showed all three for the
+    /// script, and a screenplay mounts neither other tree). No Add Link… —
+    /// there is no other document to link to.
+    func test_theScriptRowOffersTagsTargetAndPublishingByPosture() throws {
+        let script = StructureItem(id: "script", title: "Script", type: .document,
+                                   path: "script.fountain")
+        func items(_ posture: Posture, publishing: Bool = true) -> [PieceRowMenus.Item] {
+            let target = PieceTargetMenu.decide(
+                piece: script, projectType: .screenplay, projectPageTarget: 110,
+                postureOf: { _ in posture })
+            return PieceRowMenus.items(
+                for: script, verbs: verbs(posture, for: script), publishingIsSetUp: publishing,
+                offersTarget: target != nil, offersLinks: false)
+        }
+        XCTAssertEqual(items(.author), [.tags, .target, .publishing])
+        XCTAssertEqual(items(.author, publishing: false), [.tags, .target],
+                       "Publishing… only once publishing is set up")
+        XCTAssertEqual(items(.settling), [], "an undecided posture is offered nothing")
+        // The script's target is the PROJECT's page target.
+        XCTAssertEqual(PieceTargetMenu.decide(piece: script, projectType: .screenplay,
+                                              projectPageTarget: 110, postureOf: { _ in .author }),
+                       PieceTargetMenu(write: .projectPages, current: 110))
+
+        // The wiring: the script row carries the menu, with no links.
+        let pane = try SourceTree.read("Maugham/Views/SceneNavigatorPane.swift")
+        let flat = SourceScan.codeLines(of: pane).joined(separator: "\n")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(flat.contains(
+            ".contextMenu { if let script = TreeWalk.find(id: documentID, in: store.manifest.structure) { "
+            + "PieceRowMenuButtons( item: script, verbs: structureVerbs(for: script), state: treeState, "
+            + "offersTarget: PieceRowMenus.target(for: script, store: store) != nil, offersLinks: false) } }"),
+            "the script row lost its menu")
+        XCTAssertTrue(flat.contains(".binderTreeSections(store: store, state: treeState,"),
+                      "premise: the navigator mounts the sections, whose sheets the menu opens")
+        // And the sheet for Target… is the status line's own field.
+        let menus = try SourceTree.read("Maugham/Views/PieceRowMenus.swift")
+        XCTAssertTrue(menus.contains("PieceTargetField("), "Target… opens the same field")
+        XCTAssertTrue(menus.contains("PieceTargetMenu.perform(menu.write, value: value, store: store)"))
     }
 
     /// Adding a link appends once (the inspector's rule).
@@ -94,9 +151,10 @@ final class PieceRowMenusTests: XCTestCase {
                            "\(file) writes a pass state")
             XCTAssertFalse(lines.contains { $0.contains("passStates") }, "\(file) touches passStates")
         }
-        // The census can fail: the inspector, which hosts a ladder, writes one.
-        let inspector = try SourceTree.read("Maugham/Views/InspectorView.swift")
-        XCTAssertTrue(inspector.contains("store.setPassState("))
+        // The census can fail: the right column, which hosts To resolve's
+        // ladder and nudge, writes one.
+        let column = try SourceTree.read("Maugham/Views/RightColumn.swift")
+        XCTAssertTrue(column.contains("store.setPassState("))
     }
 
     /// **The Outline's Tags column**: the manifest's tags, comma-joined, read

@@ -175,12 +175,32 @@ struct SceneNavigatorPane: View {
                 Spacer()
             }
             .contentShape(Rectangle())
+            // **The script's Tags…, Target… and Publishing…** — the old
+            // Inspector's fields for the one script (shell p3 Task 8's
+            // review: a screenplay mounts neither other tree, so without this
+            // they had no home). No Add Link…: there is no other document.
+            .contextMenu {
+                if let script = TreeWalk.find(id: documentID, in: store.manifest.structure) {
+                    PieceRowMenuButtons(
+                        item: script, verbs: structureVerbs(for: script), state: treeState,
+                        offersTarget: PieceRowMenus.target(for: script, store: store) != nil,
+                        offersLinks: false)
+                }
+            }
             .tag(BinderSubject.item(documentID))
             // The find manuscript-match scroll target (stage-3b Task 8) — the
             // screenplay's script row is this pane's only structure row, so
             // it is this tree's whole answer to `BinderView.outline`'s `.id`.
             .id(BinderSubject.item(documentID))
         }
+    }
+
+    /// The script's structural verbs, from the window's posture door —
+    /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
+    func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .none }
+        return TreeStructureVerbs.decide(
+            for: item, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// The List's selection, PROJECTED — the pane's whole answer to having two

@@ -202,7 +202,8 @@ struct CollectionPiecesPane: View {
                     }
                 }
                 // Tags…, Add Link…, Publishing… (shell p3 Task 8).
-                PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState)
+                PieceRowMenuButtons(item: piece, verbs: verbs, state: treeState,
+                                    offersTarget: PieceRowMenus.target(for: piece, store: store) != nil)
                 if verbs.delete {
                     Divider()
                     Button("Delete", role: .destructive) {

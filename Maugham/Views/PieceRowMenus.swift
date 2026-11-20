@@ -1,11 +1,12 @@
 import SwiftUI
 import MaughamCore
 
-/// **A piece's row menu: Tags…, Add Link…, Publishing…** (shell p3 Task 8) —
-/// where the old Inspector's tags field, its add-link search and its
-/// per-piece publishing section went. Each opens the existing control in a
-/// sheet, unchanged: `InspectorTagsField`, `PieceLinkSearch`,
-/// `PiecePublishSettings`.
+/// **A piece's row menu: Tags…, Add Link…, Target…, Publishing…** (shell p3
+/// Task 8) — where the old Inspector's tags field, its add-link search, its
+/// target steppers and its per-piece publishing section went. Each opens the
+/// existing control in a sheet: `InspectorTagsField`, `PieceLinkSearch`,
+/// `PieceTargetField` (the status line's own, so a target can be set with the
+/// status bar hidden), `PiecePublishSettings`.
 ///
 /// **Offered by the row's own `TreeStructureVerbs`** (hidden, never disabled;
 /// tripwires 47, 51): a piece's manifest fields are edited by whoever may
@@ -20,12 +21,13 @@ import MaughamCore
 enum PieceRowMenus {
 
     enum Item: Equatable, CaseIterable {
-        case tags, addLink, publishing
+        case tags, addLink, target, publishing
 
         var title: String {
             switch self {
             case .tags: return "Tags…"
             case .addLink: return "Add Link…"
+            case .target: return "Target…"
             case .publishing: return "Publishing…"
             }
         }
@@ -35,12 +37,34 @@ enum PieceRowMenus {
     /// `PublishStarter.isInitialized` (`BinderTreeSectionsState`), never a
     /// per-row disk read (tripwire 4); the inspector drew its Publishing
     /// section only there.
+    ///
+    /// `offersTarget` is whether the status line would offer this piece a
+    /// target (`PieceTargetMenu.decide` — a screenplay's is the PROJECT's and
+    /// asks the project stream). `offersLinks` is false for a screenplay's one
+    /// script, which has no other document to link to.
     static func items(for item: StructureItem, verbs: TreeStructureVerbs,
-                      publishingIsSetUp: Bool) -> [Item] {
-        guard item.type == .document, item.pieceKind != .reference, verbs.rename else {
-            return []
+                      publishingIsSetUp: Bool, offersTarget: Bool = false,
+                      offersLinks: Bool = true) -> [Item] {
+        guard item.type == .document, item.pieceKind != .reference else { return [] }
+        var items: [Item] = []
+        if verbs.rename {
+            items.append(.tags)
+            if offersLinks { items.append(.addLink) }
         }
-        return publishingIsSetUp ? [.tags, .addLink, .publishing] : [.tags, .addLink]
+        if offersTarget { items.append(.target) }
+        if verbs.rename, publishingIsSetUp { items.append(.publishing) }
+        return items
+    }
+
+    /// The target the row's "Target…" sets — the status line's own decision,
+    /// asked of the window's posture door; no door, no target (fails closed).
+    @MainActor
+    static func target(for item: StructureItem, store: ProjectStore) -> PieceTargetMenu? {
+        guard let documentStore = store.documentStore else { return nil }
+        return PieceTargetMenu.decide(
+            piece: item, projectType: store.manifest.type,
+            projectPageTarget: store.manifest.targets?.pageTarget,
+            postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// The links after adding `target`: appended once, never twice — the
@@ -65,19 +89,21 @@ enum PieceRowMenus {
 enum PieceRowSheet: Identifiable, Equatable {
     case tags(String)
     case addLink(String)
+    case target(String)
     case publishing(String)
 
     init(_ item: PieceRowMenus.Item, pieceId: String) {
         switch item {
         case .tags: self = .tags(pieceId)
         case .addLink: self = .addLink(pieceId)
+        case .target: self = .target(pieceId)
         case .publishing: self = .publishing(pieceId)
         }
     }
 
     var pieceId: String {
         switch self {
-        case .tags(let id), .addLink(let id), .publishing(let id): return id
+        case .tags(let id), .addLink(let id), .target(let id), .publishing(let id): return id
         }
     }
 
@@ -85,21 +111,28 @@ enum PieceRowSheet: Identifiable, Equatable {
         switch self {
         case .tags(let id): return "tags:\(id)"
         case .addLink(let id): return "addLink:\(id)"
+        case .target(let id): return "target:\(id)"
         case .publishing(let id): return "publishing:\(id)"
         }
     }
 }
 
-/// The menu items, for both trees' piece rows (`BinderView`,
-/// `CollectionPiecesPane`). Each press only names the sheet.
+/// The menu items, for every tree's piece rows (`BinderView`,
+/// `CollectionPiecesPane`, and a screenplay's script row in
+/// `SceneNavigatorPane`). Each press only names the sheet.
 struct PieceRowMenuButtons: View {
     let item: StructureItem
     let verbs: TreeStructureVerbs
     let state: BinderTreeSectionsState
+    /// Whether "Target…" is offered (`PieceRowMenus.target` is non-nil).
+    var offersTarget: Bool = false
+    /// False for a screenplay's one script.
+    var offersLinks: Bool = true
 
     var body: some View {
         let items = PieceRowMenus.items(
-            for: item, verbs: verbs, publishingIsSetUp: state.publishingIsSetUp)
+            for: item, verbs: verbs, publishingIsSetUp: state.publishingIsSetUp,
+            offersTarget: offersTarget, offersLinks: offersLinks)
         if !items.isEmpty {
             Divider()
             ForEach(items, id: \.title) { menuItem in
@@ -145,6 +178,17 @@ struct PieceRowSheetView: View {
                 PieceLinkSearch(
                     store: store, currentItemId: id, existing: piece?.links ?? [],
                     onPick: { target in addLink(target, to: id) })
+            case .target:
+                if let piece, let menu = PieceRowMenus.target(for: piece, store: store) {
+                    PieceTargetField(
+                        menu: menu,
+                        onSet: { value in
+                            perform { [store] in
+                                try await PieceTargetMenu.perform(menu.write, value: value, store: store)
+                            }
+                        },
+                        onDone: onDone)
+                }
             case .publishing(let id):
                 PiecePublishSettings(projectURL: store.url, selectedPieceID: id)
             }

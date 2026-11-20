@@ -2,9 +2,9 @@ import SwiftUI
 import MaughamCore
 
 /// A piece's format's Mac-only strings and ranges — UI copy, so it stays out of
-/// Core. Exhaustive: a new format answers each. Moved here from
-/// `PieceInspector` (shell p3 Task 8), whose arm still reads them until the
-/// inspector goes.
+/// Core. Exhaustive: a new format answers each. Moved here from the old
+/// piece inspector (shell p3 Task 8); `kindLabel` is the caption at the head
+/// of a Collection piece's Brief (`BriefPane.formatCaption`).
 extension DocumentFormat {
     var kindLabel: String {
         switch self {
@@ -53,7 +53,7 @@ extension DocumentFormat {
 /// the project stream. Hidden, never disabled (tripwires 47, 51).
 struct PieceTargetMenu: Equatable {
 
-    enum Write: Equatable {
+    enum Write: Hashable {
         /// `ProjectStore.updateInspector(id:wordTarget:)`.
         case pieceWords(String)
         /// `ProjectStore.updateInspector(id:pageTarget:)` — a Collection's script.
@@ -84,9 +84,8 @@ struct PieceTargetMenu: Equatable {
     var offersClear: Bool { current != nil }
 
     /// The old steppers' ranges and steps, each kept: a word target 0…100,000
-    /// by 100 (both inspectors); a Collection script's 0…500 by 1
-    /// (`PieceInspector`); a screenplay's project target 0…500 by 5
-    /// (`InspectorView`).
+    /// by 100; a Collection script's 0…500 by 1; a screenplay's project
+    /// target 0…500 by 5.
     var range: ClosedRange<Int> {
         measuresPages ? DocumentFormat.fountain.targetRange : DocumentFormat.markdown.targetRange
     }
@@ -134,20 +133,67 @@ struct PieceTargetMenu: Equatable {
     }
 
     func clamped(_ value: Int) -> Int { min(max(value, range.lowerBound), range.upperBound) }
+
+    /// **What the writer typed, as a number** — digits, with the grouping
+    /// marks a writer types in a large one ("3,000", "3 000", the locale's
+    /// own). Anything else — empty, a sign, a decimal, a word — is nil: the
+    /// entry is refused quietly and the stored target stands.
+    static func parse(_ text: String, groupingSeparator: String? = Locale.current.groupingSeparator) -> Int? {
+        var digits = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for mark in [",", " ", "\u{00A0}", "\u{202F}", "\u{2009}", groupingSeparator ?? ""] where !mark.isEmpty {
+            // A decimal point is never a grouping mark here, whatever the
+            // locale: "3.5" must not read as 35.
+            guard mark != "." else { continue }
+            digits = digits.replacingOccurrences(of: mark, with: "")
+        }
+        guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return Int(digits)
+    }
+
+    /// **The value a commit writes, or nil for no write** — on Set, on Return
+    /// and on the field losing focus alike. Nil where the entry does not
+    /// parse, and where it is the target already standing (`lastWritten`, the
+    /// value this field wrote a moment ago, else the stored one), so the three
+    /// commits of one edit write once.
+    func commitValue(text: String, lastWritten: Int? = nil) -> Int? {
+        guard let parsed = Self.parse(text) else { return nil }
+        let value = clamped(parsed)
+        return value == (lastWritten ?? current ?? 0) ? nil : value
+    }
 }
 
-/// The small target field the status line's menu opens: the old inspector's
-/// field and stepper, with Set.
+/// The small target field the status line's menu and a row's "Target…" open:
+/// the old inspector's field and stepper, with Set.
+///
+/// **A `String`-backed field, parsed at the commit** (Task 8's review): a
+/// `TextField(value:format:)` updates its binding only on Return or focus
+/// loss, so Set pressed over freshly typed digits wrote the number from
+/// before the edit. Here Set, Return and losing focus (the popover dismissed
+/// by a click outside included) all commit what is in the field
+/// (`PieceTargetMenu.commitValue`).
 struct PieceTargetField: View {
     let menu: PieceTargetMenu
+    /// The write, with the clamped value.
     let onSet: (Int) -> Void
+    /// Set or Return was pressed: the host closes its popover or sheet.
+    var onDone: () -> Void = {}
 
-    @State private var draft: Int
+    @State private var text: String
+    @State private var lastWritten: Int?
+    @FocusState private var focused: Bool
 
-    init(menu: PieceTargetMenu, onSet: @escaping (Int) -> Void) {
+    init(menu: PieceTargetMenu, onSet: @escaping (Int) -> Void, onDone: @escaping () -> Void = {}) {
         self.menu = menu
         self.onSet = onSet
-        _draft = State(initialValue: menu.current ?? 0)
+        self.onDone = onDone
+        _text = State(initialValue: String(menu.current ?? 0))
+    }
+
+    /// The stepper steps the number in the field (the stored one while the
+    /// field does not parse) and writes it back as text.
+    private var stepped: Binding<Int> {
+        Binding(get: { menu.clamped(PieceTargetMenu.parse(text) ?? lastWritten ?? menu.current ?? 0) },
+                set: { text = String($0) })
     }
 
     var body: some View {
@@ -155,15 +201,28 @@ struct PieceTargetField: View {
             Text(menu.fieldLabel)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            TextField("", value: $draft, format: .number)
+            TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 70)
-                .onSubmit { onSet(menu.clamped(draft)) }
-            Stepper("", value: $draft, in: menu.range, step: menu.step)
+                .focused($focused)
+                .onSubmit { commit(); onDone() }
+            Stepper("", value: stepped, in: menu.range, step: menu.step)
                 .labelsHidden()
-            Button("Set") { onSet(menu.clamped(draft)) }
+            Button("Set") { commit(); onDone() }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(12)
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { commit() }
+        }
+        // A click outside dismisses a popover without the field ever
+        // reporting a focus change.
+        .onDisappear { commit() }
+    }
+
+    private func commit() {
+        guard let value = menu.commitValue(text: text, lastWritten: lastWritten) else { return }
+        lastWritten = value
+        onSet(value)
     }
 }

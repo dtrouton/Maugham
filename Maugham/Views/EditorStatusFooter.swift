@@ -63,11 +63,20 @@ struct EditorStatusFooter: View {
             .menuIndicator(.hidden)
             .help(target.setTitle)
             .popover(isPresented: $editingTarget, arrowEdge: .top) {
-                PieceTargetField(menu: target) { value in
-                    editingTarget = false
-                    Task { try? await PieceTargetMenu.perform(target.write, value: value, store: store) }
-                }
+                PieceTargetField(
+                    menu: target,
+                    onSet: { value in
+                        Task { try? await PieceTargetMenu.perform(target.write, value: value, store: store) }
+                    },
+                    onDone: { editingTarget = false })
+                    // One field per target: an edit in progress is never
+                    // carried onto another piece's.
+                    .id(target.write)
             }
+            // The open piece changed under an open popover (a key, MCP's
+            // navigate): it closes, so what was typed for one piece is never
+            // set on another.
+            .onChange(of: target.write) { _, _ in editingTarget = false }
         } else {
             Text(Self.rightLabel(for: goalState))
         }

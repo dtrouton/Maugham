@@ -352,7 +352,8 @@ struct BinderView: View {
             }
             // Tags…, Add Link…, Publishing… (shell p3 Task 8): the old
             // Inspector's controls, offered by the same verbs.
-            PieceRowMenuButtons(item: item, verbs: verbs, state: treeState)
+            PieceRowMenuButtons(item: item, verbs: verbs, state: treeState,
+                                offersTarget: PieceRowMenus.target(for: item, store: store) != nil)
             if verbs.tidy, item.type == .group {
                 Divider()
                 Button("Tidy Filenames") {

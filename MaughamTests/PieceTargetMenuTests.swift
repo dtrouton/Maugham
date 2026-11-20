@@ -119,6 +119,78 @@ final class PieceTargetMenuTests: XCTestCase {
         XCTAssertEqual(PieceTargetMenu(write: .projectPages, current: nil).clamped(-3), 0)
     }
 
+    // MARK: - The field: what a commit writes (Task 8's review)
+
+    private let words = PieceTargetMenu(write: .pieceWords("ch01"), current: 2000)
+
+    /// What the writer typed, as a number — or nothing, quietly.
+    func test_theFieldParsesDigitsAndRefusesEverythingElse() {
+        XCTAssertEqual(PieceTargetMenu.parse("3000"), 3000)
+        XCTAssertEqual(PieceTargetMenu.parse("  3000 \n"), 3000)
+        XCTAssertEqual(PieceTargetMenu.parse("3,000"), 3000)
+        XCTAssertEqual(PieceTargetMenu.parse("3 000"), 3000)
+        XCTAssertEqual(PieceTargetMenu.parse("3\u{202F}000"), 3000)
+        XCTAssertEqual(PieceTargetMenu.parse("3'000", groupingSeparator: "'"), 3000,
+                       "the locale's own grouping mark")
+        XCTAssertEqual(PieceTargetMenu.parse("0"), 0)
+        for refused in ["", "   ", "abc", "3k", "-5", "+5", "3.5", "1e3", "٣٠٠٠", "3000 words"] {
+            XCTAssertNil(PieceTargetMenu.parse(refused), "\"\(refused)\" is not a target")
+        }
+        XCTAssertNil(PieceTargetMenu.parse("3.500", groupingSeparator: "."),
+                     "a point is never read as a grouping mark: 3.5 must not become 35")
+    }
+
+    /// Set, Return and losing focus all ask this one decision: the typed
+    /// value, clamped — and nothing where it does not parse or is the target
+    /// already standing.
+    func test_aCommitWritesTheTypedValueOnceAndRefusesTheUnparseable() {
+        // Review Important 2: typed digits, then Set — the TYPED value.
+        XCTAssertEqual(words.commitValue(text: "3000"), 3000)
+        XCTAssertEqual(words.commitValue(text: "250000"), 100_000, "clamped to the range")
+        XCTAssertEqual(words.commitValue(text: "0"), 0, "zero clears (the store stores nil)")
+        // Unparseable: refused quietly, the stored target stands.
+        XCTAssertNil(words.commitValue(text: "lots"))
+        XCTAssertNil(words.commitValue(text: ""))
+        // Unchanged: no write.
+        XCTAssertNil(words.commitValue(text: "2000"))
+        XCTAssertNil(words.commitValue(text: "2,000"))
+        // The three commits of one edit (Set, then the focus loss, then the
+        // popover's disappearance) write once.
+        XCTAssertEqual(words.commitValue(text: "3000", lastWritten: nil), 3000)
+        XCTAssertNil(words.commitValue(text: "3000", lastWritten: 3000))
+        // …and a second edit after it writes again, back to the stored value
+        // included.
+        XCTAssertEqual(words.commitValue(text: "2000", lastWritten: 3000), 2000)
+        // No target yet: 0 is what stands.
+        let none = PieceTargetMenu(write: .piecePages("pc01"), current: nil)
+        XCTAssertNil(none.commitValue(text: "0"))
+        XCTAssertEqual(none.commitValue(text: "120"), 120)
+        XCTAssertEqual(none.commitValue(text: "900"), 500)
+    }
+
+    /// The field is `String`-backed and commits on Set, Return, focus loss and
+    /// its own disappearance (a popover dismissed by a click outside); the
+    /// status line closes an open popover when the open piece changes, and
+    /// keys the field by its target so an edit is never carried across.
+    func test_theFieldCommitsOnEveryWayOutAndNeverRetargets() throws {
+        let field = try SourceTree.sourceOfType("PieceTargetField", under: ["Maugham"])
+        let code = SourceScan.codeLines(of: field).joined(separator: "\n")
+        XCTAssertFalse(code.contains("TextField(\"\", value:"),
+                       "a value-bound field commits only on Return or focus loss: Set would "
+                       + "write the number from before the edit")
+        for token in ["TextField(\"\", text: $text)", ".onSubmit { commit(); onDone() }",
+                      "Button(\"Set\") { commit(); onDone() }",
+                      "if !isFocused { commit() }", ".onDisappear { commit() }",
+                      "menu.commitValue(text: text, lastWritten: lastWritten)"] {
+            XCTAssertTrue(code.contains(token), "the field lost \(token)")
+        }
+        let footer = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/EditorStatusFooter.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(footer.contains(".id(target.write)"), "one field per target")
+        XCTAssertTrue(footer.contains(".onChange(of: target.write) { _, _ in editingTarget = false }"),
+                      "a piece change closes the open popover")
+    }
+
     /// **The status line stays calm**: with no target the right label is what
     /// it was, and the footer takes the menu only where one is offered.
     func test_withNoTargetTheStatusLineSaysWhatItSaidBefore() throws {
