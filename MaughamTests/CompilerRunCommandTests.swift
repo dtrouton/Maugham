@@ -1159,7 +1159,7 @@ final class CompilerRunCommandTests: XCTestCase {
 
     /// The three suppressed spellings are minted by the session and read by the
     /// orchestrator, so they are constants rather than two copies of a string —
-    /// the `MaughamEvent.detailSegmentKey` reasoning. A raw literal on either side is
+    /// the `MaughamEvent.positionKey` reasoning. A raw literal on either side is
     /// a rename away from a failure surface that never appears or never clears.
     func test_theSuppressedDetailsAreOneSpellingSharedByBothSides() throws {
         let session = try source(at: "Maugham/Compiler/ClaudeCLISession.swift")
@@ -1860,7 +1860,7 @@ final class CompilerRunCommandTests: XCTestCase {
     }
 
     /// **The regression this task's research caught.** `StructureItem.links`
-    /// is `InspectorLinksSection`'s document-to-document backlink field —
+    /// is the document-to-document link field —
     /// unrelated despite the name — and `ProjectStore.linkResearch` (the
     /// writer's actual "link this research to this document" action) never
     /// touches it; it writes `linkedResearchIds`. A fixture that sets only

@@ -285,10 +285,11 @@ struct MaughamApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                 Divider()
                 // **The old pane keys keep their letters** (owner, 2026-11-18)
-                // and land where each pane's content lives now.
-                // ⌘⌥I: the inspector's fields are Brief's (the line), the
-                // status line's and the row menu's.
-                Button("Inspector") { MaughamEvent.postPosition(.brief) }
+                // and land where each pane's content lives now; each item is
+                // titled for what its key does.
+                // ⌘⌥I (the Inspector's): its fields are Brief's (the line),
+                // the status line's and the row menu's.
+                Button("Brief: the Line") { MaughamEvent.postPosition(.brief) }
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
                 // stopped being a right-pane segment when every tree grew its
@@ -309,12 +310,13 @@ struct MaughamApp: App {
                 // the three panes they opened are To resolve now, so each
                 // opens it on the filter that pane was — the rounds' notes,
                 // the check's findings, the writer's own to-dos and notes.
-                Button("Annotations") { MaughamEvent.postResolve(.rounds) }
+                Button("To Resolve: Rounds") { MaughamEvent.postResolve(.rounds) }
                     .keyboardShortcut("a", modifiers: [.command, .option])
-                // ⌘⌥H: the faces' piece's History, pulled up.
-                Button("History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
+                // ⌘⌥H: the faces' piece's History, pulled up — the project's,
+                // with no piece faced or open.
+                Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
                     .keyboardShortcut("h", modifiers: [.command, .option])
-                Button("Tasks") { MaughamEvent.postResolve(.mine) }
+                Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
                 // ⌘⌥B opens the Inbox in the centre, as a click on its tree
                 // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
@@ -329,12 +331,12 @@ struct MaughamApp: App {
                 }
                     .keyboardShortcut("p", modifiers: [.command, .option])
                 // ⌘⌥L: the translation review shows in To resolve while
-                // review is on.
-                Button("Translation") { MaughamEvent.postPosition(.resolve) }
+                // review is on; outside it, To resolve says how to enter it.
+                Button("To Resolve: Translation Review") { MaughamEvent.postTranslationReviewPosition() }
                     .keyboardShortcut("l", modifiers: [.command, .option])
                 // ⌘⌥N: what a piece is going for is its Brief. (⌘⌥I was the
                 // Inspector's, so Intent took the next letter in its name.)
-                Button("Intent") { MaughamEvent.postPosition(.brief) }
+                Button("Brief: Going For") { MaughamEvent.postPosition(.brief) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                 // **⌘⌥G, and no letter of "What I've Learned" was available**:
                 // L is Translation, E References, A Annotations, N Intent, D
@@ -344,23 +346,22 @@ struct MaughamApp: App {
                 // ⌘⌥K's came from the department *desk*: the rows are a
                 // led**g**er (`RulingsStratumView.title(for:)`). ⌘G and ⌘⇧G
                 // are Find Next/Previous and neither takes ⌥.
-                Button("What I've Learned") { MaughamEvent.postPullUp(.lessons) }
+                Button("Pull Up What I've Learned") { MaughamEvent.postPullUp(.lessons) }
                     .keyboardShortcut("g", modifiers: [.command, .option])
                 // **⌘⌥Y**: every letter of "first reader" is bound except S,
                 // and S is one ⌥ slip from ⌘S, the checkpoint reflex this app
                 // goes out of its way to keep. Y is free across the whole ⌘⌥
                 // keyspace (verified 2026-09-05) and takes nothing.
-                Button("First Reader") { MaughamEvent.postPullUp(.firstReader) }
+                Button("Pull Up First Reader") { MaughamEvent.postPullUp(.firstReader) }
                     .keyboardShortcut("y", modifiers: [.command, .option])
-                Button("Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
+                Button("Pull Up Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
-                Button("Diagnostics") { MaughamEvent.postResolve(.checks) }
+                Button("To Resolve: Checks") { MaughamEvent.postResolve(.checks) }
                     .keyboardShortcut("d", modifiers: [.command, .option])
                 // ⌘⌥E (§6.3 of the redesign: "E references"): what a piece is
                 // pinned to is its fold in the tree, so the key opens the
                 // faces' piece's fold and scrolls to it.
-                Button("References") { MaughamEvent.postShowPieceFold() }
-                    .keyboardShortcut("e", modifiers: [.command, .option])
+                FocusedPieceFoldButton()
                 // **⌘⌥K, and every letter of "Department" was already
                 // spoken for**: D is Diagnostics, E References, P Palette,
                 // A Annotations, R Research, T Tasks — and M, the last one
@@ -368,7 +369,7 @@ struct MaughamApp: App {
                 // letter comes from the surface's name in the design: the
                 // department *desk*, which shows in To resolve while an
                 // edition is the faces.
-                Button("Department") { MaughamEvent.postPosition(.resolve) }
+                Button("To Resolve: Department Desk") { MaughamEvent.postPosition(.resolve) }
                     .keyboardShortcut("k", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
@@ -567,6 +568,18 @@ extension FocusedValues {
     var mayStartAPiece: Bool? {
         get { self[FocusedMayStartAPieceKey.self] }
         set { self[FocusedMayStartAPieceKey.self] = newValue }
+    }
+}
+
+/// Whether the focused window has a piece whose fold ⌘⌥E can open — the
+/// faces' piece, else the open one (`ProjectWindow.foldPiece`). Published by
+/// `ResearchRevealModifier`; read only by `FocusedPieceFoldButton`, so the
+/// item is disabled, not inert, with no piece.
+struct FocusedPieceFoldKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var pieceFoldIsOffered: Bool? {
+        get { self[FocusedPieceFoldKey.self] }
+        set { self[FocusedPieceFoldKey.self] = newValue }
     }
 }
 
@@ -789,6 +802,18 @@ private struct FocusedStartAPieceButtons: View {
             MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
         }
         .disabled(!enabled)
+    }
+}
+
+/// View → "Open the Piece's Fold" (⌘⌥E): what a piece is pinned to is its
+/// fold in the tree. DISABLED (the menu bar's convention) where the focused
+/// window has no piece in its faces or its centre.
+private struct FocusedPieceFoldButton: View {
+    @FocusedValue(\.pieceFoldIsOffered) private var offered
+    var body: some View {
+        Button("Open the Piece's Fold") { MaughamEvent.postShowPieceFold() }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(offered != true)
     }
 }
 

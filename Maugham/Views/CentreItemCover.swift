@@ -61,11 +61,13 @@ struct CentreItemCover: View {
         case .statement(let kind, let scope):
             return StatementPane.headerCaption(kind: kind, scope: scope, structure: structure)
         case .history(let docId):
+            if docId == BinderSubject.noDocumentSubject { return projectHistoryTitle }
             let title = TreeWalk.find(id: docId, in: structure)?.title ?? docId
             return "History of “\(title)”"
         }
     }
 
+    static let projectHistoryTitle = "Project History"
     static let closeTitle = "Close"
 
     /// **The keys this cover asks for when it appears** (`CentreKeys`): a

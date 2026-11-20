@@ -39,6 +39,8 @@ struct TranslationRoundReportHost: View {
     var onClose: () -> Void = { }
     var onRoundChanged: (TranslationRound) -> Void = { _ in }
     var onReveal: (String) -> Void = { _ in }
+    /// A filed line's link to the Brief it names (`ProjectWindow.openBrief`).
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
 
     @State private var sources: [String: String] = [:]
     @State private var chapterTitle: String?
@@ -56,7 +58,8 @@ struct TranslationRoundReportHost: View {
             queries: queries, queriesFailure: queriesFailure,
             translatorName: translatorName,
             collatorName: collatorName, verbs: verbs, actions: actions,
-            onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal)
+            onClose: onClose, onRoundChanged: onRoundChanged, onReveal: onReveal,
+            onOpenBrief: onOpenBrief)
             // Keyed on the round's identity rather than the value: a verb's
             // write-back changes the value, and re-reading the whole document
             // on every "Fine" would put file I/O on the writer's click.

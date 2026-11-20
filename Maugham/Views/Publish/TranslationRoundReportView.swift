@@ -65,6 +65,8 @@ struct TranslationRoundReportView: View {
     var onRoundChanged: (TranslationRound) -> Void = { _ in }
     /// Show a paragraph in the manuscript. Task 5 wires the click-through.
     var onReveal: (String) -> Void = { _ in }
+    /// A filed line's link to the Brief it names; nil draws the line as text.
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
 
     /// **What the last verb said** — a refusal in its own words, or the
     /// confirmation that it worked. The surface's ONE transient channel
@@ -682,7 +684,7 @@ struct TranslationRoundReportView: View {
                 .foregroundStyle(.secondary)
             content()
             if filedNotice != nil, filedSection == heading {
-                FiledNotice(filing: $filedNotice)
+                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

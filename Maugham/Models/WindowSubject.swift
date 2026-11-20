@@ -107,7 +107,9 @@ public struct WindowSubject: Equatable, Codable, Sendable {
                 case .research, .figure:
                     return pulled.treeSubject.map(lives) == true ? pulled : nil
                 case .history(let docId):
-                    return TreeWalk.contains(id: docId, in: structure) ? pulled : nil
+                    // The project's History names no piece that could go.
+                    return pulled.isProjectHistory || TreeWalk.contains(id: docId, in: structure)
+                        ? pulled : nil
                 case .canvasScrap, .canvasPhoto:
                     return canvasCardExists(pulled) ? pulled : nil
                 case .lessons, .firstReader, .visualLanguage:

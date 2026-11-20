@@ -28,7 +28,7 @@ final class StatementVerbUndoTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }

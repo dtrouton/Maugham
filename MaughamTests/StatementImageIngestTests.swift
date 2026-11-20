@@ -24,7 +24,7 @@ final class StatementImageIngestTests: XCTestCase {
     private var fixtures: [StatementMountFixture] = []
 
     override func tearDown() async throws {
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         NSPasteboard.general.clearContents()
         try await super.tearDown()
@@ -383,7 +383,7 @@ final class StatementImageIngestTests: XCTestCase {
     /// chose between the pane and the statement using `resolvedScope`, which
     /// describes the resolved SCOPE rather than whether the host is mounted — and
     /// `⌘⌥N` is not a scope change on this host at all, because
-    /// `DetailPaneToggle.segmentContent` gives the two kinds separate `case` arms
+    /// `RightColumn`'s `switch` gives the two separate arms
     /// and the visual-language host is torn down. `.onDisappear` leaves
     /// `resolvedScope` naming the scope it just left, so the guard could not see
     /// the case it was written for.

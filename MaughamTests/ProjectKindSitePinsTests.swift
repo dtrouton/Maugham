@@ -57,7 +57,7 @@ final class ProjectKindSitePinsTests: XCTestCase {
         }
     }
 
-    func test_inspectorRoute_offCanvas_isThePieceInspectorForACollectionOnly() {
+    func test_inspectorRoute_offCanvas_isTheCollectionPieceRouteForACollectionOnly() {
         for type in everyKind {
             XCTAssertEqual(ProjectWindow.inspectorRoute(subject: .book, projectType: type),
                            holdsPiecesExpected(type) ? .collectionPiece : .document, "\(type)")

@@ -839,7 +839,7 @@ extension SourceTree {
     ///
     /// `RightColumn` is a member for the same reason (plan 4 Task 5): it is the
     /// window's own detail column — the resize handle and its drag, the study
-    /// arm, `DetailPaneToggle`'s wiring and the services injected into its
+    /// positions, their wiring and the services injected into its
     /// environment — whose builders were `ProjectWindow` members until then.
     /// The width censuses, the environment censuses and the pane-wiring
     /// censuses read "the window's code" and must still find them there.

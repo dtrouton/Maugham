@@ -65,11 +65,16 @@ enum MaughamEvent {
     /// opens To resolve on its filter. Absent for every other post.
     static let resolveFilterKey = "resolve_filter"
 
+    /// Payload key for `.maughamSetRightColumn`: `true` on ⌘⌥L's post, which
+    /// asks To resolve to say how translation review is entered when it is
+    /// not on.
+    static let explainsTranslationReviewKey = "explains_translation_review"
+
     /// Payload key for `.maughamPullUp`: a `PullUpRequest.rawValue`.
     static let pullUpKey = "pull_up"
 
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
-    /// `detailSegmentKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
+    /// `positionKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
     /// and a rename on one side must not quietly make the other read nil.
     static let canvasScrapCountKey = "scrap_count"
@@ -81,7 +86,7 @@ enum MaughamEvent {
     /// no `rawValue` by design (`BinderSubject`'s own doc comment: a site that
     /// wants a bare id has to say what the project means to it) — string-
     /// encoding it here would be inventing the very sentinel that type exists
-    /// to end. Same reason as `detailSegmentKey`: the post sites are five row views
+    /// to end. Same reason as `positionKey`: the post sites are five row views
     /// and the receiver is `TreeTravel.swift`, so a rename on either side must
     /// not silently make the post reach nobody.
     static let treeTravelSubjectKey = "subject"
@@ -95,7 +100,7 @@ enum MaughamEvent {
     static let treeTravelRowWasSelectedKey = "rowWasSelected"
 
     /// Payload key for `.maughamDocumentNotice` — the finished sentence the
-    /// window puts in front of the writer. Same reason as `detailSegmentKey`: the
+    /// window puts in front of the writer. Same reason as `positionKey`: the
     /// post sites live in `Maugham/OpLog/` and the receiver in
     /// `ProjectWindow.swift`, so a rename must not quietly make the toast read
     /// nil and show nothing, which is the very failure these notices exist to
@@ -103,7 +108,7 @@ enum MaughamEvent {
     static let noticeMessageKey = "notice_message"
 
     /// Payload key for `.maughamAnnotationsChanged` — the document whose notes
-    /// changed. Same reason as `detailSegmentKey`: the post sites are in
+    /// changed. Same reason as `positionKey`: the post sites are in
     /// `Maugham/OpLog/` and `Maugham/Stores/`, the readers are two panes and a
     /// window's count column, and a rename on one side must not silently make
     /// the other read nil.
@@ -217,6 +222,15 @@ enum MaughamEvent {
     /// piece, then Brief shows.
     static func postBriefOfTheOpenPiece() {
         post(.maughamShowOpenPieceBrief, to: .keyWindow)
+    }
+
+    /// ⌘⌥L: To resolve, where the translation review shows while review is
+    /// on — and, outside review, with one line saying how to enter it
+    /// (`explainsTranslationReviewKey`).
+    static func postTranslationReviewPosition() {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.resolve.rawValue,
+                       explainsTranslationReviewKey: true])
     }
 
     /// Ask the key window to pull `request` up beside its centre (⌘⌥G, ⌘⌥Y,

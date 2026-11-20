@@ -89,12 +89,34 @@ final class StatementMountFixture: RunLoopPumping {
             temp: temp, defaultsSuite: suite)
     }
 
+    /// Take the windows down, CLOSE the `DocumentStore`, then remove the
+    /// folder — in that order. A store left open keeps its file presenter
+    /// registered over a folder that is being deleted, and its registry
+    /// callbacks then read `.maugham/people/…` as it vanishes (the
+    /// intermittent "The file “events” couldn’t be opened", shell p3 Task 9).
+    func closeAndTearDown() async {
+        takeTheWindowsDown()
+        await documentStore.close()
+        temp.cleanup()
+    }
+
+    /// The synchronous form, for a `defer`: the close and the folder's
+    /// removal follow in order on the main actor, after the test body.
     func tearDown() {
+        takeTheWindowsDown()
+        let documentStore = documentStore
+        let temp = temp
+        Task { @MainActor in
+            await documentStore.close()
+            temp.cleanup()
+        }
+    }
+
+    private func takeTheWindowsDown() {
         for window in windows { window.contentView = NSView(frame: .zero) }
         pump(0.05)
         windows.removeAll()
         UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
-        temp.cleanup()
     }
 
     // MARK: - Hosting

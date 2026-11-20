@@ -39,7 +39,7 @@ final class BinderSubjectTests: XCTestCase {
 
     /// The sentinel has one home. The panes that compare against it read it
     /// from here rather than each carrying the literal — the shape that let
-    /// `DetailPaneToggle` re-substitute a value already substituted upstream.
+    /// the pane picker re-substitute a value already substituted upstream.
     func test_theSentinelIsTheValueTheExistingPanesAlreadyCompareAgainst() {
         XCTAssertEqual(BinderSubject.noDocumentSubject, "__no-selection__")
         XCTAssertEqual(StatementPane.noSelectionSentinel,

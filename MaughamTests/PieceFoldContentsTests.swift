@@ -358,6 +358,97 @@ final class PieceFoldContentsTests: XCTestCase {
         }
         return offenders.sorted()
     }
+
+    // MARK: - A row's glyph is the canvas's (the References shelf's row tests, at the fold)
+
+    private func glyphResearch() -> [ResearchItem] {
+        [paletteGroup([card("res-card", "Act II fog")]),
+         note("res-note", "The falls at night", path: "research/the-falls-at-night.md"),
+         ResearchItem(id: "res-photo", title: "The gorge from above", type: .asset, kind: .image,
+                      path: "research/research_assets/gorge.jpg"),
+         ResearchItem(id: "res-pdf", title: "Survey", type: .asset, kind: .pdf,
+                      path: "research/research_assets/survey.pdf"),
+         ResearchItem(id: "res-audio", title: "Interview", type: .asset, kind: .audio,
+                      path: "research/research_assets/interview.m4a")]
+    }
+
+    private func cardEntry(_ id: String, _ kind: PinnedReference.Kind) -> PieceFoldEntry {
+        .card(PinnedReference(id: id, kind: kind, title: id), regionTitle: nil)
+    }
+
+    /// **A fold row's glyph is `CanvasItemFacts`' — the canvas's own table,
+    /// and no second one** (the old shelf's rule; the fold spelled its own for
+    /// one task, so a pinned PDF, recording or picture drew `doc.text` where
+    /// the board draws its real glyph).
+    func test_aCardRowsGlyphIsTheCanvasesForEveryKindOfItem() {
+        let items = CanvasItemIndex.over(research: glyphResearch())
+        let expected: [(PieceFoldEntry, String)] = [
+            (cardEntry("res-note", .research(itemId: "res-note")), CanvasItemKind.researchNote.glyph),
+            (cardEntry("res-photo", .research(itemId: "res-photo")), CanvasItemKind.image.glyph),
+            (cardEntry("res-pdf", .research(itemId: "res-pdf")), CanvasItemKind.pdf.glyph),
+            (cardEntry("res-audio", .research(itemId: "res-audio")), CanvasItemKind.audio.glyph),
+            (cardEntry("res-card", .palette(cardId: "res-card")), CanvasItemKind.paletteCard.glyph),
+            (.palette(id: "res-card", title: "Act II fog"), CanvasItemKind.paletteCard.glyph),
+        ]
+        for (entry, glyph) in expected {
+            XCTAssertEqual(PieceFoldIndex.glyph(for: entry, in: items), glyph, entry.id)
+            // …and it is the very answer the canvas gives for the same item.
+            if case .card(let ref, _) = entry, case .research(let id) = ref.kind {
+                XCTAssertEqual(glyph, CanvasItemFacts.resolve(.project(id: id), in: items).glyph)
+            }
+        }
+        XCTAssertEqual(Set(expected.map(\.1)).count, 5,
+                       "premise: the five kinds draw five different glyphs")
+        // The index resolves them once, with the entries; a row looks its up.
+        let index = PieceFoldIndex(entries: ["ch-1": expected.map(\.0)], items: items)
+        for (entry, glyph) in expected {
+            XCTAssertEqual(index.glyph(of: entry), glyph, entry.id)
+        }
+    }
+
+    /// An *owned* picture has no manifest entry and never will, so it resolves
+    /// against an empty index.
+    func test_anOwnedPhotoRowResolvesWithoutAManifestEntry() {
+        let entry = cardEntry("canvas_assets/image-1.png", .photo(path: "canvas_assets/image-1.png"))
+        XCTAssertEqual(PieceFoldIndex.glyph(for: entry, in: .empty), CanvasItemKind.image.glyph)
+    }
+
+    /// **A scrap is not an item and has no `CanvasItemKind`**: its glyph is
+    /// the fold's one glyph of its own, and never an item kind's — sharing one
+    /// would make the two unreadable apart.
+    func test_aScrapRowUsesTheScrapGlyphAndNeverAnItemKind() {
+        let entry = cardEntry("n1", .scrap(nodeId: "n1"))
+        XCTAssertEqual(PieceFoldIndex.glyph(for: entry, in: .empty), PieceFoldIndex.scrapGlyph)
+        XCTAssertFalse(CanvasItemKind.allCases.map(\.glyph).contains(PieceFoldIndex.scrapGlyph))
+    }
+
+    /// A card whose item left the project draws the canvas's missing glyph;
+    /// a research row, a figure and a link are not canvas items and have none.
+    func test_aGoneItemDrawsTheMissingGlyphAndNonItemsHaveNone() {
+        XCTAssertEqual(PieceFoldIndex.glyph(for: cardEntry("gone", .research(itemId: "gone")), in: .empty),
+                       CanvasItemKind.missingGlyph)
+        for entry in [PieceFoldEntry.research(id: "r", title: "R", owned: true),
+                      .figure(id: "f", name: "F"), .link(pieceId: "p", title: "P", incoming: false)] {
+            XCTAssertNil(PieceFoldIndex.glyph(for: entry, in: .empty), entry.id)
+        }
+    }
+
+    /// The fold's view spells no glyph table of its own, and draws no
+    /// thumbnail (the shelf's thumbnails are gone by design: the tree's rows
+    /// are one line with a glyph).
+    func test_theFoldSpellsNoGlyphTableAndDrawsNoThumbnail() throws {
+        let fold = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/BinderPieceFold.swift"))
+            .joined(separator: "\n")
+        XCTAssertFalse(fold.contains("cardGlyph"), "the fold's own table is back")
+        for literal in CanvasItemKind.allCases.map(\.glyph) where literal != "link" {
+            XCTAssertFalse(fold.contains("\"\(literal)\""),
+                           "the fold spells the item glyph \"\(literal)\" itself")
+        }
+        XCTAssertEqual(fold.components(separatedBy: "state.foldIndex.glyph(of: entry)").count - 1, 2,
+                       "the card row and the palette row both ask the index")
+        XCTAssertFalse(fold.contains("CanvasThumbnails") || fold.contains("thumbnailPath"),
+                       "no thumbnail is drawn in the tree")
+    }
 }
 
 /// The index's production seams over a real `ProjectStore`: `key(store:…)`

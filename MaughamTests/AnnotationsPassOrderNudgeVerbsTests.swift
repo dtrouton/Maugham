@@ -17,7 +17,7 @@ import MaughamCore
 ///
 /// This suite mounts the real `ResolvePane` (To resolve's head draws the
 /// nudge since shell plan 2 Task 7 deleted the Annotations pane), wired
-/// exactly as `DetailPaneToggle` wires it, and checks that the nudge draws its
+/// exactly as `RightColumn` wires it, and checks that the nudge draws its
 /// caption and both verbs. What each verb WRITES is asserted without a window, against
 /// `PassOrderAdvice` itself: the press-and-poll cases that drove the buttons
 /// through `accessibilityPerformPress` and waited on the manifest were the
@@ -76,7 +76,7 @@ final class AnnotationsPassOrderNudgeVerbsTests: XCTestCase {
 
     /// `onSetPassState` here is `ProjectWindow`'s own closure, byte for byte
     /// (the `Task { try? await store.setPassState(...) }` at its
-    /// `DetailPaneToggle(...)` call site) — so a pass with this wiring but no
+    /// `RightColumn` mount) — so a pass with this wiring but no
     /// production caller would still go undetected. It doesn't: this is the
     /// production wiring, mounted directly.
     private func mountPane(_ fx: Harness) -> NSWindow {

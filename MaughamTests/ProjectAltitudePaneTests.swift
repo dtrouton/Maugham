@@ -8,11 +8,11 @@ import MaughamCore
 /// 1) plus one addition: a `title` prop for the header, so the pane can show
 /// the project's own name at altitude rather than the pane label "Outline".
 /// This task is the rename + readiness step only — at the time, the pane
-/// still mounted in the right-pane `.outline` arm (`DetailPaneToggle.swift`),
+/// still mounted in the right-pane `.outline` arm (the pane picker, since deleted),
 /// unchanged in behaviour. Tasks 2-3 moved it into the centre column
 /// alongside that arm, and Task 6 deleted the arm outright — the centre is the
 /// pane's only mount now (see `test_theCentreMountPassesTheProjectsOwnTitle`
-/// below, which replaced this file's premise about `DetailPaneToggle`). What
+/// below, which replaced this file's premise about the pane picker). What
 /// this file pins is the contract the brief names: the title prop is
 /// genuinely wired into the header (not the old hardcoded label), the data
 /// derivation is unchanged (documents only, no per-row I/O), and the

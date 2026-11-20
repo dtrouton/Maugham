@@ -24,8 +24,15 @@ public enum PulledUp: Hashable, Codable, Sendable {
     case canvasPhoto(path: String)
     /// The Book's statements that are not its intent.
     case lessons, firstReader, visualLanguage
-    /// A piece's history.
+    /// A piece's history — or the project's (`projectHistory`).
     case history(docId: String)
+
+    /// **The project's History**: its checkpoints, as the old History pane
+    /// showed with no piece (⌘⌥H on the Book). `HistoryPane` already reads the
+    /// no-document id that way, so it is that id and no second case.
+    public static let projectHistory = PulledUp.history(docId: BinderSubject.noDocumentSubject)
+
+    public var isProjectHistory: Bool { self == Self.projectHistory }
 
     private enum CodingKeys: String, CodingKey { case kind, id, path }
 

@@ -138,7 +138,7 @@ enum PinnedReferences {
     ///     its table from `StructureItem.id`).
     ///   - links: `ProjectStore.linkedResearchIds(forDocumentId:)` — research
     ///     item ids the writer linked. **Not** `StructureItem.links`, which is
-    ///     `InspectorLinksSection`'s unrelated document-to-document backlink
+    ///     the unrelated document-to-document link
     ///     field; `linkResearch(researchId:toDocumentId:)` is the only write
     ///     path into `linkedResearchIds`, and it never touches `.links`
     ///     (found wiring this into the compiler, M2 Plan 2 Task 3 — the two

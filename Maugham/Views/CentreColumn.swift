@@ -84,6 +84,8 @@ struct CentreColumn: View {
     let runRoundWhenPieceOpens: (_ pieceId: String) -> Void
     /// The drawing door's posture for one document.
     let posture: (_ docId: String) -> Posture
+    /// `ProjectWindow.openBrief` — a round report's filed line names a Brief.
+    var openBrief: (BinderSubject) -> Void = { _ in }
     /// The tree's Tab from the binder (`CanvasView.keyboardRequest`) and the
     /// canvas's ⇧Tab back (`CanvasView.returnKeyboardToTree`; nil where no
     /// visible binder answers it).
@@ -345,7 +347,9 @@ struct CentreColumn: View {
                         TranslationReveal.post(.init(
                             docId: round.docId, language: round.language,
                             paragraphId: paragraphId))
-                    })
+                    },
+                    // A filed line that names a Brief is a link.
+                    onOpenBrief: openBrief)
             case .designGate(let proposal):
                 DesignGateView(proposal: proposal, projectURL: store.url,
                                // The verdict's four verbs, wired to the window's own job

@@ -116,6 +116,9 @@ struct ProjectWindow: View {
     /// when the pulled-up position is left with nothing to show
     /// (`RightColumnContent.positionAfterSubjectChange`).
     @State private var previousFace: RightColumnPosition = .resolve
+    /// ⌘⌥L was pressed outside translation review: To resolve says, in one
+    /// line, how review is entered. Cleared by the column on the next move.
+    @State private var translationReviewHint = false
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
@@ -460,6 +463,8 @@ struct ProjectWindow: View {
             guard !treeFindActive,
                   let id = Self.foldPiece(subject: subject,
                                           structure: store?.manifest.structure ?? []) else { return }
+            // Every key reveals what it acts on: a hidden tree is shown.
+            columnVisibility = Self.revealingTheTree(columnVisibility)
             treeState.expandedPieceFolds.insert(id)
             treeState.scrollRequest = .row(.item(id))
         }
@@ -524,6 +529,8 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
+            translationReviewHint: $translationReviewHint,
+            translationLanguage: editorControl.translationLanguage,
             subject: subjectBinding,
             centreItem: $centreItem,
             restoreOutcome: $restoreOutcome,
@@ -862,6 +869,10 @@ struct ProjectWindow: View {
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
+        /// ⌘⌥L outside translation review (`RightColumn` draws the line).
+        @Binding var translationReviewHint: Bool
+        /// The editor's review language, for what To resolve shows now.
+        let translationLanguage: String?
         /// The window's subject. **Going to a place opens its piece**
         /// (`ManuscriptNavigation`): a `[[wiki-link]]`, the Inspector's Links
         /// row, the statistics window's jump and a find result in a piece all
@@ -892,10 +903,18 @@ struct ProjectWindow: View {
                     // to open the Annotations, Diagnostics or Tasks pane opens
                     // To resolve on that pane's filter. Read after the one
                     // selection act, so the column is revealed exactly as for
-                    // any other position key.
-                    if let filter = ProjectWindow.resolveFilter(in: note.userInfo) {
-                        resolveRequest = .filter(filter)
-                    }
+                    // any other position key. Where the position shows the
+                    // desk or the translation review, the filter is DROPPED,
+                    // never left to fire on a later mount (`positionAsk`).
+                    let ask = ProjectWindow.positionAsk(
+                        in: note.userInfo,
+                        shows: RightColumnContent.of(
+                            position: .resolve, subject: subject,
+                            translationLanguage: translationLanguage,
+                            structure: store?.manifest.structure ?? [],
+                            projectType: store?.manifest.type ?? .novel))
+                    if let request = ask.request { resolveRequest = request }
+                    translationReviewHint = ask.explainsTranslationReview
                 }
                 // The line above the prose, clicked: the open piece's Brief.
                 .onKeyWindowCommand(.maughamShowOpenPieceBrief, window: window) { _ in
@@ -1313,6 +1332,7 @@ struct ProjectWindow: View {
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             runRoundWhenPieceOpens: { runRoundWhenPieceOpens(pieceId: $0) },
             posture: { postureDrawn(forDocId: $0) },
+            openBrief: { openBrief($0) },
             canvasKeyboardRequest: canvasKeyboardRequest,
             // Only a visible binder answers ⇧Tab; otherwise the key travels on.
             returnKeyboardToTree: Self.binderTakesTheKeyboardBack(
@@ -1783,6 +1803,8 @@ struct ProjectWindow: View {
             openPromotedArtifact: openPromotedArtifact,
             showStrain: { showStrain($0) },
             openBrief: { openBrief($0) },
+            pullUp: { pullUpItem($0) },
+            translationReviewHint: $translationReviewHint,
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
             },
@@ -2226,6 +2248,14 @@ struct ProjectWindow: View {
         StrainJump(showInspector: true, position: .resolve, request: request)
     }
 
+    /// Brief's pull-up links (the Book's statements, an edition's Visual
+    /// Language): the keys' own act, so a link to what is already pulled up
+    /// still shows it.
+    func pullUpItem(_ item: PulledUp) {
+        Self.pullUp(item, subject: subjectBinding, showInspector: $showInspector,
+                    position: $rightColumnPosition)
+    }
+
     /// **Show a Brief** (a filed line's link, a piece in a Part's or the
     /// Book's Brief, an intent mark's Open): the faces move to `target` and
     /// the column shows Brief. `open` stays where it is — Brief reads and
@@ -2576,19 +2606,54 @@ struct ProjectWindow: View {
         (userInfo?[MaughamEvent.pullUpKey] as? String).flatMap(PullUpRequest.init(rawValue:))
     }
 
-    /// **Pull a Book statement or the faces' piece's History up** (⌘⌥G, ⌘⌥Y,
-    /// ⌘⌥V, ⌘⌥H; the Describe… hand-off): the item goes beside
-    /// (`ClickRule.pullUp`), the column is shown, and it is on the pulled-up
-    /// position — written here as well as by the subject's observer, which
-    /// cannot see a key pressed on what is already pulled up. A History key
-    /// with no piece in the faces or the centre does nothing.
+    /// **What a `.maughamSetRightColumn` post asks beyond the position**:
+    /// To resolve's filter, and ⌘⌥L's explanation.
+    struct PositionAsk: Equatable {
+        /// The request To resolve takes; nil where there is none to take.
+        let request: ResolveRequest?
+        /// To resolve says how translation review is entered.
+        let explainsTranslationReview: Bool
+    }
+
+    /// **The filter is handed over only where To resolve's list is what the
+    /// position shows** (`shows`, `RightColumnContent.of` for `.resolve`).
+    /// While it shows the Department desk or the translation review (both
+    /// interim, by the owner's decision) the key still selects the position
+    /// and the filter is dropped: a request left set would fire the next time
+    /// the list mounted, minutes later. The explanation is ⌘⌥L's, and only
+    /// while review is not on. Pure.
+    static func positionAsk(in userInfo: [AnyHashable: Any]?,
+                            shows: RightColumnContent) -> PositionAsk {
+        let listShows = shows == .resolve
+        return PositionAsk(
+            request: listShows ? resolveFilter(in: userInfo).map(ResolveRequest.filter) : nil,
+            explainsTranslationReview: listShows
+                && userInfo?[MaughamEvent.explainsTranslationReviewKey] as? Bool == true)
+    }
+
+    /// **Pull a Book statement or a History up** (⌘⌥G, ⌘⌥Y, ⌘⌥V, ⌘⌥H; the
+    /// Describe… hand-off; a statement mark's Open): what the request names
+    /// (`RightColumnContent.pulledUp` — for History the faces' piece, else the
+    /// open one, else the project's) goes through the one pull-up act.
     static func pullUp(_ request: PullUpRequest,
                        subject: Binding<WindowSubject>,
                        showInspector: Binding<Bool>,
                        position: Binding<RightColumnPosition>,
                        structure: [StructureItem]) {
-        guard let item = RightColumnContent.pulledUp(
-            for: request, subject: subject.wrappedValue, structure: structure) else { return }
+        pullUp(RightColumnContent.pulledUp(
+                    for: request, subject: subject.wrappedValue, structure: structure),
+               subject: subject, showInspector: showInspector, position: position)
+    }
+
+    /// **The one pull-up act** — the keys', and Brief's links': the item goes
+    /// beside (`ClickRule.pullUp`), the column is shown, and it is on the
+    /// pulled-up position — written here as well as by the subject's
+    /// observer, which cannot see a pull-up of what is already pulled up
+    /// (the subject does not change, so nothing would move the position off
+    /// Brief).
+    static func pullUp(_ item: PulledUp, subject: Binding<WindowSubject>,
+                       showInspector: Binding<Bool>,
+                       position: Binding<RightColumnPosition>) {
         let next = ClickRule.pullUp(item, current: subject.wrappedValue)
         if next != subject.wrappedValue { subject.wrappedValue = next }
         showInspector.wrappedValue = true
@@ -2596,12 +2661,20 @@ struct ProjectWindow: View {
     }
 
     /// **The piece ⌘⌥E opens the fold of**: the faces' piece, else the open
-    /// one (History's rule, asked rather than restated); nil where neither is
-    /// a piece.
+    /// one (`RightColumnContent.facesPiece`, History's rule); nil where
+    /// neither is a piece — the menu item is then disabled.
     static func foldPiece(subject: WindowSubject, structure: [StructureItem]) -> String? {
-        guard case .history(let docId)? = RightColumnContent.pulledUp(
-            for: .historyOfTheFaces, subject: subject, structure: structure) else { return nil }
-        return docId
+        RightColumnContent.facesPiece(subject, structure: structure)
+    }
+
+    /// The split view's visibility with the tree shown: `.all`, whatever it
+    /// was — a collapsed sidebar (focus mode on the canvas, or the writer's
+    /// own) comes back. (`.automatic` compares equal to `.doubleColumn`, so
+    /// "already showing" cannot be told from it; `.all` over a tree that
+    /// already shows changes nothing on screen.)
+    static func revealingTheTree(_ visibility: NavigationSplitViewVisibility)
+        -> NavigationSplitViewVisibility {
+        .all
     }
 
     /// Hand the writer to the first reader's statement, once Project Settings

@@ -206,7 +206,10 @@ final class FiledUnderTests: XCTestCase {
         ("Views/Brief/BriefBookView.swift", ["FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
         ("Views/RightColumn.swift", ["onOpenBrief: openBrief)", "onOpenBrief: openBrief,"]),
         ("Views/Publish/TranslationRoundReportView.swift",
-         ["run(settling: id, filedIn: ruleSection(of: id))", "FiledNotice(filing: $filedNotice)"]),
+         ["run(settling: id, filedIn: ruleSection(of: id))",
+          "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
+        ("Views/Publish/TranslationRoundReportHost.swift", ["onOpenBrief: onOpenBrief)"]),
+        ("Views/CentreColumn.swift", ["onOpenBrief: openBrief)"]),
     ]
 
     func test_everyFilingVerbReportsWhereItFiled() throws {

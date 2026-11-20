@@ -156,16 +156,61 @@ struct PieceFoldIndex: Equatable {
     /// docId → how its fold is drawn, worked out once with the entries, so a
     /// row looks its layout up and computes nothing (tripwire 4).
     let layouts: [String: PieceFoldLayout]
+    /// Entry id → the glyph its row draws, for a canvas card and a palette
+    /// card: **`CanvasItemFacts`' table, the canvas's own**, resolved once with
+    /// the entries (`glyph(for:in:)`) so a row looks it up (tripwire 4). The
+    /// research glyph table is not spelled again here: a pinned PDF, recording
+    /// or picture draws in the fold what it draws on the board.
+    let glyphs: [String: String]
 
     /// - Parameter alwaysGrouped: the pieces whose fold groups at any size
     ///   (`PieceFoldLayout.of(_:alwaysGroups:)`).
-    init(entries: [String: [PieceFoldEntry]], alwaysGrouped: Set<String> = []) {
+    init(entries: [String: [PieceFoldEntry]], alwaysGrouped: Set<String> = [],
+         items: CanvasItemIndex = .empty) {
         self.entries = entries
+        var glyphs: [String: String] = [:]
+        for row in entries.values.joined() {
+            if let glyph = Self.glyph(for: row, in: items) { glyphs[row.id] = glyph }
+        }
+        self.glyphs = glyphs
         var layouts: [String: PieceFoldLayout] = [:]
         for (docId, rows) in entries where !rows.isEmpty {
             layouts[docId] = PieceFoldLayout.of(rows, alwaysGroups: alwaysGrouped.contains(docId))
         }
         self.layouts = layouts
+    }
+
+    /// **A scrap is not an item and has no `CanvasItemKind`** — it is words
+    /// typed onto the board. Its one glyph of its own, never an item kind's.
+    static let scrapGlyph = "note.text"
+
+    /// The glyph of a card or palette row, through `CanvasItemFacts`; nil for
+    /// the rows that are not canvas items (research rows are `ResearchRow`'s,
+    /// figures and links draw their own). No thumbnail is resolved: the tree
+    /// draws none.
+    static func glyph(for entry: PieceFoldEntry, in items: CanvasItemIndex) -> String? {
+        switch entry {
+        case .card(let ref, _):
+            switch ref.kind {
+            // One arm for both: a palette card IS a research item, told apart
+            // by position, and `CanvasItemFacts` reads that off the entry.
+            case .research(let id), .palette(let id):
+                return CanvasItemFacts.resolve(.project(id: id), in: items).glyph
+            case .photo(let path):
+                return CanvasItemFacts.resolve(.owned(path: path), in: items).glyph
+            case .scrap:
+                return scrapGlyph
+            }
+        case .palette(let id, _):
+            return CanvasItemFacts.resolve(.project(id: id), in: items).glyph
+        case .research, .figure, .link:
+            return nil
+        }
+    }
+
+    /// The glyph `entry`'s row draws, as resolved when the index was built.
+    func glyph(of entry: PieceFoldEntry) -> String {
+        glyphs[entry.id] ?? CanvasItemKind.missingGlyph
     }
 
     /// The layout of `docId`'s fold; nil for an empty fold (no chevron).
@@ -213,7 +258,8 @@ struct PieceFoldIndex: Equatable {
                                structure: manifest.structure, research: manifest.research)
             if !rows.isEmpty { out[item.id] = rows }
         }
-        return PieceFoldIndex(entries: out, alwaysGrouped: grouped)
+        return PieceFoldIndex(entries: out, alwaysGrouped: grouped,
+                              items: CanvasItemIndex.over(research: manifest.research))
     }
 
     /// One piece's fold, from values. Pure.

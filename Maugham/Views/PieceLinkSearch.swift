@@ -3,7 +3,7 @@ import MaughamCore
 
 /// **The add-link search** — a document title filter over every other
 /// document not already linked; a pick hands the id back. Moved out of
-/// `InspectorLinksSection`'s popover (shell p3 Task 8) so the tree's "Add
+/// the old inspector's links popover (shell p3 Task 8) so the tree's "Add
 /// Link…" sheet opens this search and not a second one.
 struct PieceLinkSearch: View {
     @Bindable var store: ProjectStore

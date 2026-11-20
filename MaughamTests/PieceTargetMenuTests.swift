@@ -161,6 +161,9 @@ final class PieceTargetMenuTests: XCTestCase {
         // …and a second edit after it writes again, back to the stored value
         // included.
         XCTAssertEqual(words.commitValue(text: "2000", lastWritten: 3000), 2000)
+        // Escape cancels: nothing is written, whatever was typed.
+        XCTAssertNil(words.commitValue(text: "3000", cancelled: true))
+        XCTAssertNil(words.commitValue(text: "0", lastWritten: 3000, cancelled: true))
         // No target yet: 0 is what stands.
         let none = PieceTargetMenu(write: .piecePages("pc01"), current: nil)
         XCTAssertNil(none.commitValue(text: "0"))
@@ -181,7 +184,8 @@ final class PieceTargetMenuTests: XCTestCase {
         for token in ["TextField(\"\", text: $text)", ".onSubmit { commit(); onDone() }",
                       "Button(\"Set\") { commit(); onDone() }",
                       "if !isFocused { commit() }", ".onDisappear { commit() }",
-                      "menu.commitValue(text: text, lastWritten: lastWritten)"] {
+                      ".onExitCommand { cancel() }", "cancelled = true",
+                      "menu.commitValue(text: text, lastWritten: lastWritten,"] {
             XCTAssertTrue(code.contains(token), "the field lost \(token)")
         }
         let footer = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/EditorStatusFooter.swift"))

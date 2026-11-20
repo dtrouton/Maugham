@@ -225,6 +225,13 @@ struct PulledUpView: View {
         read(pulled, scene: scene, scraps: [:]) != .missing
     }
 
+    /// **The centre's own research details under Lock** (its citation, tags
+    /// and versions, drawn here while nothing is pulled up): read-only exactly
+    /// where the same item pulled up would be — Lock's one answer.
+    static func centreResearchIsReadOnly(_ id: String, isLocked: Bool) -> Bool {
+        PulledUp.research(id).refusesEdits(isLocked: isLocked)
+    }
+
     /// The node holding a canvas-owned picture, the lowest id when several do.
     static func photoNode(_ path: String, in scene: CanvasScene) -> CanvasNodeID? {
         scene.unorderedNodes
@@ -462,7 +469,7 @@ struct PulledUpView: View {
             figureInspector(id)
         case .research(let id)?:
             researchInspector(id, showsPreview: false,
-                              readOnly: PulledUp.research(id).refusesEdits(isLocked: isLocked))
+                              readOnly: Self.centreResearchIsReadOnly(id, isLocked: isLocked))
         case .referencePiece(let id)?:
             ReferencePieceInspector(store: store, pieceId: id)
         case nil:

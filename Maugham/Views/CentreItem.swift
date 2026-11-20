@@ -17,8 +17,11 @@ extension ProjectWindow {
     static func openingInCentre(_ item: CentreItem, subject: WindowSubject) -> WindowSubject {
         let target: BinderSubject
         switch item {
-        case .statement(.intent, .document(let id)), .history(let id):
+        case .statement(.intent, .document(let id)):
             target = .item(id)
+        case .history(let id):
+            // The project's History belongs to the Book.
+            target = id == BinderSubject.noDocumentSubject ? .project : .item(id)
         case .statement:
             target = .project
         }

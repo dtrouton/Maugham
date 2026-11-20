@@ -629,4 +629,44 @@ final class RegistryReaderWriterTests: XCTestCase {
         XCTAssertEqual(registry.actorFingerprints(ofDevice: phone.fingerprint), [],
                        "a device with no record has no actors we can vouch for")
     }
+
+    // MARK: - A directory that vanished between the check and the listing
+
+    /// `files(in:)` checks the directory exists and then lists it. A folder
+    /// removed between the two (a project being deleted under a reader, iCloud
+    /// taking a folder away) fails the listing with "no such file": that is
+    /// ABSENT — no registry there — and not RULING-54's "exists and cannot be
+    /// read". Every other failure still throws.
+    func test_aListingThatFailsBecauseTheDirectoryIsGoneIsAbsent() throws {
+        let gone = TestTemp.root
+            .appendingPathComponent("registry-gone-\(UUID().uuidString)", isDirectory: true)
+        XCTAssertThrowsError(try FileManager.default.contentsOfDirectory(
+            at: gone, includingPropertiesForKeys: nil, options: [])) { error in
+            XCTAssertTrue(RegistryReader.isAbsent(error),
+                          "the listing of a directory that is not there: \(error)")
+        }
+        XCTAssertTrue(RegistryReader.isAbsent(
+            NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))))
+        XCTAssertTrue(RegistryReader.isAbsent(
+            NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError,
+                    userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain,
+                                                             code: Int(ENOENT))])))
+
+        // The controls: a path that is a FILE, and a permission failure, are
+        // not absence.
+        let folder = TestTemp.root
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("registry-file-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertThrowsError(try FileManager.default.contentsOfDirectory(
+            at: file, includingPropertiesForKeys: nil, options: [])) { error in
+            XCTAssertFalse(RegistryReader.isAbsent(error),
+                           "a file where the directory should be is not absence: \(error)")
+        }
+        XCTAssertFalse(RegistryReader.isAbsent(
+            NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)))
+        XCTAssertFalse(RegistryReader.isAbsent(
+            NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))))
+    }
 }

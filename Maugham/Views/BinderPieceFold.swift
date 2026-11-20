@@ -136,10 +136,10 @@ struct BinderPieceFold: View {
                     linkedFromResearch: !owned)
             }
         case .card(let ref, let regionTitle):
-            pullUpRow(entry, glyph: Self.cardGlyph(ref.kind), title: ref.title,
+            pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: ref.title,
                       caption: regionTitle, doubleClick: Self.doubleClickSubject(of: entry))
         case .palette(_, let title):
-            pullUpRow(entry, glyph: "paintpalette", title: title, caption: nil,
+            pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title, caption: nil,
                       doubleClick: Self.doubleClickSubject(of: entry))
         case .figure(let id, let name):
             // A `List` tag: a figure takes the centre (the click rule).
@@ -351,15 +351,6 @@ struct BinderPieceFold: View {
     /// "Research (3)".
     static func groupTitle(_ run: PieceFoldGroupRun) -> String {
         "\(groupName(run.group)) (\(run.entries.count))"
-    }
-
-    static func cardGlyph(_ kind: PinnedReference.Kind) -> String {
-        switch kind {
-        case .scrap: return "note.text"
-        case .photo: return "photo"
-        case .research: return "doc.text"
-        case .palette: return "paintpalette"
-        }
     }
 
     static let outgoingLinkGlyph = "link"

@@ -22,7 +22,7 @@ final class BriefPaneTests: XCTestCase {
     override func tearDown() async throws {
         for document in closers { await document.close() }
         closers.removeAll()
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }

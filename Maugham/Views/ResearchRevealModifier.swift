@@ -52,6 +52,12 @@ struct ResearchRevealModifier: ViewModifier {
                 previousFace = Self.previousFace(previousFace, after: new)
                 documentStore?.updateUIState { $0.rightColumnPosition = new }
             }
+            // ⌘⌥E's menu item is enabled only where there is a piece whose
+            // fold it can open.
+            .focusedSceneValue(\.pieceFoldIsOffered,
+                               ProjectWindow.foldPiece(
+                                subject: subject ?? .book,
+                                structure: store?.manifest.structure ?? []) != nil)
     }
 
     /// **Only something ARRIVING pulled up reveals.** `beside` persists

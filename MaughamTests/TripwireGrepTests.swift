@@ -3983,7 +3983,7 @@ final class TripwireGrepTests: XCTestCase {
     /// `func`, `init`) is found, that VStack's own modifier chain — the lines
     /// from its closing brace to the end of the chain — must carry
     /// `.frame(… alignment: .top)`. A site factored into a helper with no
-    /// VStack of its own (most `DetailPaneToggle` panes, every phone use, which
+    /// VStack of its own (most right-column panes, every phone use, which
     /// sit in a `List` or a `NavigationStack`) has no enclosing VStack in its
     /// declaration and is not judged by this half.
     static func unalignedContentUnavailableViewStacks(
@@ -4295,7 +4295,7 @@ final class TripwireGrepTests: XCTestCase {
     /// Self-check: prove the frame guard FIRES on a planted frameless
     /// `ContentUnavailableView` and does NOT fire on one whose frame chain
     /// sits at the edge of the window (distance 4, matching real call sites
-    /// like DetailPaneToggle.swift).
+    /// like RightColumn.swift).
     func test_contentUnavailableViewFrameGuardFiresOnPlantedOffender() throws {
         let fm = FileManager.default
         let tmp = TestTemp.root

@@ -174,7 +174,7 @@ final class RightColumnContentTests: XCTestCase {
     }
 
     func test_historyKeyPullsUpTheFacesPieceElseTheOpenOne() {
-        func history(_ subject: WindowSubject) -> PulledUp? {
+        func history(_ subject: WindowSubject) -> PulledUp {
             RightColumnContent.pulledUp(for: .historyOfTheFaces, subject: subject,
                                         structure: structure)
         }
@@ -182,8 +182,32 @@ final class RightColumnContentTests: XCTestCase {
         XCTAssertEqual(history(ws(.item("ch-1"), .item("part-1"))), .history(docId: "ch-1"),
                        "a Part in the faces: the open piece")
         XCTAssertEqual(history(ws(.item("ch-1"), .project)), .history(docId: "ch-1"))
-        XCTAssertNil(history(ws(.canvas)), "nothing is a piece: the key is inert")
-        XCTAssertNil(history(.book))
+        // No piece in the faces or the centre: the PROJECT's History — its
+        // checkpoints, what the old History pane showed on the Book.
+        XCTAssertEqual(history(ws(.canvas)), .projectHistory)
+        XCTAssertEqual(history(.book), .projectHistory)
+        XCTAssertEqual(history(ws(.item("part-1"))), .projectHistory, "a Part is not a piece")
+        XCTAssertTrue(PulledUp.projectHistory.isProjectHistory)
+        XCTAssertFalse(PulledUp.history(docId: "ch-1").isProjectHistory)
+        XCTAssertEqual(PulledUp.projectHistory, .history(docId: BinderSubject.noDocumentSubject),
+                       "the id `HistoryPane` already reads as no document")
+        // It names no piece, so nothing can put it away on a restore; a
+        // piece's History whose piece is gone still goes.
+        var held = ws(.item("ch-1"))
+        held.beside = .projectHistory
+        XCTAssertEqual(held.validated(structure: structure, researchIDs: [], figureIDs: [],
+                                      editionLanguages: []).beside, .projectHistory)
+        held.beside = .history(docId: "gone")
+        XCTAssertNil(held.validated(structure: structure, researchIDs: [], figureIDs: [],
+                                    editionLanguages: []).beside)
+        // Open in Centre puts it over the Book, and it is titled as itself.
+        XCTAssertEqual(ProjectWindow.openingInCentre(
+            .history(docId: BinderSubject.noDocumentSubject), subject: held).open, .project)
+        XCTAssertEqual(CentreItemCover.title(
+            of: .history(docId: BinderSubject.noDocumentSubject), structure: structure),
+            CentreItemCover.projectHistoryTitle)
+        XCTAssertEqual(RightColumnContent.facesPiece(ws(.canvas, .item("ch-2")), structure: structure), "ch-2")
+        XCTAssertNil(RightColumnContent.facesPiece(.book, structure: structure))
         XCTAssertEqual(RightColumnContent.pulledUp(for: .lessons, subject: .book,
                                                    structure: structure), .lessons)
         XCTAssertEqual(RightColumnContent.pulledUp(for: .firstReader, subject: .book,

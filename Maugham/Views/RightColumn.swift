@@ -89,6 +89,12 @@ struct RightColumn: View {
     /// `ProjectWindow.openBrief` — the faces move to the subject and Brief
     /// shows it (a filed line's link, a Part's or the Book's piece).
     var openBrief: (BinderSubject) -> Void = { _ in }
+    /// `ProjectWindow.pullUpItem` — Brief's pull-up links, through the one
+    /// pull-up act (the position moves even when the item is already beside).
+    var pullUp: (PulledUp) -> Void = { _ in }
+    /// ⌘⌥L was pressed outside translation review: To resolve says how
+    /// review is entered. Cleared here on the next move.
+    @Binding var translationReviewHint: Bool
     /// Whether the tree's Figures section draws a figure
     /// (`BinderTreeSectionsState.drawsFigure`), for To resolve's figure click.
     var drawsFigure: (String) -> Bool = { _ in false }
@@ -260,6 +266,35 @@ struct RightColumn: View {
         .onChange(of: editorControl.translationLanguage) { _, lang in
             if lang != nil { position = .resolve }
         }
+        // ⌘⌥L's explanation stands until the writer moves on.
+        .onChange(of: Self.hintStandsOver(position: position, subject: subject,
+                                          translationLanguage: editorControl.translationLanguage)) { _, _ in
+            translationReviewHint = false
+        }
+    }
+
+    /// How translation review is entered — what ⌘⌥L says outside it (the old
+    /// Translation pane's sentence, with the menu item named).
+    static let translationReviewHintLine =
+        "Not in translation review. Choose View ▸ Translation Review… to see a "
+        + "paragraph's source text and reply to translator queries."
+
+    /// What ⌘⌥L's explanation stands over: any change of it clears the line.
+    struct HintGround: Equatable {
+        let position: RightColumnPosition
+        let subject: WindowSubject
+        let inReview: Bool
+    }
+
+    static func hintStandsOver(position: RightColumnPosition, subject: WindowSubject,
+                               translationLanguage: String?) -> HintGround {
+        HintGround(position: position, subject: subject, inReview: translationLanguage != nil)
+    }
+
+    /// Whether the explanation is drawn: asked for, and To resolve's own list
+    /// is what shows (never over the review itself, or the desk).
+    static func showsTranslationReviewHint(_ asked: Bool, shown: RightColumnContent) -> Bool {
+        asked && shown == .resolve
     }
 
     /// What the column shows now — the table's one answer.
@@ -276,6 +311,17 @@ struct RightColumn: View {
     private var content: some View {
         switch shown {
         case .resolve:
+            if Self.showsTranslationReviewHint(translationReviewHint, shown: shown) {
+                Text(Self.translationReviewHintLine)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("resolve.translationReviewHint")
+                Divider()
+            }
             resolvePane
         case .translationReview:
             translationPane
@@ -288,7 +334,7 @@ struct RightColumn: View {
                 diagnostics: roster.compiler.diagnostics, bible: bible, world: declaredWorld,
                 centreItem: centreItem,
                 onOpenInCentre: openInCentre,
-                onPullUp: { subject = ClickRule.pullUp($0, current: subject) },
+                onPullUp: pullUp,
                 onShowStrain: showStrain,
                 onOpenBrief: openBrief,
                 // The desk is To resolve's answer while an edition is the

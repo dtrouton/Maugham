@@ -125,24 +125,31 @@ enum RightColumnContent: Equatable {
     }
 
     /// What a key or a Brief link pulls up. History is of the faces' piece,
-    /// else of the open piece, else nil (the key is then inert).
+    /// else of the open piece, else the PROJECT's — its checkpoints, what the
+    /// old History pane showed on the Book (owner's ruling, Task 9 fix 1).
     ///
     /// Takes `structure`, which the brief's signature did not: a Part in the
     /// faces is not a piece, and its History is not a thing.
     static func pulledUp(for request: PullUpRequest, subject: WindowSubject,
-                         structure: [StructureItem]) -> PulledUp? {
+                         structure: [StructureItem]) -> PulledUp {
         switch request {
         case .lessons: return .lessons
         case .firstReader: return .firstReader
         case .visualLanguage: return .visualLanguage
         case .historyOfTheFaces:
-            for part in [subject.faces, subject.open] {
-                if case .item(let id) = part, ClickRule.isPiece(id, in: structure) {
-                    return .history(docId: id)
-                }
-            }
-            return nil
+            return facesPiece(subject, structure: structure).map { .history(docId: $0) }
+                ?? .projectHistory
         }
+    }
+
+    /// The faces' piece, else the open one; nil where neither is a piece (a
+    /// Part, the Book, the canvas with nothing faced). History's piece and
+    /// the one ⌘⌥E opens the fold of.
+    static func facesPiece(_ subject: WindowSubject, structure: [StructureItem]) -> String? {
+        for part in [subject.faces, subject.open] {
+            if case .item(let id) = part, ClickRule.isPiece(id, in: structure) { return id }
+        }
+        return nil
     }
 
     /// **A click on the line above the prose** (`IntentStrip`): the line is

@@ -77,7 +77,8 @@ final class ResolveMountingTests: XCTestCase {
         let receiver = try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window)", under: "Maugham")
         let select = try XCTUnwrap(receiver.range(of: "ProjectWindow.selectPosition("))
-        let request = try XCTUnwrap(receiver.range(of: "resolveRequest = .filter(filter)"))
+        let request = try XCTUnwrap(receiver.range(
+            of: "if let request = ask.request { resolveRequest = request }"))
         XCTAssertLessThan(select.lowerBound, request.lowerBound,
                           "the column is revealed before the filter is asked for")
     }

@@ -82,8 +82,8 @@ enum FiledUnder {
     }
 
     /// **The Brief that shows the destination** — what the line's click
-    /// would put on the faces (Task 9 wires it; the faces move, `open` does
-    /// not). A piece's intent is that piece's Brief; the book's intent, the
+    /// would put on the faces (`ProjectWindow.openBrief`; the faces move,
+    /// `open` does not). A piece's intent is that piece's Brief; the book's intent, the
     /// ledger, the first reader and Visual Language are the Book's; an edition
     /// brief is its edition's.
     ///
@@ -125,8 +125,8 @@ enum FiledUnder {
 /// not take the line with it.
 ///
 /// Where `onOpenBrief` is given the line is a button that shows the
-/// destination's Brief. No host passes it until the right column's
-/// positions are mounted (Task 9): until then the line is text alone.
+/// destination's Brief (`ProjectWindow.openBrief`); without it the line is
+/// text alone.
 struct FiledNotice: View {
     struct Filing: Equatable, Identifiable {
         let id = UUID()

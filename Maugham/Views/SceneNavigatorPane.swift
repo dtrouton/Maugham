@@ -182,7 +182,8 @@ struct SceneNavigatorPane: View {
             .contextMenu {
                 if let script = TreeWalk.find(id: documentID, in: store.manifest.structure) {
                     PieceRowMenuButtons(
-                        item: script, verbs: structureVerbs(for: script), state: treeState,
+                        item: script, verbs: TreeStructureVerbs.decide(for: script, in: store),
+                        state: treeState,
                         offersTarget: PieceRowMenus.target(for: script, store: store) != nil,
                         offersLinks: false)
                 }
@@ -193,14 +194,6 @@ struct SceneNavigatorPane: View {
             // it is this tree's whole answer to `BinderView.outline`'s `.id`.
             .id(BinderSubject.item(documentID))
         }
-    }
-
-    /// The script's structural verbs, from the window's posture door —
-    /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
-    func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .none }
-        return TreeStructureVerbs.decide(
-            for: item, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     /// The List's selection, PROJECTED — the pane's whole answer to having two

@@ -374,9 +374,7 @@ struct BinderView: View {
     /// the window nils its store a frame before the tree goes, so the absence
     /// fails CLOSED — as `postureDrawn(forDocId:)` does — never open.
     func structureVerbs(for item: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .none }
-        return TreeStructureVerbs.decide(
-            for: item, postureOf: { documentStore.posture(forDocId: $0) })
+        TreeStructureVerbs.decide(for: item, in: store)
     }
 
     /// New Document / New Group at the root, and the empty state's buttons.
@@ -649,6 +647,17 @@ struct TreeStructureVerbs: Equatable {
     /// Whether any verb at all is offered — a row with none draws no menu.
     var offersAny: Bool {
         newInside || duplicate || rename || delete || move || linkResearch || tidy
+    }
+
+    /// **A row's verbs, from the window's posture door** — the one wrapper
+    /// every tree asks (the binder, the Collection's pieces, a screenplay's
+    /// script row). A `ProjectStore` with no `DocumentStore` behind it offers
+    /// NOTHING: `ProjectStore.documentStore` is weak and the window nils its
+    /// store a frame before the tree goes, so the absence fails CLOSED.
+    @MainActor
+    static func decide(for item: StructureItem, in store: ProjectStore) -> TreeStructureVerbs {
+        guard let documentStore = store.documentStore else { return .none }
+        return decide(for: item, postureOf: { documentStore.posture(forDocId: $0) })
     }
 
     static func decide(

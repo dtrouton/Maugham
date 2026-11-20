@@ -155,8 +155,11 @@ struct PieceTargetMenu: Equatable {
     /// parse, and where it is the target already standing (`lastWritten`, the
     /// value this field wrote a moment ago, else the stored one), so the three
     /// commits of one edit write once.
-    func commitValue(text: String, lastWritten: Int? = nil) -> Int? {
-        guard let parsed = Self.parse(text) else { return nil }
+    ///
+    /// **Escape cancels** (`cancelled`): the macOS cancel gesture writes
+    /// nothing, whatever was typed.
+    func commitValue(text: String, lastWritten: Int? = nil, cancelled: Bool = false) -> Int? {
+        guard !cancelled, let parsed = Self.parse(text) else { return nil }
         let value = clamped(parsed)
         return value == (lastWritten ?? current ?? 0) ? nil : value
     }
@@ -170,7 +173,7 @@ struct PieceTargetMenu: Equatable {
 /// loss, so Set pressed over freshly typed digits wrote the number from
 /// before the edit. Here Set, Return and losing focus (the popover dismissed
 /// by a click outside included) all commit what is in the field
-/// (`PieceTargetMenu.commitValue`).
+/// (`PieceTargetMenu.commitValue`). **Escape cancels**: nothing is written.
 struct PieceTargetField: View {
     let menu: PieceTargetMenu
     /// The write, with the clamped value.
@@ -180,6 +183,9 @@ struct PieceTargetField: View {
 
     @State private var text: String
     @State private var lastWritten: Int?
+    /// Escape was pressed: no later commit (the focus loss and the
+    /// disappearance that follow it) writes.
+    @State private var cancelled = false
     @FocusState private var focused: Bool
 
     init(menu: PieceTargetMenu, onSet: @escaping (Int) -> Void, onDone: @escaping () -> Void = {}) {
@@ -206,12 +212,14 @@ struct PieceTargetField: View {
                 .frame(width: 70)
                 .focused($focused)
                 .onSubmit { commit(); onDone() }
+                .onExitCommand { cancel() }
             Stepper("", value: stepped, in: menu.range, step: menu.step)
                 .labelsHidden()
             Button("Set") { commit(); onDone() }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(12)
+        .onExitCommand { cancel() }
         .onChange(of: focused) { _, isFocused in
             if !isFocused { commit() }
         }
@@ -221,8 +229,14 @@ struct PieceTargetField: View {
     }
 
     private func commit() {
-        guard let value = menu.commitValue(text: text, lastWritten: lastWritten) else { return }
+        guard let value = menu.commitValue(text: text, lastWritten: lastWritten,
+                                           cancelled: cancelled) else { return }
         lastWritten = value
         onSet(value)
+    }
+
+    private func cancel() {
+        cancelled = true
+        onDone()
     }
 }

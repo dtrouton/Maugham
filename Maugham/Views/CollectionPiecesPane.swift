@@ -325,9 +325,7 @@ struct CollectionPiecesPane: View {
     /// The pieces' structural verbs, from the window's posture door —
     /// `BinderView.structureVerbs`' twin; no door, no verb (fails closed).
     func structureVerbs(for piece: StructureItem) -> TreeStructureVerbs {
-        guard let documentStore = store.documentStore else { return .none }
-        return TreeStructureVerbs.decide(
-            for: piece, postureOf: { documentStore.posture(forDocId: $0) })
+        TreeStructureVerbs.decide(for: piece, in: store)
     }
 
     /// The header's + menu: every item in it starts (or links in) a piece.

@@ -38,7 +38,7 @@ final class RightColumnMountingTests: XCTestCase {
         for window in windows { window.contentView = NSView(frame: .zero) }
         await waitOut(0.05)
         windows.removeAll()
-        for fixture in fixtures { fixture.tearDown() }
+        for fixture in fixtures { await fixture.closeAndTearDown() }
         fixtures.removeAll()
         try await super.tearDown()
     }
@@ -87,6 +87,7 @@ final class RightColumnMountingTests: XCTestCase {
 
     /// One View-menu item: its action's code and its key.
     private struct MenuKey: Equatable {
+        let title: String
         let action: String
         let key: String
         let modifiers: String
@@ -96,14 +97,15 @@ final class RightColumnMountingTests: XCTestCase {
     /// `text`, with whitespace collapsed so wrapping never matters.
     private static func menuKeys(in text: String) -> [MenuKey] {
         let code = Self.flat(text)
-        let pattern = #"Button\("[^"]*"\)\s*\{\s*(.*?)\s*\}\s*\.keyboardShortcut\("(.)",\s*modifiers:\s*(\[[^\]]*\]|\.[a-z]+)\)"#
+        let pattern = #"Button\("([^"]*)"\)\s*\{\s*([^{}]*?)\s*\}\s*\.keyboardShortcut\("(.)",\s*modifiers:\s*(\[[^\]]*\]|\.[a-z]+)\)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = code as NSString
         return regex.matches(in: code, range: NSRange(location: 0, length: ns.length)).map {
-            MenuKey(action: ns.substring(with: $0.range(at: 1))
+            MenuKey(title: ns.substring(with: $0.range(at: 1)),
+                    action: ns.substring(with: $0.range(at: 2))
                         .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " "),
-                    key: ns.substring(with: $0.range(at: 2)),
-                    modifiers: ns.substring(with: $0.range(at: 3)).replacingOccurrences(of: " ", with: ""))
+                    key: ns.substring(with: $0.range(at: 3)),
+                    modifiers: ns.substring(with: $0.range(at: 4)).replacingOccurrences(of: " ", with: ""))
         }
     }
 
@@ -125,8 +127,28 @@ final class RightColumnMountingTests: XCTestCase {
         ("v", "MaughamEvent.postPullUp(.visualLanguage)"),
         ("h", "MaughamEvent.postPullUp(.historyOfTheFaces)"),
         ("e", "MaughamEvent.postShowPieceFold()"),
-        ("l", "MaughamEvent.postPosition(.resolve)"),
+        ("l", "MaughamEvent.postTranslationReviewPosition()"),
         ("k", "MaughamEvent.postPosition(.resolve)"),
+    ]
+
+    /// **Each item is titled for what its key does** (owner's ruling, Task 9
+    /// fix 1), not for the pane the key used to open.
+    private static let menuTitles: [(key: String, modifiers: String, title: String)] = [
+        ("1", ".command", "To Resolve"),
+        ("2", ".command", "Brief"),
+        ("3", ".command", "Pulled Up"),
+        ("a", commandOption, "To Resolve: Rounds"),
+        ("d", commandOption, "To Resolve: Checks"),
+        ("t", commandOption, "To Resolve: Mine"),
+        ("i", commandOption, "Brief: the Line"),
+        ("n", commandOption, "Brief: Going For"),
+        ("g", commandOption, "Pull Up What I've Learned"),
+        ("y", commandOption, "Pull Up First Reader"),
+        ("v", commandOption, "Pull Up Visual Language"),
+        ("h", commandOption, "Pull Up History"),
+        ("e", commandOption, "Open the Piece's Fold"),
+        ("l", commandOption, "To Resolve: Translation Review"),
+        ("k", commandOption, "To Resolve: Department Desk"),
     ]
 
     /// What disagrees between a View menu and the map: a key bound to
@@ -173,10 +195,34 @@ final class RightColumnMountingTests: XCTestCase {
         // No right-column key is left on the pane picker's old event.
         XCTAssertFalse(app.contains("postSegment("), "the pane picker's post is gone")
 
+        // Each item says what its key does; no item is titled for a pane
+        // that is gone.
+        let keys = Self.menuKeys(in: app)
+        for entry in Self.menuTitles {
+            XCTAssertEqual(keys.filter { $0.key == entry.key && $0.modifiers == entry.modifiers }.map(\.title),
+                           [entry.title], "the item on \(entry.modifiers) \(entry.key)")
+        }
+        for gone in ["Inspector", "Intent", "Annotations", "Diagnostics", "Tasks", "History",
+                     "References", "Translation", "Department", "What I've Learned",
+                     "First Reader", "Visual Language"] {
+            XCTAssertFalse(keys.contains { $0.title == gone }, "an item is still titled “\(gone)”")
+        }
+        // ⌘⌥E is disabled, not inert, where the window has no piece.
+        let flat = Self.flat(app)
+        XCTAssertTrue(flat.contains(
+            #"Button("Open the Piece's Fold") { MaughamEvent.postShowPieceFold() } .keyboardShortcut("e", modifiers: [.command, .option]) .disabled(offered != true)"#),
+            "the fold item lost its enablement")
+        XCTAssertTrue(flat.contains("@FocusedValue(\\.pieceFoldIsOffered) private var offered"))
+        let observer = Self.flat(try SourceTree.sourceOfType("ResearchRevealModifier", under: ["Maugham"]))
+        XCTAssertTrue(observer.contains(
+            ".focusedSceneValue(\\.pieceFoldIsOffered, ProjectWindow.foldPiece( subject: subject ?? .book, "
+            + "structure: store?.manifest.structure ?? []) != nil)"),
+            "the window no longer says whether it has a piece whose fold can open: \(observer)")
+
         // The planted offender: ⌘⌥H bound to Brief.
         let planted = app.replacingOccurrences(
-            of: #"Button("History") { MaughamEvent.postPullUp(.historyOfTheFaces) }"#,
-            with: #"Button("History") { MaughamEvent.postPosition(.brief) }"#)
+            of: #"Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }"#,
+            with: #"Button("Pull Up History") { MaughamEvent.postPosition(.brief) }"#)
         XCTAssertNotEqual(planted, app, "premise: the History item is spelled as the plant expects")
         XCTAssertEqual(Self.paneKeyProblems(in: planted).count, 1,
                        "\(Self.paneKeyProblems(in: planted))")
@@ -521,7 +567,8 @@ final class RightColumnMountingTests: XCTestCase {
             XCTAssertEqual(position, .pulledUp)
             XCTAssertTrue(shown)
         }
-        // History with no piece in the faces or the centre does nothing.
+        // History with no piece in the faces or the centre is the PROJECT's
+        // (its checkpoints, as the old History pane showed on the Book).
         var subject = WindowSubject.book
         var shown = false
         var position = RightColumnPosition.brief
@@ -531,9 +578,168 @@ final class RightColumnMountingTests: XCTestCase {
             showInspector: Binding(get: { shown }, set: { shown = $0 }),
             position: Binding(get: { position }, set: { position = $0 }),
             structure: structure)
-        XCTAssertEqual(subject, .book)
-        XCTAssertFalse(shown)
-        XCTAssertEqual(position, .brief)
+        XCTAssertEqual(subject.beside, .projectHistory)
+        XCTAssertEqual(subject.open, .project)
+        XCTAssertTrue(shown)
+        XCTAssertEqual(position, .pulledUp)
+        XCTAssertEqual(RightColumnContent.of(
+            position: .pulledUp, subject: subject, translationLanguage: nil,
+            structure: structure, projectType: .novel), .pulledUp(.projectHistory))
+    }
+
+    /// **Brief's pull-up links are the keys' own act** (review I1). With the
+    /// item already pulled up the subject does not change, so no observer
+    /// moves the position: a link that only wrote the subject left the writer
+    /// on Brief with nothing happening.
+    func test_aBriefLinkToWhatIsAlreadyPulledUpStillShowsIt() throws {
+        for item in [PulledUp.visualLanguage, .lessons, .firstReader] {
+            // ⌘⌥V, then ⌘2 to the Book's Brief, then the link.
+            var subject = ClickRule.pullUp(item, current: .book)
+            var shown = true
+            var position = RightColumnPosition.brief
+            let before = subject
+            XCTAssertEqual(ClickRule.pullUp(item, current: subject), before,
+                           "premise: the subject does not change, so no observer fires")
+            XCTAssertEqual(RightColumnContent.positionAfterSubjectChange(
+                position, from: before, to: before, previousFace: .brief,
+                structure: structure, projectType: .novel), .brief,
+                "premise: the subject's rule alone leaves the column on Brief")
+
+            ProjectWindow.pullUp(
+                item,
+                subject: Binding(get: { subject }, set: { subject = $0 }),
+                showInspector: Binding(get: { shown }, set: { shown = $0 }),
+                position: Binding(get: { position }, set: { position = $0 }))
+            XCTAssertEqual(position, .pulledUp, "\(item): the link shows what it names")
+            XCTAssertEqual(subject, before)
+
+            // A hidden column is shown too.
+            shown = false
+            position = .brief
+            ProjectWindow.pullUp(
+                item,
+                subject: Binding(get: { subject }, set: { subject = $0 }),
+                showInspector: Binding(get: { shown }, set: { shown = $0 }),
+                position: Binding(get: { position }, set: { position = $0 }))
+            XCTAssertTrue(shown)
+            XCTAssertEqual(position, .pulledUp)
+        }
+        // The wiring: Brief is handed the window's verb, never a bare
+        // subject write.
+        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+        XCTAssertTrue(column.contains("onPullUp: pullUp,"), column)
+        XCTAssertFalse(column.contains("onPullUp: { subject = ClickRule.pullUp("),
+                       "Brief's links write the subject and nothing else again")
+        let window = Self.flat(try SourceTree.windowSource())
+        XCTAssertTrue(window.contains("pullUp: { pullUpItem($0) },"))
+        let hand = Self.flat(try SourceTree.declaration(named: "func pullUpItem(_ item: PulledUp)",
+                                                        under: "Maugham"))
+        XCTAssertTrue(hand.contains(
+            "Self.pullUp(item, subject: subjectBinding, showInspector: $showInspector, position: $rightColumnPosition)"),
+            hand)
+    }
+
+    // MARK: - A key that cannot show its list drops its filter (review I3)
+
+    /// While the To resolve position shows the Department desk or the
+    /// translation review (both interim), ⌘⌥A/D/T still select the position —
+    /// and the filter is DROPPED. A request left set would fire the next time
+    /// To resolve's list mounted, minutes after the key.
+    func test_aFilterKeyOverTheDeskOrTheReviewSelectsThePositionAndDropsItsFilter() throws {
+        for filter in [ResolveKeyFilter.rounds, .checks, .mine, .questions] {
+            let userInfo: [AnyHashable: Any] = [
+                MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+                MaughamEvent.resolveFilterKey: filter.rawValue]
+            XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve,
+                           "the key selects the position in every state")
+            XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).request,
+                           .filter(filter), "over the list, the filter is handed over")
+            for interim in [RightColumnContent.desk(language: "es"), .translationReview] {
+                XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: interim).request,
+                             "\(filter) over \(interim) must not be left to fire later")
+            }
+        }
+        // The states, as the table answers them.
+        XCTAssertEqual(RightColumnContent.of(
+            position: .resolve,
+            subject: WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es")),
+            translationLanguage: nil, structure: structure, projectType: .novel),
+            .desk(language: "es"))
+        XCTAssertEqual(RightColumnContent.of(
+            position: .resolve, subject: Self.piece, translationLanguage: "es",
+            structure: structure, projectType: .novel), .translationReview)
+        // A plain position post asks for nothing.
+        XCTAssertEqual(ProjectWindow.positionAsk(
+            in: [MaughamEvent.positionKey: "resolve"], shows: .resolve),
+            ProjectWindow.PositionAsk(request: nil, explainsTranslationReview: false))
+
+        // The receiver sets the request only from the ask.
+        let receiver = Self.flat(try SourceTree.declaration(
+            named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
+            under: "Maugham"))
+        XCTAssertTrue(receiver.contains("if let request = ask.request { resolveRequest = request }"),
+                      receiver)
+        XCTAssertFalse(receiver.contains("resolveRequest = .filter("),
+                       "the receiver sets a filter without asking what the position shows")
+        XCTAssertTrue(receiver.contains("translationLanguage: translationLanguage,"))
+    }
+
+    /// **⌘⌥L outside translation review**: To resolve shows, with one line
+    /// saying how review is entered — the old Translation pane's sentence —
+    /// until the writer moves on. In review, and over the desk, no line.
+    func test_theTranslationKeyOutsideReviewExplainsHowToEnterIt() throws {
+        let userInfo: [AnyHashable: Any] = [
+            MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+            MaughamEvent.explainsTranslationReviewKey: true]
+        XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
+        XCTAssertTrue(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explainsTranslationReview)
+        XCTAssertFalse(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview)
+            .explainsTranslationReview, "in review the pane itself shows")
+        XCTAssertFalse(ProjectWindow.positionAsk(in: userInfo, shows: .desk(language: "es"))
+            .explainsTranslationReview)
+        XCTAssertFalse(ProjectWindow.positionAsk(
+            in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explainsTranslationReview,
+            "⌘1 explains nothing")
+
+        XCTAssertTrue(RightColumn.showsTranslationReviewHint(true, shown: .resolve))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(false, shown: .resolve))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(true, shown: .translationReview))
+        XCTAssertFalse(RightColumn.showsTranslationReviewHint(true, shown: .brief(.book)))
+        XCTAssertTrue(RightColumn.translationReviewHintLine.contains("Translation Review…"),
+                      "the line names the menu item that enters review")
+
+        // It stands over one position, one subject and "not in review": any
+        // of the three changing clears it.
+        let ground = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
+                                                translationLanguage: nil)
+        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
+            position: .brief, subject: Self.piece, translationLanguage: nil))
+        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
+            position: .resolve, subject: .book, translationLanguage: nil))
+        XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
+            position: .resolve, subject: Self.piece, translationLanguage: "es"))
+
+        // The post, the receiver's write and the column's clear.
+        var received: [Notification] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification ⌘⌥L posts
+            forName: .maughamSetRightColumn, object: nil, queue: nil
+        ) { received.append($0) }
+        defer { NotificationCenter.default.removeObserver(token) }
+        MaughamEvent.postTranslationReviewPosition()
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(ProjectWindow.position(in: received.first?.userInfo), .resolve)
+        XCTAssertTrue(ProjectWindow.positionAsk(in: received.first?.userInfo, shows: .resolve)
+            .explainsTranslationReview)
+        let receiver = Self.flat(try SourceTree.declaration(
+            named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
+            under: "Maugham"))
+        XCTAssertTrue(receiver.contains("translationReviewHint = ask.explainsTranslationReview"))
+        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+        for token in ["if Self.showsTranslationReviewHint(translationReviewHint, shown: shown) {",
+                      "Text(Self.translationReviewHintLine)",
+                      "translationReviewHint = false"] {
+            XCTAssertTrue(column.contains(token), "the column lost \(token)")
+        }
     }
 
     /// ⌘⌥E opens the fold of the faces' piece, else the open one — History's
@@ -549,11 +755,18 @@ final class RightColumnMountingTests: XCTestCase {
             subject: WindowSubject(open: .item("part-1"), faces: .item("part-1")),
             structure: structure), "a Part has no fold of its own")
 
+        // **The key reveals a hidden tree** (review I4): a collapsed sidebar
+        // comes back; one that shows is left as it is.
+        for visibility in [NavigationSplitViewVisibility.doubleColumn, .detailOnly, .all, .automatic] {
+            XCTAssertEqual(ProjectWindow.revealingTheTree(visibility), .all, "\(visibility)")
+        }
+
         let window = try SourceTree.windowSource()
         let flat = Self.flat(window)
         let receiver = try XCTUnwrap(flat.range(of: ".onKeyWindowCommand(.maughamShowPieceFold, window: window)"))
-        let after = String(flat[receiver.upperBound...].prefix(420))
+        let after = String(flat[receiver.upperBound...].prefix(520))
         for token in ["guard !treeFindActive", "Self.foldPiece(subject: subject",
+                      "columnVisibility = Self.revealingTheTree(columnVisibility)",
                       "treeState.expandedPieceFolds.insert(id)", "treeState.scrollRequest = .row(.item(id))"] {
             XCTAssertTrue(after.contains(token), "⌘⌥E's receiver lost \(token): \(after)")
         }

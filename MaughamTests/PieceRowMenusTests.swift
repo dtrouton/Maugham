@@ -111,7 +111,7 @@ final class PieceRowMenusTests: XCTestCase {
             .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
         XCTAssertTrue(flat.contains(
             ".contextMenu { if let script = TreeWalk.find(id: documentID, in: store.manifest.structure) { "
-            + "PieceRowMenuButtons( item: script, verbs: structureVerbs(for: script), state: treeState, "
+            + "PieceRowMenuButtons( item: script, verbs: TreeStructureVerbs.decide(for: script, in: store), state: treeState, "
             + "offersTarget: PieceRowMenus.target(for: script, store: store) != nil, offersLinks: false) } }"),
             "the script row lost its menu")
         XCTAssertTrue(flat.contains(".binderTreeSections(store: store, state: treeState,"),
@@ -212,14 +212,21 @@ final class ResolveWhoseLineTests: XCTestCase {
 
         let shared = try await PieceWriterFixture.narrowed(
             named: "Shared", in: temp.url, scopedTo: { [$0.pieceIDs[0]] })
+        // A second chapter, which her permit does not name (the factory novel
+        // has one document, so without it this half would never run).
+        _ = try await shared.store.addStructureItem(
+            parentId: nil, title: "Chapter 2", kind: .document(.markdown))
+        let other = try XCTUnwrap(
+            TreeWalk.collect(in: shared.store.manifest.structure, where: { $0.type == .document })
+                .first { !shared.pieceIDs.contains($0.id) },
+            "premise: the book has a second chapter")
         let writers = await PieceWriters.read(
             projectURL: shared.url,
             pieces: PermitControl.pieces(in: shared.store.manifest.structure))
         XCTAssertEqual(ResolveHead.whoseLine(writers, docId: shared.pieceIDs[0]), "Sam")
-        if shared.pieceIDs.count > 1 {
-            XCTAssertNil(ResolveHead.whoseLine(writers, docId: shared.pieceIDs[1]),
-                         "a chapter nobody's scope names has no line")
-        }
+        XCTAssertNil(ResolveHead.whoseLine(writers, docId: other.id),
+                     "a chapter nobody but the writer may touch was labelled with "
+                     + "somebody else\u{2019}s name")
 
         // The head reads it once per project, under the ladder.
         let code = try SourceTree.read("Maugham/Views/Resolve/ResolveHead.swift")

@@ -187,6 +187,58 @@ final class LockTests: XCTestCase {
         XCTAssertEqual(counts, Self.lockSites)
     }
 
+    /// The files that ask `PulledUp.refusesEdits(isLocked:)` — Lock's answer
+    /// for one pulled-up kind — and how many times each. The right column's
+    /// research inspector asked `WindowLock` itself until its arm became
+    /// `PulledUpView`'s (shell p3 Task 9); this is where that site is counted
+    /// now, beside the pulled-up note's.
+    static let pulledUpLockSites: [String: Int] = [
+        // `face(of:)` — a pulled-up research item, card or table; and
+        // `centreResearchIsReadOnly` — the centre's own research details.
+        "Maugham/Views/PulledUpView.swift": 2,
+    ]
+
+    func test_everyPulledUpLockSiteAsksTheOneAnswer() throws {
+        var counts: [String: Int] = [:]
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            let text = try SourceTree.read(file)
+            for line in text.components(separatedBy: "\n") {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), !code.hasPrefix("func refusesEdits(") else { continue }
+                if code.contains(".refusesEdits(isLocked:"),
+                   !code.contains("WindowLock.refusesEdits(isLocked:") {
+                    counts[file, default: 0] += 1
+                }
+            }
+        }
+        XCTAssertEqual(counts, Self.pulledUpLockSites)
+        // The centre-details arm is one of them, by name.
+        let view = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/PulledUpView.swift"))
+            .joined(separator: "\n")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(view.contains(
+            "researchInspector(id, showsPreview: false, readOnly: Self.centreResearchIsReadOnly(id, isLocked: isLocked))"),
+            "the centre's research details no longer ask Lock")
+    }
+
+    /// **The centre's research details under Lock**: a research item in the
+    /// centre with nothing pulled up draws its details (citation, tags,
+    /// versions) in the pulled-up position — read-only while the window is
+    /// locked, editable otherwise.
+    func test_theCentresResearchDetailsAreReadOnlyUnderLock() {
+        XCTAssertTrue(PulledUpView.centreResearchIsReadOnly("r1", isLocked: true))
+        XCTAssertFalse(PulledUpView.centreResearchIsReadOnly("r1", isLocked: false),
+                       "control: unlocked, the details are edited")
+        // …and it is the arm the content table names for that subject.
+        let inTheCentre = WindowSubject(open: .research("r1"), faces: .research("r1"))
+        XCTAssertEqual(RightColumnContent.of(
+            position: .pulledUp, subject: inTheCentre, translationLanguage: nil,
+            structure: [], projectType: .novel), .centreDetails(.research("r1")))
+        // The same answer as the item pulled up.
+        XCTAssertEqual(PulledUpView.centreResearchIsReadOnly("r1", isLocked: true),
+                       PulledUp.research("r1").refusesEdits(isLocked: true))
+    }
+
     // MARK: - The toggle
 
     func test_theToggleSaysWhatAPressDoes() {

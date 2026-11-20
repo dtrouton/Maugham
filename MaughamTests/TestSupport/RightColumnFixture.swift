@@ -63,7 +63,8 @@ enum RightColumnFixture {
         openProjectSettings: @escaping () -> Void = {},
         showStrain: @escaping (ResolveRequest) -> Void = { _ in },
         openBrief: @escaping (BinderSubject) -> Void = { _ in },
-        openInCentre: @escaping (CentreItem) -> Void = { _ in }
+        openInCentre: @escaping (CentreItem) -> Void = { _ in },
+        translationReviewHint: Binding<Bool> = .constant(false)
     ) -> RightColumn {
         RightColumn(
             store: store, documentStore: documentStore, projectRoot: store.url,
@@ -97,6 +98,12 @@ enum RightColumnFixture {
             openPromotedArtifact: { _ in },
             showStrain: showStrain,
             openBrief: openBrief,
+            // The window's one pull-up act, as `ProjectWindow.pullUpItem`.
+            pullUp: { item in
+                ProjectWindow.pullUp(item, subject: subject, showInspector: .constant(true),
+                                     position: position)
+            },
+            translationReviewHint: translationReviewHint,
             centreItem: centreItem,
             openInCentre: openInCentre)
     }
