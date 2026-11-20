@@ -784,12 +784,12 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(menu(.settling).states.isEmpty)
     }
 
-    /// **The ladder's write is withheld where the posture forbids a ruling**,
-    /// in both inspector arms — `nil` is what draws the ladder read-only.
-    func test_theInspectorsLadderWriteFollowsThePosture() async throws {
-        let projectURL = try makeTwoPieceProject()
-        let store = try await ProjectStore.load(from: projectURL)
-        let metrics = EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
+    /// **The ladder's write is withheld where the posture forbids a ruling**
+    /// — `nil` is what draws the ladder read-only. The ladder's one host is To
+    /// resolve's head since the inspectors went (shell plan 3 Task 9), for a
+    /// piece that is open and one that is not: a pass state is a manifest
+    /// write, so the posture alone decides.
+    func test_theHeadsLadderWriteFollowsThePosture() throws {
         for (posture, offered, why) in [
             (reviewer, false, "a reviewer"),
             (piecesAuthorInB, false, "a pieces-author outside her piece"),
@@ -797,16 +797,24 @@ final class PostureSurfaceTests: XCTestCase {
             (piecesAuthorInA, true, "a pieces-author in her piece"),
             (bookAuthor, true, "a book author"),
         ] {
-            let document = InspectorView(
-                store: store, selectedItemId: "doc-a", metrics: metrics,
-                onOpenProjectSettings: {}, posture: posture)
-            let piece = PieceInspector(
-                store: store, pieceId: "doc-a", format: .markdown, posture: posture)
-            XCTAssertEqual(document.passLadderWrite(on: "doc-a") != nil, offered,
-                           "InspectorView, \(why)")
-            XCTAssertEqual(piece.passLadderWrite(on: "doc-a") != nil, offered,
-                           "PieceInspector, \(why)")
+            for open in [true, false] {
+                XCTAssertEqual(ResolveHead.offers(mayAct: open, posture: posture).rulesOnPasses,
+                               offered, "\(why), piece \(open ? "open" : "not open")")
+            }
+            XCTAssertEqual(posture.allows(.setPassState), offered,
+                           "premise: \(why) is asked of the one permission table")
         }
+        // The head hands the ladder its write only where the offer stands —
+        // and no other view mounts a ladder.
+        let head = try SourceTree.sourceOfType("ResolveHeadView", under: ["Maugham"])
+        let flat = SourceScan.codeLines(of: head).joined(separator: " ")
+            .components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(flat.contains(
+            "PassLadder( item: item, passes: passes, onSet: offers.rulesOnPasses "
+            + "? { passId, state in onSetPassState(docId, passId, state) } : nil)"),
+            "the ladder's write is the posture's offer, else nil: \(flat.prefix(400))")
+        XCTAssertEqual(try SourceTree.codeOccurrences(of: "PassLadder(").values.reduce(0, +), 1,
+                       "one host for the ladder: To resolve's head")
     }
 
     private func controls(role: String, in window: NSWindow) throws -> [AnyObject] {

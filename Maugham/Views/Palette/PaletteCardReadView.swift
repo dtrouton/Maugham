@@ -4,7 +4,7 @@ import MaughamCore
 /// **One palette card, read-only** — pictures, swatches, sensory notes grouped
 /// by sense, then the freeform body.
 ///
-/// Extracted from `PalettePane` in M2 Plan 2 Task 5, when the assistant column
+/// Extracted from `PalettePane` in M2 Plan 2 Task 5, when a second surface
 /// needed the same card. It is a straight lift: `PalettePane` kept the card
 /// PICKER and the manifest-change reload, and handed the drawing here. The
 /// alternative — a second card layout in the column — is the shape this project
@@ -12,7 +12,7 @@ import MaughamCore
 /// quietly: two surfaces showing one card, differing in what they show of it.
 ///
 /// **`PalettePane` itself is gone** (stage 3a Task 6 — its right-pane `⌘⌥P`
-/// mount died with `DetailSegment.palette`; the tree's own Palette section,
+/// mount died with the right pane's palette segment; the tree's own Palette section,
 /// stage 2a, is where a card is picked now). Its two sense-glyph statics
 /// outlived it: `PaletteCardEditor` needs them independently of any pane, so
 /// they moved here rather than to whichever caller happened to ask first —
@@ -21,8 +21,8 @@ import MaughamCore
 ///
 /// **Images are handed in already loaded**, because who loads them is a
 /// lifetime question and it differs between callers: a card picker reloads on
-/// the selected card's id, the assistant column on the studied reference's. A
-/// view that loaded them itself would decode inside a `body` (tripwire 4).
+/// the selected card's id. A view that loaded them itself would decode
+/// inside a `body` (tripwire 4).
 struct PaletteCardReadView: View {
     let card: PaletteCard
     let images: [NSImage]
@@ -101,11 +101,8 @@ struct PaletteCardReadView: View {
 
 /// **Loads one card + its images by id, then hands them to
 /// `PaletteCardReadView`** — the load step behind this task's two new
-/// read-only mounts (the Book's Status view, Review's wall). `AssistantColumn`
-/// has its own version of the same load (`paletteImages(of:)`) because it
-/// resolves a `PinnedReference` first and already has the `PaletteCard` in
-/// hand by the time it needs images; this host exists for the two callers that
-/// start from a bare card id, which is what `PaletteCardEditor.seed()` also
+/// read-only mounts (the Book's Status view, Review's wall). This host
+/// exists for the callers that start from a bare card id, which is what `PaletteCardEditor.seed()` also
 /// starts from (`store.loadPaletteCards().first { $0.researchItemId == … }`,
 /// the load this mirrors).
 ///

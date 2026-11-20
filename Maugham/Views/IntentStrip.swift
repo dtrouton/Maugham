@@ -79,11 +79,10 @@ struct IntentStrip: View {
 
     var body: some View {
         Button {
-            // Scope follows the binder selection, which the Intent pane already
-            // reads (`StatementPane.effectiveScope`) — see the mounting site in
-            // `ProjectWindow` for the one case where the two can differ and why
-            // that is left alone rather than fixed here.
-            MaughamEvent.postDetailSegment(.intent)
+            // The line is about the open piece: the key window moves its
+            // faces there and shows that piece's Brief
+            // (`ProjectWindow.showBriefOfTheOpenPiece`).
+            MaughamEvent.postBriefOfTheOpenPiece()
         } label: {
             HStack(spacing: 5) {
                 Text(line)

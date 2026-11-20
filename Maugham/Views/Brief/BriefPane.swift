@@ -57,12 +57,12 @@ struct BriefPane: View {
     let onOpenInCentre: (CentreItem) -> Void
     let onPullUp: (PulledUp) -> Void
     /// A solid mark's click: To resolve's request for its finding
-    /// (`ClauseMarks.jump`). Task 9 moves the right column to To resolve
+    /// (`ClauseMarks.jump`); the window moves the right column to To resolve
     /// and hands the request over (`ProjectWindow.showStrain`).
     let onShowStrain: (ResolveRequest) -> Void
     let onOpenBrief: (BinderSubject) -> Void
     /// The Department desk for an edition — where its cast is changed. Nil
-    /// draws no way there (Task 9 wires the right column's position).
+    /// draws no way there.
     let onOpenDesk: ((_ language: String) -> Void)?
 
     @State private var contents: BriefContents
@@ -103,7 +103,11 @@ struct BriefPane: View {
                         contents: current, bible: bible, world: world,
                         inTheCentre: ProjectWindow.statementIsInTheCentre(
                             kind: .intent, scope: .document(docId), centreItem: centreItem),
-                        onOpenInCentre: onOpenInCentre, onShowStrain: onShowStrain)
+                        onOpenInCentre: onOpenInCentre, onShowStrain: onShowStrain,
+                        onOpenBrief: onOpenBrief,
+                        formatCaption: Self.formatCaption(
+                            docId: docId, structure: store.manifest.structure,
+                            projectType: store.manifest.type))
                     // One piece's state per piece: a scope change remounts it,
                     // so its line commits under the piece it was typed for.
                     .id(docId)
@@ -296,6 +300,22 @@ struct BriefPane: View {
         let essay = (snapshot.bookIntentEssay ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return (!essay.isEmpty || !snapshot.bookDecisions.isEmpty,
                 snapshot.unconfirmedReadings > 0 ? snapshot.unconfirmedReadings : nil)
+    }
+
+    /// **What a Collection's loose piece is written as** — "Prose" or
+    /// "Screenplay" (owner's ruling, shell plan 3 Task 9: the old piece
+    /// inspector's format label, at the head of the one place that says what
+    /// the piece is held to). Nil outside a project that holds pieces, where
+    /// every piece is the project's own kind, and for a reference piece,
+    /// which has no Brief here.
+    static func formatCaption(docId: String, structure: [StructureItem],
+                              projectType: ProjectType) -> String? {
+        guard projectType.holdsPieces,
+              let piece = TreeWalk.find(id: docId, in: structure) else { return nil }
+        switch piece.pieceKind {
+        case .reference: return nil
+        case .loose, .none: return DocumentFormat.ofManuscript(path: piece.path).kindLabel
+        }
     }
 
     // MARK: - Shared pieces

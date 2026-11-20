@@ -25,17 +25,35 @@ final class StatementPaneTests: XCTestCase {
 
     // MARK: - The registry (spec §4.1, umbrella spec §6.3)
 
-    /// Intent and Visual Language are in every picker (shell p1 Task 6): one
-    /// order, and neither pane needs a document — Intent falls back to the
-    /// book's, Visual Language is project-scope.
-    func test_bothStatementPanesAreOfferedWhateverTheSubject() {
+    /// The intent and Visual Language are reachable whatever the subject
+    /// (shell plan 3 Task 9; in every picker before it): Brief is always a
+    /// position, and it is where an intent is; Visual Language pulls up under
+    /// every subject, and the pulled-up position then shows it.
+    func test_bothStatementsAreReachableWhateverTheSubject() {
+        let structure = [StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md")]
         for subject in [WindowSubject.book,
                         WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
                         WindowSubject(open: .canvas, faces: .project),
                         WindowSubject(open: .edition(language: "es"), faces: .project)] {
-            let shown = DetailPaneToggle<AnyView>.visibleSegments(subject: subject)
-            XCTAssertTrue(shown.contains(.intent), "\(subject)")
-            XCTAssertTrue(shown.contains(.visualLanguage), "\(subject)")
+            for selected in RightColumnPosition.allCases {
+                XCTAssertTrue(RightColumnControl.segments(
+                    offersPulledUp: RightColumnContent.offersPulledUp(
+                        subject, structure: structure, projectType: .novel),
+                    selected: selected).contains(.brief), "\(subject)")
+            }
+            guard case .brief = RightColumnContent.of(
+                position: .brief, subject: subject, translationLanguage: nil,
+                structure: structure, projectType: .novel) else {
+                return XCTFail("\(subject): Brief is Brief under every subject")
+            }
+            let pulled = ClickRule.pullUp(.visualLanguage, current: subject)
+            XCTAssertEqual(RightColumnContent.pulledUp(
+                for: .visualLanguage, subject: subject, structure: structure), .visualLanguage)
+            XCTAssertEqual(RightColumnContent.of(
+                position: .pulledUp, subject: pulled, translationLanguage: nil,
+                structure: structure, projectType: .novel), .pulledUp(.visualLanguage), "\(subject)")
+            XCTAssertTrue(RightColumnContent.offersPulledUp(
+                pulled, structure: structure, projectType: .novel))
         }
     }
 
@@ -50,9 +68,9 @@ final class StatementPaneTests: XCTestCase {
                 .appendingPathComponent("Maugham/MaughamApp.swift"),
             encoding: .utf8)
         let tokens = DocSyncTests.extractCommandOptionShortcutTokens(from: source)
-        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
-                                    "the extractor found \(tokens.count) ⌘⌥ shortcuts, "
-                                    + "fewer than there are panes — it is reading nothing")
+        XCTAssertEqual(DocSyncTests.viewMenuPaneKeys.filter { !tokens.contains($0) }, [],
+                       "the extractor found \(tokens) — not every View-menu pane "
+                       + "key; it is reading nothing")
         XCTAssertEqual(Set(tokens).count, tokens.count,
                        "two View-menu commands share a ⌘⌥ letter: "
                        + "\(tokens.sorted())")
@@ -471,8 +489,8 @@ final class StatementPaneTests: XCTestCase {
     // MARK: - The pane on screen (editorial letter P2, Task 5)
 
     /// **The mounted pane, because everything above this is a pure function and
-    /// a pane can be wired to none of them.** `DetailSegment.lessons` reaches
-    /// `StatementPane` through `DetailPaneToggle.statementPane(kind:)`, and what
+    /// a pane can be wired to none of them.** What I've Learned reaches
+    /// `StatementPane` pulled up (`PulledUpView`), and what
     /// this asserts is that the two sentences the ledger owns — the header
     /// caption and the strata's own heading — are drawn by the view the writer
     /// meets rather than only answered by the statics that compose them.

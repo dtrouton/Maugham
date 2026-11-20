@@ -158,12 +158,14 @@ final class LockTests: XCTestCase {
     /// or `editsFigures`, now asking the Lock in the same position.
     static let lockSites: [String: Int] = [
         "Maugham/Views/CentreColumn.swift": 1,          // research centre readOnly
-        "Maugham/Views/RightColumn.swift": 1,           // research inspector readOnly
         "Maugham/Views/FigureActions.swift": 1,         // windowRefusesWrites
         "Maugham/Views/BinderTreeSections.swift": 1,    // offersNewTable
         "Maugham/Views/FigureSubjectColumns.swift": 1,  // centre grid isReviewMode
         "Maugham/Views/Palette/PaletteWallView.swift": 1, // the wall's card arm
-        "Maugham/Views/LockToggle.swift": 1,            // PulledUp.refusesEdits, what is pulled up
+        // `PulledUp.refusesEdits` — what is pulled up, and the centre's own
+        // research details: the right column's one question since its own
+        // research arm went (shell p3 Task 9; `PulledUpView` asks it for both).
+        "Maugham/Views/LockToggle.swift": 1,
     ]
 
     /// **Every lock site asks the one answer.** A site that stopped asking

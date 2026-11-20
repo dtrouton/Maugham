@@ -903,23 +903,32 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertTrue(session.contains("onRunAcknowledged: { [weak self] in self?.flash($0) }"),
                       "the compiler's flash must forward through the session's current sink")
         // Mounted through the environment since foundations plan 3 Task 5:
-        // the window injects the roster into the right column, and the
-        // toggle reads the roster and hands each member to its pane. Read
+        // the window injects the roster into the right column, and the desk
+        // and the translation review each read their members off it. Read
         // from masked code, so a comment naming a token does not count.
         let window = try SourceTree.windowSource()
         let windowCode = String(decoding: SourceTree.mask(window), as: UTF8.self)
         XCTAssertTrue(windowCode.contains(".environment(roster)"),
                       "ProjectWindow no longer injects the roster — without it every "
                       + "roster member is unmounted from the right column")
-        let toggle = try SourceTree.sourceOfType("DetailPaneToggle", under: ["Maugham"])
-        let toggleCode = String(decoding: SourceTree.mask(toggle), as: UTF8.self)
-        for token in ["@Environment(AgentRoster.self)",
-                      "{ roster?.translator }", "{ roster?.coldCall }", "{ roster?.pipeline }",
-                      "translator: translator", "coldCall: coldCall", "pipeline: pipeline"] {
-            XCTAssertTrue(toggleCode.contains(token),
-                          "DetailPaneToggle is missing \(token) — without it a roster member "
+        let desk = try SourceTree.sourceOfType("RightColumnDesk", under: ["Maugham"])
+        let deskCode = String(decoding: SourceTree.mask(desk), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)", "DepartmentPaneHost(",
+                      "translator: roster?.translator", "runLog: roster?.translationRuns",
+                      "pipeline: roster?.pipeline"] {
+            XCTAssertTrue(deskCode.contains(token),
+                          "RightColumnDesk is missing \(token) — without it a roster member "
                           + "is unmounted")
         }
+        let column = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
+        let columnCode = String(decoding: SourceTree.mask(column), as: UTF8.self)
+        for token in [".environment(roster)", "RightColumnDesk(", "TranslationReviewPane(",
+                      "coldCall: roster.coldCall"] {
+            XCTAssertTrue(columnCode.contains(token),
+                          "RightColumn is missing \(token) — without it a roster member "
+                          + "is unmounted")
+        }
+        let toggle = desk + column
         XCTAssertFalse(window.contains("translator.notARealVerb(")
                        || session.contains("translator.notARealVerb(")
                        || toggle.contains("translator.notARealVerb("),

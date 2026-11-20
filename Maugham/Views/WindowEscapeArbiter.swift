@@ -5,19 +5,20 @@ import AppKit
 ///
 /// ### The defect this exists to remove
 ///
-/// Escape reaches two overlays in this app by the same mechanism — a local
+/// Escape reaches several overlays in this app by the same mechanism — a local
 /// `NSEvent` monitor (`CanvasEscapeMonitor`), because the ordinary way into
-/// either leaves the keyboard somewhere else. Until 2026-08-05 each owned its
+/// each leaves the keyboard somewhere else. Until 2026-08-05 each owned its
 /// **own instance**: `CanvasEventNSView` armed one while the board was dimmed,
-/// and `AssistantColumnEscape` armed another while a reference was studied.
+/// and the reference shown beside the prose (today's pulled-up thing,
+/// `PulledUpEscape`) armed another.
 ///
-/// Both are reachable on one window, and by an ordinary route: in Plan, clicking
-/// a chapter in the tree dims the board, and ⌘⌥E then clicking a pin opens the
-/// assistant column. **`NSEvent` local monitors run most-recently-installed
+/// Both are reachable on one window, and by an ordinary route: clicking a
+/// chapter in the tree dims the board, and a click on a card in its fold pulls
+/// that card up. **`NSEvent` local monitors run most-recently-installed
 /// first, and a `nil` return short-circuits every monitor installed before it**
 /// — so whichever happened to arm LAST won Escape outright and the other never
 /// saw the key at all. Which one that was depended on the writer's action order
-/// (dim-then-study, or study-then-dim), not on any decision. Worse, the code
+/// (dim-then-pull-up, or pull-up-then-dim), not on any decision. Worse, the code
 /// comments on both sides claimed the two *shared* a monitor, which is true of
 /// the class and false of the instance — and instance-sharing is precisely what
 /// would have made the arbitration deliberate.
@@ -25,14 +26,14 @@ import AppKit
 /// ### The rule
 ///
 /// The order in `Consumer` is the priority, highest first, and it is a design
-/// statement rather than an implementation detail: **the assistant column goes
-/// before the canvas dim**, because the column is something the writer opened on
+/// statement rather than an implementation detail: **the pulled-up thing goes
+/// before the canvas dim**, because it is something the writer pulled up on
 /// purpose one gesture ago and the dim is a consequence of a selection they made
-/// earlier. One Escape sends the studied reference back; the next lifts the dim.
+/// earlier. One Escape puts the pulled-up thing away; the next lifts the dim.
 /// That is the same answer in both arming orders, which is the whole point. The
-/// centre item's cover (shell plan 3) sits between them: after the column,
-/// beside it and opened one gesture ago, and before the dim, which never stands
-/// with it (the canvas is its own branch of the centre).
+/// centre item's cover (shell plan 3) sits between them: after the pulled-up
+/// thing, beside it and opened one gesture ago, and before the dim, which never
+/// stands with it (the canvas is its own branch of the centre).
 ///
 /// A consumer that declines (`claim()` returning false) passes the offer down
 /// the list, and an Escape nobody claims **travels on** — a great many responders
@@ -44,14 +45,15 @@ final class WindowEscapeArbiter {
 
     /// **Declaration order IS priority order**, highest first. Adding a case
     /// means deciding where in this list it belongs;
-    /// `AssistantColumnTests.test_theEscapePriorityOrderIsTheDeclaredOne` is the
+    /// `PulledUpEscapeTests.test_theEscapePriorityOrderIsTheDeclaredOne` is the
     /// census that stops a case being appended without that decision being made.
     enum Consumer: Int, CaseIterable, Sendable {
-        /// A reference the writer promoted into the assistant column.
-        case assistantColumn
+        /// The pulled-up thing, while its position shows (shell plan 3):
+        /// something the writer pulled up on purpose one gesture ago.
+        case pulledUp
         /// A statement or History open in the centre (shell plan 3 Task 5).
-        /// After the column, for the column's reason (opened one gesture
-        /// ago, and beside the cover rather than under it); before the dim,
+        /// After the pulled-up thing (pulled up one gesture ago, and beside
+        /// the cover rather than under it); before the dim,
         /// which never stands with it (the canvas is its own branch).
         case centreItem
         /// The planning canvas dimmed by a tree selection (§4.1, slice 3).

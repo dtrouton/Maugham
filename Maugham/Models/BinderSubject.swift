@@ -140,8 +140,8 @@ public enum BinderSubject: Hashable, Sendable, Codable {
     /// three spellings of the same defaulting rule three hops apart — a `??` in
     /// `ProjectWindow`'s checkpoint sheet, a second in its inspector column, a
     /// raw un-substituted value handed to a parameter of the same name, and a
-    /// *fourth* re-substitution inside `DetailPaneToggle` on a value already
-    /// substituted upstream. A pane's behaviour depended on which hop it hung
+    /// *fourth* re-substitution inside the right column's pane picker on a
+    /// value already substituted upstream. A pane's behaviour depended on which hop it hung
     /// off.
     ///
     /// Note what this does **not** promise: the id it returns may name a group.

@@ -22,7 +22,7 @@ import MaughamCore
 ///
 /// **How a chip is observed.** SwiftUI on this SDK backs a `Button` with no
 /// `NSButton` (measured and recorded in `ProjectAltitudePaneTests` and
-/// `InspectorIntentAffordanceTests`) — but each button does mount its own
+/// `IntentStripTests`) — but each button does mount its own
 /// focus-ring container as a real `NSView`, one per `ForEach` element, at the
 /// frame the layout gave it. Counting those containers is the reliable
 /// structural reading of "how many chips are on this board", and it holds
@@ -498,7 +498,7 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// that the RIGHT cell got the right state rather than only counting them.
     ///
     /// Skips by name when no assistive client can attach: a tree that was never
-    /// built is not evidence about this view (`InspectorIntentAffordanceTests`'
+    /// built is not evidence about this view (`IntentStripTests`'
     /// rule).
     func test_eachChipPublishesItsOwnCellsState() async throws {
         let structure = [

@@ -598,15 +598,21 @@ final class ResolvePaneTests: XCTestCase {
     func test_aStrainJumpShowsToResolveWithTheRequest() throws {
         let request = ResolveRequest.focusFinding(docId: "doc-a", itemId: "finding:doc-a/d-1")
         XCTAssertEqual(ProjectWindow.strainJump(request),
-                       ProjectWindow.StrainJump(showInspector: true, detailSegment: .resolve,
+                       ProjectWindow.StrainJump(showInspector: true, position: .resolve,
                                                 request: request))
         let window = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Maugham/Views/ProjectWindow.swift"), encoding: .utf8)
         let flat = window.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         XCTAssertTrue(flat.contains("let jump = Self.strainJump(request) showInspector = jump.showInspector "
-                                    + "detailSegment = jump.detailSegment resolveRequest = jump.request"),
+                                    + "rightColumnPosition = jump.position resolveRequest = jump.request"),
                       "showStrain writes exactly the jump's three values")
+        // And Brief's marks reach it: the window hands the column its verb,
+        // the column hands it to Brief.
+        XCTAssertTrue(flat.contains("showStrain: { showStrain($0) },"), "the window's hand-off is gone")
+        let column = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
+        XCTAssertTrue(column.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .contains("onShowStrain: showStrain,"), "Brief's marks reach no one")
     }
 
     // MARK: - Bulk inside a Book or Part list (carried from plan 2)

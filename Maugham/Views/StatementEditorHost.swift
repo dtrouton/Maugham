@@ -43,9 +43,9 @@ final class StatementTextTarget {
     /// parse-time snapshot for a ruling to land behind.
     ///
     /// Fixed at construction, because it is a fact about the statement's KIND
-    /// and a host is torn down when its kind changes: `DetailPaneToggle`'s
-    /// `segmentContent` gives `.intent` and `.visualLanguage` separate `case`
-    /// arms, so `⌘⌥N`/`⌘⌥V` rebuilds this box rather than reconciling it. A
+    /// and a host is torn down when its kind changes: an intent (Brief) and a
+    /// Book statement (pulled up) are separate arms of `RightColumn`'s
+    /// `switch`, so `⌘⌥N`/`⌘⌥V` rebuilds this box rather than reconciling it. A
     /// `var` set from a body pass would be exactly the value-trusted-after-the-
     /// thing-it-described-moved shape this file has produced seven defects of.
     private let splitsStrata: Bool
@@ -569,8 +569,8 @@ struct StatementEditorHost: View {
     /// was mounted, and nothing cleared it on the way out** (review round 2). A
     /// marker left set over a husked `Document` is a lie with two readers:
     /// `canMount` says yes, and anything asking "is the pane still here" gets the
-    /// wrong answer. `⌘⌥N` is what exposed it — `DetailPaneToggle.segmentContent`
-    /// gives `.intent` and `.visualLanguage` separate `case` arms, so switching
+    /// wrong answer. `⌘⌥N` is what exposed it — the right column's `switch`
+    /// gives an intent and Visual Language separate arms, so switching
     /// between them TEARS THIS HOST DOWN rather than reconciling it, and
     /// `.onDisappear` ran while the marker went on naming the scope it had left.
     ///
@@ -1093,8 +1093,8 @@ struct StatementEditorHost: View {
     /// the whole of the fix, and it is a narrower surface rather than a better
     /// guard: round 1 routed on `resolvedScope`, which describes the resolved
     /// SCOPE and not whether the host is mounted — and `⌘⌥N` is not a scope
-    /// change on this host at all. `DetailPaneToggle.segmentContent` gives
-    /// `.intent` and `.visualLanguage` separate `case` arms, so the structural
+    /// change on this host at all. The right column's `switch` gives an
+    /// intent and Visual Language separate arms, so the structural
     /// identity differs and the visual-language host is **torn down**: its
     /// `.onDisappear` forgets the registration and closes the `Document`, and
     /// leaves `resolvedScope` naming the scope it just left. A route decided on

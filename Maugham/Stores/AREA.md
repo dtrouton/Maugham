@@ -117,7 +117,7 @@ Two things deliberately live elsewhere:
 - **17 — A file more than one device writes is partitioned per device** (`let-go.<slug>.jsonl`, `inbox.<slug>.jsonl`), read as the union of every device's file. Op-log side: `OpLogStoreSegmentTests.test_legacyFile_neverSealed`.
 - **19 — What the phone also reads is implemented once in MaughamCore** (`StatementLookup`, `StatementConvention`, `PaletteLookup`, `PaletteConvention`, `InboxConvention`, `RegistryPresence`'s claim rule, `PersonKeyStoreChoice`). `TripwirePhoneGrepTest`.
 - **20 — A statement's prose is read from its op log, never its `.md`**: through `statementText(of:)`. Every file read in a production file carries `// adr-0018-ok: <reason>` saying what it reads (`TripwireGrepTests.test_noManuscriptFileReadsOutsideReconciler`).
-- **21 — Post through `MaughamEvent`** (`postNotice`, `postDetailSegment(_:)`, `postResolve(_:)`, `postAdmissionRequested`), never a `maugham.*` notification (`TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`).
+- **21 — Post through `MaughamEvent`** (`postNotice`, `postPosition(_:)`, `postResolve(_:)`, `postAdmissionRequested`), never a `maugham.*` notification (`TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`).
 - **22 — A rename or move is followed by the editor's PATH-keyed reload** (`EditorHost.needsReload`), never an id-keyed one: prose only.
 - **24 — Filenames take a `DeviceSlug`** (`LetGoRecord.fileURL(for:in:)`, the inbox manifest): enforced by the compiler.
 - **35 — `trashedBy` is a display string, never an identity**: `DocumentStore.trashedByLabel` gives the register's label or the machine's name (`TripwireGrepTests.test_noHostnameIdentity`).
@@ -243,7 +243,7 @@ Two things deliberately live elsewhere:
 - **Statements have their own open registry, never a `DocumentStore` one.** The pane registers on bind and withdraws before every close (`noteStatementDocumentOpened(_:id:)`, `forgetStatementDocument(id:)`); `openStatementDocument(id:)` refuses a closed `Document`. Anything that writes into a statement asks it before loading its own.
 - **`mutateStatementText(of:session:transform:)` hands the transform the current text**, so check and write are one string; it asks the posture first (tripwire 52).
 - **`appendToStatement(_:to:session:)` appends to the end of the ESSAY, not the file** (`StatementEssay`).
-- **The inspector's intent row (`IntentAffordanceRow`) is a pane swap that mints nothing**; its caption resolves through `StatementPane.effectiveScope`.
+- **Showing a Brief mints nothing**; the intent's empty editor mints on the first keystroke.
 - **Name every write's destination by statement**, never by what the pane shows now: callers suspend.
 - **`statementText(of:)` is the one reader of a statement's prose** (`read_craft_intent`, `read_visual_language`): the open pane's `Document` if any, else `derivedCache.displayText`.
 - **A promoted Collection piece takes its intent with it**: `stagePromotedIntent` (`// internal-move: staging`), `writePromotedManifest` re-scopes it with a fresh `stmt-` id, `convertPromotedPieceToReference` prunes the Collection's entry. The entry point closes an open statement `Document` explicitly first. The op log stays behind, so a derive-only read of a promoted piece answers "" until something opens it.

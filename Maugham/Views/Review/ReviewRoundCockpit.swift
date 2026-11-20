@@ -326,7 +326,7 @@ struct ReviewRoundCockpit: View {
     /// Exposed and pure for `ReviewBoardChipVerbs.chipMenuItems`' reason: a
     /// SwiftUI `Menu` builds its items only when the writer opens it, so a
     /// hosted test can neither see them nor press one (measured in
-    /// `InspectorPassLadderTests`). A checkmark rule asserted nowhere is how a
+    /// `PassLadderTests`). A checkmark rule asserted nowhere is how a
     /// picker that ticks the wrong lane — or every lane — ships green.
     ///
     /// **`current` naming a pass this project does not have leaves NOTHING
@@ -496,7 +496,7 @@ struct ReviewRoundCockpit: View {
     // Named rather than inlined into the controls so a test can drive the one
     // the mounted menu cannot: a SwiftUI `Menu` builds its items when the
     // writer opens it, so the picker's item is unreachable from a hosted view
-    // (measured in `InspectorPassLadderTests`). `setPass` is the identical code
+    // (measured in `PassLadderTests`). `setPass` is the identical code
     // path, minus AppKit's menu.
     //
     // **That substitution is only honest while the item actually calls it**,

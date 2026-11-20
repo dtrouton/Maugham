@@ -64,7 +64,9 @@ struct CentreColumn: View {
     @Binding var bookView: BookView
     @Binding var selectedPaletteCardId: String?
     @Binding var showInspector: Bool
-    @Binding var detailSegment: DetailSegment
+    /// The right column's position: a count click on the board shows To
+    /// resolve.
+    @Binding var position: RightColumnPosition
     /// To resolve's next ask (shell plan 2 Task 7) — the board's open-notes
     /// click focuses the clicked piece's group.
     @Binding var resolveRequest: ResolveRequest?
@@ -434,7 +436,7 @@ struct CentreColumn: View {
             // travels, because opening a chapter is what a chip MEANS.
             onOpenNotes: { pieceId in
                 showInspector = true
-                detailSegment = .resolve
+                position = .resolve
                 resolveRequest = .focus(groupOwnerId: pieceId)
             },
             // **A chip click is a SUBJECT write and nothing else**, through the
@@ -446,9 +448,8 @@ struct CentreColumn: View {
                 recordActivePass(pieceId, passId)
             },
             // The board's write, at the board's HOST — the same place and the
-            // same shape as the pass ladder's, which lands at `InspectorView` and
-            // `PieceInspector` rather than inside `PassLadder`
-            // (`PassStateWriterCensusTests`).
+            // same shape as the pass ladder's, which lands at `RightColumn`
+            // rather than inside `PassLadder` (`PassStateWriterCensusTests`).
             onSetState: { pieceId, passId, state in
                 Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
             },
@@ -562,9 +563,10 @@ struct CentreColumn: View {
                    // never the question.
                    // Not through the click rule, which would open the Book over
                    // the canvas: the faces go to the Book and the canvas stays.
+                   // A thing pulled up that is not what dims the board stays
+                   // (`leavingTheCanvasDim`).
                    selectTheProjectRow: {
-                       subject.faces = .project
-                       subject.beside = nil
+                       subject = ProjectWindow.leavingTheCanvasDim(subject)
                    },
                    itemIndex: ProjectWindow.canvasItemIndex(in: store),
                    // Spec §4.2: on a dimmed board a region bound to another document

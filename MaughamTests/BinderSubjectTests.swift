@@ -145,7 +145,7 @@ final class BinderSubjectTests: XCTestCase {
             bookView: .cards,
             isNoChromeOn: true,
             researchPreviewVisible: true,
-            detailSegment: .history,
+            rightColumnPosition: .pulledUp,
             isReviewModeOn: true,
             compilerModel: .deep,
             // Away from the default, and inside the clamp — a value the

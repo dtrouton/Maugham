@@ -333,7 +333,7 @@ Every file in `Maugham/Compiler/` appears once.
 4. Join the roster in `Maugham/Compiler/AgentRoster.swift`: a stored property and an `init` parameter; its `shutdown()` in `shutdownAll()` and `detach()` in `detachAll()`, after the pipeline; `updateModel` if step 1 added it.
 5. A member holding no runner gets a `nonHoldingMembers` entry (and `noTeardownMembers` if it has no teardown) in `MaughamTests/TranslatorEnvironmentTests.swift`. Hold the runner directly: a collection of runners is invisible to the census.
 6. Wire it in `Maugham/Stores/ProjectSession.swift`'s `attachWindow` (never `open`), and add its `configure(` token to the list in `test_everyWindowEndingPathShutsEverySessionDown`.
-7. If a pane needs it, read it in `Maugham/Views/DetailPaneToggle.swift` through `@Environment(AgentRoster.self)`, and add its tokens to that test's `DetailPaneToggle` list.
+7. If a pane needs it, read it in `Maugham/Views/RightColumn.swift` off the roster the column injects, and add its tokens to that test's `RightColumn` list.
 8. Test fixtures over `.production` replace `writeMCPConfig` too.
 
 Checks: `TranslatorEnvironmentTests`, `AgentRosterTests`, `ClaudeCLISessionTests`, the spawn-flag censuses in `TripwireGrepTests`.

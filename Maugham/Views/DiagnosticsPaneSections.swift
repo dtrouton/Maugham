@@ -75,13 +75,13 @@ struct DiagnosticsDriftLine: View {
     /// Above the conformance summary because it is a claim about a clause the
     /// summary is about to name again (spec §4's last bullet). Not a
     /// `Diagnostic`: no id, no dismissal, no reply field — pressing it opens
-    /// Intent, and the pattern breaking is what takes the line away, not a
+    /// Brief, and the pattern breaking is what takes the line away, not a
     /// tap. See `driftNote`.
     @ViewBuilder
     private var driftLine: some View {
         if let line = CheckNarrative.driftNote(driftFindings) {
             Button {
-                MaughamEvent.postDetailSegment(.intent)
+                MaughamEvent.postPosition(.brief)
             } label: {
                 Text(line)
                     .font(.callout)

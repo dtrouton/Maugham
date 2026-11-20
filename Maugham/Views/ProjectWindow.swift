@@ -108,7 +108,14 @@ struct ProjectWindow: View {
     /// binder serves. One-way counters, never flags written back (tripwire 2).
     @State private var canvasKeyboardRequest = 0
     @State private var treeKeyboardRequest = 0
-    @State private var detailSegment: DetailSegment = .resolve
+    /// **Which of the right column's three positions shows** (shell plan 3):
+    /// To resolve, Brief or the pulled-up thing. One remembered position for
+    /// the window (`UIState.rightColumnPosition`), restored verbatim.
+    @State private var rightColumnPosition: RightColumnPosition = .resolve
+    /// The position before the pulled-up one — where the column goes back to
+    /// when the pulled-up position is left with nothing to show
+    /// (`RightColumnContent.positionAfterSubjectChange`).
+    @State private var previousFace: RightColumnPosition = .resolve
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
@@ -173,11 +180,6 @@ struct ProjectWindow: View {
     @State private var bible: BibleStore?
     @State private var declaredWorld: DeclaredWorldStore?
 
-    /// **What pin is being studied** (M2 §6.2). Owned by the window because the
-    /// References pane writes it and `RightColumn`'s study arm — which stands
-    /// *in place of* that pane — is a function of it. It has no width; a
-    /// studied reference takes `detailColumnWidth` (spec §3.2).
-    @State private var assistant = AssistantColumnModel()
     /// This project's iCloud share snapshot, read on open and on a share-change,
     /// then cached — an INDICATOR, never a role. It drives the sharing pill, the
     /// share sheet's eligibility, and the read-only-share lock
@@ -451,6 +453,16 @@ struct ProjectWindow: View {
             treeState.paletteSectionExpanded = true
             treeState.scrollRequest = .paletteHeader
         }
+        // ⌘⌥E: what the faces' piece is pinned to is its fold in the tree —
+        // opened, and scrolled to. Refused under the find overlay, as its
+        // two neighbours are.
+        .onKeyWindowCommand(.maughamShowPieceFold, window: window) { _ in
+            guard !treeFindActive,
+                  let id = Self.foldPiece(subject: subject,
+                                          structure: store?.manifest.structure ?? []) else { return }
+            treeState.expandedPieceFolds.insert(id)
+            treeState.scrollRequest = .row(.item(id))
+        }
         // App quit closes the stores in one place, before `willTerminate`:
         // `QuitCoordinator`, over the session registry's closers. This
         // window starts no close of its own.
@@ -510,12 +522,11 @@ struct ProjectWindow: View {
             showingSyntaxHelp: $showingSyntaxHelp,
             researchPreviewVisible: $researchPreviewVisible,
             showInspector: $showInspector,
-            detailSegment: $detailSegment,
+            position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
             subject: subjectBinding,
             centreItem: $centreItem,
             restoreOutcome: $restoreOutcome,
-            assistant: assistant,
             mcpBanner: flashes.mcpBanner,
             treeState: treeState))
         .modifier(CheckpointModifier(
@@ -578,13 +589,22 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             selectedPaletteCardId: $selectedPaletteCardId,
             subject: subject))
-        // Reference material arriving beside reveals the column that previews
-        // it. Load-bearing line: deleting it leaves every token in the modifier
-        // present and every decision test green, while a research row in the
-        // tree puts nothing anywhere.
+        // A subject change moves the right column's position, and something
+        // arriving pulled up reveals the column that shows it. Load-bearing
+        // line: deleting it leaves every token in the modifier present and
+        // every decision test green, while a research row in the tree puts
+        // nothing anywhere.
         .modifier(ResearchRevealModifier(subject: subjectState,
                                          showInspector: $showInspector,
-                                         detailSegment: $detailSegment))
+                                         position: $rightColumnPosition,
+                                         previousFace: $previousFace,
+                                         store: store, documentStore: documentStore))
+        // Esc puts the pulled-up thing away while its position shows.
+        // Load-bearing line: deleting it leaves the view drawn and Esc doing
+        // nothing.
+        .modifier(PulledUpEscapeModifier(
+            window: window, isNoChromeOn: isNoChromeOn, showInspector: showInspector,
+            position: rightColumnPosition, subject: subjectBinding))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
@@ -601,7 +621,7 @@ struct ProjectWindow: View {
                                               model: canvasModel,
                                               subject: subjectBinding,
                                               showInspector: $showInspector,
-                                              detailSegment: $detailSegment))
+                                              position: $rightColumnPosition))
         // ⌘\ on the canvas collapses both side columns (spec §8A.3). Load-bearing
         // line: deleting it leaves every decision test green, while ⌘\ on the
         // canvas moves nothing.
@@ -838,9 +858,9 @@ struct ProjectWindow: View {
         @Binding var showingSyntaxHelp: Bool
         @Binding var researchPreviewVisible: Bool
         @Binding var showInspector: Bool
-        @Binding var detailSegment: DetailSegment
+        @Binding var position: RightColumnPosition
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
-        /// beside the segment (`MaughamEvent.resolveFilterKey`).
+        /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
         /// The window's subject. **Going to a place opens its piece**
         /// (`ManuscriptNavigation`): a `[[wiki-link]]`, the Inspector's Links
@@ -854,10 +874,6 @@ struct ProjectWindow: View {
         /// (RULING-40), or when a restore gave back less than was deleted
         /// (RULING-42).
         @Binding var restoreOutcome: String?
-        /// **The studied pin**, for the ⌘⌥-letter handler alone: a keystroke
-        /// naming a pane is an act, and an act ends a study even when the pane
-        /// it names is the one already selected.
-        let assistant: AssistantColumnModel
         let mcpBanner: MCPBannerModel
         /// The tree's disclosure/selection state, for the find-match handler's
         /// scroll request. An `@Observable` reference type, so a plain `let`
@@ -866,22 +882,36 @@ struct ProjectWindow: View {
 
         func body(content: Content) -> some View {
             content
-                .onKeyWindowCommand(.maughamSetDetailSegment, window: window) { note in
-                    guard let raw = note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
-                          let seg = DetailSegment(rawValue: raw) else { return }
-                    ProjectWindow.selectDetailSegment(
-                        seg,
+                .onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in
+                    guard let asked = ProjectWindow.position(in: note.userInfo) else { return }
+                    ProjectWindow.selectPosition(
+                        asked,
                         showInspector: $showInspector,
-                        detailSegment: $detailSegment,
-                        assistant: assistant)
+                        position: $position)
                     // The filter half (shell plan 2 Task 7): a key that used
                     // to open the Annotations, Diagnostics or Tasks pane opens
                     // To resolve on that pane's filter. Read after the one
-                    // selection act, so the column is revealed and a study
-                    // ended exactly as for any other pane key.
+                    // selection act, so the column is revealed exactly as for
+                    // any other position key.
                     if let filter = ProjectWindow.resolveFilter(in: note.userInfo) {
                         resolveRequest = .filter(filter)
                     }
+                }
+                // The line above the prose, clicked: the open piece's Brief.
+                .onKeyWindowCommand(.maughamShowOpenPieceBrief, window: window) { _ in
+                    ProjectWindow.showBriefOfTheOpenPiece(
+                        subject: $subject, showInspector: $showInspector,
+                        position: $position,
+                        structure: store?.manifest.structure ?? [])
+                }
+                // ⌘⌥G, ⌘⌥Y, ⌘⌥V and ⌘⌥H: a Book statement, or the faces'
+                // piece's History, pulled up beside the centre.
+                .onKeyWindowCommand(.maughamPullUp, window: window) { note in
+                    guard let request = ProjectWindow.pullUpRequest(in: note.userInfo) else { return }
+                    ProjectWindow.pullUp(
+                        request, subject: $subject, showInspector: $showInspector,
+                        position: $position,
+                        structure: store?.manifest.structure ?? [])
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
@@ -1275,7 +1305,7 @@ struct ProjectWindow: View {
             bookView: $bookView,
             selectedPaletteCardId: $selectedPaletteCardId,
             showInspector: $showInspector,
-            detailSegment: $detailSegment,
+            position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
             metrics: $metrics,
             currentElement: $currentElement,
@@ -1346,17 +1376,6 @@ struct ProjectWindow: View {
                     ViewOnlyShareNotice()
                 }
             }
-            // The studied reference's BEHAVIOUR — Escape, the reveal, and the three
-            // dismisses. It inserts no view: the column itself is `RightColumn`'s
-            // study arm (spec §3.2). It rides the centre column because that lives
-            // as long as the window does — the right column is behind
-            // `showInspector` and would take Escape's arbiter registration down
-            // every time the writer hid it.
-            .modifier(AssistantColumnModifier(
-                window: window, isNoChromeOn: isNoChromeOn,
-                activeDocId: activeDocId, detailSegment: detailSegment,
-                selectedSubject: subject.lastClicked, showInspector: $showInspector,
-                assistant: assistant))
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
     }
@@ -1376,12 +1395,11 @@ struct ProjectWindow: View {
     /// **`activeDocId`'s no-selection sentinel is correct here** — no document
     /// means no document-scope intent, so the resolution falls to the project's.
     ///
-    /// **One divergence is known and accepted**: clicking the strip posts a bare
-    /// `postDetailSegment(.intent)`, and `StatementPane.effectiveScope` never
-    /// falls back — so a chapter with no intent shows the *project's* line and
-    /// opens the *chapter's* empty editor. Fixing it needs Open-sets-scope
-    /// machinery (the reverted M1A work, `docs/history/canvas.md`).
-    /// `IntentStripTests` pins the divergence.
+    /// **Clicking the strip opens the open piece's Brief**
+    /// (`showBriefOfTheOpenPiece`): the line is about `open`, so the faces go
+    /// there first. A chapter with no intent of its own shows the project's
+    /// line and opens the chapter's Brief, whose Going for is empty and whose
+    /// "From the book" holds the line it showed.
     private var intentStripLine: String? {
         guard let store else { return nil }
         return IntentStrip.line(
@@ -1733,8 +1751,8 @@ struct ProjectWindow: View {
     }
 
     /// **The right column, mounted ONCE, here** — the detail column's root. See
-    /// `RightColumn` for the resize handle, the study arm, the inspector arm,
-    /// and the one width applied to both the content's frame and the split item.
+    /// `RightColumn` for the resize handle, the three positions, and the one
+    /// width applied to both the content's frame and the split item.
     ///
     /// **The width is bound HERE, once, and handed down as a value** — the
     /// EFFECTIVE width (`effectiveDetailColumnWidth`), which the column applies
@@ -1749,21 +1767,22 @@ struct ProjectWindow: View {
             canvasModel: canvasModel, editorControl: editorControl,
             figureListing: figureListing,
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
-            publishCentre: publishCentre, assistant: assistant,
+            publishCentre: publishCentre,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
             isLocked: isLocked, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
-            showInspector: showInspector, metrics: metrics,
+            showInspector: showInspector,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,
             selectedSubject: facesNavigation,
-            detailSegment: $detailSegment,
+            position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
             lastParsedScript: lastParsedScript,
             compilerModel: $compilerModel,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
             openProjectSettings: openProjectSettings,
             openPromotedArtifact: openPromotedArtifact,
-            posture: { postureDrawn(forDocId: $0) },
+            showStrain: { showStrain($0) },
+            openBrief: { openBrief($0) },
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
             },
@@ -1802,7 +1821,7 @@ struct ProjectWindow: View {
         case canvas
         /// A Collection's per-piece inspector.
         case collectionPiece
-        /// `InspectorView` — the selected manuscript document's own inspector.
+        /// A manuscript document (a novel's chapter, a script).
         case document
     }
 
@@ -2028,55 +2047,71 @@ struct ProjectWindow: View {
             // row EXIST; scrolling to what `reveal` returned puts it on screen.
             treeState.scrollRequest = .row(revealed)
         }
-        Self.revealResearchColumn(subject: subject,
-                                  showInspector: &showInspector,
-                                  detailSegment: &detailSegment)
+        Self.revealPulledUp(subject: subject,
+                            showInspector: &showInspector,
+                            position: &rightColumnPosition)
     }
 
     /// **Open** on a promoted card, region or picture — which can name an
     /// artifact that is not in `research/` at all. A `Statement` id sent to
     /// `openResearchItem` would select a research id no tree holds, so a
-    /// statement routes to its pane instead.
-    ///
-    /// **It does not choose the pane's SCOPE.** `StatementPane` resolves that
-    /// from the window's subject, so a document-scoped intent opened here may
-    /// land on a different scope's. Driving the subject from Open would move the
-    /// writer's open document as a side effect of a button about an artifact;
-    /// whether Open may move the subject is an open design question. A
-    /// request-the-pane-honours attempt was built and reverted (M1A);
-    /// `StatementPaneSelectionDeliveryTests` is the fixture the next attempt
-    /// starts from.
+    /// statement goes where statements live now (`statementDestination`): an
+    /// intent to its Brief, a Book statement pulled up.
     private func openPromotedArtifact(_ itemId: String) {
         guard let store else { return }
-        if let pane = Self.statementPane(forMark: itemId, in: store) {
-            detailSegment = pane
-            return
+        switch Self.statementDestination(forMark: itemId, in: store) {
+        case .brief(let faces)?:
+            openBrief(faces)
+        case .pullUp(let request)?:
+            Self.pullUp(
+                request, subject: subjectBinding, showInspector: $showInspector,
+                position: $rightColumnPosition, structure: store.manifest.structure)
+        case nil:
+            openResearchItem(itemId)
         }
-        openResearchItem(itemId)
     }
 
-    /// The right-pane segment **Open** goes to for a mark, or nil for one that
-    /// means the Research pane.
+    /// Where **Open** takes a mark that names a statement.
+    enum MarkDestination: Equatable {
+        /// An intent: the Brief of the piece it is about, or the Book's. The
+        /// faces move there (Brief follows the faces), `open` does not.
+        case brief(BinderSubject)
+        /// A Book statement that is not its intent, pulled up
+        /// (`ProjectWindow.pullUp`, the ⌘⌥ keys' own verb).
+        case pullUp(PullUpRequest)
+    }
+
+    /// Where **Open** goes for a mark, or nil for one that means Research.
     ///
     /// Pure and static so the routing is asked over the whole product of its
     /// inputs, and a `switch` over the kind rather than a test for `.intent`: a
-    /// fall-through would send the writer to a Research pane that shows them
-    /// nothing. Every kind with a pane of its own opens it.
-    static func statementPane(forMark itemId: String,
-                              in store: ProjectStore) -> DetailSegment? {
-        guard let statement = store.manifest.statements.first(where: { $0.id == itemId })
-        else { return nil }
+    /// fall-through would send the writer to a research item that shows them
+    /// nothing.
+    static func statementDestination(forMark itemId: String,
+                                     in store: ProjectStore) -> MarkDestination? {
+        store.manifest.statements.first(where: { $0.id == itemId })
+            .flatMap(statementDestination(for:))
+    }
+
+    /// Where a statement lives in the window: an intent in its Brief, a Book
+    /// statement pulled up. Pure.
+    static func statementDestination(for statement: Statement) -> MarkDestination? {
         switch statement.kind {
-        case .intent: return .intent
-        case .visualLanguage: return .visualLanguage
-        // Neither has a pane here — same as `.unknown` below.
+        case .intent:
+            switch statement.scope {
+            case .document(let docId): return .brief(.item(docId))
+            case .project: return .brief(.project)
+            // A scope a newer build wrote: no Brief here names it.
+            case .unknown: return nil
+            }
+        case .visualLanguage: return .pullUp(.visualLanguage)
+        case .lessons: return .pullUp(.lessons)
+        case .firstReader: return .pullUp(.firstReader)
+        // An edition's brief is its edition's Brief, reached from the
+        // edition's own row; a mark never names one.
         case .editionBrief: return nil
-        // The ledger has a pane of its own.
-        case .lessons: return .lessons
-        // She has a pane of her own.
-        case .firstReader: return .firstReader
         // A kind a newer build wrote, retained and ignored everywhere else
-        // (`Statement.Kind`). There is no pane for it here either.
+        // (`Statement.Kind`).
         case .unknown: return nil
         }
     }
@@ -2161,8 +2196,7 @@ struct ProjectWindow: View {
 
     /// **Open in Centre for a statement or History** (Brief's Going for, the
     /// pulled-up view): `open` goes to what the item belongs to and the
-    /// item becomes the centre's cover, in one update. Task 9 wires Brief's
-    /// `onOpenInCentre` here; Task 7 the pulled-up view's.
+    /// item becomes the centre's cover, in one update.
     func openInCentre(_ item: CentreItem) {
         subject = Self.openingInCentre(item, subject: subject)
         centreItem = item
@@ -2172,13 +2206,11 @@ struct ProjectWindow: View {
     /// to To resolve and To resolve takes the request
     /// (`ClauseMarks.jump` → `ResolveRequest.focusFinding`) — the board
     /// count's one mechanism: a position change plus a request To resolve
-    /// already applies. **Task 9 seam:** Brief's `onShowStrain` is wired
-    /// here when Brief is mounted, and the picker's segment becomes
-    /// `RightColumnPosition.resolve`.
+    /// already applies.
     func showStrain(_ request: ResolveRequest) {
         let jump = Self.strainJump(request)
         showInspector = jump.showInspector
-        detailSegment = jump.detailSegment
+        rightColumnPosition = jump.position
         resolveRequest = jump.request
     }
 
@@ -2186,12 +2218,49 @@ struct ProjectWindow: View {
     /// resolve, holding the request. Pure, so it is pinned without a window.
     struct StrainJump: Equatable {
         let showInspector: Bool
-        let detailSegment: DetailSegment
+        let position: RightColumnPosition
         let request: ResolveRequest
     }
 
     static func strainJump(_ request: ResolveRequest) -> StrainJump {
-        StrainJump(showInspector: true, detailSegment: .resolve, request: request)
+        StrainJump(showInspector: true, position: .resolve, request: request)
+    }
+
+    /// **Show a Brief** (a filed line's link, a piece in a Part's or the
+    /// Book's Brief, an intent mark's Open): the faces move to `target` and
+    /// the column shows Brief. `open` stays where it is — Brief reads and
+    /// edits a piece that is not open.
+    func openBrief(_ target: BinderSubject) {
+        let next = Self.facesForABrief(target, subject: subject)
+        if next != subject { subject = next }
+        showInspector = true
+        rightColumnPosition = .brief
+    }
+
+    /// The subject with its faces on `target` and nothing else moved. Pure.
+    static func facesForABrief(_ target: BinderSubject, subject: WindowSubject) -> WindowSubject {
+        guard subject.faces != target else { return subject }
+        var next = subject
+        next.faces = target
+        return next
+    }
+
+    /// **A click on the line above the prose** (`IntentStrip`): the line is
+    /// about the open piece, so the faces go there
+    /// (`RightColumnContent.facesForTheStrip`) and the column shows its
+    /// Brief, through the one selection act.
+    static func showBriefOfTheOpenPiece(
+        subject: Binding<WindowSubject>,
+        showInspector: Binding<Bool>,
+        position: Binding<RightColumnPosition>,
+        structure: [StructureItem]
+    ) {
+        let next = RightColumnContent.facesForTheStrip(subject.wrappedValue, structure: structure)
+        if next != subject.wrappedValue { subject.wrappedValue = next }
+        Self.selectPosition(
+            .brief,
+            showInspector: showInspector,
+            position: position)
     }
 
     /// **Going to a thing from outside the tree** — a link, a find result,
@@ -2472,33 +2541,67 @@ struct ProjectWindow: View {
         requested && dismissed == .projectSettings
     }
 
-    /// **The right column arriving at a pane** — the one spelling of the three
-    /// acts a pane selection performs, called by the `.keyWindow` receiver in
-    /// `SessionAndNavigationModifier` and by the Describe… hand-off below.
-    ///
-    /// **The keystroke ends a study, even when it names the pane already
-    /// selected** (Denver's ruling): a studied reference stands IN PLACE OF the
-    /// pane picker, so ⌘⌥E is what a writer presses to get the shelf back. The
-    /// picker's own no-op snap is NOT a keystroke and keeps the study
-    /// (`AssistantColumnModifier.paneChangeEndsTheStudy`).
-    static func selectDetailSegment(
-        _ seg: DetailSegment,
+    /// **The right column arriving at a position** — the one spelling of the
+    /// two acts a position selection performs: the column is shown, and it is
+    /// on that position. Called by the `.keyWindow` receiver in
+    /// `SessionAndNavigationModifier` and by the strip's hand-off
+    /// (`showBriefOfTheOpenPiece`).
+    static func selectPosition(
+        _ asked: RightColumnPosition,
         showInspector: Binding<Bool>,
-        detailSegment: Binding<DetailSegment>,
-        assistant: AssistantColumnModel
+        position: Binding<RightColumnPosition>
     ) {
-        showInspector.wrappedValue = true     // ensure pane is visible
-        assistant.dismiss()
-        detailSegment.wrappedValue = seg
+        showInspector.wrappedValue = true     // ensure the column is visible
+        position.wrappedValue = asked
     }
 
-    /// **The filter a `.maughamSetDetailSegment` post asks To resolve for**
+    /// The position a `.maughamSetRightColumn` post asks for
+    /// (`MaughamEvent.postPosition`), or nil for a payload this build cannot
+    /// read. Pure, so the key's spelling on both sides is pinned.
+    static func position(in userInfo: [AnyHashable: Any]?) -> RightColumnPosition? {
+        (userInfo?[MaughamEvent.positionKey] as? String).flatMap(RightColumnPosition.init(rawValue:))
+    }
+
+    /// **The filter a `.maughamSetRightColumn` post asks To resolve for**
     /// (shell plan 2 Task 7) — `MaughamEvent.postResolve`'s payload, or nil
-    /// for a plain segment post. Pure, so the key's spelling on both sides is
+    /// for a plain position post. Pure, so the key's spelling on both sides is
     /// pinned without a window (`ResolveMountingTests`).
     static func resolveFilter(in userInfo: [AnyHashable: Any]?) -> ResolveKeyFilter? {
         guard let raw = userInfo?[MaughamEvent.resolveFilterKey] as? String else { return nil }
         return ResolveKeyFilter(rawValue: raw)
+    }
+
+    /// What a `.maughamPullUp` post asks for (`MaughamEvent.postPullUp`).
+    static func pullUpRequest(in userInfo: [AnyHashable: Any]?) -> PullUpRequest? {
+        (userInfo?[MaughamEvent.pullUpKey] as? String).flatMap(PullUpRequest.init(rawValue:))
+    }
+
+    /// **Pull a Book statement or the faces' piece's History up** (⌘⌥G, ⌘⌥Y,
+    /// ⌘⌥V, ⌘⌥H; the Describe… hand-off): the item goes beside
+    /// (`ClickRule.pullUp`), the column is shown, and it is on the pulled-up
+    /// position — written here as well as by the subject's observer, which
+    /// cannot see a key pressed on what is already pulled up. A History key
+    /// with no piece in the faces or the centre does nothing.
+    static func pullUp(_ request: PullUpRequest,
+                       subject: Binding<WindowSubject>,
+                       showInspector: Binding<Bool>,
+                       position: Binding<RightColumnPosition>,
+                       structure: [StructureItem]) {
+        guard let item = RightColumnContent.pulledUp(
+            for: request, subject: subject.wrappedValue, structure: structure) else { return }
+        let next = ClickRule.pullUp(item, current: subject.wrappedValue)
+        if next != subject.wrappedValue { subject.wrappedValue = next }
+        showInspector.wrappedValue = true
+        position.wrappedValue = .pulledUp
+    }
+
+    /// **The piece ⌘⌥E opens the fold of**: the faces' piece, else the open
+    /// one (History's rule, asked rather than restated); nil where neither is
+    /// a piece.
+    static func foldPiece(subject: WindowSubject, structure: [StructureItem]) -> String? {
+        guard case .history(let docId)? = RightColumnContent.pulledUp(
+            for: .historyOfTheFaces, subject: subject, structure: structure) else { return nil }
+        return docId
     }
 
     /// Hand the writer to the first reader's statement, once Project Settings
@@ -2507,11 +2610,10 @@ struct ProjectWindow: View {
     /// a post.
     private func openFirstReaderIfRequested() {
         guard firstReaderHandoff.sheetDismissed() else { return }
-        Self.selectDetailSegment(
-            .firstReader,
-            showInspector: $showInspector,
-            detailSegment: $detailSegment,
-            assistant: assistant)
+        Self.pullUp(
+            .firstReader, subject: subjectBinding, showInspector: $showInspector,
+            position: $rightColumnPosition,
+            structure: store?.manifest.structure ?? [])
     }
 
     /// **Show**, on the banner that says Claude added a research note: the
@@ -2532,9 +2634,9 @@ struct ProjectWindow: View {
             // And it scrolls onto screen, `openResearchItem`'s twin write.
             treeState.scrollRequest = .row(revealed)
         }
-        Self.revealResearchColumn(subject: subject,
-                                  showInspector: &showInspector,
-                                  detailSegment: &detailSegment)
+        Self.revealPulledUp(subject: subject,
+                            showInspector: &showInspector,
+                            position: &rightColumnPosition)
         flashes.mcpBanner.dismiss()
     }
 
@@ -2597,12 +2699,10 @@ struct ProjectWindow: View {
             let ds = session.documentStore
 
             // **Every `ds.uiState` seed is read BEFORE the stores are published, and
-            // the order is the contract.** `showInspector`/`detailSegment` default to
-            // `true`/`.inspector`, and a body pass with a store in hand and these
-            // still at their defaults mounts `DetailPaneToggle` on `.inspector`,
-            // whose `.onAppear` PERSISTS that segment — resetting every writer's
-            // remembered pane on launch. With the stores still nil no body pass can
-            // observe the defaults.
+            // the order is the contract.** A body pass with a store in hand and
+            // the position still at its default would draw the column on To
+            // resolve for a frame whatever the writer left it on. With the
+            // stores still nil no body pass can observe the defaults.
             //
             // The window's subject is restored from `UIState.windowSubject` and
             // validated: any part naming something gone becomes the Book (or nil
@@ -2616,18 +2716,13 @@ struct ProjectWindow: View {
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.compilerModel = ds.uiState.compilerModel
-            // **Nothing about the study column is restored**: nothing is studied
-            // when a window opens, or a reference would cover the right column
-            // before the writer asked for anything.
             self.detailColumnWidth = ds.uiState.detailColumnWidth
-            // Restored VERBATIM — one remembered segment for the window.
-            // Coercing it to what the subject offers would eat the writer's last
-            // explicit pane choice; `DetailPaneToggle` appends a segment the
-            // subject does not offer and renders it highlighted
-            // (`visibleSegments`). A retired segment (`inbox` among them) fails
-            // `UIState`'s tolerant decode and falls back to `.inspector` before
-            // this line runs.
-            self.detailSegment = ds.uiState.detailSegment
+            // Restored VERBATIM — one remembered position for the window, and
+            // `positionAfterSubjectChange` is not run over it: a restored
+            // window opens where it was left (the control draws a selected
+            // pulled-up position even with nothing to show).
+            self.rightColumnPosition = ds.uiState.rightColumnPosition
+            self.previousFace = Self.previousFace(restoring: ds.uiState.rightColumnPosition)
             applyNoChrome()
 
             self.lease = lease

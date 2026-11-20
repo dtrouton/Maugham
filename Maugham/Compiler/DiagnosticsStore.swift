@@ -33,8 +33,8 @@ final class DiagnosticsStore {
     private(set) var version: Int = 0
 
     /// Per document AND VERB: how many notes a run has landed that the writer
-    /// has not had in front of them yet — the picker's unread badge, the Inbox
-    /// segment's idiom (`DetailPaneToggle.inboxCount`).
+    /// has not had in front of them yet — the right column's unread dot on To
+    /// resolve (`RightColumnControl`).
     ///
     /// **In memory only, and deliberately.** Unread is a fact about this
     /// session's attention, not about the document: a project reopened puts

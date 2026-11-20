@@ -2438,11 +2438,9 @@ final class TripwireGrepTests: XCTestCase {
     static let pressThenWaitRepresentatives: Set<String> = [
         "AnnotationsPaneChoiceTests.swift test_theSheetCommitsTheWriterSentence",
         "AnnotationsPaneChoiceTests.swift test_theSheetRefusesABlankHeadingBeforeTheVerbIsCalled",
-        "AssistantColumnTests.swift test_theColumnNamesWhatIsBeingStudiedAndCanBeClosed",
         "DepartmentPaneTests.swift test_theSheetOffersTheBooksOwnLanguageCheckedAndCompilesIt",
         "LetterSectionTests.swift test_addToIntentCallsTheHostsHandler",
         "PracticeSectionTests.swift test_pressingAHotspotRowOpensThatRowsOwnChapter",
-        "ReferencesPaneTests.swift test_theShelfDrawsARowPerPinAndAClickPromotesIt",
         "ReviewRoundCockpitTests.swift test_clearingTheAskReachesTheHostAndStartsNoRun",
         "StatementDraftHandoffTests.swift test_aMintThatDepositedTheWritersCharacterKeepsItsStatement",
         // Found when the arm learned `waitOut(` (plan 3, C14): the same file's
@@ -3647,8 +3645,9 @@ final class TripwireGrepTests: XCTestCase {
         // column (`isSecondEditor: true` from `ResearchSubjectInspector`,
         // shell p3 Task 7), which sets the flag.
         "ResearchNoteEditor.swift",
-        // M1A's Intent / Visual Language panes, in the right column — always
-        // a second editor, always setting the flag.
+        // A statement's editor — Brief's Going for, a pulled-up Book
+        // statement, the centre's cover: always a second editor, always
+        // setting the flag.
         "StatementEditorHost.swift",
     ]
 
@@ -4912,16 +4911,71 @@ final class TripwireGrepTests: XCTestCase {
     /// `Pieces | 🎨Research | 🎨`, and a picker with no Palette segment showed a
     /// palette icon that selected Research.
     ///
-    /// **One picker left, and it is the right pane's.** The binder's own
+    /// **No segmented picker is left in either column.** The binder's own
     /// (`BinderSegmentPicker`) was the surface the defect was FOUND on, and it
-    /// died with the strip in shell-finish stage 2b Task 7 — the left column is
-    /// the project's tree now, so there is nothing there to pick
-    /// between. `DetailPaneToggle` has the identical shape and the identical
-    /// exposure, which is why the rule outlives the file it was written for.
+    /// died with the strip in shell-finish stage 2b Task 7; the right pane's
+    /// picker had the identical shape and died in shell plan 3 Task 9. The
+    /// right column's control is three plain buttons in a `ForEach`
+    /// (`RightColumnControl`), whose every segment is one kind of child (the
+    /// title's `Text` is always there, empty where no title is drawn). The
+    /// rule outlives both files it was written for: it reads the right
+    /// column's files, so a `Picker` that comes back with a conditional child
+    /// goes red here — and the planted offender below shows the scan can see
+    /// one.
+    static let segmentedPickerFiles = ["Views/RightColumn.swift", "Views/RightColumnControl.swift"]
+
     func test_segmentedPickerForEachBodiesHaveNoConditionalChildren() throws {
-        for relative in ["Views/DetailPaneToggle.swift"] {
+        for relative in Self.segmentedPickerFiles {
             let content = try String(
                 contentsOf: sourceDir.appendingPathComponent(relative), encoding: .utf8)
+            XCTAssertEqual(Self.conditionalPickerChildren(in: content), [],
+                "\(relative) — a segmented Picker's ForEach body must emit ONE "
+                + "kind of child. A conditional here is _ConditionalContent, whose branch "
+                + "is cached per position; the first list reshape puts a stale child on "
+                + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
+                + "INSIDE one child expression, or change every segment together.")
+        }
+        // The control's own ForEach holds no conditional child either, Picker
+        // or not: the same stale-branch shape, one container over.
+        let control = try String(
+            contentsOf: sourceDir.appendingPathComponent("Views/RightColumnControl.swift"),
+            encoding: .utf8)
+        XCTAssertEqual(Self.conditionalPickerChildren(in: control, container: "HStack(spacing: 4) {"), [],
+                       "the control's ForEach emits one kind of child per segment")
+    }
+
+    /// Self-check: the scan fires on a planted picker whose ForEach branches,
+    /// and not on one whose children are uniform.
+    func test_theSegmentedPickerCensusFiresOnAPlantedOffender() {
+        let planted = """
+        Picker("Right pane", selection: $segment) {
+            ForEach(segments, id: \\.self) { seg in
+                if let symbol = seg.symbol {
+                    Image(systemName: symbol).tag(seg)
+                } else {
+                    Text(seg.title).tag(seg)
+                }
+            }
+        }
+        """
+        XCTAssertFalse(Self.conditionalPickerChildren(in: planted).isEmpty,
+                       "the census cannot see a conditional child")
+        let uniform = """
+        Picker("Right pane", selection: $segment) {
+            ForEach(segments, id: \\.self) { seg in
+                Image(systemName: seg.symbol).tag(seg)
+            }
+        }
+        """
+        XCTAssertEqual(Self.conditionalPickerChildren(in: uniform), [])
+    }
+
+    /// The lines of a `container`'s `ForEach` body that branch.
+    private static func conditionalPickerChildren(
+        in content: String, container: String = "Picker("
+    ) -> [String] {
+        var offenders: [String] = []
+        do {
             let lines = content.components(separatedBy: .newlines)
             var insidePicker = false
             var insideForEach = false
@@ -4930,89 +4984,29 @@ final class TripwireGrepTests: XCTestCase {
                 let line = raw.trimmingCharacters(in: .whitespaces)
                 // Skip doc comments — they discuss the very shape we ban.
                 if line.hasPrefix("//") || line.hasPrefix("///") { continue }
-                if line.contains("Picker(") { insidePicker = true; depth = 0 }
+                if line.contains(container) { insidePicker = true; depth = 0 }
                 guard insidePicker else { continue }
-                if insideForEach {
-                    XCTAssertFalse(
-                        line.hasPrefix("if ") || line.hasPrefix("} else")
-                            || line.hasPrefix("else ") || line.contains(" ? ") ,
-                        "\(relative):\(i + 1) — a segmented Picker's ForEach body must emit ONE "
-                        + "kind of child. A conditional here is _ConditionalContent, whose branch "
-                        + "is cached per position; the first list reshape puts a stale child on "
-                        + "the wrong segment (2026-07-25 smoke, defect C). Move the variation "
-                        + "INSIDE one child expression, or change every segment together.")
+                if insideForEach,
+                   line.hasPrefix("if ") || line.hasPrefix("} else")
+                    || line.hasPrefix("else ") || line.contains(" ? ") {
+                    offenders.append("\(i + 1): \(line)")
                 }
                 if line.contains("ForEach(") { insideForEach = true; depth = 0 }
                 depth += line.filter { $0 == "{" }.count - line.filter { $0 == "}" }.count
                 if insideForEach && depth <= 0 { insideForEach = false; insidePicker = false }
             }
         }
+        return offenders
     }
 
-    // MARK: - Mount-snap call-site census (pane-selection wiring)
-
-    /// Recurrence-tripper: `DetailPaneToggle` mounts conditionally, so a ⌘⌥
-    /// key that reveals a hidden column mounts it with the requested segment
-    /// already in place. `.onAppear` MUST snap through `snapSegmentIntoPicker()`
-    /// → `mountSelection`, and `mountSelection` MUST consult the
-    /// selection-carrying list (`visibleSegments(subject:including:)`) — the
-    /// bare offered list eats the pane the writer just asked for (a Critical at
-    /// a merge gate, three times). The tests pin the pure functions; this
-    /// census pins the wiring. (Its other half — a window-mode change coercing
-    /// against the bare list — retired with the modes, shell p1 Task 6.)
-    func test_mountSnapCallSitesCensus() throws {
-        let fileURL = sourceDir.appendingPathComponent("Views/DetailPaneToggle.swift")
-        let content = try SourceTreeCache.text(fileURL)
-        XCTAssertEqual(Self.mountSnapProblems(in: content), [])
-    }
-
-    /// Self-check: the census fires on an `.onAppear` rewired off the snap and
-    /// on a `mountSelection` that dropped `including:`.
-    func test_mountSnapCallSitesCensusFiresOnPlantedOffenders() {
-        let planted = """
-        struct DetailPaneToggle<Inspector: View>: View {
-            var body: some View {
-                Text("")
-                    .onAppear {
-                        coerceSegmentIntoView()
-                    }
-            }
-            static func mountSelection(
-                _ current: DetailSegment,
-                subject: WindowSubject
-            ) -> DetailSegment {
-                let bare = visibleSegments(subject: subject)
-                return snappedSelection(current, in: bare, fallback: .inspector)
-            }
-        }
-        """
-        XCTAssertEqual(Self.mountSnapProblems(in: planted).count, 2,
-                       "\(Self.mountSnapProblems(in: planted))")
-    }
-
-    private static func mountSnapProblems(in content: String) -> [String] {
-        var problems: [String] = []
-        if let onAppear = content.range(of: ".onAppear") {
-            let after = content[onAppear.lowerBound...]
-            let end = after.range(of: "}")?.lowerBound ?? after.endIndex
-            if !after[..<end].contains("snapSegmentIntoPicker()") {
-                problems.append(".onAppear does not call snapSegmentIntoPicker()")
-            }
-        } else {
-            problems.append("no .onAppear")
-        }
-        if let decl = content.range(of: "static func mountSelection(") {
-            let after = content[decl.lowerBound...]
-            let end = after.range(of: "\n    }")?.lowerBound ?? after.endIndex
-            let body = after[..<end]
-            if !(body.contains("visibleSegments(") && body.contains("including: current")) {
-                problems.append("mountSelection does not consult visibleSegments(…, including: current)")
-            }
-        } else {
-            problems.append("no mountSelection")
-        }
-        return problems
-    }
+    // The mount-snap call-site census (`test_mountSnapCallSitesCensus` and its
+    // planted twin) retired with the pane picker (shell plan 3 Task 9): the
+    // right column's positions are always drawn — the pulled-up one whenever
+    // it is the one selected (`RightColumnControl.segments`) — so nothing
+    // snaps a requested position away on mount. What a key that reveals a
+    // hidden column lands on is `RightColumnMountingTests`'
+    // `test_everyRequestedPositionLandsUnderEverySubject` and
+    // `test_theControlIsTheOneOrderUnderEverySubject`.
 
     /// Self-check: prove the guard FIRES on a planted bare `ParagraphID.mint()`
     /// call and does NOT fire on the safe `ParagraphID.mintUnique(excluding:)`

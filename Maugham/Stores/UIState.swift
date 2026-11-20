@@ -37,13 +37,12 @@ public struct UIState: Codable, Equatable, Sendable {
     public var bookView: BookView
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
-    /// The right column's segment — one remembered for the window, whatever
-    /// the subject. To resolve by default (shell plan 2 Task 7).
-    public var detailSegment: DetailSegment
     /// The right column's remembered position (shell p3): To resolve, Brief
-    /// or the pulled-up thing. A missing or unknown value opens on To resolve
-    /// (the tolerant decode, tripwire 11). `detailSegment` stays until the
-    /// picker dies (shell p3 Task 9).
+    /// or the pulled-up thing — one for the window, whatever the subject. A
+    /// missing or unknown value opens on To resolve (the tolerant decode,
+    /// tripwire 11). The pane picker's old `detailSegment` key is neither
+    /// read nor written: a file carrying it, with any value, decodes and
+    /// ignores it.
     public var rightColumnPosition: RightColumnPosition
     /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
     /// Per-window, persisted so the posture survives reopen. Additive in
@@ -154,12 +153,12 @@ public struct UIState: Codable, Equatable, Sendable {
     public var activePassMemory: ActivePassMemory
 
     /// **`assistantColumnWidth` used to live here** (M2 §6.2) and died with the
-    /// fourth column, 2026-08-25: a studied reference now takes the RIGHT
-    /// column at `detailColumnWidth`, so there is no second width to hold. The
+    /// fourth column, 2026-08-25: what is pulled up beside the prose takes the
+    /// RIGHT column at `detailColumnWidth`, so there is no second width to hold. The
     /// key is deliberately NOT in `CodingKeys` any more — a keyed container
     /// never asks for a key it has no case for, so a `ui-state.json` written by
     /// any earlier build still decodes, carrying the dead number harmlessly
-    /// (`AssistantColumnTests.test_aFileStillCarryingTheDeadWidthKeyDecodes`).
+    /// (`UIStateTests.test_aFileStillCarryingTheDeadWidthKeyDecodes`).
 
     /// How wide the window's RIGHT column is — one width, held through every
     /// subject change and every pane switch (shell-finish stage 1, Task 1).
@@ -213,7 +212,6 @@ public struct UIState: Codable, Equatable, Sendable {
         bookView: BookView = .outline,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
-        detailSegment: DetailSegment = .resolve,
         rightColumnPosition: RightColumnPosition = .resolve,
         isReviewModeOn: Bool = false,
         compilerModel: CompilerModelChoice = .standard,
@@ -229,7 +227,6 @@ public struct UIState: Codable, Equatable, Sendable {
         self.bookView = bookView
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
-        self.detailSegment = detailSegment
         self.rightColumnPosition = rightColumnPosition
         self.isReviewModeOn = isReviewModeOn
         self.compilerModel = compilerModel
@@ -248,7 +245,7 @@ public struct UIState: Codable, Equatable, Sendable {
         case schemaVersion, windowSubject, bookView, selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
-             researchPreviewVisible, detailSegment, rightColumnPosition, outlineLayout,
+             researchPreviewVisible, rightColumnPosition, outlineLayout,
              isReviewModeOn,
              compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
@@ -265,7 +262,6 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(bookView, forKey: .bookView)
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
-        try c.encode(detailSegment, forKey: .detailSegment)
         try c.encode(rightColumnPosition, forKey: .rightColumnPosition)
         try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
         try c.encode(compilerModel, forKey: .compilerModel)
@@ -315,12 +311,10 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
         self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
-        // A retired segment — `annotations`, `diagnostics`, `tasks` (shell
-        // plan 2 Task 7), `inbox` and every older one — or a missing key opens
-        // on To resolve, which took the three panes' place. The tolerant
-        // decode IS the migration (tripwire 11): no other code reads an old
-        // value.
-        self.detailSegment = (try? c.decode(DetailSegment.self, forKey: .detailSegment)) ?? .resolve
+        // A missing or unknown position opens on To resolve. The tolerant
+        // decode IS the migration (tripwire 11): the pane picker's
+        // `detailSegment` key is not in `CodingKeys`, so the container skips
+        // it whatever it holds.
         self.rightColumnPosition =
             (try? c.decode(RightColumnPosition.self, forKey: .rightColumnPosition)) ?? .resolve
         if let b = try? c.decode(BookView.self, forKey: .bookView) {

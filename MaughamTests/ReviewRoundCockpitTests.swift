@@ -628,7 +628,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     // MARK: - Pure: the picker's checkmark truth table
 
     /// **Exactly one item is checked, and it is the active lane.** The drawn
-    /// menu is headless-unreachable (`InspectorPassLadderTests`), so this is
+    /// menu is headless-unreachable (`PassLadderTests`), so this is
     /// where the rule is asserted; the census above is what keeps the drawn
     /// menu equal to it.
     func test_theActiveLaneIsTheCheckedItem() {
@@ -667,7 +667,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     ///
     /// The item's action is `setPass(_:)` — the same call the mounted menu
     /// item makes (a SwiftUI `Menu`'s items do not exist until the writer
-    /// opens it, measured in `InspectorPassLadderTests`, so this is the
+    /// opens it, measured in `PassLadderTests`, so this is the
     /// closest a test can get to the item and it is the identical code path).
     /// What it is wired to here is exactly what `ProjectWindow.recordActivePass`
     /// does, and the census below pins that the production mount wires it
@@ -1029,22 +1029,26 @@ final class ReviewRoundCockpitTests: XCTestCase {
                       "\u{2026}and its own closure, not a no-op \u{2014} got:\n\(after)")
     }
 
-    /// **One hop up: `DetailPaneToggle` already held `compilerModel`/
-    /// `onCompilerModelChange` for the Diagnostics segment (M2 Task 8) — this
-    /// pins that it hands the SAME pair to the Annotations segment too**,
-    /// rather than defaulting it to `.standard`/no-op for the segment that
-    /// gained the control second.
-    func test_theDetailPaneToggleThreadsCompilerModelToTheAnnotationsSegment() throws {
-        let toggle = try Self.source(of: "Views/DetailPaneToggle.swift")
+    /// **One hop up: the right column holds the window's `compilerModel`
+    /// binding, and hands To resolve the value and a write-back that reaches
+    /// all three places the choice lives** — the binding, the roster's
+    /// services and the stored UI state — rather than defaulting it to
+    /// `.standard`/no-op.
+    func test_theRightColumnThreadsCompilerModelToToResolve() throws {
+        let toggle = try Self.source(of: "Views/RightColumn.swift")
         let call = try XCTUnwrap(
             toggle.range(of: "ResolvePane("),
-            "the toggle must still construct To resolve for this "
+            "the column must still construct To resolve for this "
             + "census to have a subject")
         let after = String(toggle[call.upperBound...].prefix(1600))
         XCTAssertTrue(after.contains("compilerModel: compilerModel"),
                       "got:\n\(after)")
-        XCTAssertTrue(after.contains("onCompilerModelChange: onCompilerModelChange"),
+        XCTAssertTrue(after.contains("onCompilerModelChange: { newValue in"),
                       "got:\n\(after)")
+        for write in ["compilerModel = newValue", "roster.updateModel(newValue)",
+                      "documentStore.updateUIState { $0.compilerModel = newValue }"] {
+            XCTAssertTrue(after.contains(write), "the write-back lost \(write); got:\n\(after)")
+        }
     }
 
     /// **The link the mounted tests borrow, pinned.**
@@ -1052,7 +1056,7 @@ final class ReviewRoundCockpitTests: XCTestCase {
     /// `test_thePickersChoiceRecordsThroughTheWindowsOneWriter` drives
     /// `setPass(_:)` directly, because a SwiftUI `Menu` builds its items only
     /// when the writer opens it and the item itself is unreachable from a
-    /// hosted view (measured in `InspectorPassLadderTests`). That substitution
+    /// hosted view (measured in `PassLadderTests`). That substitution
     /// is honest only while the item actually calls `setPass` — and nothing
     /// mounted can see whether it does. Rewiring `lanePicker`'s button to a
     /// local `@State`, or to `onSetActivePass` under a second spelling, leaves

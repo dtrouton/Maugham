@@ -104,10 +104,10 @@ struct RegionInspectorPane: View {
             }
         } else {
             // Tripwire 15: the full-frame chain is required, and so is the
-            // enclosing stack's top alignment — `DetailPaneToggle` supplies the
+            // enclosing stack's top alignment — `PulledUpView` supplies the
             // second half (`.frame(…, alignment: .top)` on its own VStack).
             // Without both, SwiftUI sizes to intrinsic content, the stack
-            // collapses, and the segment picker floats to the middle of the
+            // collapses, and the column's control floats to the middle of the
             // window. It has recurred four or more times; `HistoryPane` is the
             // canonical example.
             ContentUnavailableView("Select something on the canvas",

@@ -45,17 +45,23 @@ final class FigureSubjectPlacementTests: XCTestCase {
 
     func test_aFigureBesideRevealsTheRightColumnAndOneInTheCentreDoesNot() {
         var show = false
-        var segment = DetailSegment.history
-        ProjectWindow.revealResearchColumn(
+        var position = RightColumnPosition.brief
+        ProjectWindow.revealPulledUp(
             subject: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1")),
-            showInspector: &show, detailSegment: &segment)
+            showInspector: &show, position: &position)
         XCTAssertTrue(show)
-        XCTAssertEqual(segment, .inspector)
-        show = false; segment = .history
-        ProjectWindow.revealResearchColumn(subject: SubjectSamples.opened(.figure("f1")),
-                                           showInspector: &show, detailSegment: &segment)
+        XCTAssertEqual(position, .pulledUp)
+        // The subject's observer answers the same for the figure arriving.
+        XCTAssertEqual(RightColumnContent.positionAfterSubjectChange(
+            .brief, from: SubjectSamples.opened(.canvas),
+            to: WindowSubject(open: .canvas, faces: .canvas, beside: .figure("f1")),
+            previousFace: .brief, structure: CentreRouteTests.structure, projectType: .novel),
+            .pulledUp)
+        show = false; position = .brief
+        ProjectWindow.revealPulledUp(subject: SubjectSamples.opened(.figure("f1")),
+                                     showInspector: &show, position: &position)
         XCTAssertFalse(show, "the centre already shows it")
-        XCTAssertEqual(segment, .history)
+        XCTAssertEqual(position, .brief)
     }
 
     func test_theStatusFooterIsHiddenWhereAFigureTakesTheCentre() {

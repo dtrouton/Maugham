@@ -3,15 +3,14 @@ import SwiftUI
 import MaughamCore
 @testable import Maugham
 
-/// **To resolve takes the right column** (shell plan 2 Task 7): ⌘1, the three
-/// old pane keys, where it is offered, the unread dot, a retired segment's
-/// decode, and the censuses that the three panes are gone and that a run has
-/// one delivery path. Pure functions and source censuses; nothing is pressed
+/// **To resolve takes the right column** (shell plan 2 Task 7; the first of
+/// its three positions since shell plan 3 Task 9): ⌘1, the three old pane
+/// keys, where it is offered, the unread dot, a retired segment's decode, and
+/// the censuses that the three panes are gone and that a run has one delivery
+/// path. Pure functions and source censuses; nothing is pressed
 /// (tripwire 33).
 @MainActor
 final class ResolveMountingTests: XCTestCase {
-
-    private typealias Toggle = DetailPaneToggle<EmptyView>
 
     private func source(_ relative: String) throws -> String {
         try SourceTree.read(relative)
@@ -30,14 +29,14 @@ final class ResolveMountingTests: XCTestCase {
 
     func test_commandOneSelectsToResolve() throws {
         let app = try source("Maugham/MaughamApp.swift")
-        XCTAssertTrue(try shortcut(after: "postSegment(.resolve)", in: app)
+        XCTAssertTrue(try shortcut(after: "MaughamEvent.postPosition(.resolve)", in: app)
                         .hasPrefix(#".keyboardShortcut("1", modifiers: .command)"#),
                       "⌘1 is To resolve's, bound on its View-menu item")
-        // A plain segment post carries no filter: ⌘1 opens To resolve as it
+        // A plain position post carries no filter: ⌘1 opens To resolve as it
         // stands.
         XCTAssertNil(ProjectWindow.resolveFilter(
-            in: [MaughamEvent.detailSegmentKey: DetailSegment.resolve.rawValue]))
-        XCTAssertEqual(DetailSegment.pickerOrder.first, .resolve, "To resolve leads the column")
+            in: [MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue]))
+        XCTAssertEqual(RightColumnPosition.allCases.first, .resolve, "To resolve leads the column")
     }
 
     func test_eachOldPaneKeyOpensToResolveWithItsFilter() throws {
@@ -55,8 +54,20 @@ final class ResolveMountingTests: XCTestCase {
         // The receiver reads the filter the post carries, on the one key.
         for filter in [ResolveKeyFilter.rounds, .checks, .mine, .questions] {
             XCTAssertEqual(ProjectWindow.resolveFilter(in: [
-                MaughamEvent.detailSegmentKey: DetailSegment.resolve.rawValue,
+                MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
                 MaughamEvent.resolveFilterKey: filter.rawValue]), filter)
+            XCTAssertEqual(ProjectWindow.position(in: [
+                MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+                MaughamEvent.resolveFilterKey: filter.rawValue]), .resolve,
+                "the same post names the position the filter is for")
+        }
+        // `postResolve` spells both halves on the one event.
+        let post = try SourceTree.declaration(named: "static func postResolve(", under: "Maugham")
+        let postFlat = SourceScan.codeLines(of: post).joined(separator: " ")
+        for token in ["post(.maughamSetRightColumn, to: .keyWindow,",
+                      "positionKey: RightColumnPosition.resolve.rawValue,",
+                      "resolveFilterKey: filter.rawValue"] {
+            XCTAssertTrue(postFlat.contains(token), "postResolve lost \(token)")
         }
         // The translation round's Open queue opens the round's piece, then
         // asks for Questions (review I3; `ResolveNavigationTests` pins the order).
@@ -64,8 +75,8 @@ final class ResolveMountingTests: XCTestCase {
         XCTAssertTrue(report.contains("MaughamEvent.postResolve(.questions)"))
         // The receiver: the one selection act, then the request.
         let receiver = try SourceTree.declaration(
-            named: "onKeyWindowCommand(.maughamSetDetailSegment, window: window)", under: "Maugham")
-        let select = try XCTUnwrap(receiver.range(of: "ProjectWindow.selectDetailSegment("))
+            named: "onKeyWindowCommand(.maughamSetRightColumn, window: window)", under: "Maugham")
+        let select = try XCTUnwrap(receiver.range(of: "ProjectWindow.selectPosition("))
         let request = try XCTUnwrap(receiver.range(of: "resolveRequest = .filter(filter)"))
         XCTAssertLessThan(select.lowerBound, request.lowerBound,
                           "the column is revealed before the filter is asked for")
@@ -76,26 +87,41 @@ final class ResolveMountingTests: XCTestCase {
     func test_toResolveIsOfferedWhenTheFacesPieceIsNotOpen() {
         // The canvas in the centre, the faces on a piece no editor holds.
         let canvasOverPiece = WindowSubject(open: .canvas, faces: .item("doc-a"), beside: nil)
-        let offered = Toggle.visibleSegments(subject: canvasOverPiece)
-        XCTAssertTrue(offered.contains(.resolve), "To resolve reads a piece without loading it")
-        // Plan 1's stopgap stands for the panes that still read a document.
-        for waiting in [DetailSegment.history, .translation, .references] {
-            XCTAssertFalse(offered.contains(waiting), "\(waiting) keeps `needsADocument`")
-        }
-        // …and To resolve is offered on every other subject too: it says
-        // itself what it is about.
-        for subject in [WindowSubject.book,
+        let structure = [StructureItem(id: "doc-a", title: "A", type: .document, path: "a.md")]
+        XCTAssertEqual(RightColumnContent.of(
+            position: .resolve, subject: canvasOverPiece, translationLanguage: nil,
+            structure: structure, projectType: .novel), .resolve,
+            "To resolve reads a piece without loading it")
+        // …and it is the first segment on every subject: it says itself what
+        // it is about.
+        for subject in [WindowSubject.book, canvasOverPiece,
                         WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: nil),
                         WindowSubject(open: .canvas, faces: .canvas, beside: nil)] {
-            XCTAssertEqual(Toggle.visibleSegments(subject: subject).first, .resolve)
+            for selected in RightColumnPosition.allCases {
+                XCTAssertEqual(RightColumnControl.segments(
+                    offersPulledUp: RightColumnContent.offersPulledUp(
+                        subject, structure: structure, projectType: .novel),
+                    selected: selected).first, .resolve)
+            }
         }
-        XCTAssertFalse(DetailSegment.needsADocument.contains(.resolve))
+        // History and what a piece is pinned to no longer wait for the piece
+        // to be open (plan 1's stopgap, closed in shell plan 3): History pulls
+        // up for a piece that is not open, and the pins are its fold.
+        XCTAssertEqual(RightColumnContent.pulledUp(
+            for: .historyOfTheFaces, subject: canvasOverPiece, structure: structure),
+            .history(docId: "doc-a"))
+        // Translation review alone needs the piece open: it IS the editor's.
+        XCTAssertEqual(RightColumnContent.of(
+            position: .resolve, subject: canvasOverPiece, translationLanguage: "es",
+            structure: structure, projectType: .novel), .resolve)
     }
 
     // MARK: - The unread dot
 
     func test_theUnreadDotLandsOnToResolve() throws {
-        XCTAssertEqual(Toggle.unreadDotSegment, .resolve)
+        XCTAssertTrue(RightColumnControl.showsDot(on: .resolve, checksUnread: true, proposalPending: false))
+        XCTAssertFalse(RightColumnControl.showsDot(on: .brief, checksUnread: true, proposalPending: false))
+        XCTAssertFalse(RightColumnControl.showsDot(on: .pulledUp, checksUnread: true, proposalPending: false))
         XCTAssertTrue(UnreadDot.shows(unreadChecks: 3))
         XCTAssertFalse(UnreadDot.shows(unreadChecks: 0))
         // The picker's dot and the list's clear key on ONE doc id
@@ -106,26 +132,23 @@ final class ResolveMountingTests: XCTestCase {
                      .pieces(docIds: ["doc-a"], includesBookLevel: true)] {
             XCTAssertNil(ResolvePane.unreadDocId(scope: none), "\(none)")
         }
-        let picker = try source("Maugham/Views/DetailPaneToggle.swift")
+        let picker = try source("Maugham/Views/RightColumnControl.swift")
         XCTAssertTrue(picker.contains("ResolvePane.unreadDocId(scope: ResolveScope.of("),
-                      "the picker's dot asks the list's own doc id")
-        let open = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"), beside: nil)
-        let segments = Toggle.visibleSegments(subject: open)
-        XCTAssertEqual(Toggle.badgeOffset(of: .resolve, in: segments), segments.count - 1,
-                       "the dot rides To resolve's position, the column's first")
+                      "the control's dot asks the list's own doc id")
         // The chip: Checks wears it, nothing else does.
         XCTAssertTrue(ResolveFilterBar.wearsUnreadDot(.checks, checksUnread: true))
         XCTAssertFalse(ResolveFilterBar.wearsUnreadDot(.checks, checksUnread: false))
         for other in [ResolveSource.mine, .questions, .others, .pass("line")] {
             XCTAssertFalse(ResolveFilterBar.wearsUnreadDot(other, checksUnread: true))
         }
-        // A dot, never a number: the picker draws `UnreadDot` over To
-        // resolve and no counted badge over it.
-        let toggle = try source("Maugham/Views/DetailPaneToggle.swift")
-        XCTAssertTrue(toggle.contains("unreadDot(over: Self.unreadDotSegment"))
+        // A dot, never a number: the control draws `UnreadDot` over a
+        // segment, by `showsDot`, and draws no count anywhere.
+        let toggle = try source("Maugham/Views/RightColumnControl.swift")
         XCTAssertTrue(toggle.contains("UnreadDot()"))
-        XCTAssertFalse(toggle.contains("badge(over: .resolve"))
+        XCTAssertTrue(toggle.contains("Self.showsDot(on: segment, checksUnread: checksUnread,"))
+        XCTAssertFalse(toggle.contains("99+"), "no counted badge")
         XCTAssertFalse(toggle.contains("diagnosticsUnreadCount"))
+        XCTAssertFalse(toggle.contains("Text(\"\\("), "no number is drawn on the control")
         let bar = try source("Maugham/Views/Resolve/ResolveFilterBar.swift")
         XCTAssertTrue(bar.contains("UnreadDot()"))
         // The clearing rule the Diagnostics pane kept: showing the checks'
@@ -146,32 +169,35 @@ final class ResolveMountingTests: XCTestCase {
         for retired in ["annotations", "diagnostics", "tasks", "inbox", "outline", "research", "palette"] {
             let raw = #"{"schemaVersion": 5, "detailSegment": "\#(retired)", "isNoChromeOn": true}"#
             let decoded = try JSONDecoder().decode(UIState.self, from: Data(raw.utf8))
-            XCTAssertEqual(decoded.detailSegment, .resolve, "\(retired) opens on To resolve")
+            XCTAssertEqual(decoded.rightColumnPosition, .resolve, "\(retired) opens on To resolve")
             XCTAssertTrue(decoded.isNoChromeOn, "the rest of the file still decodes")
         }
         let missing = try JSONDecoder().decode(UIState.self, from: Data(#"{"schemaVersion": 5}"#.utf8))
-        XCTAssertEqual(missing.detailSegment, .resolve)
+        XCTAssertEqual(missing.rightColumnPosition, .resolve)
+        // The old key is ignored whatever it holds (shell plan 3 Task 9); the
+        // position is what is remembered.
         let kept = try JSONDecoder().decode(
-            UIState.self, from: Data(#"{"schemaVersion": 5, "detailSegment": "history"}"#.utf8))
-        XCTAssertEqual(kept.detailSegment, .history, "a live segment is kept")
-        XCTAssertEqual(UIState().detailSegment, .resolve, "a new window opens on To resolve")
+            UIState.self,
+            from: Data(#"{"schemaVersion": 5, "detailSegment": "history", "rightColumnPosition": "brief"}"#.utf8))
+        XCTAssertEqual(kept.rightColumnPosition, .brief, "the remembered position is kept")
+        XCTAssertEqual(UIState().rightColumnPosition, .resolve, "a new window opens on To resolve")
     }
 
     // MARK: - The callers that used to select a deleted pane
 
     func test_theBoardsOpenNotesAndAFiguresShowNotesSelectToResolve() throws {
         let centre = try SourceTree.sourceOfType("CentreColumn", under: ["Maugham"])
-        XCTAssertTrue(centre.contains("detailSegment = .resolve"))
+        XCTAssertTrue(centre.contains("position = .resolve"))
         XCTAssertTrue(centre.contains("resolveRequest = .focus(groupOwnerId: pieceId)"))
         let right = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
-        XCTAssertTrue(right.contains("detailSegment = .resolve"))
+        XCTAssertTrue(right.contains("onShowNotes: { _ in position = .resolve }"),
+                      "a figure's Show notes selects To resolve")
         XCTAssertTrue(right.contains("script: lastParsedScript"),
                       "the window's parse reaches the list for scene grouping")
-        let toggle = try source("Maugham/Views/DetailPaneToggle.swift")
         for wired in ["onTravel:", "drawsFigure: drawsFigure", "revealFigure: revealFigure",
-                      "revealFigureCell: revealFigureCell", "request: $resolveRequest",
-                      "script: script"] {
-            XCTAssertTrue(toggle.contains(wired), "the mount passes \(wired)")
+                      "revealFigureCell:", "request: $resolveRequest",
+                      "onOpenBrief: openBrief"] {
+            XCTAssertTrue(right.contains(wired), "the mount passes \(wired)")
         }
     }
 

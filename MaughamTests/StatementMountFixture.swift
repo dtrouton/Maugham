@@ -16,12 +16,6 @@ final class StatementProbeModel {
     /// SCOPE CHANGE on one live pane — the case that must close the outgoing
     /// `Document` before the incoming one loads.
     var subject: BinderSubject?
-    /// Which right-hand pane the toggle is showing. Settable so a test can drive
-    /// `⌘⌥N`/`⌘⌥V` — the route that TEARS THE HOST DOWN rather than reconciling
-    /// it (`segmentContent` gives `.intent` and `.visualLanguage` separate `case`
-    /// arms), which is the other half of what `hostTheBinderBesideThePane`
-    /// exists to exercise.
-    var detailSegment: DetailSegment = .intent
     init() {}
 }
 
@@ -48,6 +42,12 @@ final class StatementMountFixture: RunLoopPumping {
     /// The window's subject, held outside the views — written by the real binder
     /// and read by the real right column. See `hostTheBinderBesideThePane`.
     let subjectProbe = BinderSubjectProbe()
+    /// The right column's position and subject. It opens on Brief — where a
+    /// subject's intent is — and a test moves it with `showVisualLanguage` /
+    /// `showBrief`: the route that TEARS THE INTENT HOST DOWN rather than
+    /// reconciling it (Brief and the pulled-up thing are separate arms of
+    /// `RightColumn`'s one `switch`).
+    let columnProbe = RightColumnFixture.Probe(position: .brief)
 
     private let temp: TempDirectory
     private var windows: [NSWindow] = []
@@ -268,12 +268,11 @@ final class StatementMountFixture: RunLoopPumping {
     /// drives a press through the binding and back through this view's state"*.
     ///
     /// What is production here: `BinderView`'s `List(selection:)` and its row
-    /// tags, the `Binding` between the two columns, `DetailPaneToggle`'s picker
-    /// and its `segmentContent` routing, and `StatementPane`'s own resolution.
-    /// The only thing this view supplies is `ProjectWindow`'s boundary
-    /// conversion, and it CALLS that rather than re-spelling it
-    /// (`BinderSubject.itemID` / `BinderSubject.activeDocId(for:)`), so a change
-    /// to the rule reaches this test.
+    /// tags, the `Binding` between the two columns, `RightColumn`'s control
+    /// and its one `switch` over `RightColumnContent`, Brief's scope
+    /// (`BriefScope.of` the faces) and its Going for. The only thing this view
+    /// supplies is the window's subject for a tree selection — the row opened
+    /// and faced, nothing selected being the Book.
     ///
     /// Drive it with `selectBinderRow(_:in:)` and read the answer off
     /// `firstTextView(in:)` — the pane's resolved scope observed as the words it
@@ -281,11 +280,12 @@ final class StatementMountFixture: RunLoopPumping {
     @discardableResult
     func hostTheBinderBesideThePane(subject: BinderSubject?) async -> NSWindow {
         subjectProbe.subject = subject
+        columnProbe.selection = subject
         return await mount(
             AnyView(
                 BinderBesideThePaneProbeView(
                     store: store, documentStore: documentStore,
-                    subjectProbe: subjectProbe, paneProbe: probe)
+                    subjectProbe: subjectProbe, columnProbe: columnProbe)
                 .environment(preferences)))
     }
 
@@ -300,9 +300,22 @@ final class StatementMountFixture: RunLoopPumping {
         await settleWaiting(condition, otherwise: 0.4)
     }
 
-    /// Show another right-hand pane, as `⌘⌥N`/`⌘⌥V` does.
-    func showSegment(_ segment: DetailSegment, until condition: (() -> Bool)? = nil) async {
-        probe.detailSegment = segment
+    /// Pull Visual Language up, as `⌘⌥V` does (`ProjectWindow.pullUp`): the
+    /// column leaves Brief, so the intent's host is torn down.
+    func showVisualLanguage(until condition: (() -> Bool)? = nil) async {
+        pullUpVisualLanguage()
+        await settleWaiting(condition, otherwise: 0.4)
+    }
+
+    /// The same write with no wait, for a test that must act in the same turn.
+    func pullUpVisualLanguage() {
+        columnProbe.subject = ClickRule.pullUp(.visualLanguage, current: columnProbe.subject)
+        columnProbe.position = .pulledUp
+    }
+
+    /// Back to Brief, as `⌘⌥N` does.
+    func showBrief(until condition: (() -> Bool)? = nil) async {
+        columnProbe.position = .brief
         await settleWaiting(condition, otherwise: 0.4)
     }
 
@@ -481,31 +494,24 @@ private struct TwoEditorProbeView: View {
 /// The two columns that share the window's subject, with the subject held
 /// outside both of them.
 ///
-/// **`ProjectWindow`'s boundary, called rather than copied.** The window
-/// converts its typed subject exactly twice on the way to the right column —
-/// `activeItemID` is `selectedSubject?.itemID` (`ProjectWindow.swift:1511`) and
-/// `activeDocId` is `BinderSubject.activeDocId(for:)` (`:1516-1518`) — and both
-/// of those are the type's own accessors. Re-spelling either here would be a
-/// second answer to the question the type exists to have one answer to, and a
-/// test built on a copy of a rule cannot fail when the rule changes.
-///
-/// `EmptyView` for the inspector arm: this probe is about the statement panes,
-/// and mounting the real inspector would drag the whole binder-segment routing
-/// in behind it.
+/// **The right column is `RightColumn` itself** (`RightColumnFixture`), on the
+/// position and the subject the probe holds. The binder writes its selection
+/// to `subjectProbe` (what the tests read) and through it to the column's
+/// subject — the row opened and faced, as a click in the tree does.
 @MainActor
 private struct BinderBesideThePaneProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let subjectProbe: BinderSubjectProbe
-    let paneProbe: StatementProbeModel
+    let columnProbe: RightColumnFixture.Probe
     let treeState = BinderTreeSectionsState()
 
     private var subject: Binding<BinderSubject?> {
-        Binding(get: { subjectProbe.subject }, set: { subjectProbe.subject = $0 })
-    }
-
-    private var segment: Binding<DetailSegment> {
-        Binding(get: { paneProbe.detailSegment }, set: { paneProbe.detailSegment = $0 })
+        Binding(get: { subjectProbe.subject },
+                set: {
+                    subjectProbe.subject = $0
+                    columnProbe.selection = $0
+                })
     }
 
     var body: some View {
@@ -513,19 +519,8 @@ private struct BinderBesideThePaneProbeView: View {
             BinderView(store: store, subject: .tree(subject),
                        treeState: treeState)
                 .frame(width: 260)
-            DetailPaneToggle(
-                store: store,
-                segment: segment,
-                selectedSubject: subject,
-                activeManuscriptItemId: subjectProbe.subject?.itemID,
-                // Both statement panes are in every picker, so
-                // `snapSegmentIntoPicker` has nothing to move.
-                projectURL: store.url,
-                activeDocId: BinderSubject.activeDocId(for: subjectProbe.subject),
-                documentStore: documentStore
-            ) {
-                EmptyView()
-            }
+            RightColumnFixture.pane(store: store, documentStore: documentStore,
+                                    probe: columnProbe, width: 440)
         }
     }
 }

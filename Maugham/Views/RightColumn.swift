@@ -3,13 +3,13 @@ import MaughamCore
 import AppKit
 
 /// **The window's right-hand column**: the resize handle on its leading edge
-/// and its drag, the study arm (a studied reference, in place of the pane
-/// picker and the pane), and the inspector arm — `DetailPaneToggle` with the
-/// research subject, the canvas's region inspector, a Collection's piece
-/// inspector and `InspectorView` beneath it — plus the one width applied to
-/// both the content's frame and the split item, and the hidden arm when the
-/// column is closed. It owns exactly one piece of state: the drag's starting
-/// width.
+/// and its drag, then `pane` — the three positions' control
+/// (`RightColumnControl`) over the one arm `RightColumnContent.of` names: To
+/// resolve (or, interim, the translation review or the Department desk),
+/// Brief, and the pulled-up thing (`PulledUpView`, which also draws the
+/// centre's own details) — plus the one width applied to both the content's
+/// frame and the split item, and the hidden arm when the column is closed. It
+/// owns exactly one piece of state: the drag's starting width.
 ///
 /// **Everything else is the window's, handed down** — `CentreColumn`'s shape.
 /// Each `@State` this column WRITES arrives as a `Binding` (tripwire 2: a copy
@@ -24,7 +24,7 @@ import AppKit
 /// handle alone writes and the window alone reads into that sum.
 ///
 /// **Mounted ONCE, as the detail column's root**, so the handle and the pane
-/// keep their identities across every study, pane and subject change.
+/// keep their identities across every position and subject change.
 ///
 /// `canvasModel` is a `let`, and nothing here reads its `.scene`: the region
 /// inspector resolves the selection one leaf down (tripwire 30).
@@ -43,11 +43,8 @@ struct RightColumn: View {
     /// The project window, whose Format ▸ Table posts reach that grid.
     let window: NSWindow?
     let publishCentre: PublishCentreModel
-    /// What pin is being studied — the window's model, which the References
-    /// pane writes and the study arm below is a function of.
-    let assistant: AssistantColumnModel
     /// The project's services, injected into the panes' environment at
-    /// `inspectorPane`.
+    /// `pane`.
     let roster: AgentRoster
     let bible: BibleStore?
     let declaredWorld: DeclaredWorldStore?
@@ -61,7 +58,6 @@ struct RightColumn: View {
     @Binding var subject: WindowSubject
     let isNoChromeOn: Bool
     let showInspector: Bool
-    let metrics: EditorMetrics
     /// The EFFECTIVE width, bound once by the window — see the type comment.
     let width: Double
     /// The window content's measured width, for the drag's ceiling.
@@ -71,7 +67,8 @@ struct RightColumn: View {
     /// The writer's persisted wish; written by the handle's drag alone.
     @Binding var detailColumnWidth: Double
     @Binding var selectedSubject: BinderSubject?
-    @Binding var detailSegment: DetailSegment
+    /// Which of the three positions shows (`ProjectWindow.rightColumnPosition`).
+    @Binding var position: RightColumnPosition
     /// To resolve's next ask — a filter or a piece to focus (shell plan 2
     /// Task 7); `ResolvePane` applies it once and sets it back to nil.
     @Binding var resolveRequest: ResolveRequest?
@@ -87,8 +84,11 @@ struct RightColumn: View {
     let openProjectSettings: () -> Void
     /// `ProjectWindow.openPromotedArtifact(_:)` — Open on a promoted card.
     let openPromotedArtifact: (_ itemId: String) -> Void
-    /// The drawing door's posture for one document.
-    let posture: (_ docId: String?) -> Posture
+    /// `ProjectWindow.showStrain` — a solid mark's click in Brief.
+    var showStrain: (ResolveRequest) -> Void = { _ in }
+    /// `ProjectWindow.openBrief` — the faces move to the subject and Brief
+    /// shows it (a filed line's link, a Part's or the Book's piece).
+    var openBrief: (BinderSubject) -> Void = { _ in }
     /// Whether the tree's Figures section draws a figure
     /// (`BinderTreeSectionsState.drawsFigure`), for To resolve's figure click.
     var drawsFigure: (String) -> Bool = { _ in false }
@@ -146,29 +146,7 @@ struct RightColumn: View {
             // window's binding and expects exactly one.
             HStack(spacing: 0) {
                 detailResizeHandle(documentStore: documentStore)
-                // **A studied reference takes this column, in place of the pane
-                // picker and the pane** (spec §3.2) — at the column's own width, so
-                // the prose keeps its measure (Denver ruled out a fourth column).
-                //
-                // **The census this arm carries**: delete the branch and
-                // `AssistantColumnTests` stays green while clicking a pin puts
-                // nothing on screen; `StudyColumnMountTests` measures the arm.
-                //
-                // **One `HStack` with the branch inside it**, so the handle keeps its
-                // identity across the swap and the width is applied in one place.
-                // `showInspector` is a tautology HERE and passed anyway: the predicate's
-                // second caller, `AssistantColumnEscape.isColumnPresented`, is asked
-                // with no view in hand and is how ⌘⌥I takes the study's Escape claim
-                // with it. Simplifying it away would let the two callers ask different
-                // questions.
-                if AssistantColumn.isPresented(studied: assistant.studied,
-                                               isNoChromeOn: isNoChromeOn,
-                                               showInspector: showInspector) {
-                    AssistantColumn(store: store, projectRoot: projectRoot,
-                                    assistant: assistant)
-                } else {
-                    inspectorPane(store: store, documentStore: documentStore)
-                }
+                pane
             }
             // **The frame is what holds the column on macOS 27**, not the
             // modifier below it (see the doc comment above).
@@ -252,110 +230,72 @@ struct RightColumn: View {
                     })
     }
 
-    @ViewBuilder
-    private func inspectorPane(store: ProjectStore, documentStore: DocumentStore) -> some View {
-        DetailPaneToggle(
-            store: store,
-            segment: $detailSegment,
-            selectedSubject: $selectedSubject,
-            activeManuscriptItemId: Self.panesItemID(of: subject),
-            subject: subject,
-            projectURL: store.url,
-            activeDocId: Self.panesDocId(of: subject),
-            allDocIds: ProjectWindow.documentIds(in: store.manifest.structure),
-            device: _checkpointDeviceId,
-            session: _checkpointSessionId,
-            docPaths: ProjectWindow.documentPaths(in: store.manifest.structure),
-            documentStore: documentStore,
-            editorControl: editorControl,
-            // The desk's Shows — the design gate's, a round's and the publish
-            // problems' — the only things on that pane that reach the CENTRE
-            // column. Each Show clears the others (`PublishCentreModel.show`):
-            // one centre, one selection.
-            onShowDesignProposal: { publishCentre.show(proposal: $0) },
-            onShowTranslationRound: { publishCentre.show(round: $0) },
-            onShowPublishProblems: { publishCentre.show(problems: $0) },
-            onPublishProblemsSettled: { publishCentre.refreshProblems($0) },
-            compilerModel: compilerModel,
-            onCompilerModelChange: { newValue in
-                compilerModel = newValue
-                // Every service that spawns a session runs on this one setting;
-                // the roster names them. Lazily retired, so a change made
-                // mid-round never kills the round in flight.
-                roster.updateModel(newValue)
-                documentStore.updateUIState { $0.compilerModel = newValue }
-            },
-            assistant: assistant,
-            resolveRequest: $resolveRequest,
-            script: lastParsedScript,
-            // The round cockpit's pass picker lands on the ONE writer of
-            // `UIState.activePassMemory`; a queue writing the memory itself
-            // would be a second spelling of the value the RUN reads to mint
-            // its lane.
-            onSetActivePass: { piece, passId in
-                recordActivePass(piece, passId)
-            },
-            // The pass-order nudge's Mark done / Skip — the same write as the
-            // board's chip verb: `PassStateWriterCensusTests.passStateWritingFiles`
-            // is file-scoped, so a call in any `Resolve/` file would be one
-            // more writer.
-            onSetPassState: { pieceId, passId, state in
-                Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
-            },
-            // The check header's "Define a first reader…" — the same
-            // hand-off `InspectorView`'s "Project Settings…" gets.
-            onOpenProjectSettings: openProjectSettings,
-            drawsFigure: drawsFigure,
-            revealFigure: revealFigure,
-            revealFigureCell: { [figureWindows] id, cell, pending in
-                figureWindows?.reveal(id, cell: cell, pending: pending) ?? false
-            }
-        ) {
-            researchOrSubject(store: store)
+    /// **The control over the one arm the table names** — everything this
+    /// column draws beside its handle. Not `private`: the width and height
+    /// censuses measure it at a pane's width, without the split item's frame.
+    var pane: some View {
+        VStack(spacing: 0) {
+            RightColumnControl(
+                store: store, position: $position, subject: subject,
+                diagnostics: roster.compiler.diagnostics,
+                width: CGFloat(width) - Self.resizeHandleWidth)
+            Divider()
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // **The project's services reach the panes through the environment**
         // — the window's roster (the session's, or the unconfigured
         // placeholder before load) and the session's bible and declared world.
-        // The toggle reads every service off the roster, so a pane needing one
-        // more never edits this call.
         .environment(roster)
         .environment(bible)
         .environment(declaredWorld)
-        // Entering translation review surfaces the Translation segment. Exiting
-        // leaves the segment in place (it shows a "not in review" empty state)
-        // rather than yanking the pane out from under the writer.
+        // Populate the inbox from window open, so the tree's Inbox row is
+        // drawn for a project whose captures synced in while it was shut.
+        // Presenter changes (`DocumentStore`'s `.inbox` arm) keep it fresh.
+        // (The pane picker ran this; it moved here with the column.)
+        .task { await documentStore.inboxStore.refresh() }
+        // Entering translation review shows it: the review is To resolve's
+        // own answer while it is on. Leaving moves nothing.
         .onChange(of: editorControl.translationLanguage) { _, lang in
-            if lang != nil { detailSegment = .translation }
+            if lang != nil { position = .resolve }
         }
     }
 
-    /// **The right column's outermost question: is the window about a figure
-    /// (its inspector, `figureSubject`) or a research item?** It sits ABOVE `inspectorRoute` — above the canvas too — because
-    /// wherever the canvas keeps the centre, a research click that did not
-    /// reach this column would change nothing anywhere. `inspectorRoute` and
-    /// `canvasCollapse` are left alone: the ⌘\ collapse must not answer
-    /// differently because a row is selected.
-    ///
-    /// **Being the outermost question is not being on screen.** This closure is
-    /// `DetailPaneToggle`'s `inspectorContent`, rendered only by its
-    /// `.inspector` arm, and the writer may be on another pane. The reveal is a rule of its
-    /// own (`ResearchRevealModifier` / `ProjectWindow.revealResearchColumn`): a
-    /// `@ViewBuilder` cannot move the segment it is rendered under.
-    ///
-    /// A method rather than inline in `DetailPaneToggle`'s trailing builder,
-    /// already the heaviest expression in this file.
-    ///
-    /// **What is beside is asked first** (shell p1 Task 4): it shows whatever
-    /// the centre is — a figure or a research item open in the centre
-    /// included — under `BesideHeader`'s Open in Centre and close. Only with
-    /// nothing beside does the column inspect what the centre shows.
+    /// What the column shows now — the table's one answer.
+    private var shown: RightColumnContent {
+        RightColumnContent.of(position: position, subject: subject,
+                              translationLanguage: editorControl.translationLanguage,
+                              structure: store.manifest.structure,
+                              projectType: store.manifest.type)
+    }
+
+    /// **One `switch` over `RightColumnContent`, exhaustive, no `default`**:
+    /// a new answer cannot compile without an arm here.
     @ViewBuilder
-    private func researchOrSubject(store: ProjectStore) -> some View {
-        let placement = ProjectWindow.researchSubjectPlacement(subject: subject)
-        let figurePlacement = ProjectWindow.figureSubjectPlacement(subject: subject)
-        if ProjectWindow.pulledUpIsShownBeside(subject: subject) {
-            // What is pulled up, whatever the centre (shell p3 Task 7) —
-            // hosted where `beside` showed until Task 9 mounts the positions.
+    private var content: some View {
+        switch shown {
+        case .resolve:
+            resolvePane
+        case .translationReview:
+            translationPane
+        case .desk:
+            RightColumnDesk(store: store, documentStore: documentStore,
+                            subject: selectedSubject, publishCentre: publishCentre)
+        case .brief(let scope):
+            BriefPane(
+                store: store, documentStore: documentStore, scope: scope,
+                diagnostics: roster.compiler.diagnostics, bible: bible, world: declaredWorld,
+                centreItem: centreItem,
+                onOpenInCentre: openInCentre,
+                onPullUp: { subject = ClickRule.pullUp($0, current: subject) },
+                onShowStrain: showStrain,
+                onOpenBrief: openBrief,
+                // The desk is To resolve's answer while an edition is the
+                // faces — and an edition's Brief shows only then.
+                onOpenDesk: { _ in position = .resolve })
+        case .pulledUp, .centreDetails, .nothingPulledUp:
+            // One mount for the three: the view asks the subject which.
             PulledUpView(
                 store: store, documentStore: documentStore, subject: $subject,
                 centreItem: centreItem, canvasModel: canvasModel,
@@ -365,83 +305,93 @@ struct RightColumn: View {
                 bible: bible, world: declaredWorld,
                 onOpenInCentre: openInCentre,
                 paletteWallCard: paletteWallCard,
-                // Mounted only with something pulled up, so the centre's
-                // details (and `canvasDetails`) are this column's own arms
-                // below until Task 9 mounts the positions.
-                onShowNotes: { _ in detailSegment = .resolve })
-        } else if let figureID = figurePlacement.centreFigureID {
-            figureSubject(figureID, store: store)
-        } else if let id = placement.inspectedItemID {
-            researchInspector(id, showsPreview: false, store: store)
-        } else {
-            switch ProjectWindow.inspectorRoute(subject: subject,
-                                                projectType: store.manifest.type) {
-            case .canvas:
-                canvasInspector(store: store)
-            case .collectionPiece:
-                collectionInspector(store: store)
-            case .document:
-                InspectorView(
-                    store: store,
-                    selectedItemId: subject.faces.itemID,
-                    metrics: metrics,
-                    onOpenProjectSettings: openProjectSettings,
-                    posture: posture(subject.faces.itemID))
-            }
+                // Show notes: To resolve, which the figure — already the
+                // faces — scopes to its own notes.
+                onShowNotes: { _ in position = .resolve },
+                canvasDetails: { AnyView(canvasInspector(store: store)) })
         }
     }
 
-    /// A research item's inspector, previewing it above when it is beside.
-    private func researchInspector(_ id: String, showsPreview: Bool,
-                                   store: ProjectStore) -> some View {
-        ResearchSubjectInspector(
-            store: store, itemID: id,
-            showsPreview: showsPreview, figureTree: figureTree,
-            figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, isLocked: isLocked),
-            documentStore: documentStore, readOnly: WindowLock.refusesEdits(isLocked: isLocked),
-            shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
-            window: window, presence: figureGridPresence)
+    /// **To resolve** — the faces' notes, the check's findings and the
+    /// to-dos, in one list. It reads an unopened piece without loading it and
+    /// acts only on the open one.
+    private var resolvePane: some View {
+        ResolvePane(
+            store: store,
+            documentStore: documentStore,
+            subject: subject,
+            script: lastParsedScript,
+            // The roster's compiler and its own store, the pair the head
+            // reads the check and the round from.
+            diagnostics: roster.compiler.diagnostics,
+            orchestrator: roster.compiler,
+            // The letter's Add to intent and a finding's Answer drop the
+            // derivation cache.
+            world: declaredWorld,
+            compilerModel: compilerModel,
+            onCompilerModelChange: { newValue in
+                compilerModel = newValue
+                // Every service that spawns a session runs on this one
+                // setting; the roster names them. Lazily retired, so a change
+                // made mid-round never kills the round in flight.
+                roster.updateModel(newValue)
+                documentStore.updateUIState { $0.compilerModel = newValue }
+            },
+            // The pass-order nudge's Mark done / Skip — the same write as the
+            // board's chip verb: `PassStateWriterCensusTests.passStateWritingFiles`
+            // is file-scoped, so a call in any `Resolve/` file would be one
+            // more writer.
+            onSetPassState: { pieceId, passId, state in
+                setPassState(pieceId, passId, state)
+            },
+            // The round cockpit's pass picker lands on the ONE writer of
+            // `UIState.activePassMemory`.
+            onSetActivePass: { piece, passId in recordActivePass(piece, passId) },
+            request: $resolveRequest,
+            onOpenProjectSettings: openProjectSettings,
+            onTravel: { subject in
+                // Travelling to a figure is the window's SUBJECT write and
+                // nothing else (`ManuscriptNavigation`'s ruling).
+                selectedSubject = subject
+            },
+            drawsFigure: drawsFigure,
+            revealFigure: revealFigure,
+            revealFigureCell: { [figureWindows] id, cell, pending in
+                figureWindows?.reveal(id, cell: cell, pending: pending) ?? false
+            },
+            // A filed line names a Brief: the faces move there.
+            onOpenBrief: openBrief)
     }
 
-    /// **A figure subject's arm** (report plan 8a Task 7): a figure in the
-    /// centre leaves its inspector the column. A figure pulled up beside is
-    /// `PulledUpView`'s (shell p3 Task 7).
-    @ViewBuilder
-    private func figureSubject(_ figureID: String, store: ProjectStore) -> some View {
-        FigureInspector(
-            figureId: figureID, store: store, documentStore: documentStore, listing: figureListing,
-            figureWindows: figureWindows, figureTree: figureTree, control: editorControl, isLocked: isLocked,
-            window: window, select: { selectedSubject = $0 },
-            // Show notes: To resolve, which the figure — already the faces —
-            // scopes to its own notes (shell plan 2 Task 7).
-            showNotes: { _ in
-                detailSegment = .resolve
-            })
-            .id(figureID)
+    /// **The one write of a piece's pass state from this column** — the pass
+    /// ladder's in To resolve's head, and the pass-order nudge's.
+    ///
+    /// **The task holds the store until the write lands** (P3b carry C15): a
+    /// position change, a subject move and the window closing all take this
+    /// column down, and any of them can land in the same turn as the click —
+    /// a weak capture here is a pass state the writer chose and Maugham
+    /// dropped, with nothing red anywhere.
+    func setPassState(_ pieceId: String, _ passId: String, _ state: PassState?) {
+        Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
     }
 
+    /// **The translation review** (interim until plan 4) — To resolve's answer
+    /// while review is on over the faces' open piece. Before the piece's
+    /// `Document` is registered there is nothing to review yet, and To
+    /// resolve itself shows.
     @ViewBuilder
-    private func collectionInspector(store: ProjectStore) -> some View {
-        if let id = subject.faces.itemID,
-           let piece = store.manifest.structure.first(where: { $0.id == id }) {
-            switch piece.pieceKind {
-            case .reference:
-                ReferencePieceInspector(store: store, pieceId: id)
-            case .loose, .none:
-                PieceInspector(store: store, pieceId: id,
-                               format: Self.pieceInspectorFormat(path: piece.path),
-                               posture: posture(id))
-            }
+    private var translationPane: some View {
+        if let doc = documentStore.document(forDocId: Self.panesDocId(of: subject)) {
+            TranslationReviewPane(
+                document: doc, control: editorControl, store: store,
+                // The two spot-checks (P4 Task 6): the window's runner, its
+                // documents, the project, the compiler's model setting, and
+                // the craft-intent cache a Keep mine has to invalidate.
+                coldCall: roster.coldCall, documentStore: documentStore, projectURL: store.url,
+                model: compilerModel.claudeModel, world: declaredWorld)
         } else {
-            ContentUnavailableView("Select a piece", systemImage: "doc.text")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            resolvePane
         }
-    }
-
-    /// The format a loose piece is inspected as: `DocumentFormat.ofManuscript`
-    /// of its path (prose for a path-less piece).
-    static func pieceInspectorFormat(path: String?) -> DocumentFormat {
-        DocumentFormat.ofManuscript(path: path)
     }
 
     /// The canvas's inspector arm — the selected region, or an empty state.
@@ -472,5 +422,42 @@ struct RightColumn: View {
             // A region's member list names item nodes too, so the pane resolves a
             // title through the same index the canvas draws from.
             itemIndex: ProjectWindow.canvasItemIndex(in: store))
+    }
+}
+
+/// **Publish's desk in the To resolve position** (interim until plan 4):
+/// `DepartmentPaneHost`, mounted unchanged, while an edition is the faces.
+///
+/// **The services come from the environment** the column injects: the desk
+/// reaches the translator, the run log, the designer and the pipeline through
+/// the window's roster. An optional read, so a probe that injects none gets a
+/// desk that reads without acting.
+struct RightColumnDesk: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    /// The tree's own subject, unconverted: the run target has to tell a
+    /// group from a chapter and a research note from both.
+    let subject: BinderSubject?
+    /// The desk's Shows — the design gate's, a round's and the publish
+    /// problems' — reach the CENTRE column through this model. Each Show
+    /// clears the others (`PublishCentreModel.show`): one centre, one
+    /// selection.
+    let publishCentre: PublishCentreModel
+
+    @Environment(AgentRoster.self) private var roster: AgentRoster?
+    private var designer: DesignerOrchestrator? { roster?.designer }
+
+    var body: some View {
+        DepartmentPaneHost(store: store, documentStore: documentStore,
+                           projectURL: store.url,
+                           subject: subject,
+                           translator: roster?.translator,
+                           runLog: roster?.translationRuns,
+                           designer: designer,
+                           pipeline: roster?.pipeline,
+                           onShowProposal: { publishCentre.show(proposal: $0) },
+                           onShowRound: { publishCentre.show(round: $0) },
+                           onShowProblems: { publishCentre.show(problems: $0) },
+                           onCompileSettled: { publishCentre.refreshProblems($0) })
     }
 }

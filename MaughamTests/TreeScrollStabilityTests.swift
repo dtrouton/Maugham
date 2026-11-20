@@ -98,7 +98,7 @@ final class TreeScrollStabilityTests: XCTestCase {
         try XCTUnwrap(store.documentStore).updateUIState {
             $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
                                              faces: .item(chapters[25].id))
-            $0.detailSegment = .resolve
+            $0.rightColumnPosition = .resolve
         }
         await waitOut(1.2)   // the 500ms UI-state debounce reaches disk
 
@@ -172,7 +172,7 @@ final class TreeScrollStabilityTests: XCTestCase {
         try XCTUnwrap(store.documentStore).updateUIState {
             $0.windowSubject = WindowSubject(open: .item(chapters[25].id),
                                              faces: .item(chapters[25].id))
-            $0.detailSegment = .resolve
+            $0.rightColumnPosition = .resolve
         }
         await waitOut(1.2)
 
@@ -233,10 +233,10 @@ final class TreeScrollStabilityTests: XCTestCase {
     /// floor means `body`'s `.frame(minHeight:)` has stopped applying, which is
     /// its own defect and should be as red as an overrun.
     ///
-    /// The states are every pane in `DetailSegment.pickerOrder` × the two
+    /// The states are every position in `RightColumnPosition.allCases` × the two
     /// subject shapes (a chapter, which centres the editor; the project row,
-    /// which centres the altitude view) — so a pane added to `DetailSegment` is
-    /// swept the day it joins the order, with no list in this file to update. A failure names the state it happened in.
+    /// which centres the altitude view) — so a position added to the enum is
+    /// swept the day it joins, with no list in this file to update. A failure names the state it happened in.
     ///
     /// **What no pane can currently do to it, measured 2026-08-18 with planted
     /// offenders against this very window.** A `.frame(minHeight: 700)` planted
@@ -314,10 +314,10 @@ final class TreeScrollStabilityTests: XCTestCase {
         ]
         var swept = 0
         do {
-            for pane in DetailSegment.pickerOrder {
+            for pane in RightColumnPosition.allCases {
                 for (subjectName, subject) in subjects {
                     liveDocumentStore.updateUIState {
-                        $0.detailSegment = pane
+                        $0.rightColumnPosition = pane
                         $0.windowSubject = WindowSubject(open: subject, faces: subject)
                     }
                     pump(0.25)
@@ -343,10 +343,11 @@ final class TreeScrollStabilityTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(
-            swept, 10,
-            "premise: the order must have yielded a real product of states — "
-            + "an empty sweep asserts nothing at all")
+        XCTAssertEqual(
+            swept, RightColumnPosition.allCases.count * subjects.count,
+            "premise: the positions must have yielded their whole product of "
+            + "states — an empty sweep asserts nothing at all")
+        XCTAssertGreaterThan(swept, 0)
     }
 
     /// **The column's minimum height is not the pass's business** — the cause,

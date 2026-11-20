@@ -130,7 +130,7 @@ public enum PromoteInboxEntryTool: MCPTool {
         "image) on an existing palette card by id; palette_subject does the " +
         "same by case-insensitive card title match (no match fails, listing " +
         "existing titles — this tool never mints a new card; create one in " +
-        "the Palette pane first). Omitting all three promotes to shared " +
+        "the tree's Palette section first). Omitting all three promotes to shared " +
         "research. title is honored for research promotes only (the default " +
         "and target_document_id paths); palette-card promotes ignore it — " +
         "the card keeps its own title. Palette promotes reuse the research " +

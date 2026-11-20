@@ -273,22 +273,27 @@ struct MaughamApp: App {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 Divider()
 
-                // Right-pane segments — one button per `DetailSegment` case,
-                // declared here rather than on the Picker in DetailPaneToggle
-                // so every one reveals a hidden inspector column
-                // (SessionAndNavigationModifier sets showInspector = true).
-                // Splitting these across two dispatch paths meant ⌘⌥4–8
-                // silently no-opped with the column closed.
-                // ⌘1: the right column's lead position (shell plan 2 Task 7).
-                Button("To Resolve") { postSegment(.resolve) }
+                // **The right column's keys, declared here and nowhere else**
+                // (`RightColumnControl` holds none), so every one reveals a
+                // hidden column through the window's one receiver.
+                // ⌘1, ⌘2, ⌘3: the three positions.
+                Button("To Resolve") { MaughamEvent.postPosition(.resolve) }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("Inspector") { postSegment(.inspector) }
+                Button("Brief") { MaughamEvent.postPosition(.brief) }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Pulled Up") { MaughamEvent.postPosition(.pulledUp) }
+                    .keyboardShortcut("3", modifiers: .command)
+                Divider()
+                // **The old pane keys keep their letters** (owner, 2026-11-18)
+                // and land where each pane's content lives now.
+                // ⌘⌥I: the inspector's fields are Brief's (the line), the
+                // status line's and the row menu's.
+                Button("Inspector") { MaughamEvent.postPosition(.brief) }
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
                 // stopped being a right-pane segment when every tree grew its
                 // own Research section (stage 2a) — the shortcut now opens
-                // that section rather than a pane. `postSegment` stays the
-                // spelling for every case still routed that way.
+                // that section rather than a pane.
                 Button("Research") {
                     MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
                 }
@@ -306,7 +311,8 @@ struct MaughamApp: App {
                 // the check's findings, the writer's own to-dos and notes.
                 Button("Annotations") { MaughamEvent.postResolve(.rounds) }
                     .keyboardShortcut("a", modifiers: [.command, .option])
-                Button("History") { postSegment(.history) }
+                // ⌘⌥H: the faces' piece's History, pulled up.
+                Button("History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
                     .keyboardShortcut("h", modifiers: [.command, .option])
                 Button("Tasks") { MaughamEvent.postResolve(.mine) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
@@ -322,45 +328,47 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
                 }
                     .keyboardShortcut("p", modifiers: [.command, .option])
-                Button("Translation") { postSegment(.translation) }
+                // ⌘⌥L: the translation review shows in To resolve while
+                // review is on.
+                Button("Translation") { MaughamEvent.postPosition(.resolve) }
                     .keyboardShortcut("l", modifiers: [.command, .option])
-                // ⌘⌥I is the Inspector's, so Intent takes the next letter in
-                // its own name — the same stretch ⌘⌥B (inBox) and ⌘⌥L
-                // (transLation) already make.
-                Button("Intent") { postSegment(.intent) }
+                // ⌘⌥N: what a piece is going for is its Brief. (⌘⌥I was the
+                // Inspector's, so Intent took the next letter in its name.)
+                Button("Intent") { MaughamEvent.postPosition(.brief) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                 // **⌘⌥G, and no letter of "What I've Learned" was available**:
                 // L is Translation, E References, A Annotations, N Intent, D
                 // Diagnostics, R Research, T Tasks, H History, W and (with ⌥)
                 // M are macOS's own Close All and Minimize All. So the letter
-                // comes from the writer's word for what the pane HOLDS, the
-                // way ⌘⌥K's came from the department *desk*: the rows are a
-                // led**g**er, which is also the heading the pane draws over
-                // them (`RulingsStratumView.title(for:)`). ⌘G and ⌘⇧G are Find
-                // Next/Previous and neither takes ⌥.
-                Button("What I've Learned") { postSegment(.lessons) }
+                // comes from the writer's word for what it HOLDS, the way
+                // ⌘⌥K's came from the department *desk*: the rows are a
+                // led**g**er (`RulingsStratumView.title(for:)`). ⌘G and ⌘⇧G
+                // are Find Next/Previous and neither takes ⌥.
+                Button("What I've Learned") { MaughamEvent.postPullUp(.lessons) }
                     .keyboardShortcut("g", modifiers: [.command, .option])
-                // **⌘⌥Y, and the argument is at the case in `DetailSegment`**:
-                // every letter of "first reader" is bound except S, and S is
-                // one ⌥ slip from ⌘S, the checkpoint reflex. Y is free.
-                Button("First Reader") { postSegment(.firstReader) }
+                // **⌘⌥Y**: every letter of "first reader" is bound except S,
+                // and S is one ⌥ slip from ⌘S, the checkpoint reflex this app
+                // goes out of its way to keep. Y is free across the whole ⌘⌥
+                // keyspace (verified 2026-09-05) and takes nothing.
+                Button("First Reader") { MaughamEvent.postPullUp(.firstReader) }
                     .keyboardShortcut("y", modifiers: [.command, .option])
-                Button("Visual Language") { postSegment(.visualLanguage) }
+                Button("Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
                 Button("Diagnostics") { MaughamEvent.postResolve(.checks) }
                     .keyboardShortcut("d", modifiers: [.command, .option])
-                // ⌘⌥R is Research's, so References takes the letter §6.3 of the
-                // redesign assigned it: "E references".
-                Button("References") { postSegment(.references) }
+                // ⌘⌥E (§6.3 of the redesign: "E references"): what a piece is
+                // pinned to is its fold in the tree, so the key opens the
+                // faces' piece's fold and scrolls to it.
+                Button("References") { MaughamEvent.postShowPieceFold() }
                     .keyboardShortcut("e", modifiers: [.command, .option])
                 // **⌘⌥K, and every letter of "Department" was already
                 // spoken for**: D is Diagnostics, E References, P Palette,
                 // A Annotations, R Research, T Tasks — and M, the last one
-                // left in the word, is the system's own Minimize All, which
-                // this app's Window menu carries. So the letter comes from
-                // the surface's name in the design instead: the department
-                // *desk*.
-                Button("Department") { postSegment(.department) }
+                // left in the word, is the system's own Minimize All. So the
+                // letter comes from the surface's name in the design: the
+                // department *desk*, which shows in To resolve while an
+                // edition is the faces.
+                Button("Department") { MaughamEvent.postPosition(.resolve) }
                     .keyboardShortcut("k", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
@@ -490,16 +498,6 @@ struct MaughamApp: App {
             AcknowledgementsWindow()
         }
         .windowResizability(.contentMinSize)
-    }
-
-    /// The View menu's way of asking for a segment, so its items can't drift
-    /// apart — and, since M1A gave the inspector one too, a thin call onto
-    /// `MaughamEvent.postDetailSegment(_:)`, which is where the payload and the
-    /// `.keyWindow` scope are spelled. Kept as a local name because
-    /// `DetailSegmentOrderTests` reads `postSegment(.<segment>)` out of this
-    /// file to prove every segment has a menu item.
-    private func postSegment(_ segment: DetailSegment) {
-        MaughamEvent.postDetailSegment(segment)
     }
 
     @MainActor

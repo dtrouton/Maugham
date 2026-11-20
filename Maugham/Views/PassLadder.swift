@@ -12,16 +12,14 @@ import MaughamCore
 /// verdict is derived from the passes the writer actually ruled on, and the
 /// place they rule is here.
 ///
-/// **One view, two hosts, and the WRITE stays at the host.** `PieceInspector`
-/// and `InspectorView` render the identical ladder — two hand-kept copies is
-/// the drift `StatusSwatch` and `IntentAffordanceRow` were each extracted to
-/// end — but neither the rendering nor a shared closure decides how the write
-/// happens, because the two hosts genuinely differ there: `InspectorView`
-/// keeps a 500 ms debounced draft for its text fields, and the ladder must NOT
-/// ride it (see that file's `onSet`). Keeping `onSet` at the host is also what
-/// keeps `PassStateWriterCensusTests` meaningful — it names the SURFACES
-/// that can write a pass state, and a shared leaf writer would collapse the
-/// census to this one file and hide them.
+/// **The WRITE stays at the host.** The ladder is drawn in To resolve's head
+/// (`ResolveHeadView`), which hands it `onSet` only where the posture offers a
+/// ruling; the write itself is the right column's (`RightColumn.setPassState`),
+/// threaded down as a closure. Neither the rendering nor a shared leaf
+/// decides how the write happens, and keeping `onSet` at the host is what
+/// keeps `PassStateWriterCensusTests` meaningful — it names the SURFACES that
+/// can write a pass state, and a shared leaf writer would collapse the census
+/// to this one file and hide them.
 struct PassLadder: View {
     let item: StructureItem
     let passes: [ReviewPass]

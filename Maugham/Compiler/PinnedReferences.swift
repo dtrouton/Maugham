@@ -16,7 +16,7 @@ struct PinnedReference: Identifiable, Equatable, Sendable {
 
     /// **A ROUTING vocabulary, and deliberately coarser than what the canvas
     /// draws with.** Each case answers one question its readers actually ask:
-    /// which surface renders this (the References pane's assistant column) and
+    /// which surface renders this (the pulled-up view) and
     /// which MCP tool fetches it (the compiler's context listing). A research
     /// note, a PDF and a research photograph are one case here because the
     /// answer for all three is the same — `read_document`'s research arm and
@@ -112,8 +112,8 @@ struct PinnedShelf: Equatable, Sendable {
 /// Novels and silently short for every other project type — in all three of its
 /// readers at once.
 ///
-/// Three readers consume it and none of them may re-derive it: the References
-/// pane and its assistant column, and the author compiler's context listing.
+/// Its readers consume it and none of them may re-derive it: a piece's fold
+/// in the tree and the author compiler's context listing.
 /// That is the whole reason it is a pure function in the model layer rather
 /// than a computed property on a view.
 ///

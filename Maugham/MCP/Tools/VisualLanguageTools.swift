@@ -52,7 +52,7 @@ public enum ReadVisualLanguageTool: MCPTool {
         let entry = try resolveProject(params.project_id, in: registry)
         guard let statement = entry.store.statement(kind: .visualLanguage, scope: .project) else {
             // Absence, not an error. Nothing is minted on the way — a read that
-            // created the file would put a statement in the Visual Language pane
+            // created the file would put a statement in Visual Language
             // the writer never opened.
             return try JSONEncoder().encode(
                 Result(exists: false, markdown: nil, path: nil, image_paths: nil))

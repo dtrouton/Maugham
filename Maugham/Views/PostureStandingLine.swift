@@ -182,7 +182,7 @@ struct PostureStandingLineView: View {
                 Text(PostureStandingLine.keptInHistoryClause)
                     .lineLimit(2)
                 Button("History") {
-                    MaughamEvent.postDetailSegment(.history)
+                    MaughamEvent.postPullUp(.historyOfTheFaces)
                 }
                 .buttonStyle(.link)
             }

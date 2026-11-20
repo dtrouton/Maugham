@@ -53,19 +53,20 @@ enum MaughamEvent {
     static let scopeKindKey = "maugham.scope.kind"
     static let scopeIdKey = "maugham.scope.id"
 
-    /// Payload key for `.maughamSetDetailSegment`. One spelling shared by every
-    /// `postSegment(_:)` call in `MaughamApp`'s View menu, the inspector's Intent
-    /// affordance (M1A) and `ProjectWindow`'s receiver, so a rename cannot
-    /// silently make the post a no-op. (`DetailSegmentOrderTests` is what holds
-    /// the menu to one item per `DetailSegment`; a number written here would be
-    /// a count over a list, and the comment this replaced said "nine".)
-    static let detailSegmentKey = "segment"
+    /// Payload key for `.maughamSetRightColumn`: a
+    /// `RightColumnPosition.rawValue`. One spelling shared by every post and
+    /// `ProjectWindow`'s receiver, so a rename cannot silently make the post
+    /// a no-op.
+    static let positionKey = "position"
 
-    /// Payload key for `.maughamSetDetailSegment`'s filter half (shell plan 2
-    /// Task 7): a `ResolveKeyFilter.rawValue` riding beside `segment` when a
-    /// key that used to open the Annotations, Diagnostics or Tasks pane opens
-    /// To resolve on its filter. Absent for every other post.
+    /// Payload key for `.maughamSetRightColumn`'s filter half (shell plan 2
+    /// Task 7): a `ResolveKeyFilter.rawValue` riding beside the position when
+    /// a key that used to open the Annotations, Diagnostics or Tasks pane
+    /// opens To resolve on its filter. Absent for every other post.
     static let resolveFilterKey = "resolve_filter"
+
+    /// Payload key for `.maughamPullUp`: a `PullUpRequest.rawValue`.
+    static let pullUpKey = "pull_up"
 
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
     /// `detailSegmentKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
@@ -190,27 +191,44 @@ enum MaughamEvent {
         post(.maughamAdmissionSettled, to: .project(for: projectURL))
     }
 
-    /// Ask the key window's right column to show `segment`.
+    /// Ask the key window's right column to show `position` (⌘1, ⌘2, ⌘3; the
+    /// old pane keys that land on a position; the drift line).
     ///
-    /// **The one spelling of this post**, because there are now two kinds of
-    /// caller: the View menu's items, and an inspector arm handing the writer to
-    /// a different segment of the column it is itself in (M1A Task 8). Scoped
-    /// `.keyWindow` because it is a command, not a data event — only the focused
-    /// project window switches.
-    static func postDetailSegment(_ segment: DetailSegment) {
-        post(.maughamSetDetailSegment, to: .keyWindow,
-             payload: [detailSegmentKey: segment.rawValue])
+    /// **The one spelling of this post.** Scoped `.keyWindow` because it is a
+    /// command, not a data event — only the focused project window moves.
+    static func postPosition(_ position: RightColumnPosition) {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: position.rawValue])
     }
 
     /// Ask the key window's right column to show To resolve on `filter`
     /// (shell plan 2 Task 7) — ⌘⌥A, ⌘⌥D and ⌘⌥T, and the translation round's
-    /// Open queue. The same event as `postDetailSegment`, so the receiver's
-    /// one selection act (`ProjectWindow.selectDetailSegment`) still reveals
-    /// the column and ends a study; the filter key is what it reads next.
+    /// Open queue. The same event as `postPosition`, so the receiver's one
+    /// selection act (`ProjectWindow.selectPosition`) still reveals the
+    /// column; the filter key is what it reads next.
     static func postResolve(_ filter: ResolveKeyFilter) {
-        post(.maughamSetDetailSegment, to: .keyWindow,
-             payload: [detailSegmentKey: DetailSegment.resolve.rawValue,
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.resolve.rawValue,
                        resolveFilterKey: filter.rawValue])
+    }
+
+    /// Ask the key window to show the Brief of the piece open in its centre
+    /// (the line above the prose, `IntentStrip`): the faces go to the open
+    /// piece, then Brief shows.
+    static func postBriefOfTheOpenPiece() {
+        post(.maughamShowOpenPieceBrief, to: .keyWindow)
+    }
+
+    /// Ask the key window to pull `request` up beside its centre (⌘⌥G, ⌘⌥Y,
+    /// ⌘⌥V, ⌘⌥H; the standing line's History).
+    static func postPullUp(_ request: PullUpRequest) {
+        post(.maughamPullUp, to: .keyWindow,
+             payload: [pullUpKey: request.rawValue])
+    }
+
+    /// Ask the key window's tree to open the faces' piece's fold (⌘⌥E).
+    static func postShowPieceFold() {
+        post(.maughamShowPieceFold, to: .keyWindow)
     }
 
     /// Ask the key window to run `command` (`RunCommand`: Check Writing,

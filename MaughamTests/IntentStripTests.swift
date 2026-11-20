@@ -369,9 +369,8 @@ final class IntentStripTests: XCTestCase {
     /// The affordance is what this contract is about, so the control SwiftUI
     /// actually publishes is found and asserted DRAWN, its action naming the
     /// verb is `WiringCensusTests`' `type:IntentStrip` entry, and the verb is
-    /// called with nothing pressed (tripwire 33, #120 —
-    /// `InspectorIntentAffordanceTests`' shape).
-    func test_theStripAsksForTheIntentPane() async throws {
+    /// called with nothing pressed (tripwire 33, #120).
+    func test_theStripAsksForTheOpenPiecesBrief() async throws {
         let line = "A woman walks into the sea."
         let window = mount(AnyView(IntentStrip(line: line)))
 
@@ -379,10 +378,8 @@ final class IntentStripTests: XCTestCase {
                          "the strip is a button labelled with the writer's line")
         let notes = notesPostedByTheStrip()
 
-        XCTAssertEqual(notes.count, 1, "the strip should post exactly one segment request")
+        XCTAssertEqual(notes.count, 1, "the strip should post exactly one request")
         let note = try XCTUnwrap(notes.first)
-        XCTAssertEqual(note.userInfo?[MaughamEvent.detailSegmentKey] as? String,
-                       DetailSegment.intent.rawValue)
         XCTAssertTrue(
             MaughamEvent.shouldDeliver(note, to: EventReceiverContext(
                 kind: .keyWindow, isWindowLive: true, isWindowKey: true)),
@@ -393,21 +390,18 @@ final class IntentStripTests: XCTestCase {
             "control: a non-key window must not act on it")
     }
 
-    /// **The one accepted divergence between what the strip SHOWS and where the
-    /// click LANDS**, pinned so it is a recorded position and not a surprise.
+    /// **What the strip SHOWS and where the click LANDS agree now** (shell
+    /// plan 3 Task 9; this pinned their one accepted divergence before).
     ///
-    /// The strip falls back to the project's intent for a chapter that has none;
-    /// the Intent pane's scope follows the binder selection and never falls back
-    /// (`StatementPane.effectiveScope`), so the click opens that chapter's empty
-    /// editor rather than the project statement whose line was on screen.
-    /// Landing on the fallback scope would need Open-sets-scope machinery — the
-    /// reverted three-round M1A work — and was refused. If this test ever goes
-    /// red because the two agree, the refusal has been revisited and this
-    /// comment is the thing to update.
-    func test_theClickLandsOnTheBindersScopeEvenWhenTheStripShowedTheProjects()
+    /// The strip falls back to the project's intent for a chapter that has
+    /// none. The click opens that chapter's Brief — the faces go to the open
+    /// piece (`RightColumnContent.facesForTheStrip`) — whose Going for is the
+    /// chapter's own (empty) intent, and whose "From the book" holds the line
+    /// the strip showed. Nothing sets a scope: Brief follows the faces.
+    func test_theClickLandsOnTheOpenPiecesBriefWhichHoldsTheLineTheStripShowed()
         async throws
     {
-        let (_, store, chapter) = try await novelWithChapter(named: "StripDivergence")
+        let (_, store, chapter) = try await novelWithChapter(named: "StripAndBrief")
         try await write("The project's own.", intentFor: .project, in: store)
 
         XCTAssertEqual(
@@ -415,13 +409,21 @@ final class IntentStripTests: XCTestCase {
                              subject: SubjectSamples.opened(.item(chapter.id)), isNoChromeOn: false),
             "The project's own.",
             "the strip stopped falling back to the project")
-        XCTAssertEqual(
-            StatementPane.effectiveScope(
-                kind: .intent, subject: .item(chapter.id),
-                structure: store.manifest.structure),
-            .document(chapter.id),
-            "the pane's scope now follows the strip's fallback — Open-sets-scope "
-            + "was built after all, and the accepted divergence is gone")
+
+        // The click, with the faces somewhere else (the Book).
+        let clicked = RightColumnContent.facesForTheStrip(
+            WindowSubject(open: .item(chapter.id), faces: .project),
+            structure: store.manifest.structure)
+        let scope = BriefScope.of(clicked.faces, structure: store.manifest.structure,
+                                  projectType: store.manifest.type)
+        XCTAssertEqual(scope, .piece(docId: chapter.id), "the click lands on the open piece's Brief")
+        let snapshot = BriefReader.read(scope: scope, store: store, bible: nil)
+        XCTAssertNil(snapshot.intentEssay, "the chapter has no intent of its own")
+        XCTAssertEqual(snapshot.bookIntentEssay?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       "The project's own.",
+                       "and the line the strip showed is in the Brief it opened, "
+                       + "under From the book")
+        XCTAssertTrue(BriefPane.quietLines(snapshot).fromTheBook)
     }
 
     // MARK: - Contract 7: the quiet mark (M3-P3 §7)
@@ -715,7 +717,7 @@ final class IntentStripTests: XCTestCase {
                        ["type:ProjectWindow", "ProjectWindow+Columns.swift"])
     }
 
-    // MARK: - Hosting (mirrors `InspectorIntentAffordanceTests`)
+    // MARK: - Hosting
 
     private func mount(_ view: AnyView) -> NSWindow {
         let window = TestWindow.mount(view, size: CGSize(width: 720, height: 200))
@@ -767,16 +769,16 @@ final class IntentStripTests: XCTestCase {
             + "Buttons found: \(labels)")
     }
 
-    /// What the strip's verb posts — `MaughamEvent.postDetailSegment(.intent)`,
+    /// What the strip's verb posts — `MaughamEvent.postBriefOfTheOpenPiece()`,
     /// its button's whole action (`WiringCensusTests`). Synchronous: the post
     /// is a plain `NotificationCenter` post on this thread.
     private func notesPostedByTheStrip() -> [Notification] {
         var received: [Notification] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the strip posts
-            forName: .maughamSetDetailSegment, object: nil, queue: nil
+            forName: .maughamShowOpenPieceBrief, object: nil, queue: nil
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
-        MaughamEvent.postDetailSegment(.intent)
+        MaughamEvent.postBriefOfTheOpenPiece()
         return received
     }
 }

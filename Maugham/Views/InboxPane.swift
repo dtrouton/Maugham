@@ -10,8 +10,7 @@ import MaughamCore
 ///
 /// Deferred (noted) to a later follow-up: Attach-to-current-document (routes
 /// images through ImagePasteHandler and text through the editor-typing path —
-/// editor coupling, tripwire 6/7 territory). The unread-count badge ships on the
-/// DetailPaneToggle picker (the discoverability signal for the async capture loop).
+/// editor coupling, tripwire 6/7 territory).
 struct InboxPane: View {
     @Bindable var store: InboxStore
     let projectStore: ProjectStore

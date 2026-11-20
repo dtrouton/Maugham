@@ -15,8 +15,7 @@ private let _departmentLog = Logger(
 /// manuscript document's translation store, reads each one's open annotations,
 /// and derives coverage against the current paragraph state. None of that may
 /// happen on a `body` path (tripwire 4), so it happens here in a `.task` and
-/// arrives as a plain array — `ReferencesPaneHost`'s shape, for
-/// `ReferencesPaneHost`'s reason.
+/// arrives as a plain array.
 ///
 /// **It is also where the brief's door goes**, because the door writes: it
 /// creates the statement the writer is about to type in and then presents an
@@ -1372,7 +1371,7 @@ struct DepartmentPaneHost: View {
     /// `ProposableStatement.key`'s own casing.
     ///
     /// A visual-language proposal contributes nothing: it has no language and
-    /// marks the Visual Language segment instead (`DetailPaneToggle`).
+    /// puts a dot on Brief instead (`RightColumnControl`).
     static func proposedLanguages(_ proposals: [StatementProposalStore.Proposal]) -> Set<String> {
         Set(proposals.compactMap {
             if case .editionBrief(let language) = $0.kind { return language.lowercased() }

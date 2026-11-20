@@ -15,7 +15,7 @@ import MaughamCore
 ///
 /// **Two halves, and no press** (#120, tripwire 33). The mounted half reads
 /// the accessibility tree — SwiftUI on macOS 26 backs a `Button` with no
-/// `NSView`, so a subview walk finds nothing (`InspectorIntentAffordanceTests`)
+/// `NSView`, so a subview walk finds nothing (`IntentStripTests`)
 /// — and asserts the empty state's buttons are DRAWN, which doubles as proof
 /// VoiceOver can reach them. The windowless half runs the verb those buttons
 /// run, `BinderView.addItem(parent:kind:in:)`, against the same empty project

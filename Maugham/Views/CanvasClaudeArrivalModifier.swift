@@ -51,7 +51,9 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
     /// forcing the column open leaves whatever pane it was on, and with the
     /// canvas as the centre the Inspector is the region inspector Show exists
     /// to reach.
-    @Binding var detailSegment: DetailSegment
+    /// The right column's position: Show lands on the pulled-up position,
+    /// where the canvas's selected region is drawn.
+    @Binding var position: RightColumnPosition
 
     /// What is currently being announced, or nil. Held here rather than on
     /// `ProjectWindow` for `CanvasPromotionModifier.confirmation`'s reason: it is
@@ -132,17 +134,14 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         let open: BinderSubject
         let selection: CanvasSelection
         /// **A field rather than a bare `showInspector = true` in `show`**, so a
-        /// test pins it. Every other navigation-to-a-pane in `ProjectWindow`
-        /// forces the column open — the detail-segment command with "ensure
-        /// pane is visible" — and
-        /// without it a writer who has closed the column with ⌘⌥I clicks Show and
-        /// gets a camera move and a selection with nothing naming what arrived.
+        /// test pins it. Every other navigation to the right column forces it
+        /// open, and without it a writer who has closed the column with ⌘⌥0
+        /// clicks Show and gets a camera move and a selection with nothing
+        /// naming what arrived.
         ///
-        /// **It names the pane as well as the column** (2026-08-26): forcing the
-        /// column open while leaving `detailSegment` alone had never actually
-        /// meant the Inspector — Plan's coercion landed the writer on `.inbox` —
-        /// and once the study column can be what is mounted, it landed them on an
-        /// inert References shelf. `show` writes `.inspector` beside the reveal.
+        /// **It names the position as well as the column**: `show` writes the
+        /// pulled-up position beside the reveal — with nothing pulled up
+        /// (Show puts it away) that is the canvas's own details, the region.
         let opensInspector: Bool
 
         /// The window's subject after Show: the canvas opened in the centre
@@ -177,7 +176,7 @@ struct CanvasClaudeArrivalModifier: ViewModifier {
         model.selection = to.selection
         if to.opensInspector {
             showInspector = true
-            detailSegment = .inspector
+            position = .pulledUp
         }
         // **And the camera, or Show shows nothing.**
         // `CanvasClaudePlacement.looseOrigin` is `occupied.maxX + gutter` over

@@ -223,71 +223,87 @@ final class RightColumnPaneWidthTests: XCTestCase {
         }
     }
 
-    // MARK: - The census: every pane the right column can show
+    // MARK: - The census: every arm the right column can show
 
-    /// **Every `DetailSegment`, walked off `allCases`**, rendered by the real
-    /// `DetailPaneToggle` over real stores, with `InspectorView` as its
-    /// inspector arm — so the pane picker and each pane's header are measured
-    /// together, and a new pane joins by existing.
+    /// **Every arm of `RightColumnContent`, walked off `RightColumnFixture.arms`**
+    /// (whose coverage of the enum is asserted), rendered by the real
+    /// `RightColumn` over real stores — so the control and each arm's header
+    /// are measured together, and a new arm joins by failing the coverage.
     ///
-    /// Before #122 it failed on two panes: Tasks (the one-row toolbar, 392pt)
-    /// and the Inspector (`InspectorView`'s `minWidth: 240`), both at 232pt.
+    /// Before #122 the pane picker's census failed on two panes: Tasks (the
+    /// one-row toolbar, 392pt) and the Inspector (a `minWidth: 240`), both at
+    /// 232pt.
     ///
-    /// Each pane is measured in its first-render state over a fresh novel with
-    /// one open document. What it cannot see: content a pane loads in a
-    /// `.task` after its first frame, and the panes the column shows outside
-    /// `DetailPaneToggle` (the study column, the canvas's region inspector, a
-    /// Collection's piece inspectors).
+    /// Each arm is measured in its first-render state over a fresh novel with
+    /// one open document, a Part, a research note with a 200-character title
+    /// and the three Book statements. What it cannot see: content an arm loads
+    /// in a `.task` after its first frame, and a Collection's reference piece
+    /// (`ReferencePieceInspector`).
     func test_noRightColumnPaneIsWiderThanTheColumn() async throws {
         let fixture = try await makeFixture()
+        XCTAssertEqual(
+            RightColumnFixture.kinds(of: fixture.arms, in: fixture.store),
+            RightColumnFixture.armKinds.subtracting(RightColumnFixture.armKindsOnlyACollectionHas),
+            "premise: the census walks every arm a novel's window can show")
         var offenders: [String] = []
-        for segment in DetailSegment.allCases {
-            for width in Self.paneWidths {
-                let (fits, measured) = Self.fits(fixture.pane(segment), in: width)
-                if !fits { offenders.append("\(segment) → \(measured)pt in \(width)pt") }
+        for arm in fixture.arms {
+            for width in Self.paneWidths + [Self.ceiling] {
+                let (fits, measured) = Self.fits(fixture.pane(arm, paneWidth: width), in: width)
+                if !fits { offenders.append("\(arm.name) → \(measured)pt in \(width)pt") }
             }
         }
         XCTAssertEqual(offenders, [],
-            "these right-column panes are wider than the pane they are drawn "
+            "these right-column arms are wider than the pane they are drawn "
             + "in, and the column crops them (#122):\n"
             + offenders.joined(separator: "\n"))
+    }
+
+    /// **The control alone, with a 200-character pulled-up title, at 240, 280
+    /// and 480** (plan 3 Review Focus 5): it takes the width it is offered —
+    /// the title truncates in the middle — on every position.
+    func test_theControlWithALongPulledUpTitleFitsTheColumn() async throws {
+        let fixture = try await makeFixture()
+        let pulled = try XCTUnwrap(fixture.arms.first { $0.name == "a research note pulled up" })
+        XCTAssertEqual(RightColumnControl.pulledUpTitle(subject: pulled.subject, store: fixture.store)?.count,
+                       200, "premise: the pulled-up title is 200 characters")
+        for column in [240.0, 280.0, 480.0] {
+            let width = Self.paneWidth(column: column)
+            for position in RightColumnPosition.allCases {
+                let control = RightColumnControl(
+                    store: fixture.store, position: .constant(position), subject: pulled.subject,
+                    diagnostics: nil, width: width)
+                let (fits, measured) = Self.fits(control, in: width)
+                XCTAssertTrue(fits, "the control on \(position) wants \(measured)pt in a \(width)pt pane")
+            }
+        }
+        // The planted control: the same title in a row that cannot truncate.
+        let unbroken = HStack(spacing: 4) {
+            Image(systemName: "pin")
+            Text(RightColumnControl.pulledUpTitle(subject: pulled.subject, store: fixture.store) ?? "")
+                .fixedSize()
+        }
+        XCTAssertFalse(Self.fits(unbroken, in: Self.ceiling).0,
+                       "control: a title that does not truncate overflows even the widest column")
     }
 
     private struct Fixture {
         let store: ProjectStore
         let documentStore: DocumentStore
-        let docId: String
-        let itemId: String
+        let arms: [RightColumnFixture.Arm]
         /// The app injects these at its root; the annotation and statement
         /// panes read them.
         let preferences: UserPreferences
 
         @MainActor
-        func pane(_ segment: DetailSegment) -> some View {
-            DetailPaneToggle(
-                store: store,
-                segment: .constant(segment),
-                selectedSubject: .constant(.item(itemId)),
-                activeManuscriptItemId: itemId,
-                subject: WindowSubject(open: .item(itemId), faces: .item(itemId)),
-                projectURL: store.url,
-                activeDocId: docId,
-                allDocIds: [docId],
-                device: "test-mac",
-                session: "s1",
-                docPaths: [:],
-                documentStore: documentStore,
-                editorControl: EditorControl(),
-                compilerModel: .standard,
-                assistant: AssistantColumnModel()
-            ) {
-                InspectorView(store: store, selectedItemId: itemId,
-                              metrics: EditorMetrics(wordCount: 0, characterCount: 0,
-                                                     readingMinutes: 0),
-                              onOpenProjectSettings: {}, posture: .author)
-            }
-            .environment(AgentRoster())
-            .environment(preferences)
+        func pane(_ arm: RightColumnFixture.Arm, paneWidth: CGFloat) -> some View {
+            let control = EditorControl()
+            control.translationLanguage = arm.translationLanguage
+            return RightColumnFixture.pane(
+                store: store, documentStore: documentStore,
+                probe: RightColumnFixture.Probe(position: arm.position, subject: arm.subject),
+                editorControl: control,
+                width: Double(paneWidth + RightColumn.resizeHandleWidth))
+                .environment(preferences)
         }
     }
 
@@ -306,10 +322,19 @@ final class RightColumnPaneWidthTests: XCTestCase {
         let document = try await Document.load(url: url.appendingPathComponent(path),
                                                device: "macA", session: "s1", presenter: nil)
         documentStore.register(document: document, for: path)
+        let part = try await store.addStructureItem(parentId: nil, title: "Part One", kind: .group)
+        _ = try await store.addStructureItem(
+            parentId: part.id, title: "A chapter in the Part with a long enough title to wrap",
+            kind: .document(store.manifest.type.primaryFormat))
+        let title = String(String(repeating: "A very long research note title ", count: 7).prefix(200))
+        let note = try await store.addResearchTextNote(parentId: nil, title: title)
+        for kind in [Statement.Kind.lessons, .firstReader, .visualLanguage, .intent] {
+            _ = try await store.createStatement(kind: kind, scope: .project)
+        }
         let suite = "RightColumnPaneWidth-\(UUID().uuidString)"
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
         return Fixture(store: store, documentStore: documentStore,
-                       docId: document.docId, itemId: item.id,
+                       arms: RightColumnFixture.arms(docId: item.id, partId: part.id, noteId: note.id),
                        preferences: UserPreferences(defaults: UserDefaults(suiteName: suite)!))
     }
 

@@ -10,7 +10,7 @@ import MaughamCore
 /// the six is a fast, direct assertion. Version-bump re-render, the gear
 /// menu's persistence, and the two real buttons (Cancel, Open Intent) need a
 /// live pane, so those are mounted for real, the way
-/// `InspectorIntentAffordanceTests` presses an inspector's own button rather
+/// `IntentStripTests` presses an inspector's own button rather
 /// than calling the closure it happens to name.
 @MainActor
 final class DiagnosticsPaneTests: XCTestCase {
@@ -690,33 +690,41 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(docId: docId), 0)
     }
 
-    /// The unread dot's offset is derived for To resolve (shell plan 2 Task 7)
-    /// from the rendered list, so it stays on To resolve when a selection is
-    /// appended after it.
-    func test_badgeOffset_findsToResolveAndSurvivesAnAppendedSegment() {
-        let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
-        let shown = DetailPaneToggle<AnyView>.visibleSegments(subject: chapter)
-        XCTAssertEqual(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .resolve, in: shown),
-            shown.count - 1,
-            "To resolve leads a chapter's picker, so its dot shifts the full width of the row")
-        let withDeskAppended = DetailPaneToggle<AnyView>.visibleSegments(
-            subject: chapter, including: .department)
-        XCTAssertEqual(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .resolve, in: withDeskAppended),
-            withDeskAppended.count - 1)
-        XCTAssertEqual(
-            DetailPaneToggle<AnyView>.badgeOffset(of: .department, in: withDeskAppended), 0,
-            "the appended segment is last, so a badge on it does not shift at all")
+    /// The unread dot is To resolve's own (shell plan 3 Task 9): it is drawn
+    /// over that segment by `showsDot`, not shifted across the row, so it
+    /// stays on To resolve whether or not the pulled-up segment is drawn
+    /// beside it. (The pane picker derived an offset from its rendered list;
+    /// the control has no offset to get wrong.)
+    func test_theUnreadDotIsToResolvesOwnWhateverSegmentsAreDrawn() throws {
+        for offers in [true, false] {
+            for selected in RightColumnPosition.allCases {
+                let segments = RightColumnControl.segments(offersPulledUp: offers, selected: selected)
+                XCTAssertEqual(segments.first, .resolve)
+                XCTAssertEqual(
+                    segments.filter { RightColumnControl.showsDot(on: $0, checksUnread: true,
+                                                                  proposalPending: false) },
+                    [.resolve], "\(segments)")
+            }
+        }
+        let control = try SourceTree.read("Maugham/Views/RightColumnControl.swift")
+        let code = SourceScan.codeLines(of: control).joined(separator: "\n")
+        XCTAssertFalse(code.contains("GeometryReader"), "no dot is placed by measuring the row")
+        XCTAssertFalse(code.contains(".offset("), "no dot is shifted across the row")
+        XCTAssertTrue(code.contains(".overlay(alignment: .topTrailing) {"),
+                      "the dot is an overlay on the segment's own button")
     }
 
-    /// **The Visual Language segment badges too** (translation pipeline P5) —
-    /// a proposal waiting on the writer is exactly the "something changed
-    /// while you weren't looking" signal the inbox and diagnostics badges are
-    /// for. Its own offset, on the same derivation as the other two.
-    func test_theVisualLanguageSegmentBadgesWhenAProposalStands() {
-        XCTAssertEqual(DetailPaneToggle<AnyView>.badgeOffset(of: .visualLanguage, in: [.resolve, .intent, .visualLanguage, .inspector]), 1)
-        XCTAssertTrue(DetailPaneToggle<AnyView>.visualLanguageBadgeHelp.contains("⌘⌥V"))
+    /// **Brief wears a dot while a visual-language proposal stands**
+    /// (translation pipeline P5; on Brief since shell plan 3 Task 9) — a
+    /// proposal waiting on the writer is exactly the "something changed while
+    /// you weren't looking" signal the unread dot is for. Its tooltip names
+    /// the key that pulls Visual Language up.
+    func test_briefWearsADotWhenAVisualLanguageProposalStands() {
+        XCTAssertTrue(RightColumnControl.showsDot(on: .brief, checksUnread: false, proposalPending: true))
+        XCTAssertFalse(RightColumnControl.showsDot(on: .brief, checksUnread: false, proposalPending: false))
+        XCTAssertFalse(RightColumnControl.showsDot(on: .resolve, checksUnread: false, proposalPending: true))
+        XCTAssertTrue(RightColumnControl.proposalDotHelp.contains("⌘⌥V"))
+        XCTAssertTrue(RightColumnControl.unreadDotHelp.contains("⌘⌥D"))
     }
 
     // MARK: - Empty state
@@ -985,8 +993,8 @@ final class DiagnosticsPaneTests: XCTestCase {
         XCTAssertTrue(menu.contains("onOpenProjectSettings()"),
                       "\u{2026}and it opens Project Settings, which is where "
                       + "her name is typed. Got:\n\(menu)")
-        XCTAssertFalse(menu.contains("postDetailSegment("),
-                       "\u{2026}and it opens no other pane either. Got:\n\(menu)")
+        XCTAssertFalse(menu.contains("postPosition(") || menu.contains("postPullUp("),
+                       "\u{2026}and it moves the right column nowhere either. Got:\n\(menu)")
 
         // The define item stands only while she is unnamed: once she has a
         // name her own row is in the list above, and a second door to Settings
@@ -999,7 +1007,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// every view, so a second opener in a sibling is caught. That the header
     /// is given the CHOSEN reader and both verbs (the pane defaults them to
     /// `.nobody` and no-ops, which no assertion on values can see) is
-    /// `WiringCensusTests`' entry for `DetailPaneToggle.diagnosticsPane`.
+    /// `WiringCensusTests`' entry for `RightColumn`'s To resolve arm.
     func test_projectSettingsHasOneOpener() throws {
         XCTAssertEqual(
             try Self.projectSettingsOpeners(), 1,
@@ -1447,12 +1455,16 @@ final class DiagnosticsPaneTests: XCTestCase {
 
     // MARK: - Registry wiring
 
-    /// To resolve leads the picker whatever the subject (shell plan 2 Task 7;
+    /// To resolve leads the control whatever the subject (shell plan 2 Task 7;
     /// the Diagnostics pane it replaced led a piece's only).
     func test_toResolveLeadsEveryPicker() {
-        let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
-        XCTAssertEqual(DetailPaneToggle<AnyView>.visibleSegments(subject: chapter).first, .resolve)
-        XCTAssertEqual(DetailPaneToggle<AnyView>.visibleSegments(subject: .book).first, .resolve)
+        XCTAssertEqual(RightColumnPosition.allCases.first, .resolve)
+        for offers in [true, false] {
+            for selected in RightColumnPosition.allCases {
+                XCTAssertEqual(RightColumnControl.segments(offersPulledUp: offers,
+                                                           selected: selected).first, .resolve)
+            }
+        }
     }
 
     // MARK: - The fates: answering is ruling (spec §5)
@@ -2691,7 +2703,7 @@ final class DiagnosticsPaneTests: XCTestCase {
     /// #120); the control itself is asserted DRAWN, and the action naming the
     /// verb is `WiringCensusTests`'.
     private func notesPosted(
-        by verb: () -> Void, on name: Notification.Name = .maughamSetDetailSegment
+        by verb: () -> Void, on name: Notification.Name = .maughamSetRightColumn
     ) -> [Notification] {
         let box = PostBox()
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification the verb posts

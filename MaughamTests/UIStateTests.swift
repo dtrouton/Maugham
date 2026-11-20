@@ -90,8 +90,8 @@ final class UIStateSchemaTests: XCTestCase {
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertEqual(decoded.windowSubject,
                        WindowSubject(open: .item("doc-1"), faces: .item("doc-1")))
-        // "tasks" is a retired segment (shell plan 2 Task 7): To resolve.
-        XCTAssertEqual(decoded.detailSegment, .resolve)
+        // The old pane key is ignored (shell plan 3 Task 9): To resolve.
+        XCTAssertEqual(decoded.rightColumnPosition, .resolve)
         XCTAssertEqual(decoded.bookView, .cards)
         XCTAssertTrue(decoded.isNoChromeOn)
 
@@ -102,12 +102,11 @@ final class UIStateSchemaTests: XCTestCase {
     }
 
     /// The Inbox stopped being a right-column segment (shell p1 Task 6): a
-    /// stored `"inbox"` falls back to To resolve (shell plan 2 Task 7) rather
-    /// than failing the file.
+    /// stored `"inbox"` opens on To resolve rather than failing the file.
     func test_aStoredInboxSegmentFallsBackToToResolve() throws {
         let json = Data(#"{"schemaVersion":5,"detailSegment":"inbox","isNoChromeOn":true}"#.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
-        XCTAssertEqual(decoded.detailSegment, .resolve)
+        XCTAssertEqual(decoded.rightColumnPosition, .resolve)
         XCTAssertTrue(decoded.isNoChromeOn, "the rest of the file survives")
     }
 
@@ -131,7 +130,7 @@ final class UIStateSchemaTests: XCTestCase {
              "selectedItemId":"doc-1"}
             """.utf8)
             let decoded = try JSONDecoder().decode(UIState.self, from: json)
-            XCTAssertEqual(decoded.detailSegment, .resolve, legacy)
+            XCTAssertEqual(decoded.rightColumnPosition, .resolve, legacy)
             XCTAssertEqual(decoded.windowSubject.open, .item("doc-1"), legacy)
             XCTAssertTrue(decoded.isNoChromeOn, legacy)
         }
@@ -157,12 +156,12 @@ final class UIStateSchemaTests: XCTestCase {
     func test_decode_ofStateWithoutActivePassMemory_isEmptyNotAFailure() throws {
         let json = Data("""
         {"schemaVersion":5,"isNoChromeOn":false,
-         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "researchPreviewVisible":true,"detailSegment":"inspector",
          "outlineLayout":"table","isReviewModeOn":false,"persona":"author"}
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertEqual(decoded.activePassMemory, .empty)
-        XCTAssertEqual(decoded.detailSegment, .inspector,
+        XCTAssertTrue(decoded.researchPreviewVisible,
                        "the fields this build still has come through beside the "
                        + "one it did not carry yet")
     }
@@ -227,12 +226,12 @@ final class UIStateSchemaTests: XCTestCase {
     func test_decode_ofAStateWithoutAnImprint_isTheBookNotAFailure() throws {
         let json = Data("""
         {"schemaVersion":5,"isNoChromeOn":false,
-         "researchPreviewVisible":false,"detailSegment":"inspector",
+         "researchPreviewVisible":true,"detailSegment":"inspector",
          "outlineLayout":"table","isReviewModeOn":false,"persona":"publish"}
         """.utf8)
         let decoded = try JSONDecoder().decode(UIState.self, from: json)
         XCTAssertNil(decoded.publishImprint)
-        XCTAssertEqual(decoded.detailSegment, .inspector,
+        XCTAssertTrue(decoded.researchPreviewVisible,
                        "the fields this build still has come through beside the "
                        + "one it did not carry yet")
     }
@@ -343,5 +342,40 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
                        .outline)
         XCTAssertEqual(try decode(#"{"schemaVersion":5,"outlineLayout":"cards"}"#).bookView,
                        .cards)
+    }
+
+    // MARK: - The study column's width key (dead since 2026-08-25)
+
+    /// `assistantColumnWidth` died with the fourth column (the study column's
+    /// own width), and the study column itself with the pane picker (shell
+    /// plan 3 Task 9). What is left to assert is the on-disk half: a
+    /// `ui-state.json` written by every build up to v0.31.0 still carries the
+    /// key, and it must still open. `CodingKeys` has no case for it, and a
+    /// keyed container never asks for a key it has no case for — so the value
+    /// decodes away and is dropped on the next write, which is what "no
+    /// migration" (tripwire 11) means here.
+    func test_aFileStillCarryingTheDeadWidthKeyDecodes() throws {
+        let json = """
+        {"schemaVersion": \(UIState.currentSchemaVersion), \
+        "assistantColumnWidth": 400, "detailColumnWidth": 320, \
+        "isNoChromeOn": true}
+        """
+        let decoded = try JSONDecoder().decode(UIState.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.detailColumnWidth, 320,
+                       "the dead key must not derail the keys either side of it")
+        XCTAssertTrue(decoded.isNoChromeOn)
+        XCTAssertEqual(decoded.schemaVersion, UIState.currentSchemaVersion,
+                       "and the field's death cost no schema bump — there was "
+                       + "nothing to migrate")
+    }
+
+    /// The write half of the same fact: what this build encodes carries no
+    /// `assistantColumnWidth` at all, so the key really is gone from disk on the
+    /// next save rather than merely ignored on load.
+    func test_theDeadKeyIsNotWrittenBack() throws {
+        let data = try JSONEncoder().encode(UIState(detailColumnWidth: 320))
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(text.contains("assistantColumnWidth"), text)
     }
 }

@@ -191,7 +191,7 @@ final class CentreItemCoverTests: XCTestCase {
     // MARK: - Esc, through the window's one arbiter (review I1)
 
     func test_escapeClosesTheCoverThroughTheArbiterInItsPlace() throws {
-        XCTAssertEqual(WindowEscapeArbiter.Consumer.allCases, [.assistantColumn, .centreItem, .canvasDim])
+        XCTAssertEqual(WindowEscapeArbiter.Consumer.allCases, [.pulledUp, .centreItem, .canvasDim])
         let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
                                      contentView: NSView(frame: .zero), present: .unshown)
         defer { window.close() }
@@ -201,13 +201,13 @@ final class CentreItemCoverTests: XCTestCase {
         XCTAssertTrue(escape.isInstalled)
         let arbiter = WindowEscapeArbiter.arbiter(for: window)
 
-        // The assistant column, opened beside, takes Esc first.
+        // The pulled-up thing, beside the cover, takes Esc first.
         var dismissed = 0
-        arbiter.register(.assistantColumn, claim: { dismissed += 1; return true })
+        arbiter.register(.pulledUp, claim: { dismissed += 1; return true })
         XCTAssertTrue(arbiter.offerEscape())
         XCTAssertEqual(dismissed, 1)
-        XCTAssertEqual(closed, 0, "the column's Esc is not the cover's")
-        arbiter.resign(.assistantColumn)
+        XCTAssertEqual(closed, 0, "the pulled-up thing's Esc is not the cover's")
+        arbiter.resign(.pulledUp)
 
         XCTAssertTrue(arbiter.offerEscape(), "then Esc closes the cover")
         XCTAssertEqual(closed, 1)

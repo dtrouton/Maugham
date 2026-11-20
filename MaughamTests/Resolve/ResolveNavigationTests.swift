@@ -132,7 +132,7 @@ final class ResolveNavigationTests: XCTestCase {
     /// order, so the request waits for the piece's list.
     func test_openTheQueueOpensTheRoundsPieceThenAsksForQuestions() throws {
         var posts: [(Notification.Name, [AnyHashable: Any])] = []
-        let names: [Notification.Name] = [.maughamNavigateToParagraph, .maughamSetDetailSegment]
+        let names: [Notification.Name] = [.maughamNavigateToParagraph, .maughamSetRightColumn]
         let tokens = names.map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in // adr-0021-ok: a test's synchronous recorder of the posts' order
                 posts.append((note.name, note.userInfo ?? [:]))

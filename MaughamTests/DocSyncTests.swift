@@ -100,7 +100,7 @@ final class DocSyncTests: XCTestCase {
             "Self-check expected the planted \(plantedArea) to disagree with the real catalog count.")
     }
 
-    // MARK: - Test 2: DetailPaneToggle keyboard-shortcut tokens vs reference.md
+    // MARK: - Test 2: the View menu's keyboard-shortcut tokens vs reference.md
 
     /// Enumerates `.keyboardShortcut("N", modifiers: [ … ])` occurrences whose
     /// modifier list contains **both** `.command` and `.option`, returning each
@@ -219,10 +219,9 @@ final class DocSyncTests: XCTestCase {
         tokens.filter { !docText.contains($0) }
     }
 
-    /// After the keyspace-migration task, `DetailPaneToggle.swift` declares no
-    /// shortcuts at all — the View menu in `MaughamApp.swift` owns every pane
-    /// shortcut (⌘⌥-letter) as the sole dispatch path, so that's the file this
-    /// guard now reads from.
+    /// The right column's control declares no shortcuts at all — the View menu
+    /// in `MaughamApp.swift` owns every pane shortcut (⌘⌥-letter) as the sole
+    /// dispatch path, so that's the file this guard reads from.
     func test_paneShortcutsDocumentedInReferenceMd() throws {
         let sourceText = try readFile("Maugham/MaughamApp.swift")
         let tokens = Self.extractCommandOptionShortcutTokens(from: sourceText)
@@ -235,12 +234,12 @@ final class DocSyncTests: XCTestCase {
         // test pass without asserting anything, which is worse than deleting
         // it — the very failure mode this repoint exists to avoid. Assert a
         // floor, not equality: MaughamApp.swift also carries non-pane ⌘⌥
-        // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore),
-        // so the count exceeds `DetailSegment.allCases`.
-        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
-                                    "extracted \(tokens.count) ⌘⌥ shortcuts — expected at least "
-                                    + "one per DetailSegment case; a regex that matches nothing "
-                                    + "makes this whole test vacuous")
+        // bindings (⌘⌥0 inspector column, ⌘⌥F find in project, ⌘⌥Z restore).
+        // The floor is the View menu's own ⌘⌥ letters, by name.
+        XCTAssertEqual(Self.viewMenuPaneKeys.filter { !tokens.contains($0) }, [],
+                       "extracted \(tokens) — the View menu's pane keys are not all "
+                       + "among them; a regex that matches nothing makes this whole "
+                       + "test vacuous")
         // The CONTROL for the widening, and the reason it is asserted against
         // the real source rather than a fixture: a floor on the count cannot
         // tell a widened extractor from the narrow one, because ⌘⌥⇧R is a
@@ -375,9 +374,9 @@ final class DocSyncTests: XCTestCase {
     func test_paneShortcutsDocumentedInTheInAppCheatsheet() throws {
         let sourceText = try readFile("Maugham/MaughamApp.swift")
         let tokens = Self.extractCommandOptionShortcutTokens(from: sourceText)
-        XCTAssertGreaterThanOrEqual(tokens.count, DetailSegment.allCases.count,
-                                    "extracted \(tokens.count) ⌘⌥ shortcuts — a regex that "
-                                    + "matches nothing makes this test vacuous")
+        XCTAssertEqual(Self.viewMenuPaneKeys.filter { !tokens.contains($0) }, [],
+                       "extracted \(tokens) — a regex that matches nothing makes "
+                       + "this test vacuous")
 
         let cheatsheet = KeyboardShortcuts.all.flatMap(\.items).map(\.shortcut)
         XCTAssertFalse(cheatsheet.isEmpty,
@@ -400,9 +399,19 @@ final class DocSyncTests: XCTestCase {
             "Self-check: the real ⌘⌥⇧R must be present, or the guard is a wall.")
     }
 
-    // MARK: - Test 3: DetailSegment case names mentioned in right-pane.md
+    /// **The View menu's ⌘⌥ letters** — the old panes' keys, which the owner
+    /// kept when the pane picker died (2026-11-18), each landing where its
+    /// pane's content lives now (`RightColumnMountingTests` pins where). The
+    /// anti-vacuity floor of the two extractor checks above: every one of
+    /// these must be among the tokens read out of `MaughamApp.swift`.
+    static let viewMenuPaneKeys = [
+        "⌘⌥I", "⌘⌥R", "⌘⌥O", "⌘⌥A", "⌘⌥H", "⌘⌥T", "⌘⌥B", "⌘⌥P",
+        "⌘⌥L", "⌘⌥N", "⌘⌥G", "⌘⌥Y", "⌘⌥V", "⌘⌥D", "⌘⌥E", "⌘⌥K",
+    ]
 
-    /// Enumerates `case <name>` lines from the `DetailSegment` enum source.
+    // MARK: - Test 3: the right column's positions mentioned in right-pane.md
+
+    /// Enumerates `case <name>` lines from an enum's source.
     static func extractEnumCaseNames(from sourceText: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"(?m)^\s*case\s+(\w+)"#) else { return [] }
         let ns = sourceText as NSString
@@ -411,17 +420,16 @@ final class DocSyncTests: XCTestCase {
     }
 
     /// Case-insensitive substring check: each case name's raw spelling
-    /// (e.g. "inbox") must appear somewhere in the doc text (e.g. "Inbox") —
-    /// **or**, for a camelCase name, its spelled-out form ("visualLanguage" →
-    /// "visual language").
+    /// (e.g. "brief") must appear somewhere in the doc text (e.g. "Brief") —
+    /// **or**, for a camelCase name, its spelled-out form ("pulledUp" →
+    /// "pulled up").
     ///
     /// The second spelling exists because `right-pane.md` is the writer's help,
-    /// not a symbol index. Every case was one word until M1A, so the raw-name
-    /// check had never met a multi-word one; requiring the literal
-    /// `visualLanguage` in user-facing prose would document the identifier
-    /// rather than the pane. The guard's job — a segment that ships with no
-    /// mention at all goes red — is unchanged, and
-    /// `test_segmentMentionCheckWouldFireOnPlantedOffender` still proves it.
+    /// not a symbol index: requiring the literal `pulledUp` in user-facing
+    /// prose would document the identifier rather than the position. The
+    /// guard's job — a position that ships with no mention at all goes red —
+    /// is unchanged, and `test_segmentMentionCheckWouldFireOnPlantedOffender`
+    /// still proves it.
     static func missingCaseMentions(_ names: [String], in docText: String) -> [String] {
         let lowered = docText.lowercased()
         return names.filter { name in
@@ -441,38 +449,54 @@ final class DocSyncTests: XCTestCase {
         return out
     }
 
+    /// **The positions the guide does not name yet.** `docs/guide/` is
+    /// rewritten for the three positions in a later plan (shell plan 5); until
+    /// then the pulled-up position has no mention in `right-pane.md`. The test
+    /// below asserts this list is EXACTLY what the guide lacks — so it goes
+    /// red when the guide gains the position (delete the entry then), and red
+    /// when a new position ships that the guide does not name.
+    static let positionsTheGuideDoesNotNameYet = ["pulledUp"]
+
     func test_detailSegmentCasesDocumentedInRightPaneMd() throws {
-        let sourceText = try readFile("Maugham/Models/DetailSegment.swift")
-        let caseNames = Self.extractEnumCaseNames(from: sourceText)
-        guard !caseNames.isEmpty else {
-            XCTFail("No `case <name>` lines found in DetailSegment.swift — source structure changed? "
-                + "(regex may need updating)")
-            return
+        // The cases are the compiled enum's, and the source file is read too
+        // so a case added there is seen even before `allCases` is asked.
+        let caseNames = RightColumnPosition.allCases.map(\.rawValue)
+        let sourceText = try readFile("Maugham/Models/RightColumnPosition.swift")
+        for name in caseNames {
+            XCTAssertTrue(sourceText.contains(name),
+                          "RightColumnPosition.swift no longer spells `\(name)` — source structure changed?")
         }
+        XCTAssertEqual(caseNames, ["resolve", "brief", "pulledUp"])
 
         let rightPaneMd = try readFile("docs/guide/right-pane.md")
         let missing = Self.missingCaseMentions(caseNames, in: rightPaneMd)
-        XCTAssertTrue(missing.isEmpty,
-            "DetailSegment case(s) \(missing) have no mention in docs/guide/right-pane.md. "
-            + "All cases: \(caseNames).")
+        XCTAssertEqual(missing, Self.positionsTheGuideDoesNotNameYet,
+            "The right-column positions with no mention in docs/guide/right-pane.md are "
+            + "\(missing); the named pending list is \(Self.positionsTheGuideDoesNotNameYet). "
+            + "A position the guide now names leaves the pending list; a new one the guide "
+            + "lacks must be documented. All positions: \(caseNames).")
     }
 
-    /// Self-check: a doctored right-pane.md with the "history" mention removed
-    /// causes the real "history" case name to be reported missing — proving
-    /// the check above would fire on real drift (e.g. a segment added
-    /// without a doc mention).
+    /// Self-check: a doctored right-pane.md with the "brief" mention removed
+    /// causes the real "brief" position to be reported missing — proving the
+    /// check above would fire on real drift (e.g. a position added without a
+    /// doc mention).
     func test_segmentMentionCheckWouldFireOnPlantedOffender() throws {
-        let sourceText = try readFile("Maugham/Models/DetailSegment.swift")
-        let caseNames = Self.extractEnumCaseNames(from: sourceText)
-        XCTAssertTrue(caseNames.contains("history"),
-            "Self-check precondition: DetailSegment should still have a `history` case.")
+        let caseNames = RightColumnPosition.allCases.map(\.rawValue)
+        XCTAssertTrue(caseNames.contains("brief"),
+            "Self-check precondition: RightColumnPosition should still have a `brief` case.")
 
-        let doctoredDoc = "The right column has modes: To resolve, Inspector, Research, "
-            + "Outline, Palette, Translation, Intent, Lessons, "
-            + "First Reader, Visual Language, References, Department."
+        let doctoredDoc = "The right column has three positions: To resolve, and the "
+            + "thing you pulled up from the tree."
         let missing = Self.missingCaseMentions(caseNames, in: doctoredDoc)
-        XCTAssertEqual(missing, ["history"],
-            "Self-check expected exactly the omitted \"history\" case to be reported missing. Got: \(missing).")
+        XCTAssertEqual(missing, ["brief"],
+            "Self-check expected exactly the omitted \"brief\" position to be reported missing. Got: \(missing).")
+        // And the pending list itself is checked both ways: a guide that
+        // names every position makes the pending list wrong.
+        let complete = doctoredDoc + " Brief."
+        XCTAssertNotEqual(Self.missingCaseMentions(caseNames, in: complete),
+                          Self.positionsTheGuideDoesNotNameYet,
+                          "a guide naming the pulled-up position must turn the pending list red")
     }
 
     /// Self-check for the spelled-out alternative: a multi-word case is

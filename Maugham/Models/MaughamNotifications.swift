@@ -214,7 +214,22 @@ extension Notification.Name {
     /// ⌘⌥P's twin, for the tree's Palette section. Same task, same refusal.
     /// Scope: .keyWindow.
     public static let maughamRevealPaletteSection = Notification.Name("maugham.reveal.palette.section")
-    public static let maughamSetDetailSegment = Notification.Name("maugham.set.detail.segment")
+    /// Posted by ⌘1/⌘2/⌘3 and the old pane keys that land on a position
+    /// (shell plan 3): the right column shows that position
+    /// (`MaughamEvent.postPosition`, `postResolve`). Scope: .keyWindow.
+    public static let maughamSetRightColumn = Notification.Name("maugham.set.right.column")
+    /// Posted by a click on the line above the prose (`IntentStrip`, shell
+    /// plan 3): the faces go to the open piece and the right column shows its
+    /// Brief (`MaughamEvent.postBriefOfTheOpenPiece`). Scope: .keyWindow.
+    public static let maughamShowOpenPieceBrief = Notification.Name("maugham.show.open.piece.brief")
+    /// Posted by ⌘⌥G/⌘⌥Y/⌘⌥V/⌘⌥H (shell plan 3): a Book statement or the
+    /// faces' piece's History is pulled up beside the centre
+    /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.
+    public static let maughamPullUp = Notification.Name("maugham.pull.up")
+    /// Posted by ⌘⌥E (shell plan 3): what a piece is pinned to is its fold in
+    /// the tree, so the key opens the faces' piece's fold and scrolls to it.
+    /// Scope: .keyWindow.
+    public static let maughamShowPieceFold = Notification.Name("maugham.show.piece.fold")
     /// Posted by ⌘⌥B (shell p1 Task 6): open the Inbox in the centre — the
     /// same click on the Inbox row the tree makes, through `ClickRule`. The
     /// Inbox stopped being a right-column pane when it became a row.
@@ -369,9 +384,8 @@ extension Notification.Name {
     /// P5) — `propose_edition_brief`/`propose_visual_language` wrote a slot
     /// under `.maugham/statements/proposals/`, or the writer's Adopt/Discard
     /// emptied one. `StatementPane` draws its gate from that slot, the desk
-    /// marks its language row and `DetailPaneToggle` badges the Visual
-    /// Language segment; none of them can otherwise see a file an MCP tool
-    /// wrote behind them.
+    /// marks its language row and `RightColumnControl` puts a dot on Brief;
+    /// none of them can otherwise see a file an MCP tool wrote behind them.
     ///
     /// No payload: which slots a surface cares about is its own answer (it
     /// re-reads them). Post via `MaughamEvent.postStatementProposalsChanged`,

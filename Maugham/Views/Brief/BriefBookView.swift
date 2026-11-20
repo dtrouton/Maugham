@@ -241,7 +241,7 @@ struct BriefBookView: View {
             }
         }
         if filedNotice != nil {
-            FiledNotice(filing: $filedNotice)
+            FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
         }
     }
 }

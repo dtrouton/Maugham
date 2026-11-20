@@ -20,12 +20,14 @@ enum StatementProposalTools {
     static func adoptWhere(_ kind: ProposableStatement) -> String {
         switch kind {
         case .editionBrief(let language):
-            return "In Maugham: the Department desk (⌘⌥K) → the "
+            return "In Maugham: select the "
                 + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
-                + " row's Edition Brief. A banner offers Adopt / Discard with a diff."
+                + " edition in the tree. Its Brief (⌘2) holds the edition brief, and so does "
+                + "its row on the Department desk (⌘⌥K). A banner offers Adopt / Discard with a diff."
         case .visualLanguage:
-            return "In Maugham: the Visual Language pane (⌘⌥V). A banner offers "
-                + "Adopt / Discard with a diff against the current statement."
+            return "In Maugham: Visual Language, pulled up beside the text (⌘⌥V, or its "
+                + "link in the Book's Brief). A banner offers Adopt / Discard with a diff "
+                + "against the current statement."
         }
     }
 
@@ -106,7 +108,7 @@ public enum ProposeVisualLanguageTool: MCPTool {
         + "should LOOK (trim, typeface feel, scale, rule weights, ornament, the idea behind "
         + "per-piece variation) — as MARKDOWN the writer adopts or discards in Maugham. This "
         + "writes nothing: the draft is staged, and the writer sees it as a diff against their "
-        + "current statement in the Visual Language pane with Adopt / Discard. No `## Rulings` "
+        + "current statement in Visual Language (pulled up, ⌘⌥V) with Adopt / Discard. No `## Rulings` "
         + "section — a visual language has none. A new proposal replaces the pending one. "
         + "Interview first (the `visual-language` skill via get_help topic \"skills\"); read "
         + "read_visual_language and the sensory palette before drafting."

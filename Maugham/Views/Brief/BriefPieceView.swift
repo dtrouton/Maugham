@@ -20,6 +20,12 @@ struct BriefPieceView: View {
     let inTheCentre: Bool
     let onOpenInCentre: (CentreItem) -> Void
     let onShowStrain: (ResolveRequest) -> Void
+    /// A filed line's link (`ProjectWindow.openBrief`); nil draws it as text.
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
+    /// What a Collection's loose piece is written as ("Prose" /
+    /// "Screenplay"), a quiet caption at the head; nil draws none
+    /// (`BriefPane.formatCaption`).
+    var formatCaption: String? = nil
 
     @State private var lineDraft = ""
     @FocusState private var lineFocused: Bool
@@ -54,6 +60,12 @@ struct BriefPieceView: View {
     var body: some View {
         let offers = self.offers
         VStack(alignment: .leading, spacing: 14) {
+            if let formatCaption {
+                Text(formatCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("brief.format")
+            }
             line(offers)
             GoingForView(
                 store: store, documentStore: documentStore, scope: .document(docId),
@@ -155,7 +167,7 @@ struct BriefPieceView: View {
         // Outside the readings, so the line outlives the last reading the
         // Confirm took away.
         if filedNotice != nil {
-            FiledNotice(filing: $filedNotice)
+            FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
         }
     }
 }

@@ -193,7 +193,7 @@ final class FiledUnderTests: XCTestCase {
     static let hosts: [(file: String, mustContain: [String])] = [
         ("Views/Resolve/ResolvePane.swift",
          ["diagnostics: diagnostics, filedUnder: { filed($0) })",
-          "onFiledUnder: { filed($0) })", "FiledNotice(filing: $filedNotice)"]),
+          "onFiledUnder: { filed($0) })", "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
         ("Views/Resolve/ResolveNoteVerbs.swift",
          ["undoManager: undoManager, filedUnder: onFiledUnder)",
           "filedUnder: onFiledUnder)"]),
@@ -201,7 +201,10 @@ final class FiledUnderTests: XCTestCase {
          ["onFailure: { ledgerFailure = $0 }, filedUnder: onFiledUnder)",
           "onFailure: { offerFailure = $0 }, filedUnder: onFiledUnder)"]),
         ("Views/BibleStratum.swift", ["onFiled(filed)"]),
-        ("Views/Brief/BriefPieceView.swift", ["onFiled: { destination in", "FiledNotice(filing: $filedNotice)"]),
+        ("Views/Brief/BriefPieceView.swift", ["onFiled: { destination in",
+                                              "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
+        ("Views/Brief/BriefBookView.swift", ["FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
+        ("Views/RightColumn.swift", ["onOpenBrief: openBrief)", "onOpenBrief: openBrief,"]),
         ("Views/Publish/TranslationRoundReportView.swift",
          ["run(settling: id, filedIn: ruleSection(of: id))", "FiledNotice(filing: $filedNotice)"]),
     ]

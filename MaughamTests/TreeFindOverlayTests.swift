@@ -425,7 +425,7 @@ final class TreeFindOverlayTests: XCTestCase {
     }
 
     /// A real Escape, built the way AppKit delivers one —
-    /// `AssistantColumnTests.escapeKeyEvent`'s shape.
+    /// `PulledUpEscapeTests.escapeKeyEvent`'s shape.
     private static func escapeKeyEvent(for window: NSWindow) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                          timestamp: ProcessInfo.processInfo.systemUptime,

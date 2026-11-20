@@ -4,8 +4,8 @@ import XCTest
 /// Source-text guards on the `⌘⌥` pane keys. These read the real files rather
 /// than exercising SwiftUI, which this repo has no automation for. (The
 /// keyspace suite's persona half — ⌘1–⌘4 bound to the personas — retired with
-/// them in shell p1 Task 6; ⌘1 is To resolve since shell plan 2 Task 7, pinned
-/// in `ResolveMountingTests`.)
+/// them in shell p1 Task 6; ⌘1/⌘2/⌘3 are the right column's three positions
+/// since shell plan 3 Task 9, pinned in `RightColumnMountingTests`.)
 final class PaneKeyspaceTests: XCTestCase {
     private func source(_ relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
@@ -17,7 +17,8 @@ final class PaneKeyspaceTests: XCTestCase {
     func test_noPaneUsesANumericCommandOptionShortcut() throws {
         // The flat ⌘⌥ numeric space is retired. ⌘⌥0 is the inspector-column
         // toggle (Xcode's key for the same thing) and is the sole exception.
-        for path in ["Maugham/MaughamApp.swift", "Maugham/Views/DetailPaneToggle.swift"] {
+        for path in ["Maugham/MaughamApp.swift", "Maugham/Views/RightColumnControl.swift",
+                     "Maugham/Views/RightColumn.swift"] {
             let text = try source(path)
             for digit in ["1", "2", "3", "4", "5", "6", "7", "8", "9"] {
                 XCTAssertFalse(
@@ -29,28 +30,38 @@ final class PaneKeyspaceTests: XCTestCase {
 
     func test_allPaneShortcutsAreDeclaredInTheMenuNotThePicker() throws {
         // One dispatch path, so every pane shortcut reveals a hidden column.
-        let picker = try source("Maugham/Views/DetailPaneToggle.swift")
-        XCTAssertFalse(picker.contains("keyboardShortcut("),
-                       "DetailPaneToggle must not declare shortcuts; the View menu owns them")
+        for path in ["Maugham/Views/RightColumnControl.swift", "Maugham/Views/RightColumn.swift"] {
+            let picker = try source(path)
+            XCTAssertFalse(picker.contains("keyboardShortcut("),
+                           "\(path) must not declare shortcuts; the View menu owns them")
+        }
+        // The control: the menu is where they are.
+        XCTAssertTrue(try source("Maugham/MaughamApp.swift").contains("keyboardShortcut("),
+                      "control: the read can see a shortcut where there is one")
     }
 
-    // `test_everyDetailSegmentHasAMenuShortcut` lives in
-    // `DetailSegmentOrderTests` (shell p1 Task 6).
+    // `test_everyPositionAndPullUpHasAMenuShortcut` lives in
+    // `RightColumnMountingTests` (shell plan 3 Task 9).
 
     /// **The three re-pointed keys must never regress to their old spelling.**
-    /// `.outline`/`.research`/`.palette` no longer exist as `DetailSegment`
-    /// cases, so `postSegment(.outline)` etc. cannot even compile any more —
-    /// but a stringly-typed reintroduction
-    /// (`postSegment(DetailSegment(rawValue: "outline")!)`, say) would not
-    /// trip the compiler, so the spelling itself is censused rather than left
-    /// to the type system alone.
+    /// `.outline`/`.research`/`.palette` are not right-column positions or
+    /// pull-ups, so `postSegment(.outline)` etc. cannot even compile — but the
+    /// spelling itself is censused rather than left to the type system alone,
+    /// and since the pane picker died (shell plan 3 Task 9) no `postSegment(`
+    /// survives in the menu at all.
     func test_noPostSegmentSpellingSurvivesForTheThreeRepointedCases() throws {
         let app = try source("Maugham/MaughamApp.swift")
         for dead in ["outline", "research", "palette"] {
             XCTAssertFalse(app.contains("postSegment(.\(dead))"),
                            "postSegment(.\(dead)) survives — Research/Outline/Palette "
                            + "route through their new events, never the old pane")
+            for post in ["postPosition", "postPullUp"] {
+                XCTAssertFalse(app.contains("\(post)(.\(dead))"),
+                               "\(post)(.\(dead)) — Research/Outline/Palette are tree "
+                               + "sections and the Book's view, never a right-column position")
+            }
         }
+        XCTAssertFalse(app.contains("postSegment("), "the pane picker's post is gone from the menu")
     }
 
     /// Self-check: the assertion above must be able to fail.
@@ -90,9 +101,9 @@ final class PaneKeyspaceTests: XCTestCase {
         // The control: the same read on a different item must NOT answer ⌘⌥P,
         // or "the next shortcut in the file" would be reporting a constant.
         XCTAssertFalse(
-            try shortcut(after: "postSegment(.history)", in: app)
+            try shortcut(after: "MaughamEvent.postResolve(.mine)", in: app)
                 .hasPrefix(#".keyboardShortcut("p", modifiers: [.command, .option])"#),
-            "control: History must not also read as ⌘⌥P")
+            "control: Tasks must not also read as ⌘⌥P")
     }
 
     /// **⌘⌥B opens the Inbox** — the Inbox is a tree row whose centre is the

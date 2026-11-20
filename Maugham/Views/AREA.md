@@ -10,7 +10,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, study, inspector (`researchOrSubject` → `inspectorRoute`) and hidden arms; `RightColumnContent.swift`, what each position shows; `PulledUpView.swift`, the pulled-up thing.
+- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing; `PulledUpEscape.swift`, its Esc.
 - `PaletteWallState.swift` — the wall's window state as one value (the inspector stash and the subject it was opened over) with its fold and its Close. Whether the wall is open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
@@ -35,7 +35,6 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `LockToggle.swift` — the window's Lock (`WindowLock`) and its toolbar toggle, the window toolbar's one item.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
-- `AssistantColumn.swift` — the study column (`AssistantColumnModel.studied`, `isPresented`, `AssistantColumnModifier`).
 - `IntentStrip.swift` — the writer's signature line above the prose.
 - `ReviewModeIndicator.swift`, `TranslationReviewIndicator.swift` — the pills over the editor in review / translation review.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
@@ -78,7 +77,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FigureSubjectColumns.swift` — `figureSubjectPlacement` (centre / beside the canvas / nothing) and `FigureSubjectSurface`: a table's grid (`FigureCentreGrid`, read-only in Review), an image large (`FigureImageSubject`, via `SafeRelativePath`), else name and number.
 - `FigureInspector.swift` — a figure subject's inspector: name, number and section, Used-in links (`FigureUseTravel`, the source reveal), pins by source (`FigureInspectorModel`, off the body), the figure stream's notes (`ProjectStore.figureNotes`, never the project walk), actions.
 - `FigurePinsCompare.swift` — Compare: old and new per pinned cell; Refresh as one step on the open grid's stack.
-- `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealResearchColumn`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
+- `ResearchSubjectColumns.swift` — what each column does with a `.research` subject: `researchSubjectPlacement`, `researchCentreRoute`, `revealPulledUp`, `ResearchSubjectCentre`, `ResearchSubjectInspector`.
 - `ResearchNoteEditor.swift` — the research-note editor: saves through the note door; re-reads on `researchNoteReloadCount`; Review or a view-only share locks it.
 - `ResearchNotePreviewPane.swift` — rendered Markdown preview of a note, inline images included.
 - `ResearchPreview.swift` — routes an item to its preview by kind.
@@ -90,7 +89,6 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Palette/PaletteCardEditor.swift` — the palette-card editor: types through `scheduleNoteSave`, renames through `renamePaletteCard`, re-reads on `researchNoteReloadCount`.
 - `Maugham/Views/Palette/PaletteCardReadView.swift` — `PaletteCardReadView` / `PaletteCardReadHost`, one card read-only.
 - `PalettePickerSheet.swift`, `PromoteTargetPickerSheet.swift` — the inbox's Promote to Palette Card… / Promote to Research for… pickers.
-- `ReferencesPane.swift` — the shelf (⌘⌥E): what this piece is pinned to.
 
 ### The centre's editor and altitude
 - `EditorHost.swift` — mounts the editor on the subject's document; the single-binding contract (tripwires 2, 3, 6, 7, 22); the recovery pane wiring and `recoveryActionIsCurrent`; `quarantineAndContinue`.
@@ -106,10 +104,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `StatusSwatch.swift` — the one place a `ReviewStatus` becomes a `Color`.
 
 ### The right column's panes
-- `DetailPaneToggle.swift` — the pane picker and `segmentContent`, the exhaustive per-`DetailSegment` arm.
-- `InspectorView.swift`, `PieceInspector.swift` — the two inspectors.
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
-- `InspectorLinksSection.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`), `IntentAffordanceRow.swift` — inspector sections; `PieceRowMenus.swift` opens three in sheets.
+- `PieceLinkSearch.swift`, `InspectorCitationSection.swift`, `InspectorTagsField.swift` (with `FlowLayout`) — sections `PieceRowMenus.swift` and the research panel open.
 - `PassLadder.swift` — the per-piece pass ladder; `offersRulings`.
 - `TaskRow.swift` — one to-do's row, drawn in To resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
@@ -201,7 +197,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `SettingsView.swift`, `Maugham/Views/SettingsTabs/GeneralSettingsTab.swift`, `Maugham/Views/SettingsTabs/EditorSettingsTab.swift`, `Maugham/Views/SettingsTabs/ThemeSettingsTab.swift`, `Maugham/Views/SettingsTabs/TypographySettingsTab.swift`, `Maugham/Views/SettingsTabs/VoiceSettingsTab.swift`, `Maugham/Views/SettingsTabs/BackupSettingsTab.swift`, `Maugham/Views/SettingsTabs/AboutSettingsTab.swift` — app Settings.
 
 ### `Maugham/Models/` files routed here
-- `DetailSegment.swift` — the right-pane modes, with icon and help text; `pickerOrder`, the one order, and `needsADocument`.
+- `RightColumnPosition.swift`, `PulledUp.swift` — the right column's three positions; the pulled-up thing.
 - `BinderSubject.swift` — the window's one subject: `.project`, `.item(id)`, `.research(id)`, `.figure(id)`.
 - `TreePane.swift` — which tree the left column mounts (`TreePane(for:)`).
 
@@ -254,7 +250,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The subject decides, never a mode
 - **No production source names a persona** (`NoPersonaCensusTests`): the window's subject decides what it shows.
-- **The right column is `DetailSegment.pickerOrder` filtered, never reordered**: the desk only with an edition open, `needsADocument` panes only while the faces' piece is the one open in the centre (`facesPieceIsOpen`); a selected segment is always carried. One remembered segment in `UIState` (`DetailSegmentOrderTests`).
+- **The right column is three positions in one order** (`RightColumnMountingTests`): the pulled-up one hidden while it would show nothing. One remembered position in `UIState`.
 - **Run is the command's**: each File menu item posts its own `RunCommand` (`RunKindTests`).
 - **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver (the translation reveal included) routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
@@ -294,7 +290,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A research item `beside` shows in the right column whatever the centre, with Open in Centre and close; `open` takes the centre** (`ResearchSubjectRoutingTests`).
 - **Both columns route a research item through `researchCentreRoute`** (`test_bothColumnsAskTheSameRoutingFunction`).
 - **A locked window's research and figures are read-only** off `WindowLock.refusesEdits`, beside the posture (`LockTests` names the sites).
-- **A placement is not a mount**: `revealResearchColumn` moves the right column to the inspector when a subject arrives beside; a restore does not.
+- **A placement is not a mount**: the subject's observer moves the right column to the pulled-up position when something arrives beside; a restore does not.
 - **A figure asks `figureSubjectPlacement` in both columns**: `open` takes the centre, `beside` the right column.
 - **The Figures section** is drawn only while a figure is not parked; a piece's count filters it, its header chip clears it.
 - **The tree's cards come from its own `FigureCardCache`**, never the editor's.
@@ -310,17 +306,16 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A strip in a non-scrolling pane stack demands its height as a MINIMUM**; bound inline content with a ceiling (`BoundedHeightLayout`, `ReviewRoundCockpit.letterDisclosureMaxHeight`) (`ReviewRoundCockpitLetterScrollTests`).
 - **No control on a narrow-column toolbar carries writer-typed text on its critical path; labels are icons**, with the name in `.help`. `.frame(maxWidth:)` does not bound a `.fixedSize()` label's ideal.
 - **Every `ViewThatFits` variant is reachable in range; the last, drawn regardless, fits** (`RightColumnPaneWidthTests`). Measure with `NSHostingController.sizeThatFits(in:)`, never a frame walk.
-- **Every `DetailPaneToggle` pane fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
+- **Every `RightColumn` arm fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
 - **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
-- **The study column stands IN PLACE OF the picker and pane, at the same width**, never beside them. Dismiss clears `studied`; hide (⌘⌥I, ⌘\) only takes it off screen. It presents whatever the centre.
 - **Re-check dark-mode propagation to side panes after theme changes.**
 
 ### Events, modals and sheets
 - **Pick an event's scope at the post site** **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
 - **A pane that needs its window's liveness resolves it through `WindowAccessor`**, never a cached `NSWindow?` read as "closed" when nil (`MaughamEvent.isLive`).
 - **Modal state is owned by the window**: subviews post (`.maughamOpenRewind`) and the window presents.
-- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.selectDetailSegment`).
+- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.pullUp`).
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
@@ -375,7 +370,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
-- **The per-piece pass-state writers are the files in `PassStateWriterCensusTests.passStateWritingFiles`** (`InspectorView.swift`, `PieceInspector.swift`, `type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
+- **The per-piece pass-state writers are the files in `PassStateWriterCensusTests.passStateWritingFiles`** (`type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
 - **`StatusSwatch` is the one place a status becomes a colour.** `StructureItem.status` is a legacy read fallback, never written.
 - **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
@@ -474,17 +469,6 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ## Recipes
 
-### Add a right-column pane (a `DetailSegment`)
-1. `Maugham/Models/DetailSegment.swift` — add the case, its `systemImageName` and `helpText` (both exhaustive).
-2. Same file — give it a place in `pickerOrder`; `needsADocument` if it says nothing without one.
-3. `MaughamTests/DetailSegmentOrderTests.swift` — its place in `expectedOrder`.
-4. `Maugham/Views/DetailPaneToggle.swift` — its arm in `segmentContent` (exhaustive, no `default`). Nothing changes in the picker or `ProjectWindow`.
-5. `Maugham/MaughamApp.swift` — one `Button` posting `postSegment(.<case>)` in the View menu with a free ⌘⌥ letter (never S).
-6. `docs/guide/reference.md` — the shortcut row (`DocSyncTests`), and the guide page describing the pane.
-7. If the pane can show an empty state: tripwire 15's two frames. If it shows verbs: Recipe 5.
-
-Checks: the compiler, `DetailSegmentOrderTests`, `DocSyncTests`.
-
 ### Add a centre route
 1. `Maugham/Views/CentreRoute.swift` — a new surface over the editor is a `CentreCover` case; a new top-level surface is a `CentreRoute` case after `.canvas` (never before it) — except a subject that takes the centre (`.research`, `.figure`), placed before it by a `*SubjectPlacement` answer for `open`.
 2. Same file, `ProjectWindow.centreRoute(…)` — answer it from a named question about the window's subject (composed with `altitudeView` if it is Book-level), never a mode.
@@ -494,14 +478,11 @@ Checks: the compiler, `DetailSegmentOrderTests`, `DocSyncTests`.
 
 Checks: `CentreRouteTests`, `ProjectAltitudeCentreTests` (host lifetimes), `RegionBindingTests` (one canvas, one `EditorHost(`).
 
-### Add a right-column inspector
-1. `Maugham/Views/ProjectWindow.swift` — a case in `InspectorRoute` and its answer in `inspectorRoute(subject:projectType:)`, keeping the canvas check above the project-type split.
-2. `Maugham/Views/RightColumn.swift` — its arm in `researchOrSubject`'s switch (an item beside asks its placement there and `revealResearchColumn`), handing the view `posture(id)` if it offers verbs; the column is about `subject.faces`.
+### Add centre details to the pulled-up position
+1. `Maugham/Views/RightColumnContent.swift` — a `CentreDetails` case and its answer in `centreDetails(_:structure:projectType:)`, from `open` alone.
+2. `Maugham/Views/PulledUpView.swift` — its arm in `centreDetails`.
 3. The view in its own file; it reads values, resolves heavy state one leaf down (never `canvasModel.scene`).
-4. If it writes pass states: join `PassStateWriterCensusTests.passStateWritingFiles`.
-5. `MaughamTests/Canvas/CanvasRouteTests.swift` — exhaustive over subject × project type.
-
-Checks: `CanvasRouteTests`, `ProjectSubjectReachabilityTests`.
+4. `MaughamTests/TestSupport/RightColumnFixture.swift` — its kind in `kind(of:)` and `arms`, so the width and height censuses walk it.
 
 ### Add window behaviour (a modifier on `ProjectWindow.body`)
 1. A `ViewModifier` in its own file under `Maugham/Views/`, holding its own `@State` and taking the window's state as `Binding`s.
@@ -525,4 +506,4 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.
-- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `DetailSegmentOrderTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.
+- Tests worth knowing: `EditorIntegrationHarnessTests`, `CentreRouteTests`, `RightColumnMountingTests`, `ProjectSubjectReachabilityTests`, `PostureSurfaceTests`, `RewindDensityTests`, `RewindEntryPointsTests`, and the Views censuses in `TripwireGrepTests`.

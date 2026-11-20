@@ -147,7 +147,7 @@ struct CentreItemCover: View {
 /// `WindowEscapeArbiter`** (review I1) — never a `.keyboardShortcut(.cancelAction)`,
 /// a key equivalent AppKit consults before the responder chain, which would
 /// take Esc from a ruling's edit field in the cover, the binder's inline
-/// rename and the find bar (`AssistantColumnEscape`'s note).
+/// rename and the find bar (`PulledUpEscape`'s note).
 ///
 /// Through the arbiter the cover inherits `CanvasEscapeMonitor.disposition`'s
 /// refusals: while a field or a text view is being typed in (the cover's own

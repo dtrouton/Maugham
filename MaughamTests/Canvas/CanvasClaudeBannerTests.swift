@@ -291,10 +291,17 @@ final class CanvasClaudeBannerTests: XCTestCase {
 
         let text = CanvasSourceCensus.commentsStripped(try CanvasSourceCensus.source(
             at: "Maugham/Views/CanvasClaudeArrivalModifier.swift"))
-        XCTAssertTrue(text.contains("detailSegment = .inspector"),
-                      "Show forces the column open and lets whatever pane was "
-                      + "last mounted decide what fills it — a studied pin's "
-                      + "References shelf, every row inert, persisted on mount")
+        XCTAssertTrue(text.contains("position = .pulledUp"),
+                      "Show forces the column open and lets whatever position "
+                      + "was last selected decide what fills it — not the "
+                      + "canvas's details, where the region Claude made is drawn")
+        // And that position IS the canvas's details once Show has put what
+        // was pulled up away.
+        let after = to.subject(from: WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
+                                                   beside: .research("r1")))
+        XCTAssertEqual(RightColumnContent.of(
+            position: .pulledUp, subject: after, translationLanguage: nil,
+            structure: [], projectType: .novel), .centreDetails(.canvas))
     }
 
     /// Two batches into the SAME region add up rather than replacing, which is

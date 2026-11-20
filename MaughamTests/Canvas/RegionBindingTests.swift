@@ -1050,7 +1050,7 @@ final class RegionBindingTests: XCTestCase {
     /// Both files, because a second mount could land in either.
     func test_theEditorAndTheAltitudeViewAreEachBuiltWhereTheyBelong() throws {
         // Every view, which takes in both files a second mount could land in
-        // (the window's and `DetailPaneToggle`'s) and every other.
+        // (the window's and the right column's) and every other.
 
         XCTAssertEqual(try viewSites(of: "EditorHost("), 1,
                        "one mount for the manuscript editor, inside "
@@ -1069,8 +1069,8 @@ final class RegionBindingTests: XCTestCase {
                        + "its chips write pass state, a second writer of it")
     }
 
-    /// The control for the count above: `DetailPaneToggle` must no longer name
-    /// the pane at all, and the window must be the one file that does —
+    /// The control for the count above: the right column must not name the
+    /// pane at all, and the window must be the one file that does —
     /// otherwise the count of 1 above could be satisfied by the wrong file, or
     /// by neither. `OutlinePane` is the pane's pre-rename spelling (stage 3a
     /// Task 1) and cannot appear in either — which is also what says the
@@ -1083,7 +1083,7 @@ final class RegionBindingTests: XCTestCase {
                       "premise: the window's centre overlay is where the pane "
                       + "lives")
         XCTAssertFalse(toggle.contains("ProjectAltitudePane("),
-                       "DetailPaneToggle must not name the altitude pane — its "
+                       "the right column must not name the altitude pane — its "
                        + "`.outline` arm was deleted whole in stage 3a Task 6")
         XCTAssertEqual(try SourceTree.codeOccurrences(of: "OutlinePane("), [:],
                        "a view still constructs the pane under its old name — "
@@ -1412,8 +1412,12 @@ final class RegionBindingTests: XCTestCase {
                        + "the string, or `ScrapCanvasView(`")
     }
 
+    /// The right column's own files: the column, its control, and what the
+    /// pulled-up position draws.
     private func detailPaneToggleSource() throws -> String {
-        try CanvasSourceCensus.source(at: "Maugham/Views/DetailPaneToggle.swift")
+        try ["Maugham/Views/RightColumn.swift", "Maugham/Views/RightColumnControl.swift",
+             "Maugham/Views/PulledUpView.swift"]
+            .map { try CanvasSourceCensus.source(at: $0) }.joined(separator: "\n")
     }
 
     private func regionInspectorSource() throws -> String {

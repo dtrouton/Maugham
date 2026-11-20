@@ -17,13 +17,14 @@ final class PassStateWriterCensusTests: XCTestCase {
     /// the control that replaced its control** (M3 P1 Task 4). The old one
     /// pinned the two files that wrote `StructureItem.status` through
     /// `updateInspector(… status:)`; that argument was `status:`-shaped, and
-    /// `status:` no longer exists. Both members are the same two Inspector
-    /// arms: `InspectorView` is what `ProjectWindow.existingInspectorSwitch`
-    /// renders, and `PieceInspector` is the arm `inspectorRoute` takes instead
-    /// on a Collection. They now host the pass LADDER, and the ladder is the
-    /// only place in the app a writer can say where a piece stands on a pass.
+    /// `status:` no longer exists. Its first two members were the two
+    /// inspector panes, which hosted the pass LADDER — the place a writer
+    /// says where a piece stands on a pass. The ladder moved to To resolve's
+    /// head (shell plan 2), whose write is threaded up to `RightColumn`, and
+    /// the two panes were deleted (shell plan 3 Task 9): the list LOST two
+    /// members then and gained none.
     ///
-    /// **The third member is the BOARD's host, and its name is a surprise worth
+    /// **One member is the BOARD's host, and its name is a surprise worth
     /// reading** (M3 P1 Task 8). Task 7's carry expected `ReviewBoardPane.swift`
     /// here; what landed is `ProjectWindow.swift`, and the two facts that force
     /// it are both load-bearing:
@@ -36,11 +37,11 @@ final class PassStateWriterCensusTests: XCTestCase {
     ///    pane *cannot* be the caller without breaking the census that made it
     ///    cheap.
     /// 2. Which means the store call lands at the board's HOST — and that is the
-    ///    same shape the other two members have, not an exception to it.
-    ///    `PassLadder` does not write either; `InspectorView` and `PieceInspector`
-    ///    do, because they host it (see `PassLadder`'s own doc comment on why the
-    ///    write stays at the host). The census names hosts, and Review's board is
-    ///    hosted by the window's centre column.
+    ///    same shape the other member has, not an exception to it. `PassLadder`
+    ///    does not write either, nor does To resolve's head, which draws it: the
+    ///    write is a closure the right column supplies (see `PassLadder`'s own
+    ///    doc comment on why the write stays at the host). The census names
+    ///    hosts, and Review's board is hosted by the window's centre column.
     ///
     /// **So the census is deliberately NOT what a reader would guess from the
     /// board's own directory**, and the self-check below asserts
@@ -56,15 +57,13 @@ final class PassStateWriterCensusTests: XCTestCase {
     /// the same reason — the same host, moved, not a new writer.
     ///
     /// **Since Task 5 the queue's pass-order nudge is `RightColumn`'s**
-    /// (`onSetPassState`, handed to `AnnotationsPane` through
-    /// `DetailPaneToggle`), which the window hosted beside the board all along
-    /// until its right column became a view of its own — again the same host,
-    /// moved. `ProjectWindow` itself is no longer a member, but it stays a TYPE
+    /// (`onSetPassState`, handed to `ResolvePane` — the nudge's and, since
+    /// shell plan 2, the ladder's), which the window hosted beside the board
+    /// all along until its right column became a view of its own — again the
+    /// same host, moved. `ProjectWindow` itself is no longer a member, but it stays a TYPE
     /// KEY in the census (`passStateWriters`), so a write that comes back into
     /// the window folds under `type:ProjectWindow` and fails the comparison.
     static let passStateWritingFiles: Set<String> = [
-        "InspectorView.swift",
-        "PieceInspector.swift",
         "type:CentreColumn",
         "type:RightColumn",
     ]
@@ -171,7 +170,7 @@ final class PassStateWriterCensusTests: XCTestCase {
     ///
     /// **The argument list is read to its balanced close paren, not to the end
     /// of the line** — the inherited rule from the retired census, kept because
-    /// it is the reason that one ever saw its primary writer: `InspectorView`
+    /// it is the reason that one ever saw its primary writer: the old inspector
     /// spread its call over four lines with `status:` on the last, and a
     /// line-based matcher reported a one-member census while arguing from it.
     /// The expectation is now EMPTY, and this matcher is what makes an empty
@@ -216,31 +215,38 @@ final class PassStateWriterCensusTests: XCTestCase {
 
     /// **The files that write a piece's pass states are the named hosts.**
     ///
-    /// The Inspector is offered whatever the subject
-    /// (`DetailSegment.pickerOrder` ends with it), and with a chapter open —
-    /// where most of a review is spent — the Book's status board is not on
-    /// screen, so the pass ladder the two Inspector arms host is the ruling
-    /// surface there. The board's chips (`CentreColumn`) rule at Book level and
-    /// the queue's pass-order nudge (`RightColumn`) beside a note.
+    /// To resolve is offered whatever the subject (the right column's first
+    /// position), and with a chapter open — where most of a review is spent —
+    /// the Book's status board is not on screen, so the pass ladder To
+    /// resolve's head draws is the ruling surface there; its write, and the
+    /// pass-order nudge's, are `RightColumn`'s. The board's chips
+    /// (`CentreColumn`) rule at Book level.
     ///
     /// The census guards that every write goes to a HOST rather than into a
     /// pane, which would have cost the board its tripwire-4 cheapness (see
     /// `passStateWritingFiles`).
     func test_thePassStateWritersAreTheNamedHosts() throws {
-        XCTAssertTrue(DetailSegment.pickerOrder.contains(.inspector),
-            "the Inspector must be offered: with a chapter open the status board "
-            + "is not on screen, and the ladder is the only surface there that "
-            + "writes StructureItem.passStates.")
+        XCTAssertEqual(RightColumnPosition.allCases.first, .resolve,
+            "To resolve must be offered: with a chapter open the status board "
+            + "is not on screen, and its head's ladder is the only surface there "
+            + "that writes StructureItem.passStates.")
+        let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
+        XCTAssertEqual(
+            RightColumnContent.of(
+                position: .resolve, subject: chapter, translationLanguage: nil,
+                structure: [StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md")],
+                projectType: .novel),
+            .resolve, "…and with a chapter open that position IS To resolve")
+        XCTAssertEqual(ResolveHead.shape(.piece(docId: "ch-1", includesBookLevel: false)),
+                       .piece(docId: "ch-1"), "whose head, for a piece, is the one with the ladder")
 
         XCTAssertEqual(
             try passStateWriters(),
             Self.passStateWritingFiles,
             "The set of files writing a piece's pass states has changed.\n\n"
-            + "The members are the two Inspector arms — reached via "
-            + "`ProjectWindow.inspectorRoute`'s `.segment` and `.collectionPiece` "
-            + "routes — which host the pass ladder; `CentreColumn`, hosting the "
-            + "status board's chips at Book level; and `RightColumn`, hosting the "
-            + "queue's pass-order nudge.\n\n"
+            + "The members are `RightColumn`, hosting To resolve — its head's "
+            + "pass ladder and its pass-order nudge — and `CentreColumn`, hosting "
+            + "the status board's chips at Book level.\n\n"
             + "If you have added a writer somewhere else, argue for it here; do "
             + "not just add a name to the expectation above.")
     }
@@ -276,7 +282,7 @@ final class PassStateWriterCensusTests: XCTestCase {
             "The queue's pass-order nudge (2026-08-19) grew Mark done / Skip "
             + "buttons, but the write stays at the host exactly like the "
             + "board's and the ladder's: `AnnotationsPane.onSetPassState` is a "
-            + "closure threaded in from `DetailPaneToggle`/`ProjectWindow`, "
+            + "closure threaded in from `RightColumn`, "
             + "never a direct `store.setPassState` call in any of the pane's "
             + "files. If one appears here the pane has started writing directly and the "
             + "closure-threading argument in `AnnotationsPane.swift`'s own "
@@ -490,7 +496,7 @@ final class PassStateWriterCensusTests: XCTestCase {
     /// A source census because the rendered value is not observable: measured
     /// (macOS 26.5) `OutlineTable`'s cells publish no `NSTextField` and the
     /// table's accessibility tree comes back unlabelled and valueless — see
-    /// `InspectorPassLadderTests`' live-projection test, which makes the
+    /// `PassLadderTests`' live-projection test, which makes the
     /// mounted half of this claim on the controls that ARE observable. With
     /// nothing writing `status`, a column printing it would have sat at "draft"
     /// under a green dot for ever.

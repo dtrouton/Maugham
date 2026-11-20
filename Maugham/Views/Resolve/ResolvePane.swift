@@ -152,6 +152,9 @@ struct ResolvePane: View {
     var revealFigure: (String) -> Void = { _ in }
     var revealFigureCell: (_ figureId: String, _ cell: CellKey, _ pending: Bool) -> Bool = { _, _, _ in false }
     var onChoiceOfferChanged: (ChoiceOffer?) -> Void = { _ in }
+    /// A filed line's link: the faces move to the Brief it names
+    /// (`ProjectWindow.openBrief`). Nil draws the line as text.
+    var onOpenBrief: ((BinderSubject) -> Void)? = nil
 
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.undoManager) private var undoManager
@@ -326,8 +329,7 @@ struct ResolvePane: View {
                 onSetPassState: onSetPassState,
                 onFiledUnder: { filed($0) })
             if filedNotice != nil {
-                // Task 9 passes `onOpenBrief` (the right column's Brief).
-                FiledNotice(filing: $filedNotice)
+                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
                     .padding(.horizontal, 12).padding(.vertical, 4)
             }
             if hasList {

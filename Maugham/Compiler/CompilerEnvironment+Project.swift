@@ -469,8 +469,8 @@ extension CompilerOrchestrator.Environment {
             },
             pinnedListing: { [weak store] docId in
                 guard let store else { return [] }
-                // `PinnedReferenceResolver`, which the References pane and the
-                // assistant column also call (M2 Plan 2 Task 5). A run must not
+                // `PinnedReferenceResolver`, which the tree's folds also call
+                // (`PieceFoldContents`). A run must not
                 // be briefed on a different set from the one the writer is
                 // looking at, and the assembly is where that could diverge —
                 // the attached-or-sidecar scene discriminator, the manifest
@@ -671,8 +671,7 @@ extension CompilerOrchestrator.Environment {
     /// The shelf's own grouping, carried into the briefing: one
     /// `pinnedListingLine` per pin, with a `## <title>` line ahead of each
     /// TITLED section — an untitled section (the research run at the top of
-    /// the shelf) gets no header, exactly as `ReferencesPane` draws no
-    /// caption over it. `internal` rather than `private` so it is unit
+    /// the shelf) gets no header. `internal` rather than `private` so it is unit
     /// testable with no project on disk (`CompilerPromptTests`); the closure
     /// above is its only production caller.
     ///

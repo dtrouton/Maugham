@@ -148,30 +148,46 @@ extension ProjectWindow {
         ClickRule.putAway(current: subject)
     }
 
-    /// **Showing the column the placement chose** (stage 2b final review's
-    /// Critical) — for a research item or a figure alike.
+    /// **Showing what is pulled up** — the column, on the pulled-up position.
     ///
-    /// `beside` says the right column previews the item. It does not
-    /// make that column VISIBLE: `ResearchSubjectInspector` is mounted by
-    /// `DetailPaneToggle`'s `.inspector` arm alone. Without this a research row
-    /// would write a subject that reaches no surface at all.
+    /// The subject's observer (`ResearchRevealModifier`) covers a subject that
+    /// CHANGES; the two forced entries (`openResearchItem`,
+    /// `handleShowLatestMCPNote`) call this because Open on an item already
+    /// pulled up changes nothing, so no observer fires.
     ///
-    /// **What it does NOT do is decide anything about the columns.** Where the
-    /// centre takes the item this writes nothing, so a writer's pane choice is
-    /// never moved by an item they can already see; the guard is the
-    /// placement's own answer, asked rather than restated.
-    ///
-    /// `inout` and static so the whole rule is drivable without a window, and so
-    /// the three sites that reveal — the subject observer
-    /// (`ResearchRevealModifier`) and the two forced entries (`openResearchItem`,
-    /// `handleShowLatestMCPNote`) — cannot come to disagree about what revealing
-    /// means.
-    static func revealResearchColumn(subject: WindowSubject,
-                                     showInspector: inout Bool,
-                                     detailSegment: inout DetailSegment) {
+    /// **Where the centre takes the item this writes nothing**
+    /// (`pulledUpIsShownBeside`, the placement's own answer, asked rather than
+    /// restated), so a writer's position is never moved by an item they can
+    /// already see.
+    static func revealPulledUp(subject: WindowSubject,
+                               showInspector: inout Bool,
+                               position: inout RightColumnPosition) {
         guard pulledUpIsShownBeside(subject: subject) else { return }
         showInspector = true
-        detailSegment = .inspector
+        position = .pulledUp
+    }
+
+    /// The position the column goes back to from the pulled-up one, seeded
+    /// from a restored position: that position, or To resolve where the
+    /// window was left on the pulled-up one.
+    static func previousFace(restoring position: RightColumnPosition) -> RightColumnPosition {
+        position == .pulledUp ? .resolve : position
+    }
+
+    /// **Escape on a dimmed canvas** (spec §4.1: the keyboard spelling of the
+    /// project row): the faces go to the Book and the canvas stays. What is
+    /// pulled up is put away only where it is what dims the board — a tree row
+    /// clicked last (`WindowSubject.lastClicked`). A statement, History, a
+    /// canvas card, or a row pulled up before the faces last moved is not the
+    /// canvas's own preview and stays where the writer put it.
+    static func leavingTheCanvasDim(_ subject: WindowSubject) -> WindowSubject {
+        var next = subject
+        let dimsFromBeside = subject.besideIsLatest && subject.beside?.treeSubject != nil
+        // Faces first: writing them clears `besideIsLatest`, so what stays
+        // pulled up no longer lights the board.
+        next.faces = .project
+        if dimsFromBeside { next.beside = nil }
+        return next
     }
 
     /// Whether the window's subject resolves to a manuscript document — the only

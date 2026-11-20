@@ -5,9 +5,10 @@ import MaughamCore
 @testable import Maugham
 
 /// The right column as `ProjectWindow.detailColumn` mounts it — the real
-/// `DetailPaneToggle` over real stores — inside the real three-column
-/// `NavigationSplitView`, at the width `ProjectWindow.effectiveDetailColumnWidth`
-/// pins it to, under the window's own `.frame(minWidth:minHeight:)`.
+/// `RightColumn` over real stores (`RightColumnFixture`) — inside the real
+/// three-column `NavigationSplitView`, at the width
+/// `ProjectWindow.effectiveDetailColumnWidth` pins it to, under the window's
+/// own `.frame(minWidth:minHeight:)`.
 ///
 /// The other two columns are plain fills. The census is about a HEIGHT demand
 /// travelling OUT of the right column, and a demanding column grows the split
@@ -16,9 +17,9 @@ import MaughamCore
 @MainActor
 private struct DetailColumnCensusHarness: View {
     @Bindable var store: ProjectStore
-    let probe: DetailSegmentProbe
+    let probe: RightColumnFixture.Probe
     let documentStore: DocumentStore
-    let docId: String
+    let editorControl: EditorControl
     let roster: AgentRoster
     let bible: BibleStore
     let world: DeclaredWorldStore
@@ -31,49 +32,19 @@ private struct DetailColumnCensusHarness: View {
             Color.white.navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
         } detail: {
-            DetailPaneToggle(
-                store: store,
-                segment: Binding(get: { probe.segment }, set: { probe.segment = $0 }),
-                selectedSubject: Binding(get: { probe.subject },
-                                         set: { probe.subject = $0 }),
-                activeManuscriptItemId: probe.subject?.itemID,
-                projectURL: store.url,
-                activeDocId: docId,
-                allDocIds: [docId],
-                device: "test-mac",
-                session: "s1",
-                docPaths: [:],
-                documentStore: documentStore,
-                editorControl: EditorControl(),
-                compilerModel: .standard,
-                assistant: AssistantColumnModel()
-            ) {
-                InspectorView(store: store, selectedItemId: probe.subject?.itemID,
-                              metrics: EditorMetrics(wordCount: 0, characterCount: 0,
-                                                   readingMinutes: 0),
-                              onOpenProjectSettings: {}, posture: .author)
-            }
-            // The services arrive the way `RightColumn.inspectorPane`
-            // injects them (foundations plan 3, Task 5): a roster carrying
-            // this harness's compiler, and the bible and declared world.
-            .environment(roster)
-            .environment(bible)
-            .environment(world)
-            .navigationSplitViewColumnWidth(
-                ProjectWindow.effectiveDetailColumnWidth(
+            // The services arrive the way `RightColumn.pane` injects them
+            // (foundations plan 3, Task 5): a roster carrying this harness's
+            // compiler, and the bible and declared world. The column applies
+            // its own width to its frame and to the split item.
+            RightColumnFixture.column(
+                store: store, documentStore: documentStore, probe: probe,
+                editorControl: editorControl, roster: roster, bible: bible, world: world,
+                width: ProjectWindow.effectiveDetailColumnWidth(
                     persisted: UIState.defaultDetailColumnWidth,
                     containerWidth: 1200))
         }
         .frame(minWidth: ProjectWindow.windowFloor, minHeight: 540)
     }
-}
-
-@Observable
-@MainActor
-private final class DetailSegmentProbe {
-    var segment: DetailSegment = .inspector
-    var subject: BinderSubject?
-    init(subject: BinderSubject?) { self.subject = subject }
 }
 
 /// **No pane may grow the window's columns — every pane, not the one that did.**
@@ -87,9 +58,11 @@ private final class DetailSegmentProbe {
 /// arrives three times is not retired by a comment telling the next author not
 /// to do it.
 ///
-/// **What it measures.** For every `DetailSegment` — walked off `allCases`, so a
-/// new pane joins the census by existing rather than by someone remembering to
-/// add it — the right column is asked to render that pane and the split view is
+/// **What it measures.** For every arm of `RightColumnContent` — walked off
+/// `RightColumnFixture.arms`, whose coverage of the enum is itself asserted
+/// (`RightColumnFixture.kind(of:)` is an exhaustive `switch`, so a new arm
+/// joins the census by failing it rather than by someone remembering to add
+/// it) — the right column is asked to render that arm and the split view is
 /// measured against the window. A pane whose content cannot be broken
 /// vertically claims a minimum height, `NSSplitView` sizes itself to its tallest
 /// column, and every column overflows the window together. There is no
@@ -128,52 +101,75 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
 
     // MARK: - The census
 
-    /// Every pane the right column can show, in one window, one at a time.
+    /// Every arm the right column can show, in one window, one at a time.
     ///
-    /// **One mount, `allCases` flipped through it**, rather than a window per
-    /// pane: the demand is re-resolved on every segment change (that is what
-    /// made the original defect appear on a click), and a mount apiece would put
-    /// fifteen windows in a suite that already mounts real ones.
+    /// **One mount, every arm flipped through it**, rather than a window per
+    /// arm: the demand is re-resolved on every position and subject change
+    /// (that is what made the original defect appear on a click), and a mount
+    /// apiece would put twenty windows in a suite that already mounts real
+    /// ones.
     ///
     /// **The premise rides in the same loop as the measurement, deliberately.**
-    /// It began as a test of its own and was folded back in: it walks all
-    /// fifteen segments through a real settle, so as a separate test it doubled
-    /// this file's mounted wall clock — and docs/testing/TROUBLESHOOTING.md ("A
-    /// test fails in the parallel suite but passes alone") records that overlapping
+    /// It began as a test of its own and was folded back in: it walks every
+    /// arm through a real settle, so as a separate test it doubled this file's
+    /// mounted wall clock — and docs/testing/TROUBLESHOOTING.md ("A test fails
+    /// in the parallel suite but passes alone") records that overlapping
     /// mounted suites are what starvation-shaped flakes feed on. One loop
     /// carries both, and either assertion failing says which.
     ///
     /// **The settle is a CONDITION, not a fixed wait, and that is a measured
     /// requirement rather than tidiness.** With a flat `waitOut(0.45)` per
-    /// segment this file spun the run loop for ~7 seconds straight, and
+    /// arm this file spun the run loop for ~7 seconds straight, and
     /// `DeclaredWorldDeriverTests.test_anOrdinaryRunFinishesWellInsideTheDeadline`
     /// — which asks a real subprocess to answer inside 300ms — went red whenever
-    /// it landed on a worker beside this one. Discriminated rather than filed
-    /// under the known-flake list it is genuinely on: alongside two unrelated
-    /// mounted suites it passes, alongside this one it failed, so this suite was
-    /// the cause and not the weather. `settledHeight` waits for the layout to
-    /// stop moving instead of always paying the worst case, which keeps the same
-    /// 0.45s ceiling for the segments that need it.
+    /// it landed on a worker beside this one. `settledHeight` waits for the
+    /// layout to stop moving instead of always paying the worst case, which
+    /// keeps the same 0.45s ceiling for the arms that need it.
     func test_noDetailPaneGrowsTheColumnsPastTheWindow() async throws {
-        let (window, split, probe) = try await mountCensus()
+        let census = try await mountCensus()
+        let (window, split, probe) = (census.window, census.split, census.probe)
         let content = try XCTUnwrap(window.contentView).frame.height
+
+        XCTAssertEqual(
+            RightColumnFixture.kinds(of: census.arms, in: census.store),
+            RightColumnFixture.armKinds.subtracting(RightColumnFixture.armKindsOnlyACollectionHas),
+            "the census's own premise: it walks every arm of the content table a "
+            + "novel can reach. A new arm must be added to `RightColumnFixture.arms`")
 
         var overflowing: [String] = []
         var paneHeights: Set<Double> = []
-        for segment in DetailSegment.allCases {
-            probe.segment = segment
+        var columnWidths: Set<Double> = []
+        var proseWidths: Set<Double> = []
+        for arm in census.arms {
+            census.control.translationLanguage = arm.translationLanguage
+            probe.subject = arm.subject
+            probe.position = arm.position
             await settle(split)
-            XCTAssertEqual(probe.segment, segment,
-                           "premise: \(segment) is the pane actually on screen — "
-                           + "`DetailPaneToggle` snaps a segment its picker "
-                           + "cannot render, and a snapped-away segment would "
-                           + "be measured without being shown")
+            XCTAssertEqual(probe.position, arm.position,
+                           "premise: \(arm.name) is the arm actually on screen — "
+                           + "nothing moved the position away from it")
             if split.frame.height > content + 1 {
-                overflowing.append("\(segment) → \(split.frame.height)pt")
+                overflowing.append("\(arm.name) → \(split.frame.height)pt")
             }
             paneHeights.insert(Double(
                 try XCTUnwrap(split.arrangedSubviews.last).fittingSize.height))
+            columnWidths.insert(Double(try XCTUnwrap(split.arrangedSubviews.last).frame.width.rounded()))
+            proseWidths.insert(Double(split.arrangedSubviews[1].frame.width.rounded()))
         }
+
+        // **Whatever the column shows, it is one width, and the prose keeps
+        // its measure** (the study column's measurement, re-made over every
+        // arm: a pulled-up thing with a 200-character title takes the column
+        // that was already there, never a wider one).
+        XCTAssertEqual(columnWidths.count, 1,
+                       "the right column changed width with what it shows: \(columnWidths.sorted())")
+        XCTAssertEqual(proseWidths.count, 1,
+                       "the writing column was narrowed by what the right column shows: "
+                       + "\(proseWidths.sorted())")
+        XCTAssertEqual(columnWidths.first ?? 0,
+                       ProjectWindow.effectiveDetailColumnWidth(
+                        persisted: UIState.defaultDetailColumnWidth, containerWidth: 1200),
+                       accuracy: 1, "and that width is the one the window bound")
 
         XCTAssertEqual(
             overflowing, [],
@@ -186,9 +182,9 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
 
         XCTAssertGreaterThan(
             paneHeights.count, 1,
-            "the census's own premise: the panes must not all report one "
-            + "height. If they do, flipping the segment is changing nothing and "
-            + "the sweep above measured a single view fifteen times")
+            "the census's own premise: the arms must not all report one "
+            + "height. If they do, flipping the position is changing nothing and "
+            + "the sweep above measured a single view many times")
     }
 
     /// Turn the run loop until the split view's height has stopped moving, or
@@ -371,19 +367,26 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func mountCensus() async throws
-    -> (NSWindow, NSSplitView, DetailSegmentProbe) {
+    private struct Census {
+        let window: NSWindow
+        let split: NSSplitView
+        let probe: RightColumnFixture.Probe
+        let control: EditorControl
+        let store: ProjectStore
+        let arms: [RightColumnFixture.Arm]
+    }
+
+    private func mountCensus() async throws -> Census {
         let url = try await ProjectFactory.createNovelProject(
             named: "Census-\(UUID().uuidString.prefix(6))", in: temp.url)
         let store = try await ProjectStore.load(from: url)
         let documentStore = try await DocumentStore.open(url: url)
         store.documentStore = documentStore
 
-        // A real, registered, never-run manuscript — so the Diagnostics arm
+        // A real, registered, never-run manuscript — so To resolve's head
         // renders the COLD-START OFFER rather than an empty state. The census
         // is worth little if it walks past the one pane state that shipped the
-        // defect, and `DetailPaneToggle` builds its `activeDocument` closure
-        // out of this registry rather than taking a document.
+        // defect.
         let item = try XCTUnwrap(
             TreeWalk.collect(in: store.manifest.structure, where: { $0.path != nil }).first,
             "premise: the novel template has a document to open")
@@ -419,15 +422,31 @@ final class DetailPaneColumnHeightCensusTests: XCTestCase {
             "premise: the census walks a Diagnostics pane in the state that "
             + "shipped the defect, not an empty one")
 
-        let probe = DetailSegmentProbe(subject: .item(item.id))
+        // A Part holding a piece, a research note with a long title, and the
+        // three Book statements — so every arm draws its real content.
+        let part = try await store.addStructureItem(parentId: nil, title: "Part One", kind: .group)
+        _ = try await store.addStructureItem(
+            parentId: part.id, title: "A chapter in the Part",
+            kind: .document(store.manifest.type.primaryFormat))
+        let note = try await store.addResearchTextNote(
+            parentId: nil, title: String(repeating: "A long research note title ", count: 8))
+        for kind in [Statement.Kind.lessons, .firstReader, .visualLanguage, .intent] {
+            _ = try await store.createStatement(kind: kind, scope: .project)
+        }
+
+        let control = EditorControl()
+        let probe = RightColumnFixture.Probe(
+            subject: WindowSubject(open: .item(item.id), faces: .item(item.id)))
         let window = try await host(AnyView(
             DetailColumnCensusHarness(
                 store: store, probe: probe, documentStore: documentStore,
-                docId: document.docId,
+                editorControl: control,
                 roster: AgentRoster(compiler: orchestrator),
                 bible: BibleStore(projectRoot: url, device: device),
                 world: DeclaredWorldStore(projectRoot: url, device: device))))
-        return (window, try splitView(in: window), probe)
+        return Census(window: window, split: try splitView(in: window), probe: probe,
+                      control: control, store: store,
+                      arms: RightColumnFixture.arms(docId: item.id, partId: part.id, noteId: note.id))
     }
 
     /// A compiler environment that reads nothing and is never asked to run:

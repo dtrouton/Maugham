@@ -455,7 +455,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
         let before = try axChipLabels(in: mount.window)
         try XCTSkipUnless(!before.isEmpty,
                           "no assistive client could attach, so the redraw "
-                          + "cannot be read here (InspectorIntentAffordanceTests' "
+                          + "cannot be read here (IntentStripTests' "
                           + "rule)")
         let untouched = "\(chapter.title) — \(pass.name): \(PassLadder.untouchedTitle)"
         let done = "\(chapter.title) — \(pass.name): \(PassLadder.doneTitle)"
@@ -629,7 +629,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
             + "can read")
 
         for expected in ["showInspector = true",
-                         "detailSegment = .resolve",
+                         "position = .resolve",
                          "resolveRequest = .focus(groupOwnerId: pieceId)"] {
             XCTAssertTrue(closure.contains(expected),
                           "the count's closure does not `\(expected)` — the "
