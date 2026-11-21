@@ -507,6 +507,14 @@ final class ResolvePresenceTests: XCTestCase {
                                               structure: base.structure,
                                               figureOwners: [figure: "doc-c003"])
         XCTAssertNotEqual(moved, base, "the owners are in the key")
+        // Status's to-dos follow the owner on the same re-mark.
+        let figureToDo = [ResolveItem.todo(todo("t-f", on: figure))]
+        XCTAssertEqual(ResolvePresence.openToDos(figureToDo, figureOwners: [figure: "doc-c000"]), ["doc-c000": 1])
+        XCTAssertEqual(ResolvePresence.openToDos(figureToDo, figureOwners: [figure: "doc-c003"]), ["doc-c003": 1])
+        // The reader recomputes both from one update.
+        watch.reader.update(moved, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        XCTAssertEqual(watch.reader.openToDos, ResolvePresence.openToDos(
+            watch.reader.snapshot.items, figureOwners: moved.figureOwners))
     }
 
     /// **I2**: opening, editing, typing in and closing a piece walk nothing;
@@ -539,11 +547,20 @@ final class ResolvePresenceTests: XCTestCase {
         watch.update()
         XCTAssertTrue(watch.reader.marks.pieces.contains(id), "the open piece's note marks it live")
 
+        // A to-do typed into the open piece: Status's count moves on the same
+        // refresh as the mark (Task 4's column rides this read).
+        XCTAssertNil(watch.reader.openToDos[id], "premise")
+        doc.setFullText("Chapter 0, typed.\n\n- [ ] check the date")
+        try await doc.flushBurstNow()
+        watch.update()
+        XCTAssertEqual(watch.reader.openToDos[id], 1, "the to-do counts live, with no walk")
+
         // Close it: its note stays, folded in from its own last state.
         book.documentStore.unregister(path: "manuscript/\(id).md")
         await doc.close()
         watch.update()
         XCTAssertTrue(watch.reader.marks.pieces.contains(id), "a closed piece keeps its mark")
+        XCTAssertEqual(watch.reader.openToDos[id], 1, "and its to-do count")
         XCTAssertEqual(watch.reader.marks.pieces, [id, "doc-c002", "doc-c004", "grp-1", "grp-2"])
 
         XCTAssertEqual(watch.walks, walks, "no annotation walk on navigation or typing")
@@ -554,6 +571,7 @@ final class ResolvePresenceTests: XCTestCase {
         watch.update()
         XCTAssertEqual(watch.walks, walks + 1)
         XCTAssertEqual(watch.reader.marks.pieces, [id, "doc-c002", "doc-c004", "grp-1", "grp-2"])
+        XCTAssertEqual(watch.reader.openToDos, [id: 1], "the walk agrees with the folded count")
     }
 
     /// A burst of closed-piece events is one walk: the token settles once.
