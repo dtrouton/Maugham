@@ -344,4 +344,22 @@ final class TranslationRoundStoreTests: XCTestCase {
         XCTAssertEqual(store.trend(language: "es", docId: "ch-2"), [5, 3])
         XCTAssertEqual(store.trend(language: "es", docId: "ch-9"), [])
     }
+
+    /// Two Macs can mint one number in one language for different chapters
+    /// (each read `nextNumber` before the other's file arrived). `update` on
+    /// one chapter's round must not overwrite the other chapter's (review M5).
+    func test_updateMatchesTheRingByNumberAndPiece() throws {
+        let store = try makeStore()
+        try store.append(round(number: 7, docId: "ch-a"))
+        try store.append(round(number: 7, docId: "ch-b"))
+        var mine = try XCTUnwrap(store.latestFinished(language: "es", docId: "ch-b"))
+        mine.summary = "b's"
+        try store.update(mine)
+
+        let ring = store.rounds(language: "es")
+        XCTAssertEqual(ring.first { $0.docId == "ch-a" }?.summary, nil,
+                       "chapter a's round was overwritten by chapter b's")
+        XCTAssertEqual(ring.first { $0.docId == "ch-b" }?.summary, "b's")
+        XCTAssertEqual(ring.map(\.docId).sorted(), ["ch-a", "ch-b"])
+    }
 }

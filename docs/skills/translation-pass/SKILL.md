@@ -42,10 +42,11 @@ Two consequences for a session working from outside:
   `edition-brief` skill first — it interviews the writer and proposes one
   they adopt in Maugham — rather than deciding register on your own.
 - **`translation_status`'s `last_round` is where you see what the pipeline
-  already did** for a `(document, language)` pair: the round `number`, the two
-  readers' verdicts (`leg2_verdict`, `leg4_verdict`), the note, departure and
-  declined counts, the round's `summary`, and `stopped_at` for a round that
-  ended early. The same rows name the `reader` and the `collator`. Read it
+  already did** for a `(document, language)` pair: its newest *finished*
+  round (a cancelled round is not reported, even if it wrote text before the
+  cancel), with the round `number`, the two readers' verdicts
+  (`leg2_verdict`, `leg4_verdict`), the note, departure and declined counts,
+  the round's `summary`, and `stopped_at` for a round that failed. The same rows name the `reader` and the `collator`. Read it
   before deciding a document needs work — a round three minutes old has
   already reworked what you were about to rewrite.
 

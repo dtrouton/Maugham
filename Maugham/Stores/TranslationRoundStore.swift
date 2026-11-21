@@ -154,7 +154,11 @@ struct TranslationRoundStore {
     func update(_ round: TranslationRound) throws {
         var ledger = load(language: round.language)
         var found = false
-        if let index = ledger.rounds.firstIndex(where: { $0.number == round.number }) {
+        // Number AND piece: two Macs can mint one number in one language for
+        // different chapters before either sees the other's file.
+        if let index = ledger.rounds.firstIndex(where: {
+            $0.number == round.number && $0.docId == round.docId
+        }) {
             ledger.rounds[index] = round
             found = true
         }

@@ -452,7 +452,7 @@ public enum TranslationStatusTool: MCPTool {
         public let orphans: Int
         public let open_queries: Int
         /// This document's newest FINISHED pipeline round in this language
-        /// (`TranslationRoundStore.latestFinished`: kept per piece, so a
+        /// (`TranslationRoundStore.latestFinishedByPiece`: kept per piece, so a
         /// whole-book run's every chapter answers), or omitted when none has.
         public var last_round: LastRound? = nil
     }
@@ -609,7 +609,14 @@ public enum TranslationStatusTool: MCPTool {
         let book = EditionStatus.manuscriptDocumentIds(in: entry.store.manifest)
         let report = await EditionStatus.documentRows(
             documentIds: docIds, layerScope: book, store: entry.store, projectURL: entry.url)
-        let rounds = TranslationRoundStore(projectURL: entry.url)
+        // One ledger read per LANGUAGE, before the rows: every reader decodes
+        // the whole `<lang>.json`, which holds a round per piece, so a
+        // per-row read would decode it once per chapter.
+        let roundStore = TranslationRoundStore(projectURL: entry.url)
+        var latestRounds: [String: [String: TranslationRound]] = [:]
+        for language in Set(report.rows.map(\.language)) {
+            latestRounds[language] = roundStore.latestFinishedByPiece(language: language)
+        }
 
         // The tables those documents use — `EditionStatus`'s, with the desk's
         // layer rule and the coverage gate's reader (`FigureUse`), so a
@@ -630,7 +637,7 @@ public enum TranslationStatusTool: MCPTool {
                 verbatim: $0.verbatim,
                 orphans: $0.orphans,
                 open_queries: $0.openQueries,
-                last_round: rounds.latestFinished(language: $0.language, docId: $0.documentId).map {
+                last_round: latestRounds[$0.language]?[$0.documentId].map {
                     LastRound(number: $0.number, leg2_verdict: $0.leg2?.verdict,
                               leg4_verdict: $0.leg4?.verdict, notes: $0.noteCount,
                               departures: $0.departures.count, declined: $0.declinedCount,

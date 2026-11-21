@@ -689,6 +689,36 @@ final class TranslationStatusToolTests: XCTestCase {
         await h.documentStore.close()
     }
 
+    /// **One ledger read per language, never one per row** (shell plan 4
+    /// Task 2 review I1). Each `TranslationRoundStore` reader decodes the
+    /// whole `<lang>.json`, which now holds a round per piece; a per-row
+    /// `latestFinished` made a whole-book call decode it once per chapter.
+    /// The handler must ask `latestFinishedByPiece` once per language.
+    func test_theHandlerReadsEachLanguagesLedgerOnceNotPerRow() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Maugham/MCP/Tools/TranslationTools.swift")
+        // adr-0018-ok: reads Swift source for a census, not manuscript text
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "public enum TranslationStatusTool"))
+        let tail = source[start.upperBound...]
+        let end = tail.range(of: "\n// MARK: - ")?.lowerBound ?? tail.endIndex
+        let handler = String(tail[..<end])
+
+        let perRow = ["rounds.latest(", "rounds.latestFinished(", ".rounds(language:"]
+        for offender in perRow {
+            XCTAssertFalse(handler.contains(offender),
+                           "translation_status reads a round ledger per row via `\(offender)`; "
+                           + "read `latestFinishedByPiece` once per language before the rows")
+        }
+        XCTAssertEqual(handler.components(separatedBy: "latestFinishedByPiece(").count - 1, 1,
+                       "exactly one call site, inside a per-language loop")
+        let mapStart = try XCTUnwrap(handler.range(of: "Result(rows: report.rows.map"))
+        XCTAssertFalse(handler[mapStart.lowerBound...].contains("latestFinishedByPiece("),
+                       "the per-language read must sit BEFORE the row map, not inside it")
+    }
+
     /// The control: the same call over a book that reads cleanly reports the
     /// field EMPTY rather than absent — the always-present-array shape
     /// `write_translation`'s `warnings` set, so a reader never has to tell
