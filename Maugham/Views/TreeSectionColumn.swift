@@ -51,20 +51,34 @@ enum TreeSectionColumn {
 /// A section title or chevron, quiet until its row is selected: on the
 /// accent fill (`backgroundProminence == .increased`, which a `List` sets on
 /// its selected row) it turns `.primary`, i.e. white, as a row's text does.
+///
+/// **A title that names a subject turns `.primary` under its row's mark
+/// too** (`TreeRowStateMark`): the Palette open in the centre while another
+/// row holds the selection wears the open row's soft accent fill, as every
+/// open row does, and a tertiary title on it read as a faint pill around a
+/// faint word (owner's hand check, 2026-11-21).
 private struct TreeSectionInk: ViewModifier {
     let rest: HierarchicalShapeStyle
+    var subject: BinderSubject? = nil
     @Environment(\.backgroundProminence) private var prominence
+    @Environment(\.treeRowMarks) private var marks
+
+    private var isMarked: Bool {
+        guard let subject else { return false }
+        return marks.open == subject || marks.outlined.contains(subject)
+    }
 
     func body(content: Content) -> some View {
-        content.foregroundStyle(prominence == .increased ? .primary : rest)
+        content.foregroundStyle(prominence == .increased || isMarked ? .primary : rest)
     }
 }
 
 extension View {
-    /// A section title: Research, Figures, Palette, Editions.
-    func treeSectionTitle() -> some View {
+    /// A section title: Research, Figures, Palette, Editions. `subject` is
+    /// the subject the title's row opens (the Palette's), when it has one.
+    func treeSectionTitle(subject: BinderSubject? = nil) -> some View {
         font(TreeSectionColumn.titleFont)
-            .modifier(TreeSectionInk(rest: .tertiary))
+            .modifier(TreeSectionInk(rest: .tertiary, subject: subject))
     }
 
     /// A header chevron's glyph, in a row triangle's grey.

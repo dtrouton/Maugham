@@ -64,7 +64,7 @@ struct PaletteCardReadView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 if !card.swatches.isEmpty {
-                    HStack(spacing: 4) {
+                    FlowLayout(spacing: 4) {
                         ForEach(card.swatches, id: \.self) { hex in
                             if let rgb = PaletteCard.color(fromHex: hex) {
                                 RoundedRectangle(cornerRadius: 3)

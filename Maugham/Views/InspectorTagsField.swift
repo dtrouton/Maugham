@@ -103,7 +103,7 @@ struct FlowLayout: Layout {
         proposal: ProposedViewSize, subviews: Subviews, cache: inout Void
     ) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
         for sub in subviews {
             let size = sub.sizeThatFits(.unspecified)
             if x + size.width > maxWidth, x > 0 {
@@ -112,9 +112,12 @@ struct FlowLayout: Layout {
                 lineHeight = 0
             }
             x += size.width + spacing
+            widest = max(widest, x - spacing)
             lineHeight = max(lineHeight, size.height)
         }
-        return CGSize(width: maxWidth, height: y + lineHeight)
+        // Unproposed (an ideal size, `ViewThatFits`, `fixedSize`), the one
+        // line it would draw — never an infinite width.
+        return CGSize(width: proposal.width == nil ? widest : maxWidth, height: y + lineHeight)
     }
 
     func placeSubviews(

@@ -698,7 +698,22 @@ struct BesideHeader: View {
         title.isEmpty ? "Back to what was pulled up before" : "Back to \(title)"
     }
 
+    /// The room the title keeps before **Open in Centre** gives up its words
+    /// for an icon: at the column's floor the words would leave the title a
+    /// handful of letters, so the narrow header draws the icon (with the label
+    /// as its help and accessibility label) and the title keeps the line.
+    static let titleRoomBeforeTheIcon: CGFloat = 96
+
     var body: some View {
+        // The first row whose IDEAL fits wins: the worded one asks for the
+        // title's minimum room only, so a long title never forces the icon.
+        ViewThatFits(in: .horizontal) {
+            row(wordedOpen: true)
+            row(wordedOpen: false)
+        }
+    }
+
+    private func row(wordedOpen: Bool) -> some View {
         HStack(spacing: 6) {
             if let back {
                 Button(action: back) {
@@ -714,13 +729,25 @@ struct BesideHeader: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(Self.openInCentreLabel, action: openInCentre)
+                .frame(minWidth: wordedOpen ? Self.titleRoomBeforeTheIcon : 0,
+                       idealWidth: wordedOpen ? Self.titleRoomBeforeTheIcon : nil,
+                       maxWidth: .infinity, alignment: .leading)
+            if wordedOpen {
+                Button(Self.openInCentreLabel, action: openInCentre)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .help("Open \(title) in the centre")
+            } else {
+                Button(action: openInCentre) {
+                    Image(systemName: Self.openInCentreSymbol)
+                }
                 .buttonStyle(.borderless)
                 .controlSize(.small)
-                .lineLimit(1)
-                .fixedSize()
-                .help("Open \(title) in the centre")
+                .help("\(Self.openInCentreLabel): \(title)")
+                .accessibilityLabel(Self.openInCentreLabel)
+            }
             Button(action: close) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
@@ -732,6 +759,9 @@ struct BesideHeader: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
+
+    /// Open in Centre's icon in the narrow header.
+    static let openInCentreSymbol = "arrow.left.square"
 }
 
 /// **The centre's details above the pulled-up thing** (appraisal wave): a

@@ -587,10 +587,10 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                      until: { mount.probe.subject.beside == .research(card.id) })
 
         XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
-        await pumpUntil(deadline: 5) { !self.segmentedControls(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) { !self.cardEditorWells(in: mount.window).isEmpty }
         XCTAssertFalse(
-            segmentedControls(in: mount.window).isEmpty,
-            "PaletteCardEditor's Kind picker is a segmented control and nothing "
+            cardEditorWells(in: mount.window).isEmpty,
+            "PaletteCardEditor's swatch well — nothing "
             + "else in this window mounts one — the card must reach the visual "
             + "editor")
         XCTAssertTrue(
@@ -724,10 +724,10 @@ final class ResearchSubjectRoutingTests: XCTestCase {
                                                           beside: .research(card.id)))
         XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
 
-        await pumpUntil(deadline: 5) { !self.segmentedControls(in: mount.window).isEmpty }
+        await pumpUntil(deadline: 5) { !self.cardEditorWells(in: mount.window).isEmpty }
         XCTAssertFalse(
-            segmentedControls(in: mount.window).isEmpty,
-            "PaletteCardEditor's Kind picker is a segmented control and nothing "
+            cardEditorWells(in: mount.window).isEmpty,
+            "PaletteCardEditor's swatch well — nothing "
             + "else in this window mounts one — the card must be drawn as a card "
             + "in the preview half, not as the markdown of its source")
     }
@@ -918,8 +918,12 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         collect(NSTextField.self, in: window)
     }
 
-    private func segmentedControls(in window: NSWindow) -> [NSSegmentedControl] {
-        collect(NSSegmentedControl.self, in: window)
+    /// **The card editor's fingerprint: its swatch well** (`ColorPicker`, an
+    /// `NSColorWell`). Nothing else in these windows mounts one. (Its Kind
+    /// picker no longer serves: in a narrow column it is a menu, which
+    /// macOS 27 draws with no `NSView` of its own.)
+    private func cardEditorWells(in window: NSWindow) -> [NSColorWell] {
+        collect(NSColorWell.self, in: window)
     }
 
     private func canvasViews(in window: NSWindow) -> [CanvasEventNSView] {

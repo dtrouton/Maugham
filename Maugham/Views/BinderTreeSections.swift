@@ -305,7 +305,7 @@ struct BinderTreeSections: View {
         HStack {
             // The section-title look, so it reads as Research's sibling.
             Text(store.paletteGroupDisplayTitle)
-                .treeSectionTitle()
+                .treeSectionTitle(subject: .palette)
                 .treeTravelOnDoubleClick(.palette)
             Spacer()
             SwiftUI.Menu(content: paletteCreationMenu) {
