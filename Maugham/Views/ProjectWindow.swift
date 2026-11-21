@@ -971,7 +971,8 @@ struct ProjectWindow: View {
                     ProjectWindow.pullUp(
                         request, subject: $subject, showInspector: $showInspector,
                         position: $position,
-                        structure: store?.manifest.structure ?? [])
+                        structure: store?.manifest.structure ?? [],
+                        piece: ProjectWindow.pullUpPiece(in: note.userInfo))
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
@@ -2654,6 +2655,11 @@ struct ProjectWindow: View {
         (userInfo?[MaughamEvent.pullUpKey] as? String).flatMap(PullUpRequest.init(rawValue:))
     }
 
+    /// The piece a `.maughamPullUp` post names (a tree row's History), or nil.
+    static func pullUpPiece(in userInfo: [AnyHashable: Any]?) -> String? {
+        userInfo?[MaughamEvent.pullUpPieceKey] as? String
+    }
+
     /// **What a `.maughamSetRightColumn` post asks beyond the position**:
     /// To resolve's filter, ⌘⌥L's or ⌘⌥K's explanation, and ⌘⌥I's or ⌘⌥N's
     /// Brief field.
@@ -2701,9 +2707,10 @@ struct ProjectWindow: View {
                        subject: Binding<WindowSubject>,
                        showInspector: Binding<Bool>,
                        position: Binding<RightColumnPosition>,
-                       structure: [StructureItem]) {
+                       structure: [StructureItem], piece: String? = nil) {
         pullUp(RightColumnContent.pulledUp(
-                    for: request, subject: subject.wrappedValue, structure: structure),
+                    for: request, subject: subject.wrappedValue, structure: structure,
+                    piece: piece),
                subject: subject, showInspector: showInspector, position: position)
     }
 

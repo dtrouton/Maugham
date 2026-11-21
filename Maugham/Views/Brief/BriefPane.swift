@@ -64,8 +64,15 @@ struct BriefPane: View {
     /// The Department desk for an edition — where its cast is changed. Nil
     /// draws no way there.
     let onOpenDesk: ((_ language: String) -> Void)?
+    /// The window's tree: Details' sheets and cached publishing answer, and
+    /// the fold index the empty-fold hint asks. Nil draws neither.
+    let tree: BinderTreeSectionsState?
 
     @State private var contents: BriefContents
+    /// A visual-language proposal waits (`VisualLanguageProposalModifier`,
+    /// the source the segment's dot reads).
+    @State private var proposalPending = false
+    @State private var window: NSWindow?
 
     init(store: ProjectStore, documentStore: DocumentStore, scope: BriefScope,
          diagnostics: DiagnosticsStore?, bible: BibleStore?, world: DeclaredWorldStore?,
@@ -74,7 +81,8 @@ struct BriefPane: View {
          onPullUp: @escaping (PulledUp) -> Void,
          onShowStrain: @escaping (ResolveRequest) -> Void,
          onOpenBrief: @escaping (BinderSubject) -> Void,
-         onOpenDesk: ((_ language: String) -> Void)? = nil) {
+         onOpenDesk: ((_ language: String) -> Void)? = nil,
+         tree: BinderTreeSectionsState? = nil) {
         self.store = store
         self.documentStore = documentStore
         self.scope = scope
@@ -87,6 +95,7 @@ struct BriefPane: View {
         self.onShowStrain = onShowStrain
         self.onOpenBrief = onOpenBrief
         self.onOpenDesk = onOpenDesk
+        self.tree = tree
         _contents = State(initialValue: .empty(scope))
     }
 
@@ -95,6 +104,9 @@ struct BriefPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if proposalPending {
+                BriefProposalNotice(onPullUp: onPullUp)
+            }
             switch scope {
             case .piece(let docId):
                 scrolling {
@@ -104,7 +116,7 @@ struct BriefPane: View {
                         inTheCentre: ProjectWindow.statementIsInTheCentre(
                             kind: .intent, scope: .document(docId), centreItem: centreItem),
                         onOpenInCentre: onOpenInCentre, onShowStrain: onShowStrain,
-                        onOpenBrief: onOpenBrief,
+                        onOpenBrief: onOpenBrief, onPullUp: onPullUp, tree: tree,
                         formatCaption: Self.formatCaption(
                             docId: docId, structure: store.manifest.structure,
                             projectType: store.manifest.type))
@@ -139,6 +151,9 @@ struct BriefPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(WindowAccessor(window: $window))
+        .modifier(VisualLanguageProposalModifier(
+            projectURL: store.url, window: window, proposed: $proposalPending))
         .task(id: scope) { Self.loadFindings(scope, diagnostics: diagnostics) }
         .task(id: readKey) { contents = Self.read(scope: scope, store: store,
                                                  documentStore: documentStore,

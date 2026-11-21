@@ -143,13 +143,18 @@ enum RightColumnContent: Equatable {
     ///
     /// Takes `structure`, which the brief's signature did not: a Part in the
     /// faces is not a piece, and its History is not a thing.
+    ///
+    /// `piece` names the piece a History is of (a tree row's History, appraisal
+    /// 6): that piece's, ahead of the faces, where it is a piece; ignored by
+    /// every other request.
     static func pulledUp(for request: PullUpRequest, subject: WindowSubject,
-                         structure: [StructureItem]) -> PulledUp {
+                         structure: [StructureItem], piece: String? = nil) -> PulledUp {
         switch request {
         case .lessons: return .lessons
         case .firstReader: return .firstReader
         case .visualLanguage: return .visualLanguage
         case .historyOfTheFaces:
+            if let piece, ClickRule.isPiece(piece, in: structure) { return .history(docId: piece) }
             return facesPiece(subject, structure: structure).map { .history(docId: $0) }
                 ?? .projectHistory
         }

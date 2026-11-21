@@ -495,6 +495,7 @@ struct PieceFoldIndexing: ViewModifier {
             .background(WindowAccessor(window: $window))
             .task(id: PieceFoldIndex.key(store: store, canvasWrites: state.foldCanvasWrites)) {
                 state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)
+                state.foldIndexIsBuilt = true
             }
             .onProjectEvent(.maughamCanvasNodesAdded, url: store.url, window: window) { _ in
                 state.foldCanvasWrites += 1

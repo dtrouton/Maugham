@@ -10,7 +10,9 @@ import MaughamCore
 /// statement's rulings IN FILE ORDER (its verbs address a ruling by its index
 /// there) and the rows to draw in Brief's order (`displayed`).
 ///
-/// **Nothing at all when there are no decisions** — no heading over nothing.
+/// **With no decisions, nothing** — unless the caller asks it to explain
+/// itself (`explainsWhenEmpty`, a piece's Brief and the Book's once read;
+/// appraisal 12): then the heading and one quiet line saying what lands here.
 struct BriefDecidedSection: View {
     /// The statement's rulings in file order (the verbs' index space).
     let fileOrder: [Ruling]
@@ -28,6 +30,9 @@ struct BriefDecidedSection: View {
     var origin: RulingOrigin? = nil
     /// The statement would not read: one line, no rows.
     var isUnreadable: Bool = false
+    /// With nothing filed, draw the heading and `emptyLine` rather than
+    /// nothing.
+    var explainsWhenEmpty: Bool = false
 
     @State private var showsEarlier = false
 
@@ -40,6 +45,16 @@ struct BriefDecidedSection: View {
     /// would not read. Pure.
     static func shows(decisions: [Ruling], isUnreadable: Bool) -> Bool {
         isUnreadable || !decisions.isEmpty
+    }
+
+    /// Said under the heading while nothing is filed (appraisal 12).
+    static let emptyLine = "What you answer in To resolve is filed here."
+
+    /// Whether Decided draws `emptyLine`: asked to, it read, and nothing is
+    /// filed. Pure.
+    static func drawsEmptyLine(decisions: [Ruling], isUnreadable: Bool,
+                               explainsWhenEmpty: Bool) -> Bool {
+        explainsWhenEmpty && !shows(decisions: decisions, isUnreadable: isUnreadable)
     }
 
     /// What Decided draws: nothing when empty; else the newest few, the rest
@@ -81,7 +96,23 @@ struct BriefDecidedSection: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("brief.decided")
+        } else if Self.drawsEmptyLine(decisions: decisions, isUnreadable: isUnreadable,
+                                      explainsWhenEmpty: explainsWhenEmpty) {
+            Self.emptySection(showsHeading: showsHeading)
         }
+    }
+
+    /// The heading over `emptyLine` — the piece's and the Book's.
+    static func emptySection(showsHeading: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if showsHeading { BriefPane.sectionHeading(heading) }
+            Text(emptyLine)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("brief.decided")
     }
 
     private func stratum(_ rows: [Ruling]) -> some View {

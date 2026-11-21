@@ -10,7 +10,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, the faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field.
+- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, the faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
 - `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
@@ -105,7 +105,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The right column's panes
 - `ReferencePieceInspector.swift` — a Collection reference piece's inspector.
-- `PieceRowMenus.swift` — a piece row's Tags…, Add Link…, Target…, Publishing… (a sheet each); `PieceLinkSearch.swift`, `InspectorTagsField.swift` (with `FlowLayout`) serve its sheets, `InspectorCitationSection.swift` the research panel.
+- `PieceRowMenus.swift` — a piece row's Tags…, Add Link…, Target…, Publishing… (a sheet each), History; `PieceLinkSearch.swift`, `InspectorTagsField.swift` (with `FlowLayout`) serve its sheets, `InspectorCitationSection.swift` the research panel.
 - `PassLadder.swift` — the per-piece pass ladder; `offersRulings`.
 - `TaskRow.swift` — one to-do's row, drawn in To resolve.
 - `InboxPane.swift` — phone captures triage; `InboxByline.swift` — who a capture is from.
@@ -131,7 +131,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
 - `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
-- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift`, `FiledUnder.swift` (views).
+- `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift`, `FiledUnder.swift`, `BriefDetails.swift` (Details, fold hint, History, proposal notice) (views).
 
 ### Statements, the letter and the ledger
 - `StatementPane.swift` — the Intent / Visual Language / What I've Learned / First Reader panes and an edition brief; `effectiveScope`, `proposalSlot`.
@@ -217,7 +217,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from both `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
 - **No raw `maugham.*` NotificationCenter traffic outside `MaughamEvent`; every post declares its scope** (tripwire 21): `TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`.
 - **Key a Document-binding reload on the doc's PATH, not its id** (tripwire 22): a renamed or restored file keeps its id. `EditorHostReloadPredicateTests` pins `EditorHost.needsReload`.
-- **No test presses a mounted control and then waits for its effect, and none synthesises a click, outside the named allow-lists** (`pressThenWaitRepresentatives`, `clickRepresentatives`) (tripwire 33): `TripwireGrepTests.test_noNewTestPressesAControlAndThenWaitsForItsEffect`, `test_noNewTestClicksOutsideTheNamedRepresentatives`.
+- **No test presses a mounted control then waits for its effect, or synthesises a click, outside the named allow-lists** (`pressThenWaitRepresentatives`, `clickRepresentatives`) (tripwire 33): `TripwireGrepTests.test_noNewTestPressesAControlAndThenWaitsForItsEffect`, `test_noNewTestClicksOutsideTheNamedRepresentatives`.
 - **Whose piece is whose reads the permit TIMELINE, never `PersonRecord.role`/`.scope`/`.pieces`** (`PieceWriters`, over `TrustTable.myChain`) (tripwire 43): `TripwireGrepTests.test_theRoleCheckReadsTheTimelineAndNotTheRecordsField`.
 - **No permit rung is compared in a view; ask `Posture`** (tripwire 47): `TripwireGrepTests.test_aPermitRungIsComparedOnlyInThePermitLayer`.
 - **`PermitControl` is the one place a surface builds a `Permit`** (`Permit.permit(offering:pieces:)` / `Permit.rung(of:)`), and holds only the WORDS for each rung (tripwire 49): `TripwireGrepTests.test_aSurfaceBuildsAPermitInOnePlace`.
@@ -263,7 +263,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`).
 - **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`, names what it covers and clears it on Show it; Esc declines while covered.
 - **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
-- **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs` (`PieceRowMenusTests`, `PieceTargetMenuTests`).
+- **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs`; Brief's Details shows them, opening the row's sheets (`PieceRowMenusTests`, `PieceTargetMenuTests`, `BriefAppraisalTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L/⌘⌥K explain off their ground; ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
 - **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).
 
@@ -314,19 +314,19 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The Palette row is the wall's door**; nothing travels.
 
 ### Layout and sizing
-- **A pane's growing content is a reason to compress or scroll THAT pane, never to raise the window's minimum height** (`ProjectWindow.windowHeightFloor`, 540): `TreeScrollStabilityTests.test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`. `.doesNotRaiseTheWindowFloor()` measures the first subview only.
+- **A pane's growing content compresses or scrolls THAT pane, never raises the window's minimum height** (`ProjectWindow.windowHeightFloor`, 540): `TreeScrollStabilityTests.test_theWindowsMinimumHeightIsProjectWindowsOwnFloor`. `.doesNotRaiseTheWindowFloor()` measures the first subview only.
 - **A strip in a non-scrolling pane stack demands its height as a MINIMUM**; bound inline content with a ceiling (`BoundedHeightLayout`, `ReviewRoundCockpit.letterDisclosureMaxHeight`) (`ReviewRoundCockpitLetterScrollTests`).
 - **No control on a narrow-column toolbar carries writer-typed text on its critical path; labels are icons**, with the name in `.help`. `.frame(maxWidth:)` does not bound a `.fixedSize()` label's ideal.
 - **Every `ViewThatFits` variant is reachable in range; the last, drawn regardless, fits** (`RightColumnPaneWidthTests`). Measure with `NSHostingController.sizeThatFits(in:)`, never a frame walk.
 - **Every `RightColumn` arm fits the floor less `RightColumn.resizeHandleWidth`, no `minWidth`** (`RightColumnPaneWidthTests`), leading-clipped; the lists it names hide their background.
-- **A long unbreakable string truncates in the middle, whole in its tooltip, and its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
+- **A long unbreakable string truncates in the middle, whole in its tooltip; its row declares an ideal width** (`SetAsideRecordsDisclosure`, `HeldLineNoticeRow`).
 - **No `fixedSize` on a header menu** (`DiagnosticsPaneColumnHeightTests`).
 
 ### Events, modals and sheets
 - **Pick an event's scope at the post site** **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
 - **A pane that needs its window's liveness resolves it through `WindowAccessor`**, never a cached `NSWindow?` read as "closed" when nil (`MaughamEvent.isLive`).
 - **Modal state is owned by the window**: subviews post (`.maughamOpenRewind`) and the window presents.
-- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts directly through the shared function (`ProjectWindow.pullUp`).
+- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts through the shared function (`ProjectWindow.pullUp`).
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
@@ -354,12 +354,12 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The admission's dismissal memory resets when the `DocumentStore`'s identity changes**: a closed scene's modifier `@State` outlives `onDisappear`.
 - **The inbox recount runs on a registry settle, never a document open.**
 - **The admission and new-piece questions are asked only on a Mac holding the book's own root record** (`AdmissionDecision.askingRoot`).
-- **The admission queue is built from `DocumentStore.heldLinesByDevice()`** (open docs, closed docs' swept provenance, and the capture stream), never from open documents alone, and People & Devices reads the same derivation, so the two never disagree.
+- **The admission queue is built from `DocumentStore.heldLinesByDevice()`** (open docs, closed docs' swept provenance, and the capture stream), never from open documents alone; People & Devices reads the same derivation.
 - **`recompute` admits before it asks**: recognised devices, then remembered ones, then re-read, then resolve the registry (`AdmissionDecision.refreshedRequests`).
 - **`.maughamAdmissionRequested` may raise a sheet; `.maughamAdmissionSettled` must never** — two events, never one with a flag.
 - **A vanished request takes its sheet down**; pressing Admit on a settled record would relabel it.
 - **`AdmissionDecision.refusal(_:)` is the one place a `RegistryAdmissionError` becomes a sentence**, exhaustive with no `default`.
-- **A refused verb keeps its disabled button with the reason in tooltip and `accessibilityHint`**; a root's row draws no Revoke at all.
+- **A refused verb keeps its disabled button with the reason in tooltip and `accessibilityHint`**; a root's row draws no Revoke.
 - **Only the root that admitted a person may revoke or rename them.**
 - **Merge is disabled on a Mac with no root of its own; Forget This Person Key is drawn only where `Person.mayForgetPersonKey`.**
 - **An adopted root is drawn as *merged*, never also as a claimant; a record outside the chain is never named.**
@@ -383,7 +383,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`refreshOpenNotes` is the one writer of the open-notes counts**, from the board's `.task` and `.maughamAnnotationsChanged`, never a body, reading the aggregation once.
 - **The per-piece pass-state writers are the files in `PassStateWriterCensusTests.passStateWritingFiles`** (`type:CentreColumn`, `type:RightColumn`); the nudge's buttons thread to an existing site. `setReviewPasses` writes the list and is deliberately not a member.
 - **`StatusSwatch` is the one place a status becomes a colour.** `StructureItem.status` is a legacy read fallback, never written.
-- **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which does not reliably fire in a macOS `List(.sidebar)`.
+- **Reorder rows with `.draggable`/`.dropDestination`, never `.onMove`**, which misfires in a macOS `List(.sidebar)`.
 - **An open-notes cell draws nothing for zero, and an em dash that is not a button for an unreadable piece**; reference rows get no chip verbs and no count.
 - **A bulk verb reaches exactly where the row's own verb reaches**: a stale suggestion and a `.query` are out of accept. The executor opens no undo group (ADR 0023) and collects refusals into one alert.
 - **Bulk acts on the open piece only.** To resolve holds the walks (`ResolveWalkHold`); open pieces splice live.

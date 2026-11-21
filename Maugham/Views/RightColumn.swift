@@ -105,7 +105,8 @@ struct RightColumn: View {
     var drawsFigure: (String) -> Bool = { _ in false }
     /// `BinderTreeSectionsState.revealFigure`, before a figure travel lands.
     var revealFigure: (String) -> Void = { _ in }
-    /// The window's tree, whose cards pace the figure inspector's pin reads.
+    /// The window's tree, whose cards pace the figure inspector's pin reads;
+    /// Brief's Details opens its row sheets and asks its fold index.
     var figureTree: BinderTreeSectionsState? = nil
     /// The window's centre item: a pulled-up statement the cover holds reads
     /// a placeholder (`PulledUpView`).
@@ -398,7 +399,8 @@ struct RightColumn: View {
                 onOpenBrief: openBrief,
                 // The desk is To resolve's answer while an edition is the
                 // faces — and an edition's Brief shows only then.
-                onOpenDesk: { _ in position = .resolve })
+                onOpenDesk: { _ in position = .resolve },
+                tree: figureTree)
                 .environment(\.briefFocus, briefFocus)
         case .pulledUp, .centreDetails, .nothingPulledUp:
             // One mount for the three: the view asks the subject which.

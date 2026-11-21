@@ -1098,6 +1098,10 @@ final class BinderTreeSectionsState {
     /// never computed in a row (tripwire 4). Not persisted, as
     /// `expandedPieceFolds` is not.
     var foldIndex: PieceFoldIndex = .empty
+    /// Whether `foldIndex` has been built at least once — so Brief's empty-fold
+    /// hint never stands over the placeholder, or in a window whose tree
+    /// draws no folds (a screenplay's navigator).
+    var foldIndexIsBuilt = false
     /// The host's count of `.maughamCanvasNodesAdded` — the closed-canvas
     /// write that moves no manifest stamp and no live scene revision, so the
     /// fold index's key carries it (`PieceFoldIndex.Key.canvasWrites`).

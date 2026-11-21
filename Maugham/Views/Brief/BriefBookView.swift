@@ -192,6 +192,7 @@ struct BriefBookView: View {
             decided
             BriefPullUpLines(store: store, lines: Self.pullUpLines, onPullUp: onPullUp)
             readings(posture)
+            BriefHistoryLink(item: .projectHistory, onPullUp: onPullUp)
         }
     }
 
@@ -229,6 +230,9 @@ struct BriefBookView: View {
                     }
                 }
             }
+        } else if contents.isRead {
+            // Nothing filed anywhere yet: say where answers land (appraisal 12).
+            BriefDecidedSection.emptySection()
         }
     }
 

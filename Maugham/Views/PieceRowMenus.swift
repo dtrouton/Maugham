@@ -2,7 +2,8 @@ import SwiftUI
 import MaughamCore
 
 /// **A piece's row menu: Tags…, Add Link…, Target…, Publishing…** (shell p3
-/// Task 8) — where the old Inspector's tags field, its add-link search, its
+/// Task 8), then History (appraisal 6) — where the old Inspector's tags
+/// field, its add-link search, its
 /// target steppers and its per-piece publishing section went. Each opens the
 /// existing control in a sheet: `InspectorTagsField`, `PieceLinkSearch`,
 /// `PieceTargetField` (the status line's own, so a target can be set with the
@@ -54,6 +55,16 @@ enum PieceRowMenus {
         if offersTarget { items.append(.target) }
         if verbs.rename, publishingIsSetUp { items.append(.publishing) }
         return items
+    }
+
+    /// **The row's History** (appraisal 6): offered on every piece that has
+    /// a History here — a document, never a group or a Collection's reference
+    /// piece (another project's). Reading a History needs no write, so no
+    /// posture enters; Rewind inside it asks its own.
+    static let historyTitle = "History"
+
+    static func offersHistory(for item: StructureItem) -> Bool {
+        item.type == .document && item.pieceKind != .reference
     }
 
     /// The target the row's "Target…" sets — the status line's own decision,
@@ -133,12 +144,18 @@ struct PieceRowMenuButtons: View {
         let items = PieceRowMenus.items(
             for: item, verbs: verbs, publishingIsSetUp: state.publishingIsSetUp,
             offersTarget: offersTarget, offersLinks: offersLinks)
-        if !items.isEmpty {
+        if !items.isEmpty || PieceRowMenus.offersHistory(for: item) {
             Divider()
-            ForEach(items, id: \.title) { menuItem in
-                Button(menuItem.title) {
-                    state.pieceRowSheet = PieceRowSheet(menuItem, pieceId: item.id)
-                }
+        }
+        ForEach(items, id: \.title) { menuItem in
+            Button(menuItem.title) {
+                state.pieceRowSheet = PieceRowSheet(menuItem, pieceId: item.id)
+            }
+        }
+        // That row's piece's History, by ⌘⌥H's route — never the faces'.
+        if PieceRowMenus.offersHistory(for: item) {
+            Button(PieceRowMenus.historyTitle) {
+                MaughamEvent.postPullUpHistory(ofPiece: item.id)
             }
         }
     }

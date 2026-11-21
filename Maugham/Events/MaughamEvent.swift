@@ -78,6 +78,10 @@ enum MaughamEvent {
     /// Payload key for `.maughamPullUp`: a `PullUpRequest.rawValue`.
     static let pullUpKey = "pull_up"
 
+    /// Payload key for `.maughamPullUp`: the piece a History is of, on a tree
+    /// row's History (`postPullUpHistory(ofPiece:)`). Absent on the keys'.
+    static let pullUpPieceKey = "pull_up_piece"
+
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
     /// `positionKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,
@@ -261,6 +265,14 @@ enum MaughamEvent {
     static func postPullUp(_ request: PullUpRequest) {
         post(.maughamPullUp, to: .keyWindow,
              payload: [pullUpKey: request.rawValue])
+    }
+
+    /// Ask the key window to pull up `docId`'s History — a tree row's
+    /// History, which is of that row's piece, not of the faces (appraisal 6).
+    static func postPullUpHistory(ofPiece docId: String) {
+        post(.maughamPullUp, to: .keyWindow,
+             payload: [pullUpKey: PullUpRequest.historyOfTheFaces.rawValue,
+                       pullUpPieceKey: docId])
     }
 
     /// Ask the key window's tree to open the faces' piece's fold (⌘⌥E).

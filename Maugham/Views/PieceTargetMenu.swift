@@ -104,20 +104,33 @@ struct PieceTargetMenu: Equatable {
     static func decide(piece: StructureItem?, projectType: ProjectType,
                        projectPageTarget: Int?,
                        postureOf: (String) -> Posture) -> PieceTargetMenu? {
-        guard let piece, piece.type == .document else { return nil }
+        guard let piece, let menu = target(of: piece, projectType: projectType,
+                                           projectPageTarget: projectPageTarget) else { return nil }
+        switch menu.write {
+        case .projectPages:
+            guard postureOf(DocumentClass.projectStreamDocId).allows(.restructure) else { return nil }
+        case .pieceWords, .piecePages:
+            guard TreeStructureVerbs.mayRestructure(piece, postureOf: postureOf) else { return nil }
+        }
+        return menu
+    }
+
+    /// **Which target `piece` has, posture aside** — the rule `decide`
+    /// offers under a posture, and what Brief's Details reads where it may
+    /// not be set (appraisal 7). Nil for a group and a reference piece. Pure.
+    static func target(of piece: StructureItem, projectType: ProjectType,
+                       projectPageTarget: Int?) -> PieceTargetMenu? {
+        guard piece.type == .document else { return nil }
         if projectType.holdsPieces {
             if piece.pieceKind == .reference { return nil }
-            guard TreeStructureVerbs.mayRestructure(piece, postureOf: postureOf) else { return nil }
             if DocumentFormat.ofManuscript(path: piece.path).isScreenplay {
                 return PieceTargetMenu(write: .piecePages(piece.id), current: piece.pageTarget)
             }
             return PieceTargetMenu(write: .pieceWords(piece.id), current: piece.wordTarget)
         }
         if projectType.primaryFormat.isScreenplay {
-            guard postureOf(DocumentClass.projectStreamDocId).allows(.restructure) else { return nil }
             return PieceTargetMenu(write: .projectPages, current: projectPageTarget)
         }
-        guard TreeStructureVerbs.mayRestructure(piece, postureOf: postureOf) else { return nil }
         return PieceTargetMenu(write: .pieceWords(piece.id), current: piece.wordTarget)
     }
 

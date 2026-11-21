@@ -2,8 +2,9 @@ import SwiftUI
 import MaughamCore
 
 /// **A piece's Brief**, in the fixed order Denver approved (spec "Brief"):
-/// the line, Going for, Decided, then two quiet lines — From the book and
-/// What Claude has read.
+/// the line, Going for, Decided, then Details (appraisal 7), two quiet lines
+/// — From the book and What Claude has read — and at the foot the empty
+/// fold's hint and History (appraisal 6).
 ///
 /// **Reading without loading, and editing too.** Everything here is a
 /// manifest write (the line) or a statement write (the intent, a decision, a
@@ -22,6 +23,11 @@ struct BriefPieceView: View {
     let onShowStrain: (ResolveRequest) -> Void
     /// A filed line's link (`ProjectWindow.openBrief`); nil draws it as text.
     var onOpenBrief: ((BinderSubject) -> Void)? = nil
+    /// Brief's pull-up act (`ProjectWindow.pullUpItem`): the History link.
+    var onPullUp: (PulledUp) -> Void = { _ in }
+    /// The window's tree (Details' sheets; the fold index). Nil draws no
+    /// Details sheet and no fold hint.
+    var tree: BinderTreeSectionsState? = nil
     /// What a Collection's loose piece is written as ("Prose" /
     /// "Screenplay"), a quiet caption at the head; nil draws none
     /// (`BriefPane.formatCaption`).
@@ -87,8 +93,10 @@ struct BriefPieceView: View {
                 decisions: snapshot.decisions.map(\.ruling),
                 kind: .intent, scope: .document(docId), store: store, world: world,
                 posture: posture, liveParagraphIds: contents.liveParagraphIds,
-                isUnreadable: intentIsUnreadable)
+                isUnreadable: intentIsUnreadable, explainsWhenEmpty: contents.isRead)
+            BriefDetailsView(store: store, docId: docId, tree: tree)
             quietLines(offers)
+            foot
         }
         .onAppear { lineDraft = snapshot.line ?? "" }
         .onChange(of: snapshot.line) { _, stored in
@@ -160,6 +168,23 @@ struct BriefPieceView: View {
     private func commitLine() {
         scheduleLine()
         Task { @MainActor in await documentStore.flushBriefLines() }
+    }
+
+    // MARK: - The foot
+
+    /// How to attach material while the fold is empty, then History.
+    @ViewBuilder
+    private var foot: some View {
+        if let tree, let hint = BriefFoldHint.line(
+            docId: docId, index: tree.foldIndex, indexIsBuilt: tree.foldIndexIsBuilt,
+            structure: store.manifest.structure, projectType: store.manifest.type) {
+            Text(hint)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("brief.foldHint")
+        }
+        BriefHistoryLink(item: .history(docId: docId), onPullUp: onPullUp)
     }
 
     // MARK: - The two quiet lines

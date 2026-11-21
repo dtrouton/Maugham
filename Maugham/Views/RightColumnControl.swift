@@ -235,12 +235,13 @@ struct RightColumnControl: View {
 }
 
 /// **Whether a visual-language proposal is standing** (translation pipeline
-/// P5) — the Brief segment's dot, read and kept fresh here.
+/// P5) — the Brief segment's dot, read and kept fresh here, and Brief's
+/// notice over it (`BriefProposalNotice`, appraisal 10): one source for both.
 ///
 /// The `.task` owns cancellation, not a direct `await` in the notification
 /// closure (`DepartmentPaneHost`'s idiom): the event bumps `reloads`, which
 /// re-keys the read.
-private struct VisualLanguageProposalModifier: ViewModifier {
+struct VisualLanguageProposalModifier: ViewModifier {
     let projectURL: URL
     let window: NSWindow?
     @Binding var proposed: Bool

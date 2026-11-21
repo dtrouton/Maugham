@@ -63,6 +63,9 @@ struct GoingForView: View {
     /// holds it until the editor is mounted and has them (`EditorFocusProbe`).
     @Environment(\.briefFocus) private var focusRequest
     @State private var wantsKeys = false
+    /// What the editor's text needs, as `EditorHeightProbe` last measured it;
+    /// nil until it has.
+    @State private var neededHeight: CGFloat?
 
     static let strainsHelp = "The draft pulls against this"        // app copy; no model text
     static let silentHelp = "Nothing in this draft touches it"
@@ -72,8 +75,12 @@ struct GoingForView: View {
     static let bookEmptyPrompt = "What is this book going for? Write it here."
     static let noIntentLine = "No intent yet."
     static let unreadableLine = "This intent can\u{2019}t be read."
-    /// The editor's height inside the scrolling pane.
-    static let editorHeight: CGFloat = 220
+    /// **The editor grows with its intent from this height** (appraisal 11):
+    /// the column scrolls, the editor does not (`editorHeight(needed:)`).
+    static let editorMinHeight: CGFloat = 120
+    /// The words on the button that opens the intent in the centre — the
+    /// pulled-up header's own.
+    static let openInCentreTitle = "Open in Centre"
     static let markScheme = "maugham-mark"
     /// SwiftUI's underline, named once (AppKit's has the same name).
     typealias Underline = AttributeScopes.SwiftUIAttributes.UnderlineStyleAttribute
@@ -95,6 +102,12 @@ struct GoingForView: View {
         if !mayEdit || heldElsewhere { return .reading }
         if hasMarks && !editingRequested { return .reading }
         return .editing
+    }
+
+    /// The editor's height: what its text needs, never under the minimum,
+    /// and the minimum until the text has been measured. Pure.
+    static func editorHeight(needed: CGFloat?) -> CGFloat {
+        max(editorMinHeight, needed ?? 0)
     }
 
     /// The prompt over an empty intent's editor, by whose intent it is.
@@ -217,8 +230,9 @@ struct GoingForView: View {
             StatementEditorHost(
                 store: store, documentStore: documentStore,
                 kind: .intent, scope: scope, posture: posture)
-                .frame(height: Self.editorHeight)
+                .frame(height: Self.editorHeight(needed: neededHeight))
                 .background(EditorFocusProbe(wanted: wantsKeys, onFocused: { wantsKeys = false }))
+                .background(EditorHeightProbe(onHeight: { neededHeight = $0 }))
                 .onAppear { editorHeld = true }
                 // Whatever takes the editor away (Done, a refusing posture,
                 // the centre's cover), it is no longer held here.
@@ -247,12 +261,14 @@ struct GoingForView: View {
             // offer an editor over it (I2).
             if mode != .inTheCentre, mode != .unreadable {
                 Button { onOpenInCentre() } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    Label(Self.openInCentreTitle, systemImage: "arrow.up.left.and.arrow.down.right")
+                        .labelStyle(.titleAndIcon)
                 }
                 .buttonStyle(.plain)
+                .font(.caption)
                 .foregroundStyle(.secondary)
-                .help("Open in Centre")
-                .accessibilityLabel("Open in Centre")
+                .lineLimit(1)
+                .help("Open the intent in the centre")
             }
         }
     }
