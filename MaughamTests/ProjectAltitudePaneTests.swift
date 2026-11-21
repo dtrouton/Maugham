@@ -39,7 +39,8 @@ final class ProjectAltitudePaneTests: XCTestCase {
     /// **Why a source census rather than a mounted-text assertion.** A bare
     /// SwiftUI `Text` outside a `List` row does not materialize as an
     /// `NSTextField` on this SDK (measured: macOS 26.5, Xcode 26 — the header's
-    /// `Text` sits beside a segmented `Picker`, which DOES bridge to a real
+    /// `Text` then sat beside a segmented `Picker` (the toolbar's since shell p4
+    /// Task 4), which DOES bridge to a real
     /// `AppKitPlatformViewHost<...SystemSegmentedControl>`, but the `Text`
     /// itself leaves no discrete `NSView` in the mounted hierarchy at all), and
     /// `accessibilityChildren()` returns empty from this same headless test
@@ -275,7 +276,6 @@ private struct AltitudeProbeView: View {
         ProjectAltitudePane(
             store: store,
             view: initialView,
-            bookView: $initialView,
             selectedSubject: .constant(nil),
             title: title,
             structure: store.manifest.structure) { EmptyView() }

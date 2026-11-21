@@ -1955,9 +1955,9 @@ struct PublishCentreProbeView: View {
     /// an edition, so the board is not modelled here (`ReviewBoardRoutingTests`
     /// owns it).
     private func altitude(_ altitude: BookView) -> some View {
-        ProjectAltitudePane(store: store, view: altitude, bookView: $bookView,
+        ProjectAltitudePane(store: store, view: altitude,
                             selectedSubject: subject, title: store.manifest.title,
-                            structure: store.manifest.structure, offersStatus: false) {
+                            structure: store.manifest.structure) {
             EmptyView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

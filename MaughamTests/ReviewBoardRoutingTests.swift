@@ -403,16 +403,20 @@ final class ReviewBoardRoutingTests: XCTestCase {
                           + "to ask the question about a second column")
         let mount = try await host(store: store, subject: .book)
 
+        // Each row leads with its stage-and-title button (shell p4 Task 4),
+        // then a chip per pass: `perRow` controls a row.
+        let perRow = passes.count + 1
         await pumpUntil(deadline: 5) {
             self.boardScroller(in: mount.window) != nil
-                && self.orderedChips(in: mount.window).count >= documents.count * passes.count
+                && self.orderedChips(in: mount.window).count >= documents.count * perRow
         }
         let chips = orderedChips(in: mount.window)
-        XCTAssertEqual(chips.count, documents.count * passes.count,
-                       "premise: one chip per (piece × pass)")
+        XCTAssertEqual(chips.count, documents.count * perRow,
+                       "premise: a title button and one chip per pass, per piece")
         XCTAssertEqual(mount.hostLife.disappearances, 0, "premise: nothing torn down yet")
 
-        await click(chips[passes.count + 1], in: mount.window, until: {
+        // Row 2, past its title button, the second pass's chip.
+        await click(chips[perRow + 1 + 1], in: mount.window, until: {
             mount.box.subject.open == .item(second.id)
                 && !self.textViews(in: mount.window).isEmpty
         })
@@ -779,8 +783,8 @@ final class ReviewBoardRoutingTests: XCTestCase {
         collect(NSTableView.self, in: window).first
     }
 
-    /// **The board's chips, in the order a reviewer reads them** — down the
-    /// rows, then across the passes.
+    /// **The board's controls, in the order a reviewer reads them** — down the
+    /// rows, then across: each row's stage-and-title button, then its chips.
     ///
     /// A SwiftUI `Button` mounts no `NSButton` on this SDK; what it leaves is a
     /// focus-ring container at the frame the layout gave it
@@ -1103,7 +1107,7 @@ struct ReviewCentreProbeView: View {
         let scope = ProjectWindow.altitudeScope(open: box.subject.open,
                                                 structure: store.manifest.structure,
                                                 bookTitle: store.manifest.title)
-        return ProjectAltitudePane(store: store, view: altitude, bookView: bookView,
+        return ProjectAltitudePane(store: store, view: altitude,
                                    selectedSubject: subject, title: scope.title,
                                    structure: scope.structure) {
             board(structure: scope.structure)
@@ -1120,11 +1124,13 @@ struct ReviewCentreProbeView: View {
     /// carry what a click DOES through a real mounted board.
     private func board(structure: [StructureItem]) -> some View {
         ReviewBoardPane(
-            title: store.manifest.title,
             structure: structure,
             passes: store.manifest.effectiveReviewPasses,
             openNotes: [:],
             unreadableDocIds: [],
+            openToDos: [:],
+            onOpenPiece: { box.pick(.item($0), in: store) },
+            onOpenToDos: { box.pick(.item($0), in: store) },
             onOpenNotes: { box.openedNotesFor.append($0) },
             onNavigate: { pieceId, passId in
                 box.pick(.item(pieceId), in: store)

@@ -249,14 +249,17 @@ final class RightColumnToggleTests: XCTestCase {
         let window = try Self.flat("Maugham/Views/ProjectWindow.swift")
         XCTAssertTrue(window.contains(
             ".toolbar { ToolbarItem(placement: .navigation) { LockToggle(isLocked: $isLocked) } "
+            + "if centreViewOffer != .none { ToolbarItem(placement: .primaryAction) { "
+            + "CentreViewSwitchControl(offer: centreViewOffer, choose: chooseCentreView) } } "
             + "ToolbarItem(placement: .primaryAction) { RightColumnToggle(showInspector: $showInspector) } } "
             + ".toolbar(toolbarVisibility, for: .windowToolbar)"),
-            "the button is the window toolbar's trailing item, hidden with it")
+            "the button is the window toolbar's trailing item, after the centre's view "
+            + "switch (shell p4 Task 4), hidden with it")
         XCTAssertFalse(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: true))
         XCTAssertTrue(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: false))
         XCTAssertTrue(window.contains("TopChromeModifier( projectURL: url, store: store, "
                                       + "isNoChromeOn: isNoChromeOn, isLocked: $isLocked, "
-                                      + "window: window, showInspector: $showInspector))"),
+                                      + "window: window, showInspector: $showInspector,"),
                       "the button is bound to the window's own showInspector")
     }
 

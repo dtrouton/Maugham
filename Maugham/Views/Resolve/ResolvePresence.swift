@@ -81,6 +81,22 @@ enum ResolvePresence {
         }.isEmpty
     }
 
+    /// **Each piece's open to-dos, for Status's column** (shell p4 Task 4),
+    /// counted from the same Book-scope read as the marks — no third walk. A
+    /// figure's to-do counts on its owner (`countsOn`); the Book's own and an
+    /// unowned figure's count on no row.
+    @MainActor
+    static func openToDos(_ items: [ResolveItem], figureOwners: [String: String?]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for case .todo(let task) in items where task.status == .open {
+            let docId = task.anchor?.docId ?? ProjectStore.projectTasksDocId
+            guard docId != ProjectStore.projectTasksDocId,
+                  let owner = ProjectStore.countsOn(docId, owners: figureOwners) else { continue }
+            counts[owner, default: 0] += 1
+        }
+        return counts
+    }
+
     /// The screenplay's paragraph → scene map, To resolve's own rule
     /// (`ResolvePane.regroup`): only where the Book's scope is the one script
     /// and a parse is in hand.
@@ -161,8 +177,8 @@ struct ResolvePresenceWiring: ViewModifier {
 /// event token, the open pieces, the Book's to-dos, the sidecar, the
 /// passes), the open pieces' note and to-do versions (the live splice) and
 /// the parsed script — with the walks held between keys exactly as the pane
-/// holds them. Writes `BinderTreeSectionsState.presence` only when the marks
-/// change. Draws nothing.
+/// holds them. Writes `BinderTreeSectionsState.presence` and `.openToDos`
+/// (Status's column) only when they change. Draws nothing.
 struct ResolvePresenceWatch: View {
     let store: ProjectStore
     let documentStore: DocumentStore
@@ -224,10 +240,13 @@ struct ResolvePresenceWatch: View {
         held = fresh
         lastKey = key
         let scope = key.regroup.read.scope
+        let owners = ProjectStore.figureNoteOwners(store.manifest.figures ?? [])
         let marks = ResolvePresence.marks(
-            fresh, structure: store.manifest.structure,
-            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            fresh, structure: store.manifest.structure, figureOwners: owners,
             sceneIndex: ResolvePresence.sceneIndex(fresh, scope: scope, script: key.regroup.script))
         if state.presence != marks { state.presence = marks }
+        // Status's to-dos column reads the same read (shell p4 Task 4).
+        let toDos = ResolvePresence.openToDos(fresh.items, figureOwners: owners)
+        if state.openToDos != toDos { state.openToDos = toDos }
     }
 }

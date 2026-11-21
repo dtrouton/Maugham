@@ -82,6 +82,9 @@ enum MaughamEvent {
     /// row's History (`postPullUpHistory(ofPiece:)`). Absent on the keys'.
     static let pullUpPieceKey = "pull_up_piece"
 
+    /// Payload key for `.maughamChooseCentreView`: `CentreViewSwitch.token`.
+    static let centreViewKey = "centre_view"
+
     /// Payload keys for `.maughamCanvasNodesAdded`. Constants for the reason
     /// `positionKey` is one: the post site (`AddCanvasScrapsTool`) and whatever
     /// announces the arrival are written by different hands at different times,

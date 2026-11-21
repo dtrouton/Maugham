@@ -94,7 +94,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `EditorHost.swift` — mounts the editor on the subject's document; the single-binding contract (tripwires 2, 3, 6, 7, 22); the recovery pane wiring and `recoveryActionIsCurrent`; `quarantineAndContinue`.
 - `DocumentRecoveryPane.swift` — `RecoveryPaneModel` and the refusal pane before a document opens.
 - `RecoveryBanner.swift` — `RecoveryBannerModel` and the banner over a read-only open document.
-- `ProjectAltitudePane.swift` — the project at altitude (corkboard / outline) in the centre column.
+- `ProjectAltitudePane.swift` — the Book's Cards, Outline, Status; `CentreViewSwitch.swift`, their toolbar switch.
 - `CorkboardGrid.swift`, `OutlineTable.swift` — altitude's two layouts; `OutlineTable` reads the writers once.
 - `ReferencePlaceholderCard.swift` — the centre's placeholder for a Collection's reference piece.
 - `EditorStatusFooter.swift`, `PieceTargetMenu.swift` — the status row under the editor, its target menu.

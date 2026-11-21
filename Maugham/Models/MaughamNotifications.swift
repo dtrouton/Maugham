@@ -121,6 +121,10 @@ extension Notification.Name {
     /// Lock (`WindowLock`) flips, as its toolbar padlock does. Scope:
     /// .keyWindow — a command, not a data event.
     public static let maughamToggleLock = Notification.Name("maugham.toggleLock")
+    /// Posted by View ▸ View as … (⌃⌘1/2/3): the key window's centre shows
+    /// the chosen view (`CentreViewSwitch`), as its toolbar switch does.
+    /// Payload: `MaughamEvent.centreViewKey`. Scope: .keyWindow.
+    public static let maughamChooseCentreView = Notification.Name("maugham.chooseCentreView")
     public static let maughamTidyAllFilenames = Notification.Name("maugham.tidyAllFilenames")
     /// Scope: .allWindows (no liveness guard — must reach everything; ADR 0021).
     /// Zombie-harm audit: receivers are `WelcomeHost` (`MaughamApp.swift`,

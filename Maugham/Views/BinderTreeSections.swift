@@ -1139,6 +1139,9 @@ final class BinderTreeSectionsState {
     /// by the window's `ResolvePresenceWatch` once per key and read by each
     /// row as a set lookup (`\.resolvePresence`, handed in at the `List`).
     var presence: ResolvePresence.Marks = .none
+    /// **Each piece's open to-dos** (shell p4 Task 4), written by the same
+    /// watch from the same read and looked up by Status's to-dos column.
+    var openToDos: [String: Int] = [:]
     /// The last press on a fold's pull-up row, for telling a double-click
     /// from two clicks (`BinderPieceFold.press`). A press record, never drawn.
     @ObservationIgnored var lastFoldPress: BinderPieceFold.LastPress?

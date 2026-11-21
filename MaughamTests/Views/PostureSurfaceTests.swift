@@ -907,8 +907,9 @@ final class PostureSurfaceTests: XCTestCase {
             StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md"),
         ]
         let window = TestWindow.mount(AnyView(ReviewBoardPane(
-            title: "T", structure: structure, passes: [boardPass],
-            openNotes: [:], unreadableDocIds: [],
+            structure: structure, passes: [boardPass],
+            openNotes: [:], unreadableDocIds: [], openToDos: [:],
+            onOpenPiece: { _ in }, onOpenToDos: { _ in },
             onOpenNotes: { _ in }, onNavigate: { _, _ in },
             onSetState: { _, _, _ in }, onRunRound: { _, _ in },
             posture: { _ in self.reviewer })),

@@ -337,6 +337,18 @@ final class UIStateAuthorReaderChoiceTests: XCTestCase {
         XCTAssertEqual(back, s)
     }
 
+    /// An edition's view round-trips, and a file written before shell p4 (no
+    /// key) or by a newer build (an unknown value) opens on the Book.
+    func test_theEditionViewRoundTripsAndDefaultsToTheBook() throws {
+        var s = UIState.empty
+        XCTAssertEqual(s.editionView, .book)
+        s.editionView = .status
+        let back = try JSONDecoder().decode(UIState.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(back.editionView, .status)
+        XCTAssertEqual(try decode(#"{"schemaVersion":5}"#).editionView, .book)
+        XCTAssertEqual(try decode(#"{"schemaVersion":5,"editionView":"spread"}"#).editionView, .book)
+    }
+
     func test_legacyOutlineLayoutSeedsTheBookView() throws {
         XCTAssertEqual(try decode(#"{"schemaVersion":5,"outlineLayout":"table"}"#).bookView,
                        .outline)

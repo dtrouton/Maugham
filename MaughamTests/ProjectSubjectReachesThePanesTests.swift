@@ -108,7 +108,6 @@ private struct OutlineProbeView: View {
         ProjectAltitudePane(
             store: store,
             view: layout,
-            bookView: $layout,
             selectedSubject: Binding(get: { probe.subject },
                                      set: { probe.subject = $0 }),
             title: store.manifest.title,

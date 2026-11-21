@@ -49,6 +49,13 @@ struct CentreColumn: View {
     // Inputs this column only reads. `isLocked` is the window's Lock
     // (`WindowLock`): research, palette cards and figures read, never edit.
     let isLocked: Bool
+    /// How the Book is shown — the route's input. Read only: the toolbar's
+    /// switch writes it (`ProjectWindow.chooseCentreView`).
+    let bookView: BookView
+    /// The window's tree state, read here for one value: Status's open
+    /// to-dos (`openToDos`, written by `ResolvePresenceWatch` from the read
+    /// that marks the tree — no walk of this column's own).
+    let treeState: BinderTreeSectionsState
     let researchPreviewVisible: Bool
     /// The tree's find overlay is up: Esc is its own, before the centre
     /// item's cover (`CentreItemEscape`).
@@ -61,7 +68,6 @@ struct CentreColumn: View {
     /// `.centreItem` cover (shell plan 3 Task 5). The cover's Close writes
     /// nil; the window clears it when `open` moves.
     @Binding var centreItem: CentreItem?
-    @Binding var bookView: BookView
     @Binding var selectedPaletteCardId: String?
     @Binding var showInspector: Bool
     /// The right column's position: a count click on the board shows To
@@ -271,11 +277,9 @@ struct CentreColumn: View {
                 ProjectAltitudePane(
                     store: store,
                     view: altitude,
-                    bookView: $bookView,
                     selectedSubject: facesNavigation(store: store),
                     title: scope.title,
-                    structure: scope.structure,
-                    offersStatus: subject.open.isEdition == false) {
+                    structure: scope.structure) {
                     statusBoard(store: store, structure: scope.structure)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -426,13 +430,31 @@ struct CentreColumn: View {
         // at the one mount, and nothing on its body path can reach a document
         // or the disk.
         ReviewBoardPane(
-            title: store.manifest.title,
             structure: structure,
             passes: store.manifest.effectiveReviewPasses,
             // Values again: a walk over every document, computed in
             // `refreshOpenNotes` and merely READ here.
             openNotes: openNotesCounts,
             unreadableDocIds: openNotesUnreadable,
+            // The to-dos the tree's marks were read from, counted once per
+            // key by the window's `ResolvePresenceWatch` — live as the marks
+            // are, and no second task walk.
+            openToDos: treeState.openToDos,
+            // **A row's stage or title opens the piece** — Status is an
+            // overview you navigate from (owner, 2026-11-16): the click rule,
+            // as a card's or an outline row's click.
+            onOpenPiece: { pieceId in
+                navigate(to: .item(pieceId), store: store)
+            },
+            // **A to-do count opens the piece on Mine**: the piece opens, then
+            // To resolve shows with the writer's own to-dos — the request
+            // waits for the opened piece's read (`ResolvePane.take`).
+            onOpenToDos: { pieceId in
+                navigate(to: .item(pieceId), store: store)
+                showInspector = true
+                position = .resolve
+                resolveRequest = .filter(.mine)
+            },
             // **A count click points To resolve at the piece and moves
             // nothing else.** The right column goes to To resolve — the Book's
             // list, grouped by piece — with the clicked piece's group focused;

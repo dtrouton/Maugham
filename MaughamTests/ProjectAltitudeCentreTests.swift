@@ -1122,7 +1122,7 @@ private struct AltitudeCentreProbeView: View {
         let scope = ProjectWindow.altitudeScope(open: probe.subject.open,
                                                 structure: store.manifest.structure,
                                                 bookTitle: store.manifest.title)
-        return ProjectAltitudePane(store: store, view: altitude, bookView: view,
+        return ProjectAltitudePane(store: store, view: altitude,
                                    selectedSubject: probe.treeBinding(store: store),
                                    title: scope.title, structure: scope.structure) {
             board(structure: scope.structure)
@@ -1137,11 +1137,13 @@ private struct AltitudeCentreProbeView: View {
     /// `ReviewBoardPaneTests`.
     private func board(structure: [StructureItem]) -> some View {
         ReviewBoardPane(
-            title: store.manifest.title,
             structure: structure,
             passes: store.manifest.effectiveReviewPasses,
             openNotes: [:],
             unreadableDocIds: [],
+            openToDos: [:],
+            onOpenPiece: { probe.pick(.item($0), in: store) },
+            onOpenToDos: { probe.pick(.item($0), in: store) },
             onOpenNotes: { _ in },
             onNavigate: { pieceId, _ in probe.pick(.item(pieceId), in: store) },
             onSetState: { pieceId, passId, state in

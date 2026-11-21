@@ -55,6 +55,8 @@ struct ProjectWindow: View {
     @State private var centreItem: CentreItem?
     /// How the Book (or a Part) is shown: Cards, Outline or Status.
     @State private var bookView: BookView = .outline
+    /// How an edition is shown: its book or its Status (shell p4 Task 4).
+    @State private var editionView: EditionView = .book
     @State private var selectedPaletteCardId: String?
     /// **The palette wall's window state** — the inspector stash and the
     /// subject the wall was opened over — as ONE value. Whether the wall is
@@ -334,7 +336,9 @@ struct ProjectWindow: View {
             isNoChromeOn: isNoChromeOn,
             isLocked: $isLocked,
             window: window,
-            showInspector: $showInspector))
+            showInspector: $showInspector,
+            centreViewOffer: centreViewOffer,
+            chooseCentreView: { chooseCentreView($0) }))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
@@ -832,6 +836,10 @@ struct ProjectWindow: View {
         /// Whether the right column shows: ⌘⌥0's title, and the toolbar's
         /// right-column button, which flips it as ⌘⌥0's receiver does.
         @Binding var showInspector: Bool
+        /// The centre's view switch (`CentreViewSwitch`): what it offers, and
+        /// the window's one writer of the choice. Hidden where `.none`.
+        let centreViewOffer: CentreViewSwitch.Offer
+        let chooseCentreView: (CentreViewSwitch.Offer) -> Void
 
         private var toolbarVisibility: Visibility {
             ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -853,6 +861,15 @@ struct ProjectWindow: View {
                     // The trailing edge's twin of the sidebar's own toggle:
                     // always drawn, shown or hidden, so the column can be
                     // found again (`RightColumnToggle`).
+                    // Cards, Outline, Status (an edition's Book, Status):
+                    // only where the centre has views — hidden, not
+                    // disabled, elsewhere.
+                    if centreViewOffer != .none {
+                        ToolbarItem(placement: .primaryAction) {
+                            CentreViewSwitchControl(offer: centreViewOffer,
+                                                    choose: chooseCentreView)
+                        }
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         RightColumnToggle(showInspector: $showInspector)
                     }
@@ -865,6 +882,14 @@ struct ProjectWindow: View {
                 // ⌘⌥⇧L: the padlock's press, from the menu.
                 .onKeyWindowCommand(.maughamToggleLock, window: window) { _ in
                     isLocked.toggle()
+                }
+                // ⌃⌘1/2/3: View ▸ View as …, the switch from the keyboard.
+                .focusedSceneValue(\.centreViewOffer, centreViewOffer)
+                .onKeyWindowCommand(.maughamChooseCentreView, window: window) { note in
+                    if let choice = CentreViewSwitch.choice(
+                        from: note.userInfo?[MaughamEvent.centreViewKey] as? String) {
+                        chooseCentreView(choice)
+                    }
                 }
         }
     }
@@ -1394,11 +1419,11 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, bible: bible, window: window,
-            isLocked: isLocked, researchPreviewVisible: researchPreviewVisible,
+            isLocked: isLocked, bookView: bookView, treeState: treeState,
+            researchPreviewVisible: researchPreviewVisible,
             treeFindActive: treeFindActive,
             subject: subjectBinding,
             centreItem: $centreItem,
-            bookView: $bookView,
             selectedPaletteCardId: $selectedPaletteCardId,
             showInspector: $showInspector,
             position: $rightColumnPosition,
@@ -1600,6 +1625,32 @@ struct ProjectWindow: View {
             return .notice(.neverCompiled)
         case .unreadableCatalog(let reason):
             return .notice(.unreadableCatalog(reason: reason))
+        }
+    }
+
+    /// **What the toolbar's view switch offers now** (`CentreViewSwitch.offer`).
+    private var centreViewOffer: CentreViewSwitch.Offer {
+        guard let store else { return .none }
+        return CentreViewSwitch.offer(subject: subject, bookView: bookView,
+                                      editionView: editionView,
+                                      structure: store.manifest.structure)
+    }
+
+    /// **The one writer of the centre's view** — the toolbar switch and
+    /// View ▸ View as … both land here: the window's value and its
+    /// `UIState` key together. A choice the current offer does not list (a
+    /// menu post that raced a subject change) does nothing.
+    private func chooseCentreView(_ choice: CentreViewSwitch.Offer) {
+        guard CentreViewSwitch.accepts(choice, under: centreViewOffer) else { return }
+        switch choice {
+        case .book(let view):
+            bookView = view
+            documentStore?.updateUIState { $0.bookView = view }
+        case .edition(let view):
+            editionView = view
+            documentStore?.updateUIState { $0.editionView = view }
+        case .none:
+            break
         }
     }
 
@@ -2897,6 +2948,7 @@ struct ProjectWindow: View {
             // figure's stream (`SubjectValidationModifier`).
             self.subjectState = Self.validatedSubject(ds.uiState.windowSubject, in: s)
             self.bookView = ds.uiState.bookView
+            self.editionView = ds.uiState.editionView
             self.isNoChromeOn = ds.uiState.isNoChromeOn
             self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible

@@ -378,6 +378,10 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
                 }
                     .keyboardShortcut("b", modifiers: [.command, .option])
+                Divider()
+                // ⌃⌘1/2/3: the centre's view switch (the toolbar's), from
+                // the keyboard — disabled where the centre has no views.
+                FocusedCentreViewItems()
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,
