@@ -363,6 +363,9 @@ final class ResolvePresenceReader {
     private var figureUnreadable: [String] = []
     private var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
     private var registryUnreadable: String?
+    /// The trust the held reads were judged under.
+    private var heldTrust: TrustTable?
+    private var heldFacts: DocumentClass.Facts?
     private var bookTasks: [WriterTask] = []
     private var bookTasksVersion: Int?
 
@@ -409,7 +412,8 @@ final class ResolvePresenceReader {
         var mustWalk = false
         if walkedToken != key.read.annotationsToken {
             walkedToken = key.read.annotationsToken
-            stale = readable
+            // Open pieces are read off their `Document`s, never their logs.
+            stale = readable.subtracting(live.keys)
             figuresStale = true
             mustWalk = true
         } else {
@@ -459,12 +463,21 @@ final class ResolvePresenceReader {
                documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> Bool {
         guard generation == self.generation, let key = last else { return false }
         switch step {
-        case .trust(let name):
+        case .trust(let table, let facts, let name):
+            // Reads judged under another trust or other manifest facts are
+            // not "unchanged" however still their files are: forget their
+            // fingerprints.
+            if (heldTrust != nil && heldTrust != table) || (heldFacts != nil && heldFacts != facts) {
+                tokens = [:]
+            }
+            heldTrust = table
+            heldFacts = facts
             guard registryUnreadable != name else { return false }
             registryUnreadable = name
         case .pieces(let reads):
             for read in reads where stale.contains(read.docId) {
                 stale.remove(read.docId)
+                if case .unchanged = read { continue }
                 piecesRead += 1
                 // Open during this walk: its live or folded state stands.
                 guard !touched.contains(read.docId) else { continue }
@@ -479,6 +492,8 @@ final class ResolvePresenceReader {
                 case .unreadable(let docId):
                     forget(docId)
                     unreadable.insert(docId)
+                case .unchanged:
+                    break
                 }
             }
         case .figures(let reads):
@@ -487,8 +502,10 @@ final class ResolvePresenceReader {
             }
             figureUnreadable = reads.unreadable
             figureCells = reads.cells
-            figuresStale = false
-            heldFigureIds = (store.manifest.figures ?? []).map(\.id)
+            // What the walk read, not what the manifest says now: a figure
+            // added or removed while it ran makes the figures stale again.
+            heldFigureIds = reads.figureIds
+            figuresStale = (store.manifest.figures ?? []).map(\.id) != reads.figureIds
         }
         let scope = key.read.scope
         snapshot = gather(scope: scope,
@@ -503,10 +520,23 @@ final class ResolvePresenceReader {
     /// does, and what the tests drive.
     func run(_ request: ResolveChunkedWalk.Request, store: ProjectStore, documentStore: DocumentStore,
              diagnostics: DiagnosticsStore?, chunkSize: Int = ResolveChunkedWalk.chunkSize,
+             onProducerExit: (@Sendable () -> Void)? = nil,
              onChange: () -> Void = {}) async {
         var inputs = ResolveChunkedWalk.inputs(for: request, store: store)
         inputs.chunkSize = chunkSize
-        for await step in ResolveChunkedWalk.steps(inputs) {
+        await run(request, steps: ResolveChunkedWalk.steps(inputs, onExit: onProducerExit), store: store,
+                  documentStore: documentStore, diagnostics: diagnostics, onChange: onChange)
+    }
+
+    /// The loop over any source of steps — the walk's stream in production,
+    /// a source that never suspends in the test that pins the yield.
+    func run<Steps: AsyncSequence>(
+        _ request: ResolveChunkedWalk.Request, steps: Steps, store: ProjectStore,
+        documentStore: DocumentStore, diagnostics: DiagnosticsStore?, onChange: () -> Void = {}
+    ) async where Steps.Element == ResolveChunkedWalk.Step, Steps.Failure == Never {
+        for await step in steps {
+            // A cancelled walk applies nothing more, even what is buffered.
+            if Task.isCancelled { break }
             if apply(step, generation: request.generation, store: store,
                      documentStore: documentStore, diagnostics: diagnostics) { onChange() }
             await Task.yield()
@@ -542,8 +572,14 @@ final class ResolvePresenceReader {
         generation += 1
         touched = Set(lastLive.keys)
         walksRequested += 1
+        // Pieces never read (or whose fingerprint was dropped) first, then
+        // those held, which the walk only checks: a walk restarted by a steady
+        // cadence of events always makes progress on what it has not read.
+        let wanted = order.filter(stale.contains)
+        let docIds = wanted.filter { tokens[$0] == nil } + wanted.filter { tokens[$0] != nil }
         pendingRequest = ResolveChunkedWalk.Request(
-            generation: generation, docIds: order.filter(stale.contains), readsFigures: figuresStale)
+            generation: generation, docIds: docIds, readsFigures: figuresStale,
+            known: tokens, knownTrust: heldTrust, knownFacts: heldFacts)
     }
 
     private func fold(_ docId: String, _ piece: ResolveLivePiece) {
@@ -582,7 +618,10 @@ final class ResolvePresenceReader {
         }
         if let registryUnreadable { unreadableIds.append(registryUnreadable) }
         for figure in store.manifest.figures ?? [] { annotations += figureNotes[figure.id] ?? [] }
-        unreadableIds += figureUnreadable
+        // A figure the manifest no longer holds names nothing (a deleted
+        // unreadable figure leaves no ring on the Book).
+        let figureIds = Set((store.manifest.figures ?? []).map(\.id))
+        unreadableIds += figureUnreadable.filter(figureIds.contains)
         let walk = ProjectAnnotationsSnapshot(annotations: annotations, unreadableDocIds: unreadableIds,
                                               sequences: sequences, figureCells: figureCells)
         let liveFindings: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in

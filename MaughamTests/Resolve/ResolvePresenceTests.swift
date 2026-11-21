@@ -610,8 +610,9 @@ final class ResolvePresenceTests: XCTestCase {
     }
 
     /// **The walk yields between pieces**: a 20-chapter book is read in
-    /// several main-actor steps, a main-actor task queued before the walk
-    /// runs before its last step, the marks fill in as it goes, and they end
+    /// several main-actor steps; with every step already produced, a
+    /// main-actor task queued during one step runs before the next (the
+    /// loop's `Task.yield`); the marks fill in as it goes, and they end
     /// identical to the one-shot read.
     func test_theWalkYieldsBetweenPiecesAndEndsAtTheOneShotAnswer() async throws {
         let book = try await book(chapters: 20, noted: Set(stride(from: 0, to: 20, by: 3)))
@@ -622,19 +623,25 @@ final class ResolvePresenceTests: XCTestCase {
         XCTAssertEqual(watch.reader.marks.pieces, [], "nothing read, nothing drawn")
         XCTAssertEqual(watch.reader.marks.unknown, [], "and never the ring for a piece not yet read")
 
+        // Every step already produced and waiting (the producer the fast
+        // side), so only the loop's own yield lets other main-actor work in.
+        var produced: [ResolveChunkedWalk.Step] = []
+        ResolveChunkedWalk.run(ResolveChunkedWalk.inputs(for: request, store: book.store)) { produced.append($0) }
+        let buffered = ImmediateSteps(steps: produced)
+
         final class Log { var order: [String] = []; var marked: [Int] = [] }
         let log = Log()
-        Task { @MainActor in log.order.append("other") }
-        await watch.reader.run(request, store: book.store, documentStore: book.documentStore,
-                               diagnostics: nil) {
+        await watch.reader.run(request, steps: buffered, store: book.store,
+                               documentStore: book.documentStore, diagnostics: nil) {
             log.order.append("step")
             log.marked.append(watch.reader.marks.pieces.filter { $0.hasPrefix("doc-") }.count)
+            // Queued behind this step: it must run before the next one.
+            if log.order.count == 1 { Task { @MainActor in log.order.append("other") } }
         }
         let steps = log.order.filter { $0 == "step" }.count
         XCTAssertGreaterThanOrEqual(steps, 3, "read in chunks, not one step: \(log.order)")
-        let other = try XCTUnwrap(log.order.firstIndex(of: "other"), "the queued task ran")
-        XCTAssertLessThan(other, try XCTUnwrap(log.order.lastIndex(of: "step")),
-                          "it ran before the walk finished: \(log.order)")
+        XCTAssertEqual(Array(log.order.prefix(3)), ["step", "other", "step"],
+                       "a main-actor task queued during a step runs before the next: \(log.order)")
         XCTAssertEqual(log.marked, log.marked.sorted(), "the marks only fill in")
 
         let (marks, toDos) = oneShot(book)
@@ -644,27 +651,29 @@ final class ResolvePresenceTests: XCTestCase {
         XCTAssertNil(watch.reader.pendingRequest)
     }
 
-    /// **A change arriving mid-walk is neither lost nor counted twice**: a
-    /// note lands in a piece the walk has read and in one it has not, and a
-    /// piece opens and gains a note, while the walk is half done.
+    /// **A change arriving mid-walk is neither lost nor counted twice**, with
+    /// the walk's real reads interleaved with the writes (the producer
+    /// stepped by hand, no sleeps): half the walk reads; notes land in a piece
+    /// it has read and one it has not, and a piece opens and gains a note;
+    /// the rest of the walk reads AFTER those writes and lands; then the
+    /// token moves and a new walk settles it.
     func test_aChangeMidWalkIsNeitherLostNorCountedTwice() async throws {
         let book = try await book(chapters: 6, noted: [0, 5])
         let watch = Watch(book)
         watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
         let first = try XCTUnwrap(watch.reader.pendingRequest)
-        // The first walk's steps, read now (before the changes).
-        var steps: [ResolveChunkedWalk.Step] = []
         var inputs = ResolveChunkedWalk.inputs(for: first, store: book.store)
         inputs.chunkSize = 2
-        ResolveChunkedWalk.run(inputs) { steps.append($0) }
-        // Half of it lands.
-        for step in steps.prefix(2) {
-            watch.reader.apply(step, generation: first.generation, store: book.store,
+        var walker = ResolveChunkedWalk.Walker(inputs)
+        func step() throws {
+            let next = try XCTUnwrap(walker.next())
+            watch.reader.apply(next, generation: first.generation, store: book.store,
                                documentStore: book.documentStore, diagnostics: nil)
         }
+        try step()          // trust, and every piece's fingerprint
+        try step()          // c000, c001 read
 
-        // Mid-walk: notes into a read piece and an unread one, and a piece
-        // opens and gains a note.
+        // Mid-walk writes.
         try await Self.addNote(to: book.ids[0], in: book.url, body: "second on c000")
         try await Self.addNote(to: book.ids[5], in: book.url, body: "second on c005")
         let openId = book.ids[3]
@@ -674,17 +683,29 @@ final class ResolvePresenceTests: XCTestCase {
         book.documentStore.register(document: doc, for: "manuscript/\(openId).md")
         _ = try await doc.addAnnotation(kind: .comment, paragraphId: try XCTUnwrap(doc.sequence.first),
                                         body: "live on c003")
-        // The closed pieces' events settle into one token move.
-        watch.token += 1
+        // The events are still settling: the key moves only by the open piece.
         watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
-        let second = try XCTUnwrap(watch.reader.pendingRequest)
-        XCTAssertGreaterThan(second.generation, first.generation, "the token asks for a new walk")
 
-        // The rest of the old walk arrives late: dropped.
-        for step in steps.dropFirst(2) {
-            XCTAssertFalse(watch.reader.apply(step, generation: first.generation, store: book.store,
-                                              documentStore: book.documentStore, diagnostics: nil))
+        // The rest of the walk reads now, after the writes.
+        let late = try XCTUnwrap(walker.next())          // c002, c003
+        let last = try XCTUnwrap(walker.next())          // c004, c005
+        guard case .pieces(let reads) = last,
+              case .read(_, let c005Notes, _, _, _, let c005Token)? = reads.first(where: { $0.docId == book.ids[5] })
+        else { return XCTFail("c005 is read in the last chunk") }
+        XCTAssertEqual(c005Notes.count, 2, "premise: the read came after the write")
+        XCTAssertNotEqual(c005Token, DerivedManuscriptCache.token(forDocId: book.ids[5], in: book.url),
+                          "its fingerprint was taken before the write, so it is never trusted past it")
+        for next in [late, last] {
+            watch.reader.apply(next, generation: first.generation, store: book.store,
+                               documentStore: book.documentStore, diagnostics: nil)
         }
+        while let next = walker.next() {   // the (empty) figures
+            watch.reader.apply(next, generation: first.generation, store: book.store,
+                               documentStore: book.documentStore, diagnostics: nil)
+        }
+
+        // The closed pieces' events settle into one token move: a new walk.
+        watch.token += 1
         await watch.update()
 
         func notes(on docId: String) -> [String] {
@@ -692,8 +713,8 @@ final class ResolvePresenceTests: XCTestCase {
                 if case .note(let n) = $0, n.docId == docId { return n.annotation.body } else { return nil }
             }.sorted()
         }
-        XCTAssertEqual(notes(on: book.ids[0]), ["note on doc-c000", "second on c000"], "not lost, not doubled")
-        XCTAssertEqual(notes(on: book.ids[5]), ["note on doc-c005", "second on c005"])
+        XCTAssertEqual(notes(on: book.ids[0]), ["note on doc-c000", "second on c000"], "not lost")
+        XCTAssertEqual(notes(on: book.ids[5]), ["note on doc-c005", "second on c005"], "not doubled")
         XCTAssertEqual(notes(on: openId), ["live on c003"], "the open piece counts once, live")
         let ids = watch.reader.snapshot.items.map(\.id)
         XCTAssertEqual(ids.count, Set(ids).count, "no item twice")
@@ -701,6 +722,154 @@ final class ResolvePresenceTests: XCTestCase {
 
         book.documentStore.unregister(path: "manuscript/\(openId).md")
         await doc.close()
+    }
+
+    /// A walk superseded by a token move hands nothing it read to the next
+    /// walk's count twice: the late steps of the old walk are refused.
+    func test_aSupersededWalksLateStepsAreRefused() async throws {
+        let book = try await book(chapters: 6, noted: [0, 5])
+        let watch = Watch(book)
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        let first = try XCTUnwrap(watch.reader.pendingRequest)
+        var steps: [ResolveChunkedWalk.Step] = []
+        var inputs = ResolveChunkedWalk.inputs(for: first, store: book.store)
+        inputs.chunkSize = 2
+        ResolveChunkedWalk.run(inputs) { steps.append($0) }
+        for step in steps.prefix(2) {
+            watch.reader.apply(step, generation: first.generation, store: book.store,
+                               documentStore: book.documentStore, diagnostics: nil)
+        }
+        watch.token += 1
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        XCTAssertGreaterThan(try XCTUnwrap(watch.reader.pendingRequest).generation, first.generation)
+        for step in steps.dropFirst(2) {
+            XCTAssertFalse(watch.reader.apply(step, generation: first.generation, store: book.store,
+                                              documentStore: book.documentStore, diagnostics: nil))
+        }
+        await watch.update()
+        XCTAssertEqual(watch.reader.marks.pieces, [book.ids[0], book.ids[5], "grp-1", "grp-2"])
+    }
+
+    /// **I1 (round 3): a figure list change mid-walk is not lost.** The walk
+    /// read `[fig-a, fig-b]`; while it ran, `fig-c` was added and `fig-b`
+    /// (unreadable) deleted. The figures are stale again, a new walk reads
+    /// them, and the deleted figure leaves no ring on the Book.
+    func test_aFigureListChangeMidWalkIsNotLost() async throws {
+        let book = try await book(chapters: 2, noted: [])
+        func figure(_ id: String, on piece: String?) -> FigureRecord {
+            FigureRecord(id: id, name: id, kind: .table, piece: piece, path: "figures/\(id).csv")
+        }
+        book.store.manifest.figures = [figure("fig-aaaa1111", on: nil), figure("fig-bbbb2222", on: nil)]
+        let watch = Watch(book)
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        let request = try XCTUnwrap(watch.reader.pendingRequest)
+        XCTAssertTrue(request.readsFigures)
+        var inputs = ResolveChunkedWalk.inputs(for: request, store: book.store)
+        var steps: [ResolveChunkedWalk.Step] = []
+        ResolveChunkedWalk.run(inputs) { steps.append($0) }
+        inputs = ResolveChunkedWalk.inputs(for: request, store: book.store)
+        // The figures step as the walk would have read it: fig-b would not read.
+        steps = steps.map { step in
+            guard case .figures = step else { return step }
+            return .figures(ResolveChunkedWalk.FigureReads(
+                figureIds: inputs.figures.map(\.id), notes: [:], unreadable: ["fig-bbbb2222"], cells: [:]))
+        }
+        for step in steps.dropLast() {
+            watch.reader.apply(step, generation: request.generation, store: book.store,
+                               documentStore: book.documentStore, diagnostics: nil)
+        }
+
+        // Mid-walk: fig-c added (owned by the first chapter), fig-b deleted.
+        book.store.manifest.figures = [figure("fig-aaaa1111", on: nil),
+                                       figure("fig-cccc3333", on: book.ids[0])]
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        watch.reader.apply(try XCTUnwrap(steps.last), generation: request.generation, store: book.store,
+                           documentStore: book.documentStore, diagnostics: nil)
+        XCTAssertEqual(ResolvePresence.rowMark(.book, in: watch.reader.marks), .quiet,
+                       "a deleted unreadable figure leaves no ring on the Book")
+
+        watch.reader.finish(generation: request.generation)
+        let again = try XCTUnwrap(watch.reader.pendingRequest, "the figures are read again")
+        XCTAssertTrue(again.readsFigures)
+        XCTAssertEqual(ResolveChunkedWalk.inputs(for: again, store: book.store).figures.map(\.id),
+                       ["fig-aaaa1111", "fig-cccc3333"], "the added figure is read")
+        // Its read lands: its note marks its owner.
+        let note = ProjectAnnotation(docId: "fig-cccc3333", annotation: Annotation(
+            id: "n-c", kind: .comment, paragraphId: nil, body: "on fig-c", suggestedText: nil, priorText: nil,
+            createdAt: t, createdBySession: nil, status: .open, userResponse: nil,
+            resolvedAt: nil, isStale: false, compilerRunId: nil))
+        watch.reader.apply(.figures(ResolveChunkedWalk.FigureReads(
+            figureIds: ["fig-aaaa1111", "fig-cccc3333"], notes: ["fig-cccc3333": [note.annotation]],
+            unreadable: [], cells: [:])), generation: again.generation, store: book.store,
+            documentStore: book.documentStore, diagnostics: nil)
+        watch.reader.finish(generation: again.generation)
+        XCTAssertNil(watch.reader.pendingRequest, "nothing stale")
+        XCTAssertTrue(watch.reader.marks.pieces.contains(book.ids[0]), "the new figure's note marks its owner")
+    }
+
+    /// **Monotonic progress (round 3)**: three token moves each cut a walk
+    /// after one chunk; once the events stop the walk still reaches every
+    /// piece, and no unchanged piece is read twice.
+    func test_restartsMidWalkStillReachTheEndAndReadNothingTwice() async throws {
+        let book = try await book(chapters: 12, noted: Set(0..<12))
+        let watch = Watch(book)
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        for _ in 0..<3 {
+            let request = try XCTUnwrap(watch.reader.pendingRequest)
+            var inputs = ResolveChunkedWalk.inputs(for: request, store: book.store)
+            inputs.chunkSize = 2
+            var walker = ResolveChunkedWalk.Walker(inputs)
+            for _ in 0..<2 {   // trust, then one chunk
+                watch.reader.apply(try XCTUnwrap(walker.next()), generation: request.generation,
+                                   store: book.store, documentStore: book.documentStore, diagnostics: nil)
+            }
+            watch.token += 1   // an event settles: the walk restarts
+            watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        }
+        XCTAssertEqual(watch.reader.piecesRead, 6, "three cut walks, two new pieces each")
+        await watch.update()
+        XCTAssertEqual(watch.reader.marks.pieces, Set(book.ids).union(["grp-1", "grp-2"]), "every piece, in the end")
+        XCTAssertEqual(watch.reader.piecesRead, 12, "each piece read once: unchanged pieces are skipped")
+    }
+
+    /// **Cancelling stops the producer and keeps nothing alive** (round 3):
+    /// the reader's own loop is cancelled after its first change; the walk
+    /// asks nothing more, its producer exits, and what it captured holds no
+    /// store, document or window.
+    func test_aCancelledWalkStopsItsProducerAndHoldsNothing() async throws {
+        let book = try await book(chapters: 20, noted: Set(0..<20))
+        let watch = Watch(book)
+        watch.reader.update(watch.key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        let request = try XCTUnwrap(watch.reader.pendingRequest)
+
+        let inputs = ResolveChunkedWalk.inputs(for: request, store: book.store)
+        // Foundation's value types (URL, Data, Date) bridge to classes inside;
+        // what matters is that nothing of ours — a store, a document, a
+        // window, a reader — is in there.
+        func references(_ value: Any, path: String = "inputs", depth: Int = 0) -> [String] {
+            if value is URL || value is Data || value is Date || value is String { return [] }
+            let mirror = Mirror(reflecting: value)
+            if mirror.displayStyle == .class { return [path + ": \(type(of: value))"] }
+            guard depth < 8 else { return [] }
+            return mirror.children.flatMap { references($0.value, path: path + "." + ($0.label ?? "?"),
+                                                        depth: depth + 1) }
+        }
+        XCTAssertEqual(references(inputs), [], "the producer's inputs are values only")
+
+        let reader = watch.reader
+        let store = book.store, documentStore = book.documentStore
+        let exited = AsyncStream<Void>.makeStream()
+        let consumer = Task { @MainActor in
+            await reader.run(request, store: store, documentStore: documentStore, diagnostics: nil,
+                             onProducerExit: { exited.continuation.yield(); exited.continuation.finish() },
+                             onChange: { withUnsafeCurrentTask { $0?.cancel() } })
+        }
+        await consumer.value
+        var iterator = exited.stream.makeAsyncIterator()
+        _ = await iterator.next()   // the producer has stopped
+        XCTAssertEqual(reader.pendingRequest, request, "a cancelled walk asks nothing more")
+        XCTAssertEqual(reader.piecesRead, ResolveChunkedWalk.chunkSize,
+                       "nothing past the step it was cancelled in is applied, buffered or not")
     }
 
     /// A to-do landing in a closed chapter, through the production document.
@@ -712,4 +881,23 @@ final class ResolvePresenceTests: XCTestCase {
         try await doc.flushBurstNow()
         await doc.close()
     }
+}
+
+/// Steps already produced, handed out without ever suspending — so the only
+/// suspension in the reader's loop is its own `Task.yield`.
+struct ImmediateSteps: AsyncSequence {
+    typealias Element = ResolveChunkedWalk.Step
+    typealias Failure = Never
+    let steps: [ResolveChunkedWalk.Step]
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        typealias Failure = Never
+        var remaining: ArraySlice<ResolveChunkedWalk.Step>
+        mutating func next() async -> ResolveChunkedWalk.Step? { remaining.popFirst() }
+        mutating func next(isolation actor: isolated (any Actor)?) async -> ResolveChunkedWalk.Step? {
+            remaining.popFirst()
+        }
+    }
+
+    func makeAsyncIterator() -> AsyncIterator { AsyncIterator(remaining: steps[...]) }
 }

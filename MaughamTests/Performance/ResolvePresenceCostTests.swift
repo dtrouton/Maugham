@@ -62,6 +62,8 @@ final class ResolvePresenceCostTests: XCTestCase {
         var mainTotal = 0.0
         var wall = 0.0
         var steps = 0
+        /// From asking for the walk to its first step (the trust resolve).
+        var firstStep: Double?
 
         mutating func add(_ step: Double) {
             longest = max(longest, step)
@@ -70,8 +72,9 @@ final class ResolvePresenceCostTests: XCTestCase {
         }
 
         var text: String {
-            String(format: "longest step %.1f ms, main-actor total %.1f ms over %d steps, wall %.1f ms",
-                   longest, mainTotal, steps, wall)
+            String(format: "longest step %.1f ms, main-actor total %.1f ms over %d steps, wall %.1f ms%@",
+                   longest, mainTotal, steps, wall,
+                   firstStep.map { String(format: " (first step after %.1f ms)", $0) } ?? "")
         }
     }
 
@@ -109,7 +112,9 @@ final class ResolvePresenceCostTests: XCTestCase {
             }))
             while let request = reader.pendingRequest {
                 let inputs = ResolveChunkedWalk.inputs(for: request, store: store)
+                let asked = clock.now
                 for await step in ResolveChunkedWalk.steps(inputs) {
+                    if cost.firstStep == nil { cost.firstStep = ms(clock.now - asked) }
                     cost.add(ms(clock.measure {
                         reader.apply(step, generation: request.generation, store: store,
                                      documentStore: documentStore, diagnostics: nil)
@@ -150,6 +155,8 @@ final class ResolvePresenceCostTests: XCTestCase {
         let reader = ResolvePresenceReader()
         var token = 0
         let afterFirst = await chunked(reader, token: token, store: store, documentStore: documentStore)
+        let tokensAfterFirst = DerivedManuscriptCache.tokens(forDocIds: book.ids, in: book.url)
+        let trustAfterFirst = try? TrustResolution.resolve(projectURL: book.url, identities: .current)
 
         var opens = Cost(), closes = Cost()
         let walks = reader.walksRequested
@@ -172,7 +179,42 @@ final class ResolvePresenceCostTests: XCTestCase {
                                                    body: "round note \(150 + index)")
         }
         token += 1
+        let tokensBeforeBurst = DerivedManuscriptCache.tokens(forDocIds: book.ids, in: book.url)
+        let moved = book.ids.filter { tokensAfterFirst[$0] != tokensBeforeBurst[$0] }.count
+        let trustMoved = trustAfterFirst != (try? TrustResolution.resolve(projectURL: book.url, identities: .current))
+        let readBeforeBurst = reader.piecesRead
         let afterBurst = await chunked(reader, token: token, store: store, documentStore: documentStore)
+        let burstReads = reader.piecesRead - readBeforeBurst
+
+        // A token move with nothing changed: every piece is checked, none read.
+        token += 1
+        let readBeforeQuiet = reader.piecesRead
+        let walksBeforeQuiet = reader.walksRequested
+        let afterQuiet = await chunked(reader, token: token, store: store, documentStore: documentStore)
+        let quietReads = reader.piecesRead - readBeforeQuiet
+        // The producer alone, synchronously, on a quiet book: where its time goes.
+        var syncQuiet = ""
+        do {
+            let request = ResolveChunkedWalk.Request(
+                generation: -1, docIds: book.ids, readsFigures: true,
+                known: DerivedManuscriptCache.tokens(forDocIds: book.ids, in: book.url),
+                knownTrust: try? TrustResolution.resolve(projectURL: book.url, identities: .current),
+                knownFacts: DocumentClass.Facts(store.manifest))
+            var walker = ResolveChunkedWalk.Walker(ResolveChunkedWalk.inputs(for: request, store: store))
+            let clock = ContinuousClock()
+            var times: [Double] = []
+            var unchanged = 0
+            while true {
+                var step: ResolveChunkedWalk.Step?
+                times.append(ms(clock.measure { step = walker.next() }))
+                guard let step else { break }
+                if case .pieces(let reads) = step {
+                    unchanged += reads.filter { if case .unchanged = $0 { return true } else { return false } }.count
+                }
+            }
+            syncQuiet = String(format: "producer alone, quiet: trust %.1f ms, chunks %.1f ms in all, %d unchanged",
+                               times.first ?? 0, times.dropFirst().reduce(0, +), unchanged)
+        }
         await documentStore.close()
 
         let table = [
@@ -180,7 +222,10 @@ final class ResolvePresenceCostTests: XCTestCase {
             "before (one synchronous walk on the main actor) — first read: " + beforeFirst.text,
             "before — a burst of \(Self.burst) closed-chapter notes, one walk: " + beforeBurst.text,
             "after (chunked, off the main actor) — first read: " + afterFirst.text,
-            "after — a burst of \(Self.burst) closed-chapter notes, one walk: " + afterBurst.text,
+            "after — a burst of \(Self.burst) closed-chapter notes, one walk: " + afterBurst.text
+                + " (\(burstReads) pieces read; \(moved) pieces' files had moved since the first read; trust moved: \(trustMoved))",
+            "after — a token move with nothing changed: " + afterQuiet.text + " (\(quietReads) pieces read, \(reader.walksRequested - walksBeforeQuiet) walks)",
+            syncQuiet,
             String(format: "after — open a chapter: longest step %.2f ms (worst of %d); close one: %.2f ms; %d walks",
                    opens.longest, Self.navigations, closes.longest, navigationWalks),
         ].joined(separator: "\n")
