@@ -4,8 +4,10 @@ import MaughamCore
 
 /// **Brief's foot** (Denver, 2026-11-21: "I agree on dropping clutter") —
 /// one quiet line at the bottom of a piece's Brief and the Book's: the
-/// piece's SET values, then History. "3,000 words · rome, draft · History";
-/// "Details · History" while nothing is set. Teaching belongs at the moment of
+/// piece's SET values, then the Details menu, then History. "3,000 words ·
+/// rome, draft · Details · History"; "Details · History" while nothing is
+/// set. Details is always there where the row menu offers anything, so the
+/// sheets not shown as values always have a visible door. Teaching belongs at the moment of
 /// action, not as permanent text on every new chapter, so nothing here
 /// explains itself: no how-to line for an unset value, no empty-fold sentence.
 ///
@@ -22,15 +24,18 @@ enum BriefFoot {
     static let historyTitle = "History"
     static let separator = "\u{00B7}"
 
-    /// The values the line can show. Tags alone truncate in the middle.
+    /// The values the line can show. Tags alone give way: they truncate in
+    /// the middle, then collapse to their count.
     enum Value: Equatable { case target, tags, links }
 
     /// One part of the line, in order.
     enum Part: Equatable {
-        /// A set value: which, its words, what VoiceOver says, and the
-        /// row-menu sheet it opens (nil: text only).
-        case value(Value, text: String, spoken: String, opens: PieceRowMenus.Item?)
-        /// Nothing is set: "Details", a menu of these sheets.
+        /// A set value: which, its words, its words when the column is too
+        /// narrow for them ("2 tags"; nil: never shortened), what VoiceOver
+        /// says, and the row-menu sheet it opens (nil: text only).
+        case value(Value, text: String, short: String?, spoken: String, opens: PieceRowMenus.Item?)
+        /// "Details", a menu of these sheets — every one the row menu
+        /// offers, in its order, none marked out.
         case details(offers: [PieceRowMenus.Item])
         /// The History this Brief pulls up.
         case history(PulledUp)
@@ -38,9 +43,8 @@ enum BriefFoot {
 
     /// **The foot line**, from what is set and what the row menu offers.
     /// Set values first — the target, the tags, the links — each opening its
-    /// sheet where the row menu offers it; "Details" (a menu of the offered
-    /// sheets) only when nothing is set and something is offered; then
-    /// History. Publishing has no value here (its settings live in the publish
+    /// sheet where the row menu offers it; then "Details" (a menu of the
+    /// offered sheets) wherever something is offered; then History. Publishing has no value here (its settings live in the publish
     /// config, which Brief never reads in a body): it is in the menus. Pure.
     static func parts(target: PieceTargetMenu?, tags: [String], links: Int,
                       offered: [PieceRowMenus.Item], history: PulledUp?) -> [Part] {
@@ -49,19 +53,20 @@ enum BriefFoot {
         }
         var parts: [Part] = []
         if let target, let value = target.current, value > 0 {
-            parts.append(.value(.target, text: targetText(value, pages: target.measuresPages),
+            parts.append(.value(.target, text: targetText(value, pages: target.measuresPages), short: nil,
                                 spoken: "\(target.fieldLabel): \(targetText(value, pages: target.measuresPages))",
                                 opens: opens(.target)))
         }
         if !tags.isEmpty {
             let joined = tags.joined(separator: ", ")
-            parts.append(.value(.tags, text: joined, spoken: "Tags: \(joined)", opens: opens(.tags)))
+            parts.append(.value(.tags, text: joined, short: tags.count == 1 ? "1 tag" : "\(tags.count) tags",
+                                spoken: "Tags: \(joined)", opens: opens(.tags)))
         }
         if links > 0 {
             let text = links == 1 ? "1 link" : "\(links) links"
-            parts.append(.value(.links, text: text, spoken: text, opens: opens(.addLink)))
+            parts.append(.value(.links, text: text, short: nil, spoken: text, opens: opens(.addLink)))
         }
-        if parts.isEmpty, !offered.isEmpty {
+        if !offered.isEmpty {
             parts.append(.details(offers: offered))
         }
         if let history { parts.append(.history(history)) }
@@ -111,12 +116,14 @@ enum BriefFoot {
     }
 }
 
-/// The foot, drawn: one line of secondary ink that never wraps. The tags
-/// give way first, truncating in the middle; the target and History keep
-/// their words. Each door is a `Button(.plain)` (keyboard navigation reaches
-/// it) that brightens under the pointer and dims while pressed; the menus'
-/// sheets are also on the line's context menu, so a writer with a target set
-/// still reaches Tags… and Publishing… from here.
+/// The foot, drawn: one line of secondary ink that never wraps. When the
+/// column is too narrow, the tags give way first — truncating in the middle,
+/// then collapsing to their count ("5 tags") — and the doors (the values
+/// that open a sheet, Details and History) never truncate
+/// (`BriefFoot.Fit`, tried widest first). Each door is a `Button` or a
+/// `Menu`: in the key-view loop when Keyboard navigation is on, activated
+/// by Space; each brightens under the pointer and dims while pressed. The
+/// same sheets are on the line's context menu.
 struct BriefFootView: View {
     let parts: [BriefFoot.Part]
     /// Where a value's sheet opens: the window's one presenter. Nil opens
@@ -127,18 +134,13 @@ struct BriefFootView: View {
     var offered: [PieceRowMenus.Item] = []
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
-                if index > 0 {
-                    Text(BriefFoot.separator)
-                        .foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                }
-                draw(part)
+        ViewThatFits(in: .horizontal) {
+            ForEach(BriefFoot.Fit.allCases, id: \.self) { fit in
+                row(fit)
             }
-            Spacer(minLength: 0)
         }
-        .font(.callout)
+        // A size under Brief's callout: the quietest line on the pane.
+        .font(.subheadline)
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -153,22 +155,37 @@ struct BriefFootView: View {
         .accessibilityIdentifier("brief.foot")
     }
 
+    private func row(_ fit: BriefFoot.Fit) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Array(fit.shown(parts).enumerated()), id: \.offset) { index, part in
+                if index > 0 {
+                    Text(BriefFoot.separator)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                draw(part, fit: fit)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     @ViewBuilder
-    private func draw(_ part: BriefFoot.Part) -> some View {
+    private func draw(_ part: BriefFoot.Part, fit: BriefFoot.Fit) -> some View {
         switch part {
-        case .value(let value, let text, let spoken, let opens):
-            let isTags = value == .tags
+        case .value(let value, let text, let short, let spoken, let opens):
+            let shown = value == .tags ? fit.tagsText(text, short: short) : text
+            let maxWidth = value == .tags ? fit.tagsMaxWidth : nil
             if let opens, let openSheet {
-                Button { openSheet(opens) } label: { valueText(text, isTags: isTags) }
+                Button { openSheet(opens) } label: { valueText(shown, maxWidth: maxWidth) }
                     .buttonStyle(BriefFootButtonStyle())
                     .help(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))
                     .accessibilityLabel(spoken)
                     .accessibilityHint("Opens \(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))")
-                    .layoutPriority(isTags ? 0 : 1)
+                    .accessibilityIdentifier("brief.value.\(value).\(fit)")
             } else {
-                valueText(text, isTags: isTags)
+                valueText(shown, maxWidth: maxWidth)
                     .accessibilityLabel(spoken)
-                    .layoutPriority(isTags ? 0 : 1)
+                    .accessibilityIdentifier("brief.value.\(value).\(fit)")
             }
         case .details(let offers):
             Menu {
@@ -182,21 +199,13 @@ struct BriefFootView: View {
             .buttonStyle(BriefFootButtonStyle())
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Target, tags and the piece\u{2019}s other details")
+            .help("Target, tags, links and publishing")
             .accessibilityLabel(BriefFoot.detailsTitle)
             .accessibilityHint("A menu: " + offers.map { $0.title.replacingOccurrences(of: "\u{2026}", with: "") }
                 .joined(separator: ", "))
             .accessibilityIdentifier("brief.details")
-            .layoutPriority(2)
         case .history(let item):
-            Button { onPullUp(item) } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.caption2)
-                        .accessibilityHidden(true)
-                    Text(BriefFoot.historyTitle)
-                }
-            }
+            Button { onPullUp(item) } label: { Text(BriefFoot.historyTitle) }
             .buttonStyle(BriefFootButtonStyle())
             .fixedSize()
             .help(item.isProjectHistory
@@ -206,15 +215,62 @@ struct BriefFootView: View {
             .accessibilityHint(item.isProjectHistory ? "Pulls up the project\u{2019}s History"
                                                      : "Pulls up this piece\u{2019}s History")
             .accessibilityIdentifier("brief.history")
-            .layoutPriority(2)
         }
     }
 
-    private func valueText(_ text: String, isTags: Bool) -> some View {
-        Text(text)
-            .lineLimit(1)
-            .truncationMode(isTags ? .middle : .tail)
-            .fixedSize(horizontal: !isTags, vertical: false)
+    /// A value's words: whole, or (tags) capped and truncated in the middle.
+    /// Its ideal width is the capped one, so `ViewThatFits` measures the cap.
+    @ViewBuilder
+    private func valueText(_ text: String, maxWidth: CGFloat?) -> some View {
+        if let maxWidth {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: maxWidth, alignment: .leading)
+        } else {
+            Text(text).lineLimit(1).fixedSize()
+        }
+    }
+}
+
+extension BriefFoot {
+    /// **How far the values give way**, widest first; the foot draws the
+    /// first that fits the column. The tags go first: whole, then capped (and
+    /// truncated in the middle) at two widths, then their count. Past that,
+    /// in the narrowest columns, the links' count leaves the line, then the
+    /// tags' — each still reached by its sheet in Details. The target, Details
+    /// and History keep their words at every step: the doors never truncate.
+    /// Pure.
+    enum Fit: CaseIterable, Hashable {
+        case whole, shortened, shorter, counted, withoutLinks, targetOnly
+
+        /// The parts this step draws.
+        func shown(_ parts: [Part]) -> [Part] {
+            parts.filter { part in
+                guard case .value(let value, _, _, _, _) = part else { return true }
+                switch (self, value) {
+                case (.withoutLinks, .links), (.targetOnly, .links), (.targetOnly, .tags): return false
+                default: return true
+                }
+            }
+        }
+
+        /// The cap on the tags' width; nil draws them whole or counted.
+        var tagsMaxWidth: CGFloat? {
+            switch self {
+            case .whole, .counted, .withoutLinks, .targetOnly: return nil
+            case .shortened: return 140
+            case .shorter: return 72
+            }
+        }
+
+        /// The tags' words at this step.
+        func tagsText(_ text: String, short: String?) -> String {
+            switch self {
+            case .whole, .shortened, .shorter: return text
+            case .counted, .withoutLinks, .targetOnly: return short ?? text
+            }
+        }
     }
 }
 

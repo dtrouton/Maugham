@@ -124,44 +124,48 @@ final class BriefAppraisalTests: XCTestCase {
     /// History; "Details" alone when nothing is set; no how-to words.
     func test_theFootIsTheSetValuesThenHistory() {
         let all: [PieceRowMenus.Item] = [.tags, .addLink, .target, .publishing]
+        let details = BriefFoot.Part.details(offers: all)
         let history = BriefFoot.Part.history(.history(docId: "ch-2"))
+        let words = "\(3000.formatted()) words"
+        let target = BriefFoot.Part.value(.target, text: words, short: nil,
+                                          spoken: "Word target: \(words)", opens: .target)
+        let tags = BriefFoot.Part.value(.tags, text: "rome, draft", short: "2 tags",
+                                        spoken: "Tags: rome, draft", opens: .tags)
 
         // Nothing set: "Details", a menu of what the row menu offers, then History.
-        XCTAssertEqual(foot(chapter(), offered: all), [.details(offers: all), history])
+        XCTAssertEqual(foot(chapter(), offered: all), [details, history])
 
-        // Target only.
-        XCTAssertEqual(foot(chapter(wordTarget: 3000), offered: all), [
-            .value(.target, text: "\(3000.formatted()) words",
-                   spoken: "Word target: \(3000.formatted()) words", opens: .target),
-            history])
+        // Target only; tags only: the value, and Details is still the door
+        // to every other sheet (the follow-up: one visible door always).
+        XCTAssertEqual(foot(chapter(wordTarget: 3000), offered: all), [target, details, history])
+        XCTAssertEqual(foot(chapter(tags: ["rome", "draft"]), offered: all), [tags, details, history])
 
-        // Tags only.
-        XCTAssertEqual(foot(chapter(tags: ["rome", "draft"]), offered: all), [
-            .value(.tags, text: "rome, draft", spoken: "Tags: rome, draft", opens: .tags), history])
-
-        // Both, and links: in that order; no Details word once anything is set.
+        // Both, and links: in that order, then Details, then History. The
+        // menu lists every sheet the row menu offers, none marked out.
         XCTAssertEqual(foot(chapter(tags: ["rome", "draft"], links: ["ch-1"], wordTarget: 3000),
                             offered: all), [
-            .value(.target, text: "\(3000.formatted()) words",
-                   spoken: "Word target: \(3000.formatted()) words", opens: .target),
-            .value(.tags, text: "rome, draft", spoken: "Tags: rome, draft", opens: .tags),
-            .value(.links, text: "1 link", spoken: "1 link", opens: .addLink),
-            history])
+            target, tags,
+            .value(.links, text: "1 link", short: nil, spoken: "1 link", opens: .addLink),
+            details, history])
+
+        // Details offers exactly what the row menu offers (posture).
+        XCTAssertEqual(foot(chapter(wordTarget: 3000), offered: [.target]),
+                       [target, .details(offers: [.target]), history])
 
         // A reviewer's posture (the row menu offers nothing): values read as
         // text, no doors, no Details menu — hidden, never disabled.
         XCTAssertEqual(foot(chapter(tags: ["rome"], links: ["ch-1", "ch-3"], wordTarget: 500),
                             offered: []), [
-            .value(.target, text: "500 words", spoken: "Word target: 500 words", opens: nil),
-            .value(.tags, text: "rome", spoken: "Tags: rome", opens: nil),
-            .value(.links, text: "2 links", spoken: "2 links", opens: nil),
+            .value(.target, text: "500 words", short: nil, spoken: "Word target: 500 words", opens: nil),
+            .value(.tags, text: "rome", short: "1 tag", spoken: "Tags: rome", opens: nil),
+            .value(.links, text: "2 links", short: nil, spoken: "2 links", opens: nil),
             history])
         XCTAssertEqual(foot(chapter(), offered: []), [history], "nothing set, nothing offered: History alone")
 
         // A screenplay's script: the PROJECT's page target.
         let script = StructureItem(id: "script", title: "Script", type: .document, path: "script.fountain")
         XCTAssertEqual(foot(script, type: .screenplay, pageTarget: 1, offered: [.tags, .target]).first,
-                       .value(.target, text: "1 page", spoken: "Page target: 1 page", opens: .target))
+                       .value(.target, text: "1 page", short: nil, spoken: "Page target: 1 page", opens: .target))
         XCTAssertFalse(BriefFoot.offersLinks(projectType: .screenplay))
         XCTAssertTrue(BriefFoot.offersLinks(projectType: .novel))
         XCTAssertTrue(BriefFoot.offersLinks(projectType: .collection))
@@ -172,6 +176,56 @@ final class BriefAppraisalTests: XCTestCase {
                                        history: .projectHistory),
                        [.history(.projectHistory)])
         XCTAssertEqual(BriefFoot.parts(target: nil, tags: [], links: 0, offered: [], history: nil), [])
+    }
+
+    /// **The tags give way, and nothing else does**: whole, capped twice
+    /// (truncating in the middle), then their count; the order is widest
+    /// first, so `ViewThatFits` takes the first that fits.
+    func test_theTagsGiveWayInSteps() {
+        XCTAssertEqual(BriefFoot.Fit.allCases,
+                       [.whole, .shortened, .shorter, .counted, .withoutLinks, .targetOnly])
+        XCTAssertEqual(BriefFoot.Fit.allCases.map(\.tagsMaxWidth), [nil, 140, 72, nil, nil, nil])
+        XCTAssertEqual(BriefFoot.Fit.whole.tagsText("rome, draft", short: "2 tags"), "rome, draft")
+        XCTAssertEqual(BriefFoot.Fit.shorter.tagsText("rome, draft", short: "2 tags"), "rome, draft")
+        XCTAssertEqual(BriefFoot.Fit.counted.tagsText("rome, draft", short: "2 tags"), "2 tags")
+
+        // What each step draws: the doors (Details, History) always; the
+        // target always; the links, then the tags, leave only at the end.
+        let parts = BriefFoot.parts(
+            target: PieceTargetMenu.target(of: chapter(wordTarget: 3000), projectType: .novel,
+                                           projectPageTarget: nil),
+            tags: ["rome", "draft"], links: 2, offered: [.tags, .addLink, .target],
+            history: .history(docId: "ch-2"))
+        func kinds(_ fit: BriefFoot.Fit) -> [String] {
+            fit.shown(parts).map { part in
+                switch part {
+                case .value(let value, _, _, _, _): return "\(value)"
+                case .details: return "details"
+                case .history: return "history"
+                }
+            }
+        }
+        for fit in [BriefFoot.Fit.whole, .shortened, .shorter, .counted] {
+            XCTAssertEqual(kinds(fit), ["target", "tags", "links", "details", "history"], "\(fit)")
+        }
+        XCTAssertEqual(kinds(.withoutLinks), ["target", "tags", "details", "history"])
+        XCTAssertEqual(kinds(.targetOnly), ["target", "details", "history"])
+    }
+
+    /// **Every door on the foot is a real control**: a `Button` or a `Menu`,
+    /// so it joins the key-view loop when Keyboard navigation is on and
+    /// takes Space — never a tap gesture on text, never taken out of focus.
+    func test_theFootsDoorsAreRealControls() throws {
+        let code = try SourceTree.read("Maugham/Views/Brief/BriefDetails.swift")
+        let view = String(code[code.range(of: "struct BriefFootView")!.lowerBound...]
+            .prefix(while: { _ in true }))
+            .components(separatedBy: "struct BriefFootButtonStyle")[0]
+        XCTAssertTrue(view.contains("Button { openSheet(opens) } label:"), "a value is a button")
+        XCTAssertTrue(view.contains("Menu {"), "Details is a menu")
+        XCTAssertTrue(view.contains("Button { onPullUp(item) } label:"), "History is a button")
+        for forbidden in ["onTapGesture", "focusable(false)", ".allowsHitTesting(false)", "focusEffectDisabled"] {
+            XCTAssertFalse(view.contains(forbidden), "the foot's doors must stay controls: \(forbidden)")
+        }
     }
 
     /// The how-to lines are gone from Brief's source, not merely hidden.

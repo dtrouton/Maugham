@@ -35,7 +35,7 @@ final class BriefFootMountedTests: XCTestCase {
 
     /// The tallest a single line of the foot's callout type can be laid out.
     private static var oneLine: CGFloat {
-        let font = NSFont.preferredFont(forTextStyle: .callout)
+        let font = NSFont.preferredFont(forTextStyle: .callout)  // at least the foot's subheadline
         return ceil(font.ascender - font.descender + font.leading) * 1.5
     }
 
@@ -77,29 +77,54 @@ final class BriefFootMountedTests: XCTestCase {
         }
     }
 
+    /// Which `BriefFoot.Fit` the foot drew, read off its target's identifier.
+    private func drawnFit(_ f: StatementMountFixture, in window: NSWindow) throws -> [String] {
+        try BriefFoot.Fit.allCases.compactMap { fit in
+            try f.axFrames(identifiedBy: "brief.value.target.\(fit)", in: window).isEmpty ? nil : "\(fit)"
+        }
+    }
+
+    /// **Everything set, at the narrowest column**: the target, five tags and
+    /// two links, then Details and History — one line, the tags gave way, and
+    /// both doors lie whole inside the column. At the default width the same
+    /// foot keeps more of its tags.
     func test_aSetTargetAndTagsReadOnTheOneLineInTheNarrowestColumn() async throws {
         let f = try await StatementMountFixture.novel(named: "FootSet")
         fixtures.append(f)
         let tags = ["rome", "draft", "the long winter of the harbourmaster", "kelly", "second act"]
         try await f.store.updateInspector(id: f.documentItemId, wordTarget: 3000)
         try await f.store.updateInspector(id: f.documentItemId, tags: tags)
-        let width = Self.narrowest
-        let window = mountBrief(f, width: width)
-        await pumpUntil(deadline: 5) { f.shows(BriefFoot.historyTitle, in: window) }
+        let other = try await f.store.addStructureItem(parentId: nil, title: "Two", kind: .document(.markdown))
+        let third = try await f.store.addStructureItem(parentId: nil, title: "Three", kind: .document(.markdown))
+        try await f.store.updateInspector(id: f.documentItemId, links: [other.id, third.id])
 
-        let foot = try await footFrame(f, in: window)
-        XCTAssertLessThanOrEqual(foot.height, Self.oneLine, "long tags never wrap the foot: \(foot)")
-        let texts = try f.allStaticTexts(in: window)
-        XCTAssertTrue(texts.contains("Word target: \(3000.formatted()) words"), "the target reads: \(texts)")
-        XCTAssertTrue(texts.contains("Tags: " + tags.joined(separator: ", ")), "the tags read: \(texts)")
-        XCTAssertTrue(try f.axFrames(identifiedBy: "brief.details", in: window).isEmpty,
-                      "something is set: no Details menu")
+        var drawn: [Double: [String]] = [:]
+        for width in [Self.narrowest, UIState.defaultDetailColumnWidth] {
+            let window = mountBrief(f, width: width)
+            await pumpUntil(deadline: 5) { f.shows(BriefFoot.historyTitle, in: window) }
 
-        // History stays on screen: the tags gave way, not the door.
-        let history = try XCTUnwrap(try f.axFrames(identifiedBy: "brief.history", in: window).first)
-        let content = window.convertToScreen(try XCTUnwrap(window.contentView).frame)
-        XCTAssertLessThanOrEqual(history.maxX, content.maxX + 0.5,
-                                 "History runs off the \(width)pt column: \(history) in \(content)")
-        XCTAssertGreaterThan(history.width, 0)
+            let foot = try await footFrame(f, in: window)
+            XCTAssertLessThanOrEqual(foot.height, Self.oneLine, "the foot wrapped at \(width)pt: \(foot)")
+            let texts = try f.allStaticTexts(in: window)
+            XCTAssertTrue(texts.contains("Word target: \(3000.formatted()) words"), "the target reads: \(texts)")
+
+            // Details and History are on screen, whole: the tags gave way.
+            let content = window.convertToScreen(try XCTUnwrap(window.contentView).frame)
+            for door in ["brief.details", "brief.history"] {
+                let frame = try XCTUnwrap(try f.axFrames(identifiedBy: door, in: window).first,
+                                          "\(door) is missing at \(width)pt")
+                XCTAssertGreaterThan(frame.width, 0)
+                XCTAssertLessThanOrEqual(frame.maxX, content.maxX + 0.5,
+                                         "\(door) runs off the \(width)pt column: \(frame) in \(content)")
+            }
+            drawn[width] = try drawnFit(f, in: window)
+        }
+        // Each width draws exactly one step, and the narrowest gives way
+        // at least as far as the default.
+        let order = BriefFoot.Fit.allCases.map { "\($0)" }
+        let narrow = try XCTUnwrap(drawn[Self.narrowest]?.first, "\(drawn)")
+        let wide = try XCTUnwrap(drawn[UIState.defaultDetailColumnWidth]?.first, "\(drawn)")
+        XCTAssertEqual(drawn.values.map(\.count), [1, 1], "\(drawn)")
+        XCTAssertGreaterThanOrEqual(order.firstIndex(of: narrow)!, order.firstIndex(of: wide)!, "\(drawn)")
     }
 }
