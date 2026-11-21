@@ -88,6 +88,9 @@ struct PulledUpEscapeModifier: ViewModifier {
     /// Whether the canvas has a selection, asked at event time only — never
     /// in a body, so the window does not observe the canvas model.
     var canvasHasASelection: () -> Bool = { false }
+    /// Whether that selection is newer than the last pull-up
+    /// (`PulledUpMemory.canvasSelectionIsNewer`), asked at event time too.
+    var canvasSelectionIsNewer: () -> Bool = { false }
 
     @State private var escape = PulledUpEscape()
 
@@ -115,11 +118,12 @@ struct PulledUpEscapeModifier: ViewModifier {
     private func sync() {
         escape.sync(isPresented: presented, window: window, close: {
             subject = ProjectWindow.closingBeside(subject)
-        }, isCovered: { [canvasHasASelection] in
+        }, isCovered: { [canvasHasASelection, canvasSelectionIsNewer] in
             RightColumnContent.canvasDetailsCover(
                 canvasIsTheCentre: subject.open == .canvas,
                 somethingIsPulledUp: subject.beside != nil,
-                canvasHasASelection: canvasHasASelection())
+                canvasHasASelection: canvasHasASelection(),
+                selectionIsNewerThanPullUp: canvasSelectionIsNewer())
         })
     }
 }

@@ -60,7 +60,8 @@ struct GoingForView: View {
     /// away); cleared by Done. Per piece — the view is keyed by the piece.
     @State private var editorHeld = false
     /// ⌘⌥N's request (`BriefField.goingFor`), consumed here; `wantsKeys`
-    /// holds it until the editor is mounted and has them (`EditorFocusProbe`).
+    /// holds it until the editor has the keys or the probe gives up
+    /// (`EditorFocusProbe`), never longer.
     @Environment(\.briefFocus) private var focusRequest
     @State private var wantsKeys = false
     /// What the editor's text needs, as `EditorHeightProbe` last measured it;
@@ -231,7 +232,8 @@ struct GoingForView: View {
                 store: store, documentStore: documentStore,
                 kind: .intent, scope: scope, posture: posture)
                 .frame(height: Self.editorHeight(needed: neededHeight))
-                .background(EditorFocusProbe(wanted: wantsKeys, onFocused: { wantsKeys = false }))
+                .background(EditorFocusProbe(wanted: wantsKeys, onFocused: { wantsKeys = false },
+                                                  onGaveUp: { wantsKeys = false }))
                 .background(EditorHeightProbe(onHeight: { neededHeight = $0 }))
                 .onAppear { editorHeld = true }
                 // Whatever takes the editor away (Done, a refusing posture,

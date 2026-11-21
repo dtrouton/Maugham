@@ -104,6 +104,9 @@ struct SceneNavigatorPane: View {
             }
             .binderTreeSections(store: store, state: treeState,
                                 subject: $subject)
+            // A picture row's thumbnail is resolved under this project, as
+            // in the other two tree hosts (review M7).
+            .environment(\.rowThumbnailRoot, store.url)
             .consumingTreeScrollRequests(proxy, state: treeState)
             // Dev-only diagnostic, inert everywhere else — `TreeScrollProbe.swift`.
             .treeScrollProbe()

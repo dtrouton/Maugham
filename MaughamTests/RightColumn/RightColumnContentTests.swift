@@ -166,7 +166,7 @@ final class RightColumnContentTests: XCTestCase {
                     XCTAssertEqual(
                         RightColumnContent.canvasDetailsCover(
                             canvasIsTheCentre: canvas, somethingIsPulledUp: pulled,
-                            canvasHasASelection: selection),
+                            canvasHasASelection: selection, selectionIsNewerThanPullUp: true),
                         canvas && pulled && selection,
                         "canvas \(canvas), pulled up \(pulled), selection \(selection)")
                 }

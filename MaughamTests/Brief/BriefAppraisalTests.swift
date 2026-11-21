@@ -59,7 +59,7 @@ final class BriefAppraisalTests: XCTestCase {
             subject: Binding(get: { subject }, set: { subject = $0 }),
             showInspector: Binding(get: { shown }, set: { shown = $0 }),
             position: Binding(get: { position }, set: { position = $0 }),
-            structure: structure, piece: ProjectWindow.pullUpPiece(in: userInfo))
+            structure: structure, piece: ProjectWindow.pullUpPiece(in: userInfo), memory: nil)
         XCTAssertEqual(subject.beside, .history(docId: "ch-2"))
         XCTAssertEqual(subject.faces, .item("ch-1"), "the faces stay where they were")
         XCTAssertEqual(position, .pulledUp)
@@ -80,7 +80,7 @@ final class BriefAppraisalTests: XCTestCase {
         let event = try SourceTree.read("Maugham/Events/MaughamEvent.swift")
         XCTAssertTrue(event.contains("post(.maughamPullUp, to: .keyWindow,\n             payload: [pullUpKey: PullUpRequest.historyOfTheFaces.rawValue,\n                       pullUpPieceKey: docId])"))
         let window = try SourceTree.read("Maugham/Views/ProjectWindow.swift")
-        XCTAssertTrue(window.contains("piece: ProjectWindow.pullUpPiece(in: note.userInfo))"),
+        XCTAssertTrue(window.contains("piece: ProjectWindow.pullUpPiece(in: note.userInfo),"),
                       "the receiver hands the named piece to the one pull-up act")
     }
 

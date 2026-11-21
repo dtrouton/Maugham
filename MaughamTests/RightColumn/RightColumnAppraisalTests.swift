@@ -138,11 +138,13 @@ final class RightColumnAppraisalTests: XCTestCase {
         let model = CanvasModel()
         model.selection = .region(CanvasRegionID("r1"))
         XCTAssertTrue(RightColumnContent.canvasDetailsCover(
-            canvasIsTheCentre: true, somethingIsPulledUp: true, canvasHasASelection: model.selection != nil))
+            canvasIsTheCentre: true, somethingIsPulledUp: true, canvasHasASelection: model.selection != nil,
+            selectionIsNewerThanPullUp: true))
         CanvasDetailsCover<EmptyView>.showIt(model)
         XCTAssertNil(model.selection)
         XCTAssertFalse(RightColumnContent.canvasDetailsCover(
-            canvasIsTheCentre: true, somethingIsPulledUp: true, canvasHasASelection: model.selection != nil),
+            canvasIsTheCentre: true, somethingIsPulledUp: true, canvasHasASelection: model.selection != nil,
+            selectionIsNewerThanPullUp: true),
             "Show it lifts the cover")
     }
 

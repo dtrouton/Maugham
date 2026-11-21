@@ -42,18 +42,23 @@ enum PinnedReferenceResolver {
     static func pins(forDocId docId: String,
                      store: ProjectStore,
                      projectRoot: URL) -> PinnedShelf {
-        shelves(forDocIds: [docId], store: store, projectRoot: projectRoot)[docId]
+        shelves(forDocIds: [docId], store: store, projectRoot: projectRoot,
+                promotedRegionsListTheirCards: false)[docId]
             ?? PinnedShelf(sections: [])
     }
 
     /// **Every listed document's shelf, from one scene read and one index** —
     /// the tree's fold index (`PieceFoldIndex.build`) asks for every piece at
     /// once, and `pins` per piece would read the canvas sidecar once per piece.
-    /// `pins` is this with one id, so the inputs are spelled once.
+    /// `pins` is this with one id, so the inputs are spelled once. The fold
+    /// alone lists a promoted region's cards after its note
+    /// (`PinnedReferences.pinned`'s `promotedRegionsListTheirCards`, review
+    /// M2): the briefing keeps §2.3's note alone.
     @MainActor
     static func shelves(forDocIds docIds: [String],
                         store: ProjectStore,
-                        projectRoot: URL) -> [String: PinnedShelf] {
+                        projectRoot: URL,
+                        promotedRegionsListTheirCards: Bool) -> [String: PinnedShelf] {
         let read = CanvasClaudeWrite.readScene(store: store, projectRoot: projectRoot)
         let items = CanvasItemIndex.over(research: store.manifest.research)
         var out: [String: PinnedShelf] = [:]
@@ -64,7 +69,8 @@ enum PinnedReferenceResolver {
                 derived: store.derivedResearchItems(forDocumentId: docId).map(\.id),
                 scene: read.scene,
                 scraps: read.scraps,
-                items: items)
+                items: items,
+                promotedRegionsListTheirCards: promotedRegionsListTheirCards)
         }
         return out
     }

@@ -102,16 +102,20 @@ enum RightColumnContent: Equatable {
     }
 
     /// **Whether the canvas's details cover the pulled-up thing** (owner,
-    /// 2026-11-20): with the canvas the centre and something pulled up, the
-    /// position shows the canvas's selected card, region or line while there is
-    /// one, and the pulled-up thing again once the selection clears. Covering
-    /// is drawing only: `subject.beside` is never touched, so the
-    /// `.pulledUp(_)` answer above stands and the control keeps its title.
+    /// 2026-11-20; narrowed by the ruling on review I1, 2026-11-21): with the
+    /// canvas the centre and something pulled up, the position shows the
+    /// canvas's selected card, region or line while there is one AND it was
+    /// made after the last pull-up (`PulledUpMemory.canvasSelectionIsNewer`),
+    /// so a pull-up made over a standing selection — a fold row, a key, Back —
+    /// shows what was asked for, and the writer's next selection covers it
+    /// again. Covering is drawing only: `subject.beside` is never touched, so
+    /// the `.pulledUp(_)` answer above stands and the control keeps its title.
     /// Asked by `CanvasDetailsCover` (the drawing) and `PulledUpEscape` (an
     /// Escape over the cover is not the hidden thing's). Pure.
     static func canvasDetailsCover(canvasIsTheCentre: Bool, somethingIsPulledUp: Bool,
-                                   canvasHasASelection: Bool) -> Bool {
-        canvasIsTheCentre && somethingIsPulledUp && canvasHasASelection
+                                   canvasHasASelection: Bool,
+                                   selectionIsNewerThanPullUp: Bool) -> Bool {
+        canvasIsTheCentre && somethingIsPulledUp && canvasHasASelection && selectionIsNewerThanPullUp
     }
 
     /// Whether the pulled-up position is offered (hidden, never disabled,

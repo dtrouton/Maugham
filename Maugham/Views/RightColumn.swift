@@ -254,7 +254,8 @@ struct RightColumn: View {
                 store: store, position: $position, subject: subject,
                 diagnostics: roster.compiler.diagnostics,
                 width: CGFloat(width) - Self.resizeHandleWidth,
-                closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0)
+                closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0,
+                canvasModel: canvasModel)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

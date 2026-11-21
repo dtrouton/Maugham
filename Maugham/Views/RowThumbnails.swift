@@ -204,7 +204,8 @@ private struct RowThumbnailRootKey: EnvironmentKey {
 
 extension EnvironmentValues {
     /// The project a tree row's project-relative picture path is under; set
-    /// on the tree's `List` by its hosts (`BinderView`, `CollectionPiecesPane`).
+    /// on the tree's `List` by its hosts (`BinderView`, `CollectionPiecesPane`,
+    /// `SceneNavigatorPane`).
     /// Nil draws no thumbnails.
     var rowThumbnailRoot: URL? {
         get { self[RowThumbnailRootKey.self] }

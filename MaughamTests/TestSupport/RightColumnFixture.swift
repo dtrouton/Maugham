@@ -101,7 +101,7 @@ enum RightColumnFixture {
             // The window's one pull-up act, as `ProjectWindow.pullUpItem`.
             pullUp: { item in
                 ProjectWindow.pullUp(item, subject: subject, showInspector: .constant(true),
-                                     position: position)
+                                     position: position, memory: nil)
             },
             resolveHint: resolveHint,
             centreItem: centreItem,

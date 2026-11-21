@@ -35,33 +35,55 @@ extension EnvironmentValues {
 }
 
 /// **Puts the keys in the text editor drawn over this view's frame**, once
-/// asked (`wanted`), and reports when it did. The statement editor binds its
+/// asked (`wanted`), and reports how it ended. The statement editor binds its
 /// `Document` a beat after it mounts, so the probe looks again on a short
-/// step a bounded number of times, then gives up quietly. It finds the
-/// editor as the centre's cover finds its own: a `MaughamTextView` whose
-/// visible frame lies within this one (`CentreKeysView.coverEditor`).
+/// step a bounded number of times. It finds the editor as the centre's cover
+/// finds its own: a `MaughamTextView` whose visible frame lies within this
+/// one (`CentreKeysView.coverEditor`).
+///
+/// **A request claims once and always ends** (review I2): a claim starts
+/// only on the request's false→true edge, never again on a re-render while
+/// it stands, and the host hears `onFocused` or `onGaveUp` — so it lets the
+/// request go either way, and a request that found no editor never takes the
+/// keys out of the manuscript minutes later.
 struct EditorFocusProbe: NSViewRepresentable {
     let wanted: Bool
     let onFocused: () -> Void
+    let onGaveUp: () -> Void
 
     func makeNSView(context: Context) -> ProbeView { ProbeView() }
 
     func updateNSView(_ view: ProbeView, context: Context) {
         view.onFocused = onFocused
-        if wanted { view.claim() }
+        view.onGaveUp = onGaveUp
+        view.update(wanted: wanted)
     }
+
+    /// Whether an update starts a claim: only on the request's rising edge. Pure.
+    static func claims(wanted: Bool, wasWanted: Bool) -> Bool { wanted && !wasWanted }
 
     final class ProbeView: NSView {
         var onFocused: () -> Void = {}
-        private var generation = 0
+        var onGaveUp: () -> Void = {}
+        /// The steps a claim takes before it gives up.
+        var stepsAllowed = ProbeView.attempts
+        /// The claims started, so a newer one supersedes an older one's steps.
+        private(set) var generation = 0
+        private var wasWanted = false
         static let step: TimeInterval = 0.05
         static let attempts = 20
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        func claim() {
+        /// The host's request, as of this update.
+        func update(wanted: Bool) {
+            if EditorFocusProbe.claims(wanted: wanted, wasWanted: wasWanted) { claim() }
+            wasWanted = wanted
+        }
+
+        private func claim() {
             generation += 1
-            attempt(generation, remaining: Self.attempts)
+            attempt(generation, remaining: stepsAllowed)
         }
 
         private func attempt(_ generation: Int, remaining: Int) {
@@ -72,7 +94,11 @@ struct EditorFocusProbe: NSViewRepresentable {
                     self.onFocused()
                     return
                 }
-                if remaining > 0 { self.attempt(generation, remaining: remaining - 1) }
+                if remaining > 0 {
+                    self.attempt(generation, remaining: remaining - 1)
+                } else {
+                    self.onGaveUp()
+                }
             }
         }
 

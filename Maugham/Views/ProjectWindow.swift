@@ -226,6 +226,9 @@ struct ProjectWindow: View {
             if let store, let documentStore {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     binderColumn(store: store)
+                        // The fold's Open in Centre selects on THIS window's
+                        // canvas, never the newest window's (review M1).
+                        .environment(\.windowCanvas, canvasModel)
                         .navigationSplitViewColumnWidth(
                             min: ProjectWindow.binderColumnFloor, ideal: 240)
                 } content: {
@@ -544,6 +547,7 @@ struct ProjectWindow: View {
             resolveRequest: $resolveRequest,
             resolveHint: $resolveHint,
             briefFocus: $briefFocus,
+            pulledUpMemory: pulledUpMemory,
             translationLanguage: editorControl.translationLanguage,
             subject: subjectBinding,
             centreItem: $centreItem,
@@ -626,12 +630,14 @@ struct ProjectWindow: View {
         .modifier(PulledUpEscapeModifier(
             window: window, isNoChromeOn: isNoChromeOn, showInspector: showInspector,
             position: rightColumnPosition, subject: subjectBinding,
-            canvasHasASelection: canvasHasASelection))
+            canvasHasASelection: canvasHasASelection,
+            canvasSelectionIsNewer: { [pulledUpMemory] in pulledUpMemory.canvasSelectionIsNewer }))
         // What was pulled up before (Back, ⌘[) — recorded whether or not the
         // column is drawn. Load-bearing: without it Back never shows.
         .modifier(PulledUpHistoryWiring(
             store: store, window: window, subject: subjectBinding, memory: pulledUpMemory,
-            showInspector: $showInspector, position: $rightColumnPosition))
+            showInspector: $showInspector, position: $rightColumnPosition,
+            canvasModel: canvasModel, treeState: treeState))
         // The tree's sheets and closed-canvas count, served with the tree
         // hidden. Load-bearing: without it Tags…, Add Link… and Publishing…
         // open nothing.
@@ -917,6 +923,9 @@ struct ProjectWindow: View {
         @Binding var resolveHint: RightColumn.AskedHint?
         /// ⌘⌥I's and ⌘⌥N's Brief field.
         @Binding var briefFocus: BriefField?
+        /// The window's pulled-up memory: a key's pull-up of what is already
+        /// up still shows it over a canvas selection (`ProjectWindow.pullUp`).
+        let pulledUpMemory: PulledUpMemory
         /// The editor's review language, for what To resolve shows now.
         let translationLanguage: String?
         /// The window's subject. **Going to a place opens its piece**
@@ -992,7 +1001,8 @@ struct ProjectWindow: View {
                         request, subject: $subject, showInspector: $showInspector,
                         position: $position,
                         structure: store?.manifest.structure ?? [],
-                        piece: ProjectWindow.pullUpPiece(in: note.userInfo))
+                        piece: ProjectWindow.pullUpPiece(in: note.userInfo),
+                        memory: pulledUpMemory)
                 }
                 .onKeyWindowCommand(.maughamTidyAllFilenames, window: window) { _ in
                     showingTidyAllConfirmation = true
@@ -2157,7 +2167,8 @@ struct ProjectWindow: View {
         case .pullUp(let request)?:
             Self.pullUp(
                 request, subject: subjectBinding, showInspector: $showInspector,
-                position: $rightColumnPosition, structure: store.manifest.structure)
+                position: $rightColumnPosition, structure: store.manifest.structure,
+                memory: pulledUpMemory)
         case nil:
             openResearchItem(itemId)
         }
@@ -2323,7 +2334,7 @@ struct ProjectWindow: View {
     /// still shows it.
     func pullUpItem(_ item: PulledUp) {
         Self.pullUp(item, subject: subjectBinding, showInspector: $showInspector,
-                    position: $rightColumnPosition)
+                    position: $rightColumnPosition, memory: pulledUpMemory)
     }
 
     /// **Show a Brief** (a filed line's link, a piece in a Part's or the
@@ -2728,11 +2739,13 @@ struct ProjectWindow: View {
                        subject: Binding<WindowSubject>,
                        showInspector: Binding<Bool>,
                        position: Binding<RightColumnPosition>,
-                       structure: [StructureItem], piece: String? = nil) {
+                       structure: [StructureItem], piece: String? = nil,
+                       memory: PulledUpMemory?) {
         pullUp(RightColumnContent.pulledUp(
                     for: request, subject: subject.wrappedValue, structure: structure,
                     piece: piece),
-               subject: subject, showInspector: showInspector, position: position)
+               subject: subject, showInspector: showInspector, position: position,
+               memory: memory)
     }
 
     /// **The one pull-up act** — the keys', and Brief's links': the item goes
@@ -2743,9 +2756,13 @@ struct ProjectWindow: View {
     /// Brief).
     static func pullUp(_ item: PulledUp, subject: Binding<WindowSubject>,
                        showInspector: Binding<Bool>,
-                       position: Binding<RightColumnPosition>) {
+                       position: Binding<RightColumnPosition>,
+                       memory: PulledUpMemory?) {
         let next = ClickRule.pullUp(item, current: subject.wrappedValue)
         if next != subject.wrappedValue { subject.wrappedValue = next }
+        // What is already up, pulled up again, changes no subject: it shows
+        // over a standing canvas selection all the same (review I1).
+        memory?.pulledUp()
         showInspector.wrappedValue = true
         position.wrappedValue = .pulledUp
     }
@@ -2776,7 +2793,7 @@ struct ProjectWindow: View {
         Self.pullUp(
             .firstReader, subject: subjectBinding, showInspector: $showInspector,
             position: $rightColumnPosition,
-            structure: store?.manifest.structure ?? [])
+            structure: store?.manifest.structure ?? [], memory: pulledUpMemory)
     }
 
     /// **Show**, on the banner that says Claude added a research note: the

@@ -608,7 +608,7 @@ final class RightColumnMountingTests: XCTestCase {
                     subject: Binding(get: { subject }, set: { subject = $0 }),
                     showInspector: Binding(get: { shown }, set: { shown = $0 }),
                     position: Binding(get: { position }, set: { position = $0 }),
-                    structure: self.structure)
+                    structure: self.structure, memory: nil)
             }
             pull()
             XCTAssertEqual(subject.beside, RightColumnContent.pulledUp(
@@ -638,7 +638,7 @@ final class RightColumnMountingTests: XCTestCase {
             subject: Binding(get: { subject }, set: { subject = $0 }),
             showInspector: Binding(get: { shown }, set: { shown = $0 }),
             position: Binding(get: { position }, set: { position = $0 }),
-            structure: structure)
+            structure: structure, memory: nil)
         XCTAssertEqual(subject.beside, .projectHistory)
         XCTAssertEqual(subject.open, .project)
         XCTAssertTrue(shown)
@@ -670,7 +670,7 @@ final class RightColumnMountingTests: XCTestCase {
                 item,
                 subject: Binding(get: { subject }, set: { subject = $0 }),
                 showInspector: Binding(get: { shown }, set: { shown = $0 }),
-                position: Binding(get: { position }, set: { position = $0 }))
+                position: Binding(get: { position }, set: { position = $0 }), memory: nil)
             XCTAssertEqual(position, .pulledUp, "\(item): the link shows what it names")
             XCTAssertEqual(subject, before)
 
@@ -681,7 +681,7 @@ final class RightColumnMountingTests: XCTestCase {
                 item,
                 subject: Binding(get: { subject }, set: { subject = $0 }),
                 showInspector: Binding(get: { shown }, set: { shown = $0 }),
-                position: Binding(get: { position }, set: { position = $0 }))
+                position: Binding(get: { position }, set: { position = $0 }), memory: nil)
             XCTAssertTrue(shown)
             XCTAssertEqual(position, .pulledUp)
         }
@@ -696,7 +696,7 @@ final class RightColumnMountingTests: XCTestCase {
         let hand = Self.flat(try SourceTree.declaration(named: "func pullUpItem(_ item: PulledUp)",
                                                         under: "Maugham"))
         XCTAssertTrue(hand.contains(
-            "Self.pullUp(item, subject: subjectBinding, showInspector: $showInspector, position: $rightColumnPosition)"),
+            "Self.pullUp(item, subject: subjectBinding, showInspector: $showInspector, position: $rightColumnPosition, memory: pulledUpMemory)"),
             hand)
     }
 

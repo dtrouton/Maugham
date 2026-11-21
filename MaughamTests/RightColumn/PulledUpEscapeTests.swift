@@ -181,7 +181,7 @@ final class PulledUpEscapeTests: XCTestCase {
             RightColumnContent.canvasDetailsCover(
                 canvasIsTheCentre: held.subject.open == .canvas,
                 somethingIsPulledUp: held.subject.beside != nil,
-                canvasHasASelection: selected)
+                canvasHasASelection: selected, selectionIsNewerThanPullUp: true)
         })
         XCTAssertTrue(arbiter.offerEscape())
         XCTAssertEqual(held.subject.beside, .research("r-1"),
@@ -396,7 +396,8 @@ final class PulledUpEscapeTests: XCTestCase {
             "subject = ProjectWindow.closingBeside(subject)",
             "RightColumnContent.canvasDetailsCover( canvasIsTheCentre: subject.open == .canvas, "
                 + "somethingIsPulledUp: subject.beside != nil, "
-                + "canvasHasASelection: canvasHasASelection())",
+                + "canvasHasASelection: canvasHasASelection(), "
+                + "selectionIsNewerThanPullUp: canvasSelectionIsNewer())",
         ] {
             XCTAssertTrue(flat.contains(token), "the mount lost \(token): \(flat)")
         }
@@ -406,7 +407,8 @@ final class PulledUpEscapeTests: XCTestCase {
         XCTAssertTrue(windowFlat.contains(
             ".modifier(PulledUpEscapeModifier( window: window, isNoChromeOn: isNoChromeOn, "
             + "showInspector: showInspector, position: rightColumnPosition, subject: subjectBinding, "
-            + "canvasHasASelection: canvasHasASelection))"),
+            + "canvasHasASelection: canvasHasASelection, "
+            + "canvasSelectionIsNewer: { [pulledUpMemory] in pulledUpMemory.canvasSelectionIsNewer }))"),
             "Esc's one mount line on the window's body is gone")
     }
 }

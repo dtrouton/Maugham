@@ -39,6 +39,8 @@ struct BinderPieceFold: View {
     @Bindable var state: BinderTreeSectionsState
     @Binding var subject: WindowSubject
     @Environment(\.rowThumbnailRoot) private var thumbnailRoot
+    /// This window's canvas, where Open in Centre selects (`windowCanvas`).
+    @Environment(\.windowCanvas) private var windowCanvas
     /// The document this fold hangs under — and the *scope* a note made from a
     /// row in it belongs to. See `actions`.
     let documentId: String
@@ -210,7 +212,7 @@ struct BinderPieceFold: View {
                 if let caption {
                     Text(caption)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -299,8 +301,8 @@ struct BinderPieceFold: View {
     /// the pulled-up view's own Open in Centre does (`PulledUpView.opening`).
     /// A picture's node is found on whichever canvas is real (the live model,
     /// else the sidecar), so it is selected when the canvas was not open; the
-    /// selection itself is parked on the window's model until the canvas
-    /// loads (`CanvasModel.revealAndSelect`).
+    /// selection itself is parked on THIS window's model (`windowCanvas`)
+    /// until the canvas loads (`CanvasModel.revealAndSelect`).
     private func openInCentre(_ entry: PieceFoldEntry) {
         guard let opening = Self.doubleClicked(
             entry, subject: subject, structure: store.manifest.structure,
@@ -311,7 +313,7 @@ struct BinderPieceFold: View {
             subject = next
         case .canvas(let next, let target):
             subject = next
-            if let target { store.liveCanvas?.revealAndSelect(target) }
+            if let target { windowCanvas?.revealAndSelect(target) }
         case .centreItem:
             // No fold row pulls up a statement or History.
             break
@@ -421,8 +423,11 @@ struct BinderPieceFold: View {
         }
     }
 
-    /// A region row's count of its cards.
-    static func regionCount(_ count: Int) -> String { "\(count)" }
+    /// A region row's count of its cards, saying what it counts ("3 cards",
+    /// "1 card") — a bare number beside a title reads as an index. A
+    /// picture or a note on the canvas is a card too, as the fold's Cards
+    /// group says.
+    static func regionCount(_ count: Int) -> String { count == 1 ? "1 card" : "\(count) cards" }
 
     /// "Research (3)".
     static func groupTitle(_ run: PieceFoldGroupRun) -> String {
@@ -540,5 +545,20 @@ extension View {
     /// Builds the window's fold index for this tree (`PieceFoldIndexing`).
     func pieceFoldIndex(store: ProjectStore, state: BinderTreeSectionsState) -> some View {
         modifier(PieceFoldIndexing(store: store, state: state))
+    }
+}
+
+private struct WindowCanvasKey: EnvironmentKey {
+    static let defaultValue: CanvasModel? = nil
+}
+
+extension EnvironmentValues {
+    /// **This window's canvas model**, set on the tree's column by
+    /// `ProjectWindow`, so a fold row's Open in Centre selects on the canvas
+    /// of the window it was pressed in. `store.liveCanvas` is the newest
+    /// window's (review M1). Nil selects nothing.
+    var windowCanvas: CanvasModel? {
+        get { self[WindowCanvasKey.self] }
+        set { self[WindowCanvasKey.self] = newValue }
     }
 }

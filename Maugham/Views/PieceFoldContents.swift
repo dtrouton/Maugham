@@ -294,8 +294,11 @@ struct PieceFoldIndex: Equatable {
             case .group: return false
             }
         })
+        // A promoted region's row holds what the region pulled up shows: the
+        // note it became, then its cards (review M2).
         let shelves = PinnedReferenceResolver.shelves(
-            forDocIds: documents.map(\.id), store: store, projectRoot: projectRoot)
+            forDocIds: documents.map(\.id), store: store, projectRoot: projectRoot,
+            promotedRegionsListTheirCards: true)
         let figures = manifest.figures ?? []
         var out: [String: [PieceFoldEntry]] = [:]
         var grouped = Set<String>()

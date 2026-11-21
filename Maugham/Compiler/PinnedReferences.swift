@@ -161,12 +161,20 @@ enum PinnedReferences {
     ///   - items: `CanvasItemIndex.over(research:)` — the canvas's own manifest
     ///     index, which answers both the title and the research-vs-palette
     ///     question. Built once per manifest change at the composition root.
+    ///   - promotedRegionsListTheirCards: the tree's fold only (review M2,
+    ///     2026-11-21). A promoted region's section then holds the note it
+    ///     became AND, after it, its cards in reading order — what the region
+    ///     pulled up beside shows (`PulledUpRegionView.read`), so the fold's
+    ///     region row and the region beside never disagree. Every other
+    ///     reader (the compiler's briefing, the study) keeps §2.3: the note
+    ///     alone.
     static func pinned(forDocId docId: String,
                        links: [String]?,
                        derived: [String],
                        scene: CanvasScene?,
                        scraps: [CanvasNodeID: String],
-                       items: CanvasItemIndex) -> PinnedShelf {
+                       items: CanvasItemIndex,
+                       promotedRegionsListTheirCards: Bool = false) -> PinnedShelf {
 
         var sections: [PinnedSection] = []
         var out: [PinnedReference] = []
@@ -247,6 +255,11 @@ enum PinnedReferences {
                 // the cards instead — the fact is stale and the writer still
                 // has the material.
                 take(promoted)
+                if promotedRegionsListTheirCards {
+                    for id in readingOrder(ofRegion: region.id, in: scene) {
+                        take(pin(for: id, in: scene, scraps: scraps, items: items))
+                    }
+                }
             } else {
                 for id in readingOrder(ofRegion: region.id, in: scene) {
                     take(pin(for: id, in: scene, scraps: scraps, items: items))

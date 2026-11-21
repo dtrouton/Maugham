@@ -1083,7 +1083,7 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
         let index = PieceFoldIndex(entries: ["ch-1": [region]])
         XCTAssertEqual(index.glyph(of: region), PieceFoldIndex.regionGlyph)
         XCTAssertEqual(index.glyph(of: scrap("n1")), PieceFoldIndex.scrapGlyph)
-        XCTAssertEqual(BinderPieceFold.regionCount(cards.count), "1")
+        XCTAssertEqual(BinderPieceFold.regionCount(cards.count), "1 card")
     }
 
     func test_aLinkRowGoesToThePiece() {

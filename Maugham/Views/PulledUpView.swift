@@ -35,7 +35,8 @@ import MaughamCore
 /// a figure's inspector, a research item's panel, a Collection reference
 /// piece; else "Nothing pulled up". **With the canvas the centre**, its
 /// selection's details cover what is pulled up while there is a selection
-/// (`CanvasDetailsCover`); what is pulled up stays pulled up. **With a
+/// made after the last pull-up (`CanvasDetailsCover`); what is pulled up
+/// stays pulled up. **With a
 /// figure, a research item or a reference piece the centre**, its details
 /// stand ABOVE what is pulled up as a section, collapsed until opened
 /// (`RightColumnContent.centreDetailsAbovePulledUp`, `CentreDetailsSection`),
@@ -43,7 +44,7 @@ import MaughamCore
 /// are exclusive.
 ///
 /// **Back** (`PulledUpHistory`): the header brings up again what was pulled
-/// up before, hidden when there is nothing to go back to.
+/// up before, hidden when a press would bring nothing.
 struct PulledUpView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
@@ -66,9 +67,10 @@ struct PulledUpView: View {
     /// (`ProjectWindow.selectedPaletteCardId`, window state the subject does
     /// not carry) — so a card on the wall is never edited beside it too.
     var paletteWallCard: String? = nil
-    /// The window's pulled-up memory: Back's history and whether the centre's
-    /// details stand open. Nil in a probe: no Back, and the section's state
-    /// is the view's own.
+    /// The window's pulled-up memory: Back's history, whether the centre's
+    /// details stand open, and whether the canvas's selection is newer than
+    /// the last pull-up. Nil in a probe: no Back, the section's state is the
+    /// view's own, and any canvas selection covers.
     var memory: PulledUpMemory? = nil
     /// A figure inspector's "Show notes" (To resolve, scoped to the figure).
     var onShowNotes: (String) -> Void = { _ in }
@@ -327,10 +329,15 @@ struct PulledUpView: View {
 
     var body: some View {
         Group {
-            if let pulled = subject.beside, let canvasDetails {
+            // The canvas's cover only where the canvas IS the centre: the
+            // column always passes `canvasDetails`, so without the centre's
+            // test every other centre's details above (the arm below) never
+            // drew (review C1).
+            if let pulled = subject.beside, subject.open == .canvas, let canvasDetails {
                 // The selection is read one leaf down, never here.
                 CanvasDetailsCover(model: canvasModel,
-                                   canvasIsTheCentre: subject.open == .canvas,
+                                   canvasIsTheCentre: true,
+                                   selectionIsNewer: { memory?.canvasSelectionIsNewer ?? true },
                                    coveredTitle: Self.title(of: pulled, store: store,
                                                             regionTitle: coveredRegionTitle),
                                    details: canvasDetails) { pulledUpFace(pulled) }
@@ -398,12 +405,10 @@ struct PulledUpView: View {
         return $detailsExpandedHere
     }
 
-    /// **Back**, when there is something to go back to: the header's control.
+    /// **Back**, when a press would bring something up (`PulledUpMemory.backTarget`,
+    /// asked by the press's own predicate): the header's control.
     private var back: (() -> Void)? {
-        guard let memory,
-              memory.history.offersBack(from: subject.beside,
-                                        resolves: { PulledUpHistory.resolves($0, in: store) })
-        else { return nil }
+        guard let memory, memory.backTarget != nil else { return nil }
         return {
             guard let target = memory.takeBack(from: subject.beside, store: store) else { return }
             subject = ClickRule.pullUp(target, current: subject)
@@ -412,11 +417,7 @@ struct PulledUpView: View {
 
     /// What Back would bring up, for its help.
     private var backTitle: String {
-        guard let memory else { return "" }
-        let (target, _) = memory.history.back(from: subject.beside) {
-            PulledUpHistory.resolves($0, in: store)
-        }
-        return target.map { Self.title(of: $0, store: store) } ?? ""
+        memory?.backTarget.map { Self.title(of: $0, store: store) } ?? ""
     }
 
     /// The pulled-up thing under its header; a region draws its own, from
@@ -817,7 +818,9 @@ struct CentreDetailsSection<Details: View>: View {
 
 /// **The canvas's details over the pulled-up thing** (owner, 2026-11-20):
 /// `RightColumnContent.canvasDetailsCover` decides; this leaf only supplies
-/// the one value the column must not read.
+/// the values the column must not read: the selection, and whether it is
+/// newer than the last pull-up (review I1's ruling — a pull-up made over a
+/// standing selection shows; the next selection covers again).
 ///
 /// **It reads `model.selection` and nothing else.** The selection is its own
 /// stored property, written on a click, a drop, a key or a delete — never per
@@ -836,6 +839,9 @@ struct CentreDetailsSection<Details: View>: View {
 struct CanvasDetailsCover<PulledUpFace: View>: View {
     let model: CanvasModel
     let canvasIsTheCentre: Bool
+    /// Whether the selection is newer than the last pull-up
+    /// (`PulledUpMemory.canvasSelectionIsNewer`), read here in the leaf.
+    let selectionIsNewer: () -> Bool
     /// The covered thing's title (`PulledUpView.title`).
     let coveredTitle: String
     /// `RightColumn.canvasInspector`, the one `RegionInspectorPane` mount.
@@ -858,7 +864,8 @@ struct CanvasDetailsCover<PulledUpFace: View>: View {
     var body: some View {
         if RightColumnContent.canvasDetailsCover(canvasIsTheCentre: canvasIsTheCentre,
                                                  somethingIsPulledUp: true,
-                                                 canvasHasASelection: model.selection != nil) {
+                                                 canvasHasASelection: model.selection != nil,
+                                                 selectionIsNewerThanPullUp: selectionIsNewer()) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Text(Self.coveredLine(coveredTitle))

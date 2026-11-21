@@ -8,7 +8,8 @@ import MaughamCore
 ///
 /// **No second editor, no second writer.** Each line opens the sheet the row
 /// menu opens (`PieceRowMenus.Item` → `BinderTreeSectionsState.pieceRowSheet`,
-/// presented by the tree's sections), and each is offered by the row menu's
+/// presented by the window, `TreeWindowWiring`, so it opens with the tree
+/// hidden or under find), and each is offered by the row menu's
 /// own answer (`PieceRowMenus.items`, from `TreeStructureVerbs` and
 /// `PieceTargetMenu.decide`): hidden, never disabled (tripwires 47, 51). A
 /// value the writer may not change reads as plain text.

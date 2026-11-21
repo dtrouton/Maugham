@@ -26,6 +26,10 @@ struct RightColumnControl: View {
     /// the scene revision, what a pulled-up region's title is re-read on
     /// (`CanvasCardsRevision`, the fold's own signal).
     var closedCanvasWrites: Int = 0
+    /// THIS window's canvas, whose structural revision re-reads a pulled-up
+    /// region's title — never `store.liveCanvas`, the newest window's
+    /// (review M1). Read only while a region is pulled up.
+    var canvasModel: CanvasModel? = nil
 
     @State private var visualLanguageProposed = false
     /// This control's hosting window, for the proposal event's liveness guard
@@ -182,7 +186,7 @@ struct RightColumnControl: View {
     private var regionTitleKey: RegionTitleKey? {
         guard case .canvasRegion(let id)? = subject.beside else { return nil }
         return RegionTitleKey(regionId: id,
-                              canvas: CanvasCardsRevision(sceneRevision: store.liveCanvas?.sceneRevision,
+                              canvas: CanvasCardsRevision(sceneRevision: canvasModel?.sceneRevision,
                                                           closedCanvasWrites: closedCanvasWrites))
     }
 

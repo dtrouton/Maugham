@@ -12,7 +12,9 @@ import MaughamCore
 /// **One ordering.** The members are `PinnedReferences.readingOrder(ofRegion:in:)`,
 /// the shelf's own, so the fold's region row and this view never disagree
 /// about the order. A region the writer promoted to a note shows that note
-/// first, as its title row: the region became it (the shelf's §2.3).
+/// first, as its title row (the region became it, the shelf's §2.3), then
+/// its cards — and the fold's region row holds the same (review M2,
+/// `PinnedReferences.pinned`'s `promotedRegionsListTheirCards`).
 ///
 /// **Read-only, as a pulled-up card is** (`PulledUp.isEditableBeside`): a
 /// scrap's words live in the canvas's shared text storage, and a second
@@ -41,7 +43,8 @@ struct PulledUpRegionView: View {
     var backTitle: String = ""
 
     @State private var read: Read?
-    /// Owned pictures, decoded in the `.task`, never in `body`.
+    /// Owned pictures, decoded off the main actor in the `.task`, never in
+    /// `body`, at no more than the column's size (`pictureCapPoints`).
     @State private var images: [String: NSImage] = [:]
 
     // MARK: - The decisions, pure
@@ -152,7 +155,7 @@ struct PulledUpRegionView: View {
             let next = Self.read(regionId, scene: scene.scene, scraps: scene.scraps,
                                  items: CanvasItemIndex.over(research: store.manifest.research))
             read = next
-            loadImages(for: next)
+            await loadImages(for: next)
         }
     }
 
@@ -243,19 +246,35 @@ struct PulledUpRegionView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Decodes the region's owned pictures not already held, off the body
-    /// path; drops the ones the region no longer holds.
-    private func loadImages(for read: Read) {
+    /// The widest a picture here is drawn, in points — wider than the right
+    /// column is ever dragged — and so the most it is decoded to.
+    static let pictureCapPoints: CGFloat = 800
+
+    /// Decodes the region's owned pictures not already held, OFF the main
+    /// actor through the canvas's one decoder (`CanvasThumbnails.decode`, its
+    /// decompression-bomb gate included) at the column's size, as
+    /// `RowThumbnails` does (review M8); drops the ones the region no longer
+    /// holds.
+    private func loadImages(for read: Read) async {
         guard case .region(_, let members) = read else { images = [:]; return }
         let paths = Set(members.compactMap { member -> String? in
             if case .picture(let path) = member { return path }
             return nil
         })
         var next = images.filter { paths.contains($0.key) }
-        for path in paths where next[path] == nil {
-            if let url = try? SafeRelativePath.resolve(path, under: store.url),
-               let image = NSImage(contentsOf: url) {
-                next[path] = image
+        let wanted: [(path: String, url: URL)] = paths.filter { next[$0] == nil }.compactMap { path in
+            (try? SafeRelativePath.resolve(path, under: store.url)).map { (path, $0) }
+        }
+        if !wanted.isEmpty {
+            let pixels = Int((Self.pictureCapPoints * CanvasThumbnails.assumedPixelScale).rounded(.up))
+            let decoded = await Task.detached(priority: .utility) {
+                wanted.compactMap { item -> (String, CGImage)? in
+                    CanvasThumbnails.decode(item.url, maxPixelSize: pixels).map { (item.path, $0) }
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            for (path, image) in decoded {
+                next[path] = NSImage(cgImage: image, size: .zero)
             }
         }
         if next.keys != images.keys { images = next }
