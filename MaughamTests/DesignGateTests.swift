@@ -809,8 +809,6 @@ final class DesignGateTests: XCTestCase {
         let store = DesignProposalStore(projectURL: project)
         let first = try store.stage(report: Self.report(), round: 1,
                                     designerName: "Tschichold", language: nil)
-        let second = try store.stage(report: Self.report(), round: 2,
-                                     designerName: "Tschichold", language: nil)
 
         // 1. A compile is running. Names the job, because a writer with two
         //    editions compiling needs to know which one to wait for.
@@ -834,11 +832,18 @@ final class DesignGateTests: XCTestCase {
             first, projectURL: project, jobManager: CompileJobManager())
         else { return XCTFail("the first approval should have gone through") }
 
-        // 3. The same proposal again: its own backup already stands.
+        // 3. The same proposal again: the store holds it approved, so the
+        //    guard every promotion asks first refuses it (shell p4 Task 6 fix
+        //    round 2, N1) — before the backup slot is consulted.
         let doubleApprove = try Self.refusal(
             await DesignGatePromotion.approve(first, projectURL: project,
                                               jobManager: CompileJobManager()))
-        XCTAssertTrue(doubleApprove.contains(first.id), doubleApprove)
+        XCTAssertEqual(doubleApprove, DesignGate.notPendingRefusal)
+
+        // A second round staged now is pending: the first is approved, not
+        // pending, so staging supersedes nothing.
+        let second = try store.stage(report: Self.report(), round: 2,
+                                     designerName: "Tschichold", language: nil)
 
         // 4. A DIFFERENT proposal, refused by the project's one backup slot —
         //    naming the proposal holding it and both ways out.

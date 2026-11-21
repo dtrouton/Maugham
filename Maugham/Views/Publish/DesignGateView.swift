@@ -200,6 +200,9 @@ struct DesignGateView: View {
     let projectURL: URL
     var actions: DesignGateActions = DesignGateActions()
     var hasOpenProposalRound: Bool = false
+    /// Whether this Mac may decide the design (`DesignGate.mayDecide`, the
+    /// window's statement door): none of the four verbs where it may not.
+    var mayDecide: Bool = true
     var onClose: () -> Void = { }
     var onProposalChanged: (DesignProposalStore.Proposal) -> Void = { _ in }
 
@@ -242,7 +245,7 @@ struct DesignGateView: View {
 
     private var verbs: [DesignGate.Verb] {
         DesignGate.verbs(status: proposal.status,
-                         hasOpenProposalRound: hasOpenProposalRound)
+                         hasOpenProposalRound: hasOpenProposalRound, mayDecide: mayDecide)
     }
 
     private var panel: DesignGate.SamplePanel {

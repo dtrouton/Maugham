@@ -446,21 +446,25 @@ final class ResolveEditionVerbTests: XCTestCase {
         XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: refused), [])
         XCTAssertFalse(TranslationRoundReport.glossaryOffers(refused).adopt)
         XCTAssertFalse(TranslationRoundReport.glossaryOffers(refused).skip)
-        XCTAssertFalse(ResolvePane.mayDecideDesign(.settling))
-        XCTAssertEqual(EditionDesignRow.verbs(status: .pending, mayDecide: ResolvePane.mayDecideDesign(.settling)), [])
+        XCTAssertFalse(DesignGate.mayDecide(.settling))
+        XCTAssertEqual(EditionDesignRow.verbs(status: .pending, mayDecide: DesignGate.mayDecide(.settling)), [])
         XCTAssertFalse(EditionHeadView.offersRun(docIds: ["a"], mayTranslate: { _ in Posture.settling.allows(.translate) }))
 
         let author = TranslationAuthorVerbs.decide(document: .author, editionBrief: .author, pieceIntent: .author)
         XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: author), [.fine, .keepMine, .makeRule])
         XCTAssertTrue(TranslationRoundReport.glossaryOffers(author).adopt)
-        XCTAssertTrue(ResolvePane.mayDecideDesign(.author))
+        XCTAssertTrue(DesignGate.mayDecide(.author))
         XCTAssertTrue(EditionHeadView.offersRun(docIds: ["a"], mayTranslate: { _ in Posture.author.allows(.translate) }))
 
         // Wired: the pane asks the Visual Language statement's posture; the
         // head's design controls stand behind it.
         let pane = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
             .joined(separator: "\n")
-        XCTAssertTrue(pane.contains("mayDecideDesign: Self.mayDecideDesign(postureOfStatement(.visualLanguage)),"))
+        XCTAssertTrue(pane.contains("mayDecideDesign: DesignGate.mayDecide(documentStore: documentStore,"))
+        let centre = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/CentreColumn.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(centre.contains("mayDecide: DesignGate.mayDecide(documentStore: documentStore,"),
+                      "the centre's gate asks the one design predicate (fix round 2, M10)")
         let head = SourceScan.codeLines(of: try! SourceTree.sourceOfType("EditionHeadView", under: ["Maugham"]))
             .joined(separator: "\n")
         XCTAssertTrue(head.contains("if mayDecideDesign {"))
@@ -563,5 +567,123 @@ final class ResolveEditionVerbTests: XCTestCase {
                        "Runs the 1 chapter of \u{201C}Volume One\u{201D}, the imprint chosen above the book.")
         XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil),
                        "Runs every chapter of the book: 3 chapters.")
+    }
+
+    // MARK: - Fix round 2
+
+    /// **N1: Approve over a stale copy** of a discarded and of a superseded
+    /// proposal is refused, and nothing is promoted.
+    func test_approveOverAStaleCopyOfADiscardedOrSupersededProposalIsRefused() async throws {
+        let url = TestTemp.root.appendingPathComponent("approve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let store = DesignProposalStore(projectURL: url)
+        func stage(_ round: Int) throws -> DesignProposalStore.Proposal {
+            try store.stage(report: DesignerReport(specMarkdown: "A page.", files: [
+                .init(path: "template.tex", content: "% tex \(round)")]), round: round, designerName: "T",
+                            language: nil)
+        }
+        let discarded = try stage(1)
+        guard case .done = DesignGatePromotion.discard(discarded, projectURL: url) else {
+            return XCTFail("premise: the discard")
+        }
+        let superseded = try stage(2)
+        _ = try stage(3)   // supersedes round 2
+        XCTAssertEqual(try store.load(id: superseded.id).status, .superseded, "premise")
+        for stale in [discarded, superseded] {
+            XCTAssertEqual(stale.status, .pending, "premise: the surface still holds it as waiting")
+            guard case .refused(let sentence) = await DesignGatePromotion.approve(
+                stale, projectURL: url, jobManager: CentreColumn.compileJobs(for: url)) else {
+                return XCTFail("a stale copy was approved")
+            }
+            XCTAssertEqual(sentence, DesignGate.notPendingRefusal)
+            XCTAssertNotEqual(try store.load(id: stale.id).status, .approved)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: url.appendingPathComponent(".maugham/publish/template.tex").path), "nothing promoted")
+    }
+
+    /// **N2: a pair proposed twice** is recorded once by the pipeline, an
+    /// older ledger's duplicate lists one row, and answering it answers
+    /// every copy — the dot and Status's count clear.
+    func test_aDuplicateGlossaryProposalIsOneProposal() async throws {
+        let fog = TranslationRound.GlossaryProposalRecord(term: "fog", rendering: "niebla", reason: "a", adopted: false)
+        let again = TranslationRound.GlossaryProposalRecord(term: "fog", rendering: "niebla", reason: "b", adopted: false)
+        let moor = TranslationRound.GlossaryProposalRecord(term: "moor", rendering: "páramo", reason: "", adopted: false)
+        XCTAssertEqual(TranslationRound.GlossaryProposalRecord.deduped([fog, again, moor]), [fog, moor])
+        let pipeline = SourceScan.codeLines(of: try SourceTree.read("Maugham/Compiler/TranslationPipeline.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(pipeline.contains("round.glossaryProposals = TranslationRound.GlossaryProposalRecord.deduped("),
+                      "the pipeline records a pair once")
+
+        let h = try await makeHarness()
+        var round = TranslationRound(number: 1, language: "es", docId: h.doc.docId, startedAt: Date())
+        round.endedAt = Date()
+        round.glossaryProposals = [fog, again]   // an older ledger's duplicate
+        try h.rounds.append(round)
+        let items = ResolveEditionItems.items(language: "es", isSource: false, docIds: [h.doc.docId],
+                                              read: .init(language: "es", rounds: [h.doc.docId: round]))
+        XCTAssertEqual(items.count, 1, "one row, one id")
+        guard case .filed = await actions(h).adopt(round, fog.identity) else { return XCTFail("Adopt refused") }
+        XCTAssertEqual(try stored(h).glossaryProposals.map(\.adopted), [true, true], "every copy answered")
+        XCTAssertFalse(ResolveEditionItems.leavesSomething(try stored(h)), "the dot and the count clear")
+        XCTAssertEqual(try briefRulings(h).count, 1)
+        await h.documentStore.close()
+    }
+
+    /// **N3: two presses across the filing's await** — Adopt twice, Keep
+    /// mine twice, started together — file once.
+    func test_twoPressesAcrossASlowFilingFileOnce() async throws {
+        let h = try await makeHarness()
+        let held = try seed(h, departures: ["a"], glossary: [("fog", "niebla")])
+        let verbs = actions(h)
+        let fog = held.glossaryProposals[0].identity
+        async let first = verbs.adopt(held, fog)
+        async let second = verbs.adopt(held, fog)
+        let adopts = await [first, second]
+        XCTAssertEqual(adopts.filter { if case .filed = $0 { return true } else { return false } }.count, 1)
+        XCTAssertTrue(adopts.contains(.refused(TranslationRoundReport.alreadyAnsweredLine)))
+        let pid = held.departures[0].paragraphId
+        async let keep1 = verbs.keepMine(held, pid, "keep", .edition("es"), "a")
+        async let keep2 = verbs.keepMine(held, pid, "keep", .edition("es"), "a")
+        let keeps = await [keep1, keep2]
+        XCTAssertEqual(keeps.filter { if case .filed = $0 { return true } else { return false } }.count, 1)
+        XCTAssertEqual(try briefRulings(h).count, 2, "one glossary ruling, one directive")
+        XCTAssertTrue(TranslationRoundActions.claim("free"), "every claim was released")
+        TranslationRoundActions.release("free")
+        await h.documentStore.close()
+    }
+
+    /// **N4: an edition's empty line in three states** — still reading the
+    /// book, no round yet, everything settled — and the reader says when its
+    /// first walk has read the whole book.
+    func test_anEditionNeverSaysClearWhileTheBookIsStillBeingRead() async throws {
+        XCTAssertEqual(ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: true,
+                                                     readingBook: true), ResolveEditionItems.readingBookLine)
+        XCTAssertTrue(ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: false)
+                        .contains("No round has run"))
+        XCTAssertTrue(ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: true)
+                        .contains("waits on you"))
+        XCTAssertFalse(ResolveEditionItems.readingBookLine.contains("waits on you"))
+
+        let temp = TempDirectory()
+        defer { temp.cleanup() }
+        let book = try await ResolvePresenceTests.book(in: temp.url, chapters: 3, noted: [0])
+        let reader = ResolvePresenceReader()
+        let key = ResolvePresenceReader.key(store: book.store, documentStore: book.documentStore,
+                                            diagnostics: nil, annotationsToken: 0, script: nil)
+        reader.update(key, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        XCTAssertFalse(reader.hasFinishedAWalk, "before the walk the book is not read")
+        XCTAssertFalse(ResolvePresence.bookReading(reader.snapshot, complete: reader.hasFinishedAWalk).isComplete)
+        while let request = reader.pendingRequest {
+            await reader.run(request, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        }
+        XCTAssertTrue(reader.hasFinishedAWalk)
+        let watch = SourceScan.codeLines(of: try SourceTree.sourceOfType("ResolvePresenceWatch", under: ["Maugham"]))
+            .joined(separator: "\n")
+        XCTAssertTrue(watch.contains("ResolvePresence.bookReading(reader.snapshot, complete: reader.hasFinishedAWalk)"))
+        let pane = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(pane.contains("readingBook: presenceReading.map { !$0.isComplete } ?? false"))
+        await book.documentStore.close()
     }
 }

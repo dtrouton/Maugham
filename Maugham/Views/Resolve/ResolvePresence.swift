@@ -171,6 +171,11 @@ enum ResolvePresence {
         /// an edition's To resolve (shell p4 Task 6 fix round, review I4).
         var languageNotes: [ProjectAnnotation] = []
 
+        /// Whether the window's first walk has read the whole book
+        /// (`ResolvePresenceReader.hasFinishedAWalk`): until it has, an
+        /// absent question may be one not yet reached.
+        var isComplete = false
+
         /// The language notes as the walk's shape, for `ResolveReader.read`.
         var languageNotesSnapshot: ProjectAnnotationsSnapshot {
             ProjectAnnotationsSnapshot(annotations: languageNotes,
@@ -178,7 +183,7 @@ enum ResolvePresence {
         }
     }
 
-    static func bookReading(_ snapshot: ResolveSnapshot) -> BookReading {
+    static func bookReading(_ snapshot: ResolveSnapshot, complete: Bool = true) -> BookReading {
         var questions: [String: [Annotation]] = [:]
         var languageNotes: [ProjectAnnotation] = []
         for case .note(let note) in snapshot.items {
@@ -191,7 +196,8 @@ enum ResolvePresence {
             }
         }
         return BookReading(openQuestions: questions, unreadable: Set(snapshot.unreadableDocIds),
-                           sequences: snapshot.sequences, languageNotes: languageNotes)
+                           sequences: snapshot.sequences, languageNotes: languageNotes,
+                           isComplete: complete)
     }
 
     /// **Each piece's open to-dos, for Status's column** (shell p4 Task 4),
@@ -603,8 +609,16 @@ final class ResolvePresenceReader {
         pendingRequest = nil
         if let last, !stale.isEmpty || figuresStale {
             requestWalk(order: last.read.scope.docIds)
+        } else {
+            hasFinishedAWalk = true
         }
     }
+
+    /// **Whether the window's first walk has read every piece** (shell p4
+    /// Task 6 fix round 2, N4). Until then a piece not yet reached is simply
+    /// absent from the snapshot, so "nothing here" is not yet an answer.
+    /// Monotonic: a later walk replaces entries and never drops one.
+    private(set) var hasFinishedAWalk = false
 
     // MARK: - Helpers
 
@@ -784,7 +798,7 @@ struct ResolvePresenceWatch: View {
             bookLevel: designPending || compileProblems)
         if state.presence != marks { state.presence = marks }
         if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
-        let reading = ResolvePresence.bookReading(reader.snapshot)
+        let reading = ResolvePresence.bookReading(reader.snapshot, complete: reader.hasFinishedAWalk)
         if state.bookReading != reading { state.bookReading = reading }
     }
 
@@ -804,6 +818,8 @@ struct ResolvePresenceWatch: View {
                 await reader.run(request, store: store, documentStore: documentStore,
                                  diagnostics: diagnostics, onChange: publish)
                 guard !Task.isCancelled else { return }
+                // The walk's end may complete the book's first reading (N4).
+                publish()
                 self.request = reader.pendingRequest
             }
             // The sidecars the strains are read from, off the main actor; a

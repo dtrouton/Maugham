@@ -397,9 +397,10 @@ final class TranslationPipeline {
                     applyFixOutcomes(outcome, annotationIds: annotationIds, notes: notes, to: &round)
                     if leg == .finalFix {
                         round.summary = outcome.summary
-                        round.glossaryProposals = outcome.glossaryProposals.map {
-                            .init(term: $0.term, rendering: $0.rendering, reason: $0.reason, adopted: false)
-                        }
+                        round.glossaryProposals = TranslationRound.GlossaryProposalRecord.deduped(
+                            outcome.glossaryProposals.map {
+                                .init(term: $0.term, rendering: $0.rendering, reason: $0.reason, adopted: false)
+                            })
                     }
                 }
 

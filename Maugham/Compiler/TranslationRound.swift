@@ -175,6 +175,14 @@ struct TranslationRound: Codable, Equatable, Sendable {
         /// position a list held — a round rewritten between a draw and a
         /// press cannot have the wrong term adopted.
         var identity: String { "\u{AB}" + term + "\u{BB}\u{2192}\u{AB}" + rendering + "\u{BB}" }
+
+        /// **One proposal per identity, the first kept** (shell p4 Task 6 fix
+        /// round 2, N2): a translator that proposes the same pair twice
+        /// records it once, so a verb named by identity answers it whole.
+        static func deduped(_ proposals: [GlossaryProposalRecord]) -> [GlossaryProposalRecord] {
+            var seen = Set<String>()
+            return proposals.filter { seen.insert($0.identity).inserted }
+        }
     }
 
     /// A note or departure the translator declined — the report's

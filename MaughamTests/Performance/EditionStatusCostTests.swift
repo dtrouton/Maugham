@@ -165,6 +165,93 @@ final class EditionStatusCostTests: XCTestCase {
         return "\(chapters) chapters, es → fr → es — before: \(before.text); after: \(after.text)"
     }
 
+    /// **What one verb costs the main actor** (shell p4 Task 6 fix round 2,
+    /// N5): a book of `chapters` closed chapters, each with a finished
+    /// Spanish round of ten departures, ten notes and five glossary
+    /// proposals (the ledger's size at that book). Timed on the main actor:
+    /// Fine (one decode + one encode), Adopt (a decode to decide, a ruling,
+    /// a decode + encode), and the reads the announcement sets off — the
+    /// edition's Status (rounds and trends) and the centre's re-read.
+    private func verbProbe(chapters: Int) async throws -> String {
+        let book = try await ResolvePresenceTests.book(in: temp.url, chapters: chapters, noted: [])
+        let rounds = TranslationRoundStore(projectURL: book.url)
+        let words = String(repeating: "The translation moves the weight of the clause. ", count: 6)
+        for (index, id) in book.ids.enumerated() {
+            var round = TranslationRound(number: index + 1, language: "es", docId: id, startedAt: Date())
+            round.endedAt = Date()
+            round.summary = words
+            round.departures = (0..<10).map {
+                .init(id: "d\($0)", paragraphId: "p\($0)", verdict: "drifted", kind: "tone",
+                      note: words, gloss: words, outcome: nil)
+            }
+            round.notes = (0..<10).map {
+                .init(id: "n\($0)", leg: .read, author: "reader", paragraphId: "p\($0)", kind: "flow",
+                      severity: nil, text: words, outcome: nil)
+            }
+            round.glossaryProposals = (0..<5).map {
+                .init(term: "term \($0)", rendering: "término \($0)", reason: words, adopted: false)
+            }
+            try rounds.append(round)
+        }
+        let size = (try? FileManager.default.attributesOfItem(
+            atPath: TranslationRoundStore.fileURL(language: "es", in: book.url).path)[.size] as? Int) ?? 0
+        let actions = TranslationRoundActions.production(store: book.store, documentStore: book.documentStore,
+                                                         projectURL: book.url, world: nil)
+        let target = try XCTUnwrap(rounds.latestFinished(language: "es", docId: book.ids[0]))
+        // Before the fix: each read as one synchronous main-actor step.
+        let clock = ContinuousClock()
+        var start = clock.now
+        _ = try rounds.mutate(language: "es", docId: book.ids[1], number: 2) { $0.departures[0].dismissed = true }
+        let fineBefore = ms(clock.now - start)
+        start = clock.now
+        _ = rounds.latestFinishedByPiece(language: "es")
+        _ = rounds.trendsByPiece(language: "es")
+        let statusBefore = ms(clock.now - start)
+        start = clock.now
+        _ = rounds.record(language: "es", docId: book.ids[0], number: 1)
+        let centreBefore = ms(clock.now - start)
+        // After: the longest main-actor stall while each runs as it now does
+        // (the heartbeat's own floor first: a 30 ms sleep holds nothing).
+        let idle = await longestStall { try? await Task.sleep(for: .milliseconds(30)) }
+        let fine = await longestStall { _ = await actions.dismiss(target, "d0") }
+        let adopt = await longestStall { _ = await actions.adopt(target, target.glossaryProposals[0].identity) }
+        let status = await longestStall {
+            _ = await Task.detached { rounds.latestFinishedAndTrendsByPiece(language: "es") }.value
+        }
+        let centre = await longestStall {
+            _ = await Task.detached { rounds.record(language: "es", docId: book.ids[0], number: 1) }.value
+        }
+        await book.documentStore.close()
+        return String(format: "%d chapters (ledger %.1f MB, heartbeat floor %.1f ms) — main actor held, before → after: "
+                      + "Fine %.1f → %.1f ms; Adopt (incl. a ruling) – → %.1f ms; Status's re-read %.1f → %.1f ms "
+                      + "(2 decodes → 1, off main); the centre's re-read %.1f → %.1f ms",
+                      chapters, Double(size) / 1_000_000, idle, fineBefore, fine, adopt, statusBefore, status,
+                      centreBefore, centre)
+    }
+
+    /// The longest gap a 1 ms main-actor heartbeat sees while `work` runs —
+    /// the most the main actor was held at once.
+    private func longestStall(_ work: () async -> Void) async -> Double {
+        final class Beat { var last = ContinuousClock.now; var worst = 0.0; var running = true }
+        let beat = Beat()
+        let clock = ContinuousClock()
+        let ticker = Task { @MainActor in
+            while beat.running {
+                let now = clock.now
+                beat.worst = max(beat.worst, self.ms(now - beat.last))
+                beat.last = now
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
+        await Task.yield()
+        await work()
+        let now = clock.now
+        beat.worst = max(beat.worst, ms(now - beat.last))
+        beat.running = false
+        await ticker.value
+        return beat.worst
+    }
+
     func test_whatTheEditionsStatusReadCostsABook() async throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["MAUGHAM_PERF_FIXTURE"] == "1",
@@ -179,7 +266,10 @@ final class EditionStatusCostTests: XCTestCase {
                      try await toResolveProbe(chapters: 200),
                      "SELECTING AN EDITION (the list's read; questions from the walk vs the presence read)",
                      try await switchProbe(chapters: 30),
-                     try await switchProbe(chapters: 200)].joined(separator: "\n")
+                     try await switchProbe(chapters: 200),
+                     "ONE VERB (main actor)",
+                     try await verbProbe(chapters: 30),
+                     try await verbProbe(chapters: 200)].joined(separator: "\n")
         let attachment = XCTAttachment(string: table)
         attachment.name = "edition-status-cost.txt"
         attachment.lifetime = .keepAlways

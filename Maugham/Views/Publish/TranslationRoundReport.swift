@@ -410,6 +410,13 @@ enum TranslationRoundReport {
     static let alreadySettledLine =
         "This change is already settled, so nothing was filed again."
 
+    /// A filing that landed whose change could not be marked settled: it is
+    /// in the brief; the change is still listed, and Fine settles it.
+    static func filedButNotSettled(reason: String) -> String {
+        "Filed \u{2014} but the change could not be marked settled: \(reason) Press Fine to settle it; "
+            + "do not file it again."
+    }
+
     /// Adopt or Skip over a glossary proposal already answered.
     static let alreadyAnsweredLine =
         "This proposal is already answered, so nothing was filed again."

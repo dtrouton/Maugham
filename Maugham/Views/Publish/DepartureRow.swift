@@ -145,9 +145,12 @@ struct DepartureRowView: View {
     /// Task 6 fix round: a Mac that may not answer there — a reviewer, a
     /// piece outside a narrowed book — is offered none); Keep mine and Make
     /// it a rule file where their homes may be written.
+    /// A settled row — ruled or said fine — offers nothing (fix round 2,
+    /// N6).
     static func offers(isSettled: Bool, verbs: TranslationAuthorVerbs) -> [Offer] {
-        (verbs.answer ? [.fine] : [])
-            + (isSettled ? [] : (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : []))
+        guard !isSettled else { return [] }
+        return (verbs.answer ? [.fine] : [])
+            + (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
     }
 
     /// One trailing line where it fits (the report's centre); in a narrow

@@ -379,6 +379,9 @@ struct CentreColumn: View {
                                // manager and warm designer.
                                actions: designGateActions(projectURL: store.url),
                                hasOpenProposalRound: designer.hasOpenProposalRound,
+                               // The one design predicate (To resolve's rows ask it too).
+                               mayDecide: DesignGate.mayDecide(documentStore: documentStore,
+                                                               statements: store.manifest.statements),
                                // Deselecting is the whole of Back: the arm is a pure
                                // function of this one piece of window state.
                                onClose: { publishCentre.clearProposal() },

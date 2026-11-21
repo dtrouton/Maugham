@@ -1420,6 +1420,10 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertEqual(everyProbe.count, arms.count, "each arm is read by a string of its own")
 
         let probe = RightColumnFixture.Probe()
+        // The window's presence read has read the book (no watch is mounted
+        // here): an edition's empty line is then its settled answer, not
+        // "Still reading…" (shell p4 Task 6 fix round 2, N4).
+        probe.figureTree.bookReading.isComplete = true
         let window = TestWindow.mount(
             RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe)
                 .environment(f.preferences),

@@ -124,12 +124,17 @@ struct EditionStatusHost: View {
                                                 unreadable: reading.unreadable),
                            languages: [language], yieldsAndStops: true))
         guard !Task.isCancelled else { return }
+        // The ledger: ONE decode, off the main actor (fix round 2, N5).
         let rounds = TranslationRoundStore(projectURL: store.url)
+        let language = language
+        let ledger = await Task.detached(priority: .userInitiated) {
+            rounds.latestFinishedAndTrendsByPiece(language: language)
+        }.value
+        guard !Task.isCancelled else { return }
         next.rows = EditionStatusRows.rows(
             structure: structure,
             report: report.rows.filter { $0.language.caseInsensitiveCompare(language) == .orderedSame },
-            rounds: rounds.latestFinishedByPiece(language: language),
-            trends: rounds.trendsByPiece(language: language))
+            rounds: ledger.latest, trends: ledger.trends)
         next.unreadable = report.unreadable
         next.isLoaded = true
         loaded = next

@@ -792,8 +792,15 @@ struct PublishPreviewModifier: ViewModifier {
             // copy back nor offers a verb already answered.
             .onProjectEvent(.maughamTranslationRoundChanged,
                             url: projectURL, window: window) { _ in
-                centre.rereadRound {
-                    TranslationRoundStore(projectURL: projectURL).record(language: $0, docId: $1, number: $2)
+                // The record decoded off the main actor (fix round 2, N5).
+                guard let round = centre.selectedRound else { return }
+                let (language, docId, number) = (round.language, round.docId, round.number)
+                Task {
+                    let fresh = await Task.detached(priority: .userInitiated) {
+                        TranslationRoundStore(projectURL: projectURL)
+                            .record(language: language, docId: docId, number: number)
+                    }.value
+                    centre.rereadRound { $0 == language && $1 == docId && $2 == number ? fresh : nil }
                 }
             }
     }

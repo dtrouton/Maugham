@@ -110,6 +110,23 @@ struct TranslationRoundStore {
         return byPiece
     }
 
+    /// **`latestFinishedByPiece` and `trendsByPiece` from ONE decode** —
+    /// what an edition's Status reads (shell p4 Task 6 fix round 2, N5: the
+    /// ledger is megabytes at book size, and the two calls decoded it twice).
+    func latestFinishedAndTrendsByPiece(language: String)
+    -> (latest: [String: TranslationRound], trends: [String: [Int]]) {
+        let ledger = load(language: language)
+        var byPiece = ledger.latestByPiece
+        for round in ledger.rounds where Self.isFinished(round) {
+            if let kept = byPiece[round.docId], kept.number >= round.number { continue }
+            byPiece[round.docId] = round
+        }
+        let trends = ledger.rounds.reduce(into: [String: [Int]]()) {
+            $0[$1.docId, default: []].append($1.noteCount)
+        }
+        return (byPiece, trends)
+    }
+
     /// Notes per round over the last five, oldest first — the desk's trend.
     func trend(language: String) -> [Int] {
         Array(load(language: language).rounds.suffix(5)).map(\.noteCount)

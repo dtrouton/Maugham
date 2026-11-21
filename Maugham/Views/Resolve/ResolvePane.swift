@@ -302,7 +302,8 @@ struct ResolvePane: View {
         guard case .edition(let language, let isSource, _) = scope,
               editionRead.language == language else { return nil }
         return ResolveEditionItems.clearLine(language: language, isSource: isSource,
-                                             hasRounds: editionRead.hasRounds)
+                                             hasRounds: editionRead.hasRounds,
+                                             readingBook: presenceReading.map { !$0.isComplete } ?? false)
     }
 
     private var openDocId: String? { subject.open.itemID }
@@ -1140,7 +1141,8 @@ struct ResolvePane: View {
             round: TranslationRoundActions.production(
                 store: store, documentStore: documentStore, projectURL: projectURL, world: world),
             authorVerbs: { docId, _ in cache[docId] ?? .none },
-            mayDecideDesign: Self.mayDecideDesign(postureOfStatement(.visualLanguage)),
+            mayDecideDesign: DesignGate.mayDecide(documentStore: documentStore,
+                                                  statements: store.manifest.statements),
             approve: { proposal in
                 await DesignGatePromotion.approve(
                     proposal, projectURL: projectURL,
@@ -1158,13 +1160,6 @@ struct ResolvePane: View {
                 editionHeard &+= 1
             },
             onFiled: { filed($0) })
-    }
-
-    /// **Whether this Mac may decide the book's design** — the Visual
-    /// Language statement's own posture (review M10): a reviewer, or a book
-    /// narrowed away from it, is offered no design verb. Pure.
-    static func mayDecideDesign(_ visualLanguage: Posture) -> Bool {
-        visualLanguage.allows(.editStatement)
     }
 
     /// **A round as a verb wrote it**, patched in at once (review C1): the

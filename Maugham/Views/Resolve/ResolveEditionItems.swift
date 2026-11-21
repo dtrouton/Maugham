@@ -82,7 +82,11 @@ enum ResolveEditionItems {
                 items.append(.translationChange(docId: docId, language: language,
                                                 round: round.number, departure))
             }
-            for proposal in round.glossaryProposals where isOpen(proposal) {
+            // One row per identity — an older ledger may hold the same pair
+            // twice (N2); answering the row answers every copy.
+            var listed = Set<String>()
+            for proposal in round.glossaryProposals
+            where isOpen(proposal) && listed.insert(proposal.identity).inserted {
                 items.append(.glossaryProposal(docId: docId, language: language,
                                                round: round.number, proposal))
             }
@@ -177,12 +181,17 @@ enum ResolveEditionItems {
 
     /// **What an edition with nothing in its list says** — true, and the next
     /// step where there is one.
-    static func clearLine(language: String, isSource: Bool, hasRounds: Bool) -> String {
+    static func clearLine(language: String, isSource: Bool, hasRounds: Bool,
+                          readingBook: Bool = false) -> String {
         if isSource {
             return "Nothing about the book\u{2019}s design or its last compile waits on you. "
                 + "Run design above to ask for a new design."
         }
         let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        // **Never "nothing waits" over a book not yet read** (fix round 2,
+        // N4): until the window's first walk has reached every chapter, a
+        // question not yet reached is simply absent.
+        if readingBook { return readingBookLine }
         guard hasRounds else {
             return "No round has run in \(edition) yet. Run one above; what the translator "
                 + "asks and changes will be listed here."
@@ -190,6 +199,9 @@ enum ResolveEditionItems {
         return "Nothing in the \(edition) edition waits on you: every question is answered "
             + "and every change from the latest rounds is settled."
     }
+
+    static let readingBookLine =
+        "Still reading the book\u{2019}s questions\u{2026} What the translator asks will be listed here."
 
     // MARK: The tree's mark
 

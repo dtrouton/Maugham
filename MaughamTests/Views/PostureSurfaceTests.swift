@@ -2095,9 +2095,14 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).adopt)
         XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).skip)
         XCTAssertFalse(TranslationRoundReport.glossaryOffers(pieces).adopt)
-        XCTAssertFalse(ResolvePane.mayDecideDesign(reviewerOnTheBrief))
-        XCTAssertFalse(ResolvePane.mayDecideDesign(piecesAuthorOnTheBrief))
-        XCTAssertTrue(ResolvePane.mayDecideDesign(posture(.author(.book), in: .projectStatement)))
+        XCTAssertFalse(DesignGate.mayDecide(reviewerOnTheBrief))
+        XCTAssertFalse(DesignGate.mayDecide(piecesAuthorOnTheBrief))
+        XCTAssertTrue(DesignGate.mayDecide(posture(.author(.book), in: .projectStatement)))
+        // The centre's gate asks the same predicate (fix round 2, M10).
+        XCTAssertEqual(DesignGate.verbs(status: .pending, hasOpenProposalRound: true,
+                                        mayDecide: DesignGate.mayDecide(reviewerOnTheBrief)), [])
+        XCTAssertEqual(DesignGate.verbs(status: .approved, hasOpenProposalRound: false,
+                                        mayDecide: DesignGate.mayDecide(piecesAuthorOnTheBrief)), [])
         XCTAssertEqual(pieces.keepMineHome(language: "es"), .everyEdition,
                        "the sheet opens on the home she may write")
 
@@ -2111,8 +2116,8 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: all),
                        [.fine, .keepMine, .makeRule], "the promotion back offers both, and Fine")
         XCTAssertEqual(all.keepMineHome(language: "es"), .edition("es"))
-        XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [.fine],
-                       "a settled row offers neither filing verb again")
+        XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [],
+                       "a settled row — ruled or fine — offers nothing again (fix round 2, N6)")
     }
 
     /// **Keep mine's sheet offers only the homes that may be written** (P3c

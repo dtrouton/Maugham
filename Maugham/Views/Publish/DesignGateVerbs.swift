@@ -1,4 +1,5 @@
 import Foundation
+import MaughamCore
 
 /// **What the writer can DO at the gate, and what happens when they can't**
 /// (publish-department P4 Task 6, spec §5's verdict).
@@ -103,6 +104,29 @@ extension DesignGate {
     /// Request Changes: a design the writer has already put live is not one they
     /// are still iterating on. `.rejected`, `.superseded` and a status from a
     /// newer build offer nothing at all — see `settledNote`.
+    /// **Whether this Mac may decide the book's design** — the Visual
+    /// Language statement's posture (the design's own home). The one
+    /// predicate the centre's gate and To resolve's design rows and head
+    /// ask (shell p4 Task 6 fix round 2, M10): a reviewer, or a book
+    /// narrowed away from it, is offered no verdict anywhere. Pure.
+    static func mayDecide(_ visualLanguage: Posture) -> Bool {
+        visualLanguage.allows(.editStatement)
+    }
+
+    /// `mayDecide` asked of the window's statement door.
+    @MainActor
+    static func mayDecide(documentStore: DocumentStore, statements: [Statement]) -> Bool {
+        mayDecide(documentStore.posture(forDocId: StatementEditorHost.postureDocId(
+            kind: .visualLanguage, scope: .project, statements: statements)))
+    }
+
+    /// The verbs, where this Mac may decide the design; none where it may
+    /// not (hidden, never disabled).
+    static func verbs(status: DesignProposalStore.Status, hasOpenProposalRound: Bool,
+                      mayDecide: Bool) -> [Verb] {
+        mayDecide ? verbs(status: status, hasOpenProposalRound: hasOpenProposalRound) : []
+    }
+
     static func verbs(status: DesignProposalStore.Status,
                       hasOpenProposalRound: Bool) -> [Verb] {
         switch status {
@@ -378,6 +402,13 @@ enum DesignGatePromotion {
     static func approve(_ proposal: DesignProposalStore.Proposal,
                         projectURL: URL,
                         jobManager: CompileJobManager) async -> DesignGateOutcome {
+        // **The STORE's proposal decides** (shell p4 Task 6 fix round 2, N1;
+        // Discard's guard): a surface still holding a proposal as pending
+        // after it was discarded or superseded — in the gate, another window,
+        // on a peer — must not promote it.
+        if let refusal = refusalUnlessStillPending(proposal, projectURL: projectURL) {
+            return .refused(refusal)
+        }
         do {
             try await ProposalPromotion.approve(
                 proposal: proposal, projectURL: projectURL, jobManager: jobManager)
@@ -430,10 +461,9 @@ enum DesignGatePromotion {
         // away. An approved, superseded or already-turned-down proposal is
         // left exactly as it is.
         let store = DesignProposalStore(projectURL: projectURL)
-        guard let stored = try? store.load(id: proposal.id) else {
-            return .refused(DesignGate.notPendingRefusal)
+        if let refusal = refusalUnlessStillPending(proposal, projectURL: projectURL) {
+            return .refused(refusal)
         }
-        guard stored.status == .pending else { return .refused(DesignGate.notPendingRefusal) }
         do {
             try store.reject(id: proposal.id, note: DesignGate.turnedDownNote)
         } catch {
@@ -441,6 +471,16 @@ enum DesignGatePromotion {
         }
         return settled(proposal, projectURL: projectURL, status: .rejected,
                        sentence: DesignGate.discardedConfirmation)
+    }
+
+    /// **Refused unless the store holds `proposal` as pending** — Approve's
+    /// and Discard's one guard: the copy a surface holds is never the
+    /// answer. Nil to go ahead.
+    static func refusalUnlessStillPending(_ proposal: DesignProposalStore.Proposal,
+                                          projectURL: URL) -> String? {
+        guard let stored = try? DesignProposalStore(projectURL: projectURL).load(id: proposal.id),
+              stored.status == .pending else { return DesignGate.notPendingRefusal }
+        return nil
     }
 
     /// The proposal as the store now holds it, and the announcement.
