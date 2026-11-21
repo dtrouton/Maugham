@@ -283,6 +283,27 @@ case compileProblem(TectonicLogParser.Diagnostic)
 
 ---
 
+### Task 6a: Brief's foot, without the how-to lines (Denver, 2026-11-21)
+
+Added after the plan was written; build it after Task 6. Denver's ruling: drop the clutter; what matters is that set values are visible and History is findable; teaching belongs at the moment of action.
+
+**Before → after (the writer's seat).** A new chapter's Brief today: the line, Going for, then "What you answer in To resolve is filed here.", "Nothing is attached to this chapter yet…", "Set a target", "Add tags", "Publishing settings", and a History link — on every new piece, for ever. After: the line, Going for, and ONE quiet foot line.
+
+**Files:** `Maugham/Views/Brief/BriefDetails.swift`, `Maugham/Views/Brief/BriefDecidedSection.swift` (`emptyLine`), `Maugham/Views/Brief/BriefPieceView.swift`, the Resolve row/verb that files an answer (find the one writer of a Decided entry), their tests. Read the built code first; the names below are contracts, the code decides the shape.
+
+**Contract.**
+- **The foot line** is one line of secondary ink: the piece's SET values, then the doors. Target set → its words ("3,000 words"); tags set → the tags, truncating in the middle; nothing set → the single word "Details". Then "History". Each value opens the sheet it opens today (`pieceRowSheet`, the window's one presenter); "Details" opens a menu of the three sheets (Target…, Tags…, Publishing…), each offered exactly where `PieceRowMenus.items` offers it (posture). Publishing is reached only through that menu and the row menu; it has no row of its own.
+- **Decided** draws only when something is filed. `emptyLine` and its heading-when-empty go.
+- **Attached research** draws only when something is attached. Both empty-attachment sentences go.
+- **Teaching at the moment of action:** when an answer in To resolve is filed to Decided, the row's confirmation says "Filed in Brief" as a button that shows Brief (`position = .brief`) for the piece it was filed on. If To resolve already confirms a filing, extend that line; do not add a second confirmation. It stands until the writer's next act in the list, never on a timer.
+- A pure function gives the foot line's parts from (target, tags, offers); test it as a table: nothing set; target only; tags only; both; a reviewer's posture (values read as text, no doors it may not use); a Part and the Book (whatever Brief shows for them today — keep parity).
+
+**Tests.** The table above; a mounted Brief built through Task 1's host builder for a fresh piece asserting the foot is one line and that neither sentence nor an empty Decided heading is in the tree; one for a piece with a target and tags; the filing confirmation's rule as a pure test plus a wiring census that its button writes the position and nothing else. No press-then-wait (tripwire 33). **Disable experiment:** restore `emptyLine`'s draw and see the fresh-piece test go red.
+**Tripwires:** 4, 47/51, the `pieceRowSheet` presenter census, DocBudgetTests (Views/AREA.md ceiling), any test pinning the removed strings (delete those assertions with the strings; say which).
+**Hand check:** a brand-new chapter's Brief is the line, Going for and one foot line; set a target and tags and they appear in the foot; answer a note and "Filed in Brief" takes you there.
+
+---
+
 ## Plan 4b — Translation and the carries
 
 ### Task 7: The desk's last verbs find their homes; the desk is deleted
@@ -508,3 +529,12 @@ Plans 1–3's hand checks stand. This plan adds:
 1. **Where should the designer's Run live now the desk goes?** Recommendation: at the head of the Source edition's To resolve (with its direction field), because a design round raises a proposal you then decide on in the same list. The alternative is Visual Language pulled up, where the design is described. This changes Task 6's head.
 2. **Should a chapter read in a language stay in that language when you move to the next chapter?** Recommendation: yes, when the next chapter has that translation, else Source; reading an edition chapter by chapter is the use. The alternative is always back to Source (today's behaviour). This changes `ReadingLanguage.carried` in Task 8.
 3. **A click on a chapter in an edition's Status: open it read in that edition's language, or in the source?** Recommendation: in the edition's language (you were looking at that edition). Your 2026-11-16 rule makes the Status an overview you navigate from, so it opens the chapter either way; the question is only the language. This changes one line in Tasks 5 and 8.
+
+
+## Denver's answers (2026-11-21)
+
+1. The designer's Run: at the head of the Source edition's To resolve, as recommended.
+2. A chapter read in a language stays in that language on the next chapter when it has the translation, else Source, as recommended.
+3. A click on a chapter in an edition's Status opens it in the edition's language, as recommended.
+4. The two ADR 0035 leftovers no plan owned — drop-target feedback on the tree, and a drop on the Canvas row as the capture-to-canvas route — join Task 10. Its implementer derives the contract from ADR 0035's "Not yet built" lines and the built drop routes, and pins each with a test.
+5. Brief's how-to lines go: Task 6a.
