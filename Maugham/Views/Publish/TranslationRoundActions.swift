@@ -244,30 +244,29 @@ extension TranslationRoundActions {
         let rounds = TranslationRoundStore(projectURL: projectURL)
         //
         // **The ledger is decoded and written off the main actor** (fix round
-        // 2, N5: a 200-chapter ledger is ~3 MB, and a decode plus an encode
-        // held the main actor ~28 ms per Fine). Only the announcement is the
-        // main actor's.
+        // 2, N5: a 200-chapter ledger is ~3 MB), **on the project's one
+        // ledger queue, in the order pressed** (fix round 3): enqueued here,
+        // on the main actor, at the press, so a second verb on another row,
+        // the pipeline's append and an MCP read are each before or after it
+        // — never between its load and its write. The announcement is posted
+        // on the main actor once the write has landed.
         func mutate(_ round: TranslationRound,
                     _ change: @escaping @Sendable (inout TranslationRound) throws -> Void)
         async -> Result<TranslationRound, Error> {
-            let (language, docId, number) = (round.language, round.docId, round.number)
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<TranslationRound, Error> in
-                do {
-                    return .success(try rounds.mutate(language: language, docId: docId, number: number, change))
-                } catch {
-                    return .failure(error)
-                }
-            }.value
+            let result: Result<TranslationRound, Error>
+            do {
+                result = .success(try await rounds.mutateInOrder(
+                    language: round.language, docId: round.docId, number: round.number, change))
+            } catch {
+                result = .failure(error)
+            }
             if case .success = result { MaughamEvent.postTranslationRoundChanged(projectURL: projectURL) }
             return result
         }
         /// The round as it stands, for a verb that must decide before it
-        /// files — read off the main actor.
+        /// files — read on the ledger queue, behind every write already asked.
         func current(_ round: TranslationRound) async -> TranslationRound? {
-            let (language, docId, number) = (round.language, round.docId, round.number)
-            return await Task.detached(priority: .userInitiated) {
-                rounds.record(language: language, docId: docId, number: number)
-            }.value
+            await rounds.recordInOrder(language: round.language, docId: round.docId, number: round.number)
         }
         /// Whether `departureId` is still a change to look at in the stored
         /// round — nil when the round or the departure is gone.

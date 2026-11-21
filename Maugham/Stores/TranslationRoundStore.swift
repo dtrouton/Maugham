@@ -69,12 +69,12 @@ struct TranslationRoundStore {
     }
 
     func nextNumber(language: String) -> Int {
-        load(language: language).nextNumber
+        reading(language) { $0.nextNumber }
     }
 
     /// Newest first.
     func rounds(language: String) -> [TranslationRound] {
-        load(language: language).rounds.reversed()
+        reading(language) { $0.rounds.reversed() }
     }
 
     /// The newest round for `(language, docId)`, or for the language when
@@ -88,7 +88,7 @@ struct TranslationRoundStore {
     /// existed falls back to the ring, and the higher number wins (numbers
     /// rise per language, so it is the newer).
     func latestFinished(language: String, docId: String) -> TranslationRound? {
-        let ledger = load(language: language)
+        let ledger = reading(language) { $0 }
         let kept = ledger.latestByPiece[docId]
         let ringed = ledger.rounds.last { $0.docId == docId && Self.isFinished($0) }
         switch (kept, ringed) {
@@ -101,7 +101,7 @@ struct TranslationRoundStore {
     /// Every piece's newest finished round in `language`, keyed by docId —
     /// `latestFinished` for the whole book in one read.
     func latestFinishedByPiece(language: String) -> [String: TranslationRound] {
-        let ledger = load(language: language)
+        let ledger = reading(language) { $0 }
         var byPiece = ledger.latestByPiece
         for round in ledger.rounds where Self.isFinished(round) {
             if let kept = byPiece[round.docId], kept.number >= round.number { continue }
@@ -115,7 +115,7 @@ struct TranslationRoundStore {
     /// ledger is megabytes at book size, and the two calls decoded it twice).
     func latestFinishedAndTrendsByPiece(language: String)
     -> (latest: [String: TranslationRound], trends: [String: [Int]]) {
-        let ledger = load(language: language)
+        let ledger = reading(language) { $0 }
         var byPiece = ledger.latestByPiece
         for round in ledger.rounds where Self.isFinished(round) {
             if let kept = byPiece[round.docId], kept.number >= round.number { continue }
@@ -129,34 +129,52 @@ struct TranslationRoundStore {
 
     /// Notes per round over the last five, oldest first — the desk's trend.
     func trend(language: String) -> [Int] {
-        Array(load(language: language).rounds.suffix(5)).map(\.noteCount)
+        reading(language) { Array($0.rounds.suffix(5)).map(\.noteCount) }
     }
 
     /// Notes per round for one piece's rounds still in the ring, oldest first.
     func trend(language: String, docId: String) -> [Int] {
-        load(language: language).rounds.filter { $0.docId == docId }.map(\.noteCount)
+        reading(language) { $0.rounds.filter { $0.docId == docId }.map(\.noteCount) }
     }
 
     /// `trend(language:docId:)` for every piece in one read, keyed by docId —
     /// what an edition's Status asks (shell p4 Task 5), never once per row.
     func trendsByPiece(language: String) -> [String: [Int]] {
-        load(language: language).rounds.reduce(into: [:]) { $0[$1.docId, default: []].append($1.noteCount) }
+        reading(language) { ledger in
+            ledger.rounds.reduce(into: [:]) { $0[$1.docId, default: []].append($1.noteCount) }
+        }
     }
 
     /// Append one round, advance the number past it, trim the ring. A
     /// finished round also becomes its piece's latest; a cancelled one goes
     /// to the ring only.
     func append(_ round: TranslationRound) throws {
-        var ledger = load(language: round.language)
+        try changing(round.language) { ledger in Self.appending(round, to: &ledger) }
+    }
+
+    /// **Append, in order, without holding the caller** (shell p4 Task 6 fix
+    /// round 3): the pipeline's save, enqueued on the project's ledger queue
+    /// behind every write already pressed, so the main actor never waits on a
+    /// book-sized decode. A read asked after it (the next round's number, a
+    /// list re-read on the round-ended post) is queued after it and sees it.
+    func appendInOrder(_ round: TranslationRound, onFailure: @escaping @Sendable (Error) -> Void) {
+        let store = self
+        Self.queue(for: projectURL).async {
+            do { try store.changingOnQueue(round.language) { Self.appending(round, to: &$0) } } catch {
+                onFailure(error)
+            }
+        }
+    }
+
+    private static func appending(_ round: TranslationRound, to ledger: inout Ledger) {
         ledger.rounds.append(round)
-        if Self.isFinished(round) {
+        if isFinished(round) {
             ledger.latestByPiece[round.docId] = round
         }
         ledger.nextNumber = max(ledger.nextNumber, round.number + 1)
-        if ledger.rounds.count > Self.ringSize {
-            ledger.rounds.removeFirst(ledger.rounds.count - Self.ringSize)
+        if ledger.rounds.count > ringSize {
+            ledger.rounds.removeFirst(ledger.rounds.count - ringSize)
         }
-        try write(ledger, language: round.language)
     }
 
     enum UpdateError: LocalizedError {
@@ -174,7 +192,10 @@ struct TranslationRoundStore {
     /// (shell p4 Task 6 fix round, review C1). Its piece's latest when it is
     /// one, else the ring's.
     func record(language: String, docId: String, number: Int) -> TranslationRound? {
-        let ledger = load(language: language)
+        reading(language) { Self.record(in: $0, docId: docId, number: number) }
+    }
+
+    private static func record(in ledger: Ledger, docId: String, number: Int) -> TranslationRound? {
         if let kept = ledger.latestByPiece[docId], kept.number == number { return kept }
         return ledger.rounds.last { $0.number == number && $0.docId == docId }
     }
@@ -191,7 +212,40 @@ struct TranslationRoundStore {
     @discardableResult
     func mutate(language: String, docId: String, number: Int,
                 _ change: (inout TranslationRound) throws -> Void) throws -> TranslationRound {
-        var ledger = load(language: language)
+        try changing(language) { try Self.mutating(&$0, docId: docId, number: number, change) }
+    }
+
+    /// **`mutate`, in the order it was asked, off the caller's actor** (fix
+    /// round 3): enqueued on the project's ledger queue at the call — a
+    /// verb pressed before another is written before it — and awaited.
+    func mutateInOrder(language: String, docId: String, number: Int,
+                       _ change: @escaping @Sendable (inout TranslationRound) throws -> Void)
+    async throws -> TranslationRound {
+        let store = self
+        return try await withCheckedThrowingContinuation { continuation in
+            Self.queue(for: projectURL).async {
+                continuation.resume(with: Result {
+                    try store.changingOnQueue(language) {
+                        try Self.mutating(&$0, docId: docId, number: number, change)
+                    }
+                })
+            }
+        }
+    }
+
+    /// `record`, in order behind every write already asked, off the caller.
+    func recordInOrder(language: String, docId: String, number: Int) async -> TranslationRound? {
+        let store = self
+        return await withCheckedContinuation { continuation in
+            Self.queue(for: projectURL).async {
+                continuation.resume(returning: Self.record(in: store.load(language: language),
+                                                           docId: docId, number: number))
+            }
+        }
+    }
+
+    private static func mutating(_ ledger: inout Ledger, docId: String, number: Int,
+                                 _ change: (inout TranslationRound) throws -> Void) throws -> TranslationRound {
         var written: TranslationRound?
         // Number AND piece: two Macs can mint one number in one language for
         // different chapters before either sees the other's file.
@@ -205,8 +259,52 @@ struct TranslationRoundStore {
             written = kept
         }
         guard let written else { throw UpdateError.roundGone(number: number) }
-        try write(ledger, language: language)
         return written
+    }
+
+    // MARK: - One writer at a time (shell p4 Task 6 fix round 3)
+
+    /// **Every read and every read-modify-write of a project's round ledger
+    /// goes through ONE serial queue per project** — the struct is made
+    /// freely, so the queue lives in a table keyed by the project's folder,
+    /// shared by every `TranslationRoundStore` for that project. A verb, the
+    /// pipeline's append and an MCP read therefore never interleave a load
+    /// with another's write: no change is dropped, and the queue's FIFO
+    /// keeps writes in the order they were asked. `load` and `write` are
+    /// called from `reading`, `changingOnQueue` and `recordInOrder` only
+    /// (`TranslationRoundStoreTests.test_theLedgerIsReadAndWrittenThroughTheQueueOnly`).
+    private static let queuesLock = NSLock()
+    nonisolated(unsafe) private static var queues: [String: DispatchQueue] = [:]
+
+    static func queue(for projectURL: URL) -> DispatchQueue {
+        let key = projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+        queuesLock.lock()
+        defer { queuesLock.unlock() }
+        if let queue = queues[key] { return queue }
+        let queue = DispatchQueue(label: "maugham.translation-rounds")
+        queues[key] = queue
+        return queue
+    }
+
+    /// Test seam: called on the queue between a write's load and its write
+    /// — where an unserialised writer would let another in.
+    nonisolated(unsafe) static var betweenLoadAndWrite: ((URL) -> Void)?
+
+    private func reading<T>(_ language: String, _ body: (Ledger) -> T) -> T {
+        Self.queue(for: projectURL).sync { body(load(language: language)) }
+    }
+
+    private func changing<T>(_ language: String, _ body: (inout Ledger) throws -> T) throws -> T {
+        try Self.queue(for: projectURL).sync { try changingOnQueue(language, body) }
+    }
+
+    /// The one load-change-write; on the project's queue only.
+    private func changingOnQueue<T>(_ language: String, _ body: (inout Ledger) throws -> T) throws -> T {
+        var ledger = load(language: language)
+        let result = try body(&ledger)
+        Self.betweenLoadAndWrite?(projectURL)
+        try write(ledger, language: language)
+        return result
     }
 
     /// A missing or undecodable file is an empty ledger, logged — the ring is

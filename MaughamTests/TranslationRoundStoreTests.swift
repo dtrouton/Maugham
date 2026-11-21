@@ -375,4 +375,103 @@ final class TranslationRoundStoreTests: XCTestCase {
         XCTAssertEqual(ring.first { $0.docId == "ch-b" }?.summary, "b's")
         XCTAssertEqual(ring.map(\.docId).sorted(), ["ch-a", "ch-b"])
     }
+
+    // MARK: - One writer at a time (shell p4 Task 6 fix round 3)
+
+    /// **Concurrent writers on one language all land.** The first writer is
+    /// parked between its load and its write (the test seam); while it is
+    /// parked, two more mutates on other rounds and an append are asked from
+    /// fresh store values. Unserialised, they would load and write past the
+    /// parked one and its stale write would drop them; on the project's one
+    /// queue they wait their turn, in order.
+    func test_concurrentWritersOnOneLanguageAllLand() async throws {
+        let url = temp.url
+        let store = TranslationRoundStore(projectURL: url)
+        for (number, doc) in [(1, "d1"), (2, "d2"), (3, "d3")] {
+            var round = TranslationRound(number: number, language: "es", docId: doc, startedAt: Date())
+            round.endedAt = Date()
+            round.departures = [.init(id: "x", paragraphId: "a1b2", verdict: "drifted", kind: "k",
+                                      note: "n", gloss: "g")]
+            try store.append(round)
+        }
+        final class Gate: @unchecked Sendable {
+            let parked = DispatchSemaphore(value: 0)
+            let release = DispatchSemaphore(value: 0)
+            let lock = NSLock()
+            var armed = true
+            func take() -> Bool { lock.lock(); defer { lock.unlock() }; let was = armed; armed = false; return was }
+        }
+        let gate = Gate()
+        let key = url.standardizedFileURL.resolvingSymlinksInPath().path
+        TranslationRoundStore.betweenLoadAndWrite = { project in
+            guard project.standardizedFileURL.resolvingSymlinksInPath().path == key, gate.take() else { return }
+            gate.parked.signal()
+            gate.release.wait()
+        }
+        defer { TranslationRoundStore.betweenLoadAndWrite = nil }
+
+        let first = Task.detached {
+            try TranslationRoundStore(projectURL: url).mutate(language: "es", docId: "d1", number: 1) {
+                $0.departures[0].dismissed = true
+            }
+        }
+        await Task.detached { gate.parked.wait() }.value
+        let second = Task {
+            try await TranslationRoundStore(projectURL: url).mutateInOrder(language: "es", docId: "d2", number: 2) {
+                $0.departures[0].dismissed = true
+            }
+        }
+        let third = Task.detached {
+            try TranslationRoundStore(projectURL: url).mutate(language: "es", docId: "d3", number: 3) {
+                $0.glossaryProposals.append(.init(term: "fog", rendering: "niebla", reason: "", adopted: false))
+            }
+        }
+        var fourth = TranslationRound(number: 4, language: "es", docId: "d4", startedAt: Date())
+        fourth.endedAt = Date()
+        TranslationRoundStore(projectURL: url).appendInOrder(fourth) { _ in }
+        // Unserialised writers would finish while the first is parked.
+        try await Task.sleep(for: .milliseconds(300))
+        gate.release.signal()
+        _ = try await first.value
+        _ = try await second.value
+        _ = try await third.value
+
+        let after = TranslationRoundStore(projectURL: url)
+        XCTAssertEqual(after.record(language: "es", docId: "d1", number: 1)?.departures[0].dismissed, true)
+        XCTAssertEqual(after.record(language: "es", docId: "d2", number: 2)?.departures[0].dismissed, true)
+        XCTAssertEqual(after.record(language: "es", docId: "d3", number: 3)?.glossaryProposals.count, 1)
+        XCTAssertNotNil(after.record(language: "es", docId: "d4", number: 4), "the append landed")
+        XCTAssertEqual(after.nextNumber(language: "es"), 5)
+    }
+
+    /// Two store values for one project share one queue; another project
+    /// has its own.
+    func test_oneQueuePerProjectShared() throws {
+        let a = TranslationRoundStore.queue(for: temp.url)
+        XCTAssertTrue(a === TranslationRoundStore.queue(for: URL(fileURLWithPath: temp.url.path + "/")))
+        XCTAssertFalse(a === TranslationRoundStore.queue(for: temp.url.appendingPathComponent("other")))
+    }
+
+    /// **The ledger is read and written through the queue only**: the raw
+    /// `load` is reached from `reading`, `changingOnQueue` and
+    /// `recordInOrder`, the raw `write` from `changingOnQueue` — and both are
+    /// private, so no other file can reach them.
+    func test_theLedgerIsReadAndWrittenThroughTheQueueOnly() throws {
+        let code = SourceScan.codeLines(of: try SourceTree.read("Maugham/Stores/TranslationRoundStore.swift"))
+        let loads = code.filter { $0.contains("load(language: language)") && !$0.contains("private func load") }
+        XCTAssertEqual(loads.count, 3, loads.joined(separator: "\n"))
+        XCTAssertEqual(code.filter { $0.contains("try write(ledger, language: language)") }.count, 1)
+        XCTAssertTrue(code.contains { $0.contains("private func load(language: String) -> Ledger") })
+        XCTAssertTrue(code.contains { $0.contains("private func write(_ ledger: Ledger, language: String) throws") })
+        XCTAssertTrue(code.contains { $0.contains("Self.queue(for: projectURL).sync { body(load(language: language)) }") })
+        XCTAssertTrue(code.contains { $0.contains("try Self.queue(for: projectURL).sync { try changingOnQueue(language, body) }") })
+        XCTAssertTrue(code.contains { $0.contains(".atomic") }, "the file is replaced whole")
+        let pipeline = SourceScan.codeLines(of: try SourceTree.read(
+            "Maugham/Compiler/TranslationPipelineEnvironment+Project.swift")).joined(separator: "\n")
+        XCTAssertTrue(pipeline.contains("TranslationRoundStore(projectURL: projectURL).appendInOrder(round)"))
+        let actions = SourceScan.codeLines(of: try SourceTree.read(
+            "Maugham/Views/Publish/TranslationRoundActions.swift")).joined(separator: "\n")
+        XCTAssertTrue(actions.contains("try await rounds.mutateInOrder("))
+        XCTAssertFalse(actions.contains("Task.detached"), "no verb writes the ledger off the queue")
+    }
 }

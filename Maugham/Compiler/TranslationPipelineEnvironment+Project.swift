@@ -69,8 +69,11 @@ extension TranslationPipeline.Environment {
                 return await mintDeclined(mint, store: store, projectURL: projectURL)
             },
             nextRoundNumber: { TranslationRoundStore(projectURL: projectURL).nextNumber(language: $0) },
+            // On the project's ledger queue, in order, behind any verb already
+            // pressed (shell p4 Task 6 fix round 3); the next round's number
+            // and every later read queue behind it.
             saveRound: { round in
-                do { try TranslationRoundStore(projectURL: projectURL).append(round) } catch {
+                TranslationRoundStore(projectURL: projectURL).appendInOrder(round) { error in
                     pipelineEnvLog.error("round \(round.number, privacy: .public) for \(round.language, privacy: .public) could not be saved: \(error, privacy: .public)")
                 }
             },
