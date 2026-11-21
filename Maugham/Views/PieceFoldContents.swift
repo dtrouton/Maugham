@@ -62,9 +62,9 @@ enum PieceFoldEntry: Identifiable, Equatable {
 extension PieceFoldEntry {
     /// **What pulling this row up puts beside** (shell p3): research and a
     /// palette card are research items; a card is what it holds — a research
-    /// item, a scrap, a canvas-owned picture; a region is the region. A figure
-    /// opens in the centre and a link travels to its piece, so neither is
-    /// pulled up.
+    /// item, a scrap, a canvas-owned picture; a region is the region; a figure
+    /// is the figure (appraisal 8: beside, like every other fold row). A link
+    /// travels to its piece, so it is not pulled up.
     var pulledUp: PulledUp? {
         switch self {
         case .research(let id, _, _), .palette(let id, _):
@@ -78,7 +78,9 @@ extension PieceFoldEntry {
             case .scrap(let nodeId): return .canvasScrap(nodeId: nodeId)
             case .photo(let path): return .canvasPhoto(path: path)
             }
-        case .figure, .link:
+        case .figure(let id, _):
+            return .figure(id)
+        case .link:
             return nil
         }
     }
@@ -171,8 +173,8 @@ struct PieceFoldIndex: Equatable {
     ///   `add_canvas_scraps`), which moves neither of the above.
     struct Key: Hashable {
         let modified: Date
-        let sceneRevision: Int?
-        let canvasWrites: Int
+        /// The canvas's half: the signal the pulled-up views key on too.
+        let canvas: CanvasCardsRevision
     }
 
     /// docId → that piece's entries, in `PieceFoldGroup` order. A piece absent
@@ -276,8 +278,8 @@ struct PieceFoldIndex: Equatable {
     @MainActor
     static func key(store: ProjectStore, canvasWrites: Int) -> Key {
         Key(modified: store.manifest.modified,
-            sceneRevision: store.liveCanvas?.sceneRevision,
-            canvasWrites: canvasWrites)
+            canvas: CanvasCardsRevision(sceneRevision: store.liveCanvas?.sceneRevision,
+                                        closedCanvasWrites: canvasWrites))
     }
 
     /// Every document's fold. Reads the canvas once (through the shelf's own
@@ -421,4 +423,17 @@ struct PieceFoldIndex: Equatable {
             }
         }
     }
+}
+
+/// **Whether a canvas's cards may have changed** — the one signal the fold
+/// index (`PieceFoldIndex.Key`) and every pulled-up canvas read (a card, a
+/// region, a region's title) key on, so a fold and what it pulled up refresh
+/// together: the canvas's structural revision while it is live (never the
+/// per-frame counter, tripwire 30), and the window's count of Claude's writes
+/// into a closed canvas's sidecar (`.maughamCanvasNodesAdded`,
+/// `BinderTreeSectionsState.closedCanvasWrites`), which moves neither the
+/// revision nor the manifest.
+struct CanvasCardsRevision: Hashable {
+    let sceneRevision: Int?
+    let closedCanvasWrites: Int
 }

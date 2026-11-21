@@ -117,6 +117,9 @@ struct RightColumn: View {
     /// The palette wall's selected card (`ProjectWindow.selectedPaletteCardId`):
     /// pulled up while the wall shows it, a card reads beside, never edits.
     var paletteWallCard: String? = nil
+    /// The window's pulled-up memory: Back, and the centre's details over
+    /// what is pulled up (`PulledUpView`).
+    var pulledUpMemory: PulledUpMemory? = nil
 
     /// The drag's starting width, so the gesture reads its own translation
     /// rather than accumulating.
@@ -250,7 +253,8 @@ struct RightColumn: View {
             RightColumnControl(
                 store: store, position: $position, subject: subject,
                 diagnostics: roster.compiler.diagnostics,
-                width: CGFloat(width) - Self.resizeHandleWidth)
+                width: CGFloat(width) - Self.resizeHandleWidth,
+                closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -413,6 +417,7 @@ struct RightColumn: View {
                 bible: bible, world: declaredWorld,
                 onOpenInCentre: openInCentre,
                 paletteWallCard: paletteWallCard,
+                memory: pulledUpMemory,
                 // Show notes: To resolve, which the figure — already the
                 // faces — scopes to its own notes.
                 onShowNotes: { _ in position = .resolve },

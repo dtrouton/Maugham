@@ -271,7 +271,8 @@ final class PulledUpTests: XCTestCase {
                        .canvasPhoto(path: "canvas_assets/a.png"))
         XCTAssertEqual(PieceFoldEntry.region(id: "rg-1", title: "Fog", cards: []).pulledUp,
                        .canvasRegion(id: "rg-1"))
-        XCTAssertNil(PieceFoldEntry.figure(id: "f-1", name: "F").pulledUp)
+        XCTAssertEqual(PieceFoldEntry.figure(id: "f-1", name: "F").pulledUp, .figure("f-1"),
+                       "a fold's figure is pulled up beside (appraisal 8)")
         XCTAssertNil(PieceFoldEntry.link(pieceId: "ch-2", title: "Two", incoming: false).pulledUp)
     }
 

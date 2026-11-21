@@ -230,6 +230,10 @@ extension Notification.Name {
     /// faces' piece's History is pulled up beside the centre
     /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.
     public static let maughamPullUp = Notification.Name("maugham.pull.up")
+    /// Posted by ⌘[ (View ▸ Pull Up Previous, appraisal wave): what was
+    /// pulled up before goes up again (`MaughamEvent.postPullUpPrevious`,
+    /// `PulledUpHistory`). Scope: .keyWindow.
+    public static let maughamPullUpPrevious = Notification.Name("maugham.pull.up.previous")
     /// Posted by ⌘⌥E (shell plan 3): what a piece is pinned to is its fold in
     /// the tree, so the key opens the faces' piece's fold and scrolls to it.
     /// Scope: .keyWindow.

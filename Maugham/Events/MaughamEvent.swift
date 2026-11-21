@@ -275,6 +275,12 @@ enum MaughamEvent {
                        pullUpPieceKey: docId])
     }
 
+    /// Ask the key window to pull up again what was pulled up before (⌘[,
+    /// View ▸ Pull Up Previous; `PulledUpHistory`).
+    static func postPullUpPrevious() {
+        post(.maughamPullUpPrevious, to: .keyWindow)
+    }
+
     /// Ask the key window's tree to open the faces' piece's fold (⌘⌥E).
     static func postShowPieceFold() {
         post(.maughamShowPieceFold, to: .keyWindow)

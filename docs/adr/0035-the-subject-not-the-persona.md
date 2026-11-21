@@ -30,7 +30,7 @@ The window has no modes. What it shows is a function of what the writer pointed 
 | a research item | it opens `beside`; `open` and `faces` stay |
 | a piece (a document) while `open` is the canvas or an edition | `faces` moves to the piece; `open` stays |
 | a piece otherwise | `open` and `faces` both become the piece |
-| a Part (group), the Book, a figure, Inbox, Canvas, Palette, an edition | `open` and `faces` both become it |
+| a Part (group), the Book, a figure (a figure in a piece's fold is not this row: it pulls up beside, [ADR 0037](0037-brief-and-the-pulled-up-thing.md)), Inbox, Canvas, Palette, an edition | `open` and `faces` both become it |
 | anything, as a double-click or the explicit control (`.openInCentre`) | `open` and `faces` become it, and a matching `beside` is cleared |
 
 The reading is: **an overview is navigated FROM, while the canvas and an edition are worked IN.** The Book's Cards, Outline and Status (`BookView`) are overviews, so a click on a piece leaves them for the piece. The canvas and an edition are places the writer works, so a click on a piece there changes what the right column is about and leaves the centre alone.

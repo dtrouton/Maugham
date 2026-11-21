@@ -500,11 +500,11 @@ final class ReviewPassEditorTests: XCTestCase {
                        + "receiver and the strip's hand-off — counted across "
                        + "every view, so a copy in a sibling is a fourth")
         XCTAssertEqual(try Self.sites(of: "ProjectWindow.pullUp(") + Self.sites(of: "Self.pullUp(")
-                       + Self.sites(of: "static func pullUp("), 6,
+                       + Self.sites(of: "static func pullUp("), 7,
                        "the two declarations (a request's, and the one act it "
-                       + "goes through) plus four callers — the key's receiver, "
-                       + "the Describe\u{2026} hand-off, a statement mark's Open "
-                       + "and Brief's links")
+                       + "goes through) plus five callers — the key's receiver, "
+                       + "the Describe\u{2026} hand-off, a statement mark's Open, "
+                       + "Brief's links and \u{2318}['s Back (`PulledUpHistoryWiring`)")
 
         let receiver = try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",

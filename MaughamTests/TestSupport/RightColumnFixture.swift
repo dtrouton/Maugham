@@ -293,6 +293,9 @@ enum RightColumnFixture {
                 subject: WindowSubject(open: .figure("fig-gone"), faces: .figure("fig-gone"))),
             Arm(name: "a research item's details", position: .pulledUp,
                 subject: WindowSubject(open: .research(noteId), faces: .research(noteId))),
+            Arm(name: "a figure's details above a note pulled up", position: .pulledUp,
+                subject: WindowSubject(open: .figure("fig-gone"), faces: .figure("fig-gone"),
+                                       beside: .research(noteId))),
             Arm(name: "nothing pulled up", position: .pulledUp, subject: piece),
         ]
     }

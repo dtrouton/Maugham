@@ -305,19 +305,20 @@ final class PieceFoldContentsTests: XCTestCase {
     /// a closed-canvas write from Claude (`.maughamCanvasNodesAdded`).
     func test_theFoldIndexKeyMovesOnAManifestOrSceneChange() {
         let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
-        let base = PieceFoldIndex.Key(modified: t0, sceneRevision: nil, canvasWrites: 0)
-        XCTAssertEqual(base, PieceFoldIndex.Key(modified: t0, sceneRevision: nil, canvasWrites: 0))
+        func key(_ modified: Date, _ revision: Int?, _ writes: Int) -> PieceFoldIndex.Key {
+            PieceFoldIndex.Key(modified: modified,
+                               canvas: CanvasCardsRevision(sceneRevision: revision, closedCanvasWrites: writes))
+        }
+        let base = key(t0, nil, 0)
+        XCTAssertEqual(base, key(t0, nil, 0))
 
-        XCTAssertNotEqual(base, PieceFoldIndex.Key(modified: t0.addingTimeInterval(1),
-                                                   sceneRevision: nil, canvasWrites: 0),
+        XCTAssertNotEqual(base, key(t0.addingTimeInterval(1), nil, 0),
                           "a manifest change (research, pins, links, figures) moves the key")
-        XCTAssertNotEqual(base, PieceFoldIndex.Key(modified: t0, sceneRevision: 0, canvasWrites: 0),
+        XCTAssertNotEqual(base, key(t0, 0, 0),
                           "the canvas becoming live moves the key: the live model is ahead "
                           + "of the sidecar")
-        XCTAssertNotEqual(PieceFoldIndex.Key(modified: t0, sceneRevision: 3, canvasWrites: 0),
-                          PieceFoldIndex.Key(modified: t0, sceneRevision: 4, canvasWrites: 0),
-                          "a structural canvas edit moves the key")
-        XCTAssertNotEqual(base, PieceFoldIndex.Key(modified: t0, sceneRevision: nil, canvasWrites: 1),
+        XCTAssertNotEqual(key(t0, 3, 0), key(t0, 4, 0), "a structural canvas edit moves the key")
+        XCTAssertNotEqual(base, key(t0, nil, 1),
                           "Claude's write into a closed canvas's sidecar moves the key")
     }
 
@@ -331,12 +332,14 @@ final class PieceFoldContentsTests: XCTestCase {
         let fold = try SourceTree.read("Maugham/Views/BinderPieceFold.swift")
         XCTAssertEqual(fold.components(separatedBy: "PieceFoldIndex.build(").count - 1, 1)
         XCTAssertTrue(fold.contains(
-            ".task(id: PieceFoldIndex.key(store: store, canvasWrites: state.foldCanvasWrites)) {\n"
+            ".task(id: PieceFoldIndex.key(store: store, canvasWrites: state.closedCanvasWrites)) {\n"
             + "                state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)"),
             "the build is the .task's body, keyed on the fold key")
-        XCTAssertTrue(fold.contains(
-            ".onProjectEvent(.maughamCanvasNodesAdded, url: store.url, window: window) { _ in\n"
-            + "                state.foldCanvasWrites += 1"),
+        // The count is the window's, kept with the tree hidden (appraisal wave).
+        let wiring = try SourceTree.read("Maugham/Views/TreeWindowWiring.swift")
+        XCTAssertTrue(wiring.contains(
+            ".onProjectEvent(.maughamCanvasNodesAdded, url: url, window: window) { _ in\n"
+            + "                state.closedCanvasWrites += 1"),
             "a closed-canvas write moves the key")
         // Both fold hosts attach it, to the list their folds are drawn in.
         for host in ["Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift"] {

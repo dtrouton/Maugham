@@ -21,7 +21,8 @@ import MaughamCore
 ///
 /// **A leaf, so the column reads no canvas.** It reads the scene in a `.task`
 /// keyed on the canvas's STRUCTURAL revision (never the per-frame counter,
-/// tripwire 30) and the manifest's stamp, and follows a scrap being typed on
+/// tripwire 30), Claude's closed-canvas writes (the fold's signal,
+/// `CanvasCardsRevision`) and the manifest's stamp, and follows a scrap being typed on
 /// the attached canvas through `CanvasModel.scraps`, as a pulled-up scrap does
 /// (`PulledUpView.liveCard`).
 struct PulledUpRegionView: View {
@@ -32,6 +33,12 @@ struct PulledUpRegionView: View {
     let close: () -> Void
     /// A title row's click: that item is pulled up in the region's place.
     let pullUp: (PulledUp) -> Void
+    /// The window's count of Claude's writes into a closed canvas: with the
+    /// scene revision, the fold's own refresh signal (`CanvasCardsRevision`).
+    var closedCanvasWrites: Int = 0
+    /// The header's Back (`PulledUpHistory`); nil hides it.
+    var back: (() -> Void)? = nil
+    var backTitle: String = ""
 
     @State private var read: Read?
     /// Owned pictures, decoded in the `.task`, never in `body`.
@@ -123,20 +130,23 @@ struct PulledUpRegionView: View {
 
     private struct ReadKey: Equatable {
         let regionId: String
-        let sceneRevision: Int
+        let canvas: CanvasCardsRevision
         let manifestModified: Date
     }
 
     var body: some View {
         let shown = Self.live(read, model: model)
         VStack(spacing: 0) {
-            BesideHeader(title: Self.title(of: shown), openInCentre: openInCentre, close: close)
+            BesideHeader(title: Self.title(of: shown), openInCentre: openInCentre, close: close,
+                         back: back, backTitle: backTitle)
             Divider()
             content(shown)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: ReadKey(regionId: regionId, sceneRevision: model.sceneRevision,
+        .task(id: ReadKey(regionId: regionId,
+                          canvas: CanvasCardsRevision(sceneRevision: model.sceneRevision,
+                                                      closedCanvasWrites: closedCanvasWrites),
                           manifestModified: store.manifest.modified)) {
             let scene = CanvasClaudeWrite.readScene(store: store, projectRoot: store.url)
             let next = Self.read(regionId, scene: scene.scene, scraps: scene.scraps,

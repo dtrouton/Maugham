@@ -22,6 +22,10 @@ struct RightColumnControl: View {
     /// The pane's width (the column's less the resize handle), a value: the
     /// title is drawn only where it has room (`showsTitle`).
     let width: CGFloat
+    /// The window's count of Claude's writes into a closed canvas — with
+    /// the scene revision, what a pulled-up region's title is re-read on
+    /// (`CanvasCardsRevision`, the fold's own signal).
+    var closedCanvasWrites: Int = 0
 
     @State private var visualLanguageProposed = false
     /// This control's hosting window, for the proposal event's liveness guard
@@ -171,13 +175,15 @@ struct RightColumnControl: View {
 
     private struct RegionTitleKey: Equatable {
         let regionId: String
-        let sceneRevision: Int?
+        let canvas: CanvasCardsRevision
     }
 
     /// Only a pulled-up region observes the canvas's revision.
     private var regionTitleKey: RegionTitleKey? {
         guard case .canvasRegion(let id)? = subject.beside else { return nil }
-        return RegionTitleKey(regionId: id, sceneRevision: store.liveCanvas?.sceneRevision)
+        return RegionTitleKey(regionId: id,
+                              canvas: CanvasCardsRevision(sceneRevision: store.liveCanvas?.sceneRevision,
+                                                          closedCanvasWrites: closedCanvasWrites))
     }
 
     private func segment(_ segment: RightColumnPosition, title: String?,

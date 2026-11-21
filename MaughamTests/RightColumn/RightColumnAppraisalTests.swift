@@ -176,7 +176,7 @@ final class RightColumnAppraisalTests: XCTestCase {
     static let briefGroup = ["Brief", "Brief: the Line", "Brief: Going For"]
     static let pullUpGroup = [
         "Pulled Up", "Pull Up What I've Learned", "Pull Up First Reader",
-        "Pull Up Visual Language", "Pull Up History",
+        "Pull Up Visual Language", "Pull Up History", "FocusedPullUpPreviousButton",
     ]
 
     func test_theViewMenuGroupsTheRightColumnByWhereEachItemLands() throws {

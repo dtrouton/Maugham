@@ -72,8 +72,12 @@ final class PieceRowMenusTests: XCTestCase {
             XCTAssertFalse(code.contains(".sheet("),
                            "\(file): a row sheet is presented from the sections, never a row")
         }
+        // One presenter, on the window, so Brief's Details opens the sheets
+        // with the tree hidden or replaced by find (appraisal wave).
         let sections = try SourceTree.read("Maugham/Views/BinderTreeSections.swift")
-        XCTAssertTrue(sections.contains(".sheet(item: $state.pieceRowSheet)"))
+        XCTAssertFalse(sections.contains(".sheet(item: $state.pieceRowSheet)"))
+        let wiring = try SourceTree.read("Maugham/Views/TreeWindowWiring.swift")
+        XCTAssertEqual(wiring.components(separatedBy: ".sheet(item: $state.pieceRowSheet)").count - 1, 1)
     }
 
     /// The files whose rows carry the piece menu: both trees, and the

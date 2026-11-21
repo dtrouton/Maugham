@@ -341,6 +341,9 @@ struct MaughamApp: App {
                 // with no piece faced or open.
                 Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
                     .keyboardShortcut("h", modifiers: [.command, .option])
+                // ⌘[: the system's own Back, free across the app — what was
+                // pulled up before goes up again (the pulled-up header's Back).
+                FocusedPullUpPreviousButton()
                 Divider()
                 // The tree's places: the piece's fold, its sections, the Book's
                 // view, the Inbox.
@@ -584,6 +587,17 @@ extension FocusedValues {
     var pieceFoldIsOffered: Bool? {
         get { self[FocusedPieceFoldKey.self] }
         set { self[FocusedPieceFoldKey.self] = newValue }
+    }
+}
+
+/// Whether the focused window has something pulled up before that still
+/// resolves (`PulledUpHistory.offersBack`). Published by
+/// `PulledUpHistoryWiring`; read only by View ▸ Pull Up Previous.
+struct FocusedPulledUpBackKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var pulledUpBackIsOffered: Bool? {
+        get { self[FocusedPulledUpBackKey.self] }
+        set { self[FocusedPulledUpBackKey.self] = newValue }
     }
 }
 
@@ -855,6 +869,16 @@ private struct FocusedLockToggle: View {
 /// View → "Open the Piece's Fold" (⌘⌥E): what a piece is pinned to is its
 /// fold in the tree. DISABLED (the menu bar's convention) where the focused
 /// window has no piece in its faces or its centre.
+/// View ▸ Pull Up Previous (⌘[): disabled with nothing to go back to.
+private struct FocusedPullUpPreviousButton: View {
+    @FocusedValue(\.pulledUpBackIsOffered) private var offered
+    var body: some View {
+        Button("Pull Up Previous") { MaughamEvent.postPullUpPrevious() }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(offered != true)
+    }
+}
+
 private struct FocusedPieceFoldButton: View {
     @FocusedValue(\.pieceFoldIsOffered) private var offered
     var body: some View {

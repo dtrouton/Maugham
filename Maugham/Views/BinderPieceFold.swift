@@ -21,12 +21,14 @@ import AppKit
 /// renamed here — its twin in the Research section is where it lives.
 ///
 /// **How each row acts** (`act(of:)`, the click rule): research is a `List`
-/// tag, as anywhere in the tree; a card, a region or a palette pin is
-/// reference material, pulled up beside by a `Button(.plain)` (tripwire 9),
-/// and a second click on the one pulled up puts it away (a region's chevron
-/// opens to its cards); a figure is a `List` tag
-/// that takes the centre; a link travels to its piece. A double-click, or the
-/// row's Open in Centre, always opens it in the centre.
+/// tag, as anywhere in the tree; a card, a region, a palette pin or a figure
+/// is pulled up beside by a `Button(.plain)` (tripwire 9), and a second click
+/// on the one pulled up puts it away (a region's chevron opens to its cards);
+/// a link travels to its piece. A double-click, or the row's Open in Centre,
+/// always opens it in the centre: a research row's through the tree's
+/// double-click watcher (`TreeTravel`), a pull-up row's by the pair its
+/// presses make (`press`), so the second click of a double-click opens and
+/// never toggles the row back.
 ///
 /// **It is mounted inside a `DisclosureGroup` by the host**, never on its own:
 /// the chevron belongs to the piece row, which stays the unchanged
@@ -148,25 +150,14 @@ struct BinderPieceFold: View {
                 }
             } label: {
                 pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title,
-                          caption: Self.regionCount(cards.count), doubleClick: nil)
+                          caption: Self.regionCount(cards.count))
             }
         case .palette(_, let title):
-            pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title, caption: nil,
-                      doubleClick: Self.doubleClickSubject(of: entry))
-        case .figure(let id, let name):
-            // A `List` tag: a figure takes the centre (the click rule).
-            HStack(spacing: 6) {
-                Image(systemName: "photo.artframe")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                Text(name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .treeTravelOnDoubleClick(.figure(id))
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            .tag(BinderSubject.figure(id))
+            pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: title, caption: nil)
+        case .figure(_, let name):
+            // Pulled up beside, like every other fold row (appraisal 8); the
+            // Figures section's row is the one that takes the centre.
+            pullUpRow(entry, glyph: Self.figureGlyph, title: name, caption: nil)
         case .link(let pieceId, let title, let incoming):
             Button {
                 subject = Self.clicked(entry, subject: subject,
@@ -197,18 +188,16 @@ struct BinderPieceFold: View {
     /// A card row, in the fold or under its region's chevron.
     private func cardRow(_ entry: PieceFoldEntry, ref: PinnedReference) -> some View {
         pullUpRow(entry, glyph: state.foldIndex.glyph(of: entry), title: ref.title,
-                  caption: nil, doubleClick: Self.doubleClickSubject(of: entry))
+                  caption: nil)
     }
 
-    /// A card, a region or a palette pin: pulled up beside by a click, put
-    /// away by a second click on the one pulled up, and drawn outlined while
-    /// it is.
+    /// A card, a region, a palette pin or a figure: pulled up beside by a
+    /// click, put away by a second click on the one pulled up, opened in the
+    /// centre by a double-click, and drawn outlined while it is pulled up.
     private func pullUpRow(_ entry: PieceFoldEntry, glyph: String, title: String,
-                           caption: String?, doubleClick: BinderSubject?) -> some View {
+                           caption: String?) -> some View {
         Button {
-            subject = Self.clicked(entry, subject: subject,
-                                   structure: store.manifest.structure,
-                                   projectType: store.manifest.type)
+            pressed(entry)
         } label: {
             HStack(spacing: 6) {
                 // A picture's thumbnail in the glyph's place, one line high.
@@ -217,11 +206,6 @@ struct BinderPieceFold: View {
                 Text(title)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    // The double-click's mark on the LABEL LEAF (tripwire 9):
-                    // a view that takes no hits, read by the window's one
-                    // double-click watcher (`TreeTravel`). A canvas scrap has
-                    // no tree subject; its Open in Centre is the menu's.
-                    .background { if let doubleClick { TreeTravelTarget(subject: doubleClick) } }
                 Spacer(minLength: 4)
                 if let caption {
                     Text(caption)
@@ -291,14 +275,37 @@ struct BinderPieceFold: View {
         }
     }
 
-    /// Open in Centre from a pulled-up row's menu: what the pulled-up view's
-    /// own Open in Centre does (`PulledUpView.opening`).
+    /// **A press on a pull-up row**: the first of a pair pulls the row up
+    /// (or puts it away), the second opens it in the centre
+    /// (`press`, pure). The button fires once per click, so the pair is read
+    /// from the presses themselves, never from a gesture (tripwire 9).
+    private func pressed(_ entry: PieceFoldEntry) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let press = Self.press(entry.id, at: now, last: state.lastFoldPress,
+                               interval: NSEvent.doubleClickInterval)
+        // A double-click's pair is spent: a third click starts a new one.
+        state.lastFoldPress = press == .single ? LastPress(entryId: entry.id, at: now) : nil
+        switch press {
+        case .single:
+            subject = Self.clicked(entry, subject: subject,
+                                   structure: store.manifest.structure,
+                                   projectType: store.manifest.type)
+        case .double:
+            openInCentre(entry)
+        }
+    }
+
+    /// Open in Centre from a pulled-up row's menu, or its double-click: what
+    /// the pulled-up view's own Open in Centre does (`PulledUpView.opening`).
+    /// A picture's node is found on whichever canvas is real (the live model,
+    /// else the sidecar), so it is selected when the canvas was not open; the
+    /// selection itself is parked on the window's model until the canvas
+    /// loads (`CanvasModel.revealAndSelect`).
     private func openInCentre(_ entry: PieceFoldEntry) {
-        guard let pulled = entry.pulledUp else { return }
-        let opening = PulledUpView.opening(
-            pulled, subject: ClickRule.pullUp(pulled, current: subject),
-            structure: store.manifest.structure, projectType: store.manifest.type,
-            photoNode: { path in store.liveCanvas.flatMap { PulledUpView.photoNode(path, in: $0.scene) } })
+        guard let opening = Self.doubleClicked(
+            entry, subject: subject, structure: store.manifest.structure,
+            projectType: store.manifest.type,
+            photoNode: { path in PulledUpView.photoNode(path, store: store) }) else { return }
         switch opening {
         case .subject(let next):
             subject = next
@@ -327,9 +334,8 @@ struct BinderPieceFold: View {
     static func act(of entry: PieceFoldEntry) -> Act {
         switch entry {
         case .research(let id, _, _): return .listTag(.research(id))
-        case .figure(let id, _): return .listTag(.figure(id))
         case .link(let pieceId, _, _): return .navigate(.item(pieceId))
-        case .card, .region, .palette:
+        case .card, .region, .palette, .figure:
             // Each always names something to pull up (`PieceFoldEntry.pulledUp`).
             return entry.pulledUp.map(Act.pullUp) ?? .navigate(.project)
         }
@@ -359,12 +365,44 @@ struct BinderPieceFold: View {
         return subject.beside == pulled
     }
 
-    /// The tree subject a double-click on a pulled-up row opens in the
-    /// centre: the research item (or card) it holds. nil for a canvas scrap or
-    /// picture, which have no tree row; their Open in Centre is the menu's.
-    static func doubleClickSubject(of entry: PieceFoldEntry) -> BinderSubject? {
-        entry.pulledUp?.treeSubject
+    /// What a press on a pull-up row is: the first of a pair, or the second.
+    enum Press: Equatable { case single, double }
+
+    /// The last single press on a pull-up row: which row, and when (system
+    /// uptime, seconds).
+    struct LastPress: Equatable {
+        let entryId: String
+        let at: TimeInterval
     }
+
+    /// **A double-click on a pull-up row** is a second press on the SAME row
+    /// within the system's double-click interval of a single one. Anything
+    /// else — another row, too late, no press before — is a single press.
+    /// Pure.
+    static func press(_ entryId: String, at now: TimeInterval, last: LastPress?,
+                      interval: TimeInterval) -> Press {
+        guard let last, last.entryId == entryId, now >= last.at,
+              now - last.at <= interval else { return .single }
+        return .double
+    }
+
+    /// **What a double-click on a pull-up row opens**: Open in Centre on the
+    /// row pulled up (`PulledUpView.opening`) — a research item or a figure
+    /// takes the centre; a scrap, a picture or a region opens the canvas with
+    /// it selected. The first click of the pair pulled it up or put it away;
+    /// either way this is the same act, and it leaves nothing beside. Pure;
+    /// nil for a link, which is not a pull-up row.
+    static func doubleClicked(_ entry: PieceFoldEntry, subject: WindowSubject,
+                              structure: [StructureItem], projectType: ProjectType,
+                              photoNode: (String) -> CanvasNodeID?) -> PulledUpView.Opening? {
+        guard let pulled = entry.pulledUp else { return nil }
+        return PulledUpView.opening(pulled, subject: ClickRule.pullUp(pulled, current: subject),
+                                    structure: structure, projectType: projectType,
+                                    photoNode: photoNode)
+    }
+
+    /// A figure row's glyph, the Figures section's.
+    static let figureGlyph = "photo.artframe"
 
     /// A link row's Remove Link: an OUTGOING link only (an incoming one is
     /// the other piece's), and only where this piece's structure door allows.
@@ -482,23 +520,18 @@ struct BinderPieceFold: View {
 /// `PieceFoldIndex.build` runs, attached by both fold hosts (`BinderView`,
 /// `CollectionPiecesPane`) with `.pieceFoldIndex(store:state:)`. Keyed on
 /// `PieceFoldIndex.key`: the manifest's stamp, the live canvas's structural
-/// revision, and this count of `.maughamCanvasNodesAdded` (Claude's write into
-/// a closed canvas's sidecar, which moves neither of the others).
+/// revision, and the window's count of `.maughamCanvasNodesAdded` (Claude's
+/// write into a closed canvas's sidecar, which moves neither of the others),
+/// counted by `TreeWindowWiring` so the pulled-up views read the same count.
 struct PieceFoldIndexing: ViewModifier {
     let store: ProjectStore
     @Bindable var state: BinderTreeSectionsState
-    /// For the event's liveness filter (ADR 0021).
-    @State private var window: NSWindow?
 
     func body(content: Content) -> some View {
         content
-            .background(WindowAccessor(window: $window))
-            .task(id: PieceFoldIndex.key(store: store, canvasWrites: state.foldCanvasWrites)) {
+            .task(id: PieceFoldIndex.key(store: store, canvasWrites: state.closedCanvasWrites)) {
                 state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)
                 state.foldIndexIsBuilt = true
-            }
-            .onProjectEvent(.maughamCanvasNodesAdded, url: store.url, window: window) { _ in
-                state.foldCanvasWrites += 1
             }
     }
 }

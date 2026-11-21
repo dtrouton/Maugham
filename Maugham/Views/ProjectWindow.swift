@@ -102,6 +102,9 @@ struct ProjectWindow: View {
     /// `openResearchItem`/`handleShowLatestMCPNote` can open the section a row
     /// lives in, and the tree survives the find overlay replacing the column.
     @State private var treeState = BinderTreeSectionsState()
+    /// What was pulled up before, and whether the centre's details stand
+    /// open over what is pulled up — the window's session, never persisted.
+    @State private var pulledUpMemory = PulledUpMemory()
     @State private var pendingPieceRenameId: String?
     /// The tree's keyboard hand-off (spec §1): the binder's Tab bumps the first,
     /// which the canvas serves; the canvas's ⇧Tab bumps the second, which the
@@ -624,6 +627,16 @@ struct ProjectWindow: View {
             window: window, isNoChromeOn: isNoChromeOn, showInspector: showInspector,
             position: rightColumnPosition, subject: subjectBinding,
             canvasHasASelection: canvasHasASelection))
+        // What was pulled up before (Back, ⌘[) — recorded whether or not the
+        // column is drawn. Load-bearing: without it Back never shows.
+        .modifier(PulledUpHistoryWiring(
+            store: store, window: window, subject: subjectBinding, memory: pulledUpMemory,
+            showInspector: $showInspector, position: $rightColumnPosition))
+        // The tree's sheets and closed-canvas count, served with the tree
+        // hidden. Load-bearing: without it Tags…, Add Link… and Publishing…
+        // open nothing.
+        .modifier(TreeWindowWiring(store: store, url: url, window: window,
+                                   state: treeState, subject: subjectBinding))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
@@ -1855,7 +1868,8 @@ struct ProjectWindow: View {
             figureTree: treeState,
             centreItem: centreItem,
             openInCentre: { openInCentre($0) },
-            paletteWallCard: selectedPaletteCardId)
+            paletteWallCard: selectedPaletteCardId,
+            pulledUpMemory: pulledUpMemory)
     }
 
     /// **The right column when there is nothing in it** — and it has to SAY so.

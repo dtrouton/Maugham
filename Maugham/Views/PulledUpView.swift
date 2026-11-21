@@ -35,7 +35,15 @@ import MaughamCore
 /// a figure's inspector, a research item's panel, a Collection reference
 /// piece; else "Nothing pulled up". **With the canvas the centre**, its
 /// selection's details cover what is pulled up while there is a selection
-/// (`CanvasDetailsCover`); what is pulled up stays pulled up.
+/// (`CanvasDetailsCover`); what is pulled up stays pulled up. **With a
+/// figure, a research item or a reference piece the centre**, its details
+/// stand ABOVE what is pulled up as a section, collapsed until opened
+/// (`RightColumnContent.centreDetailsAbovePulledUp`, `CentreDetailsSection`),
+/// so neither is out of reach. Each inspector still mounts once: the arms
+/// are exclusive.
+///
+/// **Back** (`PulledUpHistory`): the header brings up again what was pulled
+/// up before, hidden when there is nothing to go back to.
 struct PulledUpView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
@@ -58,6 +66,10 @@ struct PulledUpView: View {
     /// (`ProjectWindow.selectedPaletteCardId`, window state the subject does
     /// not carry) — so a card on the wall is never edited beside it too.
     var paletteWallCard: String? = nil
+    /// The window's pulled-up memory: Back's history and whether the centre's
+    /// details stand open. Nil in a probe: no Back, and the section's state
+    /// is the view's own.
+    var memory: PulledUpMemory? = nil
     /// A figure inspector's "Show notes" (To resolve, scoped to the figure).
     var onShowNotes: (String) -> Void = { _ in }
     /// The canvas's details (the selected region or card), drawn by the
@@ -70,6 +82,8 @@ struct PulledUpView: View {
     @State private var card: CanvasCardRead?
     /// A pulled-up region's title, read off the body path (`regionTitleKey`).
     @State private var coveredRegionTitle: String?
+    /// The centre's details section, open or not, where there is no memory.
+    @State private var detailsExpandedHere = false
 
     // MARK: - The decisions, pure
 
@@ -245,6 +259,15 @@ struct PulledUpView: View {
         PulledUp.research(id).refusesEdits(isLocked: isLocked)
     }
 
+    /// The node holding a canvas-owned picture on whichever canvas is real
+    /// (the live model, else the sidecar), so Open in Centre selects a picture
+    /// on a canvas that was not open. A disk read for a closed canvas: call it
+    /// on a press, never in a body.
+    @MainActor
+    static func photoNode(_ path: String, store: ProjectStore) -> CanvasNodeID? {
+        photoNode(path, in: CanvasClaudeWrite.readScene(store: store, projectRoot: store.url).scene)
+    }
+
     /// The node holding a canvas-owned picture, the lowest id when several do.
     static func photoNode(_ path: String, in scene: CanvasScene) -> CanvasNodeID? {
         scene.unorderedNodes
@@ -292,10 +315,10 @@ struct PulledUpView: View {
     /// **How to pull something up** (appraisal 4): ⌘3 with nothing beside
     /// is not a dead end. Every key named is the View menu's pull-up key for
     /// what it names (`RightColumnMountingTests` reads them back out of the
-    /// menu); a figure is not among the fold's rows named, because a fold's
-    /// figure opens in the centre.
+    /// menu); every kind of fold row that pulls up is named, a figure among
+    /// them (appraisal 8).
     static let nothingPulledUpHint =
-        "Click a research note, card or region in a piece\u{2019}s fold in the tree "
+        "Click a research note, card, region or figure in a piece\u{2019}s fold in the tree "
         + "to read it here beside your text. Or press \u{2318}\u{2325}G for What I\u{2019}ve Learned, "
         + "\u{2318}\u{2325}Y for First Reader, \u{2318}\u{2325}V for Visual Language, "
         + "or \u{2318}\u{2325}H for the piece\u{2019}s History."
@@ -312,9 +335,21 @@ struct PulledUpView: View {
                                                             regionTitle: coveredRegionTitle),
                                    details: canvasDetails) { pulledUpFace(pulled) }
             } else if let pulled = subject.beside {
-                pulledUpFace(pulled)
+                VStack(spacing: 0) {
+                    // The centre's own details, above what is pulled up.
+                    if let details = RightColumnContent.centreDetailsAbovePulledUp(
+                        subject, structure: store.manifest.structure, projectType: store.manifest.type) {
+                        CentreDetailsSection(title: Self.centreDetailsTitle(details, store: store),
+                                             isExpanded: detailsExpanded) {
+                            centreDetailsView(details)
+                        }
+                        Divider()
+                    }
+                    pulledUpFace(pulled)
+                }
             } else {
-                centreDetails
+                centreDetailsView(RightColumnContent.centreDetails(
+                    subject, structure: store.manifest.structure, projectType: store.manifest.type))
             }
         }
         // A canvas card is read off the body path, again on every structural
@@ -334,14 +369,54 @@ struct PulledUpView: View {
 
     private struct RegionTitleKey: Equatable {
         let regionId: String
-        let revision: Int
+        let canvas: CanvasCardsRevision
     }
 
     /// Only a pulled-up region reads its title, and only it observes the
     /// revision.
     private var regionTitleKey: RegionTitleKey? {
         guard case .canvasRegion(let id)? = subject.beside else { return nil }
-        return RegionTitleKey(regionId: id, revision: canvasModel.sceneRevision)
+        return RegionTitleKey(regionId: id, canvas: canvasCards)
+    }
+
+    /// **What a pulled-up canvas read is keyed on**: the fold's own signal
+    /// (`CanvasCardsRevision`) — this window's canvas's structural revision
+    /// and its count of Claude's writes into a closed canvas — so a card or
+    /// region beside refreshes when the fold does. Read only by the keys of a
+    /// pulled-up canvas thing.
+    private var canvasCards: CanvasCardsRevision {
+        CanvasCardsRevision(sceneRevision: canvasModel.sceneRevision,
+                            closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0)
+    }
+
+    /// The centre's details section, open or closed, for the window's session.
+    private var detailsExpanded: Binding<Bool> {
+        if let memory {
+            return Binding(get: { memory.centreDetailsExpanded },
+                           set: { memory.centreDetailsExpanded = $0 })
+        }
+        return $detailsExpandedHere
+    }
+
+    /// **Back**, when there is something to go back to: the header's control.
+    private var back: (() -> Void)? {
+        guard let memory,
+              memory.history.offersBack(from: subject.beside,
+                                        resolves: { PulledUpHistory.resolves($0, in: store) })
+        else { return nil }
+        return {
+            guard let target = memory.takeBack(from: subject.beside, store: store) else { return }
+            subject = ClickRule.pullUp(target, current: subject)
+        }
+    }
+
+    /// What Back would bring up, for its help.
+    private var backTitle: String {
+        guard let memory else { return "" }
+        let (target, _) = memory.history.back(from: subject.beside) {
+            PulledUpHistory.resolves($0, in: store)
+        }
+        return target.map { Self.title(of: $0, store: store) } ?? ""
     }
 
     /// The pulled-up thing under its header; a region draws its own, from
@@ -360,7 +435,8 @@ struct PulledUpView: View {
             BesideHeader(
                 title: Self.title(of: pulled, store: store),
                 openInCentre: { openInCentre(pulled) },
-                close: { subject = ProjectWindow.closingBeside(subject) })
+                close: { subject = ProjectWindow.closingBeside(subject) },
+                back: back, backTitle: backTitle)
             Divider()
             content(pulled)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -370,14 +446,14 @@ struct PulledUpView: View {
 
     private struct CardReadKey: Equatable {
         let card: PulledUp
-        let revision: Int
+        let canvas: CanvasCardsRevision
     }
 
     /// Only a canvas card reads the canvas, and only it observes the revision.
     private var cardReadKey: CardReadKey? {
         switch subject.beside {
         case let pulled? where pulled.isACanvasCard:
-            return CardReadKey(card: pulled, revision: canvasModel.sceneRevision)
+            return CardReadKey(card: pulled, canvas: canvasCards)
         default:
             return nil
         }
@@ -387,7 +463,7 @@ struct PulledUpView: View {
         let opening = Self.opening(
             pulled, subject: subject, structure: store.manifest.structure,
             projectType: store.manifest.type,
-            photoNode: { [canvasModel] path in Self.photoNode(path, in: canvasModel.scene) })
+            photoNode: { [store] path in Self.photoNode(path, store: store) })
         switch opening {
         case .subject(let next):
             subject = next
@@ -443,7 +519,9 @@ struct PulledUpView: View {
                 store: store, model: canvasModel, regionId: id,
                 openInCentre: { openInCentre(pulled) },
                 close: { subject = ProjectWindow.closingBeside(subject) },
-                pullUp: { subject = ClickRule.pullUp($0, current: subject) })
+                pullUp: { subject = ClickRule.pullUp($0, current: subject) },
+                closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0,
+                back: back, backTitle: backTitle)
                 .id(id)
         case .readingCard:
             Color.clear
@@ -538,12 +616,25 @@ struct PulledUpView: View {
             .id(id)
     }
 
-    // MARK: - With nothing pulled up: the centre's details
+    // MARK: - The centre's details
 
+    /// The section's one-line title: what the centre holds, by its name.
+    @MainActor
+    static func centreDetailsTitle(_ details: CentreDetails, store: ProjectStore) -> String {
+        switch details {
+        case .canvas: return ""
+        case .figure(let id): return (store.manifest.figures ?? []).first { $0.id == id }?.name ?? ""
+        case .research(let id): return TreeWalk.find(id: id, in: store.manifest.research)?.title ?? ""
+        case .referencePiece(let id): return TreeWalk.find(id: id, in: store.manifest.structure)?.title ?? ""
+        }
+    }
+
+    /// The centre's own details: one arm per kind, each inspector's one mount
+    /// whether it stands alone (nothing pulled up) or as the section above
+    /// what is pulled up — the two never draw together.
     @ViewBuilder
-    private var centreDetails: some View {
-        switch RightColumnContent.centreDetails(subject, structure: store.manifest.structure,
-                                                projectType: store.manifest.type) {
+    private func centreDetailsView(_ details: CentreDetails?) -> some View {
+        switch details {
         case .canvas?:
             // The host's region inspector — `RegionInspectorPane` keeps its
             // one mount (`RightColumn.canvasInspector`, tripwire 30's census).
@@ -593,12 +684,31 @@ struct BesideHeader: View {
     let title: String
     let openInCentre: () -> Void
     let close: () -> Void
+    /// Back to what was pulled up before (`PulledUpHistory`); nil hides it.
+    var back: (() -> Void)? = nil
+    /// What Back brings up, for its help.
+    var backTitle: String = ""
 
     static let openInCentreLabel = "Open in Centre"
     static let closeLabel = "Close"
+    static let backLabel = "Back"
+
+    /// Back's help: what it brings up, by name.
+    static func backHelp(_ title: String) -> String {
+        title.isEmpty ? "Back to what was pulled up before" : "Back to \(title)"
+    }
 
     var body: some View {
         HStack(spacing: 6) {
+            if let back {
+                Button(action: back) {
+                    Image(systemName: "chevron.backward")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(Self.backHelp(backTitle))
+                .accessibilityLabel(Self.backLabel)
+            }
             Text(title)
                 .font(.headline)
                 .lineLimit(1)
@@ -621,6 +731,57 @@ struct BesideHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// **The centre's details above the pulled-up thing** (appraisal wave): a
+/// one-line header naming what the centre holds — "Details of Rainfall" —
+/// that opens to the centre's own inspector above what is pulled up. Closed,
+/// it is one line, so the pulled-up thing keeps the column; open, the two
+/// share it. Its state is the window's (`PulledUpMemory`), so it stays as the
+/// writer left it for the session. The details are mounted only while open.
+struct CentreDetailsSection<Details: View>: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder let details: () -> Details
+
+    /// The header's line. Pure.
+    static func line(_ title: String) -> String {
+        title.isEmpty ? "Details of what the centre shows" : "Details of \(title)"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+                    Text(Self.line(title))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .help(Self.line(title))
+            .accessibilityLabel(Self.line(title))
+            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+            .accessibilityIdentifier("pulledUp.centreDetails")
+            if isExpanded {
+                Divider()
+                details()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+        }
     }
 }
 

@@ -80,6 +80,27 @@ enum RightColumnContent: Equatable {
         return nil
     }
 
+    /// **The centre's details drawn above the pulled-up thing** (appraisal
+    /// wave): with something pulled up and a figure, a research item or a
+    /// Collection reference piece in the centre, the centre's own details
+    /// stand above it as a section, so neither is out of reach. Nil with
+    /// nothing pulled up (the details are the whole position, as before),
+    /// with the canvas the centre (its own rule: a selection covers,
+    /// `canvasDetailsCover`), and where what is pulled up IS the centre's item
+    /// (its own view already draws those details — one mount). Pure.
+    static func centreDetailsAbovePulledUp(_ subject: WindowSubject, structure: [StructureItem],
+                                           projectType: ProjectType) -> CentreDetails? {
+        guard let beside = subject.beside,
+              let details = centreDetails(subject, structure: structure, projectType: projectType)
+        else { return nil }
+        switch details {
+        case .canvas: return nil
+        case .figure(let id): return beside == .figure(id) ? nil : details
+        case .research(let id): return beside == .research(id) ? nil : details
+        case .referencePiece: return details
+        }
+    }
+
     /// **Whether the canvas's details cover the pulled-up thing** (owner,
     /// 2026-11-20): with the canvas the centre and something pulled up, the
     /// position shows the canvas's selected card, region or line while there is

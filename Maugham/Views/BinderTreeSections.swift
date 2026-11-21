@@ -872,8 +872,9 @@ final class BinderTreeSectionsState {
     /// is open and which document it is linking against.
     var linkPickerDocumentId: String?
     /// **The piece row sheet open now** — Tags…, Add Link… or Publishing…
-    /// (shell p3 Task 8, `PieceRowMenus`), set by a row's menu and mounted in
-    /// `BinderTreeSectionsPresentations` for `linkPickerDocumentId`'s reason.
+    /// (shell p3 Task 8, `PieceRowMenus`), set by a row's menu or Brief's
+    /// Details and presented by the window (`TreeWindowWiring`), which is
+    /// mounted while the tree is hidden or replaced by find.
     var pieceRowSheet: PieceRowSheet?
     /// Whether the project has publishing set up — read with the Editions
     /// rows, once per manifest change, so a row menu never reads the disk.
@@ -1102,10 +1103,15 @@ final class BinderTreeSectionsState {
     /// hint never stands over the placeholder, or in a window whose tree
     /// draws no folds (a screenplay's navigator).
     var foldIndexIsBuilt = false
-    /// The host's count of `.maughamCanvasNodesAdded` — the closed-canvas
-    /// write that moves no manifest stamp and no live scene revision, so the
-    /// fold index's key carries it (`PieceFoldIndex.Key.canvasWrites`).
-    var foldCanvasWrites = 0
+    /// The window's count of `.maughamCanvasNodesAdded` — the closed-canvas
+    /// write that moves no manifest stamp and no live scene revision — counted
+    /// by `TreeWindowWiring`, which is mounted whether or not the tree is, so
+    /// the fold and the pulled-up views key on one count
+    /// (`CanvasCardsRevision`).
+    var closedCanvasWrites = 0
+    /// The last press on a fold's pull-up row, for telling a double-click
+    /// from two clicks (`BinderPieceFold.press`). A press record, never drawn.
+    @ObservationIgnored var lastFoldPress: BinderPieceFold.LastPress?
     /// **The groups of a grouped fold (past six entries) that are OPEN**,
     /// keyed per piece — the open-ids-only spelling `expandedPieceFolds` uses,
     /// for its reasons. Not persisted.
@@ -1402,16 +1408,9 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
                             subject: $subject).perform)
                 }
             }
-            // **A piece row's Tags…, Add Link… and Publishing…** (shell p3
-            // Task 8) — the old Inspector's controls, mounted here for the
-            // reason every presentation here is.
-            .sheet(item: $state.pieceRowSheet) { sheet in
-                PieceRowSheetView(
-                    store: store, sheet: sheet,
-                    perform: BinderTreeVerbs(
-                        store: store, state: state, subject: $subject).perform,
-                    onDone: { state.pieceRowSheet = nil })
-            }
+            // A piece row's Tags…, Add Link… and Publishing… are presented
+            // by the window (`TreeWindowWiring`), not here: Brief's Details
+            // opens them with the tree hidden or under find.
             // **⌘V lands in shared research** (stage-2b Task 4) — the table is
             // `ResearchPasteImporter`'s, which is `ResearchView`'s moved, and
             // whether this window's paste is research's at all is

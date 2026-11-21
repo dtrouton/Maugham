@@ -10,7 +10,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, the faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
+- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region; `PulledUpHistory.swift`, Back); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, the faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
 - `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
@@ -57,7 +57,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
-- `BinderTreeSections.swift` — the Figures, Research, Palette (a row, the wall's door) and Editions sections; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`.
+- `BinderTreeSections.swift` — the Figures, Research, Palette (a row, the wall's door) and Editions sections; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.
 - `BinderPieceFold.swift` — a piece's fold; `PieceFoldContents.swift`, its whole contents (`PieceFoldIndex`).
 - `TreeSectionDerivation.swift` — pure: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).
@@ -212,9 +212,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **No parallel observable state on `EditorHost`; one `Binding` writes `displayText` exactly once** (tripwire 6): `EditorIntegrationHarnessTests`.
 - **No second caller of `EditorSurface.applyExternalText`** (tripwire 7): `TripwireGrepTests.test_applyExternalTextHasExactlyOneProductionCallSite`.
 - **No `.onTapGesture` for clickable rows inside `List(.sidebar)`; use `Button(.plain)`** (tripwire 9). A gesture attaches to a row's label leaf, never its container: a whole-row `.simultaneousGesture` ate drag initiation. `TripwireGrepTests.test_noTapGestureInASidebarListFile`, `TreeTravelGestureAttachmentTests.test_noTreeRowCarriesASwiftUITapGesture`.
-- **Move or delete user-editable content only through `DocumentStore`'s typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), which closes and flushes before the FS call; never hand-roll it (tripwire 14): `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover`.
+- **Move or delete user-editable content only through `DocumentStore`'s typed mover** (`relocate(plan:)`, `relocateUserContent(affectedPaths:perform:)`, `trash(relativePath:using:…)`), which closes and flushes before the FS call (tripwire 14): `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover`.
 - **A pane that may show a `ContentUnavailableView` chains `.frame(maxWidth: .infinity, maxHeight: .infinity)` on it, and its outer `VStack` takes `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`** (tripwire 15), or the toolbar floats. `TripwireGrepTests.test_contentUnavailableViewAlwaysChainsFullFrame`.
-- **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from both `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
+- **A rename-capable row copies `BinderRow`'s shape verbatim**: a `claimFocus()` that sleeps 30ms before focusing, fired from `.onAppear` and `.onChange(of: renamingItemId)` (tripwire 16). Prose only; `BinderRow.claimFocus()` is canonical.
 - **No raw `maugham.*` NotificationCenter traffic outside `MaughamEvent`; every post declares its scope** (tripwire 21): `TripwireGrepTests.test_noRawMaughamPostsOrSubscriptionsOutsideWrapper`.
 - **Key a Document-binding reload on the doc's PATH, not its id** (tripwire 22): a renamed or restored file keeps its id. `EditorHostReloadPredicateTests` pins `EditorHost.needsReload`.
 - **No test presses a mounted control then waits for its effect, or synthesises a click, outside the named allow-lists** (`pressThenWaitRepresentatives`, `clickRepresentatives`) (tripwire 33): `TripwireGrepTests.test_noNewTestPressesAControlAndThenWaitsForItsEffect`, `test_noNewTestClicksOutsideTheNamedRepresentatives`.
@@ -260,9 +260,9 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Clause marks are drawn only in Brief's Going for**: never in the cover or on `IntentStrip`. A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
 - **A verb that files into a statement says where** (`FiledUnder`, from the write's own `FiledDestination`); the line links to any Brief it names.
 - **A statement host asks `statementIsInTheCentre` before it mounts** (`Maugham/Stores/AREA.md`, the gate).
-- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`).
-- **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`, names what it covers and clears it on Show it; Esc declines while covered.
-- **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
+- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`). Back's `PulledUpHistory` never answers `beside`.
+- **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`, names what it covers and clears it on Show it; Esc declines while covered. Other centres' details stand above, collapsed (`centreDetailsAbovePulledUp`).
+- **A fold is `PieceFoldIndex`, built once per `Key` (`CanvasCardsRevision`, as pulled-up reads) in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs`; Brief's Details shows them, opening the row's sheets (`PieceRowMenusTests`, `PieceTargetMenuTests`, `BriefAppraisalTests`).
 - **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L/⌘⌥K explain off their ground; ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
 - **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).
@@ -282,7 +282,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Tree furniture
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*
 - **Mounting the sections takes both halves** (rows inside the `List`, presentations outside via `.binderTreeSections(…)`): `TripwireGrepTests.test_everyBinderTreeMountsBothHalvesOfTheSections`.
-- **Every tree sheet mounts from `BinderTreeSectionsPresentations`, never from a row**; a row only sets state.
+- **Every tree sheet mounts from `BinderTreeSectionsPresentations` or `TreeWindowWiring`, never from a row**; a row only sets state.
 - **Every row acts through the one `BinderTreeVerbs` value**; `perform` surfaces a store failure, never `try?`.
 - **`create` selects what it makes and defers the rename until the manifest shows the new row** (`pendingRenameId`).
 - **`reveal` only ever OPENS, and asks OWNERSHIP of `TreeSectionDerivation`, never existence or a path prefix**.
@@ -326,7 +326,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Pick an event's scope at the post site** **and subscribe with the matching helper** (`.onKeyWindowCommand`, `.onProjectEvent`, `.onGlobalEvent`); never hand-roll a filter in a receiver ([ADR 0021](../../docs/adr/0021-scoped-window-events.md)).
 - **A pane that needs its window's liveness resolves it through `WindowAccessor`**, never a cached `NSWindow?` read as "closed" when nil (`MaughamEvent.isLive`).
 - **Modal state is owned by the window**: subviews post (`.maughamOpenRewind`) and the window presents.
-- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts through the shared function (`ProjectWindow.pullUp`).
+- **A `.keyWindow` post from inside a sheet is dropped** — the sheet's window holds key until after `onDismiss`. A sheet's hand-off records the press and the presenter acts through `ProjectWindow.pullUp`.
 - **The window's one `.sheet(item:onDismiss:)` fires one callback for every sheet**, so `FirstReaderHandoff` acts only when Project Settings closed, and every presentation clears a standing request.
 - **Show one sheet per stranger, sequentially, with `queue` and `presented` held apart**: swapping a presented `sheet(item:)` to another item in one pass drops the second sheet; the next goes up from `onDismiss`.
 - **A context-menu verb is also drawn as a visible control**. Verb wiring inside a `Menu` is censused from source, never pressed.
@@ -340,7 +340,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The standing line is keyed on `reason`, never `isRestricted`**; Edit Anyway is `DocumentStore.overrideYield(docId:)`, per window, per piece, for the session.
 - **Find asks the posture once per document per body pass** (`ProjectSearchView.ReplaceGate`).
 - **A refused press is said in words, never swallowed with `try?`** (`ResolveNoteVerbs.sayRefused`).
-- **No `static let/var <name>IsAvailable` gate is left standing in production**: a constant gate feeding `.disabled(!…)` is dead code dressed as live (`TripwireGrepTests.test_noAvailabilityFlagIsLeftStandingInProduction`).
+- **No `static let/var <name>IsAvailable` gate is left standing in production**: a constant gate feeding `.disabled(!…)` is dead code (`TripwireGrepTests.test_noAvailabilityFlagIsLeftStandingInProduction`).
 
 ### The register's surfaces
 - **Every decision about who may write is the MODEL's, as a pure function** (`AdmissionDecision`, `PeopleAndDevicesModel`, `ClaimDecision`, `LoadQuestions`, `SetAsideDoor`); the views draw and decide nothing (`PeopleAndDevicesModelTests`, `AdmissionDecisionTests`, `AdmissionQueueTests`).
@@ -350,7 +350,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A claim hint asks `Recognition.recognise`, never a second opinion**; the saved-by name never pre-fills or merges.
 - **A narrowing rung asks the book its cost before Admit is pressable** (`AdmissionModifier.checkTheBook`), detached; a book that cannot be read says nothing it cannot stand behind.
 - **`Permit.rung(of:)` answers nil for a permit a later build wrote; never draw that as a rung.**
-- **Admit… in People & Devices posts and dismisses the settings sheet**: a sheet is not the presenter of another sheet.
+- **Admit… in People & Devices posts and dismisses the settings sheet**: a sheet presents no other sheet.
 - **The admission's dismissal memory resets when the `DocumentStore`'s identity changes**: a closed scene's modifier `@State` outlives `onDisappear`.
 - **The inbox recount runs on a registry settle, never a document open.**
 - **The admission and new-piece questions are asked only on a Mac holding the book's own root record** (`AdmissionDecision.askingRoot`).
@@ -372,11 +372,11 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The saved-by key is read by `SavedByReader` only**: `TripwireGrepTests.test_theSavedByKeyIsReadBySavedByReaderOnly`.
 - **A §7.4 door offers what is LEFT, remembered by lines** (`<opId>#<paragraphId>`), never by holder.
 - **The Deleted section's Restore is decided by key** (`AnnotationRowVerbs.restoresDeleted` over `Document.restoreStanding`).
-- **The person key's surfaces stay dark in a Debug or ad-hoc build**: the keychain reads as unavailable there.
+- **The person key's surfaces stay dark in a Debug or ad-hoc build**: the keychain reads unavailable there.
 
 ### Review: the queue and the board
 - **The board and the desk take values and closures, never a store**; every verb is the MOUNT's.
-- **A chip click navigates the subject and `recordActivePass`**; a count click opens To resolve on the Book with the piece's group focused and does not move the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
+- **A chip click navigates the subject and `recordActivePass`**; a count click opens To resolve on the Book with the piece's group focused and leaves the subject (`ReviewBoardRoutingTests.test_theCountIsWiredToTheQueueAndDoesNotMoveTheSubject`).
 - **`ProjectWindow.recordActivePass(forPiece:passId:)` is the window's one `ActivePassMemory` writer**; the columns receive it as a closure.
 - **A round is a stage's or it is refused** (`RoundEditor`); the empty queue names the round the button would run.
 - **A chip's round waits for the piece to open** (`RunWhenDocumentOpens`, bounded, then a flash).
@@ -411,7 +411,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The statement host is not remounted on a scope change, so every `@State` on it outlives one**: clear per-scope state in `reconcile`/`leave()`.
 - **A picture dropped into a scope with no statement leaves the empty draft showing until the pane is next opened there**; never bind the pane to close that gap.
 - **Visual language takes pictures; intent does not** (`StatementImageIngestTests.test_intentTakesNoPicturesAtAll`). The drop target is a well BESIDE the editor, never over it.
-- **A finished ingest names its destination** (`ProjectStore.appendToStatement` on the returned `Statement`); it never reads view state to find one.
+- **A finished ingest names its destination** (`ProjectStore.appendToStatement` on the returned `Statement`); it never reads view state.
 - **A ruling is written FIRST, then the annotation op**, so a refusal cannot settle a note whose decision was lost (`QueryRuling`, `FirstReaderRuling`, `QueueLedgerVerbs`).
 - **`RulingDestination` is the one decision the row, sheet and commit all ask**.
 - **The second stet searches the whole project's UNFILTERED list** (`Document.annotations()` defaults to open); Escape on its dialog abandons.
@@ -459,7 +459,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### History, recovery and rewind
 - **`HistoryPaneVerbs` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).
 - **Every History notice is a `static`**, pinnable without mounting; count them, never a number in prose.
-- **History never performs a load of its own**: provenance counts are read off the open `Document`.
+- **History performs no load of its own**: provenance counts are read off the open `Document`.
 - **Disk reads happen in `reload()`, never `body`** (tripwire 4).
 - **History reloads on `.maughamQuarantineRecordsChanged`, and resolves events and banners in ONE off-actor `reloadChain` read.**
 - **Set-aside counts CHANGES** (op lines, deduped by identity, minus applied ops), asked once over every record and grouped by reason afterwards; acknowledging puts down the sentence, never the forensics.
@@ -492,7 +492,7 @@ Checks: `CentreRouteTests`, `ProjectAltitudeCentreTests` (host lifetimes), `Regi
 ### Add something to pull up
 1. `Maugham/Models/PulledUp.swift` — the case and its coding; `PullUpRequest` and an item in `Maugham/MaughamApp.swift` (through `MaughamEvent`) if a key pulls it up; `PieceFoldEntry.pulledUp` if a fold row does.
 2. `Maugham/Views/PulledUpView.swift` — its `Face` and arm, and `centreShows` for what the centre may already hold. Read-only unless an editor beside is safe (tripwires 26–28); Lock and posture apply.
-3. For the centre's own details instead: a `CentreDetails` case and its answer in `RightColumnContent.centreDetails`, from `open` alone, and its arm in `centreDetails`.
+3. For the centre's own details instead: a `CentreDetails` case and its answer in `RightColumnContent.centreDetails`, from `open` alone, and its arm in `centreDetailsView`.
 4. `MaughamTests/TestSupport/RightColumnFixture.swift` — its kind in `kind(of:)` and `arms`, so the width and height censuses walk it.
 
 Checks: `PulledUpTests`, `PulledUpViewTests`, `RightColumnMountingTests`, `RightColumnContentTests`.
@@ -514,7 +514,7 @@ Checks: `PulledUpTests`, `PulledUpViewTests`, `RightColumnMountingTests`, `Right
 Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermitInOnePlace`, `test_aPermitRungIsComparedOnlyInThePermitLayer`.
 
 ## Pointers
-- `docs/history/views.md` — the old guide, word for word: every rule's why and where it came from.
+- `docs/history/views.md` — the old guide verbatim: each rule's why and origin.
 - ADR 0035 (the subject, not the persona; supersedes in part 0005, 0025, 0031); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0032 (posture and register surfaces).
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.

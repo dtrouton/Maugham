@@ -1070,7 +1070,11 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
         XCTAssertNil(BinderPieceFold.clicked(region, subject: up, structure: structure,
                                              projectType: .novel).beside,
                      "a second click puts it away")
-        XCTAssertNil(BinderPieceFold.doubleClickSubject(of: region), "no tree row: Open in Centre is the menu's")
+        // A double-click opens it in the centre: the canvas, the region selected.
+        XCTAssertEqual(BinderPieceFold.doubleClicked(region, subject: up, structure: structure,
+                                                     projectType: .novel, photoNode: { _ in nil }),
+                       .canvas(WindowSubject(open: .canvas, faces: .canvas),
+                               select: .region(CanvasRegionID("rg-1"))))
         XCTAssertEqual(region.regionCards, [scrap("n1")])
         XCTAssertEqual(BinderPieceFold.clicked(region.regionCards[0], subject: up, structure: structure,
                                                projectType: .novel).beside,
@@ -1103,18 +1107,22 @@ final class BinderPieceFoldDecisionTests: XCTestCase {
         XCTAssertFalse(BinderPieceFold.offersRemoveLink(out, mayEditLinks: false), "hidden where refused")
         XCTAssertFalse(BinderPieceFold.offersRemoveLink(into, mayEditLinks: true),
                        "an incoming link is the other piece's to remove")
-        // Research and figures are List tags; a figure takes the centre.
+        // Research is a List tag; a figure is pulled up beside (appraisal 8).
         XCTAssertEqual(BinderPieceFold.act(of: .research(id: "r1", title: "T", owned: true)),
                        .listTag(.research("r1")))
-        XCTAssertEqual(BinderPieceFold.act(of: .figure(id: "f1", name: "Map")), .listTag(.figure("f1")))
+        XCTAssertEqual(BinderPieceFold.act(of: .figure(id: "f1", name: "Map")), .pullUp(.figure("f1")))
         XCTAssertEqual(BinderPieceFold.clicked(.figure(id: "f1", name: "Map"), subject: start,
                                                structure: structure, projectType: .novel).open,
-                       .figure("f1"))
-        // A double-click opens research-backed rows in the centre; a scrap has
-        // no tree row and opens from its menu.
-        XCTAssertEqual(BinderPieceFold.doubleClickSubject(of: .palette(id: "p1", title: "G")),
-                       .research("p1"))
-        XCTAssertNil(BinderPieceFold.doubleClickSubject(of: scrap("n1")))
+                       start.open, "a fold's figure leaves the centre alone")
+        // A double-click opens a palette row in the centre as its research
+        // item, and a link is no pull-up row.
+        XCTAssertEqual(BinderPieceFold.doubleClicked(.palette(id: "p1", title: "G"), subject: start,
+                                                     structure: structure, projectType: .novel,
+                                                     photoNode: { _ in nil }),
+                       .subject(WindowSubject(open: .research("p1"), faces: .research("p1"))))
+        XCTAssertNil(BinderPieceFold.doubleClicked(.link(pieceId: "ch-2", title: "Two", incoming: false),
+                                                   subject: start, structure: structure,
+                                                   projectType: .novel, photoNode: { _ in nil }))
     }
 
     /// Tripwire 9 over the fold's file: rows activate through `Button(.plain)`
