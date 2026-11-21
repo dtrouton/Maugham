@@ -146,7 +146,7 @@ extension DesignGate {
 
     static let supersededNote =
         "A later round replaced this proposal, so there is nothing here to "
-        + "decide. The newest round is the one on the department desk."
+        + "decide. The newest round is the one the Source edition shows."
 
     /// A status this build cannot represent — `DesignProposalStore.Status
     /// .unknown`'s own discipline carried onto the surface. Naming the raw word
@@ -262,6 +262,12 @@ extension DesignGate {
         "Discarded \u{2014} nothing this round proposed reached the live templates."
 
     static let discardTitle = "Discard"
+    static let discardConfirmTitle = "Discard this design?"
+    /// What Discard costs, said before it is done (review M8): it cannot be
+    /// taken back — the designer would have to run again.
+    static let discardCost =
+        "Nothing it proposed reaches the live templates, and it cannot be brought back "
+        + "\u{2014} the designer would have to run a new round."
     static let discardHelp =
         "Turn this proposal down. Nothing it proposed reaches the live templates."
 
@@ -271,7 +277,7 @@ extension DesignGate {
 
     static let changesSentConfirmation =
         "Sent \u{2014} the designer is taking another round of this proposal. "
-        + "The department desk shows it running."
+        + "The Source edition\u{2019}s To resolve shows it running."
 
     /// The gate's own words-for-the-designer field. Distinct from the desk's
     /// `directionPrompt`, which is optional because a bare Run is briefed on the
@@ -418,10 +424,18 @@ enum DesignGatePromotion {
     /// `turnedDownNote`. Refused over anything but a pending proposal.
     static func discard(_ proposal: DesignProposalStore.Proposal,
                         projectURL: URL) -> DesignGateOutcome {
-        guard proposal.status == .pending else { return .refused(DesignGate.notPendingRefusal) }
+        // **The STORE's proposal decides, never the caller's copy** (review
+        // I3): a list holding it as pending while the gate approved it would
+        // otherwise mark a promoted design turned down and take its Revert
+        // away. An approved, superseded or already-turned-down proposal is
+        // left exactly as it is.
+        let store = DesignProposalStore(projectURL: projectURL)
+        guard let stored = try? store.load(id: proposal.id) else {
+            return .refused(DesignGate.notPendingRefusal)
+        }
+        guard stored.status == .pending else { return .refused(DesignGate.notPendingRefusal) }
         do {
-            try DesignProposalStore(projectURL: projectURL)
-                .reject(id: proposal.id, note: DesignGate.turnedDownNote)
+            try store.reject(id: proposal.id, note: DesignGate.turnedDownNote)
         } catch {
             return .refused(DesignGate.refusalSentence(error))
         }

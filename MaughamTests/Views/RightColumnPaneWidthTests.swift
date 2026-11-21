@@ -331,19 +331,24 @@ final class RightColumnPaneWidthTests: XCTestCase {
         }
         var verbs = ResolveEditionVerbs()
         verbs.authorVerbs = { _, _ in .unrestricted }
+        verbs.mayDecideDesign = true
+        read.runBook = [docId]
+        read.imprint = String(repeating: "A long imprint name ", count: 4)
         let items = ResolveEditionItems.items(language: "es", isSource: false, docIds: [docId], read: read)
         XCTAssertEqual(items.count, 4, "premise: a change, a glossary proposal, a design proposal, a problem")
         var offenders: [String] = []
         for width in Self.paneWidths + [Self.ceiling] {
             for item in items {
                 let (fits, measured) = Self.fits(
-                    ResolveEditionRow(item: item, read: read, verbs: verbs), in: width)
+                    ResolveEditionRow(item: item, read: read, verbs: verbs, authorVerbs: .unrestricted),
+                    in: width)
                 if !fits { offenders.append("\(item.id) → \(measured)pt in \(width)pt") }
             }
             for isSource in [false, true] {
                 let head = EditionHeadView(language: isSource ? "en" : "es", isSource: isSource,
-                                           docIds: [docId], store: fixture.store,
+                                           store: fixture.store,
                                            documentStore: fixture.documentStore, editionRead: read,
+                                           mayDecideDesign: true,
                                            onShowRound: { _ in }, onShowProposal: { _ in })
                 let (fits, measured) = Self.fits(head, in: width)
                 if !fits { offenders.append("\(isSource ? "Source" : "es") head → \(measured)pt in \(width)pt") }

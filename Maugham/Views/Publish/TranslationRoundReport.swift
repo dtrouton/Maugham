@@ -77,6 +77,7 @@ enum TranslationRoundReport {
                 // reaching it, a `holds` one was never work for the translator,
                 // and neither is news once the author has settled it.
                 outcomeLine: outcomeLine(departure.outcome, translatorName: translatorName)
+                    ?? (departure.ruled == true ? ruledOutcomeLine : nil)
                     ?? (isDismissed ? dismissedLine
                         : (departure.verdict == driftedVerdict ? unreachedLine : nil)),
                 before: rewrite?.before,
@@ -165,6 +166,8 @@ enum TranslationRoundReport {
     /// against — the records carry no id of their own.
     struct ProposalRow: Identifiable {
         let id: Int
+        /// What a verb names it by (`GlossaryProposalRecord.identity`).
+        let identity: String
         let term: String
         let rendering: String
         let reason: String
@@ -172,9 +175,16 @@ enum TranslationRoundReport {
         let skipped: Bool
     }
 
+    /// **Adopt and Skip, by who may decide the glossary** (shell p4 Task 6
+    /// fix round): both answer for the edition brief's doctrine, so both ask
+    /// `rule` — the round report and To resolve alike. Hidden, never disabled.
+    static func glossaryOffers(_ verbs: TranslationAuthorVerbs) -> (adopt: Bool, skip: Bool) {
+        (verbs.rule, verbs.rule)
+    }
+
     static func proposalRows(_ round: TranslationRound) -> [ProposalRow] {
         round.glossaryProposals.enumerated().map { index, proposal in
-            ProposalRow(id: index, term: proposal.term, rendering: proposal.rendering,
+            ProposalRow(id: index, identity: proposal.identity, term: proposal.term, rendering: proposal.rendering,
                         reason: proposal.reason, adopted: proposal.adopted,
                         skipped: proposal.skipped == true)
         }
@@ -393,6 +403,16 @@ enum TranslationRoundReport {
         + "from the next round on."
 
     static let answeredLine = "Your reply is on the question."
+
+    /// A filing verb over a change already settled — by Fine, by a ruling,
+    /// here or on another surface (shell p4 Task 6 fix round): nothing is
+    /// filed a second time.
+    static let alreadySettledLine =
+        "This change is already settled, so nothing was filed again."
+
+    /// Adopt or Skip over a glossary proposal already answered.
+    static let alreadyAnsweredLine =
+        "This proposal is already answered, so nothing was filed again."
 
     /// **An empty reply settles a question with nothing in it.** Both sheets
     /// disable their confirm button on empty text, so this is unreachable from

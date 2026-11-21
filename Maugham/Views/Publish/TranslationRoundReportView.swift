@@ -467,21 +467,23 @@ struct TranslationRoundReportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    if verbs.rule {
+                    if TranslationRoundReport.glossaryOffers(verbs).adopt {
                         Button(TranslationRoundReport.adoptTitle) {
-                            run { await actions.adopt(round, row.id) }
+                            run { await actions.adopt(round, row.identity) }
                         }
                         .controlSize(.small)
                         .accessibilityLabel(TranslationRoundReport.adoptLabel(index: row.id))
                         .help("Fix this rendering for the rest of the book. Every "
                               + "later round is briefed on it.")
                     }
-                    Button(TranslationRoundReport.skipTitle) {
-                        run { await actions.skip(round, row.id) }
+                    if TranslationRoundReport.glossaryOffers(verbs).skip {
+                        Button(TranslationRoundReport.skipTitle) {
+                            run { await actions.skip(round, row.identity) }
+                        }
+                        .controlSize(.small)
+                        .accessibilityLabel(TranslationRoundReport.skipLabel(index: row.id))
+                        .help("Leave this term alone. It is not proposed again.")
                     }
-                    .controlSize(.small)
-                    .accessibilityLabel(TranslationRoundReport.skipLabel(index: row.id))
-                    .help("Leave this term alone. It is not proposed again.")
                 }
             }
         }
@@ -565,7 +567,8 @@ struct TranslationRoundReportView: View {
                 onCommit: { instruction, home in
                     self.sheet = nil
                     run(settling: rowId) {
-                        await actions.keepMine(round, paragraphId, instruction, home)
+                        // The departure it answers is settled with the filing.
+                        await actions.keepMine(round, paragraphId, instruction, home, rowId)
                     }
                 },
                 onCancel: { self.sheet = nil },
@@ -578,7 +581,10 @@ struct TranslationRoundReportView: View {
                 onCommit: { text in
                     self.sheet = nil
                     run(settling: id, filedIn: ruleSection(of: id)) {
-                        await actions.makeRule(round, text)
+                        // A departure row's rule settles it; a disagreement's
+                        // settles no departure.
+                        await actions.makeRule(round, text,
+                                               departureRows.contains { $0.id == id } ? id : nil)
                     }
                 },
                 onCancel: { self.sheet = nil })

@@ -18,7 +18,8 @@ import Foundation
 ///   `maughamSessionLogChanged`, `maughamNavigateToDocument`,
 ///   `maughamTranslationDidUpdate`, `maughamCanvasNodesAdded`,
 ///   `maughamDocumentNotice`, `maughamAnnotationsChanged`,
-///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`): delivered
+///   `maughamDesignProposalsChanged`, `maughamTranslationRoundEnded`,
+///   `maughamTranslationRoundChanged`): delivered
 ///   to live windows on the matching project only.
 /// - **`.allWindows`** (genuinely global fan-out, no liveness guard — see the
 ///   per-name zombie-harm audit note where present): `maughamNewProject`,
@@ -104,6 +105,12 @@ extension Notification.Name {
     /// scope `.project(for: projectURL)`, like `maughamTranslationDidUpdate`.
     /// `userInfo["language"]`, `["document_id"]`, `["round"]` (Int).
     public static let maughamTranslationRoundEnded = Notification.Name("maugham.translation.round.ended")
+    /// Posted when a round's RECORD changes under a verb — a departure
+    /// dismissed or ruled, a glossary proposal adopted or skipped (shell p4
+    /// Task 6 fix round) — so an edition's To resolve, its tree mark, its
+    /// Status and an open round report read again. Data event, scope
+    /// `.project(for: projectURL)`.
+    public static let maughamTranslationRoundChanged = Notification.Name("maugham.translation.round.changed")
     /// Posted by the round report and the Translation pane to take the writer
     /// to one paragraph of one edition in translation review. Scope: .keyWindow.
     /// `userInfo["document_id"]`, `["language"]`, `["paragraph_id"]`.

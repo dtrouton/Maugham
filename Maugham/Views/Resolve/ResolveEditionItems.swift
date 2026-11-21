@@ -43,6 +43,14 @@ enum ResolveEditionItems {
         /// Whether any round has ever finished in this language — what the
         /// empty list says.
         var hasRounds = false
+        /// **The pieces Run Whole Book runs** — the imprint the window stands
+        /// on (`UIState.publishImprint`, the one choice the edition's compile
+        /// bar shows and changes), folded over the book (review I5). Its
+        /// count, its help, its offer and the run itself are all asked over
+        /// this one set.
+        var runBook: [String] = []
+        /// That imprint's name; nil for the whole book.
+        var imprint: String?
 
         static let empty = Read()
 
@@ -62,6 +70,8 @@ enum ResolveEditionItems {
         if let pending = read.pendingProposal { items.append(.designProposal(pending)) }
         var seen = Set<String>()
         for problem in read.problems {
+            // `read.problems` is already `stoppingProblems` — the one
+            // predicate the tree's mark asks too.
             let item = ResolveItem.compileProblem(problem)
             if seen.insert(item.id).inserted { items.append(item) }
         }
@@ -72,13 +82,39 @@ enum ResolveEditionItems {
                 items.append(.translationChange(docId: docId, language: language,
                                                 round: round.number, departure))
             }
-            for (index, proposal) in round.glossaryProposals.enumerated()
-            where isOpen(proposal) {
+            for proposal in round.glossaryProposals where isOpen(proposal) {
                 items.append(.glossaryProposal(docId: docId, language: language,
-                                               round: round.number, index: index, proposal))
+                                               round: round.number, proposal))
             }
         }
         return items
+    }
+
+    /// **The compile problems To resolve lists and the tree marks** — the
+    /// one predicate (controller's ruling, shell p4 Task 6 fix round): only
+    /// what stopped a book. A refused or failed compile's errors; a compile
+    /// that landed, warnings and all, lists nothing (its warnings stay behind
+    /// Show Problems in the centre).
+    @MainActor
+    static func stoppingProblems(_ state: DepartmentCompileState) -> [TectonicLogParser.Diagnostic] {
+        guard PublishCentreModel.coversWithProblems(state) else { return [] }
+        return state.problems.filter { $0.level == .error }
+    }
+
+    // MARK: An edition's question — the one spelling
+
+    /// **The language an open note is a question in**, lowercased; nil for a
+    /// settled note or one with no language. The one spelling of "an
+    /// edition's question" (review M13): the reader's `.edition` arm, the
+    /// live splice and the tree's mark all ask it.
+    static func questionLanguage(of annotation: Annotation) -> String? {
+        guard annotation.status == .open, let language = annotation.language else { return nil }
+        return language.lowercased()
+    }
+
+    /// Whether `annotation` is one of `language`'s questions.
+    static func isQuestion(_ annotation: Annotation, in language: String) -> Bool {
+        questionLanguage(of: annotation) == language.lowercased()
     }
 
     /// A glossary proposal nobody has answered.
@@ -191,9 +227,8 @@ enum ResolveEditionItems {
     /// own; a figure's note is no piece's question).
     static func questionLanguages(_ snapshot: ResolveSnapshot) -> Set<String> {
         var languages: Set<String> = []
-        for case .note(let note) in snapshot.items
-        where note.annotation.status == .open && !DocumentClass.isFigureDocId(note.docId) {
-            if let language = note.annotation.language { languages.insert(language.lowercased()) }
+        for case .note(let note) in snapshot.items where !DocumentClass.isFigureDocId(note.docId) {
+            if let language = questionLanguage(of: note.annotation) { languages.insert(language) }
         }
         return languages
     }
@@ -240,12 +275,15 @@ enum ResolveEditionItems {
                      problems: [TectonicLogParser.Diagnostic],
                      store: ProjectStore, documentStore: DocumentStore) async -> Read {
         let projectURL = store.url
+        let scope = runScope(docIds: docIds, persisted: documentStore.uiState.publishImprint,
+                             config: (try? PublishConfigStore.read(in: projectURL)) ?? nil)
         let rounds = await Task.detached(priority: .userInitiated) {
             readRounds(projectURL: projectURL, language: language, isSource: isSource, docIds: docIds)
         }.value
         let proposals = (try? DesignProposalStore(projectURL: projectURL).list()) ?? []
         var read = Read(language: language, rounds: rounds, proposals: proposals,
-                        problems: problems, hasRounds: !rounds.isEmpty)
+                        problems: problems, hasRounds: !rounds.isEmpty,
+                        runBook: scope.docIds, imprint: scope.imprint)
         let translator = EditionStatus.translatorName(for: language, in: store.manifest)
             ?? TranslationRoundReport.anonymousTranslator
         for (docId, round) in rounds {
@@ -283,6 +321,44 @@ enum ResolveEditionItems {
         return read
     }
 
+    /// **A round as a verb wrote it, in a read** (review C1): the piece's
+    /// round replaced when it is the same round; anything else unchanged.
+    static func patching(_ read: Read, with updated: TranslationRound) -> Read {
+        guard read.language?.caseInsensitiveCompare(updated.language) == .orderedSame,
+              read.rounds[updated.docId]?.number == updated.number else { return read }
+        var next = read
+        next.rounds[updated.docId] = updated
+        return next
+    }
+
+    /// The key an edition row's author verbs are cached under: its piece;
+    /// empty for a book-level item (no piece's posture is asked).
+    static func authorKey(_ item: ResolveItem) -> String {
+        switch item {
+        case .translationChange, .glossaryProposal: return item.docId
+        case .note, .finding, .todo, .designProposal, .compileProblem: return ""
+        }
+    }
+
+    /// **What Run Whole Book runs**: the imprint the window stands on — the
+    /// persisted choice the edition's compile bar shows, read through the
+    /// desk's own normalisation (a name the config no longer declares is the
+    /// whole book) — folded over the book's pieces. Pure.
+    static func runScope(docIds: [String], persisted: String?,
+                         config: PublishConfig?) -> (docIds: [String], imprint: String?) {
+        let imprint = DepartmentPaneHost.selection(
+            persisted: persisted, among: DepartmentPaneHost.imprintNames(in: config))
+        return (DepartmentPaneHost.scopedDocumentIds(docIds, imprint: imprint, in: config), imprint)
+    }
+
+    /// The line under Run Whole Book: how many chapters it runs, and of
+    /// which imprint when one is chosen.
+    static func runScopeLine(count: Int, imprint: String?) -> String {
+        let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
+        guard let imprint else { return "Runs every chapter of the book: \(chapters)." }
+        return "Runs the \(chapters) of \u{201C}\(imprint)\u{201D}, the imprint chosen above the book."
+    }
+
     /// `held` with its edition kinds replaced by `items`: the walks' questions
     /// stay, and every change, proposal and problem is this read's.
     static func replacing(_ held: ResolveSnapshot, with items: [ResolveItem]) -> ResolveSnapshot {
@@ -306,6 +382,8 @@ struct ResolveEditionKey: Equatable {
     let roundsModified: Date?
     let heard: Int
     let problems: [TectonicLogParser.Diagnostic]
+    /// The imprint the window stands on — what Run Whole Book runs.
+    var imprint: String? = nil
 
     static func modified(_ url: URL) -> Date? {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -317,15 +395,20 @@ struct ResolveEditionKey: Equatable {
 /// **The verbs an edition's rows reach** — the round report's and the gate's,
 /// handed in by the pane, never re-spelled (the plan's contract). Each that
 /// files says where through `onFiled`, from the destination the write
-/// returned.
+/// returned; each that rewrote a round hands the round as written to
+/// `onRoundChanged`, which patches the list and the centre's report at once.
 struct ResolveEditionVerbs {
-    /// The round report's nine, wired to the window
+    /// The round report's verbs, wired to the window
     /// (`TranslationRoundActions.production`).
     var round = TranslationRoundActions()
-    /// `TranslationAuthorVerbs.decide` for a piece in a language — the
-    /// round report host's two questions.
+    /// `TranslationAuthorVerbs.decide` for a piece in a language — the round
+    /// report host's questions, asked once per render for the pieces listed.
     var authorVerbs: (_ docId: String, _ language: String) -> TranslationAuthorVerbs = { _, _ in .none }
-    var translatorName: (_ language: String) -> String = { $0.uppercased() }
+    /// **Whether this Mac may decide the book's design** — Approve, Discard,
+    /// Run and Request Changes (shell p4 Task 6 fix round): the posture of
+    /// the Visual Language statement, the design's own home. Hidden, never
+    /// disabled.
+    var mayDecideDesign = false
     /// The gate's Approve, and the list's Discard (`DesignGatePromotion`).
     var approve: (DesignProposalStore.Proposal) async -> DesignGateOutcome = { _ in .refused(DesignGate.notWired) }
     var discard: (DesignProposalStore.Proposal) async -> DesignGateOutcome = { _ in .refused(DesignGate.notWired) }
@@ -333,12 +416,91 @@ struct ResolveEditionVerbs {
     var showRound: (TranslationRound) -> Void = { _ in }
     var showProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
     var showProblems: () -> Void = {}
-    /// A record changed: read the edition again.
-    var onChanged: () -> Void = {}
-    /// A gate verb's answer, for the gate if it is showing that proposal.
+    /// A round as written by a verb: patch the list and the report now.
+    var onRoundChanged: (TranslationRound) -> Void = { _ in }
+    /// A proposal as a gate verb left it: read the list again; the gate
+    /// adopts it if it is showing that proposal.
     var onProposalChanged: (DesignProposalStore.Proposal) -> Void = { _ in }
     /// Where an answer was filed (`FiledUnder`).
     var onFiled: (FiledDestination) -> Void = { _ in }
+}
+
+/// **What each row's button does, as functions the tests call directly**
+/// (tripwire 33: no press-then-wait). Each resolves the round the row is
+/// about from the CURRENT read — never a copy the row was drawn with — and
+/// calls the one verb, with the departure or proposal named by identity.
+@MainActor
+enum ResolveEditionActs {
+
+    /// Fine on a change.
+    static func fine(_ item: ResolveItem, read: ResolveEditionItems.Read,
+                     verbs: ResolveEditionVerbs) async -> TranslationRoundActions.Outcome? {
+        guard case .translationChange(let docId, _, _, let departure) = item,
+              let round = read.rounds[docId] else { return nil }
+        return await verbs.round.dismiss(round, departure.id)
+    }
+
+    /// Keep mine on a change: the directive on its paragraph, settling it.
+    static func keepMine(_ item: ResolveItem, instruction: String, home: TranslatorsNote.Home,
+                         read: ResolveEditionItems.Read,
+                         verbs: ResolveEditionVerbs) async -> TranslationRoundActions.Outcome? {
+        guard case .translationChange(let docId, _, _, let departure) = item,
+              let round = read.rounds[docId] else { return nil }
+        return await verbs.round.keepMine(round, departure.paragraphId, instruction, home, departure.id)
+    }
+
+    /// Make it a rule on a change: doctrine for the edition, settling it.
+    static func makeRule(_ item: ResolveItem, text: String, read: ResolveEditionItems.Read,
+                         verbs: ResolveEditionVerbs) async -> TranslationRoundActions.Outcome? {
+        guard case .translationChange(let docId, _, _, let departure) = item,
+              let round = read.rounds[docId] else { return nil }
+        return await verbs.round.makeRule(round, text, departure.id)
+    }
+
+    /// Adopt a glossary proposal, by its identity.
+    static func adopt(_ item: ResolveItem, read: ResolveEditionItems.Read,
+                      verbs: ResolveEditionVerbs) async -> TranslationRoundActions.Outcome? {
+        guard case .glossaryProposal(let docId, _, _, let proposal) = item,
+              let round = read.rounds[docId] else { return nil }
+        return await verbs.round.adopt(round, proposal.identity)
+    }
+
+    /// Skip a glossary proposal, by its identity.
+    static func skip(_ item: ResolveItem, read: ResolveEditionItems.Read,
+                     verbs: ResolveEditionVerbs) async -> TranslationRoundActions.Outcome? {
+        guard case .glossaryProposal(let docId, _, _, let proposal) = item,
+              let round = read.rounds[docId] else { return nil }
+        return await verbs.round.skip(round, proposal.identity)
+    }
+
+    /// Approve or Discard a design proposal.
+    static func decide(_ verb: EditionDesignRow.Verb, _ proposal: DesignProposalStore.Proposal,
+                       verbs: ResolveEditionVerbs) async -> DesignGateOutcome {
+        switch verb {
+        case .approve: return await verbs.approve(proposal)
+        case .discard: return await verbs.discard(proposal)
+        }
+    }
+
+    /// **What a round verb's outcome does** — the round report's rule
+    /// (`TranslationRoundReportView.run`): the round as written goes to the
+    /// list and the centre now; a filing is said by the list's one filed
+    /// line; a refusal is the row's own sentence. Returns the row's notice.
+    static func apply(_ outcome: TranslationRoundActions.Outcome?, verbs: ResolveEditionVerbs) -> String? {
+        switch outcome {
+        case .done(let updated, let sentence)?:
+            if let updated { verbs.onRoundChanged(updated) }
+            return sentence
+        case .filed(let updated, let destination, _)?:
+            if let updated { verbs.onRoundChanged(updated) }
+            verbs.onFiled(destination)
+            return nil
+        case .refused(let sentence)?:
+            return sentence
+        case nil:
+            return TranslationRoundReport.rowGone
+        }
+    }
 }
 
 // MARK: - The rows
@@ -351,18 +513,19 @@ struct ResolveEditionRow: View {
     let item: ResolveItem
     let read: ResolveEditionItems.Read
     let verbs: ResolveEditionVerbs
+    /// The pieces' author verbs, asked once per render (`ResolvePane`).
+    let authorVerbs: TranslationAuthorVerbs
 
     var body: some View {
         switch item {
-        case .translationChange(let docId, let language, _, _):
-            if let round = read.rounds[docId], let row = read.departureRows[item.id] {
-                EditionChangeRow(round: round, row: row, verbs: verbs,
-                                 authorVerbs: verbs.authorVerbs(docId, language))
+        case .translationChange:
+            if let row = read.departureRows[item.id] {
+                EditionChangeRow(item: item, row: row, read: read, verbs: verbs, authorVerbs: authorVerbs)
             }
-        case .glossaryProposal(let docId, let language, _, let index, let proposal):
+        case .glossaryProposal(let docId, _, _, let proposal):
             if let round = read.rounds[docId] {
-                EditionGlossaryRow(round: round, index: index, proposal: proposal, verbs: verbs,
-                                   authorVerbs: verbs.authorVerbs(docId, language))
+                EditionGlossaryRow(item: item, round: round, proposal: proposal, read: read,
+                                   verbs: verbs, authorVerbs: authorVerbs)
             }
         case .designProposal(let proposal):
             EditionDesignRow(proposal: proposal, verbs: verbs)
@@ -392,12 +555,14 @@ private struct EditionVerbNotice: View {
 
 /// **A change the translator made**: the round report's own row
 /// (`DepartureRowView`) and its verbs — Fine, Keep mine, Make it a rule —
-/// over the change's own round. Its source line reveals the paragraph in
-/// the language (`TranslationReveal`), which opens the piece.
+/// each settling the change (controller's ruling: filing settles). Its
+/// source line reveals the paragraph in the language (`TranslationReveal`),
+/// which opens the piece.
 @MainActor
 struct EditionChangeRow: View {
-    let round: TranslationRound
+    let item: ResolveItem
     let row: TranslationRoundReport.DepartureRow
+    let read: ResolveEditionItems.Read
     let verbs: ResolveEditionVerbs
     let authorVerbs: TranslationAuthorVerbs
 
@@ -408,20 +573,26 @@ struct EditionChangeRow: View {
 
     @State private var sheet: Sheet?
     @State private var expanded = false
-    @State private var settled = false
     @State private var notice: String?
     @State private var working = false
+
+    private var language: String {
+        if case .translationChange(_, let language, _, _) = item { return language }
+        return ""
+    }
+
+    private var docId: String { item.docId }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             DepartureRowView(
-                row: row, isExpanded: expanded, isSettled: settled, verbs: authorVerbs,
-                onFine: { run(settles: false) { await verbs.round.dismiss(round, row.id) } },
+                row: row, isExpanded: expanded, verbs: authorVerbs,
+                onFine: { run { await ResolveEditionActs.fine(item, read: read, verbs: verbs) } },
                 onKeepMine: { sheet = .keepMine },
                 onMakeRule: { sheet = .makeRule },
                 onReveal: {
                     TranslationReveal.post(TranslationReveal(
-                        docId: round.docId, language: round.language, paragraphId: row.paragraphId))
+                        docId: docId, language: language, paragraphId: row.paragraphId))
                 },
                 onToggleExpanded: { expanded.toggle() })
             .disabled(working)
@@ -433,71 +604,51 @@ struct EditionChangeRow: View {
             case .keepMine:
                 TranslatorsNoteSheet(
                     target: TranslatorsNote.Target(
-                        docId: round.docId, paragraphId: row.paragraphId,
-                        excerpt: row.source ?? row.gloss, editions: [round.language]),
+                        docId: docId, paragraphId: row.paragraphId,
+                        excerpt: row.source ?? row.gloss, editions: [language]),
                     onCommit: { instruction, home in
                         sheet = nil
-                        run(settles: true) {
-                            await verbs.round.keepMine(round, row.paragraphId, instruction, home)
+                        run {
+                            await ResolveEditionActs.keepMine(item, instruction: instruction, home: home,
+                                                              read: read, verbs: verbs)
                         }
                     },
                     onCancel: { sheet = nil },
                     seed: row.note,
-                    defaultHome: authorVerbs.keepMineHome(language: round.language),
-                    offering: authorVerbs.keepMineHomes(language: round.language))
+                    defaultHome: authorVerbs.keepMineHome(language: language),
+                    offering: authorVerbs.keepMineHomes(language: language))
             case .makeRule:
-                RoundRuleSheet(seed: row.note, language: round.language,
+                RoundRuleSheet(seed: row.note, language: language,
                                onCommit: { text in
                                    sheet = nil
-                                   run(settles: true) { await verbs.round.makeRule(round, text) }
+                                   run { await ResolveEditionActs.makeRule(item, text: text, read: read, verbs: verbs) }
                                },
                                onCancel: { sheet = nil })
             }
         }
     }
 
-    private func run(settles: Bool, _ action: @escaping () async -> TranslationRoundActions.Outcome) {
+    private func run(_ action: @escaping () async -> TranslationRoundActions.Outcome?) {
         notice = nil
         working = true
         Task { @MainActor in
             let outcome = await action()
             working = false
-            EditionVerbOutcome.apply(outcome, settles: settles, verbs: verbs,
-                                     notice: &notice, settled: &settled)
+            notice = ResolveEditionActs.apply(outcome, verbs: verbs)
         }
     }
 }
 
-/// **What a round verb's outcome does to a row** — the round report's rule
-/// (`TranslationRoundReportView.run`), with the filing said by the list.
-enum EditionVerbOutcome {
-    @MainActor
-    static func apply(_ outcome: TranslationRoundActions.Outcome, settles: Bool,
-                      verbs: ResolveEditionVerbs, notice: inout String?, settled: inout Bool) {
-        switch outcome {
-        case .done(let updated, let sentence):
-            notice = sentence
-            if settles { settled = true }
-            if updated != nil { verbs.onChanged() }
-        case .filed(let updated, let destination, _):
-            // Where it went is the list's one filed line (`FiledUnder`).
-            verbs.onFiled(destination)
-            if settles { settled = true }
-            if updated != nil { verbs.onChanged() }
-        case .refused(let sentence):
-            notice = sentence
-        }
-    }
-}
-
-/// **A term the round proposes fixing**: Adopt (a ruling in the edition
-/// brief — where it may be written) and Skip, the round report's own.
-/// Its title opens the round's report.
+/// **A term the round proposes fixing**: Adopt and Skip, the round report's
+/// own, where this Mac may decide the glossary
+/// (`TranslationRoundReport.glossaryOffers`). Its title opens the round's
+/// report.
 @MainActor
 struct EditionGlossaryRow: View {
+    let item: ResolveItem
     let round: TranslationRound
-    let index: Int
     let proposal: TranslationRound.GlossaryProposalRecord
+    let read: ResolveEditionItems.Read
     let verbs: ResolveEditionVerbs
     let authorVerbs: TranslationAuthorVerbs
 
@@ -505,6 +656,7 @@ struct EditionGlossaryRow: View {
     @State private var working = false
 
     var body: some View {
+        let offers = TranslationRoundReport.glossaryOffers(authorVerbs)
         VStack(alignment: .leading, spacing: 4) {
             Button { verbs.showRound(round) } label: {
                 Text("\u{00AB}\(proposal.term)\u{00BB} \u{2192} \u{00AB}\(proposal.rendering)\u{00BB}")
@@ -522,14 +674,20 @@ struct EditionGlossaryRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             FlowLayout(spacing: 6) {
-                if authorVerbs.rule {
-                    Button(TranslationRoundReport.adoptTitle) { run { await verbs.round.adopt(round, index) } }
-                        .controlSize(.small).fixedSize()
-                        .accessibilityLabel(TranslationRoundReport.adoptLabel(index: index))
-                }
-                Button(TranslationRoundReport.skipTitle) { run { await verbs.round.skip(round, index) } }
+                if offers.adopt {
+                    Button(TranslationRoundReport.adoptTitle) {
+                        run { await ResolveEditionActs.adopt(item, read: read, verbs: verbs) }
+                    }
                     .controlSize(.small).fixedSize()
-                    .accessibilityLabel(TranslationRoundReport.skipLabel(index: index))
+                    .accessibilityLabel(TranslationRoundReport.adoptTitle + " \u{00AB}\(proposal.term)\u{00BB}")
+                }
+                if offers.skip {
+                    Button(TranslationRoundReport.skipTitle) {
+                        run { await ResolveEditionActs.skip(item, read: read, verbs: verbs) }
+                    }
+                    .controlSize(.small).fixedSize()
+                    .accessibilityLabel(TranslationRoundReport.skipTitle + " \u{00AB}\(proposal.term)\u{00BB}")
+                }
             }
             .disabled(working)
             EditionVerbNotice(notice: notice)
@@ -537,21 +695,20 @@ struct EditionGlossaryRow: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
-    private func run(_ action: @escaping () async -> TranslationRoundActions.Outcome) {
+    private func run(_ action: @escaping () async -> TranslationRoundActions.Outcome?) {
         notice = nil
         working = true
         Task { @MainActor in
             let outcome = await action()
             working = false
-            var settled = false
-            EditionVerbOutcome.apply(outcome, settles: false, verbs: verbs,
-                                     notice: &notice, settled: &settled)
+            notice = ResolveEditionActs.apply(outcome, verbs: verbs)
         }
     }
 }
 
 /// **A design proposal waiting on a decision**: its line, Show (the gate
-/// covers the centre), the gate's Approve, and Discard.
+/// covers the centre), and — where this Mac may decide the design — the
+/// gate's Approve and Discard, which asks first: it cannot be taken back.
 @MainActor
 struct EditionDesignRow: View {
     let proposal: DesignProposalStore.Proposal
@@ -559,6 +716,7 @@ struct EditionDesignRow: View {
 
     @State private var notice: String?
     @State private var working = false
+    @State private var confirmingDiscard = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -575,22 +733,31 @@ struct EditionDesignRow: View {
                     .controlSize(.small).fixedSize()
                     .accessibilityLabel(DepartmentDesignRow.showAccessibilityLabel)
                     .help(DepartmentDesignRow.showHelp)
-                ForEach(EditionDesignRow.verbs(status: proposal.status), id: \.self) { verb in
-                    Button(verb.title) { run(verb) }
-                        .controlSize(.small).fixedSize()
-                        .accessibilityLabel(verb.accessibilityLabel)
-                        .help(verb.help)
+                ForEach(EditionDesignRow.verbs(status: proposal.status, mayDecide: verbs.mayDecideDesign),
+                        id: \.self) { verb in
+                    Button(verb.title) {
+                        if verb == .discard { confirmingDiscard = true } else { run(verb) }
+                    }
+                    .controlSize(.small).fixedSize()
+                    .accessibilityLabel(verb.accessibilityLabel)
+                    .help(verb.help)
                 }
             }
             .disabled(working)
             EditionVerbNotice(notice: notice)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
+        .confirmationDialog(DesignGate.discardConfirmTitle, isPresented: $confirmingDiscard) {
+            Button(DesignGate.discardTitle, role: .destructive) { run(.discard) }
+            Button(DesignGate.cancelTitle, role: .cancel) {}
+        } message: {
+            Text(DesignGate.discardCost)
+        }
     }
 
     /// The list's verbs on a proposal: the gate's Approve, and Discard —
-    /// only while it waits. Request Changes stays the head's and the gate's
-    /// (it needs the writer's words).
+    /// only while it waits, and only where this Mac may decide the design.
+    /// Request Changes stays the head's and the gate's (it needs words).
     enum Verb: Hashable {
         case approve, discard
         var title: String {
@@ -613,24 +780,20 @@ struct EditionDesignRow: View {
         }
     }
 
-    static func verbs(status: DesignProposalStore.Status) -> [Verb] {
-        status == .pending ? [.approve, .discard] : []
+    static func verbs(status: DesignProposalStore.Status, mayDecide: Bool) -> [Verb] {
+        mayDecide && status == .pending ? [.approve, .discard] : []
     }
 
     private func run(_ verb: Verb) {
         notice = nil
         working = true
         Task { @MainActor in
-            let outcome = switch verb {
-            case .approve: await verbs.approve(proposal)
-            case .discard: await verbs.discard(proposal)
-            }
+            let outcome = await ResolveEditionActs.decide(verb, proposal, verbs: verbs)
             working = false
             switch outcome {
             case .done(let updated, let sentence):
                 notice = sentence
                 verbs.onProposalChanged(updated)
-                verbs.onChanged()
             case .refused(let sentence):
                 notice = sentence
             }
@@ -638,7 +801,7 @@ struct EditionDesignRow: View {
     }
 }
 
-/// **A problem the last compile reported**: the problems list's own row
+/// **A problem that stopped the last compile**: the problems list's own row
 /// words, Show (the problems cover the centre) and Show in Manuscript.
 @MainActor
 struct EditionProblemRow: View {
@@ -693,30 +856,86 @@ struct EditionProblemRow: View {
 
 // MARK: - The head
 
+/// **What the head's buttons reach**, as closures (shell p4 Task 6 fix
+/// round): built from the window's roster in production
+/// (`EditionHeadVerbs.production`), recorded in the tests, which call the
+/// head's verb functions directly (tripwire 33).
+struct EditionHeadVerbs {
+    /// Start a whole-book round over `documentIds` (`DepartmentPaneHost.startBookRun`):
+    /// the cast sheet's ask, or nil and the notice.
+    var startBookRun: (_ language: String, _ documentIds: [String]) async -> DepartmentPaneHost.RunStart
+        = { _, _ in .init(notice: DepartmentPaneHost.noTranslatorWired) }
+    /// After the cast sheet named the translator.
+    var runBookNamed: (_ language: String, _ documentIds: [String]) -> Void = { _, _ in }
+    var cancelRound: () -> Void = {}
+    /// A design round; nil when it went, else the refusal's sentence.
+    var runDesign: (_ direction: String?) -> String? = { _ in DepartmentDesignRow.noDesignerWired }
+    /// The gate's iterate arm (`DepartmentDesignRow.sendChanges`).
+    var requestChanges: (_ words: String) -> String? = { _ in DepartmentDesignRow.noDesignerWired }
+    var cancelDesign: () -> Void = {}
+
+    /// The window's roster, wired. A nil roster is a probe: every verb says
+    /// it is not wired.
+    @MainActor
+    static func production(roster: AgentRoster?, store: ProjectStore,
+                           documentStore: DocumentStore) -> EditionHeadVerbs {
+        guard let roster else { return EditionHeadVerbs() }
+        let pipeline = roster.pipeline
+        let designer = roster.designer
+        return EditionHeadVerbs(
+            startBookRun: { language, documentIds in
+                await DepartmentPaneHost.startBookRun(
+                    language: language, documentIds: documentIds, pipeline: pipeline,
+                    documentStore: documentStore, store: store)
+            },
+            runBookNamed: { language, documentIds in
+                pipeline.runBook(documentIds: documentIds, language: language)
+            },
+            cancelRound: {
+                roster.pipeline.cancel()
+                roster.translator.cancel()
+            },
+            runDesign: { direction in
+                if let refusal = DepartmentDesignRow.preflight(
+                    session: DesignSession.read(runState: designer.runState, isRunning: designer.isRunning),
+                    briefability: DepartmentDesignRow.briefability(store: store, projectURL: store.url)) {
+                    return refusal
+                }
+                designer.runDesign(direction: direction, language: nil)
+                return nil
+            },
+            requestChanges: { words in DepartmentDesignRow.sendChanges(words, to: designer) },
+            cancelDesign: { designer.cancel() })
+    }
+}
+
 /// **An edition's head** (shell p4 Task 6): where the edition stands and
 /// Run.
 ///
 /// - A translated edition: the translator's newest letter among the
 ///   chapters' latest rounds, signed, with its chapter and day, and Open the
-///   report (the round's cover); then Run Whole Book — a round of every piece
-///   in the imprint's book, `DepartmentPaneHost.startBookRun` — and Cancel
-///   while it runs. Run is hidden where the translator may translate nothing
-///   (`DepartmentTranslationOffers`).
+///   report (the round's cover); then Run Whole Book over the pieces of the
+///   imprint the window stands on (`Read.runBook`, the compile bar's one
+///   choice), the line that says how many and of which imprint, and Cancel
+///   while it runs. Run is hidden where the translator may translate none of
+///   those pieces.
 /// - The Source edition (Denver, 2026-11-21, answer 1): the designer's name
 ///   and latest line, a direction field, Run (a design round), Request
 ///   Changes while the proposal's session is open, Cancel while one runs,
-///   and Show for the newest proposal.
+///   and Show for the newest proposal — the deciding verbs only where this
+///   Mac may decide the design.
 ///
-/// Its services come from the environment the column injects (the window's
-/// roster); a probe that injects none reads without acting.
+/// Neither run resolves a reader from another loop's memory (tripwire 34):
+/// a round's cast is the language's roles, a design round's the designer.
 @MainActor
 struct EditionHeadView: View {
     let language: String
     let isSource: Bool
-    let docIds: [String]
     let store: ProjectStore
     let documentStore: DocumentStore
     let editionRead: ResolveEditionItems.Read
+    /// `ResolveEditionVerbs.mayDecideDesign` — the design verbs' posture.
+    let mayDecideDesign: Bool
     let onShowRound: (TranslationRound) -> Void
     let onShowProposal: (DesignProposalStore.Proposal) -> Void
 
@@ -724,6 +943,10 @@ struct EditionHeadView: View {
     @State private var notice: String?
     @State private var castPrompt: DepartmentCastPrompt?
     @State private var direction = ""
+
+    private var verbs: EditionHeadVerbs {
+        EditionHeadVerbs.production(roster: roster, store: store, documentStore: documentStore)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -741,7 +964,11 @@ struct EditionHeadView: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .sheet(item: $castPrompt) { prompt in
             DepartmentCastSheet(prompt: prompt,
-                                onConfirm: { confirmCast($0, prompt: prompt) },
+                                onConfirm: { answer in
+                                    castPrompt = nil
+                                    Task { notice = await Self.confirmCast(answer, prompt: prompt, store: store,
+                                                                           verbs: verbs) }
+                                },
                                 onCancel: {
                                     castPrompt = nil
                                     notice = DepartmentCastCopy.cancelledLine(language: language)
@@ -778,7 +1005,7 @@ struct EditionHeadView: View {
                 .buttonStyle(.link)
                 .font(.caption)
                 .help(DepartmentRunState.showRoundHelp)
-        } else {
+        } else if editionRead.language != nil {
             Text(ResolveEditionItems.noLetterLine(translator: translatorName,
                                                   hasRounds: editionRead.hasRounds))
                 .font(.caption)
@@ -789,9 +1016,9 @@ struct EditionHeadView: View {
         translationRun
     }
 
-    /// Whether this Mac's translator may translate any piece of the book —
-    /// the desk's rule (`DepartmentTranslationOffers.decide`), asked of the
-    /// translator actor's posture.
+    /// Whether this Mac's translator may translate any of the pieces Run
+    /// would run — the desk's rule (`DepartmentTranslationOffers.decide`),
+    /// asked of the translator actor's posture, over `Read.runBook`.
     static func offersRun(docIds: [String], mayTranslate: (String) -> Bool) -> Bool {
         DepartmentTranslationOffers.decide(target: nil, book: docIds, mayTranslate: mayTranslate).runBook
     }
@@ -799,7 +1026,8 @@ struct EditionHeadView: View {
     @ViewBuilder
     private var translationRun: some View {
         let run = runState
-        if Self.offersRun(docIds: docIds, mayTranslate: {
+        let book = editionRead.runBook
+        if editionRead.language != nil, Self.offersRun(docIds: book, mayTranslate: {
             DepartmentPaneHost.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
         }) {
             FlowLayout(spacing: 6) {
@@ -809,18 +1037,20 @@ struct EditionHeadView: View {
                     .disabled(!run.canRunBook)
                     .accessibilityLabel(DepartmentRunState.runBookAccessibilityLabel(language: language))
                     .help(run.bookRefusal
-                          ?? DepartmentRunState.runBookHelp(language: language, count: docIds.count,
+                          ?? DepartmentRunState.runBookHelp(language: language, count: book.count,
                                                             preflight: nil))
                 if run.isRunning {
-                    Button(DepartmentRunState.cancelTitle) {
-                        roster?.pipeline.cancel()
-                        roster?.translator.cancel()
-                    }
-                    .controlSize(.small)
-                    .fixedSize()
-                    .help(DepartmentRunState.cancelHelp)
+                    Button(DepartmentRunState.cancelTitle) { verbs.cancelRound() }
+                        .controlSize(.small)
+                        .fixedSize()
+                        .help(DepartmentRunState.cancelHelp)
                 }
             }
+            Text(ResolveEditionItems.runScopeLine(count: book.count, imprint: editionRead.imprint))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if run.isRunning || run.isFailure, let status = run.statusLine {
                 Text(status)
                     .font(.caption)
@@ -832,7 +1062,7 @@ struct EditionHeadView: View {
     }
 
     /// The edition's run state, from the window's translator and pipeline —
-    /// the desk's resolve, over the whole book (no chapter target).
+    /// the desk's resolve, over the run's own pieces (no chapter target).
     private var runState: DepartmentRunState {
         let runState = roster?.translator.runState ?? .idle
         let pipeline = roster?.pipeline.status ?? .idle
@@ -842,53 +1072,48 @@ struct EditionHeadView: View {
             language: language,
             target: DepartmentRunTarget.resolve(subject: nil, structure: [], isOpen: { _ in false }),
             session: session, runState: runState, lastRun: nil, pipeline: pipeline,
-            bookDocumentCount: docIds.count)
+            bookDocumentCount: editionRead.runBook.count)
     }
 
-    /// Run Whole Book: the desk's refusals, then the desk's start over the
-    /// imprint's own pieces, its cast sheet where the language has no
-    /// translator yet.
     private func runBook() {
         notice = nil
-        guard let roster else { notice = DepartmentPaneHost.noTranslatorWired; return }
         let session = DepartmentRunSession.read(
-            runState: roster.translator.runState, isRunning: roster.translator.isRunning,
-            pipeline: roster.pipeline.status)
-        if case .busy(let busy) = session {
-            notice = DepartmentRunState.busyReason(language: busy)
-            return
-        }
-        guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
-            notice = DepartmentRunState.unusableTag(language: language)
-            return
-        }
-        let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
-        let book = DepartmentPaneHost.scopedDocumentIds(
-            docIds, imprint: documentStore.uiState.publishImprint, in: config)
-        guard !book.isEmpty else { notice = DepartmentRunState.nothingInTheBook; return }
-        let pipeline = roster.pipeline
+            runState: roster?.translator.runState ?? .idle,
+            isRunning: roster?.translator.isRunning ?? false,
+            pipeline: roster?.pipeline.status ?? .idle)
+        let book = editionRead.runBook
+        let verbs = verbs
         Task {
-            let start = await DepartmentPaneHost.startBookRun(
-                language: language, documentIds: book, pipeline: pipeline,
-                documentStore: documentStore, store: store)
-            if let prompt = start.castPrompt { castPrompt = prompt }
-            notice = start.notice
+            let outcome = await Self.runBook(language: language, book: book, session: session, verbs: verbs)
+            if let prompt = outcome.castPrompt { castPrompt = prompt }
+            notice = outcome.notice
         }
     }
 
-    private func confirmCast(_ answer: DepartmentCastAnswer, prompt: DepartmentCastPrompt) {
-        castPrompt = nil
-        guard case .nameForBookRun(let language, let documentIds) = prompt.ask,
-              let pipeline = roster?.pipeline else {
-            notice = DepartmentPaneHost.noTranslatorWired
-            return
+    /// **Run Whole Book, decided**: the desk's refusals in order (a round
+    /// under way, an unusable tag, nothing to run), then the start over
+    /// exactly `book` — the set the button's count and offer were asked over.
+    static func runBook(language: String, book: [String], session: DepartmentRunSession,
+                        verbs: EditionHeadVerbs) async -> DepartmentPaneHost.RunStart {
+        if case .busy(let busy) = session {
+            return .init(notice: DepartmentRunState.busyReason(language: busy))
         }
-        Task {
-            let named = await DepartmentPaneHost.nameCast(language: language, answer: answer, store: store)
-            if let failure = named.failure { notice = failure }
-            guard named.translatorNamed else { return }
-            pipeline.runBook(documentIds: documentIds, language: language)
+        guard (try? TranslationWritePipeline.validate(language: language)) != nil else {
+            return .init(notice: DepartmentRunState.unusableTag(language: language))
         }
+        guard !book.isEmpty else { return .init(notice: DepartmentRunState.nothingInTheBook) }
+        return await verbs.startBookRun(language, book)
+    }
+
+    /// The cast sheet's Confirm for a book run: name the cast, then run the
+    /// queue it was asked over. Returns the notice.
+    static func confirmCast(_ answer: DepartmentCastAnswer, prompt: DepartmentCastPrompt,
+                            store: ProjectStore, verbs: EditionHeadVerbs) async -> String? {
+        guard case .nameForBookRun(let language, let documentIds) = prompt.ask else { return nil }
+        let named = await DepartmentPaneHost.nameCast(language: language, answer: answer, store: store)
+        guard named.translatorNamed else { return named.failure }
+        verbs.runBookNamed(language, documentIds)
+        return named.failure
     }
 
     // MARK: The Source edition
@@ -926,37 +1151,41 @@ struct EditionHeadView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-        TextField(DepartmentDesignRow.directionPrompt, text: $direction, axis: .vertical)
-            .textFieldStyle(.roundedBorder)
-            .lineLimit(1...3)
-            .font(.callout)
-            .accessibilityIdentifier("resolve.edition.direction")
-        FlowLayout(spacing: 6) {
-            Button(DepartmentDesignRow.runTitle) {
-                let words = direction.trimmingCharacters(in: .whitespacesAndNewlines)
-                if runDesign(words.isEmpty ? nil : words) { direction = "" }
-            }
-            .controlSize(.small)
-            .fixedSize()
-            .disabled(!design.canRun)
-            .accessibilityLabel(DepartmentDesignRow.runAccessibilityLabel)
-            .help(design.refusal ?? DepartmentDesignRow.runHelp(designerName: design.designerName))
-            if design.offersRequestChanges {
-                Button(DepartmentDesignRow.requestChangesTitle) {
-                    notice = DepartmentDesignRow.sendChanges(direction, to: roster?.designer)
-                    if notice == nil { direction = "" }
+        if mayDecideDesign {
+            TextField(DepartmentDesignRow.directionPrompt, text: $direction, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .font(.callout)
+                .accessibilityIdentifier("resolve.edition.direction")
+            FlowLayout(spacing: 6) {
+                Button(DepartmentDesignRow.runTitle) {
+                    let outcome = Self.runDesign(direction, verbs: verbs)
+                    notice = outcome.notice
+                    if outcome.spent { direction = "" }
                 }
                 .controlSize(.small)
                 .fixedSize()
                 .disabled(!design.canRun)
-                .help(design.refusal ?? DepartmentDesignRow.requestChangesHelp)
-            }
-            if design.isRunning {
-                Button(DepartmentRunState.cancelTitle) { roster?.designer.cancel() }
+                .accessibilityLabel(DepartmentDesignRow.runAccessibilityLabel)
+                .help(design.refusal ?? DepartmentDesignRow.runHelp(designerName: design.designerName))
+                if design.offersRequestChanges {
+                    Button(DepartmentDesignRow.requestChangesTitle) {
+                        let outcome = Self.requestChanges(direction, verbs: verbs)
+                        notice = outcome.notice
+                        if outcome.spent { direction = "" }
+                    }
                     .controlSize(.small)
                     .fixedSize()
-                    .accessibilityLabel(DepartmentDesignRow.cancelAccessibilityLabel)
-                    .help(DepartmentDesignRow.cancelHelp)
+                    .disabled(!design.canRun)
+                    .help(design.refusal ?? DepartmentDesignRow.requestChangesHelp)
+                }
+                if design.isRunning {
+                    Button(DepartmentRunState.cancelTitle) { verbs.cancelDesign() }
+                        .controlSize(.small)
+                        .fixedSize()
+                        .accessibilityLabel(DepartmentDesignRow.cancelAccessibilityLabel)
+                        .help(DepartmentDesignRow.cancelHelp)
+                }
             }
         }
         if let status = design.statusLine {
@@ -968,21 +1197,18 @@ struct EditionHeadView: View {
         }
     }
 
-    /// The desk's design click, moved: the pre-flight's sentence, or the
-    /// round (`language: nil` — a design round is the book's).
-    private func runDesign(_ direction: String?) -> Bool {
-        notice = nil
-        guard let designer = roster?.designer else {
-            notice = DepartmentDesignRow.noDesignerWired
-            return false
-        }
-        if let refusal = DepartmentDesignRow.preflight(
-            session: DesignSession.read(runState: designer.runState, isRunning: designer.isRunning),
-            briefability: DepartmentDesignRow.briefability(store: store, projectURL: store.url)) {
-            notice = refusal
-            return false
-        }
-        designer.runDesign(direction: direction, language: nil)
-        return true
+    /// Run design: the direction trimmed, empty is none; the words are spent
+    /// only on a round that went.
+    static func runDesign(_ direction: String, verbs: EditionHeadVerbs) -> (notice: String?, spent: Bool) {
+        let words = direction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refusal = verbs.runDesign(words.isEmpty ? nil : words)
+        return (refusal, refusal == nil)
+    }
+
+    /// Request Changes: the writer's words, untrimmed, to the gate's one
+    /// spelling; spent only when they went.
+    static func requestChanges(_ words: String, verbs: EditionHeadVerbs) -> (notice: String?, spent: Bool) {
+        let refusal = verbs.requestChanges(words)
+        return (refusal, refusal == nil)
     }
 }

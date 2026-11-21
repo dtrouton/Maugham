@@ -236,6 +236,18 @@ final class PublishCentreModel {
     /// answer rather than a defensive one: the record is gone or unparseable, so
     /// there is nothing for the gate to describe and the column hands itself
     /// back to the book. `load` answers `nil` for that case.
+    /// **The selected round as the ledger now holds it** (shell p4 Task 6
+    /// fix round, review C1/I1): a verb in To resolve, or another window,
+    /// rewrote its record, and the report must not go on offering what was
+    /// just done — nor write its stale copy back. The same round, re-read by
+    /// (language, piece, number); kept as it was when the ledger no longer
+    /// holds it.
+    func rereadRound(_ load: (_ language: String, _ docId: String, _ number: Int) -> TranslationRound?) {
+        guard let round = selectedRound,
+              let fresh = load(round.language, round.docId, round.number) else { return }
+        selectedRound = fresh
+    }
+
     func rereadProposal(_ load: (String) -> DesignProposalStore.Proposal?) {
         guard let id = selectedProposal?.id else { return }
         selectedProposal = load(id)

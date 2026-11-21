@@ -787,6 +787,15 @@ struct PublishPreviewModifier: ViewModifier {
                     try? DesignProposalStore(projectURL: projectURL).load(id: $0)
                 }
             }
+            // **A round's record rewritten elsewhere** (shell p4 Task 6 fix
+            // round): the report re-reads its round, so it never writes a stale
+            // copy back nor offers a verb already answered.
+            .onProjectEvent(.maughamTranslationRoundChanged,
+                            url: projectURL, window: window) { _ in
+                centre.rereadRound {
+                    TranslationRoundStore(projectURL: projectURL).record(language: $0, docId: $1, number: $2)
+                }
+            }
     }
 
     private func refresh() async {

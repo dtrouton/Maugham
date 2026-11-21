@@ -36,10 +36,16 @@ struct ResolveReadKey: Equatable {
     let diagnosticsVersion: Int
     let passes: [ReviewPass]
     let localName: String
+    /// **An edition's questions, from the window's presence read** (shell p4
+    /// Task 6 fix round, review I4): at an `.edition` scope with a tree
+    /// behind the list, the read takes its notes from here — read off the
+    /// main actor — and never asks the annotation walk. Nil elsewhere.
+    var presence: ResolvePresence.BookReading? = nil
 
     init(scope: ResolveScope, annotationsToken: Int, openPieces: [String],
          projectTasksVersion: Int, diagnosticsVersion: Int,
-         passes: [ReviewPass], localName: String) {
+         passes: [ReviewPass], localName: String,
+         presence: ResolvePresence.BookReading? = nil) {
         self.scope = scope
         self.annotationsToken = annotationsToken
         self.openPieces = Array(Set(openPieces)).sorted()
@@ -47,6 +53,7 @@ struct ResolveReadKey: Equatable {
         self.diagnosticsVersion = diagnosticsVersion
         self.passes = passes
         self.localName = localName
+        self.presence = presence
     }
 
     /// What the annotation walk is re-run on: the real cross-piece signals.

@@ -446,7 +446,7 @@ struct DepartmentRunState: Equatable {
         return "Run one round on every chapter of this book into \(edition), in order: \(chapters)\(budget)."
     }
     static let nothingInTheBook =
-        "There is nothing in this book to translate \u{2014} the imprint the desk is on names no chapters."
+        "There is nothing in this book to translate \u{2014} the imprint chosen above the book names no chapters."
     static let showRoundTitle = "Show"
     static func showRoundAccessibilityLabel(language: String) -> String {
         "Show the latest " + TranslationReviewIndicator.displayLabel(forLanguageTag: language) + " round"

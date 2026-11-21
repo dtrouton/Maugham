@@ -479,6 +479,9 @@ struct RightColumn: View {
             },
             // A filed line names a Brief: the faces move there.
             onOpenBrief: openBrief,
+            // An edition's questions: the window's presence read, off the
+            // main actor (shell p4 Task 6 fix round).
+            presenceReading: figureTree?.bookReading,
             // An edition's list: the Source, the compile's problems, and the
             // covers its rows open (shell p4 Task 6).
             publishCentre: publishCentre)

@@ -181,6 +181,14 @@ enum MaughamEvent {
                        "round": round.number])
     }
 
+    /// **The one spelling of the round-record post** (shell p4 Task 6 fix
+    /// round): a verb rewrote a round's record (`TranslationRoundStore.mutate`
+    /// through `TranslationRoundActions.production`). `projectURL` is the
+    /// project ROOT, as for `postTranslationRoundEnded`.
+    static func postTranslationRoundChanged(projectURL: URL) {
+        post(.maughamTranslationRoundChanged, to: .project(for: projectURL))
+    }
+
     /// Whether an admission request is the WRITER asking (History's *Admit…*)
     /// rather than the book reporting a stranger it has just noticed.
     static let admissionForcedKey = "maugham.admission.forced"

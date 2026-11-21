@@ -155,12 +155,6 @@ enum ResolvePresence {
         }
     }
 
-    /// **Each piece's open to-dos, for Status's column** (shell p4 Task 4),
-    /// counted from the same Book-scope read as the marks — no third walk. A
-    /// figure's to-do counts on its owner (`countsOn`); the Book's own count
-    /// under `ProjectStore.projectTasksDocId`, which is no row's id — Status's
-    /// footer reads it (fix round 1) — and an unowned figure's on nothing.
-    @MainActor
     /// **What the presence read also answers for the editions** (shell p4
     /// Task 5 fix round): each piece's open questions (`.query` and
     /// `.craftNote`, open — `EditionStatus`'s own filter), the pieces that
@@ -172,18 +166,39 @@ enum ResolvePresence {
         var openQuestions: [String: [Annotation]] = [:]
         var unreadable: Set<String> = []
         var sequences: [String: [String]] = [:]
+        /// Every open note with a language on the book's pieces — an
+        /// edition's questions (`ResolveEditionItems.questionLanguage`), for
+        /// an edition's To resolve (shell p4 Task 6 fix round, review I4).
+        var languageNotes: [ProjectAnnotation] = []
+
+        /// The language notes as the walk's shape, for `ResolveReader.read`.
+        var languageNotesSnapshot: ProjectAnnotationsSnapshot {
+            ProjectAnnotationsSnapshot(annotations: languageNotes,
+                                       unreadableDocIds: unreadable.sorted(), sequences: sequences)
+        }
     }
 
     static func bookReading(_ snapshot: ResolveSnapshot) -> BookReading {
         var questions: [String: [Annotation]] = [:]
-        for case .note(let note) in snapshot.items
-        where [.query, .craftNote].contains(note.annotation.kind) && note.annotation.status == .open {
-            questions[note.docId, default: []].append(note.annotation)
+        var languageNotes: [ProjectAnnotation] = []
+        for case .note(let note) in snapshot.items {
+            if [.query, .craftNote].contains(note.annotation.kind) && note.annotation.status == .open {
+                questions[note.docId, default: []].append(note.annotation)
+            }
+            if !DocumentClass.isFigureDocId(note.docId),
+               ResolveEditionItems.questionLanguage(of: note.annotation) != nil {
+                languageNotes.append(note)
+            }
         }
         return BookReading(openQuestions: questions, unreadable: Set(snapshot.unreadableDocIds),
-                           sequences: snapshot.sequences)
+                           sequences: snapshot.sequences, languageNotes: languageNotes)
     }
 
+    /// **Each piece's open to-dos, for Status's column** (shell p4 Task 4),
+    /// counted from the same Book-scope read as the marks — no third walk. A
+    /// figure's to-do counts on its owner (`countsOn`); the Book's own count
+    /// under `ProjectStore.projectTasksDocId`, which is no row's id — Status's
+    /// footer reads it (fix round 1) — and an unowned figure's on nothing.
     static func openToDos(_ items: [ResolveItem], figureOwners: [String: String?]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for case .todo(let task) in items where task.status == .open {
@@ -283,8 +298,9 @@ struct ResolvePresenceWiring: ViewModifier {
     let diagnostics: DiagnosticsStore?
     /// The window's `lastParsedScript`.
     let script: FountainScript?
-    /// Whether the window's last compile left problems — in every edition's
-    /// list, so every edition row's mark (shell p4 Task 6).
+    /// Whether the window's last compile was stopped by problems
+    /// (`ResolveEditionItems.stoppingProblems`, the list's own predicate) —
+    /// in every edition's list, so every edition row's mark.
     var compileProblems: Bool = false
 
     func body(content: Content) -> some View {
@@ -749,7 +765,10 @@ struct ResolvePresenceWatch: View {
         let languages = state.editionRows.filter { !$0.isSource }.map(\.language)
         return EditionMarkKey(
             languages: languages,
-            docIds: EditionStatus.manuscriptDocumentIds(in: store.manifest),
+            // The Book scope's own pieces — the list's `docIds` (review M2).
+            docIds: ResolveScope.of(.project, readIn: nil, sourceLanguage: PublishConfig.Metadata().language,
+                                    structure: store.manifest.structure,
+                                    projectType: store.manifest.type).docIds,
             ledgers: languages.map {
                 ResolveEditionKey.modified(TranslationRoundStore.fileURL(language: $0, in: url))
             },
@@ -812,6 +831,11 @@ struct ResolvePresenceWatch: View {
                 editionHeard &+= 1
             }
             .onProjectEvent(.maughamTranslationRoundEnded, url: url, window: window) { _ in
+                editionHeard &+= 1
+            }
+            // A verb rewrote a round's record: the edition's mark reads again
+            // (review I1 — a dot never stands over an empty list).
+            .onProjectEvent(.maughamTranslationRoundChanged, url: url, window: window) { _ in
                 editionHeard &+= 1
             }
             // A burst settles before its one walk.

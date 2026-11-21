@@ -437,7 +437,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PublishPreviewResolver.readablePDFs` is both the picker's rows and the drawn book**; the pick is never persisted.
 - **`PublishPreviewModifier` is the resolution's only writer.**
 - **A proposal is a VALUE read once**, cleared on any change of `open` *before* `PublishPreviewModifier`'s edition guard, so leaving the edition clears it.
-- **An edition's rows call the round report's and the gate's verbs**; a filing says the destination the write returned (`.filed`).
+- **An edition's rows call the round report's and the gate's verbs**; round verbs rewrite the stored record (`TranslationRoundStore.mutate`) and announce it; filing settles.
 - **Name, Add Language and Rename are asks of one sheet**; adding a language the book has says so and stops.
 - **The desk's run gate reads the pipeline first** (`DepartmentRunSession.read`); a round's leg never joins `ReloadKey`.
 - **An unlisted language's first Run asks for a name.**

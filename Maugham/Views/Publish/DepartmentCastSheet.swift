@@ -366,7 +366,7 @@ enum DepartmentCastCopy {
     static let explanation =
         "This edition has no named translator yet. Whatever is typed here signs "
         + "every paragraph and every query this round writes \u{2014} the same "
-        + "byline any other translator on the desk carries."
+        + "byline any other translator in this book carries."
 
     static let nameAndRunTitle = "Name & Run"
     static let cancelTitle = "Cancel"
@@ -431,7 +431,7 @@ enum DepartmentCastCopy {
     /// (`renameProductionRole`'s own `.productionRoleNameEmpty`): a dead control
     /// with no sentence beside it teaches the writer nothing about why.
     static let nameRequired =
-        "A name can\u{2019}t be blank \u{2014} every byline on the desk prints "
+        "A name can\u{2019}t be blank \u{2014} every byline in the book prints "
         + "somebody."
 
     /// The desk's one notice slot, when the writer backs out of adding a

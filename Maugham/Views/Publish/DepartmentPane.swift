@@ -918,7 +918,7 @@ enum DepartmentDesk {
     static let bookImprintTitle = "Book"
 
     static let imprintHelp =
-        "Which edition of this project the desk is about \u{2014} the book "
+        "Which edition of this project a compile and a whole-book round are about \u{2014} the book "
         + "itself, or one of the imprints its config declares. An imprint has "
         + "its own template, its own metadata and its own version count."
 

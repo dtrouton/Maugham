@@ -57,8 +57,7 @@ enum ResolveReader {
         // the walks' (`ResolveEditionItems`). The Source edition has none.
         if case .edition(let language, let isSource, _) = scope {
             let questions = isSource ? [] : annotations.annotations.filter {
-                $0.annotation.status == .open && inScope.contains($0.docId)
-                    && $0.annotation.language?.caseInsensitiveCompare(language) == .orderedSame
+                inScope.contains($0.docId) && ResolveEditionItems.isQuestion($0.annotation, in: language)
             }
             return ResolveSnapshot(
                 items: questions.map(ResolveItem.note),

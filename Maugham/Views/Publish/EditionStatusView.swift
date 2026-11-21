@@ -83,6 +83,10 @@ struct EditionStatusHost: View {
             .onProjectEvent(.maughamAnnotationsChanged, url: store.url, window: window) { _ in
                 revisions &+= 1
             }
+            // A change settled from To resolve or the report moves the count.
+            .onProjectEvent(.maughamTranslationRoundChanged, url: store.url, window: window) { _ in
+                revisions &+= 1
+            }
     }
 
     private static func modified(_ url: URL) -> Date? {

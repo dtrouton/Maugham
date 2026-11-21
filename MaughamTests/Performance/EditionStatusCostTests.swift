@@ -122,6 +122,49 @@ final class EditionStatusCostTests: XCTestCase {
         return "\(chapters) chapters — \(cost.text)"
     }
 
+    /// **Selecting an edition, then switching between two** (shell p4 Task 6
+    /// fix round, review I4): Spanish, French, Spanish over a closed book.
+    /// - **before**: the list's read as Task 6 shipped it — each edition a
+    ///   scope of its own, so each selection asked the annotation and task
+    ///   walks on the main actor (a fresh hold per scope);
+    /// - **after**: the questions from the window's presence read (read off
+    ///   the main actor by the walk the window already runs, so not timed).
+    /// Each figure: the three selections' total, and the longest single
+    /// main-actor step (each `refreshed` is one).
+    private func switchProbe(chapters: Int) async throws -> String {
+        let book = try await ResolvePresenceTests.book(in: temp.url, chapters: chapters,
+                                                       noted: Set(0..<chapters))
+        let clock = ContinuousClock()
+        let editions = ["es", "fr", "es"].map {
+            ResolveScope.edition(language: $0, isSource: false, docIds: book.ids)
+        }
+        func run(presence: ResolvePresence.BookReading?) -> Cost {
+            var cost = Cost()
+            for scope in editions {
+                var walks = ResolveWalkHold()
+                let key = ResolvePane.readKey(scope: scope, annotationsToken: 0, store: book.store,
+                                              documentStore: book.documentStore, diagnostics: nil,
+                                              localName: "", presence: presence)
+                let start = clock.now
+                _ = ResolvePane.refreshed(.empty, step: .read, key: key, walks: &walks, presence: presence,
+                                          store: book.store, documentStore: book.documentStore,
+                                          diagnostics: nil)
+                let step = ms(clock.now - start)
+                cost.wall += step
+                cost.longest = max(cost.longest, step)
+            }
+            return cost
+        }
+        let before = run(presence: nil)
+        let reading = ResolvePresence.bookReading(ResolveReader.read(
+            scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en",
+                                   structure: book.store.manifest.structure, projectType: .novel),
+            store: book.store, documentStore: book.documentStore, diagnostics: nil))
+        let after = run(presence: reading)
+        await book.documentStore.close()
+        return "\(chapters) chapters, es → fr → es — before: \(before.text); after: \(after.text)"
+    }
+
     func test_whatTheEditionsStatusReadCostsABook() async throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["MAUGHAM_PERF_FIXTURE"] == "1",
@@ -133,7 +176,10 @@ final class EditionStatusCostTests: XCTestCase {
                      try await probe(chapters: 200),
                      "EDITION TO RESOLVE COST (every chapter closed, one unsettled es change each)",
                      try await toResolveProbe(chapters: 30),
-                     try await toResolveProbe(chapters: 200)].joined(separator: "\n")
+                     try await toResolveProbe(chapters: 200),
+                     "SELECTING AN EDITION (the list's read; questions from the walk vs the presence read)",
+                     try await switchProbe(chapters: 30),
+                     try await switchProbe(chapters: 200)].joined(separator: "\n")
         let attachment = XCTAttachment(string: table)
         attachment.name = "edition-status-cost.txt"
         attachment.lifetime = .keepAlways

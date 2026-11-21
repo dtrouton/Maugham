@@ -144,30 +144,45 @@ final class TranslationRoundStoreTests: XCTestCase {
                            .hasSuffix(".maugham/translations/rounds"), true)
     }
 
-    func test_updateRewritesOneRoundInPlaceAndKeepsTheOthers() throws {
+    func test_mutateRewritesOneRoundInPlaceAndKeepsTheOthers() throws {
         let store = TranslationRoundStore(projectURL: temp.url)
-        var first = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        let first = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
         var second = TranslationRound(number: 2, language: "es", docId: "d", startedAt: Date())
         second.departures = [.init(id: "dep", paragraphId: "a1b2", verdict: "holds",
                                    kind: "rendering", note: "n", gloss: "g")]
         try store.append(first)
         try store.append(second)
 
-        second.departures[0].outcome = .dismissed
-        try store.update(second)
+        try store.mutate(language: "es", docId: "d", number: 2) { $0.departures[0].outcome = .dismissed }
 
         let rounds = store.rounds(language: "es")
         XCTAssertEqual(rounds.map(\.number), [2, 1])
         XCTAssertEqual(rounds[0].departures[0].outcome, .dismissed)
-        XCTAssertEqual(store.nextNumber(language: "es"), 3, "update never mints")
-        first.summary = "x"
-        XCTAssertNoThrow(try store.update(first))
+        XCTAssertEqual(store.nextNumber(language: "es"), 3, "a mutation never mints")
+        XCTAssertNoThrow(try store.mutate(language: "es", docId: "d", number: 1) { $0.summary = "x" })
     }
 
-    func test_updatingARoundThatAgedOutOfTheRingIsRefusedInWords() throws {
+    /// **Two verbs over one stale copy each keep their own field** (shell p4
+    /// Task 6 fix round, review C1): a mutation reads the record as stored,
+    /// so the second never writes back what the first changed.
+    func test_twoMutationsFromOneStaleCopyKeepBothChanges() throws {
         let store = TranslationRoundStore(projectURL: temp.url)
-        let gone = TranslationRound(number: 99, language: "es", docId: "d", startedAt: Date())
-        XCTAssertThrowsError(try store.update(gone)) { error in
+        var round = TranslationRound(number: 1, language: "es", docId: "d", startedAt: Date())
+        round.endedAt = Date()
+        round.departures = [.init(id: "a", paragraphId: "a1b2", verdict: "drifted", kind: "k", note: "n", gloss: "g"),
+                            .init(id: "b", paragraphId: "b1c2", verdict: "drifted", kind: "k", note: "n", gloss: "g")]
+        try store.append(round)
+        try store.mutate(language: "es", docId: "d", number: 1) { $0.departures[0].dismissed = true }
+        try store.mutate(language: "es", docId: "d", number: 1) { $0.departures[1].dismissed = true }
+        let stored = try XCTUnwrap(store.record(language: "es", docId: "d", number: 1))
+        XCTAssertEqual(stored.departures.map(\.dismissed), [true, true])
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "d")?.departures.map(\.dismissed),
+                       [true, true], "the piece's latest agrees with the ring")
+    }
+
+    func test_mutatingARoundThatAgedOutOfTheRingIsRefusedInWords() throws {
+        let store = TranslationRoundStore(projectURL: temp.url)
+        XCTAssertThrowsError(try store.mutate(language: "es", docId: "d", number: 99) { _ in }) { error in
             guard case TranslationRoundStore.UpdateError.roundGone(let number) = error else {
                 return XCTFail("\(error)")
             }
@@ -280,7 +295,7 @@ final class TranslationRoundStoreTests: XCTestCase {
 
     /// A verb on an old chapter's report must not say `roundGone` while that
     /// round is still the chapter's latest.
-    func test_updateFindsARoundThatAgedOutOfTheRing() throws {
+    func test_mutateFindsARoundThatAgedOutOfTheRing() throws {
         let store = try makeStore()
         var old = round(number: 1, docId: "ch-1")
         old.departures = [.init(id: "dep", paragraphId: "a1b2", verdict: "holds",
@@ -291,17 +306,17 @@ final class TranslationRoundStoreTests: XCTestCase {
         }
         XCTAssertFalse(store.rounds(language: "es").contains { $0.number == 1 }, "premise")
 
-        old.departures[0].outcome = .dismissed
-        XCTAssertNoThrow(try store.update(old))
+        XCTAssertNoThrow(try store.mutate(language: "es", docId: "ch-1", number: 1) {
+            $0.departures[0].outcome = .dismissed
+        })
         XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-1")?
                            .departures.first?.outcome, .dismissed)
         XCTAssertFalse(store.rounds(language: "es").contains { $0.number == 1 },
                        "the update did not put the round back into the ring")
 
         // A round in BOTH places is rewritten in both.
-        var newest = try XCTUnwrap(store.latestFinished(language: "es", docId: "ch-11"))
-        newest.summary = "edited"
-        try store.update(newest)
+        let newest = try XCTUnwrap(store.latestFinished(language: "es", docId: "ch-11"))
+        try store.mutate(language: "es", docId: "ch-11", number: newest.number) { $0.summary = "edited" }
         XCTAssertEqual(store.latest(language: "es", docId: "ch-11")?.summary, "edited")
         XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-11")?.summary, "edited")
     }
@@ -348,13 +363,11 @@ final class TranslationRoundStoreTests: XCTestCase {
     /// Two Macs can mint one number in one language for different chapters
     /// (each read `nextNumber` before the other's file arrived). `update` on
     /// one chapter's round must not overwrite the other chapter's (review M5).
-    func test_updateMatchesTheRingByNumberAndPiece() throws {
+    func test_mutateMatchesTheRingByNumberAndPiece() throws {
         let store = try makeStore()
         try store.append(round(number: 7, docId: "ch-a"))
         try store.append(round(number: 7, docId: "ch-b"))
-        var mine = try XCTUnwrap(store.latestFinished(language: "es", docId: "ch-b"))
-        mine.summary = "b's"
-        try store.update(mine)
+        try store.mutate(language: "es", docId: "ch-b", number: 7) { $0.summary = "b's" }
 
         let ring = store.rounds(language: "es")
         XCTAssertEqual(ring.first { $0.docId == "ch-a" }?.summary, nil,

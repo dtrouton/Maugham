@@ -157,7 +157,8 @@ final class ResolveEditionTests: XCTestCase {
                                      glossary: glossary)]
         let items = ResolveEditionItems.items(language: "es", isSource: false, docIds: ["doc-a"],
                                               read: .init(language: "es", rounds: rounds))
-        XCTAssertEqual(ids(items), ["change:es/doc-a#2/open", "glossary:es/doc-a#2/2"])
+        XCTAssertEqual(ids(items), ["change:es/doc-a#2/open", "glossary:es/doc-a#2/\u{AB}tide\u{BB}\u{2192}\u{AB}marea\u{BB}"],
+                       "a glossary item is named by its identity, never its position")
         XCTAssertEqual(EditionStatusRows.changesToLookAt(rounds["doc-a"]!), 1,
                        "the Status column counts what the list holds")
     }
@@ -186,7 +187,7 @@ final class ResolveEditionTests: XCTestCase {
     func test_theListGroupsTheBookFirstThenEachChapterQuestionsBeforeChanges() {
         let change = ResolveItem.translationChange(docId: "doc-a", language: "es", round: 3, departure("d1"))
         let glossary = ResolveItem.glossaryProposal(
-            docId: "doc-a", language: "es", round: 3, index: 0,
+            docId: "doc-a", language: "es", round: 3,
             .init(term: "fog", rendering: "niebla", reason: "", adopted: false))
         let question = ResolveItem.note(note("q", on: "doc-a", language: "es"))
         let laterQuestion = ResolveItem.note(note("q-b", on: "doc-b", language: "es"))
@@ -209,7 +210,7 @@ final class ResolveEditionTests: XCTestCase {
     func test_changesDrawWithTheReplacedLifetime() {
         let change = ResolveItem.translationChange(docId: "doc-a", language: "es", round: 3, departure("d1"))
         let glossary = ResolveItem.glossaryProposal(
-            docId: "doc-a", language: "es", round: 3, index: 0,
+            docId: "doc-a", language: "es", round: 3,
             .init(term: "fog", rendering: "niebla", reason: "", adopted: false))
         XCTAssertEqual(ResolvePane.caption(for: change, localName: "Denver"),
                        ResolvePane.replacedByTheNextRoundCaption)
@@ -220,8 +221,6 @@ final class ResolveEditionTests: XCTestCase {
         XCTAssertEqual(ResolvePane.caption(for: .compileProblem(problem("x")), localName: "Denver"),
                        ResolvePane.replacedByTheNextCompileCaption)
         XCTAssertNil(ResolvePane.caption(for: .note(note("q", on: "doc-a", language: "es")), localName: "Denver"))
-        XCTAssertTrue(change.isReplacedByALaterRun && glossary.isReplacedByALaterRun)
-        XCTAssertFalse(ResolveItem.note(note("q", on: "doc-a", language: "es")).isReplacedByALaterRun)
         XCTAssertFalse(change.isReplacedByTheNextCheck, "a round's change is not the check's")
     }
 
@@ -229,24 +228,22 @@ final class ResolveEditionTests: XCTestCase {
 
     /// **A change filed as a rule says the edition brief, from the write.**
     /// The round's Make it a rule answers `.filed` with the destination
-    /// `RulingPerformer` returned; the list says it through `FiledUnder` and
-    /// links to that edition's Brief. The round report reads the same value,
-    /// never a hard-coded Brief (ADR 0037's "Not yet built").
+    /// `RulingPerformer` returned and the round as written (the change is
+    /// settled); the list says the filing through `FiledUnder`, links to that
+    /// edition's Brief, and patches its round at once. The round report reads
+    /// the same value, never a hard-coded Brief (ADR 0037's "Not yet built").
     func test_aChangeFiledAsARuleSaysTheEditionBrief() throws {
         let destination = FiledDestination(kind: .editionBrief("es"), scope: .project)
         var filed: [FiledDestination] = []
-        var changed = 0
+        var patched: [TranslationRound] = []
         var verbs = ResolveEditionVerbs()
         verbs.onFiled = { filed.append($0) }
-        verbs.onChanged = { changed += 1 }
-        var notice: String?
-        var settled = false
-        EditionVerbOutcome.apply(.filed(nil, destination, "Filed"), settles: true, verbs: verbs,
-                                 notice: &notice, settled: &settled)
+        verbs.onRoundChanged = { patched.append($0) }
+        let written = round(3, on: "doc-a", departures: [departure("d1", dismissed: true)])
+        let notice = ResolveEditionActs.apply(.filed(written, destination, "Filed"), verbs: verbs)
         XCTAssertEqual(filed, [destination])
-        XCTAssertTrue(settled, "a ruling files once: the row's verbs give way to Ruled.")
+        XCTAssertEqual(patched, [written], "the settled round reaches the list and the report at once")
         XCTAssertNil(notice, "the filing is the list's one filed line, not the row's")
-        XCTAssertEqual(changed, 0, "a rule changes no round record")
 
         let sentence = FiledUnder.sentence(destination, faces: .edition(language: "es"), structure: [],
                                            projectType: .novel, firstReaderName: nil)
@@ -254,11 +251,12 @@ final class ResolveEditionTests: XCTestCase {
                        + TranslationReviewIndicator.displayLabel(forLanguageTag: "es") + " edition brief")
         XCTAssertEqual(FiledUnder.brief(of: destination), .edition(language: "es"))
 
-        // Fine changes the record: the list reads again.
-        EditionVerbOutcome.apply(.done(round(3, on: "doc-a"), TranslationRoundReport.dismissedLine),
-                                 settles: false, verbs: verbs, notice: &notice, settled: &settled)
-        XCTAssertEqual(changed, 1)
-        XCTAssertEqual(notice, TranslationRoundReport.dismissedLine)
+        // Fine changes the record: patched, and the row says so.
+        let fine = ResolveEditionActs.apply(.done(written, TranslationRoundReport.dismissedLine), verbs: verbs)
+        XCTAssertEqual(patched.count, 2)
+        XCTAssertEqual(fine, TranslationRoundReport.dismissedLine)
+        XCTAssertEqual(ResolveEditionActs.apply(.refused("No."), verbs: verbs), "No.")
+        XCTAssertEqual(ResolveEditionActs.apply(nil, verbs: verbs), TranslationRoundReport.rowGone)
 
         let report = SourceScan.codeLines(of: try SourceTree.read(
             "Maugham/Views/Publish/TranslationRoundReportView.swift")).joined(separator: "\n")
@@ -269,11 +267,13 @@ final class ResolveEditionTests: XCTestCase {
     }
 
     /// The design row's verbs: the gate's Approve and Discard, only while the
-    /// proposal waits.
+    /// proposal waits and only where this Mac may decide the design.
     func test_aDesignProposalOffersApproveAndDiscardOnlyWhileItWaits() {
-        XCTAssertEqual(EditionDesignRow.verbs(status: .pending), [.approve, .discard])
+        XCTAssertEqual(EditionDesignRow.verbs(status: .pending, mayDecide: true), [.approve, .discard])
+        XCTAssertEqual(EditionDesignRow.verbs(status: .pending, mayDecide: false), [],
+                       "a Mac that may not decide the design is offered neither")
         for status: DesignProposalStore.Status in [.approved, .rejected, .superseded, .unknown("later")] {
-            XCTAssertEqual(EditionDesignRow.verbs(status: status), [], "\(status)")
+            XCTAssertEqual(EditionDesignRow.verbs(status: status, mayDecide: true), [], "\(status)")
         }
         XCTAssertEqual(EditionDesignRow.Verb.approve.title, DesignGate.Verb.approve.title,
                        "the gate's own word, never re-spelled")
@@ -480,7 +480,8 @@ final class ResolveEditionTests: XCTestCase {
             XCTAssertTrue(watch.contains(token), token)
         }
         let window = try SourceTree.windowSource()
-        XCTAssertTrue(window.contains("compileProblems: !publishCentre.compileRunner.state.problems.isEmpty"),
+        XCTAssertTrue(window.contains(
+            "compileProblems: !ResolveEditionItems.stoppingProblems(publishCentre.compileRunner.state).isEmpty"),
                       "the window hands the presence its compile's problems")
     }
 

@@ -354,6 +354,9 @@ struct ResolveHeadView: View {
     /// The round cover and the design gate (`PublishCentreModel.show`).
     var onShowRound: (TranslationRound) -> Void = { _ in }
     var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
+    /// Whether this Mac may decide the book's design (`ResolvePane
+    /// .mayDecideDesign`).
+    var mayDecideDesign = false
 
     @Environment(\.undoManager) private var undoManager
 
@@ -375,9 +378,9 @@ struct ResolveHeadView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.vertical, 6)
         case .edition(let language, let isSource):
-            EditionHeadView(language: language, isSource: isSource, docIds: scope.docIds,
+            EditionHeadView(language: language, isSource: isSource,
                             store: store, documentStore: documentStore,
-                            editionRead: editionRead,
+                            editionRead: editionRead, mayDecideDesign: mayDecideDesign,
                             onShowRound: onShowRound, onShowProposal: onShowProposal)
         case .nothing:
             EmptyView()

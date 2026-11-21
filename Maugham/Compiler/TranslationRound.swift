@@ -149,6 +149,13 @@ struct TranslationRound: Codable, Equatable, Sendable {
         /// before this fix decodes (as `nil` — its dismissal, if it had one, is
         /// in `outcome` and `departureRows` still reads it there).
         var dismissed: Bool? = nil
+        /// **The author filed a ruling on it** — Keep mine or Make it a rule
+        /// (shell p4 Task 6 fix round, controller's ruling: filing settles).
+        /// Set with `dismissed`, so the departure is settled everywhere a
+        /// change "to look at" is counted; kept apart so the report says what
+        /// the author did ("Ruled.") rather than "You said this was fine."
+        /// `nil` on every record an older build wrote.
+        var ruled: Bool? = nil
     }
 
     struct GlossaryProposalRecord: Codable, Equatable, Sendable {
@@ -161,6 +168,13 @@ struct TranslationRound: Codable, Equatable, Sendable {
         /// existing callers compile. `nil` on a record an older build wrote
         /// (no such verb existed yet) and on one nobody has answered.
         var skipped: Bool? = nil
+
+        /// **Which proposal this is, stably** (shell p4 Task 6 fix round):
+        /// the term and its rendering. A verb names a proposal by this and is
+        /// resolved against the record as it stands at the write, never by a
+        /// position a list held — a round rewritten between a draw and a
+        /// press cannot have the wrong term adopted.
+        var identity: String { "\u{AB}" + term + "\u{BB}\u{2192}\u{AB}" + rendering + "\u{BB}" }
     }
 
     /// A note or departure the translator declined — the report's

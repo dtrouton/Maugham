@@ -44,7 +44,8 @@ extension ResolvePane {
     /// piece's version is in it (review C1): those are the list key's splice.
     static func readKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
-                        localName: String) -> ResolveReadKey {
+                        localName: String,
+                        presence: ResolvePresence.BookReading? = nil) -> ResolveReadKey {
         let inScope = Set(scope.docIds)
         return ResolveReadKey(
             scope: scope, annotationsToken: annotationsToken,
@@ -52,18 +53,19 @@ extension ResolvePane {
             projectTasksVersion: store.projectTasksVersion,
             diagnosticsVersion: diagnostics?.version ?? 0,
             passes: store.manifest.effectiveReviewPasses,
-            localName: localName)
+            localName: localName, presence: presence)
     }
 
     /// The whole key the view's `.task(id:)` runs on.
     static func listKey(scope: ResolveScope, annotationsToken: Int, store: ProjectStore,
                         documentStore: DocumentStore, diagnostics: DiagnosticsStore?,
-                        localName: String, script: FountainScript?) -> ResolveListKey {
+                        localName: String, script: FountainScript?,
+                        presence: ResolvePresence.BookReading? = nil) -> ResolveListKey {
         ResolveListKey(
             regroup: ResolveRegroupKey(
                 read: readKey(scope: scope, annotationsToken: annotationsToken, store: store,
                               documentStore: documentStore, diagnostics: diagnostics,
-                              localName: localName),
+                              localName: localName, presence: presence),
                 script: script),
             openTodos: openTodoVersion(scope: scope, documentStore: documentStore),
             openNotes: openNoteVersion(scope: scope, documentStore: documentStore))
@@ -111,7 +113,8 @@ extension ResolvePane {
     /// notes, to-dos, paragraph order and (at a `.piece`) text, off its
     /// `Document`. Neither of the last two asks a walk.
     static func refreshed(_ held: ResolveSnapshot, step: ResolveRefreshStep, key: ResolveReadKey,
-                          walks: inout ResolveWalkHold, store: ProjectStore,
+                          walks: inout ResolveWalkHold,
+                          presence: ResolvePresence.BookReading? = nil, store: ProjectStore,
                           documentStore: DocumentStore,
                           diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
         let scope = key.scope
@@ -119,6 +122,13 @@ extension ResolvePane {
         switch step {
         case .read:
             guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+            // **An edition reads its questions from the presence read** (review
+            // I4): no annotation or task walk on the main actor per navigation.
+            if case .edition = scope, let presence {
+                return ResolveReader.read(
+                    scope: scope, annotations: presence.languageNotesSnapshot, tasks: [],
+                    live: live, store: store, documentStore: documentStore, diagnostics: diagnostics)
+            }
             return ResolveReader.read(
                 scope: scope,
                 annotations: walks.annotations(for: key.walk, store: store),
@@ -177,12 +187,12 @@ extension ResolvePane {
                 .map { ResolveItem.note(ProjectAnnotation(docId: docId, annotation: $0)) }
         }
         var freshTodos = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
-        // An edition holds its language's questions and no to-do (the
-        // reader's own filter, `ResolveReader.snapshot`).
+        // An edition holds its language's questions and no to-do — the one
+        // predicate (`ResolveEditionItems.isQuestion`, review M13).
         if case .edition(let language, let isSource, _) = scope {
             freshNotes = isSource ? [] : freshNotes.filter { item in
                 guard case .note(let note) = item else { return false }
-                return note.annotation.language?.caseInsensitiveCompare(language) == .orderedSame
+                return ResolveEditionItems.isQuestion(note.annotation, in: language)
             }
             freshTodos = []
         }

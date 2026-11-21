@@ -2086,23 +2086,33 @@ final class PostureSurfaceTests: XCTestCase {
         let pieces = TranslationAuthorVerbs.decide(
             document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief,
             pieceIntent: piecesAuthorOnAsIntent)
-        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: pieces), [.keepMine],
-                       "her own piece's intent may take the note; the brief may not take a rule")
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: pieces), [.fine, .keepMine],
+                       "her own piece's intent may take the note; the brief may not take a rule; "
+                       + "Fine is a disposition on her own piece (shell p4 Task 6 fix round)")
+        // The glossary and the design, in To resolve (shell p4 Task 6 fix
+        // round): a reviewer and a pieces author decide neither — the brief
+        // and the Visual Language statement are the whole book's.
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).adopt)
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(none).skip)
+        XCTAssertFalse(TranslationRoundReport.glossaryOffers(pieces).adopt)
+        XCTAssertFalse(ResolvePane.mayDecideDesign(reviewerOnTheBrief))
+        XCTAssertFalse(ResolvePane.mayDecideDesign(piecesAuthorOnTheBrief))
+        XCTAssertTrue(ResolvePane.mayDecideDesign(posture(.author(.book), in: .projectStatement)))
         XCTAssertEqual(pieces.keepMineHome(language: "es"), .everyEdition,
                        "the sheet opens on the home she may write")
 
         let unsaid = TranslationAuthorVerbs.decide(
             document: piecesAuthorInA, editionBrief: piecesAuthorOnTheBrief)
-        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: unsaid), [],
+        XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: unsaid), [.fine],
                        "a host that names no intent posture gets the narrower answer")
 
         let all = TranslationAuthorVerbs.decide(
             document: bookAuthor, editionBrief: bookAuthor, pieceIntent: bookAuthor)
         XCTAssertEqual(DepartureRowView.offers(isSettled: false, verbs: all),
-                       [.keepMine, .makeRule], "the promotion back offers both")
+                       [.fine, .keepMine, .makeRule], "the promotion back offers both, and Fine")
         XCTAssertEqual(all.keepMineHome(language: "es"), .edition("es"))
-        XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [],
-                       "a settled row offers neither again")
+        XCTAssertEqual(DepartureRowView.offers(isSettled: true, verbs: all), [.fine],
+                       "a settled row offers neither filing verb again")
     }
 
     /// **Keep mine's sheet offers only the homes that may be written** (P3c

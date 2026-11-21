@@ -28,10 +28,9 @@ enum ResolveItem: Identifiable, Equatable {
     case todo(WriterTask)
     case translationChange(docId: String, language: String, round: Int,
                            TranslationRound.DepartureRecord)
-    /// `index` is the proposal's place in `round.glossaryProposals`, which is
-    /// what the round report's Adopt and Skip file against (the records carry
-    /// no id).
-    case glossaryProposal(docId: String, language: String, round: Int, index: Int,
+    /// Named by the record's `identity` (term and rendering), which the
+    /// verbs resolve against the stored round — never a position.
+    case glossaryProposal(docId: String, language: String, round: Int,
                           TranslationRound.GlossaryProposalRecord)
     case designProposal(DesignProposalStore.Proposal)
     case compileProblem(TectonicLogParser.Diagnostic)
@@ -45,8 +44,8 @@ enum ResolveItem: Identifiable, Equatable {
         case .todo(let task): return "todo:\(docId)/\(task.id)"
         case .translationChange(let docId, let language, let round, let departure):
             return "change:\(language)/\(docId)#\(round)/\(departure.id)"
-        case .glossaryProposal(let docId, let language, let round, let index, _):
-            return "glossary:\(language)/\(docId)#\(round)/\(index)"
+        case .glossaryProposal(let docId, let language, let round, let proposal):
+            return "glossary:\(language)/\(docId)#\(round)/\(proposal.identity)"
         case .designProposal(let proposal): return "design:\(proposal.id)"
         case .compileProblem(let problem):
             // A problem carries no id; its fields are what tell two apart
@@ -65,7 +64,7 @@ enum ResolveItem: Identifiable, Equatable {
         case .note(let note): return note.docId
         case .finding(let docId, _): return docId
         case .todo(let task): return task.anchor?.docId ?? ProjectStore.projectTasksDocId
-        case .translationChange(let docId, _, _, _), .glossaryProposal(let docId, _, _, _, _):
+        case .translationChange(let docId, _, _, _), .glossaryProposal(let docId, _, _, _):
             return docId
         case .designProposal, .compileProblem: return ProjectStore.projectTasksDocId
         }
@@ -89,18 +88,6 @@ enum ResolveItem: Identifiable, Equatable {
         case .finding: return true
         case .note, .todo, .translationChange, .glossaryProposal, .designProposal,
              .compileProblem: return false
-        }
-    }
-
-    /// True for the kinds a later run replaces wholesale — a check's strain,
-    /// a round's changes and glossary proposals, a design round's proposal, a
-    /// compile's problems. A note or a to-do lasts until it is settled.
-    var isReplacedByALaterRun: Bool {
-        switch self {
-        case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem:
-            return true
-        case .note, .todo:
-            return false
         }
     }
 }

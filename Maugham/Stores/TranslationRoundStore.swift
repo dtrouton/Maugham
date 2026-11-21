@@ -152,28 +152,44 @@ struct TranslationRoundStore {
         }
     }
 
-    /// Rewrite one round the report's verbs changed (a departure dismissed, a
-    /// proposal adopted or skipped). Never mints a number and never moves one.
-    /// Writes through to every place the round is kept — the ring, and its
-    /// piece's latest — so a round aged out of the ring is still found when it
-    /// is its piece's latest.
-    func update(_ round: TranslationRound) throws {
-        var ledger = load(language: round.language)
-        var found = false
+    /// **The round as the ledger holds it NOW**, by number and piece — the
+    /// copy a verb must decide over, never the one a surface was holding
+    /// (shell p4 Task 6 fix round, review C1). Its piece's latest when it is
+    /// one, else the ring's.
+    func record(language: String, docId: String, number: Int) -> TranslationRound? {
+        let ledger = load(language: language)
+        if let kept = ledger.latestByPiece[docId], kept.number == number { return kept }
+        return ledger.rounds.last { $0.number == number && $0.docId == docId }
+    }
+
+    /// **Change one round in place: a read-modify-write of the CURRENT
+    /// record** (shell p4 Task 6 fix round, review C1). The report's and To
+    /// resolve's verbs (a departure dismissed or ruled, a glossary proposal
+    /// adopted or skipped) flip one field of the record as the ledger holds
+    /// it at the write — never a whole value a surface was holding, so a
+    /// second verb pressed over a stale copy cannot undo the first. Applied
+    /// to every place the round is kept (the ring, and its piece's latest),
+    /// never mints a number and never moves one. Returns the round as
+    /// written; `change` may throw to refuse, and then nothing is written.
+    @discardableResult
+    func mutate(language: String, docId: String, number: Int,
+                _ change: (inout TranslationRound) throws -> Void) throws -> TranslationRound {
+        var ledger = load(language: language)
+        var written: TranslationRound?
         // Number AND piece: two Macs can mint one number in one language for
         // different chapters before either sees the other's file.
-        if let index = ledger.rounds.firstIndex(where: {
-            $0.number == round.number && $0.docId == round.docId
-        }) {
-            ledger.rounds[index] = round
-            found = true
+        if let index = ledger.rounds.firstIndex(where: { $0.number == number && $0.docId == docId }) {
+            try change(&ledger.rounds[index])
+            written = ledger.rounds[index]
         }
-        if ledger.latestByPiece[round.docId]?.number == round.number {
-            ledger.latestByPiece[round.docId] = round
-            found = true
+        if var kept = ledger.latestByPiece[docId], kept.number == number {
+            try change(&kept)
+            ledger.latestByPiece[docId] = kept
+            written = kept
         }
-        guard found else { throw UpdateError.roundGone(number: round.number) }
-        try write(ledger, language: round.language)
+        guard let written else { throw UpdateError.roundGone(number: number) }
+        try write(ledger, language: language)
+        return written
     }
 
     /// A missing or undecodable file is an empty ledger, logged — the ring is

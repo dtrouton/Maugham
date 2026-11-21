@@ -139,11 +139,15 @@ struct DepartureRowView: View {
     /// The row's own verbs, beyond Fine — a pure decision so it is pinned with
     /// nothing mounted. Hidden, never disabled: each writes a statement, and
     /// its door (`RulingPerformer`) refuses a press that arrives anyway.
-    enum Offer: Equatable { case keepMine, makeRule }
+    enum Offer: Equatable { case fine, keepMine, makeRule }
 
+    /// Fine is a disposition on the round's document (`answer`, shell p4
+    /// Task 6 fix round: a Mac that may not answer there — a reviewer, a
+    /// piece outside a narrowed book — is offered none); Keep mine and Make
+    /// it a rule file where their homes may be written.
     static func offers(isSettled: Bool, verbs: TranslationAuthorVerbs) -> [Offer] {
-        guard !isSettled else { return [] }
-        return (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
+        (verbs.answer ? [.fine] : [])
+            + (isSettled ? [] : (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : []))
     }
 
     /// One trailing line where it fits (the report's centre); in a narrow
@@ -169,10 +173,12 @@ struct DepartureRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Button(TranslationRoundReport.fineTitle, action: onFine)
-                .controlSize(.small)
-                .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
-                .help(DepartureRowCopy.fineHelp)
+            if offers.contains(.fine) {
+                Button(TranslationRoundReport.fineTitle, action: onFine)
+                    .controlSize(.small)
+                    .accessibilityLabel(TranslationRoundReport.fineLabel(id: row.id))
+                    .help(DepartureRowCopy.fineHelp)
+            }
             if offers.contains(.keepMine) {
                 Button(TranslationRoundReport.keepMineTitle, action: onKeepMine)
                     .controlSize(.small)

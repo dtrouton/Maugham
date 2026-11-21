@@ -655,7 +655,7 @@ struct ProjectWindow: View {
         .modifier(ResolvePresenceWiring(
             store: store, documentStore: documentStore, url: url, window: window,
             state: treeState, diagnostics: compiler.diagnostics, script: lastParsedScript,
-            compileProblems: !publishCentre.compileRunner.state.problems.isEmpty))
+            compileProblems: !ResolveEditionItems.stoppingProblems(publishCentre.compileRunner.state).isEmpty))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
