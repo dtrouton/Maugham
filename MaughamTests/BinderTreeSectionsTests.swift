@@ -204,12 +204,12 @@ final class BinderTreeSectionsTests: XCTestCase {
                                     .first { $0.subject == .palette }, "no Palette row drawn")
         let row = table.row(for: mark)
         XCTAssertGreaterThanOrEqual(row, 0, "the Palette title sits in no row")
-        let rowRect = table.convert(table.rect(ofRow: row), to: nil)
-        let rings = all.filter { String(describing: type(of: $0)).contains("FocusRing") }
-            .map { $0.convert($0.bounds, to: nil) }
-            .filter { $0.intersects(rowRect) }
-            .sorted { $0.minX < $1.minX }
-        let chevron = try XCTUnwrap(rings.first, "the Palette row draws no chevron")
+        // The row is a `DisclosureGroup` since the owner's hand check of
+        // 2026-11-21, so its chevron is the outline's own triangle.
+        let outline = try XCTUnwrap(table as? NSOutlineView, "the tree is no outline")
+        let cell = outline.frameOfOutlineCell(atRow: row)
+        XCTAssertGreaterThan(cell.width, 0, "the Palette row draws no chevron")
+        let chevron = outline.convert(cell, to: nil)
         _ = await TestWindow.activate(window)
 
         XCTAssertTrue(state.paletteSectionExpanded, "premise: the cards are shown")

@@ -57,7 +57,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
-- `BinderTreeSections.swift` — the Figures, Research, Palette (a row, the wall's door) and Editions sections; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.
+- `BinderTreeSections.swift` — the Figures, Research, Palette (the wall's door) and Editions sections; `TreeSectionColumn.swift`, the titles' column; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.
 - `BinderPieceFold.swift` — a piece's fold; `PieceFoldContents.swift`, its whole contents (`PieceFoldIndex`).
 - `TreeSectionDerivation.swift` — pure: `sharedResearchRoots`, `pieceFold`.
 - `TreeDropIntent.swift` — what a drag onto the tree means (`classify`, `classifyExternal`).

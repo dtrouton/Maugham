@@ -99,6 +99,7 @@ struct BinderTreeSections: View {
                     }, onExternalDrop: { providers in
                         sharedSectionExternalDrop(providers)
                     })
+                    .padding(.leading, ProjectRowLabel.childIndent)
                 } else {
                     ForEach(roots) { item in
                         ResearchTreeNode(
@@ -123,6 +124,10 @@ struct BinderTreeSections: View {
                             // `reveal` already answers a linked note with THIS
                             // row, never the fold's copy.
                             appliesScrollIdentity: true)
+                            // Under the section's title, as the Palette's
+                            // cards are; on the node, so a group's own
+                            // children move with it.
+                            .padding(.leading, ProjectRowLabel.childIndent)
                     }
                 }
             }
@@ -179,13 +184,19 @@ struct BinderTreeSections: View {
     ///
     /// **A `Section` with no header**, so the Palette stands apart from the
     /// Research section above it; the row is its first row.
+    ///
+    /// **A `DisclosureGroup`, so its triangle is the outline's own** (owner's
+    /// hand check, 2026-11-21: Palette read as indented under Research). A
+    /// top-level row's cell starts PAST the outline's disclosure gutter, so a
+    /// chevron drawn inside the row can only sit right of every chapter's
+    /// triangle — and one pulled left into the gutter is outside the cell and
+    /// takes no clicks. The group puts the Palette's triangle in the gutter
+    /// itself, the column a chapter's fold uses, and `sectionChevron` draws
+    /// Research's and Figures' to match it (`TreeSectionColumn`). The flag is
+    /// the same one ⌘⌥P and `reveal` write.
     private var paletteSection: some View {
         Section {
-            paletteRow
-                // **The row's own scroll identity** — what ⌘⌥P's
-                // `scrollRequest = .paletteHeader` targets.
-                .id(TreeScrollTarget.paletteHeader)
-            if state.paletteSectionExpanded {
+            DisclosureGroup(isExpanded: $state.paletteSectionExpanded) {
                 if state.cards.isEmpty {
                     // The palette's placeholder refuses: a card is MADE (the
                     // row's `+` menu), never dragged into being.
@@ -199,8 +210,10 @@ struct BinderTreeSections: View {
                         refuseDrop("palette placeholder", payload: nil,
                                    reason: .notAResearchTarget)
                     })
-                    .padding(.leading, ProjectRowLabel.childIndent)
                 } else {
+                    // One outline level down, which is the indent: no
+                    // `childIndent` here, or the cards would sit a level
+                    // deeper than Research's notes.
                     ForEach(state.cards) { card in
                         Label(card.title,
                               systemImage: PaletteCardTile.kindSymbol(for: card.kind))
@@ -209,7 +222,6 @@ struct BinderTreeSections: View {
                             // mark rather than a gesture — see TreeTravel.swift
                             // and BinderRow's twin.
                             .treeTravelOnDoubleClick(.research(card.id))
-                            .padding(.leading, ProjectRowLabel.childIndent)
                             .tag(BinderSubject.research(card.id))
                             // **The same value as the tag** (Task 8) — a card
                             // is drawn once, flat, so its scroll identity is
@@ -233,7 +245,14 @@ struct BinderTreeSections: View {
                             .contextMenu { paletteRowMenu(for: card) }
                     }
                 }
+            } label: {
+                paletteRow
             }
+            // On the group, as a chapter's fold carries its own (`outline`).
+            .tag(BinderSubject.palette)
+            // **The row's own scroll identity** — what ⌘⌥P's
+            // `scrollRequest = .paletteHeader` targets.
+            .id(TreeScrollTarget.paletteHeader)
         }
     }
 
@@ -274,21 +293,20 @@ struct BinderTreeSections: View {
         }
     }
 
-    /// **The Palette row**: its chevron (the cards' fold), its live title,
-    /// its `+` creation menu. A row and a `.tag`, like the project row —
-    /// selecting it is the click rule's `.palette`, and the wall opens in the
-    /// centre (tripwire 9: no gesture, the `List` selects it).
+    /// **The Palette row**: its live title and its `+` creation menu — the
+    /// label of `paletteSection`'s group, whose triangle is the cards' fold.
+    /// Selecting it is the click rule's `.palette` (the group carries the
+    /// `.tag`), and the wall opens in the centre (tripwire 9: no gesture, the
+    /// `List` selects it).
     ///
     /// "Open Wall" stays on its context menu, for the writer who right-clicks:
     /// it makes the same click a selection makes.
     private var paletteRow: some View {
         HStack {
-            // Its twin in `sectionHeader` carries why the chevron leads (D1).
-            HStack(spacing: 2) {
-                sectionChevron(store.paletteGroupDisplayTitle, section: .palette)
-                Text(store.paletteGroupDisplayTitle)
-                    .treeTravelOnDoubleClick(.palette)
-            }
+            // The section-title look, so it reads as Research's sibling.
+            Text(store.paletteGroupDisplayTitle)
+                .treeSectionTitle()
+                .treeTravelOnDoubleClick(.palette)
             Spacer()
             SwiftUI.Menu(content: paletteCreationMenu) {
                 Image(systemName: "plus.circle")
@@ -298,7 +316,6 @@ struct BinderTreeSections: View {
             .fixedSize()
         }
         .contentShape(Rectangle())
-        .tag(BinderSubject.palette)
         .contextMenu {
             Button("Open Wall") {
                 subject = ClickRule.resolve(
@@ -335,13 +352,12 @@ struct BinderTreeSections: View {
     ) -> some View {
         HStack {
             // **The chevron leads its title** (D1) — `sectionChevron`'s comment
-            // carries why. `spacing: 2` rather than the stack's default,
-            // because the button's own 21pt frame is mostly padding already and
-            // the default would push the title a third of the way across a
-            // 320pt column.
-            HStack(spacing: 2) {
+            // carries why.
+            // On the outline's disclosure gutter, the title where a row's
+            // starts (`TreeSectionColumn`).
+            HStack(spacing: 0) {
                 sectionChevron(title, section: section)
-                Text(title)
+                Text(title).treeSectionTitle()
             }
             Spacer()
             SwiftUI.Menu(content: menu) {
@@ -398,6 +414,11 @@ struct BinderTreeSections: View {
     /// functional one, and the two headers now disclose from the same edge as
     /// every group beneath them.
     ///
+    /// **Research's and Figures' only** since the owner's hand check of
+    /// 2026-11-21: the Palette is a `DisclosureGroup` whose triangle is the
+    /// outline's own, and this one is centred on that triangle's gutter and
+    /// drawn to its size (`TreeSectionColumn`), so the three read as siblings.
+    ///
     /// The frame and content shape are the door's own lesson one control over —
     /// a bare `Image` in a `Button(.plain)` hit-tests the box it draws in and
     /// nothing more (the old wall door's measured lesson).
@@ -415,8 +436,13 @@ struct BinderTreeSections: View {
             state.toggleExpansion(of: section)
         } label: {
             Image(systemName: "chevron.right")
+                .treeSectionChevron()
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .frame(width: 21, height: 15)
+                // Centred on the outline's disclosure gutter, where every
+                // top-level row's triangle sits, and clicking up to where the
+                // title starts (`TreeSectionColumn`).
+                .frame(width: TreeSectionColumn.chevronBox, height: 15)
+                .padding(.trailing, TreeSectionColumn.chevronTrail)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -36,12 +36,18 @@ struct TreeEditionRows: View {
                                 .foregroundStyle(.tertiary)
                         }
                     }
+                    // Under the title, as Research's and the Palette's are.
+                    .padding(.leading, ProjectRowLabel.childIndent)
                     .contentShape(Rectangle())
                     .tag(BinderSubject.edition(language: row.language))
                     .id(BinderSubject.edition(language: row.language))
                 }
             } header: {
+                // No chevron, so the text starts in the titles' column
+                // rather than the chevrons' (`TreeSectionColumn`).
                 Text("Editions")
+                    .treeSectionTitle()
+                    .padding(.leading, TreeSectionColumn.chevronlessHeaderInset)
             }
         }
     }

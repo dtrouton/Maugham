@@ -374,9 +374,10 @@ final class WiringCensusTests: XCTestCase {
         Entry("decl:struct SubjectValidationModifier: ViewModifier {", .anyOrder,
               ["ProjectWindow.validatedSubject(subject, in: store)"],
               why: "the runtime sweep repairs the whole window subject with the restore's own function, written directly — never through the click rule"),
-        Entry("decl:private var paletteRow: some View {", .anyOrder,
-              [".tag(BinderSubject.palette)"],
-              why: "the Palette row is the wall's door: the tree's `List` selects it, and the click rule opens the wall"),
+        Entry("decl:private var paletteSection: some View {", .anyOrder,
+              ["DisclosureGroup(isExpanded: $state.paletteSectionExpanded)", "paletteRow",
+               ".tag(BinderSubject.palette)"],
+              why: "the Palette row is the wall's door: the tree's `List` selects it (the tag is on its group), and the click rule opens the wall"),
 
         // MARK: Window notices, commands and sweeps
         Entry(window, .anyOrder, [".onProjectEvent(.maughamDocumentNotice", "restoreToast = message"],

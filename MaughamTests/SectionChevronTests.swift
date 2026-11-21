@@ -182,10 +182,8 @@ final class SectionChevronTests: XCTestCase {
     ///
     /// **Identified without assuming the answer.** The Research header carries
     /// exactly ONE button and it is its chevron, so its identity needs no
-    /// position at all; the Palette header carries two, and the one sitting at
-    /// the same x as Research's is that header's chevron. Both claims are
-    /// asserted rather than assumed, which is what stops this test from being a
-    /// tautology about whichever ring happens to be leftmost.
+    /// position at all; the Palette's chevron is its row's outline triangle
+    /// (a `DisclosureGroup` since 2026-11-21), asked of the outline by row.
     func test_theChevronLeadsTheHeaderInBothSections() async throws {
         let mount = try await mountTree()
         let research = try headerGeometry(.research, in: mount.window)
@@ -370,7 +368,8 @@ final class SectionChevronTests: XCTestCase {
 
     /// A section's disclosure geometry, in `content` coordinates: its
     /// container (the Research header; the Palette ROW since shell p1 Task 3),
-    /// its chevron, its `+` menu, and — for the Palette row — its title mark.
+    /// its chevron (the Palette's is the outline's own triangle since
+    /// 2026-11-21), its `+` menu, and — for the Palette row — its title mark.
     private struct HeaderGeometry {
         let container: CGRect
         let menu: CGRect
@@ -414,10 +413,24 @@ final class SectionChevronTests: XCTestCase {
             kids.first { String(describing: type(of: $0)).contains("SwiftUIPopupButton") }
                 .map { $0.convert($0.bounds, to: content) },
             "\(section) mounted no `+` menu")
-        // **The chevron is the LEADING ring** since D1 (2026-09-19);
-        // `test_theChevronLeadsTheHeaderInBothSections` establishes the edge
-        // without assuming it.
-        let chevron = try XCTUnwrap(rings.first, "\(section) mounted no chevron")
+        let chevron: CGRect
+        switch section {
+        case .research:
+            // **The chevron is the LEADING ring** since D1 (2026-09-19);
+            // `test_theChevronLeadsTheHeaderInBothSections` establishes the
+            // edge without assuming it.
+            chevron = try XCTUnwrap(rings.first, "\(section) mounted no chevron")
+        case .palette:
+            // The Palette is a `DisclosureGroup` since the owner's hand
+            // check of 2026-11-21, so its chevron is the outline's own
+            // triangle, in the gutter beside the row's cell.
+            let outline = try XCTUnwrap(container.superview as? NSOutlineView,
+                                        "the Palette row is in no outline")
+            let row = outline.row(for: container)
+            let cell = outline.frameOfOutlineCell(atRow: row)
+            XCTAssertGreaterThan(cell.width, 0, "the Palette row carries no triangle")
+            chevron = outline.convert(cell, to: content)
+        }
         return HeaderGeometry(container: container.convert(container.bounds, to: content),
                               menu: menu, chevron: chevron, title: title)
     }

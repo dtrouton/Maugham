@@ -289,12 +289,15 @@ extension BinderTreeSections {
                                   actions: figureVerbs.actions(for: row) { ids in
                                       figuresDrop(ids, on: .figureRow(row.id))
                                   })
+                        // Under the title, as every section's rows are.
+                        .padding(.leading, ProjectRowLabel.childIndent)
                     }
                     // After the figures, in reading order: lines into
                     // Research (spec §4.4), tagged and selecting nothing.
                     ForEach(state.drawnLegacyFigureRows) { row in
                         LegacyFigureRow(row: row, actions: figureVerbs.legacyActions(
                             for: row, select: { $subject.navigate(to: $0, in: store) }))
+                        .padding(.leading, ProjectRowLabel.childIndent)
                     }
                 }
             } header: {
@@ -321,9 +324,10 @@ extension BinderTreeSections {
     /// chip, whose press clears the filter.
     private var figuresHeader: some View {
         HStack {
-            HStack(spacing: 2) {
+            // Research's header, twice over (`TreeSectionColumn`).
+            HStack(spacing: 0) {
                 sectionChevron("Figures", section: .figures)
-                Text("Figures")
+                Text("Figures").treeSectionTitle()
             }
             Spacer()
             if let piece = state.pieceFilter {

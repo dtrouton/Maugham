@@ -585,6 +585,7 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         let window = TestWindow.mount(root, size: CGSize(width: 320, height: 600))
         windows.append(window)
         await pumpUntil(deadline: 5) { self.firstTableView(in: window) != nil }
+        await pumpUntil(deadline: 2) { TreeFurniture.isSettled(in: self.firstTableView(in: window)) }
         return window
     }
 
