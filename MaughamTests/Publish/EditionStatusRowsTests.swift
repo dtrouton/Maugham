@@ -107,6 +107,16 @@ final class EditionStatusRowsTests: XCTestCase {
         XCTAssertEqual(EditionStatusRows.opening(pieceId: "c1", language: "es", isSource: false,
                                                  firstParagraph: nil),
                        .piece("c1"), "an empty piece opens the piece")
+        XCTAssertEqual(EditionStatusRows.opening(pieceId: "c1", language: "es", isSource: false,
+                                                 hasTranslation: false, firstParagraph: "aaaa"),
+                       .piece("c1"), "nothing translated yet opens the source")
+        let started = EditionStatusRows.Row(piece: Self.one, translation: Self.translation("c1", fresh: 0, stale: 2),
+                                            latestRound: nil, changesToLookAt: 0, trend: [])
+        let empty = EditionStatusRows.Row(piece: Self.one, translation: Self.translation("c1", fresh: 0, missing: 4),
+                                          latestRound: nil, changesToLookAt: 0, trend: [])
+        XCTAssertTrue(EditionStatusRows.hasTranslation(started))
+        XCTAssertFalse(EditionStatusRows.hasTranslation(empty))
+        XCTAssertFalse(EditionStatusRows.hasTranslation(nil))
     }
 
     func test_thePublishingCellSaysTheContentsAndTheStart() {
@@ -116,7 +126,49 @@ final class EditionStatusRowsTests: XCTestCase {
         section.startOn = .recto
         let cell = EditionStatusRows.publishing(section)
         XCTAssertEqual(cell.text, "No TOC \u{00B7} R")
+        XCTAssertEqual(cell.long, "Not in contents \u{00B7} right page")
         XCTAssertEqual(cell.help, "Not in contents, starts on a right page")
+    }
+
+    /// **Long wording wherever the width holds it; terse only near the floor**
+    /// (fix round 1, the writer's seat).
+    func test_theColumnsWordThemselvesLongWhenTheWidthAllows() {
+        XCTAssertFalse(EditionStatusView.columns(width: ProjectWindow.centreColumnFloor, isSource: false).wide)
+        XCTAssertTrue(EditionStatusView.columns(width: 900, isSource: false).wide)
+        XCTAssertTrue(EditionStatusView.columns(width: ProjectWindow.centreColumnFloor, isSource: true).wide,
+                      "the Source's one column words itself at the floor")
+        let wide = EditionStatusView.columns(width: 900, isSource: false)
+        XCTAssertLessThanOrEqual(wide.fixedWidth(isSource: false) + EditionStatusView.minimumTitleColumnWidth, 900)
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: false), ProjectWindow.centreColumnFloor)
+
+        let row = EditionStatusRows.Row(piece: Self.one,
+                                        translation: Self.translation("c1", fresh: 4, stale: 5, missing: 3, questions: 2),
+                                        latestRound: Self.round(4, doc: "c1"), changesToLookAt: 3, trend: [5, 3, 1])
+        XCTAssertEqual(EditionStatusRows.translation(row, unreadable: false).wording(wide: false), "3 missing")
+        XCTAssertEqual(EditionStatusRows.translation(row, unreadable: false).wording(wide: true),
+                       "3 missing \u{00B7} 5 stale")
+        XCTAssertEqual(EditionStatusRows.questions(row).wording(wide: true), "2 questions")
+        XCTAssertEqual(EditionStatusRows.questions(row).wording(wide: false), "2")
+        XCTAssertEqual(EditionStatusRows.changes(row).wording(wide: true), "3 to look at")
+        XCTAssertTrue(EditionStatusRows.round(row).wording(wide: true).hasPrefix("Round 4"))
+        XCTAssertEqual(EditionStatusRows.publishing(nil).wording(wide: true), "In contents")
+    }
+
+    /// **VoiceOver hears the whole row** (fix round 1, I5): the title, then
+    /// each cell that says something, in its own sentence.
+    func test_aRowsLabelIsItsCellsSentences() {
+        let row = EditionStatusRows.Row(piece: Self.one,
+                                        translation: Self.translation("c1", fresh: 10, stale: 2, questions: 3),
+                                        latestRound: Self.round(4, doc: "c1"), changesToLookAt: 2, trend: [5, 3])
+        let label = EditionStatusRows.accessibilityLabel(row, unreadable: false, isSource: false)
+        XCTAssertTrue(label.hasPrefix("One, 10 fresh"), label)
+        for part in ["2 stale", "Round 4", "finished", "3 open questions",
+                     "2 changes from the last round to look at", "Notes per round: 5, 3"] {
+            XCTAssertTrue(label.contains(part), "\(part) missing from: \(label)")
+        }
+        XCTAssertEqual(EditionStatusRows.accessibilityLabel(row, unreadable: false, isSource: true), "One")
+        XCTAssertTrue(EditionStatusRows.accessibilityLabel(row, unreadable: true, isSource: false)
+            .contains("could not be read"))
     }
 
     /// The trend is read once per language, keyed by piece.

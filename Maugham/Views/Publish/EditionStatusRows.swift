@@ -48,11 +48,21 @@ enum EditionStatusRows {
 
     // MARK: - What each cell says
 
-    /// One cell: its short text and the sentence its help and VoiceOver read.
+    /// One cell: its terse text (the column's floor), its long wording (any
+    /// wider), and the sentence its help and VoiceOver read.
     struct Cell: Equatable {
         let text: String
+        let long: String
         let help: String
+        init(text: String, long: String? = nil, help: String) {
+            self.text = text
+            self.long = long ?? text
+            self.help = help
+        }
         static let empty = Cell(text: "", help: "")
+
+        /// The wording for the width the grid has.
+        func wording(wide: Bool) -> String { wide ? long : text }
     }
 
     /// The translation cell. Unreadable says so (RULING-54) rather than a
@@ -63,9 +73,12 @@ enum EditionStatusRows {
         let total = t.fresh + t.stale + t.missing
         let help = "\(t.fresh) fresh \u{00B7} \(t.stale) stale \u{00B7} \(t.missing) missing"
         if total == 0 { return Cell(text: "Not started", help: "Nothing translated yet") }
-        if t.missing > 0 { return Cell(text: "\(t.missing) missing", help: help) }
-        if t.stale > 0 { return Cell(text: "\(t.stale) stale", help: help) }
-        return Cell(text: "Fresh", help: help)
+        // Long: every number that wants work, worst first.
+        let wants = [t.missing > 0 ? "\(t.missing) missing" : nil,
+                     t.stale > 0 ? "\(t.stale) stale" : nil].compactMap { $0 }
+        if t.missing > 0 { return Cell(text: "\(t.missing) missing", long: wants.joined(separator: " \u{00B7} "), help: help) }
+        if t.stale > 0 { return Cell(text: "\(t.stale) stale", long: wants.joined(separator: " \u{00B7} "), help: help) }
+        return Cell(text: "Fresh", long: "All \(t.fresh) fresh", help: help)
     }
 
     /// The round cell: its number and day, and how it ended in the help.
@@ -79,19 +92,21 @@ enum EditionStatusRows {
             ended = "finished"
         }
         return Cell(text: "#\(round.number) \u{00B7} \(day)\(round.failed ? " !" : "")",
+                    long: "Round \(round.number) \u{00B7} \(day) \u{00B7} \(ended)",
                     help: "Round \(round.number), \(round.startedAt.formatted(date: .abbreviated, time: .omitted)), \(ended)")
     }
 
     static func questions(_ row: Row) -> Cell {
         let count = row.translation?.openQueries ?? 0
         guard count > 0 else { return .empty }
-        return Cell(text: "\(count)", help: "\(count) open \(count == 1 ? "question" : "questions")")
+        let words = "\(count) open \(count == 1 ? "question" : "questions")"
+        return Cell(text: "\(count)", long: "\(count) \(count == 1 ? "question" : "questions")", help: words)
     }
 
     static func changes(_ row: Row) -> Cell {
         let count = row.changesToLookAt
         guard count > 0 else { return .empty }
-        return Cell(text: "\(count)",
+        return Cell(text: "\(count)", long: "\(count) to look at",
                     help: "\(count) \(count == 1 ? "change" : "changes") from the last round to look at")
     }
 
@@ -99,6 +114,7 @@ enum EditionStatusRows {
     static func trend(_ row: Row) -> Cell {
         guard !row.trend.isEmpty else { return .empty }
         return Cell(text: row.trend.suffix(3).map(String.init).joined(separator: "\u{2192}"),
+                    long: row.trend.suffix(5).map(String.init).joined(separator: " \u{2192} "),
                     help: "Notes per round: " + row.trend.map(String.init).joined(separator: ", "))
     }
 
@@ -114,6 +130,7 @@ enum EditionStatusRows {
         let toc = section.includeInToc ? "In contents" : "Not in contents"
         let text = section.includeInToc ? "TOC" : "No TOC"
         return Cell(text: text + (start.map { " \u{00B7} \($0.prefix(1).uppercased())" } ?? ""),
+                    long: toc + (start.map { " \u{00B7} \($0) page" } ?? ""),
                     help: toc + (start.map { ", starts on a \($0) page" } ?? ""))
     }
 
@@ -128,11 +145,33 @@ enum EditionStatusRows {
         case piece(String)
     }
 
+    /// A chapter with nothing translated yet opens in the source: there is
+    /// no text in the language to read.
     static func opening(pieceId: String, language: String, isSource: Bool,
-                        firstParagraph: String?) -> Opening {
-        guard !isSource, let firstParagraph else { return .piece(pieceId) }
+                        hasTranslation: Bool = true, firstParagraph: String?) -> Opening {
+        guard !isSource, hasTranslation, let firstParagraph else { return .piece(pieceId) }
         return .reveal(TranslationReveal(docId: pieceId, language: language,
                                          paragraphId: firstParagraph))
+    }
+
+    /// **Whether a row has anything to read in the language**: fresh or
+    /// stale paragraphs.
+    static func hasTranslation(_ row: Row?) -> Bool {
+        guard let t = row?.translation else { return false }
+        return t.fresh + t.stale > 0
+    }
+
+    /// **What VoiceOver hears on a row**: the title, then every cell that
+    /// says something, in its whole sentence — the cells sit inside the
+    /// row's one button, so the label is all of them. (The publishing cell is
+    /// its own element, with its own label.)
+    static func accessibilityLabel(_ row: Row, unreadable: Bool, isSource: Bool) -> String {
+        var parts = [row.piece.title]
+        if !isSource {
+            parts += [translation(row, unreadable: unreadable), round(row), questions(row),
+                      changes(row), trend(row)].map(\.help)
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     /// **Unreadable chapters, named above the rows** (the desk's standing

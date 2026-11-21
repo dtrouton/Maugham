@@ -25,10 +25,16 @@ struct EditionStatusHost: View {
     let remembered: Binding<String?>
     let faces: BinderSubject
     let keyboardRequest: Int
+    /// The book's open questions, from the window's presence read
+    /// (`BinderTreeSectionsState.bookReading`) — so no chapter is loaded.
+    let reading: ResolvePresence.BookReading
     /// Whether this Mac may change `item`'s publishing settings — what the
-    /// tree's row menu offers Publishing… on (`PieceRowMenus.items`).
+    /// tree's row menu offers Publishing… on (`PieceRowMenus.items`). Asked
+    /// once per read, never per row.
     let publishingOffered: (StructureItem, Bool) -> Bool
-    let onOpen: (String) -> Void
+    /// A row opened: the piece, and whether it has anything translated to
+    /// read (`EditionStatusRows.hasTranslation`).
+    let onOpen: (String, Bool) -> Void
     let onOpenPublishing: (String) -> Void
 
     @State private var loaded = EditionStatusView.Loaded()
@@ -37,27 +43,39 @@ struct EditionStatusHost: View {
     @State private var revisions = 0
 
     /// What the read is a function of: the edition, the manifest, the writes
-    /// heard, the rounds ledger's and the config's modified times.
+    /// heard, the presence read's questions, and the modified times of the
+    /// rounds ledger, the config and the translations folder (a peer's file).
     struct Key: Equatable {
         let language: String
         let manifest: Date
         let revisions: Int
         let rounds: Date?
         let config: Date?
+        let translations: Date?
+        let reading: ResolvePresence.BookReading
     }
 
     private var key: Key {
         Key(language: language, manifest: store.manifest.modified, revisions: revisions,
             rounds: Self.modified(TranslationRoundStore.fileURL(language: language, in: store.url)),
-            config: DepartmentPaneHost.configModified(in: store.url))
+            config: DepartmentPaneHost.configModified(in: store.url),
+            translations: Self.modified(TranslationStore.directoryURL(in: store.url)),
+            reading: reading)
     }
+
+    /// How long a burst of changes waits before its one read.
+    static let coalesce: Duration = .milliseconds(250)
 
     var body: some View {
         EditionStatusView(structure: store.manifest.structure, isSource: isSource,
                           loaded: loaded, remembered: remembered, faces: faces,
                           keyboardRequest: keyboardRequest,
-                          publishingOffered: { publishingOffered($0, loaded.publishingIsSetUp) },
-                          onOpen: onOpen, onOpenPublishing: onOpenPublishing)
+                          publishingOffered: { loaded.publishingOffered.contains($0.id) },
+                          onOpen: { id in
+                              onOpen(id, EditionStatusRows.hasTranslation(
+                                loaded.rows.first { $0.id == id }))
+                          },
+                          onOpenPublishing: onOpenPublishing)
             .task(id: key) { await load() }
             .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: window) { _ in
                 revisions &+= 1
@@ -74,20 +92,33 @@ struct EditionStatusHost: View {
     /// **The one read per key.** The Source edition reads the config alone:
     /// it has nothing translated to count.
     private func load() async {
+        // A burst (a round's ingests, a sync) settles first: one read, not one
+        // per event. The first read does not wait.
+        if loaded.isLoaded {
+            try? await Task.sleep(for: Self.coalesce)
+            guard !Task.isCancelled else { return }
+        }
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
         var next = EditionStatusView.Loaded()
         next.sections = config?.sections ?? [:]
         next.publishingIsSetUp = PublishStarter.isInitialized(in: store.url)
         let structure = store.manifest.structure
+        next.publishingOffered = Set(TreeWalk.collect(in: structure, where: { $0.type == .document })
+            .filter { publishingOffered($0, next.publishingIsSetUp) }.map(\.id))
         guard !isSource else {
             next.rows = EditionStatusRows.rows(structure: structure, report: [], rounds: [:], trends: [:])
             next.isLoaded = true
             loaded = next
             return
         }
+        // This edition's language only; its questions from the presence read;
+        // a walk that yields per chapter and stops when the key moves on.
         let report = await EditionStatus.documentRows(
             documentIds: EditionStatus.manuscriptDocumentIds(in: store.manifest),
-            store: store, projectURL: store.url)
+            store: store, projectURL: store.url,
+            options: .init(openQuestions: .init(byDoc: reading.openQuestions,
+                                                unreadable: reading.unreadable),
+                           languages: [language], yieldsAndStops: true))
         guard !Task.isCancelled else { return }
         let rounds = TranslationRoundStore(projectURL: store.url)
         next.rows = EditionStatusRows.rows(
@@ -110,6 +141,8 @@ struct EditionStatusView: View {
         var unreadable: [EditionStatus.UnreadableDocument] = []
         var sections: [String: PublishConfig.Section] = [:]
         var publishingIsSetUp = false
+        /// The pieces whose Publishing… this Mac offers, asked once per read.
+        var publishingOffered: Set<String> = []
         var isLoaded = false
     }
 
@@ -127,29 +160,47 @@ struct EditionStatusView: View {
 
     // MARK: - Columns
 
+    /// **The columns, as a pure function of the width the grid has**: the
+    /// long wording ("In contents · right page", "3 missing · 5 stale",
+    /// "2 questions", worded headers) wherever it fits, the terse form only
+    /// near the centre's floor.
+    struct Columns: Equatable {
+        let wide: Bool
+        let translation: CGFloat
+        let round: CGFloat
+        let questions: CGFloat
+        let changes: CGFloat
+        let trend: CGFloat
+        let publishing: CGFloat
+
+        static let narrow = Columns(wide: false, translation: 76, round: 84, questions: 34,
+                                    changes: 34, trend: 48, publishing: 72)
+        static let long = Columns(wide: true, translation: 120, round: 150, questions: 80,
+                                  changes: 80, trend: 80, publishing: 140)
+
+        func fixedWidth(isSource: Bool) -> CGFloat {
+            isSource ? publishing : translation + round + questions + changes + trend + publishing
+        }
+    }
+
     static let minimumTitleColumnWidth: CGFloat = 110
-    static let translationColumnWidth: CGFloat = 76
-    static let roundColumnWidth: CGFloat = 84
-    static let questionsColumnWidth: CGFloat = 34
-    static let changesColumnWidth: CGFloat = 34
-    static let trendColumnWidth: CGFloat = 48
-    static let publishingColumnWidth: CGFloat = 72
+    /// The piece column's width before the long wording takes the slack.
+    static let comfortableTitleColumnWidth: CGFloat = 130
     private static let horizontalPadding: CGFloat = 10
     private static let groupIndent: CGFloat = 14
 
-    /// The columns beside the piece's: the publishing column alone for the
-    /// Source edition.
-    static func fixedWidth(isSource: Bool) -> CGFloat {
-        isSource ? publishingColumnWidth
-            : translationColumnWidth + roundColumnWidth + questionsColumnWidth
-                + changesColumnWidth + trendColumnWidth + publishingColumnWidth
+    /// The long columns where the width holds them and a comfortable title;
+    /// else the terse ones.
+    static func columns(width: CGFloat, isSource: Bool) -> Columns {
+        width >= Columns.long.fixedWidth(isSource: isSource) + comfortableTitleColumnWidth
+            ? .long : .narrow
     }
 
-    /// **The width the grid needs** — at most the centre column's floor
-    /// (`ProjectWindow.centreColumnFloor`), so the edition's Status needs no
-    /// horizontal scroll at the window's minimum width.
+    /// **The width the grid needs** — the terse columns at the floor, at most
+    /// the centre column's (`ProjectWindow.centreColumnFloor`), so the
+    /// edition's Status needs no horizontal scroll at the window's minimum.
     static func intrinsicWidth(isSource: Bool) -> CGFloat {
-        fixedWidth(isSource: isSource) + minimumTitleColumnWidth
+        Columns.narrow.fixedWidth(isSource: isSource) + minimumTitleColumnWidth
     }
 
     // MARK: - Body
@@ -189,10 +240,11 @@ struct EditionStatusView: View {
                       unreadable: Set<String>, current: String?) -> some View {
         GeometryReader { proxy in
             let width = max(Self.intrinsicWidth(isSource: isSource), proxy.size.width)
-            let titleWidth = width - Self.fixedWidth(isSource: isSource)
+            let columns = Self.columns(width: width, isSource: isSource)
+            let titleWidth = width - columns.fixedWidth(isSource: isSource)
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
-                    headers(titleWidth: titleWidth)
+                    headers(columns, titleWidth: titleWidth)
                     Divider()
                     ScrollViewReader { reader in
                         ScrollView(.vertical) {
@@ -204,7 +256,7 @@ struct EditionStatusView: View {
                                     case .piece:
                                         pieceRow(row.item, row: byId[row.id],
                                                  isUnreadable: unreadable.contains(row.id),
-                                                 titleWidth: titleWidth, width: width)
+                                                 columns: columns, titleWidth: titleWidth, width: width)
                                             .background(fill(isCurrent: row.id == current))
                                     case .reference:
                                         EmptyView()
@@ -237,19 +289,21 @@ struct EditionStatusView: View {
         }
     }
 
-    private func headers(titleWidth: CGFloat) -> some View {
+    private func headers(_ columns: Columns, titleWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Text("Piece")
                 .padding(.horizontal, Self.horizontalPadding)
                 .frame(width: titleWidth, alignment: .leading)
             if !isSource {
-                Text("Translation").frame(width: Self.translationColumnWidth, alignment: .leading)
-                Text("Round").frame(width: Self.roundColumnWidth, alignment: .leading)
-                headerSymbol("questionmark.bubble", "Open questions", width: Self.questionsColumnWidth)
-                headerSymbol("arrow.triangle.swap", "Changes to look at", width: Self.changesColumnWidth)
-                Text("Trend").frame(width: Self.trendColumnWidth, alignment: .leading)
+                Text("Translation").frame(width: columns.translation, alignment: .leading)
+                Text(columns.wide ? "Latest round" : "Round").frame(width: columns.round, alignment: .leading)
+                header("Questions", symbol: "questionmark.bubble", "Open questions",
+                       wide: columns.wide, width: columns.questions)
+                header("Changes", symbol: "arrow.triangle.swap", "Changes to look at",
+                       wide: columns.wide, width: columns.changes)
+                Text(columns.wide ? "Notes per round" : "Trend").frame(width: columns.trend, alignment: .leading)
             }
-            Text("Publishing").frame(width: Self.publishingColumnWidth, alignment: .leading)
+            Text("Publishing").frame(width: columns.publishing, alignment: .leading)
         }
         .lineLimit(1)
         .font(.caption)
@@ -257,11 +311,18 @@ struct EditionStatusView: View {
         .padding(.vertical, 5)
     }
 
-    private func headerSymbol(_ symbol: String, _ name: String, width: CGFloat) -> some View {
-        Image(systemName: symbol)
-            .frame(width: width)
-            .help(name)
-            .accessibilityLabel(name)
+    /// A header in words where it fits; a symbol, named in its help, at the floor.
+    @ViewBuilder
+    private func header(_ word: String, symbol: String, _ name: String, wide: Bool,
+                        width: CGFloat) -> some View {
+        if wide {
+            Text(word).frame(width: width, alignment: .leading).help(name)
+        } else {
+            Image(systemName: symbol)
+                .frame(width: width)
+                .help(name)
+                .accessibilityLabel(name)
+        }
     }
 
     /// A Part's heading: where the writer is in the book. A heading, not a
@@ -279,7 +340,7 @@ struct EditionStatusView: View {
     }
 
     private func pieceRow(_ item: StructureItem, row: EditionStatusRows.Row?, isUnreadable: Bool,
-                          titleWidth: CGFloat, width: CGFloat) -> some View {
+                          columns: Columns, titleWidth: CGFloat, width: CGFloat) -> some View {
         let row = row ?? EditionStatusRows.Row(piece: item, translation: nil, latestRound: nil,
                                                changesToLookAt: 0, trend: [])
         return HStack(spacing: 0) {
@@ -293,14 +354,15 @@ struct EditionStatusView: View {
                         .padding(.horizontal, Self.horizontalPadding)
                         .frame(width: titleWidth, alignment: .leading)
                     if !isSource {
+                        let wide = columns.wide
                         cell(EditionStatusRows.translation(row, unreadable: isUnreadable),
-                             width: Self.translationColumnWidth)
-                        cell(EditionStatusRows.round(row), width: Self.roundColumnWidth)
-                        cell(EditionStatusRows.questions(row), width: Self.questionsColumnWidth,
-                             alignment: .center)
-                        cell(EditionStatusRows.changes(row), width: Self.changesColumnWidth,
-                             alignment: .center)
-                        cell(EditionStatusRows.trend(row), width: Self.trendColumnWidth)
+                             wide: wide, width: columns.translation)
+                        cell(EditionStatusRows.round(row), wide: wide, width: columns.round)
+                        cell(EditionStatusRows.questions(row), wide: wide, width: columns.questions,
+                             alignment: wide ? .leading : .center)
+                        cell(EditionStatusRows.changes(row), wide: wide, width: columns.changes,
+                             alignment: wide ? .leading : .center)
+                        cell(EditionStatusRows.trend(row), wide: wide, width: columns.trend)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -308,16 +370,18 @@ struct EditionStatusView: View {
             }
             .buttonStyle(ReviewBoardRowButtonStyle())
             .help(isSource ? "Open \(item.title)" : "Open \(item.title) in this edition\u{2019}s language")
-            .accessibilityLabel(item.title)
-            publishingCell(item)
+            // Every cell's whole sentence: they sit inside this one button.
+            .accessibilityLabel(EditionStatusRows.accessibilityLabel(
+                row, unreadable: isUnreadable, isSource: isSource))
+            publishingCell(item, columns: columns)
         }
         .frame(width: width, height: ReviewBoardPane.pieceRowHeight, alignment: .leading)
         .id(item.id)
     }
 
-    private func cell(_ cell: EditionStatusRows.Cell, width: CGFloat,
+    private func cell(_ cell: EditionStatusRows.Cell, wide: Bool, width: CGFloat,
                       alignment: Alignment = .leading) -> some View {
-        Text(cell.text)
+        Text(cell.wording(wide: wide))
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -329,16 +393,17 @@ struct EditionStatusView: View {
     /// **The piece's publishing settings**: a control that opens Publishing…
     /// where the row menu would offer it, plain text elsewhere.
     @ViewBuilder
-    private func publishingCell(_ item: StructureItem) -> some View {
+    private func publishingCell(_ item: StructureItem, columns: Columns) -> some View {
         let cell = EditionStatusRows.publishing(loaded.sections[item.id])
+        let text = cell.wording(wide: columns.wide)
         if publishingOffered(item) {
             Button {
                 onOpenPublishing(item.id)
             } label: {
-                Text(cell.text)
+                Text(text)
                     .font(.caption)
                     .lineLimit(1)
-                    .frame(width: Self.publishingColumnWidth, alignment: .leading)
+                    .frame(width: columns.publishing, alignment: .leading)
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
@@ -346,11 +411,11 @@ struct EditionStatusView: View {
             .help(cell.help + " \u{2014} change in Publishing\u{2026}")
             .accessibilityLabel("Publishing for \(item.title): \(cell.help)")
         } else {
-            Text(cell.text)
+            Text(text)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(width: Self.publishingColumnWidth, alignment: .leading)
+                .frame(width: columns.publishing, alignment: .leading)
                 .help(cell.help)
         }
     }

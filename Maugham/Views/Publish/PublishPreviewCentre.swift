@@ -148,11 +148,23 @@ struct PublishPreviewCentre: View {
     var piece: PieceInBook? = nil
     /// The piece's paragraph order, no load (`currentParagraphState`).
     var sequence: (String) -> [String]? = { _ in nil }
+    /// Every piece's paragraph order, from the window's presence read
+    /// (`BinderTreeSectionsState.bookReading`): a ¶id another piece also has
+    /// is never trusted as this piece's anchor (`PDFAnchors.locate`).
+    var sequences: () -> [String: [String]] = { [:] }
     /// Compile… and the imprint picker, under the title.
     var bar: EditionCompileBar? = nil
 
     /// What the page knows about the faced piece, for the shown book.
     @State private var place: PiecePlace?
+    /// The shown book's anchors, read once per publication off the main
+    /// actor; every click after the first is a dictionary lookup.
+    @State private var anchors: (publication: String, pages: [String: Int])?
+    /// Each resolve's serial — what makes a second ask for the same page a
+    /// new ask (`PDFPreview.Target`).
+    @State private var serial = 0
+    /// The header's "starts on page N" presses: going back after scrolling.
+    @State private var goBack = 0
 
     /// Never resolved locally — `PublishPreviewResolver.shown` owns the fallback
     /// so that a pick whose row has left the list still draws the newest book
@@ -165,30 +177,63 @@ struct PublishPreviewCentre: View {
         VStack(spacing: 0) {
             header
             if let bar {
-                bar
+                if place == .noAnchors {
+                    bar.hinting(PiecePlace.compileAgainLine)
+                } else {
+                    bar
+                }
             }
-            if case .notInBook(let title) = place {
-                Text(PiecePlace.notInBookLine(title))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            placeLine
             Divider()
             if let shown, let url = PublishPreviewResolver.fileURL(of: shown, in: projectURL) {
-                PDFPreview(fileURL: url, page: place?.page)
+                PDFPreview(fileURL: url, target: place?.target)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
-        // **Once per (book, piece)**, off the main actor: the name tree is
-        // walked in a detached task over the file, never on a body path.
-        .task(id: PiecePlace.Key(publication: shown?.publicationID, piece: piece?.id)) {
-            place = await locate()
+        // **Once per ask**: a new book, a new piece, or the header's "starts
+        // on page N". The anchors are read off the main actor once per book.
+        .task(id: PiecePlace.Key(publication: shown?.publicationID, piece: piece?.id, ask: goBack)) {
+            let next = await locate()
+            guard !Task.isCancelled else { return }
+            place = next
+        }
+    }
+
+    /// **Where the faced piece is, said under the bar**: its first page as a
+    /// control that goes back there; not in this book; or no telling.
+    @ViewBuilder
+    private var placeLine: some View {
+        switch place {
+        case .page(let page, _):
+            if let piece {
+                Button {
+                    goBack &+= 1
+                } label: {
+                    Label(PiecePlace.startsLine(piece.title, page: page), systemImage: "arrow.uturn.backward")
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.link)
+                .help("Go back to where \(piece.title) starts")
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        case .notInBook(let title), .ambiguous(let title):
+            Text(place == .notInBook(title) ? PiecePlace.notInBookLine(title)
+                                            : PiecePlace.ambiguousLine(title))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .noAnchors, .none:
+            EmptyView()
         }
     }
 
@@ -196,17 +241,26 @@ struct PublishPreviewCentre: View {
     private func locate() async -> PiecePlace? {
         guard let piece, let edition, let shown,
               let url = PublishPreviewResolver.fileURL(of: shown, in: projectURL) else { return nil }
-        guard let tag = PublishPreviewResolver.bodyTag(
-                of: shown, edition: edition.language, sourceLanguage: edition.sourceLanguage),
-              let sequence = sequence(piece.id), !sequence.isEmpty else {
+        let pages: [String: Int]
+        if let anchors, anchors.publication == shown.publicationID {
+            pages = anchors.pages
+        } else {
+            pages = await Task.detached(priority: .userInitiated) {
+                PDFAnchors.anchorPages(inFileAt: url)
+            }.value
+            guard !Task.isCancelled else { return place }
+            anchors = (shown.publicationID, pages)
+        }
+        guard !pages.isEmpty else { return .noAnchors }
+        guard let tag = PiecePlace.bodyTag(of: shown, edition: edition, pages: pages) else {
             return .notInBook(piece.title)
         }
-        let names = PDFAnchors.pieceAnchors(docId: piece.id, bodyTag: tag, sequence: sequence)
-        let page = await Task.detached(priority: .userInitiated) {
-            PDFAnchors.pageIndex(of: names, inFileAt: url)
-        }.value
-        guard !Task.isCancelled else { return place }
-        return page.map(PiecePlace.page) ?? .notInBook(piece.title)
+        var sequences = sequences()
+        if let own = sequence(piece.id) { sequences[piece.id] = own }
+        serial &+= 1
+        return PiecePlace(PDFAnchors.locate(piece: piece.id, bodyTag: tag, sequences: sequences,
+                                            pages: pages),
+                          title: piece.title, ask: serial)
     }
 
     /// **The header, and the one place this view branches on VoiceOver rather
@@ -358,11 +412,27 @@ struct PieceInBook: Equatable {
 /// book compiled before anchors, or an imprint that leaves the piece out) —
 /// the page then stays where it was and the header says so.
 enum PiecePlace: Equatable {
-    case page(Int)
+    /// Its first page, and which ask found it — a new ask for the same page
+    /// goes there again.
+    case page(Int, ask: Int)
     case notInBook(String)
+    /// Its anchors resolve, but none is surely its own (two pieces share it).
+    case ambiguous(String)
+    /// The book carries no paragraph anchors: compiled before they existed.
+    case noAnchors
 
-    var page: Int? {
-        if case .page(let index) = self { return index }
+    init(_ location: PDFAnchors.Location, title: String, ask: Int) {
+        switch location {
+        case .page(let page): self = .page(page, ask: ask)
+        case .notInBook: self = .notInBook(title)
+        case .ambiguous: self = .ambiguous(title)
+        case .noAnchors: self = .noAnchors
+        }
+    }
+
+    /// What the PDF view goes to.
+    var target: PDFPreview.Target? {
+        if case .page(let page, let ask) = self { return .init(page: page, ask: ask) }
         return nil
     }
 
@@ -370,10 +440,37 @@ enum PiecePlace: Equatable {
         "\(title) is not in this book"
     }
 
-    /// The task's key: a new book or a new piece is a new question.
+    static func ambiguousLine(_ title: String) -> String {
+        "Can\u{2019}t tell where \(title) starts in this book"
+    }
+
+    static func startsLine(_ title: String, page: Int) -> String {
+        "\(title) starts on page \(page + 1)"
+    }
+
+    /// Said once, beside Compile…, for a book with no paragraph anchors.
+    static let compileAgainLine = "Compile again to jump to chapters"
+
+    /// **The tag this edition's body carries in the book**, checked against
+    /// the tags its anchors actually use: a one-body book whose compile spelled
+    /// its tag otherwise (an imprint's own `metadata.language`, or the ordinal a
+    /// tag that cannot be a filename becomes) is read by the one tag it has.
+    static func bodyTag(of publication: Publication, edition: EditionBook,
+                        pages: [String: Int]) -> String? {
+        guard let tag = PublishPreviewResolver.bodyTag(
+            of: publication, edition: edition.language, sourceLanguage: edition.sourceLanguage)
+        else { return nil }
+        let tags = PDFAnchors.tags(in: pages)
+        if tags.contains(tag) { return tag }
+        let oneBody = !(publication.language ?? "").contains("+")
+        return oneBody && tags.count == 1 ? tags.first : tag
+    }
+
+    /// The task's key: a new book, a new piece, or a going-back is a new ask.
     struct Key: Equatable {
         let publication: String?
         let piece: String?
+        var ask: Int = 0
     }
 }
 
@@ -398,8 +495,18 @@ struct EditionCompileBar: View {
     let runCompile: (DeskCompileRunner.Request) -> Void
     let cancelCompile: () -> Void
     let showProblems: () -> Void
+    /// A line beside Compile… when the book asks for one (a book compiled
+    /// before chapter anchors existed).
+    var hint: String? = nil
 
     @State private var sheet: EditionCompileAsk?
+
+    /// The same bar, saying `hint` beside Compile….
+    func hinting(_ hint: String) -> EditionCompileBar {
+        var copy = self
+        copy.hint = hint
+        return copy
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -413,7 +520,9 @@ struct EditionCompileBar: View {
                 }
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .fixedSize()
+                // A long imprint name truncates rather than pushing Cancel
+                // off the column at its floor.
+                .frame(maxWidth: 160)
                 .help(DepartmentDesk.imprintHelp)
             }
             Button(DepartmentDesk.compileTitle) {
@@ -426,6 +535,15 @@ struct EditionCompileBar: View {
                                        : DepartmentDesk.compileHelp)
             if compileRun.isRunning {
                 ProgressView().controlSize(.small)
+            }
+            if compileRun.statusLine == nil, !compileRun.isRunning, let hint {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(hint)
+                    .layoutPriority(-1)
             }
             if let status = compileRun.statusLine {
                 Text(status)

@@ -406,6 +406,7 @@ struct CentreColumn: View {
                                                     documentStore: documentStore,
                                                     projectURL: store.url))?.sequence
                     },
+                    sequences: { treeState.bookReading.sequences },
                     bar: editionBar(store: store))
             // **A statement or a piece's History in the centre**, over the
             // host and the Book's view like every cover, so neither remounts
@@ -594,17 +595,30 @@ struct CentreColumn: View {
         guard case .edition(let language) = subject.open else { return nil }
         let runner = publishCentre.compileRunner
         let imprints = publishCentre.imprints
+        let selected = DepartmentPaneHost.selection(
+            persisted: documentStore.uiState.publishImprint, among: imprints)
         return EditionCompileBar(
             imprints: imprints,
-            selectedImprint: DepartmentPaneHost.selection(
-                persisted: documentStore.uiState.publishImprint, among: imprints),
+            selectedImprint: selected,
             selectImprint: { DepartmentPaneHost.select(imprint: $0, in: documentStore) },
             compileRun: runner.state,
             editionLanguage: publishCentre.isSourceEdition(subject.open) ? nil : language,
-            editions: { TreeEditionRows.languages(store: store) },
+            editions: { Self.compileEditions(store: store, imprint: selected) },
             runCompile: { runner.start($0, projectStore: store, projectURL: store.url) },
             cancelCompile: { runner.cancel() },
             showProblems: { publishCentre.show(problems: runner.state.problems) })
+    }
+
+    /// **The editions Compile… offers, the book's own first** — spelled as the
+    /// imprint the picker stands on spells it, as the desk's sheet does
+    /// (`DepartmentPaneHost.sourceLanguage`). Read when pressed, never on a
+    /// body path.
+    static func compileEditions(store: ProjectStore, imprint: String?) -> [String] {
+        let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
+        let book = DepartmentPaneHost.sourceLanguage(
+            imprint: imprint, in: config,
+            pieceIDs: EditionStatus.manuscriptDocumentIds(in: store.manifest))
+        return [book] + TreeEditionRows.languages(store: store).dropFirst()
     }
 
     /// **The edition's Status** — its one mount, in the altitude layer's
@@ -615,15 +629,17 @@ struct CentreColumn: View {
             store: store, language: language, isSource: isSource, window: window,
             remembered: $editionStatusRemembered, faces: subject.faces,
             keyboardRequest: statusKeyboardRequest,
+            reading: treeState.bookReading,
             // Publishing… where the tree's row menu offers it: the
             // restructure verbs, with publishing set up.
             publishingOffered: { item, isSetUp in
                 PieceRowMenus.items(for: item, verbs: TreeStructureVerbs.decide(for: item, in: store),
                                     publishingIsSetUp: isSetUp).contains(.publishing)
             },
-            onOpen: { pieceId in
+            onOpen: { pieceId, hasTranslation in
                 editionStatusRemembered = pieceId
-                openFromEditionStatus(pieceId, language: language, isSource: isSource, store: store)
+                openFromEditionStatus(pieceId, language: language, isSource: isSource,
+                                      hasTranslation: hasTranslation, store: store)
             },
             onOpenPublishing: { pieceId in
                 editionStatusRemembered = pieceId
@@ -638,12 +654,12 @@ struct CentreColumn: View {
     /// Source edition, or an empty piece, opens the piece — Status is an
     /// overview you navigate from, so `open` moves either way.
     private func openFromEditionStatus(_ pieceId: String, language: String, isSource: Bool,
-                                       store: ProjectStore) {
+                                       hasTranslation: Bool, store: ProjectStore) {
         let first = (try? currentParagraphState(documentId: pieceId, store: store,
                                                 documentStore: documentStore,
                                                 projectURL: store.url))?.sequence.first
-        switch EditionStatusRows.opening(pieceId: pieceId, language: language,
-                                         isSource: isSource, firstParagraph: first) {
+        switch EditionStatusRows.opening(pieceId: pieceId, language: language, isSource: isSource,
+                                         hasTranslation: hasTranslation, firstParagraph: first) {
         case .reveal(let reveal):
             TranslationReveal.post(reveal)
         case .piece(let id):

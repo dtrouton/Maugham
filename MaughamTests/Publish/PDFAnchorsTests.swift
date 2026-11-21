@@ -93,8 +93,85 @@ final class PDFAnchorsTests: XCTestCase {
         XCTAssertNotNil(PDFAnchors.pageIndex(of: ["p-en-bbbb"], in: book))
     }
 
+    /// One walk reads every paragraph anchor in the book; a book with none
+    /// (compiled before anchors) reads empty.
+    func test_oneWalkReadsEveryAnchorInTheBook() async throws {
+        let book = try await compiledBook()
+        let url = try XCTUnwrap(book.documentURL)
+        let pages = PDFAnchors.anchorPages(inFileAt: url)
+        for chapter in ThreeChapters.chapters {
+            for id in chapter.ids {
+                XCTAssertEqual(pages["p-en-\(id)"],
+                               PDFAnchors.pageIndex(of: ["p-en-\(id)"], in: book), id)
+            }
+        }
+        XCTAssertEqual(PDFAnchors.tags(in: pages), ["en"])
+        let bare = tmp.appendingPathComponent("bare.pdf")
+        try PublishPreviewCentreTests.writePDF(at: bare)
+        XCTAssertEqual(PDFAnchors.anchorPages(inFileAt: bare), [:])
+        XCTAssertEqual(PDFAnchors.locate(piece: "c1", bodyTag: "en", sequences: ["c1": ["aaaa"]], pages: [:]),
+                       .noAnchors)
+    }
+
     func test_theAnchorNamesAreTheContractsShape() {
         XCTAssertEqual(PDFAnchors.pieceAnchors(docId: "c1", bodyTag: "sr", sequence: ["k3wq", "m2ab"]),
                        ["p-sr-k3wq", "p-sr-m2ab"])
+    }
+}
+
+/// **A piece's start, from an anchor it does not share** (fix round 1, I1):
+/// pure, over a planted name → page map. ¶ids are unique per document, the
+/// anchor carries no document, so two pieces can share a name and the book
+/// keeps one of them.
+final class PDFAnchorsLocateTests: XCTestCase {
+
+    /// Chapter one starts on page 1, chapter two on page 9. Chapter two's
+    /// FIRST paragraph shares its id with chapter one's second, and the book
+    /// kept chapter one's: `p-en-bbbb` points at page 1.
+    private let sequences = ["c1": ["aaaa", "bbbb", "cccc"], "c2": ["bbbb", "dddd", "eeee"]]
+    private let pages = ["p-en-aaaa": 1, "p-en-bbbb": 1, "p-en-cccc": 2,
+                         "p-en-dddd": 9, "p-en-eeee": 9]
+
+    func test_aSharedFirstAnchorIsPassedOverForThePiecesOwn() {
+        XCTAssertEqual(PDFAnchors.locate(piece: "c2", bodyTag: "en", sequences: sequences, pages: pages),
+                       .page(9), "chapter two must not land on chapter one's page")
+        XCTAssertEqual(PDFAnchors.locate(piece: "c1", bodyTag: "en", sequences: sequences, pages: pages),
+                       .page(1))
+    }
+
+    /// With the other pieces' orders unknown (the read not landed yet), the
+    /// next anchor corroborates: a first anchor pages away from the second is
+    /// passed over.
+    func test_anUncorroboratedAnchorIsPassedOver() {
+        let own = ["c2": ["bbbb", "dddd", "eeee"]]
+        let collided = ["p-en-bbbb": 1, "p-en-dddd": 9, "p-en-eeee": 9]
+        XCTAssertEqual(PDFAnchors.locate(piece: "c2", bodyTag: "en", sequences: own, pages: collided),
+                       .page(9))
+    }
+
+    /// Nothing trustworthy: say so rather than jump.
+    func test_nothingUnambiguousIsSaid() {
+        // Its only anchor is shared.
+        XCTAssertEqual(PDFAnchors.locate(piece: "c3", bodyTag: "en",
+                                         sequences: ["c3": ["aaaa"], "c1": ["aaaa"]],
+                                         pages: ["p-en-aaaa": 1]),
+                       .ambiguous)
+        // Two unshared anchors that disagree.
+        XCTAssertEqual(PDFAnchors.locate(piece: "c3", bodyTag: "en",
+                                         sequences: ["c3": ["ffff", "gggg"]],
+                                         pages: ["p-en-ffff": 30, "p-en-gggg": 2]),
+                       .ambiguous)
+        // None of its anchors is in the book.
+        XCTAssertEqual(PDFAnchors.locate(piece: "c3", bodyTag: "en",
+                                         sequences: ["c3": ["hhhh"]], pages: ["p-en-aaaa": 1]),
+                       .notInBook)
+        // A lone unshared anchor stands on its own.
+        XCTAssertEqual(PDFAnchors.locate(piece: "c3", bodyTag: "en",
+                                         sequences: ["c3": ["hhhh"]], pages: ["p-en-hhhh": 4]),
+                       .page(4))
+    }
+
+    func test_aTagMayHoldAHyphen() {
+        XCTAssertEqual(PDFAnchors.tags(in: ["p-pt-BR-aaaa": 0, "p-en-bbbb": 1]), ["pt-BR", "en"])
     }
 }

@@ -1453,7 +1453,9 @@ struct ProjectWindow: View {
                     // Not over an edition's book: its header carries the
                     // compile's own state and Cancel, which the pill would hide.
                     if PublishStarter.isInitialized(in: store.url),
-                       !Self.editionBookShowsCompile(subject: subject, editionView: editionView) {
+                       !Self.editionBookShowsCompile(
+                        subject: subject, editionView: editionView,
+                        runnerIsRunning: publishCentre.compileRunner.state.isRunning) {
                         PublishStatusPill(
                             projectID: ProjectIdentifier.id(for: store.url),
                             projectURL: store.url)
@@ -1643,11 +1645,14 @@ struct ProjectWindow: View {
         }
     }
 
-    /// **Whether the edition's book header is up** — an edition open on its
-    /// Book view, whose bar draws the compile's state and Cancel (shell p4
-    /// Task 5), so the compiling pill stands aside.
-    static func editionBookShowsCompile(subject: WindowSubject, editionView: EditionView) -> Bool {
-        subject.open.isEdition && editionView == .book
+    /// **Whether the edition's book header is saying what the pill would** —
+    /// an edition open on its Book view while THIS window's compile runs:
+    /// the bar draws its state and Cancel, which the pill would cover (shell
+    /// p4 Task 5). Any other compile — Claude's over MCP, another window's —
+    /// the bar knows nothing of, so the pill stays.
+    static func editionBookShowsCompile(subject: WindowSubject, editionView: EditionView,
+                                        runnerIsRunning: Bool) -> Bool {
+        subject.open.isEdition && editionView == .book && runnerIsRunning
     }
 
     /// **What the toolbar's view switch offers now** (`CentreViewSwitch.offer`).

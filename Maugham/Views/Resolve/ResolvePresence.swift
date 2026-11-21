@@ -154,6 +154,29 @@ enum ResolvePresence {
     /// under `ProjectStore.projectTasksDocId`, which is no row's id — Status's
     /// footer reads it (fix round 1) — and an unowned figure's on nothing.
     @MainActor
+    /// **What the presence read also answers for the editions** (shell p4
+    /// Task 5 fix round): each piece's open questions (`.query` and
+    /// `.craftNote`, open — `EditionStatus`'s own filter), the pieces that
+    /// would not read, and every piece's paragraph order. Read off the main
+    /// actor by the walk the window already runs, so neither an edition's
+    /// Status nor its book loads a chapter. A piece the walk has not reached
+    /// yet is absent until it lands.
+    struct BookReading: Equatable {
+        var openQuestions: [String: [Annotation]] = [:]
+        var unreadable: Set<String> = []
+        var sequences: [String: [String]] = [:]
+    }
+
+    static func bookReading(_ snapshot: ResolveSnapshot) -> BookReading {
+        var questions: [String: [Annotation]] = [:]
+        for case .note(let note) in snapshot.items
+        where [.query, .craftNote].contains(note.annotation.kind) && note.annotation.status == .open {
+            questions[note.docId, default: []].append(note.annotation)
+        }
+        return BookReading(openQuestions: questions, unreadable: Set(snapshot.unreadableDocIds),
+                           sequences: snapshot.sequences)
+    }
+
     static func openToDos(_ items: [ResolveItem], figureOwners: [String: String?]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for case .todo(let task) in items where task.status == .open {
@@ -697,6 +720,8 @@ struct ResolvePresenceWatch: View {
     private func publish() {
         if state.presence != reader.marks { state.presence = reader.marks }
         if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
+        let reading = ResolvePresence.bookReading(reader.snapshot)
+        if state.bookReading != reading { state.bookReading = reading }
     }
 
     var body: some View {

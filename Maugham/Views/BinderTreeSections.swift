@@ -1142,6 +1142,11 @@ final class BinderTreeSectionsState {
     /// **Each piece's open to-dos** (shell p4 Task 4), written by the same
     /// watch from the same read and looked up by Status's to-dos column.
     var openToDos: [String: Int] = [:]
+    /// **The book's open questions and paragraph orders** (shell p4 Task 5
+    /// fix round), written by the same watch from the same read: an edition's
+    /// Status counts questions from it, and the edition's book tells a
+    /// piece's own anchors from another piece's — neither loads a chapter.
+    var bookReading = ResolvePresence.BookReading()
     /// The last press on a fold's pull-up row, for telling a double-click
     /// from two clicks (`BinderPieceFold.press`). A press record, never drawn.
     @ObservationIgnored var lastFoldPress: BinderPieceFold.LastPress?

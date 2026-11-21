@@ -942,6 +942,78 @@ final class DepartmentPaneTests: XCTestCase {
                        "the pamphlet is chapter two, and chapter two is done")
     }
 
+    /// **The questions handed in from the project-wide read give the same
+    /// rows as the per-chapter load** (shell p4 Task 5 fix round, I4) — over
+    /// an open chapter and a closed one, a translation and an open question —
+    /// so the edition's Status and the desk agree with `translation_status`,
+    /// whose own path (no options) is unchanged. `languages` narrows the walk
+    /// to one edition and nothing else.
+    func test_theHandedQuestionsReadAsTheLoadDoes() async throws {
+        let fixture = try await makeProject()
+        let first = try XCTUnwrap(fixture.doc1.sequence.first)
+        try await seed(fixture, doc: fixture.doc1, paragraphId: first,
+                       language: "es", text: "Documento uno, primero.")
+        try await addQuery(fixture, doc: fixture.doc1, paragraphId: first,
+                           body: "t\u{FA} or usted?", language: "es")
+        try await seed(fixture, doc: fixture.doc2,
+                       paragraphId: try XCTUnwrap(fixture.doc2.sequence.first),
+                       language: "fr", text: "Seulement le deux.")
+        try await addQuery(fixture, doc: fixture.doc2,
+                           paragraphId: try XCTUnwrap(fixture.doc2.sequence.first),
+                           body: "vous?", language: "fr")
+        // Chapter two closes: its questions come from its op log.
+        fixture.documentStore.unregister(path: fixture.path2)
+        await fixture.doc2.close()
+
+        let ids = EditionStatus.manuscriptDocumentIds(in: fixture.projectStore.manifest)
+        let loaded = await EditionStatus.documentRows(
+            documentIds: ids, store: fixture.projectStore, projectURL: fixture.projectURL)
+        let questions = EditionStatus.openQuestions(
+            in: fixture.projectStore.listAnnotationsAcrossProject())
+        let handed = await EditionStatus.documentRows(
+            documentIds: ids, store: fixture.projectStore, projectURL: fixture.projectURL,
+            options: .init(openQuestions: questions, yieldsAndStops: true))
+        XCTAssertEqual(handed.rows, loaded.rows)
+        XCTAssertEqual(handed.unreadable, loaded.unreadable)
+        XCTAssertEqual(loaded.rows.filter { $0.openQueries > 0 }.count, 2, "the premise: two questions")
+
+        let spanish = await EditionStatus.documentRows(
+            documentIds: ids, store: fixture.projectStore, projectURL: fixture.projectURL,
+            options: .init(openQuestions: questions, languages: ["ES"]))
+        XCTAssertEqual(spanish.rows, loaded.rows.filter { $0.language == "es" })
+        XCTAssertFalse(spanish.rows.isEmpty)
+
+        // A chapter the read could not open is named, never counted empty.
+        let broken = await EditionStatus.documentRows(
+            documentIds: ids, store: fixture.projectStore, projectURL: fixture.projectURL,
+            options: .init(openQuestions: .init(byDoc: questions.byDoc, unreadable: ["doc-2"])))
+        XCTAssertEqual(broken.unreadable.map(\.documentId), ["doc-2"])
+        XCTAssertFalse(broken.rows.contains { $0.documentId == "doc-2" })
+    }
+
+    /// **The read stops when its task is cancelled** — a Status whose key
+    /// moved on does not finish the old walk.
+    func test_aCancelledReadStopsWalking() async throws {
+        let fixture = try await makeProject()
+        try await seed(fixture, doc: fixture.doc1,
+                       paragraphId: try XCTUnwrap(fixture.doc1.sequence.first),
+                       language: "es", text: "Documento uno, primero.")
+        let whole = await EditionStatus.documentRows(
+            documentIds: EditionStatus.manuscriptDocumentIds(in: fixture.projectStore.manifest),
+            store: fixture.projectStore, projectURL: fixture.projectURL,
+            options: .init(openQuestions: .init(byDoc: [:], unreadable: []), yieldsAndStops: true))
+        XCTAssertFalse(whole.rows.isEmpty, "the premise: an uncancelled read has rows")
+        let ids = EditionStatus.manuscriptDocumentIds(in: fixture.projectStore.manifest)
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await EditionStatus.documentRows(
+                documentIds: ids, store: fixture.projectStore, projectURL: fixture.projectURL,
+                options: .init(openQuestions: .init(byDoc: [:], unreadable: []), yieldsAndStops: true))
+        }
+        let report = await task.value
+        XCTAssertTrue(report.rows.isEmpty && report.unreadable.isEmpty, "\(report.rows)")
+    }
+
     /// **The book's own language is the IMPRINT's, when the imprint spells
     /// one** — and getting this wrong refuses a compile for a translation
     /// nobody wrote.

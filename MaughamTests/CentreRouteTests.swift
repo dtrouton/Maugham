@@ -962,15 +962,54 @@ final class EditionCentreTests: XCTestCase {
                                  ProjectWindow.centreColumnFloor)
     }
 
-    /// **The page goes where the faced piece starts, once per (book, page).**
-    func test_thePageIsGoneToOncePerAsk() {
+    /// **Every ask goes to its page** (fix round 1, I2): a new ask for the
+    /// same page goes there again — the same chapter after scrolling away,
+    /// or chapter → Part → the same chapter — and an unrelated update
+    /// re-applies nothing.
+    func test_everyAskGoesToItsPage() {
         let url = URL(fileURLWithPath: "/tmp/book.pdf")
+        let first = PDFPreview.Target(page: 3, ask: 1)
         XCTAssertFalse(PDFPreview.shouldGo(to: nil, in: url, applied: nil))
-        XCTAssertTrue(PDFPreview.shouldGo(to: 3, in: url, applied: nil))
-        XCTAssertFalse(PDFPreview.shouldGo(to: 3, in: url, applied: (url, 3)))
-        XCTAssertTrue(PDFPreview.shouldGo(to: 5, in: url, applied: (url, 3)))
-        XCTAssertTrue(PDFPreview.shouldGo(to: 3, in: URL(fileURLWithPath: "/tmp/other.pdf"),
-                                          applied: (url, 3)))
+        XCTAssertTrue(PDFPreview.shouldGo(to: first, in: url, applied: nil))
+        XCTAssertFalse(PDFPreview.shouldGo(to: first, in: url, applied: (url, first)),
+                       "a redraw with the same ask goes nowhere")
+        XCTAssertTrue(PDFPreview.shouldGo(to: .init(page: 3, ask: 2), in: url, applied: (url, first)),
+                      "the same page asked again goes there again")
+        XCTAssertTrue(PDFPreview.shouldGo(to: first, in: URL(fileURLWithPath: "/tmp/other.pdf"),
+                                          applied: (url, first)))
+        // Each resolve is a new ask: the place carries its serial.
+        XCTAssertNotEqual(PiecePlace(.page(3), title: "One", ask: 1).target,
+                          PiecePlace(.page(3), title: "One", ask: 2).target)
+        XCTAssertNil(PiecePlace(.notInBook, title: "One", ask: 1).target)
+    }
+
+    /// **The compiling pill stands aside only for this window's compile**
+    /// (fix round 1, I3): an MCP or another window's compile keeps it.
+    func test_thePillStandsAsideOnlyForThisWindowsCompile() {
+        let edition = SubjectSamples.opened(.edition(language: "es"))
+        XCTAssertTrue(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .book, runnerIsRunning: true))
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .book, runnerIsRunning: false),
+            "a compile the bar does not know of keeps its pill")
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: edition, editionView: .status, runnerIsRunning: true))
+        XCTAssertFalse(ProjectWindow.editionBookShowsCompile(
+            subject: SubjectSamples.opened(.project), editionView: .book, runnerIsRunning: true))
+    }
+
+    /// **A one-body book is read by the tag its anchors carry** (minor 1): an
+    /// imprint's own language, or the ordinal an unsafe tag became.
+    func test_aOneBodyBookIsReadByTheTagItsAnchorsCarry() {
+        let edition = EditionBook(language: "en", sourceLanguage: "en")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.source, edition: edition,
+                                          pages: ["p-en-GB-aaaa": 0]), "en-GB")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.source, edition: edition,
+                                          pages: ["p-en-aaaa": 0]), "en")
+        XCTAssertEqual(PiecePlace.bodyTag(of: Self.bilingual, edition: edition,
+                                          pages: ["p-1-aaaa": 0, "p-2-aaaa": 3]), "en",
+                       "a bilingual book's tags are its own; no guessing")
+        XCTAssertNil(PiecePlace.bodyTag(of: Self.serbian, edition: edition, pages: ["p-SR-aaaa": 0]))
     }
 
     /// The faces on a document is the piece the book goes to; anything else

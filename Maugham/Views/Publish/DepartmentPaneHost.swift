@@ -1098,9 +1098,16 @@ struct DepartmentPaneHost: View {
         // re-derives. The same scope only; an imprint change recounts.
         let reuse = Self.refillsBudgets(pipeline: pipeline?.status ?? .idle)
             ? nil : lastFigureCounts.flatMap { $0.documentIds == documentIds ? $0.report : nil }
+        // **No chapter is loaded to count its questions** (shell p4 Task 5
+        // fix round): they come from the project-wide annotation read, the
+        // one the edition's Status and To resolve share; the walk yields per
+        // chapter and stops when this pass is superseded.
         let report = await EditionStatus.languageRows(
             in: store, projectURL: projectURL, documentIds: documentIds,
-            reusingFigures: reuse)
+            reusingFigures: reuse,
+            options: .init(openQuestions: EditionStatus.openQuestions(
+                in: store.listAnnotationsAcrossProject()), yieldsAndStops: true))
+        guard !Task.isCancelled else { return }
         languages = report.rows
         unreadable = report.unreadable
         lastFigureCounts = (documentIds, report.figures)
