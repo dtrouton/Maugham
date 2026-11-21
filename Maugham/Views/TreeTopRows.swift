@@ -164,5 +164,7 @@ extension View {
         return environment(\.treeRowMarks, TreeRowMarks(
             open: BinderTreeSelection.openMark(shown: shown, subject: subject),
             outlined: BinderTreeSelection.outlined(shown: shown, subject: subject)))
+            // What has something to resolve: the window's one read, looked up.
+            .environment(\.resolvePresence, state.presence)
     }
 }

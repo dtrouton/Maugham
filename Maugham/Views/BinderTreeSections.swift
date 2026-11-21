@@ -1135,6 +1135,10 @@ final class BinderTreeSectionsState {
     /// the fold and the pulled-up views key on one count
     /// (`CanvasCardsRevision`).
     var closedCanvasWrites = 0
+    /// **Which rows have something to resolve** (shell p4 Task 3), written
+    /// by the window's `ResolvePresenceWatch` once per key and read by each
+    /// row as a set lookup (`\.resolvePresence`, handed in at the `List`).
+    var presence: ResolvePresence.Marks = .none
     /// The last press on a fold's pull-up row, for telling a double-click
     /// from two clicks (`BinderPieceFold.press`). A press record, never drawn.
     @ObservationIgnored var lastFoldPress: BinderPieceFold.LastPress?

@@ -44,6 +44,8 @@ struct BinderRow: View {
     var figureCount: String? = nil
     var onShowFigures: () -> Void = {}
 
+    /// Which rows have something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -95,6 +97,8 @@ struct BinderRow: View {
                 if let figureCount {
                     FigureCountButton(text: figureCount, action: onShowFigures)
                 }
+                // Trailing, so no title moves; a Part's comes from `marks`.
+                if presence.pieces.contains(item.id) { ResolvePresenceDot() }
             }
             .contentShape(Rectangle())
             .draggable(item.id) {

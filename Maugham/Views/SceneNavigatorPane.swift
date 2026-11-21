@@ -80,12 +80,13 @@ struct SceneNavigatorPane: View {
                     state: treeState, store: store, subject: subject),
                             hasNewCaptures: TreeTopRows.hasNewCaptures(store: store))
                 scriptRow
-                ForEach(Array(summaries.enumerated()), id: \.offset) { _, summary in
+                ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
                     // Inset under the two header rows above: a slugline is a
                     // place INSIDE the script, and the indent is what says so
                     // without a disclosure triangle the writer cannot collapse
                     // anyway.
-                    sceneRow(for: summary)
+                    sceneRow(for: summary,
+                             hasSomethingToResolve: treeState.presence.scenes.contains(index))
                         .padding(.leading, ProjectRowLabel.childIndent)
                 }
                 // Below the sluglines — furniture at the foot of the column
@@ -176,6 +177,8 @@ struct SceneNavigatorPane: View {
                     // either, so there is no drag-interior claim to make.
                     .treeTravelOnDoubleClick(.item(documentID))
                 Spacer()
+                // Anything in the script, before its first slugline too.
+                if treeState.presence.pieces.contains(documentID) { ResolvePresenceDot() }
             }
             .contentShape(Rectangle())
             // **The script's Tags…, Target… and Publishing…** — the old
@@ -352,7 +355,8 @@ struct SceneNavigatorPane: View {
     }
 
     @ViewBuilder
-    private func sceneRow(for summary: FountainScript.SceneSummary) -> some View {
+    private func sceneRow(for summary: FountainScript.SceneSummary,
+                          hasSomethingToResolve: Bool) -> some View {
         Button {
             // Order: the subject first, then the scroll. The editor has to be
             // the thing on screen before there is anything to scroll.
@@ -374,6 +378,8 @@ struct SceneNavigatorPane: View {
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
                     .lineLimit(1)
+                // An item's paragraph falls in this scene (`ResolvePresence`).
+                if hasSomethingToResolve { ResolvePresenceDot() }
             }
             .contentShape(Rectangle())
         }

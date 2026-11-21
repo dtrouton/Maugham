@@ -38,6 +38,8 @@ struct ProjectRowLabel: View {
     static let childIndent: CGFloat = 14
 
     let title: String
+    /// Whether the Book has something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
 
     var body: some View {
         HStack(spacing: 6) {
@@ -48,6 +50,7 @@ struct ProjectRowLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            if presence.book { ResolvePresenceDot() }
         }
         .contentShape(Rectangle())
     }

@@ -34,6 +34,8 @@ struct PieceRow: View {
     var figureCount: String? = nil
     var onShowFigures: () -> Void = {}
 
+    /// Which rows have something to resolve (`ResolvePresence`).
+    @Environment(\.resolvePresence) private var presence
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -95,6 +97,8 @@ struct PieceRow: View {
                             legacyStatus: piece.status)))
                         .frame(width: 6, height: 6)
                 }
+                // After the stage dot, at the trailing edge (`ResolvePresence`).
+                if presence.pieces.contains(piece.id) { ResolvePresenceDot() }
             }
             .contentShape(Rectangle())
             .draggable(piece.id) {

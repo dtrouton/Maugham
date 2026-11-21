@@ -123,7 +123,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Review/ReviewBoardRows.swift` — the board's pre-order row flattening.
 - `Maugham/Views/Review/RunWhenDocumentOpens.swift` — wait for a piece to open, then run its round.
 - `ReviewPassEditorLogic.swift` — pure array transforms behind Project Settings' Review Passes editor.
-- `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift` — To resolve's scope, items and loadless reader.
+- `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift`, `ResolvePresence.swift` — To resolve's scope, items, loadless reader; the tree's marks.
 - `Maugham/Views/Resolve/ResolveGrouping.swift`, `ParagraphOffsets.swift` — grouping by paragraph, scene or piece; display-text offsets placing a closed screenplay's paragraphs among scenes.
 - `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveTriage.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, the triage choice (offered while a note carries a mark; ANDs with the chips), density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.

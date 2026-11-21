@@ -72,7 +72,7 @@ The right column has three positions in one order, To resolve (⌘1), Brief (⌘
 
 Later plans of the same milestone. None of these exist; nothing above depends on them.
 
-- Built since: To resolve ([ADR 0036](0036-to-resolve.md)); Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)). The rest of this list is what remains.
+- Built since: To resolve ([ADR 0036](0036-to-resolve.md)) and its one dot on the tree's rows (`ResolvePresence`; the stage dot was already drawn); Brief, the pulled-up thing, the fold, ⌘2 and ⌘3, the old inspector's dispersal, the faces' piece readable without the editor for History, and the Canvas centre's right column ([ADR 0037](0037-brief-and-the-pulled-up-thing.md)). The rest of this list is what remains.
 - Status views beyond the board.
 - Per-language preview: every edition shows the same book today.
 - Round letters per piece.
@@ -80,7 +80,6 @@ Later plans of the same milestone. None of these exist; nothing above depends on
 - The rewrite of the guide, the welcome tour and Claude's help text. They still describe personas and ⌘1–4, and the branch does not ship before they are rewritten.
 - A drop on the tree's Canvas row as the capture-to-canvas route, with the spec's open decision on the Inbox at scale.
 - **The faces' piece readable without the editor, for Translation.** To resolve, Brief and History have it; the translation review pane still needs the piece open, and a run flashes for a faces' piece the centre does not have open.
-- The tree's stage dot (`ReviewStatus`) and its one "to resolve" dot on rows; only the Inbox dot exists.
 - The toolbar's view switch, its language switch on a piece with translations, and its standing running-round indicator; only Lock is built.
 - Drop-target feedback on the tree that says which drop is about to happen.
 - Per-piece publishing settings in the edition's Status view (they are "Publishing…" in a piece's row menu until then).

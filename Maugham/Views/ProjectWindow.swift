@@ -643,6 +643,11 @@ struct ProjectWindow: View {
         // open nothing.
         .modifier(TreeWindowWiring(store: store, url: url, window: window,
                                    state: treeState, subject: subjectBinding))
+        // The tree's "something to resolve" marks, read once per key with the
+        // tree hidden too. Load-bearing: without it no row is ever marked.
+        .modifier(ResolvePresenceWiring(
+            store: store, documentStore: documentStore, url: url, window: window,
+            state: treeState, diagnostics: compiler.diagnostics, script: lastParsedScript))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
