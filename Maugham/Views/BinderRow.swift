@@ -98,7 +98,7 @@ struct BinderRow: View {
                     FigureCountButton(text: figureCount, action: onShowFigures)
                 }
                 // Trailing, so no title moves; a Part's comes from `marks`.
-                if presence.pieces.contains(item.id) { ResolvePresenceDot() }
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(item.id), in: presence))
             }
             .contentShape(Rectangle())
             .draggable(item.id) {

@@ -201,12 +201,129 @@ final class ResolvePresenceTests: XCTestCase {
                        "nor through a figure it owns")
     }
 
-    func test_anUnreadablePieceCarriesNoMark() {
-        let m = marks(read(todos: [todo("t-b", on: "doc-b")], unreadable: ["doc-b"]))
-        XCTAssertFalse(m.pieces.contains("doc-b"), "no mark, and no claim of emptiness either")
+    // MARK: - Could not be read (RULING-54; controller's ruling, fix round 1)
+
+    func test_anUnreadablePieceIsUnknownNotQuiet() {
+        let m = marks(read(unreadable: ["doc-b"]))
+        XCTAssertFalse(m.pieces.contains("doc-b"))
+        XCTAssertEqual(ResolvePresence.rowMark(.item("doc-b"), in: m), .unknown,
+                       "a chapter that would not read never looks quiet")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("grp-1"), in: m), .unknown, "its Part rolls up")
+        XCTAssertEqual(ResolvePresence.rowMark(.book, in: m), .unknown, "and the Book")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("doc-a"), in: m), .quiet)
+    }
+
+    func test_aFilledDotWinsOverAnUnknown() {
+        // Something listed on the unreadable piece itself: the dot.
+        let own = marks(read(todos: [todo("t-b", on: "doc-b")], unreadable: ["doc-b"]))
+        XCTAssertEqual(ResolvePresence.rowMark(.item("doc-b"), in: own), .something)
+        XCTAssertFalse(own.unknown.contains("doc-b"))
+
+        // A Part holding one marked and one unreadable piece: the dot.
+        let part = marks(read(notes: [note("n-c", on: "doc-c")], unreadable: ["doc-b"]))
+        XCTAssertEqual(ResolvePresence.rowMark(.item("doc-b"), in: part), .unknown)
+        XCTAssertEqual(ResolvePresence.rowMark(.item("grp-1"), in: part), .something)
+        XCTAssertEqual(ResolvePresence.rowMark(.item("grp-2"), in: part), .something)
+        XCTAssertEqual(ResolvePresence.rowMark(.book, in: part), .something)
+        XCTAssertFalse(part.bookUnknown)
+    }
+
+    func test_anUnreadableFigureMakesItsOwnerUnknown() {
+        let owners: [String: String?] = ["fig-aaaa1111": "doc-a", "fig-bbbb2222": nil]
+        let owned = marks(read(figureOwners: owners, unreadable: ["fig-aaaa1111"]), figureOwners: owners)
+        XCTAssertEqual(ResolvePresence.rowMark(.item("doc-a"), in: owned), .unknown,
+                       "Status's em dash rule: the owner of an unreadable figure")
+        XCTAssertEqual(owned.unknown, ProjectStore.unknownCounts(unreadableDocIds: ["fig-aaaa1111"], owners: owners)
+            .subtracting(["fig-aaaa1111"]), "the same pieces Status draws an em dash for")
+
+        let unowned = marks(read(figureOwners: owners, unreadable: ["fig-bbbb2222"]), figureOwners: owners)
+        XCTAssertEqual(unowned.unknown, [])
+        XCTAssertEqual(ResolvePresence.rowMark(.book, in: unowned), .unknown, "an unowned figure: the Book")
+    }
+
+    func test_aReferencePieceIsNeverUnknown() {
+        XCTAssertEqual(marks(read(unreadable: ["doc-r"])).unknown, [])
+    }
+
+    // MARK: - What each row draws
+
+    /// The one decision every row calls, as a table.
+    func test_whatEachRowDraws() {
+        let m = ResolvePresence.Marks(pieces: ["doc-a", "grp-1"], book: true, scenes: [2],
+                                      unknown: ["doc-b"], bookUnknown: false)
+        let table: [(ResolvePresence.Row, ResolvePresence.RowMark)] = [
+            (.item("doc-a"), .something), (.item("grp-1"), .something),
+            (.item("doc-b"), .unknown), (.item("doc-c"), .quiet),
+            (.book, .something), (.scene(2), .something), (.scene(0), .quiet),
+        ]
+        for (row, expected) in table {
+            XCTAssertEqual(ResolvePresence.rowMark(row, in: m), expected, "\(row)")
+        }
+        let unknownBook = ResolvePresence.Marks(pieces: [], book: false, scenes: [],
+                                                unknown: ["doc-b"], bookUnknown: true)
+        XCTAssertEqual(ResolvePresence.rowMark(.book, in: unknownBook), .unknown)
+        for row in [ResolvePresence.Row.item("doc-a"), .book, .scene(0)] {
+            XCTAssertEqual(ResolvePresence.rowMark(row, in: .none), .quiet, "a quiet book draws nothing")
+        }
+        XCTAssertEqual(ResolvePresenceMark.somethingLabel, "Something to resolve")
+        XCTAssertEqual(ResolvePresenceMark.unknownLabel, "Could not be read")
     }
 
     // MARK: - Censuses
+
+    private static func codeOnly(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
+    private func source(_ path: String) throws -> String {
+        Self.codeOnly(try String(contentsOf: SourceTree.repoRoot.appendingPathComponent(path), encoding: .utf8))
+    }
+
+    /// Each row kind's call, the window's mount, the hand-off at the `List`
+    /// and the watch's writes — every link the pure tests cannot see.
+    static let wiring: [(file: String, spelling: String, what: String)] = [
+        ("Maugham/Views/BinderRow.swift",
+         "ResolvePresenceMark(ResolvePresence.rowMark(.item(item.id), in: presence))", "a chapter and a Part"),
+        ("Maugham/Views/PieceRow.swift",
+         "ResolvePresenceMark(ResolvePresence.rowMark(.item(piece.id), in: presence))", "a Collection piece"),
+        ("Maugham/Views/ProjectRowLabel.swift",
+         "ResolvePresenceMark(ResolvePresence.rowMark(.book, in: presence))", "the Book"),
+        ("Maugham/Views/SceneNavigatorPane.swift",
+         "ResolvePresenceMark(ResolvePresence.rowMark(.item(documentID), in: treeState.presence))", "the Script"),
+        ("Maugham/Views/SceneNavigatorPane.swift",
+         "mark: ResolvePresence.rowMark(.scene(index), in: treeState.presence)", "a scene"),
+        ("Maugham/Views/SceneNavigatorPane.swift", "ResolvePresenceMark(mark)", "a scene draws its mark"),
+        ("Maugham/Views/TreeTopRows.swift",
+         ".environment(\\.resolvePresence, state.presence)", "every tree's List hands its rows the marks"),
+        ("Maugham/Views/ProjectWindow.swift",
+         ".modifier(ResolvePresenceWiring(", "the window mounts the read (and Status's to-dos with it)"),
+        ("Maugham/Views/Resolve/ResolvePresence.swift",
+         "if state.presence != reader.marks { state.presence = reader.marks }", "the watch writes the marks"),
+        ("Maugham/Views/Resolve/ResolvePresence.swift",
+         "if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }",
+         "the watch writes Status's to-dos"),
+    ]
+
+    static func missing(in sources: [String: String]) -> [String] {
+        wiring.filter { !(sources[$0.file] ?? "").contains($0.spelling) }.map(\.what)
+    }
+
+    func test_theRowsAndTheWindowAreWired() throws {
+        var sources: [String: String] = [:]
+        for file in Set(Self.wiring.map(\.file)) { sources[file] = try source(file) }
+        XCTAssertEqual(Self.missing(in: sources), [])
+
+        // The census reads: a row that lost its call, or a commented-out
+        // mount, is caught.
+        var planted = sources
+        planted["Maugham/Views/BinderRow.swift"] = "struct BinderRow {}"
+        XCTAssertEqual(Self.missing(in: planted), ["a chapter and a Part"])
+        planted = sources
+        planted["Maugham/Views/ProjectWindow.swift"] = Self.codeOnly("// .modifier(ResolvePresenceWiring(")
+        XCTAssertEqual(Self.missing(in: planted), ["the window mounts the read (and Status's to-dos with it)"])
+    }
 
     private static let rowFiles = [
         "Maugham/Views/BinderRow.swift", "Maugham/Views/PieceRow.swift",
@@ -214,7 +331,8 @@ final class ResolvePresenceTests: XCTestCase {
         "Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift",
         "Maugham/Views/TreeTopRows.swift",
     ]
-    private static let readSpellings = ["ResolveReader", "ResolvePresence.marks(", "ResolvePane.refreshed("]
+    private static let readSpellings = ["ResolveReader", "ResolvePresence.marks(", "ResolvePresenceReader",
+                                        "ResolvePane.refreshed("]
 
     static func readOffenders(in sources: [String: String]) -> [String] {
         sources.flatMap { name, text in
@@ -222,24 +340,13 @@ final class ResolvePresenceTests: XCTestCase {
         }.sorted()
     }
 
-    private func source(_ path: String) throws -> String {
-        try String(contentsOf: SourceTree.repoRoot.appendingPathComponent(path), encoding: .utf8)
-    }
-
-    /// No row reads: every row looks its id up in the window's marks, and the
-    /// one read is mounted on the window.
+    /// No row reads: every row asks `rowMark` of the window's marks.
     func test_thePresenceReadIsOnTheWindowNotARow() throws {
         var sources: [String: String] = [:]
         for path in Self.rowFiles { sources[path] = try source(path) }
         XCTAssertEqual(Self.readOffenders(in: sources), [])
         XCTAssertEqual(Self.readOffenders(in: ["Planted.swift": "let s = ResolveReader.read(scope: x)"]),
                        ["Planted.swift: ResolveReader"], "the census reads")
-
-        XCTAssertTrue(try source("Maugham/Views/ProjectWindow.swift")
-            .contains(".modifier(ResolvePresenceWiring("), "the window mounts the read")
-        XCTAssertTrue(try source("Maugham/Views/TreeTopRows.swift")
-            .contains(".environment(\\.resolvePresence, state.presence)"),
-                      "every tree's `List` hands its rows the marks")
     }
 
     func test_noPresenceSourceLoadsADocument() throws {
@@ -247,142 +354,222 @@ final class ResolvePresenceTests: XCTestCase {
         XCTAssertEqual(ResolveReaderTests.offenders(in: [path: try source(path)]), [])
     }
 
-    // MARK: - Mounted
+    // MARK: - The reader, driven as the watch drives it (no view, no wait)
 
-    private var windows: [NSWindow] = []
+    private var temp: TempDirectory!
     private var documentStores: [DocumentStore] = []
 
+    override func setUp() async throws { temp = TempDirectory() }
+
     override func tearDown() async throws {
-        for window in windows { window.contentView = NSView(frame: .zero) }
-        pump(0.05)
-        windows.removeAll()
         for ds in documentStores { await ds.close() }
         documentStores.removeAll()
+        temp?.cleanup()
+        temp = nil
     }
 
-    /// A novel: `doc-a` at the top (closed, one open note), and Part `grp-1`
-    /// holding `doc-b` (closed, one open to-do) and `doc-c` (quiet).
-    private func novel() async throws -> ProjectStore {
-        let root = TestTemp.root.appendingPathComponent("PRESENCE-\(UUID().uuidString)")
+    struct Book {
+        let store: ProjectStore
+        let documentStore: DocumentStore
+        let url: URL
+        let ids: [String]
+    }
+
+    /// A novel: Part `grp-1` holds the first two chapters, Part `grp-2` the
+    /// rest. Each chapter in `noted` carries one open note in its op log;
+    /// every chapter is closed.
+    static func book(in root: URL, chapters: Int, noted: Set<Int>) async throws -> Book {
+        let url = root.appendingPathComponent("PRESENCE-\(UUID().uuidString)")
         let fm = FileManager.default
-        try fm.createDirectory(at: root.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
-        for name in ["a", "b", "c"] {
-            try Data("\(name) body.".utf8).write(to: root.appendingPathComponent("manuscript/\(name).md"))
+        try fm.createDirectory(at: url.appendingPathComponent("manuscript"), withIntermediateDirectories: true)
+        var items: [StructureItem] = []
+        var ids: [String] = []
+        for index in 0..<chapters {
+            let id = String(format: "doc-c%03d", index)
+            let path = "manuscript/\(id).md"
+            try Data("Chapter \(index).\n\nMore words here.".utf8).write(to: url.appendingPathComponent(path))
+            items.append(StructureItem(id: id, title: "C\(index)", type: .document, path: path))
+            ids.append(id)
         }
+        let structure = [
+            StructureItem(id: "grp-1", title: "Part One", type: .group, children: Array(items.prefix(2))),
+            StructureItem(id: "grp-2", title: "Part Two", type: .group, children: Array(items.dropFirst(2))),
+        ]
         let manifest = ProjectManifest(
             type: .novel, title: "T", author: "A", created: Date(), modified: Date(),
-            structure: [
-                StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md"),
-                StructureItem(id: "grp-1", title: "Part One", type: .group, children: [
-                    StructureItem(id: "doc-b", title: "B", type: .document, path: "manuscript/b.md"),
-                    StructureItem(id: "doc-c", title: "C", type: .document, path: "manuscript/c.md"),
-                ]),
-            ],
-            research: [])
+            structure: structure, research: [])
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
-        try enc.encode(manifest).write(to: root.appendingPathComponent(ProjectManifest.fileName))
-
-        let log = OpLogStore(projectURL: root)
-        try await log.append(Op(
-            opId: "01AAAA", docId: "doc-a", at: t, device: "mac", session: "s", kind: .bootstrap,
-            changes: [.init(paragraphId: "bb22", prior: nil, next: "Two opens.")],
-            sequence: ["bb22"]))
-        try await log.append(Op(
-            opId: "01BBB1", docId: "doc-a", at: t, device: "mac", session: "s", kind: .claudeComment,
-            changes: [.init(paragraphId: "bb22", prior: "Two opens.", next: "")],
-            provenance: Op.Provenance(sessionId: "s", annotationBody: "closed note")))
-        try await log.append(Op(
-            opId: "01CCCC", docId: "doc-b", at: t, device: "mac", session: "s", kind: .bootstrap,
-            changes: [.init(paragraphId: "aa11", prior: nil, next: "- [ ] fix the dock")],
-            sequence: ["aa11"]))
-
-        let store = try await ProjectStore.load(from: root)
-        let ds = try await DocumentStore.open(url: root)
-        store.documentStore = ds
-        ds.projectStore = store
-        documentStores.append(ds)
-        addTeardownBlock { try? fm.removeItem(at: root) }
-        return store
-    }
-
-    /// The window's watch fills the marks from the stores, the pieces closed.
-    func test_theWindowsWatchMarksClosedChaptersFromTheStores() async throws {
-        let store = try await novel()
-        let ds = try XCTUnwrap(store.documentStore)
-        let state = BinderTreeSectionsState()
-        let window = TestWindow.mount(
-            Color.clear.modifier(ResolvePresenceWiring(
-                store: store, documentStore: ds, url: store.url, window: nil, state: state,
-                diagnostics: nil, script: nil)),
-            size: CGSize(width: 100, height: 100))
-        windows.append(window)
-
-        let filled = await pumpUntil(deadline: 5) { state.presence != .none }
-        XCTAssertTrue(filled, "the watch never wrote the marks")
-        XCTAssertEqual(state.presence.pieces, ["doc-a", "doc-b", "grp-1"])
-        XCTAssertTrue(state.presence.book)
-        XCTAssertNil(ds.document(forDocId: "doc-a"), "the read opened no piece")
-    }
-
-    /// Every label (`AXDescription`) and title under `element`.
-    static func axDescriptions(under element: AXUIElement, depth: Int = 0) -> [String] {
-        guard depth < 60 else { return [] }
-        var out: [String] = []
-        for attribute in [kAXDescriptionAttribute, kAXTitleAttribute] {
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-               let text = value as? String, !text.isEmpty { out.append(text) }
+        try enc.encode(manifest).write(to: url.appendingPathComponent(ProjectManifest.fileName))
+        for index in noted.sorted() {
+            try await addNote(to: ids[index], in: url, body: "note on \(ids[index])")
         }
-        var children: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
-              let list = children as? [AXUIElement] else { return out }
-        return out + list.flatMap { axDescriptions(under: $0, depth: depth + 1) }
+        let store = try await ProjectStore.load(from: url)
+        let documentStore = try await DocumentStore.open(url: url)
+        store.documentStore = documentStore
+        documentStore.projectStore = store
+        return Book(store: store, documentStore: documentStore, url: url, ids: ids)
     }
 
-    /// **A book with one marked chapter draws the mark on exactly the marked
-    /// rows**: the chapter, the Book, and — collapsed or open — its Part.
-    func test_aMarkedChapterDrawsTheMarkOnItsRowsOnly() async throws {
-        let store = try await novel()
-        let read = ResolveReader.read(
-            scope: ResolveScope.of(.project, structure: store.manifest.structure, projectType: .novel),
-            store: store, documentStore: try XCTUnwrap(store.documentStore), diagnostics: nil)
-        // Only doc-b's to-do: one marked chapter, inside the Part.
-        let one = ResolveSnapshot(items: read.items.filter { $0.docId == "doc-b" },
-                                  sequences: read.sequences, paragraphText: [:], unreadableDocIds: [])
-        let state = BinderTreeSectionsState()
-        state.presence = ResolvePresence.marks(
-            one, structure: store.manifest.structure, figureOwners: [:], sceneIndex: nil)
-        state.expandedStructureGroups = ["grp-1"]
-        var subject = WindowSubject(open: .project, faces: .project)
-        let binding = Binding(get: { subject }, set: { subject = $0 })
-        let window = TestWindow.mount(
-            TreeHostFixture.binder(store: store, subject: binding, treeState: state),
-            size: CGSize(width: 320, height: 600))
-        windows.append(window)
-        pump(0.4)
+    /// A note landing on a closed chapter, through the production document.
+    static func addNote(to id: String, in url: URL, body: String) async throws {
+        let doc = try await Document.load(
+            url: url.appendingPathComponent("manuscript/\(id).md"), actor: .author,
+            session: "boot", presenter: nil)
+        let pid = try XCTUnwrap(doc.sequence.first)
+        _ = try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: body)
+        await doc.close()
+    }
 
-        // Read through the accessibility API itself, the app's windows only
-        // (never its menus): the KVC walk (`axElements`) stops at the
-        // outline, and a Part's label is read with its title ("Part One,
-        // Something to resolve").
-        func dots() throws -> Int {
-            try requireAssistiveClient()
-            var windows: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(getpid()),
-                                                kAXWindowsAttribute as CFString, &windows) == .success,
-                  let list = windows as? [AXUIElement] else { return 0 }
-            return list.flatMap { Self.axDescriptions(under: $0) }
-                .filter { $0.contains(ResolvePresenceDot.label) }.count
+    private func book(chapters: Int = 4, noted: Set<Int>) async throws -> Book {
+        let book = try await Self.book(in: temp.url, chapters: chapters, noted: noted)
+        documentStores.append(book.documentStore)
+        return book
+    }
+
+    /// The watch's `key` and `update`, as the view runs them.
+    @MainActor final class Watch {
+        let book: Book
+        let reader = ResolvePresenceReader()
+        var token = 0
+        init(_ book: Book) { self.book = book }
+
+        @MainActor var key: ResolvePresenceReader.Key {
+            ResolvePresenceReader.key(store: book.store, documentStore: book.documentStore,
+                                      diagnostics: nil, annotationsToken: token, script: nil)
         }
-        XCTAssertEqual(try dots(), 3, "doc-b, its Part and the Book; doc-a and doc-c stay quiet")
 
-        state.expandedStructureGroups = []
-        pump(0.4)
-        XCTAssertEqual(try dots(), 2, "a collapsed Part still says something inside waits")
+        /// What the view's `.task(id: key)` does, run until the key is still:
+        /// a task walk's rebuild bumps `projectTasksVersion`, which moves the
+        /// key once more (as the view re-runs its task once more).
+        @MainActor func update() {
+            for _ in 0..<3 {
+                let now = key
+                reader.update(now, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+                if key == now { return }
+            }
+        }
 
-        state.presence = .none
-        pump(0.4)
-        XCTAssertEqual(try dots(), 0, "a quiet book draws nothing")
+        @MainActor var walks: Int { book.store._debugAnnotationsRebuildCount }
+    }
+
+    func test_theReaderMarksClosedChaptersFromTheStores() async throws {
+        let book = try await book(noted: [1, 3])
+        let watch = Watch(book)
+        watch.update()
+        XCTAssertEqual(watch.reader.marks.pieces, ["doc-c001", "doc-c003", "grp-1", "grp-2"])
+        XCTAssertTrue(watch.reader.marks.book)
+        XCTAssertNil(book.documentStore.document(forDocId: "doc-c001"), "the read opened no piece")
+        XCTAssertEqual(watch.key.structure, book.store.manifest.structure, "the tree's shape is in the key")
+    }
+
+    /// **I1**: a chapter moved into another Part with the document order
+    /// unchanged moves no read key; its Parts' marks still follow.
+    func test_aChapterMovedBetweenPartsMovesThePartsMarks() async throws {
+        let book = try await book(noted: [1])
+        let watch = Watch(book)
+        watch.update()
+        XCTAssertEqual(watch.reader.marks.pieces, ["doc-c001", "grp-1"], "premise")
+
+        // doc-c001 becomes Part Two's first chapter: the pre-order is the same.
+        let before = watch.key
+        var moved = book.store.manifest.structure
+        let chapter = moved[0].children!.removeLast()
+        moved[1].children!.insert(chapter, at: 0)
+        let after = ResolvePresenceReader.Key(read: before.read, script: before.script, open: before.open,
+                                              structure: moved, figureOwners: before.figureOwners)
+        XCTAssertEqual(ResolveScope.of(.project, structure: moved, projectType: .novel), before.read.scope,
+                       "premise: the document order did not move")
+        let walks = watch.walks
+        watch.reader.update(after, store: book.store, documentStore: book.documentStore, diagnostics: nil)
+        XCTAssertEqual(watch.reader.marks.pieces, ["doc-c001", "grp-2"], "the marks follow the chapter")
+        XCTAssertEqual(watch.walks, walks, "a re-mark, not a re-read")
+    }
+
+    /// **I1, figures**: a figure changing owner moves its notes' mark.
+    func test_aFigureChangingOwnerMovesItsMark() async throws {
+        let book = try await book(noted: [])
+        let watch = Watch(book)
+        watch.update()
+        let base = watch.key
+        let figure = "fig-aaaa1111"
+        // The figure's note, held as the walk would hold it.
+        let snapshot = ResolveSnapshot(items: [.note(note("n-f", on: figure, pid: nil))],
+                                       sequences: [:], paragraphText: [:], unreadableDocIds: [])
+        let structure = book.store.manifest.structure
+        let onC0 = ResolvePresence.marks(snapshot, structure: structure,
+                                         figureOwners: [figure: "doc-c000"], sceneIndex: nil)
+        let onC3 = ResolvePresence.marks(snapshot, structure: structure,
+                                         figureOwners: [figure: "doc-c003"], sceneIndex: nil)
+        XCTAssertNotEqual(onC0.pieces, onC3.pieces, "premise: the owner decides")
+        // The reader re-marks on an owner change with nothing else moved.
+        let moved = ResolvePresenceReader.Key(read: base.read, script: base.script, open: base.open,
+                                              structure: base.structure,
+                                              figureOwners: [figure: "doc-c003"])
+        XCTAssertNotEqual(moved, base, "the owners are in the key")
+    }
+
+    /// **I2**: opening, editing, typing in and closing a piece walk nothing;
+    /// a closed piece's last state is folded in, never lost.
+    func test_navigationAndTypingWalkNothing() async throws {
+        let book = try await book(chapters: 6, noted: [2, 4])
+        let watch = Watch(book)
+        watch.update()
+        let walks = watch.walks
+        let taskWalks = book.store._debugTasksRebuildCount
+
+        // Open a quiet chapter.
+        let id = book.ids[0]
+        let doc = try await Document.load(
+            url: book.url.appendingPathComponent("manuscript/\(id).md"), actor: .author,
+            session: "s", presenter: nil)
+        book.documentStore.register(document: doc, for: "manuscript/\(id).md")
+        watch.update()
+        XCTAssertFalse(watch.reader.marks.pieces.contains(id))
+
+        // Typing and its burst flush.
+        doc.setFullText("Chapter 0, typed.\n\nMore words here.")
+        watch.update()
+        try await doc.flushBurstNow()
+        watch.update()
+
+        // A note on the open piece.
+        let pid = try XCTUnwrap(doc.sequence.first)
+        _ = try await doc.addAnnotation(kind: .comment, paragraphId: pid, body: "while open")
+        watch.update()
+        XCTAssertTrue(watch.reader.marks.pieces.contains(id), "the open piece's note marks it live")
+
+        // Close it: its note stays, folded in from its own last state.
+        book.documentStore.unregister(path: "manuscript/\(id).md")
+        await doc.close()
+        watch.update()
+        XCTAssertTrue(watch.reader.marks.pieces.contains(id), "a closed piece keeps its mark")
+        XCTAssertEqual(watch.reader.marks.pieces, [id, "doc-c002", "doc-c004", "grp-1", "grp-2"])
+
+        XCTAssertEqual(watch.walks, walks, "no annotation walk on navigation or typing")
+        XCTAssertEqual(book.store._debugTasksRebuildCount, taskWalks, "no task walk either")
+
+        // The closed piece's next event walks once, and agrees.
+        watch.token += 1
+        watch.update()
+        XCTAssertEqual(watch.walks, walks + 1)
+        XCTAssertEqual(watch.reader.marks.pieces, [id, "doc-c002", "doc-c004", "grp-1", "grp-2"])
+    }
+
+    /// A burst of closed-piece events is one walk: the token settles once.
+    func test_aBurstOfClosedPieceEventsIsOneWalk() async throws {
+        let book = try await book(chapters: 6, noted: [])
+        let watch = Watch(book)
+        watch.update()
+        let walks = watch.walks
+        for index in 1...4 {
+            try await Self.addNote(to: book.ids[index], in: book.url, body: "round \(index)")
+        }
+        // The watch's coalescing: four events heard, the token moves once.
+        watch.token += 1
+        watch.update()
+        XCTAssertEqual(watch.walks, walks + 1, "one walk for the burst")
+        XCTAssertEqual(watch.reader.marks.pieces, Set(book.ids[1...4]).union(["grp-1", "grp-2"]))
+        XCTAssertGreaterThan(ResolvePresenceReader.coalesce, .zero)
     }
 }

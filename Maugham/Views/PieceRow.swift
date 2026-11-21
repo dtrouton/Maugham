@@ -98,7 +98,7 @@ struct PieceRow: View {
                         .frame(width: 6, height: 6)
                 }
                 // After the stage dot, at the trailing edge (`ResolvePresence`).
-                if presence.pieces.contains(piece.id) { ResolvePresenceDot() }
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(piece.id), in: presence))
             }
             .contentShape(Rectangle())
             .draggable(piece.id) {

@@ -50,7 +50,7 @@ struct ProjectRowLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
-            if presence.book { ResolvePresenceDot() }
+            ResolvePresenceMark(ResolvePresence.rowMark(.book, in: presence))
         }
         .contentShape(Rectangle())
     }

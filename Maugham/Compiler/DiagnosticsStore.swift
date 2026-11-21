@@ -73,12 +73,12 @@ final class DiagnosticsStore {
     /// reason `SlotKey` exists: a run and its notes that can be written
     /// separately are a run and its notes that can disagree about which check
     /// the writer is looking at.
-    private struct Standing: Codable, Equatable {
+    private struct Standing: Codable, Equatable, Sendable {
         var run: CompilerRun
         var diagnostics: [Diagnostic]
     }
 
-    private struct FileContent: Codable, Equatable {
+    private struct FileContent: Codable, Equatable, Sendable {
         /// **What the check's ⌘R last said about this document.** `nil` for a
         /// document only ever run against from Review — which is exactly what
         /// the Author pane should say about it: no check has been made.
@@ -335,19 +335,54 @@ final class DiagnosticsStore {
     /// section lands. `discardPreview` is how a preview is deliberately
     /// dropped, and it clears this first.
     func load(docId: String) {
+        apply(docId: docId, read: Self.readSidecar(projectRoot: projectRoot, docId: docId, device: device))
+        version += 1
+    }
+
+    /// **Every document's sidecar, read and decoded off the main actor and
+    /// applied in one update** (shell p4 Task 3 fix: the tree's presence
+    /// read loads the whole Book's, and 200 file reads and decodes on the
+    /// main actor were a hitch at window open). A document whose record
+    /// moved while the files were being read keeps what it now holds: that
+    /// is newer than the file this read found.
+    func loadInBackground(docIds: [String]) async {
+        guard !docIds.isEmpty else { return }
+        let before = Dictionary(docIds.map { ($0, byDoc[$0]) }, uniquingKeysWith: { a, _ in a })
+        let root = projectRoot
+        let device = device
+        let read: [(String, FileContent?)] = await Task.detached(priority: .utility) {
+            docIds.map { ($0, Self.readSidecar(projectRoot: root, docId: $0, device: device)) }
+        }.value
+        var applied = false
+        for (docId, content) in read where byDoc[docId] == before[docId] ?? nil {
+            apply(docId: docId, read: content)
+            applied = true
+        }
+        if applied { version += 1 }
+    }
+
+    /// One document's sidecar off disk; nil when there is none or it will
+    /// not read. No state: safe off the main actor.
+    nonisolated private static func readSidecar(projectRoot: URL, docId: String,
+                                                device: DeviceSlug) -> FileContent? {
+        guard let url = try? sidecarURL(projectRoot: projectRoot, docId: docId, device: device),
+              let data = try? Data(contentsOf: url) // adr-0018-ok: diagnostics sidecar, derived, not manuscript
+        else { return nil }
+        return try? makeDecoder().decode(FileContent.self, from: data)
+    }
+
+    /// `read` (the file's content, or nil) folded into `byDoc`, `load`'s
+    /// rule. Does not move `version`; its callers do, once.
+    private func apply(docId: String, read: FileContent?) {
         let held = RunKind.allCases.filter {
             previewing.contains(SlotKey(docId: docId, kind: $0))
         }
         guard held.count < RunKind.allCases.count else { return }
-        guard let url = try? Self.sidecarURL(projectRoot: projectRoot, docId: docId, device: device),
-              let data = try? Data(contentsOf: url), // adr-0018-ok: diagnostics sidecar, derived, not manuscript
-              var content = try? Self.makeDecoder().decode(FileContent.self, from: data)
-        else {
+        guard var content = read else {
             // Nothing readable on disk. A slot standing in front of a preview
             // is still newer than the file, so the whole entry is left alone
             // when one is; otherwise this document has no record at all.
             if held.isEmpty { byDoc[docId] = nil }
-            version += 1
             return
         }
         for kind in RunKind.allCases {
@@ -360,7 +395,6 @@ final class DiagnosticsStore {
             }
         }
         byDoc[docId] = content
-        version += 1
     }
 
     /// A new run's diagnostics wholly replace the previous run's for
@@ -946,7 +980,7 @@ final class DiagnosticsStore {
     /// other's sidecar. `.raw` is interpolated only here (tripwire 24).
     /// Throws for a doc id that fails `SafeRelativePath.requireDocId`
     /// (tripwire 58): the id is synced, and spelled into the file name.
-    static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) throws -> URL {
+    nonisolated static func sidecarURL(projectRoot: URL, docId: String, device: DeviceSlug) throws -> URL {
         let fileId = try SafeRelativePath.requireDocId(docId)
         return projectRoot
             .appendingPathComponent(".maugham/diagnostics")
@@ -1066,7 +1100,7 @@ final class DiagnosticsStore {
         }
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    nonisolated private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

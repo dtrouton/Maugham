@@ -86,7 +86,7 @@ struct SceneNavigatorPane: View {
                     // without a disclosure triangle the writer cannot collapse
                     // anyway.
                     sceneRow(for: summary,
-                             hasSomethingToResolve: treeState.presence.scenes.contains(index))
+                             mark: ResolvePresence.rowMark(.scene(index), in: treeState.presence))
                         .padding(.leading, ProjectRowLabel.childIndent)
                 }
                 // Below the sluglines — furniture at the foot of the column
@@ -178,7 +178,7 @@ struct SceneNavigatorPane: View {
                     .treeTravelOnDoubleClick(.item(documentID))
                 Spacer()
                 // Anything in the script, before its first slugline too.
-                if treeState.presence.pieces.contains(documentID) { ResolvePresenceDot() }
+                ResolvePresenceMark(ResolvePresence.rowMark(.item(documentID), in: treeState.presence))
             }
             .contentShape(Rectangle())
             // **The script's Tags…, Target… and Publishing…** — the old
@@ -356,7 +356,7 @@ struct SceneNavigatorPane: View {
 
     @ViewBuilder
     private func sceneRow(for summary: FountainScript.SceneSummary,
-                          hasSomethingToResolve: Bool) -> some View {
+                          mark: ResolvePresence.RowMark) -> some View {
         Button {
             // Order: the subject first, then the scroll. The editor has to be
             // the thing on screen before there is anything to scroll.
@@ -379,7 +379,7 @@ struct SceneNavigatorPane: View {
                     .monospacedDigit()
                     .lineLimit(1)
                 // An item's paragraph falls in this scene (`ResolvePresence`).
-                if hasSomethingToResolve { ResolvePresenceDot() }
+                ResolvePresenceMark(mark)
             }
             .contentShape(Rectangle())
         }
