@@ -234,4 +234,114 @@ final class TranslationRoundStoreTests: XCTestCase {
         XCTAssertNil(round.disagreements[1].annotationId)
         XCTAssertEqual(round.disagreements[0].author, "Ocampo")
     }
+
+    // MARK: - Every piece keeps its latest round (shell plan 4 Task 2)
+
+    /// Twelve chapters in one whole-book run, a ring of ten: the ring drops
+    /// two chapters' rounds, and every chapter still answers.
+    func test_aWholeBookRunKeepsEveryChaptersLatestRound() throws {
+        let store = try makeStore()
+        for number in 1...12 {
+            try store.append(round(number: number, docId: "ch-\(number)", notes: number))
+        }
+        XCTAssertFalse(store.rounds(language: "es").contains { $0.docId == "ch-1" },
+                       "premise: the ring has aged chapter one out")
+        for number in 1...12 {
+            XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-\(number)")?.number,
+                           number, "chapter \(number)'s letter was lost")
+        }
+        XCTAssertEqual(store.latestFinishedByPiece(language: "es").count, 12)
+        XCTAssertEqual(store.latestFinishedByPiece(language: "es")["ch-1"]?.noteCount, 1)
+        XCTAssertNil(store.latestFinished(language: "fr", docId: "ch-1"))
+    }
+
+    func test_aCancelledRoundIsNotTheLatestFinished() throws {
+        let store = try makeStore()
+        try store.append(round(number: 1, docId: "ch-1", notes: 2))
+        var cancelled = round(number: 2, docId: "ch-1")
+        cancelled.legs = [.init(leg: .read, status: .cancelled)]
+        try store.append(cancelled)
+        var unended = round(number: 3, docId: "ch-1")
+        unended.endedAt = nil
+        try store.append(unended)
+        var failed = round(number: 4, docId: "ch-2")
+        failed.legs = [.init(leg: .read, status: .failed, reason: "died")]
+        try store.append(failed)
+
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-1")?.number, 1,
+                       "a cancelled or unended round is in the ring only")
+        XCTAssertEqual(store.latest(language: "es", docId: "ch-1")?.number, 3,
+                       "the ring still holds them")
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-2")?.number, 4,
+                       "a failed round ran to an end and says where it stopped")
+        XCTAssertEqual(store.latestFinishedByPiece(language: "es").mapValues(\.number),
+                       ["ch-1": 1, "ch-2": 4])
+    }
+
+    /// A verb on an old chapter's report must not say `roundGone` while that
+    /// round is still the chapter's latest.
+    func test_updateFindsARoundThatAgedOutOfTheRing() throws {
+        let store = try makeStore()
+        var old = round(number: 1, docId: "ch-1")
+        old.departures = [.init(id: "dep", paragraphId: "a1b2", verdict: "holds",
+                                kind: "rendering", note: "n", gloss: "g")]
+        try store.append(old)
+        for number in 2...(TranslationRoundStore.ringSize + 1) {
+            try store.append(round(number: number, docId: "ch-\(number)"))
+        }
+        XCTAssertFalse(store.rounds(language: "es").contains { $0.number == 1 }, "premise")
+
+        old.departures[0].outcome = .dismissed
+        XCTAssertNoThrow(try store.update(old))
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-1")?
+                           .departures.first?.outcome, .dismissed)
+        XCTAssertFalse(store.rounds(language: "es").contains { $0.number == 1 },
+                       "the update did not put the round back into the ring")
+
+        // A round in BOTH places is rewritten in both.
+        var newest = try XCTUnwrap(store.latestFinished(language: "es", docId: "ch-11"))
+        newest.summary = "edited"
+        try store.update(newest)
+        XCTAssertEqual(store.latest(language: "es", docId: "ch-11")?.summary, "edited")
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-11")?.summary, "edited")
+    }
+
+    /// A ledger written before the map existed decodes with an empty map
+    /// (tripwire 11), and its finished rounds still answer from the ring.
+    func test_anOldLedgerReadsWithNoLatestRounds() throws {
+        let store = try makeStore()
+        let legacy = TranslationRoundStore.Ledger(
+            nextNumber: 3, rounds: [round(number: 1, docId: "ch-1"), round(number: 2, docId: "ch-2")])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: encoder.encode(legacy)) as? [String: Any])
+        json.removeValue(forKey: "latestByPiece")
+        let url = TranslationRoundStore.fileURL(language: "es", in: store.projectURL)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        // adr-0018-ok: the round ledger is derived state, not manuscript text
+        let back = try decoder.decode(TranslationRoundStore.Ledger.self, from: Data(contentsOf: url))
+        XCTAssertEqual(back.latestByPiece, [:])
+        XCTAssertEqual(back.rounds.count, 2)
+        XCTAssertEqual(store.nextNumber(language: "es"), 3, "the old ledger was read, not replaced")
+        XCTAssertEqual(store.latestFinished(language: "es", docId: "ch-1")?.number, 1)
+        XCTAssertEqual(store.latestFinishedByPiece(language: "es").mapValues(\.number),
+                       ["ch-1": 1, "ch-2": 2])
+    }
+
+    func test_trendIsThePiecesOwn() throws {
+        let store = try makeStore()
+        for (number, docId, notes) in [(1, "ch-1", 9), (2, "ch-2", 5), (3, "ch-1", 4),
+                                       (4, "ch-2", 3), (5, "ch-1", 1)] {
+            try store.append(round(number: number, docId: docId, notes: notes))
+        }
+        XCTAssertEqual(store.trend(language: "es", docId: "ch-1"), [9, 4, 1], "oldest first")
+        XCTAssertEqual(store.trend(language: "es", docId: "ch-2"), [5, 3])
+        XCTAssertEqual(store.trend(language: "es", docId: "ch-9"), [])
+    }
 }

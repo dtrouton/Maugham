@@ -451,8 +451,9 @@ public enum TranslationStatusTool: MCPTool {
         public let verbatim: Int
         public let orphans: Int
         public let open_queries: Int
-        /// The newest pipeline round for this `(document, language)` pair
-        /// (`TranslationRoundStore.latest`), or omitted when none has run.
+        /// This document's newest FINISHED pipeline round in this language
+        /// (`TranslationRoundStore.latestFinished`: kept per piece, so a
+        /// whole-book run's every chapter answers), or omitted when none has.
         public var last_round: LastRound? = nil
     }
 
@@ -464,7 +465,7 @@ public enum TranslationStatusTool: MCPTool {
         public let departures: Int
         public let declined: Int
         public let summary: String?
-        /// The leg a failed or cancelled round stopped at, else omitted.
+        /// The leg a failed round stopped at, else omitted.
         public let stopped_at: String?
     }
     public struct Params: Codable {
@@ -530,10 +531,12 @@ public enum TranslationStatusTool: MCPTool {
         "missing from `rows` rather than zero, so read it before concluding a chapter is " +
         "untranslated. " +
         "`reader` and `collator` name the edition's blind reader and collator the same way " +
-        "`translator` does. `last_round` (omitted until a pipeline round has run on that " +
-        "document) carries the newest round's number, the two readers' verdicts, its " +
+        "`translator` does. `last_round` (omitted until a pipeline round has finished on " +
+        "that document; a cancelled round is not reported) is that document's own newest " +
+        "finished round in that language, kept per document however many chapters later " +
+        "rounds covered, and carries its number, the two readers' verdicts, its " +
         "note/departure/declined counts, its summary, and `stopped_at` for a round that " +
-        "failed or was cancelled. " +
+        "failed. " +
         "`figures` (always present) lists the table figures those documents use, one " +
         "row per (figure, language) with text-cell counts — `fresh`, `stale`, `missing`, " +
         "`verbatim`, `orphans`, by the same rule: a table with no translation of its own " +
@@ -627,7 +630,7 @@ public enum TranslationStatusTool: MCPTool {
                 verbatim: $0.verbatim,
                 orphans: $0.orphans,
                 open_queries: $0.openQueries,
-                last_round: rounds.latest(language: $0.language, docId: $0.documentId).map {
+                last_round: rounds.latestFinished(language: $0.language, docId: $0.documentId).map {
                     LastRound(number: $0.number, leg2_verdict: $0.leg2?.verdict,
                               leg4_verdict: $0.leg4?.verdict, notes: $0.noteCount,
                               departures: $0.departures.count, declined: $0.declinedCount,

@@ -212,7 +212,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`lastOpId`, `live`, `dismiss` and the unread badge (`unreadCount`, `markRead(docId:kind:)`) are the check's; `standingRound`/`latestRound` and the round ring are the round's.** `lastRun` (the newer) answers only `IntentDrift.mayTrailDraft`.
 - **`effectiveKind` is a two-clause rule**: a legacy top-level `run`/`diagnostics` pair loads into the slot its kind names, and a legacy `passId: "workshop"` record loads as a CHECK (`RunKindTests`, `DiagnosticsStoreTests`' fixtures under `MaughamTests/Fixtures/`).
 - **A round's conformance strains are stored in the round slot and drawn nowhere**; its findings reach the writer as annotations.
-- **The round ring is the DOCUMENT's and ROUNDS only**: `FileContent.rounds`, capped at `roundHistoryDepth` (5), every pass filing into it; a check contributes nothing. The document remembers six finished rounds: the ring plus the standing round, filed in only when superseded.
+- **The round ring is the DOCUMENT's and ROUNDS only**: `FileContent.rounds`, capped at `roundHistoryDepth` (5), every pass filing into it; a check contributes nothing. The document remembers six finished rounds: the ring plus the standing round. `latestRoundByPass` keeps each pass's superseded round, letter included (`latestRounds(docId:)`).
 - **The ring is written only by `replace`, for the run being SUPERSEDED**: `RoundRecord(run:)` is built from `finishedStanding(docId:kind:)`, which reads the shadow `finishedBeforePreview` while a preview stands in. That shadow is keyed by `SlotKey` in `previewing`, never by its nil-ness.
 - **`latestRound(forPass:docId:)` reads the round slot directly, never the shadow** (its readers want the round in flight), then walks the ring newest-first. A lane aged out of the ring answers `nil` and mints round 1.
 - **`RoundFingerprint` is the one round-over-round join key** (section + clause quote + anchor + reader category, never prose); its `stringValue` is the dedupe key and a synced format. `RoundRecord.fingerprints` is written empty.
@@ -321,7 +321,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **A declined note's reply lives in the query BODY** (`declinedBody`), authored by the reader or collator who raised it. No reply `OpKind` or `AnnotationKind`.
 - **The book queue stops on a failed round**; it never skips a chapter.
 - **The desk's busy gate reads `TranslationPipeline.Status` first** (`DepartmentRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
-- **`TranslationRoundStore` keeps the newest `ringSize` (10) rounds per language**, numbered per language across documents by a `nextNumber` that outlives the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
+- **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
 - **`TranslationPreflight.budgets` opens each document ONCE** for every language; an empty answer means nothing could be read, distinct from a zero.
 
 ## Recipes

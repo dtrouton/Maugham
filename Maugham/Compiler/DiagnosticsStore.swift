@@ -108,16 +108,25 @@ final class DiagnosticsStore {
         /// that is counted off the queue by `SinceLastRound`, whose boundary is
         /// this record's `at`.
         var rounds: [RoundRecord]
+        /// **Each pass's latest superseded round, letter and all** (shell
+        /// plan 4 Task 2), keyed by `passId`. The ring keeps THAT a round
+        /// happened; this keeps what the round said, one per pass, so a
+        /// second editor's round does not file the first editor's letter
+        /// into a ring that keeps no letter. Written only by `replace`, from
+        /// the run it supersedes; a passless round is not kept here.
+        var latestRoundByPass: [String: CompilerRun]
 
         init(
             check: Standing? = nil, round: Standing? = nil,
             clauseHistory: [[DiagnosticIngest.ClauseStatus]] = [],
-            rounds: [RoundRecord] = []
+            rounds: [RoundRecord] = [],
+            latestRoundByPass: [String: CompilerRun] = [:]
         ) {
             self.check = check
             self.round = round
             self.clauseHistory = clauseHistory
             self.rounds = rounds
+            self.latestRoundByPass = latestRoundByPass
         }
 
         /// The slot a verb's answer stands in — the one place a `RunKind`
@@ -144,7 +153,7 @@ final class DiagnosticsStore {
         /// is `CompilerRun.effectiveKind`'s answer — the one place that legacy
         /// is stated (tripwire 11: no migration, the old file simply loads).
         private enum CodingKeys: String, CodingKey {
-            case check, round, clauseHistory, rounds
+            case check, round, clauseHistory, rounds, latestRoundByPass
             case run, diagnostics
         }
 
@@ -161,6 +170,8 @@ final class DiagnosticsStore {
             clauseHistory = try c.decodeIfPresent(
                 [[DiagnosticIngest.ClauseStatus]].self, forKey: .clauseHistory) ?? []
             rounds = try c.decodeIfPresent([RoundRecord].self, forKey: .rounds) ?? []
+            latestRoundByPass = try c.decodeIfPresent(
+                [String: CompilerRun].self, forKey: .latestRoundByPass) ?? [:]
 
             // The legacy shape lands in the slot its own kind names, and never
             // over a slot the new keys already filled: a file carrying both is
@@ -187,6 +198,7 @@ final class DiagnosticsStore {
             try c.encodeIfPresent(round, forKey: .round)
             try c.encode(clauseHistory, forKey: .clauseHistory)
             try c.encode(rounds, forKey: .rounds)
+            try c.encode(latestRoundByPass, forKey: .latestRoundByPass)
         }
     }
 
@@ -395,6 +407,9 @@ final class DiagnosticsStore {
         // `finishedStanding` reads is still set here.
         let outgoing = finishedStanding(docId: docId, kind: kind)
         if kind == .round, let outgoing {
+            if let passId = outgoing.run.passId {
+                content.latestRoundByPass[passId] = outgoing.run
+            }
             content.rounds.append(RoundRecord(run: outgoing.run))
             if content.rounds.count > Self.roundHistoryDepth {
                 content.rounds.removeFirst(content.rounds.count - Self.roundHistoryDepth)
@@ -696,6 +711,20 @@ final class DiagnosticsStore {
     func standingRound(docId: String) -> (record: RoundRecord, notes: [Diagnostic])? {
         guard let standing = finishedStanding(docId: docId, kind: .round) else { return nil }
         return (RoundRecord(run: standing.run), standing.diagnostics)
+    }
+
+    /// **Every pass's latest finished round on `docId`, newest first**: the
+    /// standing round (as `standingRound` reads it — the finished one, never
+    /// a preview), then each OTHER pass's latest superseded round from
+    /// `FileContent.latestRoundByPass`. A pass whose round is standing is not
+    /// repeated from the map, which holds only its older round.
+    func latestRounds(docId: String) -> [CompilerRun] {
+        let standing = finishedStanding(docId: docId, kind: .round)?.run
+        let others = (byDoc[docId]?.latestRoundByPass ?? [:])
+            .filter { standing == nil || $0.key != standing?.passId }
+            .map(\.value)
+            .sorted { $0.at > $1.at }
+        return (standing.map { [$0] } ?? []) + others
     }
 
     /// The most recent round number in `passId`'s lane for this document, or

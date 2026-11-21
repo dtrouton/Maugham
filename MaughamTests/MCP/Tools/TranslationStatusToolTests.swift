@@ -633,9 +633,11 @@ final class TranslationStatusToolTests: XCTestCase {
                                   note: "Split.", gloss: "…", outcome: nil)]
         round.summary = "Done."
         round.legs = [.init(leg: .translate, status: .ran, counts: .init(entries: 1))]
+        round.endedAt = Date()
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
         var other = TranslationRound(number: 5, language: "es", docId: "doc-other", startedAt: Date())
         other.legs = [.init(leg: .read, status: .failed, reason: "died")]
+        other.endedAt = Date()
         try TranslationRoundStore(projectURL: h.projectURL).append(other)
 
         let result = try await status(h, [
@@ -652,6 +654,37 @@ final class TranslationStatusToolTests: XCTestCase {
         XCTAssertEqual(last.declined, 1)
         XCTAssertEqual(last.summary, "Done.")
         XCTAssertNil(last.stopped_at)
+
+        await h.documentStore.close()
+    }
+
+    /// **A whole-book run's every chapter keeps its round** (shell plan 4
+    /// Task 2): ten later rounds on other chapters age this chapter's out of
+    /// the ring, and `last_round` still reports it, because the tool reads
+    /// the piece's own latest rather than the ring.
+    func test_theLastRoundSurvivesTheRingAgingItOut() async throws {
+        let h = try await makeHarness()
+        try await seed(h, doc: h.doc1, paragraphId: h.doc1.sequence[0],
+                       language: "es", text: "a")
+        let store = TranslationRoundStore(projectURL: h.projectURL)
+        var mine = TranslationRound(number: 1, language: "es", docId: h.doc1.docId,
+                                    startedAt: Date())
+        mine.summary = "Chapter one."
+        mine.endedAt = Date()
+        try store.append(mine)
+        for number in 2...(TranslationRoundStore.ringSize + 1) {
+            var other = TranslationRound(number: number, language: "es",
+                                         docId: "doc-other-\(number)", startedAt: Date())
+            other.endedAt = Date()
+            try store.append(other)
+        }
+        XCTAssertFalse(store.rounds(language: "es").contains { $0.docId == h.doc1.docId },
+                       "premise: the ring no longer holds chapter one's round")
+
+        let result = try await status(h, ["project_id": h.projectId, "document_id": "doc-1"])
+        let row = try XCTUnwrap(result.rows.first { $0.language == "es" })
+        XCTAssertEqual(row.last_round?.number, 1)
+        XCTAssertEqual(row.last_round?.summary, "Chapter one.")
 
         await h.documentStore.close()
     }

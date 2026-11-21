@@ -61,7 +61,7 @@ Every file in `Maugham/Stores/` appears once.
 - `RenamePlan.swift` — a validated batch of path renames for `relocate(plan:)`.
 - `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
 - `StatementProposalStore.swift` — staged brief and visual-language proposals.
-- `TranslationRoundStore.swift` — the ring of translation rounds per language.
+- `TranslationRoundStore.swift` — translation rounds: the ring, and each piece's latest.
 - `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
@@ -304,8 +304,8 @@ Two things deliberately live elsewhere:
 - **`Status` decodes with an `.unknown(String)` that re-encodes losslessly**: proposal.json is rewritten in place.
 - **`.maugham/design/` is derived and deletable, except while a promotion stands**: that proposal's `backup/` is the only copy of the displaced templates, so `delete(id:)` throws `.promotionBackupStands(id:)` until `ProposalPromotion.revert` or `.finalize`. `backupDir(id:)` is spelled on the store.
 - **`StatementProposalStore` never writes a statement**: the one write into an essay is `StatementProposalGate.adopt`, a writer's click. `stage` supersedes the slot and returns the proposal re-read from disk; `validate`/`glossaryLines` check a brief's `## Rulings` and refuse rulings in visual language. Craft intent has no key (`ProposableStatement` has no case).
-- **The ring keeps the newest 10 rounds per language, and its next number outlives the ring**, so a trimmed round's number is never re-minted.
-- **`TranslationRoundStore.append` mints the next number; `update(_:)` rewrites a round in place by its own number** and never mints. A round the ring aged out throws `UpdateError.roundGone(number:)` in words, never a silent re-append (which would give a settled round a new number). A missing or undecodable file reads as an empty ledger.
+- **The ring keeps the newest 10 rounds per language; `latestByPiece` keeps every piece's latest finished (not cancelled) round**, and the next number outlives both, never re-minted.
+- **`TranslationRoundStore.append` mints the next number; `update(_:)` rewrites a round in place by its own number** and never mints. It writes through to the ring and `latestByPiece`; a round in neither throws `UpdateError.roundGone(number:)` in words, never a silent re-append. A missing or undecodable file reads as an empty ledger.
 - **The round file is a whole-file rewrite, not per device**: one `TranslationPipeline` per project session (`AgentRoster.pipeline`) is its only writer on this Mac.
 
 ### Admission and the registry

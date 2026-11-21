@@ -1725,7 +1725,7 @@ final class DiagnosticsStoreTests: XCTestCase {
         let url = try DiagnosticsStore.sidecarURL(projectRoot: project, docId: docId, device: device)
         let keys = try XCTUnwrap(
             JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
-        XCTAssertEqual(Set(keys.keys), ["check", "round", "clauseHistory", "rounds"],
+        XCTAssertEqual(Set(keys.keys), ["check", "round", "clauseHistory", "rounds", "latestRoundByPass"],
                        "the legacy keys are READ and never written again; a file "
                        + "carrying both shapes is one the next build would have to "
                        + "choose between. Got: \(keys.keys.sorted())")

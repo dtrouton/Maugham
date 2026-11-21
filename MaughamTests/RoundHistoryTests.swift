@@ -260,6 +260,95 @@ final class RoundHistoryTests: XCTestCase {
                        "a finding's identity reached the ring; got \(raw)")
     }
 
+    // MARK: - Each pass keeps its latest round (shell plan 4 Task 2)
+
+    private func makeRound(id: String, passId: String?, round: Int?, at offset: TimeInterval,
+                           letter: String? = nil) -> CompilerRun {
+        CompilerRun(
+            id: id, at: Date(timeIntervalSince1970: 1_700_000_000 + offset), model: "test-model",
+            lastOpId: "op1", deltaSummary: "1 new, 0 revised \u{00b6}", intentSnapshot: "intent",
+            passId: passId, round: round, kind: .round,
+            letter: letter.map {
+                Letter(about: "A ghost story.", oneThing: $0, working: [], habits: [],
+                       questions: [], scenes: nil, scenePosition: nil)
+            })
+    }
+
+    /// A second editor's round supersedes the first's in the one round slot;
+    /// the first's letter is still readable, after a relaunch.
+    func test_aSecondPassesRoundKeepsTheFirstPassesLetter() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docPasses"
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        store.replace(run: makeRound(id: "line-1", passId: "pass-line", round: 1, at: 0,
+                                     letter: "Cut the weather."),
+                      diagnostics: [], docId: docId)
+        store.replace(run: makeRound(id: "struct-1", passId: "pass-structure", round: 1, at: 10,
+                                     letter: "Move the drowning."),
+                      diagnostics: [], docId: docId)
+        XCTAssertEqual(store.latestRounds(docId: docId).map(\.id), ["struct-1", "line-1"])
+
+        // The line pass runs again: its own older round is not listed twice.
+        store.replace(run: makeRound(id: "line-2", passId: "pass-line", round: 2, at: 20),
+                      diagnostics: [], docId: docId)
+        XCTAssertEqual(store.latestRounds(docId: docId).map(\.id), ["line-2", "struct-1"])
+
+        let reopened = DiagnosticsStore(projectRoot: project, device: device)
+        reopened.load(docId: docId)
+        let rounds = reopened.latestRounds(docId: docId)
+        XCTAssertEqual(rounds.map(\.id), ["line-2", "struct-1"])
+        XCTAssertEqual(rounds.last?.letter?.oneThing, "Move the drowning.",
+                       "the superseded pass's letter survived the relaunch")
+    }
+
+    func test_aRoundWithNoPassIsNotKeptByPass() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docPassless"
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        store.replace(run: makeRound(id: "passless", passId: nil, round: nil, at: 0),
+                      diagnostics: [], docId: docId)
+        XCTAssertEqual(store.latestRounds(docId: docId).map(\.id), ["passless"],
+                       "standing, it is still the latest round")
+        store.replace(run: makeRound(id: "line-1", passId: "pass-line", round: 1, at: 10),
+                      diagnostics: [], docId: docId)
+        XCTAssertEqual(store.latestRounds(docId: docId).map(\.id), ["line-1"],
+                       "superseded, a passless round has no pass to be kept under")
+        XCTAssertEqual(store.roundHistory(docId: docId).count, 1, "the ring still files it")
+    }
+
+    /// A check finishes in its own slot: the standing round, the per-pass
+    /// rounds, the ring and the delta marker's slot are all left as they were.
+    func test_aCheckMovesNothingInTheLatestRounds() throws {
+        let project = try makeProject()
+        let device = DeviceSlug.make(from: "test-mac")
+        let docId = "docCheck"
+        let store = DiagnosticsStore(projectRoot: project, device: device)
+
+        store.replace(run: makeRound(id: "line-1", passId: "pass-line", round: 1, at: 0),
+                      diagnostics: [], docId: docId)
+        store.replace(run: makeRound(id: "struct-1", passId: "pass-structure", round: 1, at: 10),
+                      diagnostics: [], docId: docId)
+        let before = store.latestRounds(docId: docId)
+        let ringBefore = store.roundHistory(docId: docId)
+
+        for index in 0..<2 {
+            let check = CompilerRun(
+                id: "check-\(index)", at: Date(timeIntervalSince1970: 1_700_000_100 + Double(index)),
+                model: "test-model", lastOpId: "op-check-\(index)", deltaSummary: "",
+                intentSnapshot: nil, kind: .check)
+            store.replace(run: check, diagnostics: [], docId: docId)
+        }
+
+        XCTAssertEqual(store.latestRounds(docId: docId), before)
+        XCTAssertEqual(store.roundHistory(docId: docId), ringBefore)
+        XCTAssertEqual(store.lastOpId(docId: docId), "op-check-1",
+                       "the check's own slot moved as it always has")
+    }
+
     // MARK: - The fingerprint
 
     /// The three kinds, each fingerprinting as the identity the plan names:
