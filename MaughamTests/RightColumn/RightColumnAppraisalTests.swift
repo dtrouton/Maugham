@@ -214,3 +214,82 @@ final class RightColumnAppraisalTests: XCTestCase {
                        "control: the census sees an item in the wrong group")
     }
 }
+
+/// **The toolbar's right-column button** (`RightColumnToggle`): drawn on the
+/// window toolbar's trailing edge whether the column shows or not, hidden with
+/// that toolbar in `⌘\` focus mode, and flipping the one state ⌘⌥0's receiver
+/// flips. Read from the source and asked of the pure rules — never pressed
+/// (tripwire 33).
+@MainActor
+final class RightColumnToggleTests: XCTestCase {
+
+    /// `file`'s code on one line, whitespace collapsed.
+    private static func flat(_ file: String) throws -> String {
+        SourceScan.codeLines(of: try SourceTree.read(file)).joined(separator: " ")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    func test_theButtonSaysWhatAPressDoesAndNamesItsKey() {
+        XCTAssertEqual(RightColumnToggle.symbol, "sidebar.right")
+        XCTAssertEqual(RightColumnToggle.tooltip(shown: true), "Hide Right Column (\u{2318}\u{2325}0)")
+        XCTAssertEqual(RightColumnToggle.tooltip(shown: false), "Show Right Column (\u{2318}\u{2325}0)")
+        let source = try? Self.flat("Maugham/Views/RightColumnToggle.swift")
+        XCTAssertTrue(source?.contains(".accessibilityLabel(RightColumn.toggleTitle(shown: showInspector))") ?? false,
+                      "the accessibility label is the menu item's title")
+    }
+
+    /// **On the trailing edge, in the toolbar `⌘\` hides, unconditionally**:
+    /// the item sits in `TopChromeModifier`'s `.toolbar`, beside the Lock,
+    /// whose visibility is `windowToolbarIsVisible` — and no `if` guards it,
+    /// so it is drawn with the column hidden as well as shown.
+    func test_theButtonRidesTheWindowToolbarOnItsTrailingEdge() throws {
+        let window = try Self.flat("Maugham/Views/ProjectWindow.swift")
+        XCTAssertTrue(window.contains(
+            ".toolbar { ToolbarItem(placement: .navigation) { LockToggle(isLocked: $isLocked) } "
+            + "ToolbarItem(placement: .primaryAction) { RightColumnToggle(showInspector: $showInspector) } } "
+            + ".toolbar(toolbarVisibility, for: .windowToolbar)"),
+            "the button is the window toolbar's trailing item, hidden with it")
+        XCTAssertFalse(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: true))
+        XCTAssertTrue(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: false))
+        XCTAssertTrue(window.contains("TopChromeModifier( projectURL: url, store: store, "
+                                      + "isNoChromeOn: isNoChromeOn, isLocked: $isLocked, "
+                                      + "window: window, showInspector: $showInspector))"),
+                      "the button is bound to the window's own showInspector")
+    }
+
+    /// **One write, two doors**: the only flips of the column in production
+    /// are ⌘⌥0's receiver and the button, both `showInspector.toggle()` —
+    /// and the button writes nothing else, so the column's width and
+    /// position survive a hide and show.
+    func test_theButtonAndTheMenuFlipTheOneState() throws {
+        var flips: [String: Int] = [:]
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            let n = SourceScan.codeLines(of: try SourceTree.read(file))
+                .filter { $0.contains("showInspector.toggle()") }.count
+            if n > 0 { flips[file] = n }
+        }
+        XCTAssertEqual(flips, ["Maugham/Views/ProjectWindow.swift": 1,
+                               "Maugham/Views/RightColumnToggle.swift": 1])
+        let window = try Self.flat("Maugham/Views/ProjectWindow.swift")
+        XCTAssertTrue(window.contains(
+            ".onKeyWindowCommand(.maughamToggleInspector, window: window) { _ in showInspector.toggle() }"),
+            "⌘⌥0's receiver")
+        let button = try Self.flat("Maugham/Views/RightColumnToggle.swift")
+        for other in ["detailColumnWidth", "rightColumnPosition", "position", "width", "stash"] {
+            XCTAssertFalse(button.contains(other), "the button touches \(other)")
+        }
+    }
+
+    /// **The canvas's collapse does not take back a column a writer showed**:
+    /// collapsed (the stash set), a show answers `.unchanged`, as ⌘⌥0's does,
+    /// and leaving the canvas hands back what was stashed.
+    func test_aShowUnderTheCanvasCollapseStands() {
+        XCTAssertEqual(ProjectWindow.canvasCollapse(route: .canvas, isNoChromeOn: true,
+                                                    showInspector: true, stash: true), .unchanged)
+        XCTAssertEqual(ProjectWindow.canvasCollapse(route: .canvas, isNoChromeOn: true,
+                                                    showInspector: false, stash: nil),
+                       .collapse(columnVisibility: .doubleColumn, showInspector: false, stash: false),
+                       "control: a fresh collapse does hide it")
+    }
+}

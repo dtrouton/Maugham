@@ -331,7 +331,7 @@ struct ProjectWindow: View {
             isNoChromeOn: isNoChromeOn,
             isLocked: $isLocked,
             window: window,
-            rightColumnShown: showInspector))
+            showInspector: $showInspector))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
@@ -818,8 +818,9 @@ struct ProjectWindow: View {
         @Binding var isLocked: Bool
         /// For View ▸ Lock Research and Figures' receiver (⌘⌥⇧L).
         let window: NSWindow?
-        /// Whether the right column shows, for ⌘⌥0's title.
-        let rightColumnShown: Bool
+        /// Whether the right column shows: ⌘⌥0's title, and the toolbar's
+        /// right-column button, which flips it as ⌘⌥0's receiver does.
+        @Binding var showInspector: Bool
 
         private var toolbarVisibility: Visibility {
             ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -838,12 +839,18 @@ struct ProjectWindow: View {
                     ToolbarItem(placement: .navigation) {
                         LockToggle(isLocked: $isLocked)
                     }
+                    // The trailing edge's twin of the sidebar's own toggle:
+                    // always drawn, shown or hidden, so the column can be
+                    // found again (`RightColumnToggle`).
+                    ToolbarItem(placement: .primaryAction) {
+                        RightColumnToggle(showInspector: $showInspector)
+                    }
                 }
                 .toolbar(toolbarVisibility, for: .windowToolbar)
                 .focusedSceneValue(\.projectURL, projectURL)
                 // The View menu's two window toggles title themselves by this.
                 .focusedSceneValue(\.windowChrome,
-                                   WindowChrome(isLocked: isLocked, rightColumnShown: rightColumnShown))
+                                   WindowChrome(isLocked: isLocked, rightColumnShown: showInspector))
                 // ⌘⌥⇧L: the padlock's press, from the menu.
                 .onKeyWindowCommand(.maughamToggleLock, window: window) { _ in
                     isLocked.toggle()
