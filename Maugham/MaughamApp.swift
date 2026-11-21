@@ -247,97 +247,78 @@ struct MaughamApp: App {
             // NavigationSplitView is in use) rather than creating a second one
             // via CommandMenu("View").
             CommandGroup(after: .toolbar) {
-                // ⌘1 is To resolve (shell plan 2 Task 7); ⌘2–⌘4 are unbound
-                // (shell p1 Task 6): the window's subject decides what it
-                // shows, and there is no mode to switch to.
+                // The window's toggles first; then the right column's
+                // positions, grouped by where each lands; then the tree's
+                // places.
                 Button("Toggle Focus Mode") {
                     MaughamEvent.post(.maughamToggleNoChrome, to: .keyWindow)
                 }
                 .keyboardShortcut("\\", modifiers: .command)
+                Button("Toggle Full-Screen Focus") {
+                    MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
                 Button("Toggle Review Mode") {
                     MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option, .shift])
                 FocusedTranslationReviewButton()
-                Button("Toggle Full-Screen Focus") {
-                    MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
-                }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-                Button("Toggle Inspector") {
-                    MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
-                }
-                .keyboardShortcut("0", modifiers: [.command, .option])
+                // ⌘⌥0 shows or hides the right column; ⌘⌥⇧L is the
+                // toolbar padlock's. Each is titled for the focused window's
+                // state (`WindowChrome`).
+                FocusedRightColumnToggle()
                 Button("Toggle Research Preview") {
                     MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+                FocusedLockToggle()
                 Divider()
 
                 // **The right column's keys, declared here and nowhere else**
                 // (`RightColumnControl` holds none), so every one reveals a
-                // hidden column through the window's one receiver.
-                // ⌘1, ⌘2, ⌘3: the three positions.
+                // hidden column through the window's one receiver. Grouped by
+                // where each lands (appraisal 5): To resolve, Brief, Pull Up,
+                // each led by its position's ⌘1/⌘2/⌘3. **The old pane keys
+                // keep their letters** (owner, 2026-11-18); each item is
+                // titled for what its key does.
                 Button("To Resolve") { MaughamEvent.postPosition(.resolve) }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("Brief") { MaughamEvent.postPosition(.brief) }
-                    .keyboardShortcut("2", modifiers: .command)
-                Button("Pulled Up") { MaughamEvent.postPosition(.pulledUp) }
-                    .keyboardShortcut("3", modifiers: .command)
-                Divider()
-                // **The old pane keys keep their letters** (owner, 2026-11-18)
-                // and land where each pane's content lives now; each item is
-                // titled for what its key does.
-                // ⌘⌥I (the Inspector's): its fields are Brief's (the line),
-                // the status line's and the row menu's.
-                Button("Brief: the Line") { MaughamEvent.postPosition(.brief) }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
-                // stopped being a right-pane segment when every tree grew its
-                // own Research section (stage 2a) — the shortcut now opens
-                // that section rather than a pane.
-                Button("Research") {
-                    MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
-                }
-                    .keyboardShortcut("r", modifiers: [.command, .option])
-                // ⌘⌥O re-pointed (stage-3a Task 5): the outline is now the
-                // project row's altitude view (Tasks 1–3) — the shortcut
-                // selects that row instead of opening a pane.
-                Button("Outline") {
-                    MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
-                }
-                    .keyboardShortcut("o", modifiers: [.command, .option])
-                // ⌘⌥A, ⌘⌥D and ⌘⌥T keep their keys (shell plan 2 Task 7):
+                // ⌘⌥D, ⌘⌥A and ⌘⌥T keep their keys (shell plan 2 Task 7):
                 // the three panes they opened are To resolve now, so each
-                // opens it on the filter that pane was — the rounds' notes,
-                // the check's findings, the writer's own to-dos and notes.
+                // opens it on the filter that pane was — the check's
+                // findings, the rounds' notes, the writer's own to-dos.
+                Button("To Resolve: Checks") { MaughamEvent.postResolve(.checks) }
+                    .keyboardShortcut("d", modifiers: [.command, .option])
                 Button("To Resolve: Rounds") { MaughamEvent.postResolve(.rounds) }
                     .keyboardShortcut("a", modifiers: [.command, .option])
-                // ⌘⌥H: the faces' piece's History, pulled up — the project's,
-                // with no piece faced or open.
-                Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
-                    .keyboardShortcut("h", modifiers: [.command, .option])
                 Button("To Resolve: Mine") { MaughamEvent.postResolve(.mine) }
                     .keyboardShortcut("t", modifiers: [.command, .option])
-                // ⌘⌥B opens the Inbox in the centre, as a click on its tree
-                // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
-                Button("Inbox") {
-                    MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
-                }
-                    .keyboardShortcut("b", modifiers: [.command, .option])
-                // ⌘⌥P re-pointed (stage-3a Task 5): same story as Research,
-                // for the tree's Palette section.
-                Button("Palette") {
-                    MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
-                }
-                    .keyboardShortcut("p", modifiers: [.command, .option])
                 // ⌘⌥L: the translation review shows in To resolve while
                 // review is on; outside it, To resolve says how to enter it.
                 Button("To Resolve: Translation Review") { MaughamEvent.postTranslationReviewPosition() }
                     .keyboardShortcut("l", modifiers: [.command, .option])
-                // ⌘⌥N: what a piece is going for is its Brief. (⌘⌥I was the
+                // **⌘⌥K, and every letter of "Department" was already
+                // spoken for**: D is Diagnostics, E References, P Palette,
+                // A Annotations, R Research, T Tasks — and M, the last one
+                // left in the word, is the system's own Minimize All. So the
+                // letter comes from the surface's name in the design: the
+                // department *desk*, which shows in To resolve while an
+                // edition is the faces; with none, To resolve says so.
+                Button("To Resolve: Department Desk") { MaughamEvent.postDeskPosition() }
+                    .keyboardShortcut("k", modifiers: [.command, .option])
+                Divider()
+                Button("Brief") { MaughamEvent.postPosition(.brief) }
+                    .keyboardShortcut("2", modifiers: .command)
+                // ⌘⌥I (the Inspector's): Brief, with the keys in the line.
+                Button("Brief: the Line") { MaughamEvent.postBriefField(.line) }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                // ⌘⌥N: Brief, with the keys in Going for. (⌘⌥I was the
                 // Inspector's, so Intent took the next letter in its name.)
-                Button("Brief: Going For") { MaughamEvent.postPosition(.brief) }
+                Button("Brief: Going For") { MaughamEvent.postBriefField(.goingFor) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
+                Divider()
+                Button("Pulled Up") { MaughamEvent.postPosition(.pulledUp) }
+                    .keyboardShortcut("3", modifiers: .command)
                 // **⌘⌥G, and no letter of "What I've Learned" was available**:
                 // L is Translation, E References, A Annotations, N Intent, D
                 // Diagnostics, R Research, T Tasks, H History, W and (with ⌥)
@@ -356,21 +337,44 @@ struct MaughamApp: App {
                     .keyboardShortcut("y", modifiers: [.command, .option])
                 Button("Pull Up Visual Language") { MaughamEvent.postPullUp(.visualLanguage) }
                     .keyboardShortcut("v", modifiers: [.command, .option])
-                Button("To Resolve: Checks") { MaughamEvent.postResolve(.checks) }
-                    .keyboardShortcut("d", modifiers: [.command, .option])
+                // ⌘⌥H: the faces' piece's History, pulled up — the project's,
+                // with no piece faced or open.
+                Button("Pull Up History") { MaughamEvent.postPullUp(.historyOfTheFaces) }
+                    .keyboardShortcut("h", modifiers: [.command, .option])
+                Divider()
+                // The tree's places: the piece's fold, its sections, the Book's
+                // view, the Inbox.
                 // ⌘⌥E (§6.3 of the redesign: "E references"): what a piece is
                 // pinned to is its fold in the tree, so the key opens the
                 // faces' piece's fold and scrolls to it.
                 FocusedPieceFoldButton()
-                // **⌘⌥K, and every letter of "Department" was already
-                // spoken for**: D is Diagnostics, E References, P Palette,
-                // A Annotations, R Research, T Tasks — and M, the last one
-                // left in the word, is the system's own Minimize All. So the
-                // letter comes from the surface's name in the design: the
-                // department *desk*, which shows in To resolve while an
-                // edition is the faces.
-                Button("To Resolve: Department Desk") { MaughamEvent.postPosition(.resolve) }
-                    .keyboardShortcut("k", modifiers: [.command, .option])
+                // ⌘⌥R re-pointed (shell-finish stage-3a Task 5): Research
+                // stopped being a right-pane segment when every tree grew its
+                // own Research section (stage 2a) — the shortcut now opens
+                // that section rather than a pane.
+                Button("Research") {
+                    MaughamEvent.post(.maughamRevealResearchSection, to: .keyWindow)
+                }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                // ⌘⌥P re-pointed (stage-3a Task 5): same story as Research,
+                // for the tree's Palette section.
+                Button("Palette") {
+                    MaughamEvent.post(.maughamRevealPaletteSection, to: .keyWindow)
+                }
+                    .keyboardShortcut("p", modifiers: [.command, .option])
+                // ⌘⌥O re-pointed (stage-3a Task 5): the outline is now the
+                // project row's altitude view (Tasks 1–3) — the shortcut
+                // selects that row instead of opening a pane.
+                Button("Outline") {
+                    MaughamEvent.post(.maughamSelectProjectRow, to: .keyWindow)
+                }
+                    .keyboardShortcut("o", modifiers: [.command, .option])
+                // ⌘⌥B opens the Inbox in the centre, as a click on its tree
+                // row does (shell p1 Task 6) — the Inbox is a place, not a pane.
+                Button("Inbox") {
+                    MaughamEvent.post(.maughamOpenInbox, to: .keyWindow)
+                }
+                    .keyboardShortcut("b", modifiers: [.command, .option])
                 #if MAUGHAM_DEV_BUILD
                 // Scene-storage spike instrument (ADR 0021): logs how many
                 // EditorCoordinators are still alive. Close a project window,
@@ -802,6 +806,49 @@ private struct FocusedStartAPieceButtons: View {
             MaughamEvent.post(.maughamLinkProject, to: .keyWindow)
         }
         .disabled(!enabled)
+    }
+}
+
+/// **What the View menu titles its two window toggles by** (appraisal 5 and
+/// the Lock minor): whether the focused window's right column is shown, and
+/// whether its Lock is on. Published by `ProjectWindow.TopChromeModifier`;
+/// read only by `FocusedRightColumnToggle` and `FocusedLockToggle`.
+struct WindowChrome: Equatable {
+    let isLocked: Bool
+    let rightColumnShown: Bool
+}
+
+struct FocusedWindowChromeKey: FocusedValueKey { typealias Value = WindowChrome }
+extension FocusedValues {
+    var windowChrome: WindowChrome? {
+        get { self[FocusedWindowChromeKey.self] }
+        set { self[FocusedWindowChromeKey.self] = newValue }
+    }
+}
+
+/// View → "Hide Right Column" / "Show Right Column" (⌘⌥0): the column To
+/// resolve, Brief and the pulled-up thing share (it was "Toggle Inspector",
+/// for a panel that no longer exists). Titled for what a press does.
+private struct FocusedRightColumnToggle: View {
+    @FocusedValue(\.windowChrome) private var chrome
+    var body: some View {
+        Button(RightColumn.toggleTitle(shown: chrome?.rightColumnShown ?? true)) {
+            MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
+        }
+        .keyboardShortcut("0", modifiers: [.command, .option])
+    }
+}
+
+/// View → "Lock Research and Figures" / "Unlock Research and Figures"
+/// (⌘⌥⇧L): the toolbar padlock, from the keyboard. Titled for what it locks
+/// — never the manuscript (`WindowLock`).
+private struct FocusedLockToggle: View {
+    @FocusedValue(\.windowChrome) private var chrome
+    var body: some View {
+        Button(LockToggle.menuTitle(isLocked: chrome?.isLocked ?? false)) {
+            MaughamEvent.post(.maughamToggleLock, to: .keyWindow)
+        }
+        .keyboardShortcut("l", modifiers: [.command, .option, .shift])
     }
 }
 

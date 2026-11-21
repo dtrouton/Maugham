@@ -102,6 +102,7 @@ public enum KeyboardShortcuts {
             Entry(label: "Open the piece's fold in the tree", shortcut: "⌘⌥E"),
             Entry(label: "To resolve: the Department desk (an edition)", shortcut: "⌘⌥K"),
             Entry(label: "Toggle inspector column", shortcut: "⌘⌥0"),
+            Entry(label: "Lock or unlock research and figures", shortcut: "⌘⌥⇧L"),
         ]),
         // The canvas's keys (canvas-keyboard-flow); `KeyboardShortcutsTests`
         // checks them. The first five act inside a scrap, the rest on the canvas.

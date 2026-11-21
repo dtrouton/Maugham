@@ -116,10 +116,14 @@ struct ProjectWindow: View {
     /// when the pulled-up position is left with nothing to show
     /// (`RightColumnContent.positionAfterSubjectChange`).
     @State private var previousFace: RightColumnPosition = .resolve
-    /// ⌘⌥L was pressed outside translation review: the ground it was asked
-    /// over, and To resolve says in one line how review is entered while
-    /// that ground stands. Cleared by the column on the next move.
-    @State private var translationReviewHint: RightColumn.HintGround?
+    /// ⌘⌥L was pressed outside translation review, or ⌘⌥K with no edition
+    /// faced: which, and the ground it was asked over. To resolve says in one
+    /// line how to get there while that ground stands. Cleared by the column
+    /// on the next move.
+    @State private var resolveHint: RightColumn.AskedHint?
+    /// ⌘⌥I's or ⌘⌥N's request for a Brief field (`BriefField`), consumed by
+    /// the field.
+    @State private var briefFocus: BriefField?
     /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
     /// cards and figures read and never edit while it is on. Per window and
     /// never stored — every window opens unlocked — and it only adds refusals
@@ -322,7 +326,9 @@ struct ProjectWindow: View {
             projectURL: url,
             store: store,
             isNoChromeOn: isNoChromeOn,
-            isLocked: $isLocked))
+            isLocked: $isLocked,
+            window: window,
+            rightColumnShown: showInspector))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
@@ -533,7 +539,8 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
-            translationReviewHint: $translationReviewHint,
+            resolveHint: $resolveHint,
+            briefFocus: $briefFocus,
             translationLanguage: editorControl.translationLanguage,
             subject: subjectBinding,
             centreItem: $centreItem,
@@ -796,6 +803,10 @@ struct ProjectWindow: View {
         let isNoChromeOn: Bool
         /// The window's Lock, whose toggle is the toolbar's item.
         @Binding var isLocked: Bool
+        /// For View ▸ Lock Research and Figures' receiver (⌘⌥⇧L).
+        let window: NSWindow?
+        /// Whether the right column shows, for ⌘⌥0's title.
+        let rightColumnShown: Bool
 
         private var toolbarVisibility: Visibility {
             ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -817,6 +828,13 @@ struct ProjectWindow: View {
                 }
                 .toolbar(toolbarVisibility, for: .windowToolbar)
                 .focusedSceneValue(\.projectURL, projectURL)
+                // The View menu's two window toggles title themselves by this.
+                .focusedSceneValue(\.windowChrome,
+                                   WindowChrome(isLocked: isLocked, rightColumnShown: rightColumnShown))
+                // ⌘⌥⇧L: the padlock's press, from the menu.
+                .onKeyWindowCommand(.maughamToggleLock, window: window) { _ in
+                    isLocked.toggle()
+                }
         }
     }
 
@@ -874,8 +892,11 @@ struct ProjectWindow: View {
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
-        /// ⌘⌥L outside translation review (`RightColumn` draws the line).
-        @Binding var translationReviewHint: RightColumn.HintGround?
+        /// ⌘⌥L outside translation review, ⌘⌥K with no edition faced
+        /// (`RightColumn` draws the line).
+        @Binding var resolveHint: RightColumn.AskedHint?
+        /// ⌘⌥I's and ⌘⌥N's Brief field.
+        @Binding var briefFocus: BriefField?
         /// The editor's review language, for what To resolve shows now.
         let translationLanguage: String?
         /// The window's subject. **Going to a place opens its piece**
@@ -917,15 +938,24 @@ struct ProjectWindow: View {
                             position: .resolve, subject: subject,
                             translationLanguage: translationLanguage,
                             structure: store?.manifest.structure ?? [],
+                            projectType: store?.manifest.type ?? .novel),
+                        briefShows: RightColumnContent.of(
+                            position: .brief, subject: subject,
+                            translationLanguage: translationLanguage,
+                            structure: store?.manifest.structure ?? [],
                             projectType: store?.manifest.type ?? .novel))
                     if let request = ask.request { resolveRequest = request }
                     // The ground it is asked over: the position just
                     // selected, so the column's clear on that very change
                     // keeps it (`RightColumn.hint(asked:groundNow:)`).
-                    translationReviewHint = ask.explainsTranslationReview
-                        ? RightColumn.hintStandsOver(position: asked, subject: subject,
-                                                     translationLanguage: translationLanguage)
-                        : nil
+                    resolveHint = ask.explains.map {
+                        RightColumn.AskedHint(
+                            hint: $0,
+                            ground: RightColumn.hintStandsOver(position: asked, subject: subject,
+                                                               translationLanguage: translationLanguage))
+                    }
+                    // ⌘⌥I and ⌘⌥N: the field takes the keys (and the request).
+                    if let field = ask.briefField { briefFocus = field }
                 }
                 // The line above the prose, clicked: the open piece's Brief.
                 .onKeyWindowCommand(.maughamShowOpenPieceBrief, window: window) { _ in
@@ -1815,7 +1845,8 @@ struct ProjectWindow: View {
             showStrain: { showStrain($0) },
             openBrief: { openBrief($0) },
             pullUp: { pullUpItem($0) },
-            translationReviewHint: $translationReviewHint,
+            resolveHint: $resolveHint,
+            briefFocus: $briefFocus,
             drawsFigure: { [treeState] in
                 treeState.drawsFigure($0, projectType: store.manifest.type)
             },
@@ -2624,12 +2655,15 @@ struct ProjectWindow: View {
     }
 
     /// **What a `.maughamSetRightColumn` post asks beyond the position**:
-    /// To resolve's filter, and ⌘⌥L's explanation.
+    /// To resolve's filter, ⌘⌥L's or ⌘⌥K's explanation, and ⌘⌥I's or ⌘⌥N's
+    /// Brief field.
     struct PositionAsk: Equatable {
         /// The request To resolve takes; nil where there is none to take.
         let request: ResolveRequest?
-        /// To resolve says how translation review is entered.
-        let explainsTranslationReview: Bool
+        /// What To resolve says about how to reach the review or the desk.
+        let explains: RightColumn.ResolveHint?
+        /// The Brief field that takes the keys; nil where Brief has none.
+        var briefField: BriefField? = nil
     }
 
     /// **The filter is handed over only where To resolve's list is what the
@@ -2637,15 +2671,26 @@ struct ProjectWindow: View {
     /// While it shows the Department desk or the translation review (both
     /// interim, by the owner's decision) the key still selects the position
     /// and the filter is dropped: a request left set would fire the next time
-    /// the list mounted, minutes later. The explanation is ⌘⌥L's, and only
-    /// while review is not on. Pure.
+    /// the list mounted, minutes later. An explanation (⌘⌥L's, ⌘⌥K's) is
+    /// said only there too: over the review or the desk the key has already
+    /// landed where it names. A Brief field is asked only where `briefShows`
+    /// (`RightColumnContent.of` for `.brief`) draws it, so no request stands
+    /// over a Brief that cannot take it. Pure.
     static func positionAsk(in userInfo: [AnyHashable: Any]?,
-                            shows: RightColumnContent) -> PositionAsk {
+                            shows: RightColumnContent,
+                            briefShows: RightColumnContent = .brief(.outside)) -> PositionAsk {
         let listShows = shows == .resolve
+        let field = (userInfo?[MaughamEvent.briefFieldKey] as? String).flatMap(BriefField.init(rawValue:))
+        var briefField: BriefField?
+        if let field, case .brief(let scope) = briefShows, field.isOffered(in: scope) {
+            briefField = field
+        }
         return PositionAsk(
             request: listShows ? resolveFilter(in: userInfo).map(ResolveRequest.filter) : nil,
-            explainsTranslationReview: listShows
-                && userInfo?[MaughamEvent.explainsTranslationReviewKey] as? Bool == true)
+            explains: listShows
+                ? (userInfo?[MaughamEvent.explainsKey] as? String).flatMap(RightColumn.ResolveHint.init(rawValue:))
+                : nil,
+            briefField: briefField)
     }
 
     /// **Pull a Book statement or a History up** (⌘⌥G, ⌘⌥Y, ⌘⌥V, ⌘⌥H; the

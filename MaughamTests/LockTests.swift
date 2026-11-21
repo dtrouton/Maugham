@@ -246,6 +246,33 @@ final class LockTests: XCTestCase {
         XCTAssertEqual(LockToggle.symbol(isLocked: false), "lock.open")
         XCTAssertEqual(LockToggle.help(isLocked: false), "Lock research and figures")
         XCTAssertEqual(LockToggle.help(isLocked: true), "Unlock research and figures")
+        // The View menu's item (⌘⌥⇧L) and the padlock's tooltip name what it
+        // locks, and the tooltip says what it does not (appraisal, Lock).
+        XCTAssertEqual(LockToggle.menuTitle(isLocked: false), "Lock Research and Figures")
+        XCTAssertEqual(LockToggle.menuTitle(isLocked: true), "Unlock Research and Figures")
+        XCTAssertTrue(LockToggle.tooltip(isLocked: false).contains("manuscript stays editable"))
+        for locked in [false, true] {
+            XCTAssertTrue(LockToggle.tooltip(isLocked: locked).hasPrefix(LockToggle.help(isLocked: locked)))
+            XCTAssertTrue(LockToggle.tooltip(isLocked: locked).contains("\u{2318}\u{2325}\u{21E7}L"))
+        }
+    }
+
+    /// **⌘⌥⇧L is the padlock's press**: the View menu posts the key window's
+    /// toggle, and the window's receiver flips its Lock — the one write the
+    /// toolbar's button makes.
+    func test_theLockHasAMenuKeyThatFlipsTheWindowsLock() throws {
+        let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift"))
+            .joined(separator: " ")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(app.contains(
+            "Button(LockToggle.menuTitle(isLocked: chrome?.isLocked ?? false)) { "
+            + "MaughamEvent.post(.maughamToggleLock, to: .keyWindow) } "
+            + ".keyboardShortcut(\"l\", modifiers: [.command, .option, .shift])"), app)
+        let window = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+            .joined(separator: " ")
+            .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        XCTAssertTrue(window.contains(
+            ".onKeyWindowCommand(.maughamToggleLock, window: window) { _ in isLocked.toggle() }"))
     }
 }
 

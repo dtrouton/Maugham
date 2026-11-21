@@ -165,8 +165,40 @@ enum ResolveHead {
         "\(docId)/\(runId)"
     }
 
-    /// In place of Run on a piece that is not open; its click opens it.
-    static let openThePieceLine = "Open the piece to run a check or a round on it."
+    /// **In place of Run on a piece that is not open; its click opens it**
+    /// (appraisal 1). Where the piece has notes or to-dos, whose verbs act
+    /// only on the open piece (`ResolveVerbGate`), it says that is why they
+    /// have no buttons here; otherwise it says what opening offers. `noun` is
+    /// what the project calls a piece (`FiledUnder.pieceNoun`). Pure.
+    static func openThePieceLine(noun: String, hasItemsToAnswer: Bool) -> String {
+        hasItemsToAnswer
+            ? "Open this \(noun) to answer its notes"
+            : "Open this \(noun) to run a check or a round on it"
+    }
+
+    /// Whether any of `items` on `docId` needs the piece open to be acted on:
+    /// a note or a to-do. A finding's Answer files a ruling and needs no
+    /// `Document`, so findings alone ask nothing. Pure.
+    static func hasItemsToAnswer(_ items: [ResolveItem], docId: String) -> Bool {
+        items.contains { item in
+            guard item.docId == docId else { return false }
+            switch item {
+            case .note, .todo: return true
+            case .finding: return false
+            }
+        }
+    }
+
+    /// **The piece a Book or Part group's header offers to open** (appraisal
+    /// 1): a piece's group whose notes or to-dos cannot be acted on here
+    /// because the piece is not open (`mayAct` is `ResolveVerbGate.mayAct`).
+    /// Nil for every other group. Opening it keeps the list (the row click's
+    /// `ResolveNavigation.goInsideTheFaces`). Pure.
+    static func groupOpensItsPiece(_ group: ResolveGroup, mayAct: (String) -> Bool) -> String? {
+        guard case .piece(let docId) = group.key, !mayAct(docId),
+              hasItemsToAnswer(group.items, docId: docId) else { return nil }
+        return docId
+    }
 }
 
 /// What a Book or Part holds open (`ResolveHead.bookCount`).
@@ -225,6 +257,27 @@ struct ResolveWhoseLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(PieceWriters.rowIdentifier)
+    }
+}
+
+/// **"Open this chapter to answer its notes"** — the head's line on a piece
+/// that is not open, and a Book or Part group's (appraisal 1). A link-styled
+/// button, so it reads as something to press, never as a caption.
+struct ResolveOpenThePieceButton: View {
+    let line: String
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            Text(line)
+                .font(.caption)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.link)
+        .help(line)
+        .accessibilityIdentifier("resolve.openThePiece")
     }
 }
 
@@ -328,16 +381,12 @@ struct ResolveHeadView: View {
                 latestLetter(docId, offers: offers, diagnostics: diagnostics)
             }
             if offers.opensThePiece {
-                Button {
-                    ResolveNavigation.go(toDocId: docId)
-                } label: {
-                    Text(ResolveHead.openThePieceLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
+                ResolveOpenThePieceButton(
+                    line: ResolveHead.openThePieceLine(
+                        noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
+                                                   projectType: store.manifest.type),
+                        hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId)),
+                    open: { ResolveNavigation.go(toDocId: docId) })
                 .padding(.horizontal, 12).padding(.vertical, 6)
             }
             if let orchestrator, let diagnostics {

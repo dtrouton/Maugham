@@ -57,6 +57,28 @@ struct RightColumnControl: View {
         return paneWidth >= titleFloor
     }
 
+    /// **When To resolve and Brief are written out, not only drawn as icons**
+    /// (appraisal 3): the two names the design is built on, whenever the row
+    /// has room for them beside what else it draws. With only the two
+    /// segments they fit across the column's whole range; beside the
+    /// pulled-up segment's icon they need `namesFloorBesideIcon`; beside its
+    /// title, `namesFloorBesideTitle` — below that the title keeps the room
+    /// and the names go back to icons. Pure.
+    static func showsNames(paneWidth: CGFloat, segmentCount: Int,
+                           pulledUpTitleDrawn: Bool) -> Bool {
+        let floor: CGFloat
+        if segmentCount < RightColumnPosition.allCases.count {
+            floor = namesFloorAlone
+        } else {
+            floor = pulledUpTitleDrawn ? namesFloorBesideTitle : namesFloorBesideIcon
+        }
+        return paneWidth >= floor
+    }
+
+    static let namesFloorAlone: CGFloat = 200
+    static let namesFloorBesideIcon: CGFloat = 260
+    static let namesFloorBesideTitle: CGFloat = 340
+
     /// The pulled-up thing's title, nil with nothing pulled up.
     @MainActor
     static func pulledUpTitle(subject: WindowSubject, store: ProjectStore,
@@ -117,10 +139,14 @@ struct RightColumnControl: View {
             offersPulledUp: RightColumnContent.offersPulledUp(
                 subject, structure: store.manifest.structure, projectType: store.manifest.type),
             selected: position)
+        let drawsNames = Self.showsNames(
+            paneWidth: width, segmentCount: offered.count,
+            pulledUpTitleDrawn: drawsTitle && offered.contains(.pulledUp))
         HStack(spacing: 4) {
             ForEach(offered, id: \.self) { segment in
                 self.segment(segment, title: title,
                              drawsTitle: drawsTitle && segment == .pulledUp,
+                             drawsName: drawsNames && segment != .pulledUp,
                              // With a title drawn, the two leading segments
                              // keep their icon's width and the title takes
                              // the rest; otherwise the row is shared evenly.
@@ -155,13 +181,19 @@ struct RightColumnControl: View {
     }
 
     private func segment(_ segment: RightColumnPosition, title: String?,
-                         drawsTitle: Bool, flexible: Bool) -> some View {
+                         drawsTitle: Bool, drawsName: Bool, flexible: Bool) -> some View {
         let selected = segment == position
         return Button {
             position = segment
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: segment.systemImageName)
+                if drawsName {
+                    // Whole or not at all: a clipped "To res…" names nothing.
+                    Text(Self.name(of: segment))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 Text(drawsTitle ? (title ?? "") : "")
                     .lineLimit(1)
                     .truncationMode(.middle)

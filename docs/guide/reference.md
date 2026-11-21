@@ -61,6 +61,7 @@ The ones you'll use most:
 | `⌘⌥E` | References pane — what this piece is pinned to |
 | `⌘⌥K` | Department pane — Publish's desk: the book's design and its language editions |
 | `⌘⌥0` | Toggle inspector column |
+| `⌘⌥⇧L` | Lock or unlock research and figures (the toolbar's padlock); the manuscript stays editable |
 | `⌘⇧P` | Toggle Research preview |
 | `⌘/` | Syntax + keyboard reference |
 | `⌘?` | Maugham Help — this guide |

@@ -9,30 +9,30 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### The window family
 - `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
-- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost` + Book's view + one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
-- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc.
-- `PaletteWallState.swift` — the wall's window state as one value (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
+- `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
+- `RightColumn.swift` — resize handle, the control over one arm, hidden arm; `RightColumnControl.swift`, the three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, the pulled-up thing (`PulledUpRegionView.swift`, a region); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, the faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field.
+- `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
 - `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
-- `WindowFlashes.swift` / `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
+- `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
-- `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph` / `.maughamNavigateToScene` receivers.
+- `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
 - `TranslationReviewModifier.swift` — this window's translation-review selection and the reveal's window half.
-- `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, from the posture, pure), `InsertMenuGate` (whether the Insert menu is enabled, published as the focused value `mayInsertReportElement`) and the modifier.
+- `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, pure, from the posture), `InsertMenuGate` (the Insert menu's enablement, focused value `mayInsertReportElement`), the modifier.
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
 - `CompilerRunModifier.swift` — the run commands' delivery path (`RunCommand`) and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
 - `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority.
-- `WindowFloorFree.swift` — `WindowFloorFreeLayout` / `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
-- The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and reaches its `claude` services through its `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
+- `WindowFloorFree.swift` — `WindowFloorFreeLayout`, `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
+- The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and its `claude` services through `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
 ### The shell
-- `LockToggle.swift` — the window's Lock (`WindowLock`) and its toolbar toggle, the window toolbar's one item.
+- `LockToggle.swift` — the window's Lock (`WindowLock`): toolbar padlock and ⌘⌥⇧L.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `IntentStrip.swift` — the writer's signature line above the prose.
@@ -125,7 +125,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ReviewPassEditorLogic.swift` — pure array transforms behind Project Settings' Review Passes editor.
 - `Maugham/Views/Resolve/ResolveScope.swift`, `ResolveItem.swift`, `ResolveReader.swift` — To resolve's scope, items and loadless reader.
 - `Maugham/Views/Resolve/ResolveGrouping.swift`, `ParagraphOffsets.swift` — grouping by paragraph, scene or piece; display-text offsets placing a closed screenplay's paragraphs among scenes.
-- `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveTriage.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, the triage choice (offered only while a note carries a mark, ANDed with the chips), density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
+- `Maugham/Views/Resolve/ResolveFilter.swift`, `ResolveTriage.swift`, `ResolveRefresh.swift` — To resolve's sources and chips, the triage choice (offered while a note carries a mark; ANDs with the chips), density past twelve, the caret's group and the open groups; its refresh key and its may-be-incomplete notice.
 - `Maugham/Views/Resolve/ResolveVerbGate.swift`, `ResolveNavigation.swift` — act only on the open piece; a row's click goes to its piece and paragraph.
 - `Maugham/Views/Resolve/ResolveNoteVerbs.swift`, `ResolveNoteStatics.swift`, `ResolveDialogs.swift`, `AnnotationRowHost.swift`, `ResolveTaskVerbs.swift`, `NewTaskSheet.swift` — note verbs and sheets, one note row, to-do verbs and sheet.
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
@@ -233,7 +233,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`canvasModel` is a `let`, and nothing in the window or columns reads `.scene`** (tripwire 30): `CanvasModel` rewrites its scene on every drag frame. `RegionInspectorPane` resolves the region one leaf down.
 - **The window's stores and `claude` services are the session's**: it gives its lease back in `.onDisappear`, and `CompilerRunModifier` runs `roster.shutdownAll()`, pipeline first; a merely released session is a live, billing process.
 - **The `NavigationSplitView`'s `columnVisibility:` is written by `CanvasCollapseModifier` and nothing else.** `.detailOnly` hides the canvas, which is the CONTENT column.
-- **A hidden detail arm renders `Self.hiddenDetailColumn` (`Color.clear.navigationSplitViewColumnWidth(0)`), never no view**: an arm with no width hands the leftover to an empty detail column. ⌘⌥I's hidden case uses the same static (`DetailColumnWidthTests`).
+- **A hidden detail arm renders `Self.hiddenDetailColumn` (`Color.clear.navigationSplitViewColumnWidth(0)`), never no view**: an arm with no width hands the leftover to an empty detail column. ⌘⌥0's hidden case uses the same static (`DetailColumnWidthTests`).
 - **Never put permanent chrome in a top `safeAreaInset` around the `NavigationSplitView`**. The Lock is a window-toolbar item (`TopChromeModifier`, hidden in ⌘\ focus); only the zero-height-when-idle banners live in the inset.
 - **`ProjectWindow.detailColumn` frames its content to the width it declares**: one width, bound once, from `detailColumnWidth` (the persisted wish, written only by the resize handle, clamped to `UIState.detailColumnWidthRange`, 240–480).
 
@@ -256,15 +256,16 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **Going to a place opens its piece via `ManuscriptNavigation.go`**, whatever the centre; every receiver routes through it (`ManuscriptForceCensusTests.test_everyNavigationReceiverStillRoutesThroughTheNavigation`).
 
 ### Brief, the pulled-up thing and the fold
-- **Brief never loads a manuscript `Document`** (`BriefReaderTests.test_noBriefSourceLoadsAManuscriptDocument`), so it edits a piece that is not open: the line asks `TreeStructureVerbs.mayRestructure`, the intent and decisions the intent's own posture.
-- **Clause marks are drawn only in Brief's Going for**: never in the centre cover, never on `IntentStrip`. A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
+- **Brief never loads a manuscript `Document`** (`BriefReaderTests.test_noBriefSourceLoadsAManuscriptDocument`), so it edits an unopened piece: the line asks `TreeStructureVerbs.mayRestructure`, the intent and decisions their own posture.
+- **Clause marks are drawn only in Brief's Going for**: never in the cover or on `IntentStrip`. A mark carries no model text (`GoingForTests.test_aMarkCarriesNoModelText`) and applies only while the run's `intentSnapshot` hashes to the statement's text (`ClauseMarks.applies`).
 - **A verb that files into a statement says where** (`FiledUnder`, from the write's own `FiledDestination`); the line links to any Brief it names.
-- **A statement host asks `statementIsInTheCentre` before it mounts**: the placeholder is decided before the mount (`Maugham/Stores/AREA.md`, the gate).
-- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind and empties the position; a canvas card or region is read-only beside the text (`PulledUpViewTests`, `PulledUpTests`).
-- **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`; Esc declines while covered.
+- **A statement host asks `statementIsInTheCentre` before it mounts** (`Maugham/Stores/AREA.md`, the gate).
+- **`PulledUpView.centreShows` is the one rule against a second editor on what the centre shows.** Open in Centre MOVES every kind; a canvas card or region is read-only beside (`PulledUpViewTests`, `PulledUpTests`).
+- **On the canvas, a selection's details cover what is pulled up** (`RightColumnContent.canvasDetailsCover`); only `CanvasDetailsCover` reads `selection`, names what it covers and clears it on Show it; Esc declines while covered.
 - **A fold is `PieceFoldIndex`, built once per `Key` in `.task`**, links both ways; a bound region is one row over its cards in the shelf's order; rows are `List` tags or `Button(.plain)`; a picture's row draws a `RowThumbnail` (`PieceFoldContentsTests`, `BinderPieceFoldTests`).
 - **The old Inspector's fields live in `PieceRowMenus` and the status line** (`PieceTargetMenu`, over the OPEN piece), each asking `TreeStructureVerbs` (`PieceRowMenusTests`, `PieceTargetMenuTests`).
-- **The ⌘⌥ keys are declared in `MaughamApp` alone** (`RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays`).
+- **The ⌘⌥ keys are declared in `MaughamApp` alone**, grouped by destination (`RightColumnAppraisalTests`); ⌘⌥L/⌘⌥K explain off their ground; ⌘⌥I/⌘⌥N's field consumes `briefFocus`.
+- **To resolve and Brief lead with the faces' title** (`RightColumnSubjectLine`).
 
 ### The subject and the tree
 *Why each rule: [`docs/history/views.md`](../../docs/history/views.md).*

@@ -29,6 +29,8 @@ struct BriefPieceView: View {
 
     @State private var lineDraft = ""
     @FocusState private var lineFocused: Bool
+    /// ⌘⌥I's request (`BriefField.line`), consumed here.
+    @Environment(\.briefFocus) private var focusRequest
     @State private var showsBook = false
     @State private var showsReadings = false
     /// Where a Confirm (or a Correct) filed — one quiet line under the
@@ -102,6 +104,12 @@ struct BriefPieceView: View {
             if lineFocused { scheduleLine() }
         }
         .onDisappear { commitLine() }
+        // ⌘⌥I: the keys in the line, where it is a field. Consumed either way.
+        .onChange(of: focusRequest.wrappedValue, initial: true) { _, asked in
+            guard asked == .line else { return }
+            focusRequest.wrappedValue = nil
+            if offers.editsLine { DispatchQueue.main.async { lineFocused = true } }
+        }
     }
 
     // MARK: - The line

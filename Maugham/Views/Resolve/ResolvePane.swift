@@ -470,6 +470,7 @@ struct ResolvePane: View {
         let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
                                     hasVisible: !shown.isEmpty,
                                     offersColdStart: offersColdStart)
+        let opensItsPiece = openThePieceLines(shown)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -486,6 +487,14 @@ struct ResolvePane: View {
                         ForEach(shown) { group in
                             groupHeader(group, isOpen: open.contains(group.key))
                                 .id(group.key)
+                            // A piece not open: why its rows have no verbs,
+                            // and the way to them (appraisal 1).
+                            if let (docId, line) = opensItsPiece[group.key] {
+                                ResolveOpenThePieceButton(
+                                    line: line,
+                                    open: { ResolveNavigation.goInsideTheFaces(toDocId: docId, paragraphId: nil) })
+                                .padding(.leading, 26).padding(.trailing, 12).padding(.bottom, 6)
+                            }
                             if open.contains(group.key) {
                                 ForEach(group.items) { item in
                                     row(item, acting: acting, bulk: bulk, wiring: wiring, reorders: reorders)
@@ -578,6 +587,20 @@ struct ResolvePane: View {
     }
 
     // MARK: - A group
+
+    /// Once per pass, never per row (tripwire 4): each group whose piece is
+    /// not open, its piece, and the line its header says.
+    private func openThePieceLines(_ groups: [ResolveGroup]) -> [ResolveGroup.Key: (String, String)] {
+        var lines: [ResolveGroup.Key: (String, String)] = [:]
+        for group in groups {
+            guard let docId = ResolveHead.groupOpensItsPiece(group, mayAct: mayAct(on:)) else { continue }
+            lines[group.key] = (docId, ResolveHead.openThePieceLine(
+                noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
+                                           projectType: store.manifest.type),
+                hasItemsToAnswer: true))
+        }
+        return lines
+    }
 
     private func groupHeader(_ group: ResolveGroup, isOpen: Bool) -> some View {
         let atCaret = group.key == caretGroup

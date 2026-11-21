@@ -42,9 +42,26 @@ struct LockToggle: View {
 
     static func symbol(isLocked: Bool) -> String { isLocked ? "lock" : "lock.open" }
 
-    /// What a press does — the tooltip and the accessibility label alike.
+    /// What a press does — the accessibility label, and the View menu's
+    /// item (⌘⌥⇧L) in its own capitals (`menuTitle`). Named for what it
+    /// locks: research and figures, never the manuscript.
     static func help(isLocked: Bool) -> String {
         isLocked ? "Unlock research and figures" : "Lock research and figures"
+    }
+
+    /// View ▸ Lock Research and Figures, titled for what a press does.
+    static func menuTitle(isLocked: Bool) -> String {
+        isLocked ? "Unlock Research and Figures" : "Lock Research and Figures"
+    }
+
+    /// The padlock's tooltip: what a press does, that the manuscript is not
+    /// what it locks (a padlock otherwise reads as "lock my book"), and its
+    /// key.
+    static func tooltip(isLocked: Bool) -> String {
+        isLocked
+            ? "Unlock research and figures (\u{2318}\u{2325}\u{21E7}L)"
+            : "Lock research and figures so they can be read but not changed. "
+                + "Your manuscript stays editable. (\u{2318}\u{2325}\u{21E7}L)"
     }
 
     var body: some View {
@@ -53,7 +70,7 @@ struct LockToggle: View {
         } label: {
             Image(systemName: Self.symbol(isLocked: isLocked))
         }
-        .help(Self.help(isLocked: isLocked))
+        .help(Self.tooltip(isLocked: isLocked))
         .accessibilityLabel(Self.help(isLocked: isLocked))
         .accessibilityValue(isLocked ? "Locked" : "Unlocked")
         .accessibilityIdentifier("windowLock")

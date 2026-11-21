@@ -120,15 +120,15 @@ final class RightColumnMountingTests: XCTestCase {
         ("a", "MaughamEvent.postResolve(.rounds)"),
         ("d", "MaughamEvent.postResolve(.checks)"),
         ("t", "MaughamEvent.postResolve(.mine)"),
-        ("i", "MaughamEvent.postPosition(.brief)"),
-        ("n", "MaughamEvent.postPosition(.brief)"),
+        ("i", "MaughamEvent.postBriefField(.line)"),
+        ("n", "MaughamEvent.postBriefField(.goingFor)"),
         ("g", "MaughamEvent.postPullUp(.lessons)"),
         ("y", "MaughamEvent.postPullUp(.firstReader)"),
         ("v", "MaughamEvent.postPullUp(.visualLanguage)"),
         ("h", "MaughamEvent.postPullUp(.historyOfTheFaces)"),
         ("e", "MaughamEvent.postShowPieceFold()"),
         ("l", "MaughamEvent.postTranslationReviewPosition()"),
-        ("k", "MaughamEvent.postPosition(.resolve)"),
+        ("k", "MaughamEvent.postDeskPosition()"),
     ]
 
     /// **Each item is titled for what its key does** (owner's ruling, Task 9
@@ -429,6 +429,67 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(source.contains(".truncationMode(.middle)"), "the middle goes, not the end")
     }
 
+    /// **To resolve and Brief are written out when there is room**
+    /// (appraisal 3). Measured, never pressed (tripwire 33): at every pane
+    /// width across the column's range and every shape of the row — the two
+    /// segments alone; beside the pulled-up icon; beside its title — the
+    /// control fits in one row with the names drawn whole where the rule says
+    /// they are. The premise is read off the hosting view, never assumed.
+    func test_theControlWritesItsNamesWhereTheyFit() async throws {
+        let f = try await fixture("ControlNames")
+        let title = String(repeating: "A long research note title ", count: 8)
+        let note = try await f.store.addResearchTextNote(parentId: nil, title: title)
+        let piece = WindowSubject(open: .item(f.documentItemId), faces: .item(f.documentItemId))
+        var beside = piece
+        beside.beside = .research(note.id)
+        let canvas = WindowSubject(open: .canvas, faces: .canvas)   // details, no title
+
+        let range = UIState.detailColumnWidthRange
+        for column in [range.lowerBound, 280, 320, 360, 420, range.upperBound] {
+            let pane = CGFloat(column) - RightColumn.resizeHandleWidth
+            for subject in [piece, beside, canvas] {
+                let offers = RightColumnContent.offersPulledUp(
+                    subject, structure: f.store.manifest.structure, projectType: f.store.manifest.type)
+                let segments = RightColumnControl.segments(offersPulledUp: offers, selected: .resolve)
+                let titled = RightColumnControl.showsTitle(
+                    RightColumnControl.pulledUpTitle(subject: subject, store: f.store), paneWidth: pane)
+                    && segments.contains(.pulledUp)
+                let names = RightColumnControl.showsNames(
+                    paneWidth: pane, segmentCount: segments.count, pulledUpTitleDrawn: titled)
+                let control = RightColumnControl(store: f.store, position: .constant(.resolve),
+                                                 subject: subject, diagnostics: nil, width: pane)
+                let hosted = NSHostingController(rootView: control)
+                _ = hosted.view
+                let size = hosted.sizeThatFits(in: CGSize(width: pane, height: 400))
+                XCTAssertLessThanOrEqual(size.width, pane + 0.5,
+                    "\(subject) at \(pane)pt (names \(names), title \(titled)) wants \(size.width)pt")
+                XCTAssertLessThan(size.height, 44, "one row, at \(pane)pt")
+            }
+        }
+        // Where the column is at its narrowest with nothing pulled up, the
+        // names are written: the common case is never icons alone.
+        XCTAssertTrue(RightColumnControl.showsNames(
+            paneWidth: CGFloat(range.lowerBound) - RightColumn.resizeHandleWidth,
+            segmentCount: 2, pulledUpTitleDrawn: false))
+        // Beside a title, the title keeps the room below its floor.
+        XCTAssertFalse(RightColumnControl.showsNames(
+            paneWidth: RightColumnControl.namesFloorBesideTitle - 1, segmentCount: 3,
+            pulledUpTitleDrawn: true))
+        XCTAssertTrue(RightColumnControl.showsNames(
+            paneWidth: RightColumnControl.namesFloorBesideTitle, segmentCount: 3,
+            pulledUpTitleDrawn: true))
+        XCTAssertFalse(RightColumnControl.showsNames(
+            paneWidth: RightColumnControl.namesFloorBesideIcon - 1, segmentCount: 3,
+            pulledUpTitleDrawn: false))
+        XCTAssertTrue(RightColumnControl.namesFloorAlone < RightColumnControl.namesFloorBesideIcon
+                      && RightColumnControl.namesFloorBesideIcon < RightColumnControl.namesFloorBesideTitle)
+        // The control: unfixed, the same names in a pane too narrow for them
+        // would be clipped rather than overflow, and the fit above would not
+        // see it — the names are drawn whole or not at all.
+        let source = try SourceTree.read("Maugham/Views/RightColumnControl.swift")
+        XCTAssertTrue(source.contains("Text(Self.name(of: segment))\n                        .lineLimit(1)\n                        .fixedSize()"))
+    }
+
     // MARK: - The window's verbs
 
     func test_theStripOpensTheOpenPiecesBrief() throws {
@@ -671,7 +732,7 @@ final class RightColumnMountingTests: XCTestCase {
         // A plain position post asks for nothing.
         XCTAssertEqual(ProjectWindow.positionAsk(
             in: [MaughamEvent.positionKey: "resolve"], shows: .resolve),
-            ProjectWindow.PositionAsk(request: nil, explainsTranslationReview: false))
+            ProjectWindow.PositionAsk(request: nil, explains: nil))
 
         // The receiver sets the request only from the ask.
         let receiver = Self.flat(try SourceTree.declaration(
@@ -684,37 +745,47 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(receiver.contains("translationLanguage: translationLanguage,"))
     }
 
-    /// **⌘⌥L outside translation review**: To resolve shows, with one line
-    /// saying how review is entered — the old Translation pane's sentence —
-    /// until the writer moves on. In review, and over the desk, no line.
-    func test_theTranslationKeyOutsideReviewExplainsHowToEnterIt() throws {
-        let userInfo: [AnyHashable: Any] = [
-            MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
-            MaughamEvent.explainsTranslationReviewKey: true]
-        XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
-        XCTAssertTrue(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explainsTranslationReview)
-        XCTAssertFalse(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview)
-            .explainsTranslationReview, "in review the pane itself shows")
-        XCTAssertFalse(ProjectWindow.positionAsk(in: userInfo, shows: .desk(language: "es"))
-            .explainsTranslationReview)
-        XCTAssertFalse(ProjectWindow.positionAsk(
-            in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explainsTranslationReview,
+    /// **⌘⌥L outside translation review, and ⌘⌥K with no edition faced**
+    /// (appraisal 5): To resolve shows, with one line saying how to get to
+    /// what the key names — the old Translation pane's sentence; where the
+    /// desk shows — until the writer moves on. Over the review or the desk
+    /// themselves, no line.
+    func test_theTranslationAndDeskKeysExplainHowToGetThere() throws {
+        for hint in [RightColumn.ResolveHint.translationReview, .desk] {
+            let userInfo: [AnyHashable: Any] = [
+                MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+                MaughamEvent.explainsKey: hint.rawValue]
+            XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
+            XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explains, hint)
+            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).explains,
+                         "in review the pane itself shows")
+            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .desk(language: "es")).explains,
+                         "over an edition the desk itself shows")
+        }
+        XCTAssertNil(ProjectWindow.positionAsk(
+            in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explains,
             "⌘1 explains nothing")
+        XCTAssertNil(ProjectWindow.positionAsk(
+            in: [MaughamEvent.positionKey: "resolve", MaughamEvent.explainsKey: "references"],
+            shows: .resolve).explains, "a hint this build cannot read says nothing")
 
-        let asked = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
-                                               translationLanguage: nil)
-        XCTAssertTrue(RightColumn.showsTranslationReviewHint(asked, ground: asked, shown: .resolve))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(nil, ground: asked, shown: .resolve))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(asked, ground: asked,
-                                                              shown: .translationReview))
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(asked, ground: asked, shown: .brief(.book)))
-        XCTAssertTrue(RightColumn.translationReviewHintLine.contains("Translation Review…"),
+        let ground = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
+                                                translationLanguage: nil)
+        let asked = RightColumn.AskedHint(hint: .desk, ground: ground)
+        XCTAssertEqual(RightColumn.shownHint(asked, ground: ground, shown: .resolve), .desk)
+        XCTAssertNil(RightColumn.shownHint(nil, ground: ground, shown: .resolve))
+        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .translationReview))
+        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .desk(language: "es")))
+        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .brief(.book)))
+        XCTAssertTrue(RightColumn.ResolveHint.translationReview.line.contains("Translation Review…"),
                       "the line names the menu item that enters review")
+        XCTAssertTrue(RightColumn.ResolveHint.desk.line.contains("edition"),
+                      "the desk's line says it shows with an edition selected")
+        XCTAssertTrue(RightColumn.ResolveHint.desk.line.contains("Editions"),
+                      "and names the tree's section where editions are")
 
         // It stands over one position, one subject and "not in review": any
         // of the three changing clears it.
-        let ground = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
-                                                translationLanguage: nil)
         XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
             position: .brief, subject: Self.piece, translationLanguage: nil))
         XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
@@ -722,29 +793,95 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertNotEqual(ground, RightColumn.hintStandsOver(
             position: .resolve, subject: Self.piece, translationLanguage: "es"))
 
-        // The post, the receiver's write and the column's clear.
+        // The posts, the receiver's write and the column's clear.
         var received: [Notification] = []
-        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification ⌘⌥L posts
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification ⌘⌥L and ⌘⌥K post
             forName: .maughamSetRightColumn, object: nil, queue: nil
         ) { received.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
         MaughamEvent.postTranslationReviewPosition()
-        XCTAssertEqual(received.count, 1)
-        XCTAssertEqual(ProjectWindow.position(in: received.first?.userInfo), .resolve)
-        XCTAssertTrue(ProjectWindow.positionAsk(in: received.first?.userInfo, shows: .resolve)
-            .explainsTranslationReview)
+        MaughamEvent.postDeskPosition()
+        XCTAssertEqual(received.count, 2)
+        XCTAssertEqual(received.map { ProjectWindow.position(in: $0.userInfo) }, [.resolve, .resolve])
+        XCTAssertEqual(received.map { ProjectWindow.positionAsk(in: $0.userInfo, shows: .resolve).explains },
+                       [.translationReview, .desk])
         let receiver = Self.flat(try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
             under: "Maugham"))
-        XCTAssertTrue(receiver.contains("translationReviewHint = ask.explainsTranslationReview"))
+        XCTAssertTrue(receiver.contains("resolveHint = ask.explains.map {"))
         XCTAssertTrue(receiver.contains("RightColumn.hintStandsOver(position: asked,"),
                       "the receiver records the ground it asked over")
         let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
-        for token in ["if Self.showsTranslationReviewHint(",
-                      "Text(Self.translationReviewHintLine)",
-                      "translationReviewHint = Self.hint(asked: translationReviewHint, groundNow: now)"] {
+        for token in ["if let hint = Self.shownHint(",
+                      "Text(hint.line)",
+                      "resolveHint = Self.hint(asked: resolveHint, groundNow: now)"] {
             XCTAssertTrue(column.contains(token), "the column lost \(token)")
         }
+    }
+
+    /// **⌘⌥I and ⌘⌥N put the keys in their field** (appraisal 5): each posts
+    /// Brief with its field, and the receiver hands the field over only where
+    /// the faces' Brief draws it — a piece has both, the Book only Going for,
+    /// anything else neither — so no request stands over a Brief that cannot
+    /// take it.
+    func test_theBriefKeysAskForTheirField() throws {
+        var received: [Notification] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification ⌘⌥I and ⌘⌥N post
+            forName: .maughamSetRightColumn, object: nil, queue: nil
+        ) { received.append($0) }
+        defer { NotificationCenter.default.removeObserver(token) }
+        MaughamEvent.postBriefField(.line)
+        MaughamEvent.postBriefField(.goingFor)
+        XCTAssertEqual(received.map { ProjectWindow.position(in: $0.userInfo) }, [.brief, .brief])
+
+        let piece = RightColumnContent.brief(.piece(docId: "ch-1"))
+        let fields = received.map {
+            ProjectWindow.positionAsk(in: $0.userInfo, shows: .resolve, briefShows: piece).briefField
+        }
+        XCTAssertEqual(fields, [.line, .goingFor])
+        for (field, scope, offered) in [
+            (BriefField.line, BriefScope.piece(docId: "ch-1"), true),
+            (.goingFor, .piece(docId: "ch-1"), true),
+            (.line, .book, false),
+            (.goingFor, .book, true),
+            (.line, .part(groupId: "part-1", docIds: ["ch-2"]), false),
+            (.goingFor, .part(groupId: "part-1", docIds: ["ch-2"]), false),
+            (.goingFor, .edition(language: "es"), false),
+            (.goingFor, .outside, false),
+        ] {
+            XCTAssertEqual(field.isOffered(in: scope), offered, "\(field) in \(scope)")
+            let info: [AnyHashable: Any] = [MaughamEvent.positionKey: "brief",
+                                            MaughamEvent.briefFieldKey: field.rawValue]
+            XCTAssertEqual(ProjectWindow.positionAsk(in: info, shows: .resolve,
+                                                     briefShows: .brief(scope)).briefField,
+                           offered ? field : nil, "\(field) over \(scope)")
+        }
+        XCTAssertNil(ProjectWindow.positionAsk(in: [MaughamEvent.positionKey: "brief"],
+                                               shows: .resolve, briefShows: piece).briefField,
+                     "⌘2 asks for no field")
+
+        // The receiver hands the field to the window's request; the column
+        // gives it to Brief; each field consumes it.
+        let receiver = Self.flat(try SourceTree.declaration(
+            named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
+            under: "Maugham"))
+        XCTAssertTrue(receiver.contains("if let field = ask.briefField { briefFocus = field }"), receiver)
+        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+        XCTAssertTrue(column.contains(".environment(\\.briefFocus, briefFocus)"))
+        for type in ["BriefPieceView", "GoingForView"] {
+            let source = Self.flat(try SourceTree.sourceOfType(type, under: ["Maugham"]))
+            XCTAssertTrue(source.contains("focusRequest.wrappedValue = nil"),
+                          "\(type) does not consume the request it takes")
+        }
+
+        // Going for takes the keys where the editor is up, or where Edit is
+        // offered (the key presses it); never over the cover or an unread
+        // intent.
+        XCTAssertTrue(GoingForView.takesTheKeys(.editing, offersEdit: false))
+        XCTAssertTrue(GoingForView.takesTheKeys(.reading, offersEdit: true))
+        XCTAssertFalse(GoingForView.takesTheKeys(.reading, offersEdit: false))
+        XCTAssertFalse(GoingForView.takesTheKeys(.inTheCentre, offersEdit: true))
+        XCTAssertFalse(GoingForView.takesTheKeys(.unreadable, offersEdit: true))
     }
 
     /// **⌘⌥L's line survives the position change that shows it** (final
@@ -758,8 +895,12 @@ final class RightColumnMountingTests: XCTestCase {
                     review: String? = nil) -> RightColumn.HintGround {
             RightColumn.hintStandsOver(position: position, subject: subject, translationLanguage: review)
         }
+        func asked(_ position: RightColumnPosition, _ subject: WindowSubject = Self.piece)
+            -> RightColumn.AskedHint {
+            RightColumn.AskedHint(hint: .translationReview, ground: ground(position, subject))
+        }
         var position: RightColumnPosition = .brief
-        var hint: RightColumn.HintGround? = nil
+        var hint: RightColumn.AskedHint? = nil
         var lastGround = ground(position)
         // The column's `onChange`: fires only when the ground changed.
         func columnObserves() {
@@ -771,11 +912,11 @@ final class RightColumnMountingTests: XCTestCase {
 
         // ⌘⌥L on Brief: the receiver's two writes, then the column's update.
         position = .resolve
-        hint = ground(.resolve)
+        hint = asked(.resolve)
         columnObserves()
-        XCTAssertTrue(RightColumn.showsTranslationReviewHint(hint, ground: ground(position),
-                                                             shown: .resolve),
-                      "the line shows after the position change that it came with")
+        XCTAssertEqual(RightColumn.shownHint(hint, ground: ground(position), shown: .resolve),
+                       .translationReview,
+                       "the line shows after the position change that it came with")
 
         // The writer moves on: gone, and it does not come back on return.
         position = .brief
@@ -783,11 +924,10 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertNil(hint)
         position = .resolve
         columnObserves()
-        XCTAssertFalse(RightColumn.showsTranslationReviewHint(hint, ground: ground(position),
-                                                              shown: .resolve))
+        XCTAssertNil(RightColumn.shownHint(hint, ground: ground(position), shown: .resolve))
 
         // A subject change, and entering review, clear it too.
-        hint = ground(.resolve)
+        hint = asked(.resolve)
         lastGround = ground(.resolve)
         XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, .book)))
         XCTAssertNil(RightColumn.hint(asked: hint, groundNow: ground(.resolve, review: "es")))

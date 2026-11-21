@@ -92,10 +92,14 @@ struct RightColumn: View {
     /// `ProjectWindow.pullUpItem` — Brief's pull-up links, through the one
     /// pull-up act (the position moves even when the item is already beside).
     var pullUp: (PulledUp) -> Void = { _ in }
-    /// ⌘⌥L was pressed outside translation review: the ground it was asked
-    /// over, and To resolve says how review is entered while that ground
-    /// stands. Cleared here on the next move (`hint(asked:groundNow:)`).
-    @Binding var translationReviewHint: HintGround?
+    /// ⌘⌥L was pressed outside translation review, or ⌘⌥K with no edition
+    /// faced: which, and the ground it was asked over. To resolve says how to
+    /// get there while that ground stands. Cleared here on the next move
+    /// (`hint(asked:groundNow:)`).
+    @Binding var resolveHint: AskedHint?
+    /// ⌘⌥I's or ⌘⌥N's request: Brief takes it through the environment
+    /// (`EnvironmentValues.briefFocus`), and the field consumes it.
+    var briefFocus: Binding<BriefField?> = .constant(nil)
     /// Whether the tree's Figures section draws a figure
     /// (`BinderTreeSectionsState.drawsFigure`), for To resolve's figure click.
     var drawsFigure: (String) -> Bool = { _ in false }
@@ -272,8 +276,13 @@ struct RightColumn: View {
         // over (final wave, Task 9's re-review A).
         .onChange(of: Self.hintStandsOver(position: position, subject: subject,
                                           translationLanguage: editorControl.translationLanguage)) { _, now in
-            translationReviewHint = Self.hint(asked: translationReviewHint, groundNow: now)
+            resolveHint = Self.hint(asked: resolveHint, groundNow: now)
         }
+    }
+
+    /// View ▸ ⌘⌥0's title: what a press does to the column. Pure.
+    static func toggleTitle(shown: Bool) -> String {
+        shown ? "Hide Right Column" : "Show Right Column"
     }
 
     /// How translation review is entered — what ⌘⌥L says outside it (the old
@@ -282,13 +291,38 @@ struct RightColumn: View {
         "Not in translation review. Choose View ▸ Translation Review… to see a "
         + "paragraph's source text and reply to translator queries."
 
-    /// What ⌘⌥L's explanation stands over: the receiver records the ground
-    /// it asked over (the position it just selected, the subject, not in
+    /// Where the Department desk shows — what ⌘⌥K says with no edition faced.
+    static let deskHintLine =
+        "No edition is selected. The Department desk shows here when you "
+        + "select an edition under Editions in the tree."
+
+    /// **The two keys that name what To resolve shows only on some ground**
+    /// (⌘⌥L, translation review; ⌘⌥K, the desk), and the line each says
+    /// off that ground.
+    enum ResolveHint: String, Equatable {
+        case translationReview, desk
+
+        var line: String {
+            switch self {
+            case .translationReview: return RightColumn.translationReviewHintLine
+            case .desk: return RightColumn.deskHintLine
+            }
+        }
+    }
+
+    /// What an explanation stands over: the receiver records the ground it
+    /// asked over (the position it just selected, the subject, not in
     /// review), and any later ground other than that one clears the line.
     struct HintGround: Equatable {
         let position: RightColumnPosition
         let subject: WindowSubject
         let inReview: Bool
+    }
+
+    /// An explanation asked for, and the ground it was asked over.
+    struct AskedHint: Equatable {
+        let hint: ResolveHint
+        let ground: HintGround
     }
 
     static func hintStandsOver(position: RightColumnPosition, subject: WindowSubject,
@@ -301,16 +335,17 @@ struct RightColumn: View {
     /// writes the position and the hint in one handler, and the column's
     /// `onChange` sees that position change after it: a hint cleared on ANY
     /// change was cleared in the update that showed it. Pure.
-    static func hint(asked: HintGround?, groundNow: HintGround) -> HintGround? {
-        asked == groundNow ? asked : nil
+    static func hint(asked: AskedHint?, groundNow: HintGround) -> AskedHint? {
+        asked?.ground == groundNow ? asked : nil
     }
 
-    /// Whether the explanation is drawn: asked for over the ground that
-    /// stands now, and To resolve's own list is what shows (never over the
-    /// review itself, or the desk).
-    static func showsTranslationReviewHint(_ asked: HintGround?, ground: HintGround,
-                                           shown: RightColumnContent) -> Bool {
-        asked == ground && shown == .resolve
+    /// The explanation drawn, if any: asked for over the ground that stands
+    /// now, and To resolve's own list is what shows (never over the review
+    /// itself, or the desk).
+    static func shownHint(_ asked: AskedHint?, ground: HintGround,
+                          shown: RightColumnContent) -> ResolveHint? {
+        guard let asked, asked.ground == ground, shown == .resolve else { return nil }
+        return asked.hint
     }
 
     /// What the column shows now — the table's one answer.
@@ -327,28 +362,32 @@ struct RightColumn: View {
     private var content: some View {
         switch shown {
         case .resolve:
-            if Self.showsTranslationReviewHint(
-                translationReviewHint,
+            subjectLine
+            if let hint = Self.shownHint(
+                resolveHint,
                 ground: Self.hintStandsOver(position: position, subject: subject,
                                             translationLanguage: editorControl.translationLanguage),
                 shown: shown) {
-                Text(Self.translationReviewHintLine)
+                Text(hint.line)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .accessibilityIdentifier("resolve.translationReviewHint")
+                    .accessibilityIdentifier("resolve.hint.\(hint.rawValue)")
                 Divider()
             }
             resolvePane
         case .translationReview:
+            subjectLine
             translationPane
         case .desk:
+            subjectLine
             RightColumnDesk(store: store, documentStore: documentStore,
                             subject: selectedSubject, publishCentre: publishCentre)
         case .brief(let scope):
+            subjectLine
             BriefPane(
                 store: store, documentStore: documentStore, scope: scope,
                 diagnostics: roster.compiler.diagnostics, bible: bible, world: declaredWorld,
@@ -360,6 +399,7 @@ struct RightColumn: View {
                 // The desk is To resolve's answer while an edition is the
                 // faces — and an edition's Brief shows only then.
                 onOpenDesk: { _ in position = .resolve })
+                .environment(\.briefFocus, briefFocus)
         case .pulledUp, .centreDetails, .nothingPulledUp:
             // One mount for the three: the view asks the subject which.
             PulledUpView(
@@ -375,6 +415,19 @@ struct RightColumn: View {
                 // faces — scopes to its own notes.
                 onShowNotes: { _ in position = .resolve },
                 canvasDetails: { AnyView(canvasInspector(store: store)) })
+        }
+    }
+
+    /// **Which piece the faces are about, named** (appraisal 2): one quiet
+    /// line at the top of To resolve and of Brief, from the faces the panes
+    /// already render from (`RightColumnSubjectLine.title`). Nothing where
+    /// the faces name nothing (the canvas, the Inbox, research).
+    @ViewBuilder
+    private var subjectLine: some View {
+        if let title = RightColumnSubjectLine.title(
+            of: subject.faces, structure: store.manifest.structure,
+            bookTitle: store.manifest.title, figures: store.manifest.figures ?? []) {
+            RightColumnSubjectLine(title: title)
         }
     }
 

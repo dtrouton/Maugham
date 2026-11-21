@@ -117,6 +117,10 @@ extension Notification.Name {
     /// move-to-iCloud explanation when the folder isn't in iCloud Drive.
     public static let maughamShareForReview = Notification.Name("maugham.shareForReview")
     public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
+    /// Posted by View ▸ Lock Research and Figures (⌘⌥⇧L): the key window's
+    /// Lock (`WindowLock`) flips, as its toolbar padlock does. Scope:
+    /// .keyWindow — a command, not a data event.
+    public static let maughamToggleLock = Notification.Name("maugham.toggleLock")
     public static let maughamTidyAllFilenames = Notification.Name("maugham.tidyAllFilenames")
     /// Scope: .allWindows (no liveness guard — must reach everything; ADR 0021).
     /// Zombie-harm audit: receivers are `WelcomeHost` (`MaughamApp.swift`,

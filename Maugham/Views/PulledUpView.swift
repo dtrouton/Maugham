@@ -68,6 +68,8 @@ struct PulledUpView: View {
 
     /// A pulled-up canvas card, read off the body path.
     @State private var card: CanvasCardRead?
+    /// A pulled-up region's title, read off the body path (`regionTitleKey`).
+    @State private var coveredRegionTitle: String?
 
     // MARK: - The decisions, pure
 
@@ -287,6 +289,16 @@ struct PulledUpView: View {
     static let readOnlyCardLine = "Read-only here. Open in Centre to edit it on the canvas."
     static let historyInTheCentreLine = "Open in the centre"
     static let nothingPulledUpTitle = "Nothing pulled up"
+    /// **How to pull something up** (appraisal 4): ⌘3 with nothing beside
+    /// is not a dead end. Every key named is the View menu's pull-up key for
+    /// what it names (`RightColumnMountingTests` reads them back out of the
+    /// menu); a figure is not among the fold's rows named, because a fold's
+    /// figure opens in the centre.
+    static let nothingPulledUpHint =
+        "Click a research note, card or region in a piece\u{2019}s fold in the tree "
+        + "to read it here beside your text. Or press \u{2318}\u{2325}G for What I\u{2019}ve Learned, "
+        + "\u{2318}\u{2325}Y for First Reader, \u{2318}\u{2325}V for Visual Language, "
+        + "or \u{2318}\u{2325}H for the piece\u{2019}s History."
 
     // MARK: - The view
 
@@ -296,6 +308,8 @@ struct PulledUpView: View {
                 // The selection is read one leaf down, never here.
                 CanvasDetailsCover(model: canvasModel,
                                    canvasIsTheCentre: subject.open == .canvas,
+                                   coveredTitle: Self.title(of: pulled, store: store,
+                                                            regionTitle: coveredRegionTitle),
                                    details: canvasDetails) { pulledUpFace(pulled) }
             } else if let pulled = subject.beside {
                 pulledUpFace(pulled)
@@ -310,6 +324,24 @@ struct PulledUpView: View {
             let read = CanvasClaudeWrite.readScene(store: store, projectRoot: store.url)
             card = Self.read(pulled, scene: read.scene, scraps: read.scraps)
         }
+        // A pulled-up region's title, for the line that names it while the
+        // canvas's details cover it — read off the body path, as the control
+        // reads it (tripwires 4, 30).
+        .task(id: regionTitleKey) {
+            coveredRegionTitle = regionTitleKey.flatMap { Self.regionTitle($0.regionId, store: store) }
+        }
+    }
+
+    private struct RegionTitleKey: Equatable {
+        let regionId: String
+        let revision: Int
+    }
+
+    /// Only a pulled-up region reads its title, and only it observes the
+    /// revision.
+    private var regionTitleKey: RegionTitleKey? {
+        guard case .canvasRegion(let id)? = subject.beside else { return nil }
+        return RegionTitleKey(regionId: id, revision: canvasModel.sceneRevision)
     }
 
     /// The pulled-up thing under its header; a region draws its own, from
@@ -530,8 +562,12 @@ struct PulledUpView: View {
 
     private var nothingPulledUp: some View {
         VStack(spacing: 0) {
-            ContentUnavailableView(Self.nothingPulledUpTitle, systemImage: "pin")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ContentUnavailableView {
+                Label(Self.nothingPulledUpTitle, systemImage: "pin")
+            } description: {
+                Text(Self.nothingPulledUpHint)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -598,18 +634,62 @@ struct BesideHeader: View {
 /// read of `scene` would make it (tripwire 30). A selection an undo left
 /// dangling is cleared by the model itself (`clearSelectionIfItNoLongerResolves`),
 /// so "non-nil" is "names something on the canvas".
+///
+/// **What it covers is named** (appraisal 14): a slim line over the details,
+/// "<title> is pulled up", with **Show it**, which clears the canvas's
+/// selection — the same write the canvas's own inspectors make when what
+/// they show goes (`RegionInspector.deleteRegion`) — so the pulled-up thing
+/// shows again. A selection is not a scene mutation: no undo bracket is
+/// opened or closed (tripwire 32), and a scrap being typed in keeps its
+/// editor (`editingNodeID` is not the selection).
 struct CanvasDetailsCover<PulledUpFace: View>: View {
     let model: CanvasModel
     let canvasIsTheCentre: Bool
+    /// The covered thing's title (`PulledUpView.title`).
+    let coveredTitle: String
     /// `RightColumn.canvasInspector`, the one `RegionInspectorPane` mount.
     let details: () -> AnyView
     @ViewBuilder let pulledUp: () -> PulledUpFace
+
+    static var showItLabel: String { "Show it" }
+
+    /// The line over the details. Pure.
+    static func coveredLine(_ title: String) -> String {
+        "\(title.isEmpty ? PulledUpView.canvasCardTitle : title) is pulled up"
+    }
+
+    /// **Show it**: the canvas's selection cleared, so the cover lifts.
+    @MainActor
+    static func showIt(_ model: CanvasModel) {
+        model.selection = nil
+    }
 
     var body: some View {
         if RightColumnContent.canvasDetailsCover(canvasIsTheCentre: canvasIsTheCentre,
                                                  somethingIsPulledUp: true,
                                                  canvasHasASelection: model.selection != nil) {
-            details()
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    Text(Self.coveredLine(coveredTitle))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(Self.coveredLine(coveredTitle))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(Self.showItLabel) { Self.showIt(model) }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("pulledUp.covered")
+                Divider()
+                details()
+            }
         } else {
             pulledUp()
         }

@@ -65,10 +65,15 @@ enum MaughamEvent {
     /// opens To resolve on its filter. Absent for every other post.
     static let resolveFilterKey = "resolve_filter"
 
-    /// Payload key for `.maughamSetRightColumn`: `true` on ⌘⌥L's post, which
-    /// asks To resolve to say how translation review is entered when it is
-    /// not on.
-    static let explainsTranslationReviewKey = "explains_translation_review"
+    /// Payload key for `.maughamSetRightColumn`: a `ResolveHint.rawValue` on
+    /// ⌘⌥L's and ⌘⌥K's posts, which ask To resolve to say how translation
+    /// review is entered, or where the Department desk shows, when what the
+    /// key names is not what the position shows.
+    static let explainsKey = "explains"
+
+    /// Payload key for `.maughamSetRightColumn`: a `BriefField.rawValue` on
+    /// ⌘⌥I's and ⌘⌥N's posts — Brief, with the keys in that field.
+    static let briefFieldKey = "brief_field"
 
     /// Payload key for `.maughamPullUp`: a `PullUpRequest.rawValue`.
     static let pullUpKey = "pull_up"
@@ -230,7 +235,25 @@ enum MaughamEvent {
     static func postTranslationReviewPosition() {
         post(.maughamSetRightColumn, to: .keyWindow,
              payload: [positionKey: RightColumnPosition.resolve.rawValue,
-                       explainsTranslationReviewKey: true])
+                       explainsKey: RightColumn.ResolveHint.translationReview.rawValue])
+    }
+
+    /// ⌘⌥K: To resolve, where the Department desk shows while an edition is
+    /// the faces — and, with no edition there, with one line saying how the
+    /// desk is reached (⌘⌥L's treatment).
+    static func postDeskPosition() {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.resolve.rawValue,
+                       explainsKey: RightColumn.ResolveHint.desk.rawValue])
+    }
+
+    /// ⌘⌥I and ⌘⌥N: Brief, with the keys in its line or in Going for's editor
+    /// (`BriefField`). The field takes them only where the faces' Brief has
+    /// it (`BriefField.isOffered(in:)`).
+    static func postBriefField(_ field: BriefField) {
+        post(.maughamSetRightColumn, to: .keyWindow,
+             payload: [positionKey: RightColumnPosition.brief.rawValue,
+                       briefFieldKey: field.rawValue])
     }
 
     /// Ask the key window to pull `request` up beside its centre (⌘⌥G, ⌘⌥Y,

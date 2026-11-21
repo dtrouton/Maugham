@@ -59,6 +59,10 @@ struct GoingForView: View {
     /// appearance (so a check landing mid-sentence never takes the editor
     /// away); cleared by Done. Per piece — the view is keyed by the piece.
     @State private var editorHeld = false
+    /// ⌘⌥N's request (`BriefField.goingFor`), consumed here; `wantsKeys`
+    /// holds it until the editor is mounted and has them (`EditorFocusProbe`).
+    @Environment(\.briefFocus) private var focusRequest
+    @State private var wantsKeys = false
 
     static let strainsHelp = "The draft pulls against this"        // app copy; no model text
     static let silentHelp = "Nothing in this draft touches it"
@@ -174,6 +178,26 @@ struct GoingForView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("brief.goingFor")
+        .onChange(of: focusRequest.wrappedValue, initial: true) { _, asked in
+            guard asked == .goingFor else { return }
+            focusRequest.wrappedValue = nil
+            let offersEdit = mayEdit && !isHeldElsewhere
+            guard Self.takesTheKeys(mode, offersEdit: offersEdit) else { return }
+            if mode == .reading { editorHeld = true }
+            wantsKeys = true
+        }
+    }
+
+    /// **Whether ⌘⌥N can put the keys here**: the editor is up, or the
+    /// reading face offers Edit (`offersEdit`, the Edit button's own
+    /// condition), which the key then presses. Never over the centre's cover
+    /// or an intent that would not read. Pure.
+    static func takesTheKeys(_ mode: GoingForMode, offersEdit: Bool) -> Bool {
+        switch mode {
+        case .editing: return true
+        case .reading: return offersEdit
+        case .inTheCentre, .unreadable: return false
+        }
     }
 
     @ViewBuilder
@@ -194,6 +218,7 @@ struct GoingForView: View {
                 store: store, documentStore: documentStore,
                 kind: .intent, scope: scope, posture: posture)
                 .frame(height: Self.editorHeight)
+                .background(EditorFocusProbe(wanted: wantsKeys, onFocused: { wantsKeys = false }))
                 .onAppear { editorHeld = true }
                 // Whatever takes the editor away (Done, a refusing posture,
                 // the centre's cover), it is no longer held here.

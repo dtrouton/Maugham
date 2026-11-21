@@ -64,7 +64,7 @@ enum RightColumnFixture {
         showStrain: @escaping (ResolveRequest) -> Void = { _ in },
         openBrief: @escaping (BinderSubject) -> Void = { _ in },
         openInCentre: @escaping (CentreItem) -> Void = { _ in },
-        translationReviewHint: Binding<RightColumn.HintGround?> = .constant(nil)
+        resolveHint: Binding<RightColumn.AskedHint?> = .constant(nil)
     ) -> RightColumn {
         RightColumn(
             store: store, documentStore: documentStore, projectRoot: store.url,
@@ -103,7 +103,7 @@ enum RightColumnFixture {
                 ProjectWindow.pullUp(item, subject: subject, showInspector: .constant(true),
                                      position: position)
             },
-            translationReviewHint: translationReviewHint,
+            resolveHint: resolveHint,
             centreItem: centreItem,
             openInCentre: openInCentre)
     }
