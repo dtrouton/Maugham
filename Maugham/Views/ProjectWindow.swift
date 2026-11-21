@@ -57,6 +57,9 @@ struct ProjectWindow: View {
     @State private var bookView: BookView = .outline
     /// How an edition is shown: its book or its Status (shell p4 Task 4).
     @State private var editionView: EditionView = .book
+    /// Moves when Status is chosen, so the board takes the keys
+    /// (`ReviewBoardPane.keyboardRequest`).
+    @State private var statusKeyboardRequest = 0
     @State private var selectedPaletteCardId: String?
     /// **The palette wall's window state** — the inspector stash and the
     /// subject the wall was opened over — as ONE value. Whether the wall is
@@ -858,9 +861,6 @@ struct ProjectWindow: View {
                     ToolbarItem(placement: .navigation) {
                         LockToggle(isLocked: $isLocked)
                     }
-                    // The trailing edge's twin of the sidebar's own toggle:
-                    // always drawn, shown or hidden, so the column can be
-                    // found again (`RightColumnToggle`).
                     // Cards, Outline, Status (an edition's Book, Status):
                     // only where the centre has views — hidden, not
                     // disabled, elsewhere.
@@ -870,6 +870,9 @@ struct ProjectWindow: View {
                                                     choose: chooseCentreView)
                         }
                     }
+                    // The trailing edge's twin of the sidebar's own toggle:
+                    // always drawn, shown or hidden, so the column can be
+                    // found again (`RightColumnToggle`).
                     ToolbarItem(placement: .primaryAction) {
                         RightColumnToggle(showInspector: $showInspector)
                     }
@@ -1420,6 +1423,7 @@ struct ProjectWindow: View {
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, bible: bible, window: window,
             isLocked: isLocked, bookView: bookView, treeState: treeState,
+            statusKeyboardRequest: statusKeyboardRequest,
             researchPreviewVisible: researchPreviewVisible,
             treeFindActive: treeFindActive,
             subject: subjectBinding,
@@ -1646,6 +1650,14 @@ struct ProjectWindow: View {
         case .book(let view):
             bookView = view
             documentStore?.updateUIState { $0.bookView = view }
+            // Status takes the keys once it is mounted — deferred the
+            // tripwire-16 way, a same-tick request reaching no board.
+            if view == .status {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(30))
+                    statusKeyboardRequest &+= 1
+                }
+            }
         case .edition(let view):
             editionView = view
             documentStore?.updateUIState { $0.editionView = view }

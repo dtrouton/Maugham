@@ -102,6 +102,30 @@ final class CentreViewSwitchTests: XCTestCase {
         XCTAssertTrue(app.contains("FocusedCentreViewItems()"), "View ▸ View as … is in the menu")
     }
 
+    /// **⌃⌘1/2/3 are the switch's and nobody else's** (review, minor 3): the
+    /// digits are built from `keyDigit`, so the shortcut census that reads
+    /// literal keys never sees them. Cards/Book 1, Outline 2, Status 3, and no
+    /// other ⌃⌘ digit binding anywhere in the app.
+    func test_controlCommandOneTwoThreeBelongToTheSwitchAlone() throws {
+        XCTAssertEqual(CentreViewSwitch.choices(for: .book(.cards)).map(CentreViewSwitch.keyDigit(of:)),
+                       ["1", "2", "3"])
+        XCTAssertEqual(CentreViewSwitch.choices(for: .edition(.book)).map(CentreViewSwitch.keyDigit(of:)),
+                       ["1", "3"])
+        let item = try String(contentsOf: Self.source("Views/CentreViewSwitch.swift"), encoding: .utf8)
+        XCTAssertTrue(item.contains("modifiers: [.command, .control])"),
+                      "the menu items bind ⌃⌘ + the digit")
+        var offenders: [String] = []
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
+            for line in SourceScan.codeLines(of: try SourceTree.read(file))
+            where line.contains(".control") && line.contains(".command") {
+                for digit in ["\"1\"", "\"2\"", "\"3\""] where line.contains("keyboardShortcut(\(digit)") {
+                    offenders.append("\(file): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertEqual(offenders, [], "a second ⌃⌘1/2/3 binding would collide with View as …")
+    }
+
     private static func source(_ path: String) -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

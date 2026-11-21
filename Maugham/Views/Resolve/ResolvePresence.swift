@@ -150,15 +150,19 @@ enum ResolvePresence {
 
     /// **Each piece's open to-dos, for Status's column** (shell p4 Task 4),
     /// counted from the same Book-scope read as the marks — no third walk. A
-    /// figure's to-do counts on its owner (`countsOn`); the Book's own and an
-    /// unowned figure's count on no row.
+    /// figure's to-do counts on its owner (`countsOn`); the Book's own count
+    /// under `ProjectStore.projectTasksDocId`, which is no row's id — Status's
+    /// footer reads it (fix round 1) — and an unowned figure's on nothing.
     @MainActor
     static func openToDos(_ items: [ResolveItem], figureOwners: [String: String?]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for case .todo(let task) in items where task.status == .open {
             let docId = task.anchor?.docId ?? ProjectStore.projectTasksDocId
-            guard docId != ProjectStore.projectTasksDocId,
-                  let owner = ProjectStore.countsOn(docId, owners: figureOwners) else { continue }
+            if docId == ProjectStore.projectTasksDocId {
+                counts[docId, default: 0] += 1
+                continue
+            }
+            guard let owner = ProjectStore.countsOn(docId, owners: figureOwners) else { continue }
             counts[owner, default: 0] += 1
         }
         return counts

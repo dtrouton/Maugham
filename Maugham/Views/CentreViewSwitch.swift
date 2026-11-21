@@ -113,10 +113,14 @@ struct CentreViewSwitchControl: View {
 
     var body: some View {
         Picker("View", selection: Binding(get: { offer }, set: { choose($0) })) {
+            // A `Label`, icon only: the segmented control takes its title as
+            // the segment's VoiceOver name and tooltip, which a bare `Image`'s
+            // `.help` does not reliably reach.
             ForEach(CentreViewSwitch.choices(for: offer), id: \.self) { choice in
-                Image(systemName: CentreViewSwitch.symbol(of: choice))
+                Label(CentreViewSwitch.title(of: choice),
+                      systemImage: CentreViewSwitch.symbol(of: choice))
+                    .labelStyle(.iconOnly)
                     .help(CentreViewSwitch.title(of: choice))
-                    .accessibilityLabel(CentreViewSwitch.title(of: choice))
                     .tag(choice)
             }
         }

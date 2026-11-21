@@ -909,7 +909,7 @@ final class PostureSurfaceTests: XCTestCase {
         let window = TestWindow.mount(AnyView(ReviewBoardPane(
             structure: structure, passes: [boardPass],
             openNotes: [:], unreadableDocIds: [], openToDos: [:],
-            onOpenPiece: { _ in }, onOpenToDos: { _ in },
+            onOpen: { _ in }, onOpenToDos: { _ in },
             onOpenNotes: { _ in }, onNavigate: { _, _ in },
             onSetState: { _, _, _ in }, onRunRound: { _, _ in },
             posture: { _ in self.reviewer })),

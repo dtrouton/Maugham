@@ -1142,7 +1142,7 @@ private struct AltitudeCentreProbeView: View {
             openNotes: [:],
             unreadableDocIds: [],
             openToDos: [:],
-            onOpenPiece: { probe.pick(.item($0), in: store) },
+            onOpen: { probe.pick(.item($0), in: store) },
             onOpenToDos: { probe.pick(.item($0), in: store) },
             onOpenNotes: { _ in },
             onNavigate: { pieceId, _ in probe.pick(.item(pieceId), in: store) },

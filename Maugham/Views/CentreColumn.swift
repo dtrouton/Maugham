@@ -56,6 +56,9 @@ struct CentreColumn: View {
     /// to-dos (`openToDos`, written by `ResolvePresenceWatch` from the read
     /// that marks the tree — no walk of this column's own).
     let treeState: BinderTreeSectionsState
+    /// The window's ask that Status hold the keys (`chooseCentreView`'s
+    /// Status), a counter in `treeKeyboardRequest`'s pattern.
+    let statusKeyboardRequest: Int
     let researchPreviewVisible: Bool
     /// The tree's find overlay is up: Esc is its own, before the centre
     /// item's cover (`CentreItemEscape`).
@@ -105,6 +108,9 @@ struct CentreColumn: View {
     /// hold hundreds of rows. `refreshOpenNotes()` is the one writer, run from
     /// the board's `.task` and `.maughamAnnotationsChanged` — never from a body.
     @State private var openNotesCounts: [String: OpenNotesSummary] = [:]
+    /// **The Status row last opened or moved to** (fix round 1) — held here,
+    /// on the column mounted once, so Status comes back where it was left.
+    @State private var statusRemembered: String?
     @State private var openNotesUnreadable: Set<String> = []
 
     var body: some View {
@@ -422,6 +428,14 @@ struct CentreColumn: View {
         centreItem = nil
     }
 
+    /// **Whether the board is the Book's** rather than a Part's: the Book's
+    /// own to-dos are the Book's footer, never a Part's. A Part is `open`
+    /// naming a group (`ProjectWindow.altitudeScope`'s own test).
+    static func boardIsTheBooks(open: BinderSubject, structure: [StructureItem]) -> Bool {
+        guard let id = open.itemID, let item = TreeWalk.find(id: id, in: structure) else { return true }
+        return item.type != .group
+    }
+
     /// **The Book's Status view: the passes board** — over the Book's pieces,
     /// or a Part's own. Its one mount; `ProjectAltitudePane` places it.
     @ViewBuilder
@@ -440,16 +454,19 @@ struct CentreColumn: View {
             // key by the window's `ResolvePresenceWatch` — live as the marks
             // are, and no second task walk.
             openToDos: treeState.openToDos,
-            // **A row's stage or title opens the piece** — Status is an
-            // overview you navigate from (owner, 2026-11-16): the click rule,
-            // as a card's or an outline row's click.
-            onOpenPiece: { pieceId in
-                navigate(to: .item(pieceId), store: store)
+            // **A row opens the piece, or a Part** — Status is an overview
+            // you navigate from (owner, 2026-11-16): the click rule, as a
+            // card's or an outline row's click, and the row is remembered so
+            // coming back to Status finds it (`statusRemembered`).
+            onOpen: { id in
+                statusRemembered = id
+                navigate(to: .item(id), store: store)
             },
             // **A to-do count opens the piece on Mine**: the piece opens, then
             // To resolve shows with the writer's own to-dos — the request
             // waits for the opened piece's read (`ResolvePane.take`).
             onOpenToDos: { pieceId in
+                statusRemembered = pieceId
                 navigate(to: .item(pieceId), store: store)
                 showInspector = true
                 position = .resolve
@@ -470,6 +487,7 @@ struct CentreColumn: View {
             // takes `open` off the Book and uncovers the host that was mounted
             // underneath all along; no arm is torn down.
             onNavigate: { pieceId, passId in
+                statusRemembered = pieceId
                 navigate(to: .item(pieceId), store: store)
                 recordActivePass(pieceId, passId)
             },
@@ -492,7 +510,25 @@ struct CentreColumn: View {
             },
             // **Each chip asks its own piece**: the drawing door, per row, so a
             // demotion re-renders the board with no reopen.
-            posture: posture)
+            posture: posture,
+            // **The Book's own to-dos** (fix round 1), from the same read as
+            // the rows' — on the Book's board only; a Part's has no footer.
+            // Its click shows To resolve on Mine for the Book: the faces go to
+            // the Book (the centre already is it) and nothing else moves.
+            bookToDos: Self.boardIsTheBooks(open: subject.open, structure: store.manifest.structure)
+                ? treeState.openToDos[ProjectStore.projectTasksDocId] ?? 0 : nil,
+            onOpenBookToDos: {
+                navigate(to: .project, store: store)
+                showInspector = true
+                position = .resolve
+                resolveRequest = .filter(.mine)
+            },
+            // **Keeping your place**: the row last opened (or moved to) here,
+            // held by this column because the board is rebuilt each time it
+            // comes back; the faces are the fallback (`ReviewBoardKeys.current`).
+            remembered: $statusRemembered,
+            faces: subject.faces,
+            keyboardRequest: statusKeyboardRequest)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // The counts are read HERE and never in the board's body: one
             // project-wide walk when the board appears, and one per announced

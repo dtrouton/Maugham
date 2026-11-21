@@ -445,9 +445,9 @@ final class ReviewBoardPaneTests: XCTestCase {
                        + "a state the reviewer can act on, not a missing cell")
     }
 
-    /// **Group headers are rows, not chips.** Adding two groups around the same
-    /// pieces changes nothing about the chip count — the headers carry no
-    /// controls of their own (Task 8's navigation is not this task's).
+    /// **Group headers are rows, not chips — and each opens its Part** (shell
+    /// p4 Task 4 fix round). Adding three groups around the same pieces adds
+    /// exactly three controls, one heading each, and no chip.
     func test_groupHeadersAddRowsAndNoChips() async throws {
         let flat = mount(structure: [doc("ch1", "One"), doc("ch2", "Two")])
         let flatChips = try await chipsSettling(in: flat, expecting: 2 * Self.perPiece)
@@ -456,11 +456,11 @@ final class ReviewBoardPaneTests: XCTestCase {
             group("p1", "Part One", [doc("ch1", "One")]),
             group("p2", "Part Two", [group("p2a", "Act I", [doc("ch2", "Two")])]),
         ])
-        let nestedChips = try await chipsSettling(in: nested, expecting: 2 * Self.perPiece)
+        let nestedChips = try await chipsSettling(in: nested, expecting: 2 * Self.perPiece + 3)
 
-        XCTAssertEqual(nestedChips.count, flatChips.count,
-                       "the same two pieces under three group headers must "
-                       + "still be eight chips")
+        XCTAssertEqual(nestedChips.count, flatChips.count + 3,
+                       "the same two pieces under three group headers: the same "
+                       + "chips, plus one opening control per heading")
     }
 
     /// **A reference piece is chip-less** — its passes belong to the project it
@@ -822,9 +822,12 @@ final class ReviewBoardPaneTests: XCTestCase {
         }
     }
 
-    /// **A figure's to-do counts on the piece that owns it** (`countsOn`, the
-    /// notes column's rule); the Book's own to-dos and an unowned figure's
-    /// count on no row, and a done to-do on nothing.
+    /// **Where each to-do counts.** A chapter's on the chapter; the Book's own
+    /// (no anchor, or the project stream) on `ProjectStore.projectTasksDocId`,
+    /// which is the footer's count and no row's (fix round 1); a done to-do
+    /// on nothing. The figure rows guard the day a to-do can be anchored on a
+    /// figure — today `listTasksAcrossProject` produces none (review, minor 7)
+    /// — so that it then counts on its owner, as a figure's notes do.
     func test_aFiguresToDoCountsOnItsOwner() {
         func todo(_ id: String, on docId: String?, status: TaskStatus = .open) -> ResolveItem {
             .todo(WriterTask(id: id, kind: .paneCreated,
@@ -841,9 +844,9 @@ final class ReviewBoardPaneTests: XCTestCase {
             todo("t5", on: ProjectStore.projectTasksDocId),
             todo("t6", on: "ch2", status: .done),
         ], figureOwners: [owned: "ch1", unowned: nil])
-        XCTAssertEqual(counts, ["ch1": 2],
-                       "ch1's own to-do and its figure's; nothing for the Book, the "
-                       + "unowned figure, or a done to-do")
+        XCTAssertEqual(counts, ["ch1": 2, ProjectStore.projectTasksDocId: 2],
+                       "ch1's own to-do and its figure's; the Book's two for its "
+                       + "footer; nothing for the unowned figure or a done to-do")
     }
 
     /// **A row's stage and title open the piece, and a to-do count opens it on
@@ -853,12 +856,12 @@ final class ReviewBoardPaneTests: XCTestCase {
     func test_theRowAndItsToDoCountOpenThePiece() throws {
         let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
         let button = try XCTUnwrap(Self.declaration(named: "private func pieceButton(", in: source))
-        XCTAssertTrue(button.contains("onOpenPiece(item.id)"), button)
+        XCTAssertTrue(button.contains("onOpen(item.id)"), button)
         let toDos = try XCTUnwrap(Self.declaration(named: "private func openToDosCell(", in: source))
         XCTAssertTrue(toDos.contains("onOpenToDos(item.id)"), toDos)
 
-        let piece = try XCTUnwrap(SourceTree.windowText(after: "onOpenPiece: { pieceId in", length: 200))
-        XCTAssertTrue(piece.contains("navigate(to: .item(pieceId), store: store)"), piece)
+        let piece = try XCTUnwrap(SourceTree.windowText(after: "onOpen: { id in", length: 200))
+        XCTAssertTrue(piece.contains("navigate(to: .item(id), store: store)"), piece)
         let mine = try XCTUnwrap(SourceTree.windowText(after: "onOpenToDos: { pieceId in", length: 300))
         XCTAssertTrue(mine.contains("navigate(to: .item(pieceId), store: store)")
                       && mine.contains("position = .resolve")
@@ -899,6 +902,146 @@ final class ReviewBoardPaneTests: XCTestCase {
             + ReviewBoardPane.openToDosColumnWidth
         XCTAssertEqual(wide.title + CGFloat(n) * wide.pass + fixed, 1000, accuracy: 0.01,
                        "the columns fill the row exactly — no gutter, no overflow")
+    }
+
+    // MARK: - Fix round 1: keeping your place, the keys, the Book's footer
+
+    /// **Which rows the keys move over**: pieces and Parts, in board order —
+    /// never a reference row, which opens nothing here.
+    func test_theKeysMoveOverPiecesAndPartsInBoardOrder() {
+        let rows = ReviewBoardRows.derive(structure: [
+            group("p1", "Part One", [doc("ch1", "One"), doc("ref", "Elsewhere", kind: .reference)]),
+            doc("ch2", "Two"),
+        ])
+        XCTAssertEqual(ReviewBoardKeys.navigable(rows), ["p1", "ch1", "ch2"])
+    }
+
+    /// **The current row**: the one last opened or moved to, else the faces'
+    /// piece — each only when this board holds it (a Part's board never
+    /// claims a chapter outside it); otherwise none.
+    func test_theCurrentRowIsTheRememberedOneElseTheFaces() {
+        let ids = ["p1", "ch1", "ch2"]
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: "ch2", faces: .item("ch1"), in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: "gone", faces: .item("ch1"), in: ids), "ch1",
+                       "a remembered row the board no longer holds gives way to the faces")
+        XCTAssertEqual(ReviewBoardKeys.current(remembered: nil, faces: .item("p1"), in: ids), "p1")
+        XCTAssertNil(ReviewBoardKeys.current(remembered: nil, faces: .project, in: ids))
+        XCTAssertNil(ReviewBoardKeys.current(remembered: "elsewhere", faces: .item("ch9"), in: ids))
+    }
+
+    /// **↑/↓** move one row, held at the ends; with no current row ↓ lands
+    /// on the first and ↑ on the last; an empty board has none.
+    func test_theArrowsMoveOneRowAndHoldAtTheEnds() {
+        let ids = ["p1", "ch1", "ch2"]
+        XCTAssertEqual(ReviewBoardKeys.moving("ch1", by: 1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("ch1", by: -1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving("ch2", by: 1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("p1", by: -1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving(nil, by: 1, in: ids), "p1")
+        XCTAssertEqual(ReviewBoardKeys.moving(nil, by: -1, in: ids), "ch2")
+        XCTAssertEqual(ReviewBoardKeys.moving("gone", by: 1, in: ids), "p1")
+        XCTAssertNil(ReviewBoardKeys.moving(nil, by: 1, in: []))
+    }
+
+    /// **The board's keys, scroll and fill are wired to the rule**, and the
+    /// mount hands it its memory, the faces and the window's keyboard ask —
+    /// read off the sources (a key press and a wait is tripwire 33's shape).
+    func test_theKeysTheScrollAndTheFillAreWiredToTheRule() throws {
+        let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
+        for token in ["ReviewBoardKeys.current(remembered: remembered.wrappedValue,",
+                      ".onKeyPress(.downArrow)", ".onKeyPress(.upArrow)",
+                      "ReviewBoardKeys.moving(current, by: 1, in: ids)",
+                      "ReviewBoardKeys.moving(current, by: -1, in: ids)",
+                      ".onKeyPress(.return)", "onOpen(current)",
+                      "reader.scrollTo(current, anchor: .center)",
+                      ".background(fill(isCurrent: row.id == current))",
+                      ".onChange(of: keyboardRequest) { _, _ in holdsTheKeys = true }"] {
+            XCTAssertTrue(source.contains(token), "the board lost `\(token)`")
+        }
+        let group = try XCTUnwrap(Self.declaration(named: "private func groupRow(", in: source))
+        XCTAssertTrue(group.contains("onOpen(item.id)"), "a Part's heading opens the Part")
+
+        let mount = try XCTUnwrap(SourceTree.windowText(after: "remembered: $statusRemembered,", length: 120))
+        XCTAssertTrue(mount.contains("faces: subject.faces")
+                      && mount.contains("keyboardRequest: statusKeyboardRequest"), mount)
+        let open = try XCTUnwrap(SourceTree.windowText(after: "onOpen: { id in", length: 120))
+        XCTAssertTrue(open.contains("statusRemembered = id")
+                      && open.contains("navigate(to: .item(id), store: store)"), open)
+        let footer = try XCTUnwrap(SourceTree.windowText(after: "onOpenBookToDos: {", length: 200))
+        XCTAssertTrue(footer.contains("navigate(to: .project, store: store)")
+                      && footer.contains("resolveRequest = .filter(.mine)")
+                      && !footer.contains(".item("), footer)
+        XCTAssertNotNil(try SourceTree.windowText(after: "statusKeyboardRequest &+= 1", length: 1),
+                        "choosing Status asks the board to take the keys")
+    }
+
+    /// **A Part's heading opens the Part** through the click rule: with the
+    /// Book open, a Part clicked becomes what is open (its own Status).
+    func test_aPartHeadingOpensThePartThroughTheClickRule() {
+        let structure = [group("p1", "Part One", [doc("ch1", "One")])]
+        let next = ClickRule.navigate(to: .item("p1"), current: WindowSubject(open: .project, faces: .project),
+                                      structure: structure, projectType: .novel)
+        XCTAssertEqual(next.open, .item("p1"))
+        XCTAssertTrue(CentreColumn.boardIsTheBooks(open: .project, structure: structure))
+        XCTAssertFalse(CentreColumn.boardIsTheBooks(open: .item("p1"), structure: structure),
+                       "a Part's board has no Book footer")
+    }
+
+    /// **The Book's footer**: "The Book — N to-dos", singular at one, absent
+    /// at zero; mounted, it is one more control, and none at zero or on a
+    /// Part's board (`bookToDos: nil`).
+    func test_theBooksOwnToDosAreAFooterThatSaysHowMany() async throws {
+        XCTAssertNil(ReviewBoardBookToDos.label(count: 0))
+        XCTAssertEqual(ReviewBoardBookToDos.label(count: 1), "The Book \u{2014} 1 to-do")
+        XCTAssertEqual(ReviewBoardBookToDos.label(count: 3), "The Book \u{2014} 3 to-dos")
+
+        let window = mount(structure: [doc("ch1", "One")], bookToDos: 3)
+        let found = try await chipsSettling(in: window, expecting: Self.perPiece + 1)
+        XCTAssertEqual(found.count, Self.perPiece + 1, "the footer is one control")
+        let none = mount(structure: [doc("ch1", "One")], bookToDos: 0)
+        let quiet = try await chipsSettling(in: none, expecting: Self.perPiece)
+        XCTAssertEqual(quiet.count, Self.perPiece, "no footer at zero")
+    }
+
+    /// **With the footer, the fill and a Part heading**, four passes still lay
+    /// out no wider than the centre's floor.
+    func test_theFooterAndAPartStillFitTheFloor() async throws {
+        let floor = ProjectWindow.centreColumnFloor
+        let window = mount(structure: [group("p1", "Part One With A Long Name",
+                                             [doc("ch1", "A Rather Long Chapter Title Indeed")])],
+                           bookToDos: 12, remembered: "ch1", width: floor)
+        _ = try await chipsSettling(in: window, expecting: Self.perPiece + 2)
+        let host = try XCTUnwrap(window.contentView)
+        try XCTSkipUnless(abs(host.bounds.width - floor) < 1,
+                          "this display mounted a \(host.bounds.size) column, not the floor")
+        let widest = scrollViews(in: window).compactMap { $0.documentView?.frame.width }.max() ?? 0
+        XCTAssertLessThanOrEqual(widest, host.bounds.width + 0.5)
+    }
+
+    /// **Unreadable means one set** (RULING-54): every piece Status draws an
+    /// em dash for is never quiet in the tree — a ring, or a dot when
+    /// something on it is listed — and every ring is on a piece with a dash.
+    func test_theEmDashAndTheTreesRingMeanTheSamePieces() {
+        let structure = [group("p1", "Part One", [doc("ch1", "One"), doc("ch2", "Two")]),
+                         doc("ch3", "Three"), doc("ch4", "Four")]
+        let owners: [String: String?] = ["fig-aaaa1111": "ch3"]
+        let unreadable = ["ch1", "ch2", "fig-aaaa1111"]
+        let todo = ResolveItem.todo(WriterTask(id: "t", kind: .paneCreated,
+                                               anchor: TaskAnchor(docId: "ch2", paragraphId: nil),
+                                               body: "t", status: .open, priority: 0, parentTaskId: nil,
+                                               createdAt: Date(), createdBySession: nil))
+        let marks = ResolvePresence.marks(
+            ResolveSnapshot(items: [todo], sequences: [:], paragraphText: [:], unreadableDocIds: unreadable),
+            structure: structure, figureOwners: owners, sceneIndex: nil)
+        let dash = ProjectStore.unknownCounts(unreadableDocIds: unreadable, owners: owners)
+        for piece in ["ch1", "ch2", "ch3", "ch4"] {
+            let mark = ResolvePresence.rowMark(.item(piece), in: marks)
+            if dash.contains(piece) { XCTAssertNotEqual(mark, .quiet, "\(piece) has a dash and no mark") }
+            if mark == .unknown { XCTAssertTrue(dash.contains(piece), "\(piece) rings with no dash") }
+        }
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch2"), in: marks), .something, "a dot wins")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch3"), in: marks), .unknown, "its figure would not read")
+        XCTAssertEqual(ResolvePresence.rowMark(.item("ch4"), in: marks), .quiet)
     }
 
     // MARK: - Mounted: the two scrolling axes are the pane's
@@ -1106,6 +1249,8 @@ final class ReviewBoardPaneTests: XCTestCase {
                        openNotes: [String: OpenNotesSummary] = [:],
                        unreadable: Set<String> = [],
                        openToDos: [String: Int] = [:],
+                       bookToDos: Int? = nil,
+                       remembered: String? = nil,
                        width: CGFloat = 700) -> NSWindow {
         let calls = self.calls
         let window = TestWindow.mount(AnyView(
@@ -1113,7 +1258,7 @@ final class ReviewBoardPaneTests: XCTestCase {
                             openNotes: openNotes,
                             unreadableDocIds: unreadable,
                             openToDos: openToDos,
-                            onOpenPiece: { calls.openedPieces.append($0) },
+                            onOpen: { calls.openedPieces.append($0) },
                             onOpenToDos: { calls.openedToDos.append($0) },
                             onOpenNotes: { calls.opened.append($0) },
                             onNavigate: { piece, pass in
@@ -1126,7 +1271,9 @@ final class ReviewBoardPaneTests: XCTestCase {
                             onRunRound: { piece, pass in
                                 calls.runs.append(BoardClick(piece: piece, pass: pass))
                             },
-                            posture: { _ in .author })
+                            posture: { _ in .author },
+                            bookToDos: bookToDos,
+                            remembered: .constant(remembered))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: width, height: 600))
         windows.append(window)

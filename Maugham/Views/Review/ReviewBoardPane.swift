@@ -97,9 +97,11 @@ struct ReviewBoardPane: View {
     /// piece id, a figure's on its owner — a value computed off the body path
     /// (`ResolvePresence.openToDos`). An absent entry draws an empty cell.
     let openToDos: [String: Int]
-    /// A row's stage or title was clicked: open that piece (the owner's
-    /// 2026-11-16 rule — Status is an overview you navigate from).
-    let onOpenPiece: (String) -> Void
+    /// A row was opened — a piece's stage or title, a Part's heading, or
+    /// Return on the current row: open it (the owner's 2026-11-16 rule —
+    /// Status is an overview you navigate from). The id is a piece's or a
+    /// Part's; the mount routes both through the click rule.
+    let onOpen: (String) -> Void
     /// A to-do count was clicked: open the piece with To resolve on Mine.
     let onOpenToDos: (String) -> Void
     /// A count was clicked: take the writer to that piece's notes. Like
@@ -128,6 +130,21 @@ struct ReviewBoardPane: View {
     /// withholds is the menu's four rulings and its *Run round*
     /// (`ReviewBoardChipVerbs.chipMenu`).
     let posture: (String) -> Posture
+    /// **The Book's own to-dos** (fix round 1): the footer's count, `nil` on
+    /// a Part's board (they are the Book's, not the Part's). Zero draws no
+    /// footer. Its click shows To resolve on Mine for the Book.
+    var bookToDos: Int? = nil
+    var onOpenBookToDos: () -> Void = {}
+    /// **Keeping your place** (fix round 1): the row last opened from Status
+    /// or moved to with the keys — held by the mount, because the board is
+    /// rebuilt each time it comes back — and the faces, the fallback.
+    /// `ReviewBoardKeys.current` decides which row is current.
+    var remembered: Binding<String?> = .constant(nil)
+    var faces: BinderSubject = .project
+    /// Moves when the window wants the board to hold the keys (Status chosen
+    /// from the switch or the menu) — `BinderView`'s `treeKeyboardRequest`
+    /// pattern.
+    var keyboardRequest: Int = 0
 
     /// The menu behind every chip, over this pane's own closures. Built per
     /// access like `BinderView.treeVerbs`: it is closures in a wrapper and
@@ -201,28 +218,64 @@ struct ReviewBoardPane: View {
 
     // MARK: - Body
 
+    /// Whether the board holds the keys: ↑/↓ move the current row, Return
+    /// opens it. Claimed on `keyboardRequest`, or by a click on the board.
+    @FocusState private var holdsTheKeys: Bool
+
     var body: some View {
         let rows = ReviewBoardRows.derive(structure: structure)
+        let ids = ReviewBoardKeys.navigable(rows)
+        let current = ReviewBoardKeys.current(remembered: remembered.wrappedValue,
+                                              faces: faces, in: ids)
         return VStack(spacing: 0) {
             if rows.isEmpty {
                 ContentUnavailableView {
-                    Label("Nothing to review yet", systemImage: "checklist")
+                    Label("No chapters yet", systemImage: "checklist")
                 } description: {
-                    Text("Add chapters or pieces and their review passes appear here.")
+                    Text("Add chapters and Status shows where each one stands.")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                board(rows: rows)
+                board(rows: rows, current: current)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background { keyHolder(ids: ids, current: current) }
+    }
+
+    /// **The keys' holder** (`ExistingFigurePicker`'s ↑/↓ shape over a pure
+    /// rule; the wall's `.focusable()` claim). A zero-size view behind the
+    /// board rather than `.focusable()` on the board itself: wrapping the
+    /// rows in a focusable container takes their buttons out of the focus
+    /// system (measured: no row button mounts its focus-ring view).
+    private func keyHolder(ids: [String], current: String?) -> some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($holdsTheKeys)
+            .accessibilityHidden(true)
+            .onKeyPress(.downArrow) {
+                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: 1, in: ids)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: -1, in: ids)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                guard let current else { return .ignored }
+                onOpen(current)
+                return .handled
+            }
+            .onChange(of: keyboardRequest) { _, _ in holdsTheKeys = true }
     }
 
     /// The grid. `GeometryReader` is here for one reason: the content is as
     /// wide as the grid needs OR as wide as the column, whichever is greater —
     /// so a narrow column scrolls and a wide one hands its slack to the piece
     /// titles and the pass names instead of leaving a gutter of dead space.
-    private func board(rows: [ReviewBoardRows.Row]) -> some View {
+    private func board(rows: [ReviewBoardRows.Row], current: String?) -> some View {
         GeometryReader { proxy in
             let width = max(Self.intrinsicWidth(passCount: passes.count),
                             proxy.size.width)
@@ -231,19 +284,67 @@ struct ReviewBoardPane: View {
                 VStack(alignment: .leading, spacing: 0) {
                     columnHeaders(columns)
                     Divider()
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(rows) { row in
-                                rowView(row, width: width, columns: columns)
+                    // Scrolled BY ID to the current row (`ReviewBoardKeys
+                    // .current`) on arrival and as the keys move it.
+                    ScrollViewReader { reader in
+                        ScrollView(.vertical) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(rows) { row in
+                                    rowView(row, width: width, columns: columns)
+                                        .background(fill(isCurrent: row.id == current))
+                                }
+                                if let footer = ReviewBoardBookToDos.label(count: bookToDos ?? 0) {
+                                    bookToDosFooter(footer, width: width)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                        .onAppear {
+                            guard let current else { return }
+                            // After the lazy stack's first layout.
+                            DispatchQueue.main.async { reader.scrollTo(current, anchor: .center) }
+                        }
+                        .onChange(of: current) { _, next in
+                            if let next { reader.scrollTo(next) }
+                        }
                     }
                 }
                 .frame(width: width, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The current row's fill: faint, and a little stronger while the board
+    /// holds the keys, so the writer sees where ↑/↓ will start.
+    @ViewBuilder
+    private func fill(isCurrent: Bool) -> some View {
+        if isCurrent {
+            Color.accentColor.opacity(holdsTheKeys ? 0.2 : 0.1)
+        } else {
+            Color.clear
+        }
+    }
+
+    /// **The Book's own to-dos**, after the last row: a control that shows
+    /// To resolve on Mine for the Book and moves nothing in the centre.
+    private func bookToDosFooter(_ label: String, width: CGFloat) -> some View {
+        Button {
+            onOpenBookToDos()
+        } label: {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, Self.horizontalPadding)
+                .padding(.vertical, 8)
+                .frame(width: width, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ReviewBoardRowButtonStyle())
+        .help("Show the Book\u{2019}s own to-dos in To resolve")
+        .accessibilityLabel(label)
+        .padding(.top, 6)
     }
 
     private func columnHeaders(_ columns: Columns) -> some View {
@@ -287,15 +388,27 @@ struct ReviewBoardPane: View {
         }
     }
 
+    /// **A Part's heading opens the Part** (fix round 1) — its own small
+    /// Status — through the same `onOpen` as a chapter. It keeps a heading's
+    /// look; the row style gives it the hover and pressed fill a chapter row
+    /// has.
     private func groupRow(_ item: StructureItem, depth: Int, width: CGFloat) -> some View {
-        Text(item.title)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .padding(.leading, Self.horizontalPadding + Self.groupIndent * CGFloat(depth))
-            .padding(.trailing, Self.horizontalPadding)
-            .padding(.top, 10)
-            .padding(.bottom, 3)
-            .frame(width: width, alignment: .leading)
+        Button {
+            onOpen(item.id)
+        } label: {
+            Text(item.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .padding(.leading, Self.horizontalPadding + Self.groupIndent * CGFloat(depth))
+                .padding(.trailing, Self.horizontalPadding)
+                .padding(.top, 10)
+                .padding(.bottom, 3)
+                .frame(width: width, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ReviewBoardRowButtonStyle())
+        .help("Open \(item.title)")
+        .accessibilityLabel(item.title)
     }
 
     private func pieceRow(_ item: StructureItem, width: CGFloat,
@@ -315,14 +428,14 @@ struct ReviewBoardPane: View {
     }
 
     /// **The stage and the title, one control: a click opens the piece**
-    /// (`onOpenPiece`; the owner's 2026-11-16 rule). The stage is the tree's
+    /// (`onOpen`; the owner's 2026-11-16 rule). The stage is the tree's
     /// dot with its word (`ReviewStatus.derived`, `StatusSwatch`), so the
     /// row says where the piece stands before it says anything else.
     private func pieceButton(_ item: StructureItem, titleWidth: CGFloat) -> some View {
         let stage = ReviewStatus.derived(passStates: item.passStates, passes: passes,
                                          legacyStatus: item.status)
         return Button {
-            onOpenPiece(item.id)
+            onOpen(item.id)
         } label: {
             HStack(spacing: 0) {
                 HStack(spacing: 4) {
@@ -345,7 +458,7 @@ struct ReviewBoardPane: View {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ReviewBoardRowButtonStyle())
         .help("Open \(item.title)")
         .accessibilityLabel("\(item.title) — \(StatusSwatch.label(for: stage))")
     }
@@ -744,6 +857,36 @@ enum ReviewBoardOpenNotes {
         let unstamped = summary.total - accounted
         if unstamped > 0 { parts.append("\(unstamped) unstamped") }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// **A row that opens something**: plain, with a faint fill under the
+/// pointer and a stronger one while pressed — the affordance a chapter row,
+/// a Part's heading and the Book's footer share.
+struct ReviewBoardRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RowBody(configuration: configuration)
+    }
+
+    private struct RowBody: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .background(Color.primary.opacity(
+                    configuration.isPressed ? 0.12 : (hovering ? 0.05 : 0)))
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// **The Book's footer line** (fix round 1): "The Book — 3 to-dos", `nil`
+/// at zero, so a Book with none of its own draws nothing.
+enum ReviewBoardBookToDos {
+    static func label(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return "The Book \u{2014} \(count) \(count == 1 ? "to-do" : "to-dos")"
     }
 }
 

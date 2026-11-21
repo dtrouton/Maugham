@@ -1129,7 +1129,7 @@ struct ReviewCentreProbeView: View {
             openNotes: [:],
             unreadableDocIds: [],
             openToDos: [:],
-            onOpenPiece: { box.pick(.item($0), in: store) },
+            onOpen: { box.pick(.item($0), in: store) },
             onOpenToDos: { box.pick(.item($0), in: store) },
             onOpenNotes: { box.openedNotesFor.append($0) },
             onNavigate: { pieceId, passId in
