@@ -464,7 +464,7 @@ private struct AlignmentBinderProbe: View {
     @State private var subject = WindowSubject.book
 
     var body: some View {
-        BinderView(store: store, subject: $subject, treeState: treeState)
+        TreeHostFixture.binder(store: store, subject: $subject, treeState: treeState)
     }
 }
 
@@ -476,7 +476,7 @@ private struct AlignmentCollectionProbe: View {
     @State private var renaming: String?
 
     var body: some View {
-        CollectionPiecesPane(store: store, subject: $subject,
+        TreeHostFixture.collection(store: store, subject: $subject,
                              renamingItemId: $renaming, treeState: treeState)
     }
 }

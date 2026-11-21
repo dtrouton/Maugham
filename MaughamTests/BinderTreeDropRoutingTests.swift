@@ -91,7 +91,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
 
         // The fold's own bundle — the one difference from the section's is the
         // document it carries, and this is the assertion that it carries it.
-        let actions = BinderPieceFold(
+        let actions = TreeHostFixture.foldView(
             store: store, state: BinderTreeSectionsState(),
             subject: .constant(.book),
             documentId: chapter.id, layout: .rows([])).actions
@@ -352,7 +352,7 @@ final class BinderTreeDropRoutingTests: XCTestCase {
         try await store.linkResearch(researchId: ships.id, toDocumentId: chapter.id)
         let file = try makeFile(named: "charts.md", contents: "# Charts")
 
-        let actions = BinderPieceFold(
+        let actions = TreeHostFixture.foldView(
             store: store, state: state(for: store),
             subject: .constant(.book),
             documentId: chapter.id, layout: .rows([])).actions
@@ -783,7 +783,7 @@ private struct DropRoutingProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),

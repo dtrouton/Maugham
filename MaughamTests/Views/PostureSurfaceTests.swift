@@ -1518,9 +1518,9 @@ final class PostureSurfaceTests: XCTestCase {
         let h = try await makeStatementHarness()
         let a = try XCTUnwrap(TreeWalk.find(id: "doc-a", in: h.store.manifest.structure))
         let b = try XCTUnwrap(TreeWalk.find(id: "doc-b", in: h.store.manifest.structure))
-        let binder = BinderView(store: h.store, subject: .constant(.book),
+        let binder = TreeHostFixture.binderView(store: h.store, subject: .constant(.book),
                                 treeState: BinderTreeSectionsState())
-        let pieces = CollectionPiecesPane(store: h.store, subject: .constant(.book),
+        let pieces = TreeHostFixture.collectionView(store: h.store, subject: .constant(.book),
                                           renamingItemId: .constant(nil),
                                           treeState: BinderTreeSectionsState())
 

@@ -348,20 +348,20 @@ private struct CoverHost: View {
     @Bindable var probe: CoverProbe
     let model: CanvasModel
     let memory: PulledUpMemory
+    /// The window's tree state, as `RightColumn` passes it (`figureTree`).
+    let tree = BinderTreeSectionsState()
 
-    static let canvasDetailsMarker = "The canvas's details, drawn by the host"
+    static let canvasDetailsMarker = PulledUpFixture.canvasDetailsMarker
 
     var body: some View {
-        PulledUpView(
+        PulledUpFixture.view(
             store: f.store, documentStore: f.documentStore, subject: $probe.subject,
-            centreItem: nil, canvasModel: model,
-            editorControl: EditorControl(), figureListing: FigureListingModel(),
-            figureGridPresence: FigureGridPresence(), figureWindows: nil,
-            window: nil, isLocked: false, figureTree: nil,
-            bible: nil, world: nil,
+            canvasModel: model,
+            figureTree: tree,
             onOpenInCentre: { _ in },
             memory: memory,
-            canvasDetails: { AnyView(Text(Self.canvasDetailsMarker)) })
+            onShowNotes: { _ in },
+            canvasDetails: PulledUpFixture.markerDetails)
             .modifier(PulledUpHistoryWiring(
                 store: f.store, window: nil, subject: $probe.subject, memory: memory,
                 showInspector: .constant(true), position: .constant(.pulledUp),

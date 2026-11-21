@@ -269,9 +269,9 @@ final class RightColumnPaneWidthTests: XCTestCase {
         for column in [240.0, 280.0, 480.0] {
             let width = Self.paneWidth(column: column)
             for position in RightColumnPosition.allCases {
-                let control = RightColumnControl(
+                let control = RightColumnControlFixture.control(
                     store: fixture.store, position: .constant(position), subject: pulled.subject,
-                    diagnostics: nil, width: width)
+                    width: width, canvasModel: CanvasModel())
                 let (fits, measured) = Self.fits(control, in: width)
                 XCTAssertTrue(fits, "the control on \(position) wants \(measured)pt in a \(width)pt pane")
             }

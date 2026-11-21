@@ -453,7 +453,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
     func test_theScriptRowStillMountsNoDragMachinery() async throws {
         let store = try await screenplay(named: "ScriptRowControl")
         let (_, _, table) = try await hostSceneNavigator(store: store)
-        let row = try XCTUnwrap(rowIndex(of: .item("doc-1"), in: table))
+        // The script's own id, as `BinderPaneToggle` derives it — never a
+        // hand-given one (shell p4 Task 1).
+        let script = try XCTUnwrap(TreeHostFixture.sceneDocumentID(in: store))
+        let row = try XCTUnwrap(rowIndex(of: .item(script), in: table))
 
         XCTAssertFalse(hasDraggingDestination(row: row, in: table),
                        "the script row has never been a drag source — "
@@ -525,11 +528,10 @@ final class TreeTravelRowMountingTests: XCTestCase {
         return (window, probe, table)
     }
 
-    /// `documentID` is the literal `"doc-1"`, unconnected to any real
-    /// structure item — `SceneNavigatorProjectRowTests`' own vocabulary, and
-    /// the project row this test drives does not read it at all. `script:
-    /// nil` for the same reason: the project row's contract has nothing to
-    /// do with slugline content.
+    /// The script row's document is the store's own, derived as
+    /// `BinderPaneToggle` derives it (`TreeHostFixture.scenes`). `script:
+    /// nil`: the project row's contract has nothing to do with slugline
+    /// content.
     private func hostSceneNavigator(
         store: ProjectStore
     ) async throws -> (NSWindow, TreeTravelProbe, NSTableView) {
@@ -1116,7 +1118,7 @@ private struct BinderTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        BinderView(store: store, subject: probe.binding, treeState: treeState)
+        TreeHostFixture.binder(store: store, subject: probe.binding, treeState: treeState)
             .background(WindowAccessor(window: $window))
             .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
                                          store: store))
@@ -1138,7 +1140,7 @@ private struct CollectionPiecesTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        CollectionPiecesPane(store: store, subject: probe.binding,
+        TreeHostFixture.collection(store: store, subject: probe.binding,
                              renamingItemId: $renamingItemId, treeState: treeState)
             .background(WindowAccessor(window: $window))
             .modifier(TreeTravelModifier(window: window, subject: probe.binding, centreItem: .constant(nil),
@@ -1156,12 +1158,10 @@ private struct SceneNavigatorTravelProbeView: View {
     @State private var window: NSWindow?
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: nil,
-            projectTitle: "Screenplay",
             subject: probe.binding,
-            documentID: "doc-1",
             treeState: treeState,
             onSelect: { _ in })
             .background(WindowAccessor(window: $window))

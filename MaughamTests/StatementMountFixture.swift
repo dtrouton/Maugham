@@ -533,7 +533,7 @@ private struct BinderBesideThePaneProbeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store, subject: .tree(subject),
+            TreeHostFixture.binder(store: store, subject: .tree(subject),
                        treeState: treeState)
                 .frame(width: 260)
             RightColumnFixture.pane(store: store, documentStore: documentStore,

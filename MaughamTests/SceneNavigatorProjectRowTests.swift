@@ -11,18 +11,15 @@ private struct SceneNavigatorProbeView: View {
     let store: ProjectStore
     let script: FountainScript?
     let probe: BinderSubjectProbe
-    let documentID: String?
     let onSelect: (Int) -> Void
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: script,
-            projectTitle: "Screenplay",
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),
-            documentID: documentID,
             treeState: treeState,
             onSelect: onSelect)
     }
@@ -166,12 +163,14 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
     private var windows: [NSWindow] = []
     private var temp: TempDirectory!
     /// A real screenplay project, for the Research and Palette sections the
-    /// pane now carries (stage-2a Task 4). Deliberately NOT the source of
-    /// `documentID` — this suite's whole vocabulary is the literal `"doc-1"`,
-    /// and the script row's subject is an independent parameter of the pane.
-    /// The store is here for the sections, which this fixture leaves empty, so
-    /// each contributes a header and one placeholder row.
+    /// pane now carries (stage-2a Task 4), which this fixture leaves empty, so
+    /// each contributes a header and one placeholder row. **It is also the
+    /// source of the script row's document** (`scriptID`), as
+    /// `BinderPaneToggle` derives it: until shell p4 Task 1 this suite handed
+    /// the pane a literal `"doc-1"` no store held, which production never does.
     private var store: ProjectStore!
+    /// The screenplay's one document, as production derives it.
+    private var scriptID: String!
 
     override func setUp() async throws {
         temp = TempDirectory()
@@ -179,6 +178,8 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             named: "Nav-\(UUID().uuidString.prefix(6))", in: temp.url)
         store = try await ProjectStore.load(from: url)
         await store.wordCountPopulationTask?.value
+        scriptID = try XCTUnwrap(TreeHostFixture.sceneDocumentID(in: store),
+                                 "premise: a new screenplay holds its one document")
     }
 
     override func tearDown() async throws {
@@ -284,13 +285,13 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         // Row 2 — the first slugline, one below the script row.
         await click(row: 3, in: table, window: window,
                     until: { navigations.locations.count == 1
-                             && probe.subject == .item("doc-1") })
+                             && probe.subject == .item(self.scriptID) })
 
         XCTAssertEqual(navigations.locations.count, 1,
                        "the scene row must still navigate — its Button is the "
                        + "pane's whole purpose, and adding a selection to the "
                        + "List must not have eaten the click")
-        XCTAssertEqual(probe.subject, .item("doc-1"),
+        XCTAssertEqual(probe.subject, .item(scriptID),
                        "clicking a slugline while the project row holds the "
                        + "subject must restore the document — otherwise the "
                        + "centre column stays blank and there is nothing to scroll")
@@ -316,18 +317,22 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
                        + "writes through the binding when it is clicked")
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project)
-        await select(row: 2, in: table, until: { probe.subject == .item("doc-1") })
-        XCTAssertEqual(probe.subject, .item("doc-1"))
+        await select(row: 2, in: table, until: { probe.subject == .item(self.scriptID) })
+        XCTAssertEqual(probe.subject, .item(scriptID))
     }
 
     /// A screenplay with no document at all — nothing for the script row to
     /// name, so it must not be drawn. This is not a state the factory produces;
     /// it is what `documentID == nil` means, and a row tagged with a document
-    /// that does not exist would blank the centre column on click.
+    /// that does not exist would blank the centre column on click. The
+    /// document is removed from the store, so the pane derives `nil` exactly
+    /// as `BinderPaneToggle` would (shell p4 Task 1: no hand-given id).
     func test_aScreenplayWithNoDocumentDrawsNoScriptRow() async throws {
+        try await store.deleteStructureItem(id: scriptID)
+        XCTAssertNil(TreeHostFixture.sceneDocumentID(in: store), "premise: no document left")
         let probe = BinderSubjectProbe()
         let window = try await mount(AnyView(SceneNavigatorProbeView(
-            store: store, script: nil, probe: probe, documentID: nil,
+            store: store, script: nil, probe: probe,
             onSelect: { _ in })))
         let table = try XCTUnwrap(firstTableView(in: window))
 
@@ -397,10 +402,10 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
         await select(row: 0, in: table, until: { probe.subject == .project })
         XCTAssertEqual(probe.subject, .project, "precondition")
 
-        await select(row: 2, in: table, until: { probe.subject == .item("doc-1") })
+        await select(row: 2, in: table, until: { probe.subject == .item(self.scriptID) })
 
         XCTAssertEqual(
-            probe.subject, .item("doc-1"),
+            probe.subject, .item(scriptID),
             "the row directly under the project row must open the script — so "
             + "the navigator reads like every other binder: the project, then "
             + "the project's documents. A subject still on the project means "
@@ -576,7 +581,6 @@ final class SceneNavigatorProjectRowTests: XCTestCase {
             store: store,
             script: script,
             probe: probe,
-            documentID: "doc-1",
             onSelect: { navigations.locations.append($0) })))
         return (window, probe, navigations)
     }

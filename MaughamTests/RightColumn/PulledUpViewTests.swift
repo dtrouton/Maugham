@@ -617,13 +617,12 @@ final class PulledUpViewTests: XCTestCase {
                       centreItem: CentreItem? = nil) -> AnyView {
         var subject = onAPiece
         subject.beside = pulled
-        return AnyView(PulledUpView(
+        return AnyView(PulledUpFixture.view(
             store: f.store, documentStore: f.documentStore,
             subject: .constant(subject), centreItem: centreItem,
-            canvasModel: CanvasModel(), editorControl: EditorControl(),
-            figureListing: FigureListingModel(), figureGridPresence: FigureGridPresence(),
-            figureWindows: nil, window: nil, isLocked: isLocked, figureTree: nil,
-            bible: nil, world: nil, onOpenInCentre: { _ in })
+            isLocked: isLocked, figureTree: BinderTreeSectionsState(),
+            onOpenInCentre: { _ in }, memory: PulledUpMemory(), onShowNotes: { _ in },
+            canvasDetails: PulledUpFixture.markerDetails)
             .environment(f.preferences))
     }
 }
@@ -634,6 +633,9 @@ final class PulledUpViewTests: XCTestCase {
 private final class PulledUpWindowProbe {
     var subject: WindowSubject
     var centreItem: CentreItem?
+    /// The window's tree state and pulled-up memory, one each.
+    let figureTree = BinderTreeSectionsState()
+    let memory = PulledUpMemory()
     init(subject: WindowSubject) { self.subject = subject }
 }
 
@@ -654,13 +656,12 @@ private struct PulledUpBesideTheCentre: View {
                 }
             }
             .frame(width: 400)
-            PulledUpView(
+            PulledUpFixture.view(
                 store: f.store, documentStore: f.documentStore,
                 subject: $probe.subject, centreItem: probe.centreItem,
-                canvasModel: CanvasModel(), editorControl: EditorControl(),
-                figureListing: FigureListingModel(), figureGridPresence: FigureGridPresence(),
-                figureWindows: nil, window: nil, isLocked: false, figureTree: nil,
-                bible: nil, world: nil, onOpenInCentre: { _ in })
+                figureTree: probe.figureTree,
+                onOpenInCentre: { _ in }, memory: probe.memory, onShowNotes: { _ in },
+                canvasDetails: PulledUpFixture.markerDetails)
                 .frame(width: 340)
         }
     }

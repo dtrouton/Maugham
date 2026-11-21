@@ -481,6 +481,10 @@ final class ResearchRevealProbe {
     /// stands in for the window. Held here rather than inside the probe VIEW so
     /// a test can close a section before the tree is ever drawn.
     let treeState = BinderTreeSectionsState()
+    /// The window's pulled-up memory and Brief focus, as `ProjectWindow`
+    /// holds them.
+    let memory = PulledUpMemory()
+    var briefFocus: BriefField?
 
     /// **What `handleShowLatestMCPNote` and `openResearchItem` do**, in the
     /// order they do it: the subject, then the tree opened far enough to draw
@@ -538,9 +542,9 @@ private struct ResearchRevealProbeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BinderView(store: store,
-                       subject: subject,
-                       treeState: probe.treeState)
+            TreeHostFixture.binder(store: store,
+                                   subject: subject,
+                                   treeState: probe.treeState)
                 .frame(width: 280)
             centre.frame(maxWidth: .infinity, maxHeight: .infinity)
             // `ProjectWindow.detailColumn` renders nothing while the column is
@@ -550,7 +554,10 @@ private struct ResearchRevealProbeView: View {
                 RightColumnFixture.Pane {
                     RightColumnFixture.column(
                         store: store, documentStore: documentStore,
-                        subject: subject, position: position, width: 340)
+                        subject: subject, position: position,
+                        figureTree: probe.treeState, memory: probe.memory,
+                        briefFocus: Binding(get: { probe.briefFocus }, set: { probe.briefFocus = $0 }),
+                        width: 340)
                 }
                 .frame(width: 340)
             }

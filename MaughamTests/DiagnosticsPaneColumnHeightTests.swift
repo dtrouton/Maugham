@@ -27,7 +27,7 @@ private struct ThreeColumnHarness<Detail: View>: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
-            CollectionPiecesPane(
+            TreeHostFixture.collection(
                 store: store,
                 subject: .tree(Binding(get: { probe.subject },
                                          set: { probe.subject = $0 })),

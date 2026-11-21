@@ -591,6 +591,6 @@ private struct ChevronProbeView: View {
     @State private var subject = WindowSubject.book
 
     var body: some View {
-        BinderView(store: store, subject: $subject, treeState: treeState)
+        TreeHostFixture.binder(store: store, subject: $subject, treeState: treeState)
     }
 }

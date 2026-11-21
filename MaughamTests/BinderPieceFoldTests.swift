@@ -699,7 +699,7 @@ final class BinderPieceFoldTests: XCTestCase {
     ///   question; the rename tests pass the state their mounted list is over.
     private func fold(for documentId: String, in store: ProjectStore,
                       state: BinderTreeSectionsState? = nil) -> BinderPieceFold {
-        BinderPieceFold(
+        TreeHostFixture.foldView(
             store: store,
             state: state ?? BinderTreeSectionsState(),
             subject: .constant(.book),
@@ -861,7 +861,7 @@ private struct FoldBinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
+        TreeHostFixture.binder(store: store,
                    subject: .tree(Binding(get: { probe.subject },
                                             set: { probe.subject = $0 })),
                    treeState: treeState)
@@ -884,7 +884,7 @@ private struct FoldCollectionProbeView: View {
     var body: some View {
         let subject = Binding(get: { probe.subject },
                               set: { probe.subject = $0 })
-        CollectionPiecesPane(store: store, subject: .tree(subject),
+        TreeHostFixture.collection(store: store, subject: .tree(subject),
                              renamingItemId: $renaming,
                              treeState: treeState)
             .modifier(OptionalSubjectValidation(
@@ -910,7 +910,7 @@ private struct FoldAndSectionsProbeView: View {
         List(selection: BinderTreeSelection.binding(
                 subject: subject, state: state, store: store)) {
             DisclosureGroup {
-                BinderPieceFold(
+                TreeHostFixture.fold(
                     store: store, state: state, subject: subject,
                     documentId: documentId,
                     // The window's index, as the hosts look it up — rebuilt by
@@ -938,13 +938,11 @@ private struct FoldNavigatorProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nLarry sits.\n"),
-            projectTitle: store.manifest.title,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),
-            documentID: documentID,
             treeState: treeState,
             onSelect: { _ in })
     }

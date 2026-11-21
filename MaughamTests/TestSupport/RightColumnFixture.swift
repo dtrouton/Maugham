@@ -22,6 +22,14 @@ enum RightColumnFixture {
         var strains: [ResolveRequest] = []
         var briefsOpened: [BinderSubject] = []
         var centreItemsOpened: [CentreItem] = []
+        /// ⌘⌥I's or ⌘⌥N's request, as the window's `briefFocus`.
+        var briefFocus: BriefField?
+        /// The palette wall's selected card (`selectedPaletteCardId`).
+        var paletteWallCard: String?
+        /// The window's tree state and pulled-up memory — one each per
+        /// window, as `ProjectWindow` holds them in `@State`.
+        let figureTree = BinderTreeSectionsState()
+        let memory = PulledUpMemory()
 
         init(position: RightColumnPosition = .resolve, subject: WindowSubject = .book) {
             self.position = position
@@ -46,10 +54,15 @@ enum RightColumnFixture {
     /// The column, on bindings the caller holds. `canvasModel`, the figure
     /// models and the roster default to fresh, unconfigured ones — a probe
     /// that surfaces no compiler gets To resolve with no head, as a window
-    /// before its project loads does.
+    /// before its project loads does. The window's tree state, pulled-up
+    /// memory and Brief focus are the caller's: production always passes
+    /// them, so they have no default here (shell p4 Task 1).
     static func column(
         store: ProjectStore, documentStore: DocumentStore,
         subject: Binding<WindowSubject>, position: Binding<RightColumnPosition>,
+        figureTree: BinderTreeSectionsState, memory: PulledUpMemory,
+        briefFocus: Binding<BriefField?>,
+        paletteWallCard: String? = nil,
         resolveRequest: Binding<ResolveRequest?> = .constant(nil),
         editorControl: EditorControl? = nil,
         roster: AgentRoster? = nil,
@@ -101,11 +114,19 @@ enum RightColumnFixture {
             // The window's one pull-up act, as `ProjectWindow.pullUpItem`.
             pullUp: { item in
                 ProjectWindow.pullUp(item, subject: subject, showInspector: .constant(true),
-                                     position: position, memory: nil)
+                                     position: position, memory: memory)
             },
             resolveHint: resolveHint,
+            briefFocus: briefFocus,
+            drawsFigure: { [figureTree] in
+                figureTree.drawsFigure($0, projectType: store.manifest.type)
+            },
+            revealFigure: { [figureTree] in figureTree.revealFigure($0) },
+            figureTree: figureTree,
             centreItem: centreItem,
-            openInCentre: openInCentre)
+            openInCentre: openInCentre,
+            paletteWallCard: paletteWallCard,
+            pulledUpMemory: memory)
     }
 
     /// The column on a probe.
@@ -126,6 +147,9 @@ enum RightColumnFixture {
             store: store, documentStore: documentStore,
             subject: Binding(get: { probe.subject }, set: { probe.subject = $0 }),
             position: Binding(get: { probe.position }, set: { probe.position = $0 }),
+            figureTree: probe.figureTree, memory: probe.memory,
+            briefFocus: Binding(get: { probe.briefFocus }, set: { probe.briefFocus = $0 }),
+            paletteWallCard: probe.paletteWallCard,
             resolveRequest: Binding(get: { probe.resolveRequest },
                                     set: { probe.resolveRequest = $0 }),
             editorControl: editorControl, roster: roster, bible: bible, world: world,

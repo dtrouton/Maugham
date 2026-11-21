@@ -1023,19 +1023,17 @@ private struct ResearchRoutingProbeView: View {
         let subject = probe.binding
         switch tree {
         case .binder:
-            BinderView(store: store, subject: subject,
-                       treeState: treeState)
+            TreeHostFixture.binder(store: store, subject: subject,
+                                   treeState: treeState, windowCanvas: canvasModel)
         case .collection:
-            CollectionPiecesPane(store: store, subject: subject,
-                                 renamingItemId: $renaming,
-                                 treeState: treeState)
+            TreeHostFixture.collection(store: store, subject: subject,
+                                       renamingItemId: $renaming,
+                                       treeState: treeState, windowCanvas: canvasModel)
         case .navigator:
-            SceneNavigatorPane(store: store, script: script,
-                               projectTitle: store.manifest.title,
-                               subject: subject,
-                               documentID: documentID,
-                               treeState: treeState,
-                               onSelect: { _ in })
+            TreeHostFixture.scenes(store: store, script: script,
+                                   subject: subject,
+                                   treeState: treeState,
+                                   onSelect: { _ in }, windowCanvas: canvasModel)
         }
     }
 

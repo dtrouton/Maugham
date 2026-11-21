@@ -49,7 +49,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await novel()
         let chapter = try XCTUnwrap(store.manifest.structure.first)
         let state = BinderTreeSectionsState()
-        let view = BinderView(store: store, subject: .constant(.book), treeState: state)
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book), treeState: state)
 
         let openPicker = try XCTUnwrap(
             view.linkResearchVerb(for: chapter),
@@ -65,7 +65,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await novel()
         let group = try await store.addStructureItem(
             parentId: nil, title: "Part One", kind: .group)
-        let view = BinderView(store: store, subject: .constant(.book),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: group),
@@ -75,7 +75,7 @@ final class ResearchLinkPickerTests: XCTestCase {
     func test_aCollectionPieceRowOffersNoVerb() async throws {
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
-        let view = BinderView(store: store, subject: .constant(.book),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: piece),
@@ -93,7 +93,7 @@ final class ResearchLinkPickerTests: XCTestCase {
         let store = try await screenplay()
         let script = try XCTUnwrap(TreeWalk.first(
             in: store.manifest.structure, where: { $0.type == .document }))
-        let view = BinderView(store: store, subject: .constant(.book),
+        let view = TreeHostFixture.binderView(store: store, subject: .constant(.book),
                               treeState: BinderTreeSectionsState())
 
         XCTAssertNil(view.linkResearchVerb(for: script),
@@ -339,7 +339,7 @@ private struct LinkPickerBinderProbeView: View {
     let treeState: BinderTreeSectionsState
 
     var body: some View {
-        BinderView(store: store,
+        TreeHostFixture.binder(store: store,
                    subject: .tree(Binding(get: { probe.subject },
                                             set: { probe.subject = $0 })),
                    treeState: treeState)

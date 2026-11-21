@@ -88,7 +88,7 @@ final class ResearchNewTableTests: XCTestCase {
 
     private func fold(for documentId: String, _ store: ProjectStore, _ state: BinderTreeSectionsState,
                       _ subject: Subject) -> BinderPieceFold {
-        BinderPieceFold(
+        TreeHostFixture.foldView(
             store: store, state: state,
             subject: .tree(Binding(get: { subject.value }, set: { subject.value = $0 })),
             documentId: documentId,

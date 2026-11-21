@@ -1109,7 +1109,7 @@ private struct BinderSectionsProbeView: View {
     var treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
+        TreeHostFixture.binder(store: store,
                    subject: .tree(Binding(get: { probe.subject },
                                             set: { probe.subject = $0 })),
                    treeState: treeState)
@@ -1124,7 +1124,7 @@ private struct CollectionSectionsProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),
@@ -1142,13 +1142,11 @@ private struct NavigatorSectionsProbeView: View {
     var treeState = BinderTreeSectionsState()
 
     var body: some View {
-        SceneNavigatorPane(
+        TreeHostFixture.scenes(
             store: store,
             script: script,
-            projectTitle: store.manifest.title,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),
-            documentID: documentID,
             treeState: treeState,
             onSelect: { _ in })
     }

@@ -479,7 +479,7 @@ private struct DoorProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(
+        TreeHostFixture.binder(
             store: store,
             subject: Binding(get: { box.subject }, set: { box.subject = $0 }),
             treeState: treeState)

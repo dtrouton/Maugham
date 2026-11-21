@@ -23,7 +23,7 @@ private struct BinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(
+        TreeHostFixture.binder(
             store: store,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),

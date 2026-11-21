@@ -438,7 +438,7 @@ private struct IndentBinderProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        BinderView(store: store,
+        TreeHostFixture.binder(store: store,
                    subject: .tree(Binding(get: { probe.subject },
                                             set: { probe.subject = $0 })),
                    treeState: treeState)
@@ -453,7 +453,7 @@ private struct IndentCollectionProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),

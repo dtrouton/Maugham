@@ -14,7 +14,7 @@ private struct CollectionPiecesProbeView: View {
     let treeState = BinderTreeSectionsState()
 
     var body: some View {
-        CollectionPiecesPane(
+        TreeHostFixture.collection(
             store: store,
             subject: .tree(Binding(get: { probe.subject },
                                      set: { probe.subject = $0 })),

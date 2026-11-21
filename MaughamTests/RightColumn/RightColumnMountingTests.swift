@@ -394,9 +394,9 @@ final class RightColumnMountingTests: XCTestCase {
         for column in [240.0, 280.0, 480.0] {
             let pane = CGFloat(column) - RightColumn.resizeHandleWidth
             for position in RightColumnPosition.allCases {
-                let control = RightColumnControl(
+                let control = RightColumnControlFixture.control(
                     store: f.store, position: .constant(position), subject: subject,
-                    diagnostics: nil, width: pane)
+                    width: pane, canvasModel: CanvasModel())
                 let hosted = NSHostingController(rootView: control)
                 _ = hosted.view
                 let size = hosted.sizeThatFits(in: CGSize(width: pane, height: 400))
@@ -456,8 +456,9 @@ final class RightColumnMountingTests: XCTestCase {
                     && segments.contains(.pulledUp)
                 let names = RightColumnControl.showsNames(
                     paneWidth: pane, segmentCount: segments.count, pulledUpTitleDrawn: titled)
-                let control = RightColumnControl(store: f.store, position: .constant(.resolve),
-                                                 subject: subject, diagnostics: nil, width: pane)
+                let control = RightColumnControlFixture.control(
+                    store: f.store, position: .constant(.resolve),
+                    subject: subject, width: pane, canvasModel: CanvasModel())
                 let hosted = NSHostingController(rootView: control)
                 _ = hosted.view
                 let size = hosted.sizeThatFits(in: CGSize(width: pane, height: 400))
@@ -1094,7 +1095,11 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertNil(subject.beside, "Esc put the pulled-up thing away")
         XCTAssertEqual(subject.open, .item("ch-1"), "and moved nothing else")
 
-        // Through the window's arbiter, in its declared place.
+        // Through the window's arbiter, in its declared place. The count is
+        // process-wide, and an earlier suite in this worker may still hold
+        // live armed windows (the canvas-mounting family leaves eight, seen
+        // in a full gate 2026-11-21): what this test arms, it must disarm.
+        let armedBefore = WindowEscapeArbiter.armedWindowCount
         let window = TestWindow.make(contentRect: CGRect(x: 0, y: 0, width: 200, height: 200),
                                      present: .unshown)
         windows.append(window)
@@ -1113,7 +1118,8 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(arbiter.offerEscape())
         XCTAssertTrue(dimLifted, "the next Escape lifts the dim")
         arbiter.resign(.canvasDim)
-        XCTAssertEqual(WindowEscapeArbiter.armedWindowCount, 0, "nothing is left watching")
+        XCTAssertFalse(arbiter.isArmed, "nothing is left watching")
+        XCTAssertEqual(WindowEscapeArbiter.armedWindowCount, armedBefore, "nothing is left watching")
 
         // The mount: one line on the window's body.
         let source = try SourceTree.windowSource()
