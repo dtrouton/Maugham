@@ -52,6 +52,9 @@ struct CentreColumn: View {
     /// How the Book is shown — the route's input. Read only: the toolbar's
     /// switch writes it (`ProjectWindow.chooseCentreView`).
     let bookView: BookView
+    /// An edition's view (Book or Status) — the route's input, written only
+    /// by `ProjectWindow.chooseCentreView`.
+    let editionView: EditionView
     /// The window's tree state, read here for one value: Status's open
     /// to-dos (`openToDos`, written by `ResolvePresenceWatch` from the read
     /// that marks the tree — no walk of this column's own).
@@ -111,6 +114,9 @@ struct CentreColumn: View {
     /// **The Status row last opened or moved to** (fix round 1) — held here,
     /// on the column mounted once, so Status comes back where it was left.
     @State private var statusRemembered: String?
+    /// The edition's Status row last opened or moved to — its own place,
+    /// kept as the Book's is.
+    @State private var editionStatusRemembered: String?
     @State private var openNotesUnreadable: Set<String> = []
 
     var body: some View {
@@ -141,9 +147,10 @@ struct CentreColumn: View {
         // no branch.
         switch ProjectWindow.centreRoute(subject: subject,
                                          bookView: bookView,
+                                         editionView: editionView,
                                          projectType: store.manifest.type,
                                          structure: store.manifest.structure,
-                                         preview: publishCentre.preview,
+                                         preview: publishCentre.preview(for: subject.open),
                                          proposal: publishCentre.selectedProposal,
                                          round: publishCentre.selectedRound,
                                          problems: publishCentre.selectedProblems,
@@ -284,9 +291,15 @@ struct CentreColumn: View {
                     store: store,
                     view: altitude,
                     selectedSubject: facesNavigation(store: store),
-                    title: scope.title,
+                    title: Self.altitudeTitle(open: subject.open, bookTitle: scope.title),
                     structure: scope.structure) {
-                    statusBoard(store: store, structure: scope.structure)
+                    // An edition's Status is its own; the passes board is
+                    // the Book's and a Part's.
+                    if case .edition(let language) = subject.open {
+                        editionStatus(store: store, language: language)
+                    } else {
+                        statusBoard(store: store, structure: scope.structure)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -300,7 +313,7 @@ struct CentreColumn: View {
             // is (Denver's 2026-08-12 rulings 2 and 3), standing over the Book's
             // view — it takes no clicks — rather than replacing it.
             case .notice(let notice):
-                PublishCentreNoticeBanner(notice: notice)
+                EditionNoticeCover(notice: notice, bar: editionBar(store: store))
             // **An edition's surfaces**, in `publishCentre`'s order: the publish
             // problems, the round report, the design gate, the compiled book —
             // each only while `open` is an edition.
@@ -382,8 +395,18 @@ struct CentreColumn: View {
                 PublishPreviewCentre(
                     publications: publications,
                     projectURL: store.url,
-                    title: store.manifest.title,
-                    selectedPublicationID: $publishCentre.selectedPublicationID)
+                    title: Self.altitudeTitle(open: subject.open, bookTitle: store.manifest.title),
+                    selectedPublicationID: $publishCentre.selectedPublicationID,
+                    edition: editionBook,
+                    piece: Self.pieceInBook(faces: subject.faces, structure: store.manifest.structure),
+                    // The piece's paragraph order, the open-doc-else-derived
+                    // read — no load (`currentParagraphState`).
+                    sequence: { id in
+                        (try? currentParagraphState(documentId: id, store: store,
+                                                    documentStore: documentStore,
+                                                    projectURL: store.url))?.sequence
+                    },
+                    bar: editionBar(store: store))
             // **A statement or a piece's History in the centre**, over the
             // host and the Book's view like every cover, so neither remounts
             // when it comes or goes. Close clears the window's item.
@@ -409,9 +432,10 @@ struct CentreColumn: View {
     private func editorIsCovered(store: ProjectStore) -> Bool {
         let route = ProjectWindow.centreRoute(subject: subject,
                                               bookView: bookView,
+                                              editionView: editionView,
                                               projectType: store.manifest.type,
                                               structure: store.manifest.structure,
-                                              preview: publishCentre.preview,
+                                              preview: publishCentre.preview(for: subject.open),
                                               proposal: publishCentre.selectedProposal,
                                               round: publishCentre.selectedRound,
                                               problems: publishCentre.selectedProblems,
@@ -539,6 +563,94 @@ struct CentreColumn: View {
                             url: store.url, window: window) { _ in
                 refreshOpenNotes(store: store)
             }
+    }
+
+    // MARK: - The edition (shell p4 Task 5)
+
+    /// **The centre's title over an edition**: the book's, with the edition's
+    /// language — "The Novel · Spanish". The Book's and a Part's are theirs.
+    static func altitudeTitle(open: BinderSubject, bookTitle: String) -> String {
+        guard case .edition(let language) = open else { return bookTitle }
+        return "\(bookTitle) \u{00B7} \(TreeEditionRows.title(forLanguage: language))"
+    }
+
+    /// **The piece the faces are on, when it is one** — a document — for the
+    /// edition's book to go to. Anything else leaves the page alone.
+    static func pieceInBook(faces: BinderSubject, structure: [StructureItem]) -> PieceInBook? {
+        guard let id = faces.itemID, let item = TreeWalk.find(id: id, in: structure),
+              item.type == .document else { return nil }
+        return PieceInBook(id: id, title: item.title)
+    }
+
+    /// The open edition, as the book's header needs it.
+    private var editionBook: EditionBook? {
+        guard case .edition(let language) = subject.open else { return nil }
+        return EditionBook(language: language, sourceLanguage: publishCentre.sourceLanguage)
+    }
+
+    /// **Compile… and the imprint picker** for the open edition, on the
+    /// window's runner (`PublishCentreModel.compileRunner`).
+    private func editionBar(store: ProjectStore) -> EditionCompileBar? {
+        guard case .edition(let language) = subject.open else { return nil }
+        let runner = publishCentre.compileRunner
+        let imprints = publishCentre.imprints
+        return EditionCompileBar(
+            imprints: imprints,
+            selectedImprint: DepartmentPaneHost.selection(
+                persisted: documentStore.uiState.publishImprint, among: imprints),
+            selectImprint: { DepartmentPaneHost.select(imprint: $0, in: documentStore) },
+            compileRun: runner.state,
+            editionLanguage: publishCentre.isSourceEdition(subject.open) ? nil : language,
+            editions: { TreeEditionRows.languages(store: store) },
+            runCompile: { runner.start($0, projectStore: store, projectURL: store.url) },
+            cancelCompile: { runner.cancel() },
+            showProblems: { publishCentre.show(problems: runner.state.problems) })
+    }
+
+    /// **The edition's Status** — its one mount, in the altitude layer's
+    /// Status slot.
+    private func editionStatus(store: ProjectStore, language: String) -> some View {
+        let isSource = publishCentre.isSourceEdition(subject.open)
+        return EditionStatusHost(
+            store: store, language: language, isSource: isSource, window: window,
+            remembered: $editionStatusRemembered, faces: subject.faces,
+            keyboardRequest: statusKeyboardRequest,
+            // Publishing… where the tree's row menu offers it: the
+            // restructure verbs, with publishing set up.
+            publishingOffered: { item, isSetUp in
+                PieceRowMenus.items(for: item, verbs: TreeStructureVerbs.decide(for: item, in: store),
+                                    publishingIsSetUp: isSetUp).contains(.publishing)
+            },
+            onOpen: { pieceId in
+                editionStatusRemembered = pieceId
+                openFromEditionStatus(pieceId, language: language, isSource: isSource, store: store)
+            },
+            onOpenPublishing: { pieceId in
+                editionStatusRemembered = pieceId
+                treeState.pieceRowSheet = PieceRowSheet(.publishing, pieceId: pieceId)
+            })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// **A Status row opens its chapter read in this edition's language**
+    /// (Denver, 2026-11-21, answer 3): a reveal at its first paragraph, the
+    /// route that lands a piece in a language (`TranslationReveal`). The
+    /// Source edition, or an empty piece, opens the piece — Status is an
+    /// overview you navigate from, so `open` moves either way.
+    private func openFromEditionStatus(_ pieceId: String, language: String, isSource: Bool,
+                                       store: ProjectStore) {
+        let first = (try? currentParagraphState(documentId: pieceId, store: store,
+                                                documentStore: documentStore,
+                                                projectURL: store.url))?.sequence.first
+        switch EditionStatusRows.opening(pieceId: pieceId, language: language,
+                                         isSource: isSource, firstParagraph: first) {
+        case .reveal(let reveal):
+            TranslationReveal.post(reveal)
+        case .piece(let id):
+            ManuscriptNavigation.go(
+                to: ManuscriptNavigation.destination(toDocument: id, current: subject),
+                subject: $subject, centreItem: $centreItem)
+        }
     }
 
     /// **The gate's four verbs, wired to this window.** Closures rather than a

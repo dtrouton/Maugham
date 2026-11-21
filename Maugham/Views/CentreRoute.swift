@@ -23,8 +23,9 @@ enum CentreRoute: Equatable {
     case canvas
     /// A Collection's placeholder for a linked-project reference piece.
     case reference(piece: StructureItem)
-    /// The manuscript editor; over it, the Book (or a Part, or an edition's
-    /// book) in one of its views when `open` names no document
+    /// The manuscript editor; over it, the Book (or a Part, or an edition:
+    /// its Status, or Cards under its book) in one of its views when `open`
+    /// names no document
     /// (`altitudeView`); over both, at most one cover.
     ///
     /// **Altitude is its own layer rather than a cover**, so what it holds
@@ -41,7 +42,8 @@ enum CentreRoute: Equatable {
 /// **The one surface drawn over the editor and altitude**, or none — chosen
 /// here rather than by z-order. Every case but `.notice` is opaque and fills
 /// the column. Every case but `.centreItem` belongs to an edition, and each
-/// outranks it: Status is a view of the Book, never a cover.
+/// outranks it: Status is a view of the Book or an edition, never a cover,
+/// and an edition's Status is never covered by its book or notice.
 enum CentreCover: Equatable {
     /// An edition with no book: a banner saying WHICH kind of nothing it is,
     /// standing over the Book's view and taking no clicks.
@@ -73,6 +75,7 @@ extension ProjectWindow {
     /// one cover (`publishCentre`, else the centre item). Status is a view and
     /// never a cover (`CentreRouteTests`).
     static func centreRoute(subject: WindowSubject, bookView: BookView,
+                            editionView: EditionView = .book,
                             projectType: ProjectType, structure: [StructureItem],
                             preview: PublishPreviewResolution,
                             proposal: DesignProposalStore.Proposal? = nil,
@@ -104,10 +107,10 @@ extension ProjectWindow {
             break
         }
         let altitude = altitudeView(subject: subject, bookView: bookView,
-                                    structure: structure)
+                                    editionView: editionView, structure: structure)
         let cover: CentreCover?
-        switch publishCentre(subject: subject, preview: preview, proposal: proposal,
-                             round: round, problems: problems) {
+        switch publishCentre(subject: subject, editionView: editionView, preview: preview,
+                             proposal: proposal, round: round, problems: problems) {
         case .problems(let problems): cover = .publishProblems(problems)
         case .translationRound(let round): cover = .translationRound(round)
         case .designProposal(let proposal): cover = .designGate(proposal)

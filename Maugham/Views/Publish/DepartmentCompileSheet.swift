@@ -39,6 +39,21 @@ struct DepartmentCompileSheet: View {
     /// the gate exists; the writer has to say so.
     @State private var allowStale = false
 
+    /// The desk's sheet arrives with the book checked; an edition's (shell p4
+    /// Task 5, `EditionCompileAsk`) with its own language checked instead.
+    init(languages: [String], bookLanguage: String, imprint: String?,
+         initiallyIncludesBook: Bool = true, initiallySelected: Set<String> = [],
+         onCompile: @escaping (DeskCompileRunner.Request) -> Void,
+         onCancel: @escaping () -> Void) {
+        self.languages = languages
+        self.bookLanguage = bookLanguage
+        self.imprint = imprint
+        self.onCompile = onCompile
+        self.onCancel = onCancel
+        _includesBook = State(initialValue: initiallyIncludesBook)
+        _selected = State(initialValue: initiallySelected)
+    }
+
     /// **The request, in the order the bodies are rendered.** The source body
     /// leads when it is in — `LanguageSet` substitutes `bookLanguage` back to
     /// the untranslated body, so naming it here is how a source-only compile

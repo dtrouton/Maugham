@@ -47,6 +47,59 @@ final class PublishCentreModel {
     /// as the round does. Cleared when what is open changes.
     private(set) var selectedProblems: [TectonicLogParser.Diagnostic]?
 
+    // MARK: - The edition's book (shell p4 Task 5)
+
+    /// **The window's compile**, moved here from the desk's `@State`: the
+    /// edition's book header presses it, and it outlives the right column and
+    /// the desk going. One per window — what the desk's runner was per desk.
+    let compileRunner = DeskCompileRunner()
+
+    /// **The book's own tag** — `metadata.language` with no imprint
+    /// (`DepartmentPaneHost.sourceLanguage`, the tree's Source row's spelling).
+    /// Which edition is the Source, and the tag a source book's anchors carry.
+    /// Read with the catalog (`PublishPreviewModifier`).
+    var sourceLanguage = PublishConfig.Metadata().language
+
+    /// Every imprint the config declares, sorted — the header picker's rows.
+    /// Read with the catalog.
+    var imprints: [String] = []
+
+    /// **What one edition can show**: the catalog filtered to its own books
+    /// (`PublishPreviewResolver.edition`). Anything not an edition gets the
+    /// whole catalog, which `publishCentre` never draws.
+    func preview(for open: BinderSubject) -> PublishPreviewResolution {
+        guard case .edition(let language) = open else { return preview }
+        return PublishPreviewResolver.edition(preview, language: language,
+                                              sourceLanguage: sourceLanguage)
+    }
+
+    /// Whether `open` is the Source edition.
+    func isSourceEdition(_ open: BinderSubject) -> Bool {
+        guard case .edition(let language) = open else { return false }
+        return language.caseInsensitiveCompare(sourceLanguage) == .orderedSame
+    }
+
+    /// **A compile settled** (`DepartmentCompileState.settledProblems`): a
+    /// book refused or failed over the manuscript's problems covers the centre
+    /// with them; any other settle refreshes a list already showing.
+    func compileSettled(from old: DepartmentCompileState, to new: DepartmentCompileState) {
+        guard let problems = DepartmentCompileState.settledProblems(from: old, to: new) else { return }
+        if Self.coversWithProblems(new), !problems.isEmpty {
+            show(problems: problems)
+        } else {
+            refreshProblems(problems)
+        }
+    }
+
+    /// A refusal or a failure with problems to read covers the centre; a book
+    /// that landed with warnings does not (its line offers Show Problems).
+    static func coversWithProblems(_ settled: DepartmentCompileState) -> Bool {
+        switch settled.phase {
+        case .refused, .failed: return !settled.problems.isEmpty
+        case .idle, .running, .completed: return false
+        }
+    }
+
     // MARK: - The desk's Shows
 
     /// **One centre, one selection.** The gate, round and problems arms are

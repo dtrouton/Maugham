@@ -37,7 +37,8 @@ final class CentreViewSwitchTests: XCTestCase {
             XCTAssertEqual(
                 offer(open) == .none,
                 ProjectWindow.altitudeView(subject: SubjectSamples.opened(open),
-                                           bookView: .outline, structure: structure) == nil,
+                                           bookView: .outline, editionView: .book,
+                                           structure: structure) == nil,
                 "the switch and the altitude layer disagree at \(open)")
         }
     }

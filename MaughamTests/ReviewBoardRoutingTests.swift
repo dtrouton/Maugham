@@ -139,7 +139,7 @@ final class ReviewBoardRoutingTests: XCTestCase {
                         subject: subject, bookView: view,
                         structure: ProjectAltitudeCentreTests.structure),
                     ProjectWindow.altitudeView(
-                        subject: subject, bookView: view,
+                        subject: subject, bookView: view, editionView: .book,
                         structure: ProjectAltitudeCentreTests.structure) == .status,
                     "\(subject.open), \(view): the two must answer together")
             }

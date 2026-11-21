@@ -661,7 +661,7 @@ struct ProjectWindow: View {
         // never reaches the centre column.
         .modifier(PublishPreviewModifier(
             projectURL: url, window: window, subject: subject,
-            centre: publishCentre))
+            centre: publishCentre, store: store))
         .modifier(CanvasPromotionModifier(window: window, store: store,
                                           model: canvasModel, subject: subject))
         // The writer's notice that Claude added cards to their canvas, and the
@@ -750,9 +750,10 @@ struct ProjectWindow: View {
                 // The same answer `CentreColumn.editorPane` switches on.
                 Self.centreRoute(subject: subject,
                                  bookView: bookView,
+                                 editionView: editionView,
                                  projectType: store.manifest.type,
                                  structure: store.manifest.structure,
-                                 preview: publishCentre.preview,
+                                 preview: publishCentre.preview(for: subject.open),
                                  proposal: publishCentre.selectedProposal,
                                  round: publishCentre.selectedRound,
                                  problems: publishCentre.selectedProblems,
@@ -1422,7 +1423,8 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, bible: bible, window: window,
-            isLocked: isLocked, bookView: bookView, treeState: treeState,
+            isLocked: isLocked, bookView: bookView, editionView: editionView,
+            treeState: treeState,
             statusKeyboardRequest: statusKeyboardRequest,
             researchPreviewVisible: researchPreviewVisible,
             treeFindActive: treeFindActive,
@@ -1448,7 +1450,10 @@ struct ProjectWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
-                    if PublishStarter.isInitialized(in: store.url) {
+                    // Not over an edition's book: its header carries the
+                    // compile's own state and Cancel, which the pill would hide.
+                    if PublishStarter.isInitialized(in: store.url),
+                       !Self.editionBookShowsCompile(subject: subject, editionView: editionView) {
                         PublishStatusPill(
                             projectID: ProjectIdentifier.id(for: store.url),
                             projectURL: store.url)
@@ -1601,10 +1606,15 @@ struct ProjectWindow: View {
     /// no longer an edition, so the editor shows — Denver's 2026-08-12 *"a
     /// chapter/piece subject … ALWAYS opens the editor"* holds by construction.
     ///
-    /// **The edition's language is not yet a filter.** `PublishPreviewResolution`
-    /// carries the project's compiled books with no language, so every edition
-    /// shows the same book until the preview learns one.
+    /// **`preview` is the edition's own books** — the caller filters
+    /// (`PublishCentreModel.preview(for:)`), so each edition shows its own.
+    ///
+    /// **With the edition's Status shown, the book and its notice never
+    /// cover** (shell p4 Task 5): they are the edition's Book view, and Status
+    /// is the other view. The problems, the round and the gate still cover it,
+    /// in their order.
     static func publishCentre(subject: WindowSubject,
+                              editionView: EditionView = .book,
                               preview: PublishPreviewResolution,
                               proposal: DesignProposalStore.Proposal? = nil,
                               round: TranslationRound? = nil,
@@ -1616,6 +1626,7 @@ struct ProjectWindow: View {
         if let problems { return .problems(problems) }
         if let round { return .translationRound(round) }
         if let proposal { return .designProposal(proposal) }
+        guard editionView == .book else { return nil }
         switch preview {
         case .ready(let publications):
             // `.ready` is non-empty by construction (the resolver answers
@@ -1630,6 +1641,13 @@ struct ProjectWindow: View {
         case .unreadableCatalog(let reason):
             return .notice(.unreadableCatalog(reason: reason))
         }
+    }
+
+    /// **Whether the edition's book header is up** — an edition open on its
+    /// Book view, whose bar draws the compile's state and Cancel (shell p4
+    /// Task 5), so the compiling pill stands aside.
+    static func editionBookShowsCompile(subject: WindowSubject, editionView: EditionView) -> Bool {
+        subject.open.isEdition && editionView == .book
     }
 
     /// **What the toolbar's view switch offers now** (`CentreViewSwitch.offer`).
@@ -1661,6 +1679,13 @@ struct ProjectWindow: View {
         case .edition(let view):
             editionView = view
             documentStore?.updateUIState { $0.editionView = view }
+            // The edition's Status takes the keys as the Book's does.
+            if view == .status {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(30))
+                    statusKeyboardRequest &+= 1
+                }
+            }
         case .none:
             break
         }
@@ -1669,10 +1694,13 @@ struct ProjectWindow: View {
     /// **Does the centre show the passes board?** Status is the Book's third
     /// view (`BookView.status`), shown where `open` is the Book or a Part —
     /// `altitudeView`'s answer, asked rather than restated. It is never a cover
-    /// and never an edition's (an edition's Status is later work).
+    /// and never an edition's: an edition's Status is its own
+    /// (`EditionStatusView`).
     static func reviewCentreShowsBoard(subject: WindowSubject, bookView: BookView,
                                        structure: [StructureItem]) -> Bool {
-        altitudeView(subject: subject, bookView: bookView, structure: structure) == .status
+        guard !subject.open.isEdition else { return false }
+        return altitudeView(subject: subject, bookView: bookView, editionView: .book,
+                            structure: structure) == .status
     }
 
     /// **Does the centre column show the Book (or a Part) rather than a
@@ -1694,12 +1722,18 @@ struct ProjectWindow: View {
     }
 
     /// **Which of the Book's views the centre shows**, or `nil` where it shows
-    /// none. An edition's covers stand over the Book's Cards or Outline, never
-    /// over Status: the board is a Book's and a Part's.
+    /// none. An edition has its own two (`editionView`): its Book is its book
+    /// cover over the Book's Cards or Outline (never the passes board), and its
+    /// Status is `.status`, drawn as the edition's own (`CentreColumn`) and
+    /// never covered by the book (`publishCentre`).
     static func altitudeView(subject: WindowSubject, bookView: BookView,
+                             editionView: EditionView,
                              structure: [StructureItem]) -> BookView? {
         guard subjectShowsAltitude(subject: subject, structure: structure) else { return nil }
-        if case .edition = subject.open, bookView == .status { return .cards }
+        if case .edition = subject.open {
+            if editionView == .status { return .status }
+            return bookView == .status ? .cards : bookView
+        }
         return bookView
     }
 

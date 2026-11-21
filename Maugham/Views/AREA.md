@@ -12,7 +12,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — resize handle, control over one arm, hidden arm; `RightColumnToggle.swift`, toolbar button; `RightColumnControl.swift`, three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, pulled-up thing (`PulledUpRegionView.swift`, a region; `PulledUpHistory.swift`, Back); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
 - `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
-- `Maugham/Views/Publish/PublishCentreModel.swift` — what Publish's centre shows, and every rule for changing it as a named method (`publishSelection(after:)`, `adoptVerbAnswer(_:)`, …).
+- `Maugham/Views/Publish/PublishCentreModel.swift` — an edition's centre and its compile; each rule a named method.
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
@@ -152,12 +152,13 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `CompilerModelMenu.swift` — the depth picker in both homes.
 
 ### Publish (`Publish/`)
-- `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, the book preview, the notice banner, `PublishPreviewModifier`.
-- `Maugham/Views/Publish/DepartmentPane.swift` — the department desk (⌘⌥K), values in.
+- `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, an edition's book and Compile… bar, the notice cover, `PublishPreviewModifier`.
+- `Maugham/Views/Publish/EditionStatusView.swift`, `Maugham/Views/Publish/EditionStatusRows.swift` — an edition's Status.
+- `Maugham/Views/Publish/DepartmentPane.swift` — the desk (⌘⌥K).
 - `Maugham/Views/Publish/DepartmentPaneHost.swift` — the desk's disk work and verbs.
 - `Maugham/Views/Publish/DepartmentRunState.swift`, `Maugham/Views/Publish/DepartmentDesignRow.swift`, `Maugham/Views/Publish/DepartmentCompileState.swift` — the desk's run, design and compile decisions as values. **→ Compiler**
-- `Maugham/Views/Publish/DepartmentCastSheet.swift` — name / add a language / rename on the desk.
-- `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — the desk's Compile… and its runner.
+- `Maugham/Views/Publish/DepartmentCastSheet.swift` — the desk's cast sheet.
+- `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — Compile… and the window's runner.
 - `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.
 - `Maugham/Views/Publish/PublishProblemsView.swift` — Show Problems' list (`PublishProblems`), each row reveals its paragraph.
@@ -242,7 +243,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`CentreRoute`'s case order is load-bearing for view identity**: the canvas stays the fourth branch, its one mount (tripwires 27, 30; `RegionBindingTests`); `.inbox` is last.
 - **Every view or cover change happens inside `.editor(altitude:cover:)`, never as a new branch** (tripwire 6). Cards, Outline, Status are its `BookView`.
 - **`manuscriptEditor`'s `ZStack`: `EditorHost` first, always; the Book's view second whenever `open` names no document, then at most ONE cover** (`ProjectAltitudeCentreTests`).
-- **The Book's view is `altitudeView`'s answer**: the Book, a Part (`altitudeScope`) or an edition (never Status). Status is a view, never a cover; the board's one mount is `statusBoard`.
+- **The Book's view is `altitudeView`'s answer**: the Book, a Part (`altitudeScope`) or an edition (its own Status). Status is a view, never a cover nor covered by a book; the board's one mount is `statusBoard`.
 - **Covers, in order: an edition's** (`publishCentre`, whatever the faces are on: problems, a round, a proposal, the book), then a centre item.
 - **A covered editor never holds the keys** (`CentreKeys`); a place closes the centre item first.
 - **A click on a piece while the canvas or an edition is the centre moves the faces, never `open`** (`ClickRule`).

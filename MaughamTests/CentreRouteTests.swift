@@ -259,7 +259,8 @@ final class CentreRouteTests: XCTestCase {
                     guard case .editor(let altitude, _) = Self.route(subject, view, publish)
                     else { continue }
                     XCTAssertEqual(altitude, ProjectWindow.altitudeView(
-                        subject: subject, bookView: view, structure: Self.structure),
+                        subject: subject, bookView: view, editionView: .book,
+                        structure: Self.structure),
                         "\(subject.open), \(view), \(publish)")
                 }
             }
@@ -457,7 +458,7 @@ final class CentreRouteTests: XCTestCase {
                     .background(Color.white)
                 }
                 switch cover {
-                case .notice(let notice): PublishCentreNoticeBanner()
+                case .notice(let notice): EditionNoticeCover()
                 case .books(let publications): PublishPreviewCentre()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
@@ -486,7 +487,7 @@ final class CentreRouteTests: XCTestCase {
                 case .reviewBoard: ReviewBoardPane()
                 case .books(let publications):
                     PublishPreviewCentre()
-                    PublishCentreNoticeBanner()
+                    EditionNoticeCover()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
                 case .publishProblems(let problems): PublishProblemsView()
@@ -499,8 +500,8 @@ final class CentreRouteTests: XCTestCase {
         XCTAssertEqual(CentreRouteSource.stackFaults(in: layered),
                        ["asks Self.reviewCentreShowsBoard( itself",
                         "the board is a cover: ReviewBoardPane( is mounted in the stack",
-                        "PublishCentreNoticeBanner( is not mounted in the `.notice` arm",
-                        "PublishCentreNoticeBanner( is mounted outside the `.notice` arm"])
+                        "EditionNoticeCover( is not mounted in the `.notice` arm",
+                        "EditionNoticeCover( is mounted outside the `.notice` arm"])
 
         // Altitude moved into the cover switch: its identity would follow the
         // cover, which is the remount this layer exists to avoid.
@@ -511,7 +512,7 @@ final class CentreRouteTests: XCTestCase {
                 switch cover {
                 case .notice(let notice):
                     ProjectAltitudePane().background(Color.white)
-                    PublishCentreNoticeBanner()
+                    EditionNoticeCover()
                 case .books(let publications): PublishPreviewCentre()
                 case .designGate(let proposal): DesignGateView()
                 case .translationRound(let round): TranslationRoundReportHost()
@@ -635,7 +636,9 @@ enum CentreRouteSource {
 
     /// Each cover case, and the surface its arm must mount.
     static let covers: [(cover: String, view: String)] = [
-        ("notice", "PublishCentreNoticeBanner("),
+        // The notice arm mounts the edition's bar over the banner (shell p4
+        // Task 5); the banner itself is mounted inside it.
+        ("notice", "EditionNoticeCover("),
         ("books", "PublishPreviewCentre("),
         ("designGate", "DesignGateView("),
         ("translationRound", "TranslationRoundReportHost("),
@@ -782,5 +785,203 @@ enum CentreRouteSource {
             }
         }
         return faults
+    }
+}
+
+// MARK: - The edition's centre (shell p4 Task 5)
+
+@MainActor
+final class EditionCentreTests: XCTestCase {
+
+    private static let day = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private static func book(_ version: String, _ language: String?, newer by: Double) -> Publication {
+        PublishPreviewCentreTests.publication(
+            version: version, outputPath: "exports/\(version).pdf",
+            compiledAt: day.addingTimeInterval(by), language: language)
+    }
+
+    /// Newest first, as the resolver hands them: a Spanish book, a bilingual
+    /// one, the plain source book, a Serbian one.
+    static let spanish = book("1.3", "es", newer: 4)
+    static let bilingual = book("1.2", "en+sr", newer: 3)
+    static let source = book("1.1", nil, newer: 2)
+    static let serbian = book("1.0", "SR", newer: 1)
+    static let catalog = PublishPreviewResolution.ready(newestFirst: [spanish, bilingual, source, serbian])
+
+    private func shown(_ language: String) -> [Publication] {
+        PublishPreviewResolver.edition(Self.catalog, language: language, sourceLanguage: "en")
+            .publications
+    }
+
+    func test_eachEditionShowsOnlyItsOwnBooks() {
+        XCTAssertEqual(shown("es"), [Self.spanish])
+        // A bilingual book is in each of its languages' editions; a tag is
+        // matched without case.
+        XCTAssertEqual(shown("sr"), [Self.bilingual, Self.serbian])
+        // An edition with no book of its own has never been compiled — the
+        // notice is true per edition.
+        XCTAssertEqual(PublishPreviewResolver.edition(Self.catalog, language: "fr", sourceLanguage: "en"),
+                       .nothingCompiled)
+        // The unreadable catalog stays unreadable, whatever the edition.
+        XCTAssertEqual(PublishPreviewResolver.edition(PublishPreviewCentreTests.unreadable,
+                                                      language: "es", sourceLanguage: "en"),
+                       PublishPreviewCentreTests.unreadable)
+    }
+
+    func test_theSourceEditionShowsTheUntranslatedBooks() {
+        XCTAssertEqual(shown("en"), [Self.bilingual, Self.source])
+        XCTAssertEqual(shown("EN"), [Self.bilingual, Self.source], "the Source matched without case")
+    }
+
+    /// The tag a book's body carries — the `<tag>` of its anchors.
+    func test_theBodyTagIsTheCompilesOwnSpelling() {
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.serbian, edition: "sr", sourceLanguage: "en"), "SR")
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.bilingual, edition: "en", sourceLanguage: "en"), "en")
+        XCTAssertEqual(PublishPreviewResolver.bodyTag(of: Self.source, edition: "en", sourceLanguage: "en"), "en")
+        XCTAssertNil(PublishPreviewResolver.bodyTag(of: Self.source, edition: "es", sourceLanguage: "en"))
+    }
+
+    /// **The window's centre asks for the edition's own books** — the model
+    /// filters, so the route the window draws is per edition.
+    func test_theCentreDrawsTheOpenEditionsBooks() {
+        let model = PublishCentreModel()
+        model.publishSelection(after: Self.catalog)
+        model.sourceLanguage = "en"
+        func cover(_ language: String) -> CentreCover? {
+            let subject = SubjectSamples.opened(.edition(language: language))
+            guard case .editor(_, let cover) = ProjectWindow.centreRoute(
+                subject: subject, bookView: .cards, editionView: .book, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: model.preview(for: subject.open))
+            else { return nil }
+            return cover
+        }
+        XCTAssertEqual(cover("es"), .books([Self.spanish]))
+        XCTAssertEqual(cover("en"), .books([Self.bilingual, Self.source]))
+        XCTAssertEqual(cover("fr"), .notice(.neverCompiled))
+        XCTAssertTrue(model.isSourceEdition(.edition(language: "EN")))
+        XCTAssertFalse(model.isSourceEdition(.edition(language: "es")))
+        XCTAssertEqual(model.preview(for: .project), Self.catalog, "nothing but an edition is filtered")
+    }
+
+    /// **Status is a view, never covered by the Book or its notice** — the
+    /// problems, the round and the gate still cover it, in their order.
+    func test_statusIsNeverCoveredByTheBookOrItsNotice() {
+        let subject = SubjectSamples.opened(.edition(language: "es"))
+        for state in CentreRouteTests.PublishState.allCases {
+            let route = ProjectWindow.centreRoute(
+                subject: subject, bookView: .cards, editionView: .status, projectType: .novel,
+                structure: CentreRouteTests.structure, preview: state.preview,
+                proposal: state.proposal, round: state.round)
+            guard case .editor(let altitude, let cover) = route else {
+                return XCTFail("an edition's Status is the editor's altitude layer: \(route)")
+            }
+            XCTAssertEqual(altitude, .status, "\(state)")
+            switch cover {
+            case .books, .notice:
+                XCTFail("\(state): the book or its notice covered the edition's Status")
+            case .some(.translationRound):
+                XCTAssertTrue(state == .round || state == .proposalAndRound, "\(state)")
+            case .some(.designGate):
+                XCTAssertEqual(state, .proposal)
+            case .none:
+                XCTAssertTrue([.nothingCompiled, .unreadable, .compiled].contains(state), "\(state)")
+            default:
+                XCTFail("\(state): \(String(describing: cover))")
+            }
+        }
+        // The problems list still covers it.
+        let problems = [TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: "x", contextLines: [])]
+        if case .editor(_, let cover) = ProjectWindow.centreRoute(
+            subject: subject, bookView: .cards, editionView: .status, projectType: .novel,
+            structure: CentreRouteTests.structure, preview: .nothingCompiled, problems: problems) {
+            XCTAssertEqual(cover, .publishProblems(problems))
+        }
+        // …and the edition's Book view is still covered by its book.
+        if case .editor(let altitude, let cover) = ProjectWindow.centreRoute(
+            subject: subject, bookView: .outline, editionView: .book, projectType: .novel,
+            structure: CentreRouteTests.structure, preview: .ready(newestFirst: [Self.spanish])) {
+            XCTAssertEqual(altitude, .outline)
+            XCTAssertEqual(cover, .books([Self.spanish]))
+        }
+        // An edition's Status is never the passes board.
+        XCTAssertFalse(ProjectWindow.reviewCentreShowsBoard(
+            subject: subject, bookView: .status, structure: CentreRouteTests.structure))
+    }
+
+    /// **The compile runs on the window** — the desk owns none of its own, so
+    /// the compile survives the column and the desk going.
+    func test_theCompileRunnerLivesOnTheWindow() throws {
+        let desk = try SourceTree.read("Maugham/Views/Publish/DepartmentPaneHost.swift")
+        XCTAssertFalse(desk.contains("DeskCompileRunner()"), "the desk constructs no runner")
+        let model = try SourceTree.read("Maugham/Views/Publish/PublishCentreModel.swift")
+        XCTAssertTrue(model.contains("let compileRunner = DeskCompileRunner()"))
+        // The one constructor in the app's sources.
+        let constructions = try SourceTree.sources(under: "Maugham")
+            .filter { $0.text.contains("DeskCompileRunner()") }.map(\.path)
+        XCTAssertEqual(constructions.map { ($0 as NSString).lastPathComponent }, ["PublishCentreModel.swift"])
+    }
+
+    /// **A compile that settles over the manuscript's problems covers the
+    /// centre with them**; one that landed with warnings does not.
+    func test_aRefusalOverProblemsCoversTheCentre() {
+        let problem = TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: "broken",
+                                                  contextLines: [], pieceID: "c1")
+        let running = DepartmentCompileState(phase: .running(format: .pdf, languages: [], imprint: nil),
+                                             isRunning: true)
+        let refused = DepartmentCompileState(phase: .refused("no"), isRunning: false,
+                                             problems: [problem], judgedTheManuscript: true)
+        let model = PublishCentreModel()
+        model.compileSettled(from: running, to: refused)
+        XCTAssertEqual(model.selectedProblems, [problem])
+
+        let landed = DepartmentCompileState(phase: .completed(EditionCentreTests.spanish),
+                                            isRunning: false, problems: [problem])
+        let other = PublishCentreModel()
+        other.compileSettled(from: running, to: landed)
+        XCTAssertNil(other.selectedProblems, "a book with warnings offers Show Problems; it does not cover")
+    }
+
+    /// **Compile… from an edition** asks with that edition checked.
+    func test_compileFromAnEditionChecksThatEdition() {
+        let spanish = EditionCompileAsk.make(editions: ["en", "es", "sr"], edition: "es")
+        XCTAssertEqual(spanish.languages, ["es", "sr"])
+        XCTAssertEqual(spanish.bookLanguage, "en")
+        XCTAssertFalse(spanish.includesBook)
+        XCTAssertEqual(spanish.selected, ["es"])
+        let source = EditionCompileAsk.make(editions: ["en", "es"], edition: nil)
+        XCTAssertTrue(source.includesBook)
+        XCTAssertEqual(source.selected, [])
+    }
+
+    /// **Nothing in the edition's Status is wider than the centre's floor.**
+    func test_theEditionsStatusFitsTheCentresFloor() {
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: false),
+                                 ProjectWindow.centreColumnFloor)
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: true),
+                                 ProjectWindow.centreColumnFloor)
+    }
+
+    /// **The page goes where the faced piece starts, once per (book, page).**
+    func test_thePageIsGoneToOncePerAsk() {
+        let url = URL(fileURLWithPath: "/tmp/book.pdf")
+        XCTAssertFalse(PDFPreview.shouldGo(to: nil, in: url, applied: nil))
+        XCTAssertTrue(PDFPreview.shouldGo(to: 3, in: url, applied: nil))
+        XCTAssertFalse(PDFPreview.shouldGo(to: 3, in: url, applied: (url, 3)))
+        XCTAssertTrue(PDFPreview.shouldGo(to: 5, in: url, applied: (url, 3)))
+        XCTAssertTrue(PDFPreview.shouldGo(to: 3, in: URL(fileURLWithPath: "/tmp/other.pdf"),
+                                          applied: (url, 3)))
+    }
+
+    /// The faces on a document is the piece the book goes to; anything else
+    /// leaves the page.
+    func test_onlyADocumentOnTheFacesMovesTheBook() {
+        let doc = StructureItem(id: "c1", title: "One", type: .document, path: "one.md")
+        let part = StructureItem(id: "p1", title: "Part", type: .group, children: [doc])
+        XCTAssertEqual(CentreColumn.pieceInBook(faces: .item("c1"), structure: [part]),
+                       PieceInBook(id: "c1", title: "One"))
+        XCTAssertNil(CentreColumn.pieceInBook(faces: .item("p1"), structure: [part]))
+        XCTAssertNil(CentreColumn.pieceInBook(faces: .project, structure: [part]))
+        XCTAssertEqual(PiecePlace.notInBookLine("One"), "One is not in this book")
     }
 }

@@ -2088,7 +2088,8 @@ final class DepartmentRunTests: XCTestCase {
                                        // wait for ever.
                                        runLog: fixture.runLog,
                                        pipeline: pipeline ?? fixture.pipeline,
-                                       onShowRound: onShowRound)
+                                       onShowRound: onShowRound,
+                                       compileRunner: DeskCompileRunner())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)),
             size: CGSize(width: 340, height: 600))
         windows.append(window)

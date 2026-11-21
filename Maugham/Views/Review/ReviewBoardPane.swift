@@ -249,26 +249,9 @@ struct ReviewBoardPane: View {
     /// rows in a focusable container takes their buttons out of the focus
     /// system (measured: no row button mounts its focus-ring view).
     private func keyHolder(ids: [String], current: String?) -> some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .focusable()
-            .focusEffectDisabled()
-            .focused($holdsTheKeys)
-            .accessibilityHidden(true)
-            .onKeyPress(.downArrow) {
-                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: 1, in: ids)
-                return .handled
-            }
-            .onKeyPress(.upArrow) {
-                remembered.wrappedValue = ReviewBoardKeys.moving(current, by: -1, in: ids)
-                return .handled
-            }
-            .onKeyPress(.return) {
-                guard let current else { return .ignored }
-                onOpen(current)
-                return .handled
-            }
-            .onChange(of: keyboardRequest) { _, _ in holdsTheKeys = true }
+        StatusKeyHolder(ids: ids, current: current, remembered: remembered,
+                        keyboardRequest: keyboardRequest, onOpen: onOpen,
+                        holdsTheKeys: $holdsTheKeys)
     }
 
     /// The grid. `GeometryReader` is here for one reason: the content is as

@@ -24,6 +24,7 @@ enum CentreViewSwitch {
     static func offer(subject: WindowSubject, bookView: BookView, editionView: EditionView,
                       structure: [StructureItem]) -> Offer {
         guard ProjectWindow.altitudeView(subject: subject, bookView: bookView,
+                                         editionView: editionView,
                                          structure: structure) != nil else { return .none }
         if case .edition = subject.open { return .edition(editionView) }
         return .book(bookView)

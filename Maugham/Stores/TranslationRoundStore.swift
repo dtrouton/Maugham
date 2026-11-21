@@ -120,6 +120,12 @@ struct TranslationRoundStore {
         load(language: language).rounds.filter { $0.docId == docId }.map(\.noteCount)
     }
 
+    /// `trend(language:docId:)` for every piece in one read, keyed by docId —
+    /// what an edition's Status asks (shell p4 Task 5), never once per row.
+    func trendsByPiece(language: String) -> [String: [Int]] {
+        load(language: language).rounds.reduce(into: [:]) { $0[$1.docId, default: []].append($1.noteCount) }
+    }
+
     /// Append one round, advance the number past it, trim the ring. A
     /// finished round also becomes its piece's latest; a cancelled one goes
     /// to the ring only.

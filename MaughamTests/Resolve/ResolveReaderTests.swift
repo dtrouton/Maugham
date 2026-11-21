@@ -402,6 +402,12 @@ final class ResolveReaderTests: XCTestCase {
         for name in names {
             sources[name] = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
         }
+        // The edition's Status readers (shell p4 Task 5) read store-level
+        // sources too.
+        for name in ["EditionStatusRows.swift", "EditionStatusView.swift"] {
+            sources[name] = try String(contentsOf: repo.appendingPathComponent(
+                "Maugham/Views/Publish/\(name)"), encoding: .utf8)
+        }
         XCTAssertEqual(Self.offenders(in: sources), [])
 
         // The planted offender: every forbidden spelling is caught.

@@ -947,7 +947,10 @@ final class ReviewBoardPaneTests: XCTestCase {
     /// mount hands it its memory, the faces and the window's keyboard ask —
     /// read off the sources (a key press and a wait is tripwire 33's shape).
     func test_theKeysTheScrollAndTheFillAreWiredToTheRule() throws {
+        // The keys' holder is shared with the edition's Status (shell p4
+        // Task 5), so it lives beside the rule it asks.
         let source = try Self.source(of: "Views/Review/ReviewBoardPane.swift")
+            + Self.source(of: "Views/Review/ReviewBoardRows.swift")
         for token in ["ReviewBoardKeys.current(remembered: remembered.wrappedValue,",
                       ".onKeyPress(.downArrow)", ".onKeyPress(.upArrow)",
                       "ReviewBoardKeys.moving(current, by: 1, in: ids)",
@@ -955,7 +958,7 @@ final class ReviewBoardPaneTests: XCTestCase {
                       ".onKeyPress(.return)", "onOpen(current)",
                       "reader.scrollTo(current, anchor: .center)",
                       ".background(fill(isCurrent: row.id == current))",
-                      ".onChange(of: keyboardRequest) { _, _ in holdsTheKeys = true }"] {
+                      ".onChange(of: keyboardRequest) { _, _ in holdsTheKeys.wrappedValue = true }"] {
             XCTAssertTrue(source.contains(token), "the board lost `\(token)`")
         }
         let group = try XCTUnwrap(Self.declaration(named: "private func groupRow(", in: source))

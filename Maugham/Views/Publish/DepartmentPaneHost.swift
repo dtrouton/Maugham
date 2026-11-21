@@ -77,9 +77,11 @@ struct DepartmentPaneHost: View {
     /// the same way. The problems travel from this host's own runner state, so
     /// the list and the desk's line are one value.
     var onShowProblems: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
-    /// **A desk compile settled** (fix round 1, I3) — its problems, so an open
-    /// list in the centre follows the newest compile rather than going stale.
-    var onCompileSettled: ([TectonicLogParser.Diagnostic]) -> Void = { _ in }
+    /// **The window's compile** (shell p4 Task 5): the desk presses the same
+    /// runner the edition's book header does (`PublishCentreModel
+    /// .compileRunner`), so the compile outlives the column and its settle is
+    /// observed once, by the window (`PublishPreviewModifier`).
+    let compileRunner: DeskCompileRunner
 
     @State private var languages: [EditionStatus.LanguageRow] = []
     /// **Every chapter the language walk could not open** (issue #43, F-D) —
@@ -125,17 +127,6 @@ struct DepartmentPaneHost: View {
     /// writer leaves the pane mid-walk.
     @State private var refreshes = 0
 
-    /// **The desk's own compile** (imprints P3 Task 5), owned here rather than
-    /// by the window — unlike the translator and the designer above.
-    ///
-    /// Those two hold a WARM `claude -p` session whose only reaper is the
-    /// window (`DesignerOrchestrator.shutdown()`'s contract); this holds a
-    /// `Task` around an orchestrator, and a compile abandoned by a closing pane
-    /// is a job the shared `PublishingStores` still knows about — the same
-    /// place an MCP compile lives. So there is nothing here for a window to
-    /// tear down, and a `@State` runner keeps the press beside the surface that
-    /// draws it.
-    @State private var compileRunner = DeskCompileRunner()
     /// Every imprint this project's `config.json` declares, sorted — the
     /// picker's rows. Derived off the body path with the language rows,
     /// because reading the config is disk work (tripwire 4).
@@ -396,13 +387,6 @@ struct DepartmentPaneHost: View {
             showProblems: { onShowProblems(compileRunner.state.problems) },
             bookLanguage: bookLanguage)
         .task(id: reloadKey) { await derive() }
-        // The one moment a compile's answer is new: running → settled. What
-        // counts as settling is `DepartmentCompileState.settledProblems`.
-        .onChange(of: compileRunner.state) { old, new in
-            if let problems = DepartmentCompileState.settledProblems(from: old, to: new) {
-                onCompileSettled(problems)
-            }
-        }
         // **The open chapter's own pre-flight, on a key of its own.**
         //
         // It cannot live in `derive()`: that pass's key must not carry the

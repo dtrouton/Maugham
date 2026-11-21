@@ -61,15 +61,15 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `PublicationStore.swift` — the catalogue, append-only JSONL partitioned per device. Tripwire 17.
 - `PublicationSnapshot.swift`, `PublicationSnapshotStore.swift` — the frozen publish tree a publication was compiled from; snapshot ids are validated against path escape.
 - `Republisher.swift` — recompiles a publication from its snapshot under a fresh `-r` suffix; refuses a Word file (R-S8).
-- `PublishToolchain.swift` — the Maugham and tectonic versions every `Publication` is stamped with.
+- `PublishToolchain.swift` — the Maugham and tectonic versions stamped on every `Publication`.
 - `PreviewCompiler.swift` — the subset preview compile into `build/preview/`, never `Exports/`; the piece filters.
-- `PublishPreviewResolver.swift` — what an open edition's centre shows, and why.
+- `PublishPreviewResolver.swift` — what an open edition's centre shows (its own books), and why; `PDFAnchors.swift`, an anchor's page.
 - `PublishStarter.swift` — copies the bundled starter (`Maugham/Resources/PublishStarter/`) into `.maugham/publish/`; a Report takes the `report/` overrides (template, frontmatter, prose, config), chosen from the manifest on disk. `PDFCompiler` decides a Report's paper (Word's page rule) at each compile, and every compiler asks `PublishContext.reportTitled` for its "Untitled" title fallback, never for another book (R-S7).
 
 ### Tectonic
 - `TectonicLocator.swift` — finds the bundled binary in the app's `Resources/bin`.
-- `TectonicInvoker.swift` — spawns tectonic for one `.tex`, with a combined log and cancellation.
-- `TectonicLogParser.swift` — log → warnings and errors (`Diagnostic`).
+- `TectonicInvoker.swift` — spawns tectonic for one `.tex`; combined log, cancellation.
+- `TectonicLogParser.swift` — log → `Diagnostic`s.
 - `TectonicCache.swift` — the package cache, per build variant through `BuildVariant`. Tripwire 13.
 
 ### The design gate
@@ -122,7 +122,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - **The department's people run on the compiler's rails, not here**: the desk (⌘⌥K) runs a named translator per language (`ProductionRole`, with a blind reader and a collator beside each) and a named designer (Tschichold) as confined `claude -p` sessions through `TranslatorOrchestrator`/`DesignerOrchestrator`, conformers over `CompilerOrchestrator`'s shape (`Maugham/Compiler/AREA.md`). A translation Run drives a seven-leg round per piece or for the whole book in binder order; its report (`PublishCentre.translationRound`) and the design gate (`.designProposal`) are arms of the one `publishCentre` switch (`Maugham/Views/AREA.md`).
 - **The round report is written to the author in their own language**, and every verb on it is pressable without reading the target language.
 - **A design Run proposes a spec, complete templates and compiled sample pages**, staged as described below.
-- **The desk's Compile… is the MCP `compile`**: the same orchestrator, mint gate and coverage gate.
+- **Compile… (an edition's book) is the MCP `compile`**: the same orchestrator, mint gate and coverage gate.
 - **A translated compile must not ship a translation that lags its source**: `TranslationCoverage.check` walks the same pieces as `ProjectStoreASTSource.orderedPieces()` and blocks.
 - **`EditionStatus` is the one derivation of a book's editions**: a stored `.translator` role is a third source of its language union beside translation files and open queries, so `translation_status` reports a role-only edition too.
 - **Everybody on a book is named through one sheet**: `DepartmentCastSheet` calls `translatorRole(for:)` and `renameProductionRole`; there is no other way to name a cast member.

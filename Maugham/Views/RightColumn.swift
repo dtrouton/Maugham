@@ -585,6 +585,6 @@ struct RightColumnDesk: View {
                            onShowProposal: { publishCentre.show(proposal: $0) },
                            onShowRound: { publishCentre.show(round: $0) },
                            onShowProblems: { publishCentre.show(problems: $0) },
-                           onCompileSettled: { publishCentre.refreshProblems($0) })
+                           compileRunner: publishCentre.compileRunner)
     }
 }

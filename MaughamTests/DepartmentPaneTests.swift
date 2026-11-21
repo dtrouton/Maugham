@@ -1054,7 +1054,8 @@ final class DepartmentPaneTests: XCTestCase {
         let fixture = try await makeProject()
         let host = DepartmentPaneHost(store: fixture.projectStore,
                                       documentStore: fixture.documentStore,
-                                      projectURL: fixture.projectURL)
+                                      projectURL: fixture.projectURL,
+                                      compileRunner: DeskCompileRunner())
         let onTheBook = host.reloadKey
 
         DepartmentPaneHost.select(imprint: "special", in: fixture.documentStore)

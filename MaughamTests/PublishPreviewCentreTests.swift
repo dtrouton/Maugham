@@ -517,11 +517,11 @@ final class PublishPreviewCentreTests: XCTestCase {
     /// the board is a Book's and a Part's view.
     func test_anEditionStandsOverTheBooksCardsOrOutline() {
         let edition = SubjectSamples.opened(.edition(language: "es"))
-        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .outline,
+        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .outline, editionView: .book,
                                                   structure: Self.oneDocument), .outline)
-        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .cards,
+        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .cards, editionView: .book,
                                                   structure: Self.oneDocument), .cards)
-        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .status,
+        XCTAssertEqual(ProjectWindow.altitudeView(subject: edition, bookView: .status, editionView: .book,
                                                   structure: Self.oneDocument), .cards)
     }
 
