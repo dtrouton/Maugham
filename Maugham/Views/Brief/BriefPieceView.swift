@@ -2,9 +2,10 @@ import SwiftUI
 import MaughamCore
 
 /// **A piece's Brief**, in the fixed order Denver approved (spec "Brief"):
-/// the line, Going for, Decided, then Details (appraisal 7), two quiet lines
-/// — From the book and What Claude has read — and at the foot the empty
-/// fold's hint and History (appraisal 6).
+/// the line, Going for, Decided (only once something is filed), two quiet
+/// lines — From the book and What Claude has read — and the foot: the set
+/// values and History on one quiet line (`BriefFoot`; Denver, 2026-11-21).
+/// A brand-new chapter's Brief is the line, Going for and that one line.
 ///
 /// **Reading without loading, and editing too.** Everything here is a
 /// manifest write (the line) or a statement write (the intent, a decision, a
@@ -25,8 +26,8 @@ struct BriefPieceView: View {
     var onOpenBrief: ((BinderSubject) -> Void)? = nil
     /// Brief's pull-up act (`ProjectWindow.pullUpItem`): the History link.
     var onPullUp: (PulledUp) -> Void = { _ in }
-    /// The window's tree (Details' sheets; the fold index). Nil draws no
-    /// Details sheet and no fold hint.
+    /// The window's tree (the foot's sheets and cached publishing answer).
+    /// Nil offers no sheet.
     var tree: BinderTreeSectionsState? = nil
     /// What a Collection's loose piece is written as ("Prose" /
     /// "Screenplay"), a quiet caption at the head; nil draws none
@@ -93,8 +94,7 @@ struct BriefPieceView: View {
                 decisions: snapshot.decisions.map(\.ruling),
                 kind: .intent, scope: .document(docId), store: store, world: world,
                 posture: posture, liveParagraphIds: contents.liveParagraphIds,
-                isUnreadable: intentIsUnreadable, explainsWhenEmpty: contents.isRead)
-            BriefDetailsView(store: store, docId: docId, tree: tree)
+                isUnreadable: intentIsUnreadable)
             quietLines(offers)
             foot
         }
@@ -172,19 +172,15 @@ struct BriefPieceView: View {
 
     // MARK: - The foot
 
-    /// How to attach material while the fold is empty, then History.
-    @ViewBuilder
+    /// The set values and History, on one line (`BriefFoot`).
     private var foot: some View {
-        if let tree, let hint = BriefFoldHint.line(
-            docId: docId, index: tree.foldIndex, indexIsBuilt: tree.foldIndexIsBuilt,
-            structure: store.manifest.structure, projectType: store.manifest.type) {
-            Text(hint)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("brief.foldHint")
-        }
-        BriefHistoryLink(item: .history(docId: docId), onPullUp: onPullUp)
+        let line = BriefFoot.line(docId: docId, store: store, tree: tree)
+        return BriefFootView(
+            parts: line.parts,
+            openSheet: tree.map { tree in
+                { [docId] item in tree.pieceRowSheet = PieceRowSheet(item, pieceId: docId) }
+            },
+            onPullUp: onPullUp, offered: line.offered)
     }
 
     // MARK: - The two quiet lines

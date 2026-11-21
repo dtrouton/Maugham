@@ -3,11 +3,13 @@ import SwiftUI
 @testable import MaughamCore
 @testable import Maugham
 
-/// **Brief's appraisal wave** (2026-11-20 appraisal items 6, 7, 10, 11, 12
-/// and the empty fold): History is findable, a piece's details are visible,
-/// Brief says what its dot means, Going for grows, Decided exists before
-/// anything is filed, and an empty fold says how to fill it. Pure decisions
-/// and source censuses only; nothing is mounted or pressed (tripwire 33).
+/// **Brief's appraisal wave** (2026-11-20 appraisal items 6, 7, 10, 11):
+/// History is findable, a piece's set details are visible, Brief says what
+/// its dot means, Going for grows. Items 12 (Decided explaining itself while
+/// empty) and the empty fold's sentence were withdrawn by Denver on
+/// 2026-11-21 (Task 6a: teaching belongs at the moment of action). Pure
+/// decisions and source censuses only; nothing is mounted or pressed
+/// (tripwire 33).
 @MainActor
 final class BriefAppraisalTests: XCTestCase {
 
@@ -86,14 +88,19 @@ final class BriefAppraisalTests: XCTestCase {
 
     func test_briefFootsCarryHistory() throws {
         let piece = try SourceTree.read("Maugham/Views/Brief/BriefPieceView.swift")
-        XCTAssertTrue(piece.contains("BriefHistoryLink(item: .history(docId: docId), onPullUp: onPullUp)"))
+        XCTAssertTrue(piece.contains("BriefFoot.line(docId: docId, store: store, tree: tree)"))
+        XCTAssertTrue(piece.contains("onPullUp: onPullUp, offered: line.offered)"))
+        let foot = try SourceTree.read("Maugham/Views/Brief/BriefDetails.swift")
+        XCTAssertTrue(foot.contains("offered: offered, history: .history(docId: docId))"),
+                      "a piece's foot ends with that piece's History")
+        XCTAssertTrue(foot.contains("Button { onPullUp(item) } label: {"))
         let book = try SourceTree.read("Maugham/Views/Brief/BriefBookView.swift")
-        XCTAssertTrue(book.contains("BriefHistoryLink(item: .projectHistory, onPullUp: onPullUp)"))
+        XCTAssertTrue(book.contains("BriefFootView(parts: [.history(.projectHistory)], openSheet: nil, onPullUp: onPullUp)"))
         let column = try SourceTree.read("Maugham/Views/RightColumn.swift")
         XCTAssertTrue(column.contains("onPullUp: pullUp,"), "Brief's pull-up act is the window's")
     }
 
-    // MARK: - 7. Details
+    // MARK: - 7. Details, now the foot (Task 6a)
 
     private func chapter(tags: [String]? = nil, links: [String]? = nil,
                          wordTarget: Int? = nil) -> StructureItem {
@@ -104,40 +111,82 @@ final class BriefAppraisalTests: XCTestCase {
         return item
     }
 
-    func test_detailsShowValuesAndOfferWhatTheRowMenuOffers() {
+    private func foot(_ piece: StructureItem, type: ProjectType = .novel, pageTarget: Int? = nil,
+                      offered: [PieceRowMenus.Item],
+                      history: PulledUp? = .history(docId: "ch-2")) -> [BriefFoot.Part] {
+        BriefFoot.parts(target: PieceTargetMenu.target(of: piece, projectType: type,
+                                                       projectPageTarget: pageTarget),
+                        tags: piece.tags ?? [], links: (piece.links ?? []).count,
+                        offered: offered, history: history)
+    }
+
+    /// **The foot, as a table** (Denver, 2026-11-21): set values, then
+    /// History; "Details" alone when nothing is set; no how-to words.
+    func test_theFootIsTheSetValuesThenHistory() {
         let all: [PieceRowMenus.Item] = [.tags, .addLink, .target, .publishing]
-        let set = BriefDetails.lines(piece: chapter(tags: ["Rome", "winter"], links: ["ch-1"],
-                                                    wordTarget: 2000),
-                                     projectType: .novel, projectPageTarget: nil, offered: all)
-        XCTAssertEqual(set.map(\.text), ["Word target: \(2000.formatted())", "Tags: Rome, winter",
-                                         "1 link", "Publishing settings"])
-        XCTAssertEqual(set.map(\.opens), [.target, .tags, .addLink, .publishing],
-                       "each opens the row menu's own sheet")
+        let history = BriefFoot.Part.history(.history(docId: "ch-2"))
 
-        // Nothing set: the quiet affordances, so the area is discoverable.
-        let empty = BriefDetails.lines(piece: chapter(), projectType: .novel,
-                                       projectPageTarget: nil, offered: [.tags, .addLink, .target])
-        XCTAssertEqual(empty.map(\.text), ["Set a target", "Add tags"])
-        XCTAssertEqual(empty.map(\.opens), [.target, .tags])
+        // Nothing set: "Details", a menu of what the row menu offers, then History.
+        XCTAssertEqual(foot(chapter(), offered: all), [.details(offers: all), history])
 
-        // A posture the row menu offers nothing under: values read, no way in.
-        let readOnly = BriefDetails.lines(piece: chapter(tags: ["Rome"], links: ["ch-1", "ch-3"],
-                                                         wordTarget: 500),
-                                          projectType: .novel, projectPageTarget: nil, offered: [])
-        XCTAssertEqual(readOnly.map(\.text), ["Word target: 500", "Tags: Rome", "2 links"])
-        XCTAssertEqual(readOnly.map(\.opens), [nil, nil, nil], "hidden, never disabled")
-        XCTAssertTrue(BriefDetails.lines(piece: chapter(), projectType: .novel,
-                                         projectPageTarget: nil, offered: []).isEmpty,
-                      "nothing set and nothing offered: no Details at all")
+        // Target only.
+        XCTAssertEqual(foot(chapter(wordTarget: 3000), offered: all), [
+            .value(.target, text: "\(3000.formatted()) words",
+                   spoken: "Word target: \(3000.formatted()) words", opens: .target),
+            history])
 
-        // A screenplay's script: the PROJECT's page target, no links.
+        // Tags only.
+        XCTAssertEqual(foot(chapter(tags: ["rome", "draft"]), offered: all), [
+            .value(.tags, text: "rome, draft", spoken: "Tags: rome, draft", opens: .tags), history])
+
+        // Both, and links: in that order; no Details word once anything is set.
+        XCTAssertEqual(foot(chapter(tags: ["rome", "draft"], links: ["ch-1"], wordTarget: 3000),
+                            offered: all), [
+            .value(.target, text: "\(3000.formatted()) words",
+                   spoken: "Word target: \(3000.formatted()) words", opens: .target),
+            .value(.tags, text: "rome, draft", spoken: "Tags: rome, draft", opens: .tags),
+            .value(.links, text: "1 link", spoken: "1 link", opens: .addLink),
+            history])
+
+        // A reviewer's posture (the row menu offers nothing): values read as
+        // text, no doors, no Details menu — hidden, never disabled.
+        XCTAssertEqual(foot(chapter(tags: ["rome"], links: ["ch-1", "ch-3"], wordTarget: 500),
+                            offered: []), [
+            .value(.target, text: "500 words", spoken: "Word target: 500 words", opens: nil),
+            .value(.tags, text: "rome", spoken: "Tags: rome", opens: nil),
+            .value(.links, text: "2 links", spoken: "2 links", opens: nil),
+            history])
+        XCTAssertEqual(foot(chapter(), offered: []), [history], "nothing set, nothing offered: History alone")
+
+        // A screenplay's script: the PROJECT's page target.
         let script = StructureItem(id: "script", title: "Script", type: .document, path: "script.fountain")
-        let screenplay = BriefDetails.lines(piece: script, projectType: .screenplay,
-                                            projectPageTarget: 110, offered: [.tags, .target])
-        XCTAssertEqual(screenplay.map(\.text), ["Page target: 110", "Add tags"])
-        XCTAssertFalse(BriefDetails.offersLinks(projectType: .screenplay))
-        XCTAssertTrue(BriefDetails.offersLinks(projectType: .novel))
-        XCTAssertTrue(BriefDetails.offersLinks(projectType: .collection))
+        XCTAssertEqual(foot(script, type: .screenplay, pageTarget: 1, offered: [.tags, .target]).first,
+                       .value(.target, text: "1 page", spoken: "Page target: 1 page", opens: .target))
+        XCTAssertFalse(BriefFoot.offersLinks(projectType: .screenplay))
+        XCTAssertTrue(BriefFoot.offersLinks(projectType: .novel))
+        XCTAssertTrue(BriefFoot.offersLinks(projectType: .collection))
+
+        // The Book: History alone (its Brief showed no details before the
+        // foot); a Part draws no foot (it had no History or details).
+        XCTAssertEqual(BriefFoot.parts(target: nil, tags: [], links: 0, offered: [],
+                                       history: .projectHistory),
+                       [.history(.projectHistory)])
+        XCTAssertEqual(BriefFoot.parts(target: nil, tags: [], links: 0, offered: [], history: nil), [])
+    }
+
+    /// The how-to lines are gone from Brief's source, not merely hidden.
+    func test_theHowToLinesAreGone() throws {
+        var code = ""
+        for name in ["BriefDetails", "BriefPieceView", "BriefBookView", "BriefDecidedSection"] {
+            code += try SourceTree.read("Maugham/Views/Brief/\(name).swift")
+        }
+        for gone in ["What you answer in To resolve is filed here.", "Nothing is attached to this",
+                     "Set a target", "Add tags", "Publishing settings", "explainsWhenEmpty",
+                     "BriefFoldHint", "emptySection"] {
+            XCTAssertFalse(code.contains(gone), "Brief still says or draws: \(gone)")
+        }
+        let part = try SourceTree.read("Maugham/Views/Brief/BriefPartView.swift")
+        XCTAssertFalse(part.contains("BriefFootView"), "a Part's Brief has no foot")
     }
 
     /// The target rule is the status line's, posture aside: `decide` is
@@ -158,11 +207,14 @@ final class BriefAppraisalTests: XCTestCase {
     /// Details opens the row menu's sheet slot — no sheet of its own, no
     /// write of its own.
     func test_detailsOpenTheRowMenusSheetsAndWriteNothing() throws {
+        let piece = try SourceTree.read("Maugham/Views/Brief/BriefPieceView.swift")
+        XCTAssertTrue(piece.contains("{ [docId] item in tree.pieceRowSheet = PieceRowSheet(item, pieceId: docId) }"))
         let code = try SourceTree.read("Maugham/Views/Brief/BriefDetails.swift")
-        XCTAssertTrue(code.contains("tree.pieceRowSheet = PieceRowSheet(item, pieceId: docId)"))
         XCTAssertTrue(code.contains("PieceRowMenus.items("), "offered by the row menu's own answer")
-        for forbidden in [".sheet(", "updateInspector", "updateProjectTargets"] {
-            XCTAssertFalse(code.contains(forbidden), "Details has no \(forbidden)")
+        for source in [code, piece] {
+            for forbidden in [".sheet(", "updateInspector", "updateProjectTargets"] {
+                XCTAssertFalse(source.contains(forbidden), "the foot has no \(forbidden)")
+            }
         }
     }
 
@@ -208,69 +260,5 @@ final class BriefAppraisalTests: XCTestCase {
         let goingFor = try SourceTree.read("Maugham/Views/Brief/GoingForView.swift")
         XCTAssertTrue(goingFor.contains(".frame(height: Self.editorHeight(needed: neededHeight))"))
         XCTAssertTrue(goingFor.contains("EditorHeightProbe(onHeight: { neededHeight = $0 })"))
-    }
-
-    // MARK: - 12. Decided before anything is filed
-
-    func test_decidedSaysWhereAnswersLandWhileNothingIsFiled() {
-        XCTAssertEqual(BriefDecidedSection.emptyLine, "What you answer in To resolve is filed here.")
-        XCTAssertTrue(BriefDecidedSection.drawsEmptyLine(decisions: [], isUnreadable: false,
-                                                         explainsWhenEmpty: true))
-        XCTAssertFalse(BriefDecidedSection.drawsEmptyLine(decisions: [], isUnreadable: false,
-                                                          explainsWhenEmpty: false),
-                       "a Part's sections never explain themselves")
-        XCTAssertFalse(BriefDecidedSection.drawsEmptyLine(decisions: [], isUnreadable: true,
-                                                          explainsWhenEmpty: true),
-                       "a statement that would not read is never drawn as empty")
-        let ruling = Ruling(id: "r1", text: "Keep the tense.", ruledOn: nil, provenance: nil)
-        XCTAssertFalse(BriefDecidedSection.drawsEmptyLine(decisions: [ruling], isUnreadable: false,
-                                                          explainsWhenEmpty: true))
-    }
-
-    // MARK: - The empty fold
-
-    func test_anEmptyFoldSaysHowToAttachMaterial() {
-        let built = PieceFoldIndex(entries: ["ch-1": [.link(pieceId: "ch-2", title: "Two", incoming: false)]])
-        func hint(_ docId: String, built isBuilt: Bool = true,
-                  type: ProjectType = .novel, in structure: [StructureItem]? = nil) -> String? {
-            BriefFoldHint.line(docId: docId, index: built, indexIsBuilt: isBuilt,
-                               structure: structure ?? self.structure, projectType: type)
-        }
-        XCTAssertNil(hint("ch-1"), "a fold with something in it says nothing")
-        XCTAssertEqual(hint("ch-2"),
-                       "Nothing is attached to this chapter yet. Drag a research note onto it in the tree, "
-                       + "or set a canvas region\u{2019}s Piece to it to attach the cards inside.")
-        XCTAssertNil(hint("ch-2", built: false), "never over an index not yet built")
-        XCTAssertNil(hint("part-1"), "a Part has no fold")
-
-        // A short story keeps all research shared: a drag onto the row is
-        // refused, so the line says adding research instead.
-        XCTAssertEqual(hint("ch-2", type: .shortStory),
-                       "Nothing is attached to this chapter yet. Research you add in the tree is attached "
-                       + "to it, and so are the cards in a canvas region whose Piece is set to it.")
-        // A Collection's loose piece by its noun; a reference piece has no fold.
-        var loose = StructureItem(id: "pc01", title: "One", type: .document, path: "pieces/one/one.md")
-        loose.pieceKind = .loose
-        var reference = loose
-        reference.id = "rf01"
-        reference.pieceKind = .reference
-        XCTAssertEqual(hint("pc01", type: .collection, in: [loose])?.hasPrefix(
-            "Nothing is attached to this piece yet. Drag a research note"), true)
-        XCTAssertNil(hint("rf01", type: .collection, in: [reference]))
-
-        // The routing the line names is the drop's own: onto a short story's
-        // row, a research drag is refused.
-        XCTAssertEqual(try? ProjectStore.researchRouting(for: structure[1], projectType: .shortStory),
-                       .sharedOnly)
-    }
-
-    /// Whether the fold is empty is the tree's index, never recomputed here.
-    func test_theHintAsksTheTreesIndex() throws {
-        let piece = try SourceTree.read("Maugham/Views/Brief/BriefPieceView.swift")
-        XCTAssertTrue(piece.contains("index: tree.foldIndex, indexIsBuilt: tree.foldIndexIsBuilt"))
-        let code = try SourceTree.read("Maugham/Views/Brief/BriefDetails.swift")
-        XCTAssertFalse(code.contains("PieceFoldIndex.build"))
-        let fold = try SourceTree.read("Maugham/Views/BinderPieceFold.swift")
-        XCTAssertTrue(fold.contains("state.foldIndex = PieceFoldIndex.build(store: store, projectRoot: store.url)\n                state.foldIndexIsBuilt = true"))
     }
 }

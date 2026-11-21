@@ -11,11 +11,23 @@ import MaughamCore
 ///
 /// The sentence is the app's words about the writer's own act: it names the
 /// destination and nothing else — never the check's or Claude's prose.
+///
+/// **One family** (shell p4 Task 6a): what lands in a piece's or the Book's
+/// intent — its Decided, or Going for — is "Filed in Brief" (the faces' own
+/// Brief) or "Filed in “Breakfast”'s Brief" / "Filed in the Book's Brief"
+/// (another's): the writer knows that place as Brief, and the line is the
+/// button that shows it. What has a name of its own keeps it: "Filed under
+/// What I've Learned", "Filed under the Spanish edition brief". Nothing
+/// written says "Already in" either way.
 enum FiledUnder {
-    /// How long the line stays, unless the next filing replaces it.
+    /// How long the line stays where it lingers (Brief's own Confirm, a
+    /// round report), unless the next filing replaces it. To resolve's line
+    /// never lingers on a timer: it stands until the writer's next act in
+    /// the list (`FiledNotice.Event.listPressed`).
     static let lingers: Duration = .seconds(6)
 
-    static let bookIntent = "Filed under the book's intent"
+    /// What an answer filed into the faces' own Brief says (Task 6a).
+    static let inBrief = "Filed in Brief"
     static let lessons = "Filed under \(BriefBookView.lessonsTitle)"
     static let alreadyInLessons = "Already in \(BriefBookView.lessonsTitle)"
     static let firstReaderUnnamed = "Filed under \(BriefBookView.firstReaderTitle)"
@@ -29,33 +41,43 @@ enum FiledUnder {
     static func sentence(_ destination: FiledDestination, faces: BinderSubject,
                          structure: [StructureItem], projectType: ProjectType,
                          firstReaderName: String?) -> String {
-        let place = place(destination, faces: faces, structure: structure,
-                          projectType: projectType, firstReaderName: firstReaderName)
+        if let brief = briefPlace(destination, faces: faces, structure: structure,
+                                  projectType: projectType) {
+            return (destination.alreadyStood ? "Already in " : "Filed in ") + brief
+        }
+        let place = place(destination, firstReaderName: firstReaderName)
         guard let place else { return destination.alreadyStood ? "Already there" : "Filed" }
         return (destination.alreadyStood ? "Already in " : "Filed under ") + place
     }
 
-    /// Where, as the sentence names it; nil for a kind no verb files to.
-    private static func place(_ destination: FiledDestination, faces: BinderSubject,
-                              structure: [StructureItem], projectType: ProjectType,
-                              firstReaderName: String?) -> String? {
+    /// **Which Brief an intent filing is in, as the sentence names it**:
+    /// "Brief" when it is the faces' own Brief (or a piece the structure no
+    /// longer names), else "“Title”'s Brief" or "the Book's Brief"; nil for
+    /// every other kind, which keeps its own name. Pure.
+    static func briefPlace(_ destination: FiledDestination, faces: BinderSubject,
+                           structure: [StructureItem], projectType: ProjectType) -> String? {
+        guard destination.kind == .intent else { return nil }
+        let facesBrief = BriefScope.of(faces, structure: structure, projectType: projectType)
+        switch destination.scope {
+        case .project:
+            return facesBrief == .book ? "Brief" : "the Book's Brief"
+        case .document(let docId):
+            guard let item = TreeWalk.find(id: docId, in: structure),
+                  facesBrief != .piece(docId: docId) else { return "Brief" }
+            return "\u{201C}\(item.title)\u{201D}'s Brief"
+        case .unknown:
+            return nil
+        }
+    }
+
+    /// Where, as the sentence names it, for a destination outside a piece's
+    /// or the Book's Brief; nil for a kind no verb files to.
+    private static func place(_ destination: FiledDestination, firstReaderName: String?) -> String? {
         switch destination.kind {
         case .intent:
-            switch destination.scope {
-            case .project:
-                return "the book's intent"
-            case .document(let docId):
-                let item = TreeWalk.find(id: docId, in: structure)
-                // A piece missing from the structure is never called by its
-                // noun in quotes: it is "this chapter" too.
-                guard let item, BriefScope.of(faces, structure: structure, projectType: projectType)
-                        != .piece(docId: docId) else {
-                    return "this \(pieceNoun(item, projectType: projectType))'s intent"
-                }
-                return "\u{201C}\(item.title)\u{201D}'s intent"
-            case .unknown:
-                return "an intent"
-            }
+            // A piece's or the Book's is `briefPlace`'s; this is the unknown
+            // scope a newer build may write.
+            return "an intent"
         case .lessons:
             return BriefBookView.lessonsTitle
         case .firstReader:
@@ -120,9 +142,11 @@ enum FiledUnder {
 
 /// **One quiet, transient line** saying where the writer's last answer was
 /// filed. Drawn where the verb was pressed; never a modal, never a banner to
-/// dismiss. It stays `FiledUnder.lingers`, or until the next filing replaces
-/// it, and it knows nothing about the list: a row the next read removes does
-/// not take the line with it.
+/// dismiss. Where it `lingers` it stays `FiledUnder.lingers`; in To resolve
+/// it stands until the writer's next act in the list (Task 6a: never on a
+/// timer). Either way the next filing replaces it, and it knows nothing
+/// about the list: a row the next read removes does not take the line with
+/// it.
 ///
 /// Where `onOpenBrief` is given the line is a button that shows the
 /// destination's Brief (`ProjectWindow.openBrief`); without it the line is
@@ -141,6 +165,10 @@ struct FiledNotice: View {
         case lingered(UUID)
         /// To resolve re-read or regrouped — the row may be gone.
         case listChanged
+        /// The writer pressed somewhere in To resolve's list, while
+        /// `over` was the line standing (nil: none was). A press that
+        /// itself filed has already replaced the line, so it is kept.
+        case listPressed(over: UUID?)
     }
 
     /// The line after `event`. Pure: a new filing replaces the old; the
@@ -151,33 +179,44 @@ struct FiledNotice: View {
         case .filed(let filing): return filing
         case .lingered(let id): return current?.id == id ? nil : current
         case .listChanged: return current
+        case .listPressed(let pressedOver):
+            return pressedOver != nil && current?.id == pressedOver ? nil : current
         }
     }
 
     @Binding var filing: Filing?
     var onOpenBrief: ((BinderSubject) -> Void)? = nil
+    /// False in To resolve: the line stands until the writer's next act in
+    /// the list, never ended by a timer.
+    var lingers: Bool = true
 
     var body: some View {
         if let filing {
             Group {
                 if let onOpenBrief, let brief = filing.brief {
-                    Button { onOpenBrief(brief) } label: { line(filing.sentence) }
+                    // A link in the accent ink: it shows where the answer
+                    // went (`ProjectWindow.openBrief` — the faces move to
+                    // that Brief and the column shows Brief).
+                    Button { onOpenBrief(brief) } label: { line(filing.sentence, opens: true) }
                         .buttonStyle(.plain)
+                        .help("Show it")
+                        .accessibilityHint("Shows where it was filed")
                 } else {
-                    line(filing.sentence)
+                    line(filing.sentence, opens: false)
                 }
             }
             .task(id: filing.id) {
+                guard lingers else { return }
                 do { try await Task.sleep(for: FiledUnder.lingers) } catch { return }
                 self.filing = Self.after(.lingered(filing.id), current: self.filing)
             }
         }
     }
 
-    private func line(_ sentence: String) -> some View {
+    private func line(_ sentence: String, opens: Bool) -> some View {
         Label(sentence, systemImage: "checkmark")
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(opens ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .lineLimit(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("filed.notice")

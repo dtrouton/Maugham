@@ -250,6 +250,9 @@ struct ResolvePane: View {
     /// (shell plan 3 Task 6). Also what a mark's jump says when its finding
     /// is settled.
     @State private var filedNotice: FiledNotice.Filing?
+    /// The filed line standing when the writer's current press in the list
+    /// began (`.some(nil)`: none stood); nil between presses. Task 6a.
+    @State private var filedLineAtPress: UUID??
     /// The row a strain mark's jump marked (`.focusFinding`).
     @State private var markedItemId: String?
 
@@ -374,13 +377,27 @@ struct ResolvePane: View {
                 onShowRound: { publishCentre?.show(round: $0) },
                 onShowProposal: { publishCentre?.show(proposal: $0) })
             if filedNotice != nil {
-                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
+                FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
                     .padding(.horizontal, 12).padding(.vertical, 4)
             }
             if hasList {
-                filterBar
-                Divider()
-                list
+                VStack(spacing: 0) {
+                    filterBar
+                    Divider()
+                    list
+                }
+                // The filed line stands until the writer's next act here —
+                // never a timer (Task 6a). Simultaneous: every control in
+                // the list still takes its own press.
+                .simultaneousGesture(DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if filedLineAtPress == nil { filedLineAtPress = .some(filedNotice?.id) }
+                    }
+                    .onEnded { _ in
+                        filedNotice = FiledNotice.after(
+                            .listPressed(over: filedLineAtPress ?? nil), current: filedNotice)
+                        filedLineAtPress = nil
+                    })
             } else {
                 ContentUnavailableView {
                     Label("To resolve", systemImage: "checklist")

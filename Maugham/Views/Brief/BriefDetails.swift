@@ -2,66 +2,76 @@ import SwiftUI
 import AppKit
 import MaughamCore
 
-/// **Details** — a piece's word target, tags, links and publishing, at the
-/// foot of its Brief (appraisal 7): what the old Inspector showed, now set
-/// from the tree's row menu, shown where a writer looks for it.
+/// **Brief's foot** (Denver, 2026-11-21: "I agree on dropping clutter") —
+/// one quiet line at the bottom of a piece's Brief and the Book's: the
+/// piece's SET values, then History. "3,000 words · rome, draft · History";
+/// "Details · History" while nothing is set. Teaching belongs at the moment of
+/// action, not as permanent text on every new chapter, so nothing here
+/// explains itself: no how-to line for an unset value, no empty-fold sentence.
 ///
-/// **No second editor, no second writer.** Each line opens the sheet the row
+/// **No second editor, no second writer.** A value opens the sheet the row
 /// menu opens (`PieceRowMenus.Item` → `BinderTreeSectionsState.pieceRowSheet`,
 /// presented by the window, `TreeWindowWiring`, so it opens with the tree
-/// hidden or under find), and each is offered by the row menu's
-/// own answer (`PieceRowMenus.items`, from `TreeStructureVerbs` and
-/// `PieceTargetMenu.decide`): hidden, never disabled (tripwires 47, 51). A
-/// value the writer may not change reads as plain text.
-enum BriefDetails {
+/// hidden or under find); "Details" is a menu of the row menu's own sheets;
+/// both are offered by the row menu's own answer (`PieceRowMenus.items`, from
+/// `TreeStructureVerbs` and `PieceTargetMenu.decide`): hidden, never disabled
+/// (tripwires 47, 51). A value the writer may not change reads as plain text.
+enum BriefFoot {
 
-    static let heading = "Details"
-    static let setTargetTitle = "Set a target"
-    static let addTagsTitle = "Add tags"
-    static let publishingTitle = "Publishing settings"
+    static let detailsTitle = "Details"
+    static let historyTitle = "History"
+    static let separator = "\u{00B7}"
 
-    /// One line: its words, and the row-menu sheet it opens (nil: text only).
-    struct Line: Equatable, Identifiable {
-        let text: String
-        let opens: PieceRowMenus.Item?
-        var id: String { opens?.title ?? text }
+    /// The values the line can show. Tags alone truncate in the middle.
+    enum Value: Equatable { case target, tags, links }
+
+    /// One part of the line, in order.
+    enum Part: Equatable {
+        /// A set value: which, its words, what VoiceOver says, and the
+        /// row-menu sheet it opens (nil: text only).
+        case value(Value, text: String, spoken: String, opens: PieceRowMenus.Item?)
+        /// Nothing is set: "Details", a menu of these sheets.
+        case details(offers: [PieceRowMenus.Item])
+        /// The History this Brief pulls up.
+        case history(PulledUp)
     }
 
-    /// **What Details draws**, in the row menu's order: the target, the tags,
-    /// the links, publishing. A value is shown whether or not it may be
-    /// changed; an unset target or no tags shows a quiet "Set a target" / "Add
-    /// tags" only where the row menu offers it; links and publishing show
-    /// only where the piece has them (links) or the menu offers them
-    /// (publishing — its settings live in the publish config, which a Brief
-    /// never reads in a body). Pure.
-    static func lines(piece: StructureItem, projectType: ProjectType, projectPageTarget: Int?,
-                      offered: [PieceRowMenus.Item]) -> [Line] {
+    /// **The foot line**, from what is set and what the row menu offers.
+    /// Set values first — the target, the tags, the links — each opening its
+    /// sheet where the row menu offers it; "Details" (a menu of the offered
+    /// sheets) only when nothing is set and something is offered; then
+    /// History. Publishing has no value here (its settings live in the publish
+    /// config, which Brief never reads in a body): it is in the menus. Pure.
+    static func parts(target: PieceTargetMenu?, tags: [String], links: Int,
+                      offered: [PieceRowMenus.Item], history: PulledUp?) -> [Part] {
         func opens(_ item: PieceRowMenus.Item) -> PieceRowMenus.Item? {
             offered.contains(item) ? item : nil
         }
-        var lines: [Line] = []
-        if let target = PieceTargetMenu.target(of: piece, projectType: projectType,
-                                               projectPageTarget: projectPageTarget) {
-            if let value = target.current, value > 0 {
-                lines.append(Line(text: "\(target.fieldLabel): \(value.formatted())", opens: opens(.target)))
-            } else if offered.contains(.target) {
-                lines.append(Line(text: setTargetTitle, opens: .target))
-            }
+        var parts: [Part] = []
+        if let target, let value = target.current, value > 0 {
+            parts.append(.value(.target, text: targetText(value, pages: target.measuresPages),
+                                spoken: "\(target.fieldLabel): \(targetText(value, pages: target.measuresPages))",
+                                opens: opens(.target)))
         }
-        let tags = piece.tags ?? []
         if !tags.isEmpty {
-            lines.append(Line(text: "Tags: " + tags.joined(separator: ", "), opens: opens(.tags)))
-        } else if offered.contains(.tags) {
-            lines.append(Line(text: addTagsTitle, opens: .tags))
+            let joined = tags.joined(separator: ", ")
+            parts.append(.value(.tags, text: joined, spoken: "Tags: \(joined)", opens: opens(.tags)))
         }
-        let links = (piece.links ?? []).count
         if links > 0 {
-            lines.append(Line(text: links == 1 ? "1 link" : "\(links) links", opens: opens(.addLink)))
+            let text = links == 1 ? "1 link" : "\(links) links"
+            parts.append(.value(.links, text: text, spoken: text, opens: opens(.addLink)))
         }
-        if offered.contains(.publishing) {
-            lines.append(Line(text: publishingTitle, opens: .publishing))
+        if parts.isEmpty, !offered.isEmpty {
+            parts.append(.details(offers: offered))
         }
-        return lines
+        if let history { parts.append(.history(history)) }
+        return parts
+    }
+
+    /// "3,000 words", "1 page". Pure.
+    static func targetText(_ value: Int, pages: Bool) -> String {
+        let unit = pages ? (value == 1 ? "page" : "pages") : (value == 1 ? "word" : "words")
+        return "\(value.formatted()) \(unit)"
     }
 
     /// Whether the row menu offers Add Link… for a piece in `projectType`:
@@ -70,128 +80,162 @@ enum BriefDetails {
     static func offersLinks(projectType: ProjectType) -> Bool {
         projectType.holdsPieces || !projectType.primaryFormat.isScreenplay
     }
-}
 
-/// Details, drawn. Reads the piece and the row menu's answer once per body —
-/// one piece, never a list (tripwire 4).
-struct BriefDetailsView: View {
-    let store: ProjectStore
-    let docId: String
-    /// The window's tree: its cached `publishingIsSetUp`, and the sheet slot
-    /// the row menu sets. Nil (a test host) offers nothing to open.
-    let tree: BinderTreeSectionsState?
-
-    var body: some View {
-        let lines = self.lines
-        if !lines.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                BriefPane.sectionHeading(BriefDetails.heading)
-                ForEach(lines) { line in
-                    if let item = line.opens, let tree {
-                        Button {
-                            tree.pieceRowSheet = PieceRowSheet(item, pieceId: docId)
-                        } label: {
-                            text(line.text)
-                        }
-                        .buttonStyle(.plain)
-                        .help(item.title.replacingOccurrences(of: "\u{2026}", with: ""))
-                    } else {
-                        text(line.text)
-                    }
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("brief.details")
-        }
+    /// A foot: its parts, and the row menu's sheets (the line's context menu).
+    struct Line: Equatable {
+        let parts: [Part]
+        let offered: [PieceRowMenus.Item]
     }
 
-    private func text(_ words: String) -> some View {
-        Text(words)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-    }
-
-    private var lines: [BriefDetails.Line] {
+    /// A piece's foot, from the window's own values. Nil `tree` (a test
+    /// host) offers nothing to open. Main actor: reads the store's manifest
+    /// and posture door, once per body — one piece, never a list (tripwire 4).
+    @MainActor
+    static func line(docId: String, store: ProjectStore,
+                     tree: BinderTreeSectionsState?) -> Line {
         let manifest = store.manifest
-        guard let piece = TreeWalk.find(id: docId, in: manifest.structure) else { return [] }
+        guard let piece = TreeWalk.find(id: docId, in: manifest.structure) else {
+            return Line(parts: [.history(.history(docId: docId))], offered: [])
+        }
         let offered = tree == nil ? [] : PieceRowMenus.items(
             for: piece, verbs: TreeStructureVerbs.decide(for: piece, in: store),
             publishingIsSetUp: tree?.publishingIsSetUp ?? false,
             offersTarget: PieceRowMenus.target(for: piece, store: store) != nil,
-            offersLinks: BriefDetails.offersLinks(projectType: manifest.type))
-        return BriefDetails.lines(piece: piece, projectType: manifest.type,
-                                  projectPageTarget: manifest.targets?.pageTarget,
-                                  offered: offered)
+            offersLinks: offersLinks(projectType: manifest.type))
+        return Line(
+            parts: parts(target: PieceTargetMenu.target(of: piece, projectType: manifest.type,
+                                                        projectPageTarget: manifest.targets?.pageTarget),
+                         tags: piece.tags ?? [], links: (piece.links ?? []).count,
+                         offered: offered, history: .history(docId: docId)),
+            offered: offered)
     }
 }
 
-/// **How to attach material to a piece whose fold is empty** (appraisal,
-/// the empty fold): one quiet line at the foot of its Brief. Whether the fold
-/// is empty is asked of the tree's own index (`PieceFoldIndex`, built once
-/// per key in the tree's `.task`), never worked out here; nothing is said
-/// before the index has been built, or for a piece with no fold (a
-/// Collection's reference piece; a screenplay, whose navigator draws none).
-///
-/// The ways named are the ones this build has (the deleted References
-/// pane's empty state named two as well — research, and a region's cards):
-/// a research note dragged onto the piece's row (`TreeDropIntent`: linked to
-/// a novel's chapter, moved into a Collection piece's folder), and a canvas
-/// region whose Piece is set to it (`RegionInspector`; its cards come into
-/// the fold, an empty region adds no row). Where the project keeps all its
-/// research shared (a short story) the piece's fold IS the research, so a
-/// drag onto the row is refused and the line says adding research instead.
-enum BriefFoldHint {
-
-    static func line(noun: String, routing: ProjectStore.ResearchRouting) -> String {
-        switch routing {
-        case .sharedOnly:
-            return "Nothing is attached to this \(noun) yet. Research you add in the tree "
-                + "is attached to it, and so are the cards in a canvas region whose Piece is set to it."
-        case .sharedPlusLink, .pieceFolder:
-            return "Nothing is attached to this \(noun) yet. Drag a research note onto it "
-                + "in the tree, or set a canvas region\u{2019}s Piece to it to attach the cards inside."
-        }
-    }
-
-    /// The line for `docId`, or nil where none is drawn. Pure.
-    static func line(docId: String, index: PieceFoldIndex, indexIsBuilt: Bool,
-                     structure: [StructureItem], projectType: ProjectType) -> String? {
-        guard indexIsBuilt, index.entries[docId]?.isEmpty ?? true,
-              let piece = TreeWalk.find(id: docId, in: structure),
-              let routing = try? ProjectStore.researchRouting(for: piece, projectType: projectType)
-        else { return nil }
-        return line(noun: FiledUnder.pieceNoun(piece, projectType: projectType), routing: routing)
-    }
-}
-
-/// **History, at the foot of a Brief** (appraisal 6): a quiet link that
-/// pulls up a piece's History, or the project's on the Book's, by the act
-/// Brief's other pull-up links use (`onPullUp` → `ProjectWindow.pullUpItem`).
-struct BriefHistoryLink: View {
-    let item: PulledUp
+/// The foot, drawn: one line of secondary ink that never wraps. The tags
+/// give way first, truncating in the middle; the target and History keep
+/// their words. Each door is a `Button(.plain)` (keyboard navigation reaches
+/// it) that brightens under the pointer and dims while pressed; the menus'
+/// sheets are also on the line's context menu, so a writer with a target set
+/// still reaches Tags… and Publishing… from here.
+struct BriefFootView: View {
+    let parts: [BriefFoot.Part]
+    /// Where a value's sheet opens: the window's one presenter. Nil opens
+    /// nothing (the parts then carry no doors anyway).
+    let openSheet: ((PieceRowMenus.Item) -> Void)?
     let onPullUp: (PulledUp) -> Void
-
-    static let title = "History"
+    /// The row menu's sheets, for the context menu.
+    var offered: [PieceRowMenus.Item] = []
 
     var body: some View {
-        Button { onPullUp(item) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.caption2)
-                Text(Self.title)
+        HStack(spacing: 5) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                if index > 0 {
+                    Text(BriefFoot.separator)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                draw(part)
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .help(item.isProjectHistory
-              ? "Pull up the project\u{2019}s History beside the centre"
-              : "Pull up this piece\u{2019}s History beside the centre")
-        .accessibilityIdentifier("brief.history")
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            if let openSheet {
+                ForEach(offered, id: \.title) { item in
+                    Button(item.title) { openSheet(item) }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("brief.foot")
+    }
+
+    @ViewBuilder
+    private func draw(_ part: BriefFoot.Part) -> some View {
+        switch part {
+        case .value(let value, let text, let spoken, let opens):
+            let isTags = value == .tags
+            if let opens, let openSheet {
+                Button { openSheet(opens) } label: { valueText(text, isTags: isTags) }
+                    .buttonStyle(BriefFootButtonStyle())
+                    .help(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))
+                    .accessibilityLabel(spoken)
+                    .accessibilityHint("Opens \(opens.title.replacingOccurrences(of: "\u{2026}", with: ""))")
+                    .layoutPriority(isTags ? 0 : 1)
+            } else {
+                valueText(text, isTags: isTags)
+                    .accessibilityLabel(spoken)
+                    .layoutPriority(isTags ? 0 : 1)
+            }
+        case .details(let offers):
+            Menu {
+                ForEach(offers, id: \.title) { item in
+                    Button(item.title) { openSheet?(item) }
+                }
+            } label: {
+                Text(BriefFoot.detailsTitle)
+            }
+            .menuStyle(.button)
+            .buttonStyle(BriefFootButtonStyle())
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Target, tags and the piece\u{2019}s other details")
+            .accessibilityLabel(BriefFoot.detailsTitle)
+            .accessibilityHint("A menu: " + offers.map { $0.title.replacingOccurrences(of: "\u{2026}", with: "") }
+                .joined(separator: ", "))
+            .accessibilityIdentifier("brief.details")
+            .layoutPriority(2)
+        case .history(let item):
+            Button { onPullUp(item) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                    Text(BriefFoot.historyTitle)
+                }
+            }
+            .buttonStyle(BriefFootButtonStyle())
+            .fixedSize()
+            .help(item.isProjectHistory
+                  ? "Pull up the project\u{2019}s History beside the centre"
+                  : "Pull up this piece\u{2019}s History beside the centre")
+            .accessibilityLabel(BriefFoot.historyTitle)
+            .accessibilityHint(item.isProjectHistory ? "Pulls up the project\u{2019}s History"
+                                                     : "Pulls up this piece\u{2019}s History")
+            .accessibilityIdentifier("brief.history")
+            .layoutPriority(2)
+        }
+    }
+
+    private func valueText(_ text: String, isTags: Bool) -> some View {
+        Text(text)
+            .lineLimit(1)
+            .truncationMode(isTags ? .middle : .tail)
+            .fixedSize(horizontal: !isTags, vertical: false)
+    }
+}
+
+/// The foot's doors: secondary ink that turns primary under the pointer and
+/// dims while pressed — the quietest thing on the pane, still a control.
+struct BriefFootButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Hovering(configuration: configuration)
+    }
+
+    private struct Hovering: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .opacity(configuration.isPressed ? 0.55 : 1)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
     }
 }
 

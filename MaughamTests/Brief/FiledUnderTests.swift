@@ -50,8 +50,8 @@ final class FiledUnderTests: XCTestCase {
     // MARK: - The sentence, from the write that happened
 
     /// A finding's Answer files under the piece's intent, and from that
-    /// piece's own list the line calls it "this chapter".
-    func test_aFindingsAnswerSaysItFiledUnderThisChaptersIntent() async throws {
+    /// piece's own list the line says "Filed in Brief" (Task 6a).
+    func test_aFindingsAnswerSaysItFiledInBrief() async throws {
         let (url, store, chapter) = try await loadedNovel(named: "FiledThisChapter")
         let diagnostics = DiagnosticsStore(projectRoot: url, device: DeviceSlug.make(from: "test-mac"))
         let finding = strain(on: chapter.id)
@@ -66,27 +66,30 @@ final class FiledUnderTests: XCTestCase {
         XCTAssertEqual(filed.first, FiledDestination(kind: statement.kind, scope: statement.scope))
         XCTAssertEqual(
             FiledUnder.filing(try XCTUnwrap(filed.first), faces: .item(chapter.id), store: store).sentence,
-            "Filed under this chapter's intent")
+            FiledUnder.inBrief)
+        XCTAssertEqual(FiledUnder.inBrief, "Filed in Brief")
+        XCTAssertEqual(
+            FiledUnder.filing(try XCTUnwrap(filed.first), faces: .item(chapter.id), store: store).brief,
+            .item(chapter.id), "the line shows Brief for the piece it was filed on")
     }
 
     /// The same answer pressed from the Book's list names the piece.
     func test_answeringFromTheBookNamesThePiece() {
         let destination = FiledDestination(kind: .intent, scope: .document("doc-b"))
         XCTAssertEqual(sentence(destination, faces: .project),
-                       "Filed under \u{201C}Breakfast\u{201D}'s intent")
+                       "Filed in \u{201C}Breakfast\u{201D}'s Brief")
         XCTAssertEqual(sentence(destination, faces: .item("part-1")),
-                       "Filed under \u{201C}Breakfast\u{201D}'s intent", "a Part names its piece too")
+                       "Filed in \u{201C}Breakfast\u{201D}'s Brief", "a Part names its piece too")
         XCTAssertEqual(sentence(destination, faces: .item("doc-a")),
-                       "Filed under \u{201C}Breakfast\u{201D}'s intent", "another piece is named")
-        XCTAssertEqual(sentence(destination, faces: .item("doc-b")), "Filed under this chapter's intent")
+                       "Filed in \u{201C}Breakfast\u{201D}'s Brief", "another piece is named")
+        XCTAssertEqual(sentence(destination, faces: .item("doc-b")), "Filed in Brief")
         // **Review M3.** A piece the structure no longer names is never
-        // "“chapter”'s intent".
+        // "“chapter”'s Brief".
         XCTAssertEqual(sentence(FiledDestination(kind: .intent, scope: .document("doc-gone")), faces: .project),
-                       "Filed under this chapter's intent")
-        XCTAssertEqual(FiledUnder.sentence(FiledDestination(kind: .intent, scope: .document("doc-gone")),
-                                           faces: .project, structure: structure,
-                                           projectType: .collection, firstReaderName: nil),
-                       "Filed under this piece's intent")
+                       "Filed in Brief")
+        // Already standing says so, in the same family.
+        XCTAssertEqual(sentence(FiledDestination(kind: .intent, scope: .document("doc-b"), alreadyStood: true),
+                                faces: .item("doc-b")), "Already in Brief")
     }
 
     /// Every kind the verbs file to has its sentence; none carries the
@@ -94,7 +97,9 @@ final class FiledUnderTests: XCTestCase {
     func test_eachDestinationHasItsSentence() {
         let faces = BinderSubject.item("doc-a")
         XCTAssertEqual(sentence(FiledDestination(kind: .intent, scope: .project), faces: faces),
-                       "Filed under the book's intent")
+                       "Filed in the Book's Brief")
+        XCTAssertEqual(sentence(FiledDestination(kind: .intent, scope: .project), faces: .project),
+                       "Filed in Brief", "from the Book's own list")
         XCTAssertEqual(sentence(FiledDestination(kind: .lessons, scope: .project), faces: faces),
                        "Filed under What I've Learned")
         XCTAssertEqual(sentence(FiledDestination(kind: .firstReader, scope: .project), faces: faces,
@@ -129,14 +134,14 @@ final class FiledUnderTests: XCTestCase {
         let destination = FiledDestination(kind: .intent, scope: .document("doc-s"))
         XCTAssertEqual(FiledUnder.sentence(destination, faces: .project, structure: script,
                                            projectType: .screenplay, firstReaderName: nil),
-                       "Filed under this script's intent", "a screenplay's Book is its script")
+                       "Filed in Brief", "a screenplay's Book is its script, so its Brief is the faces'")
         XCTAssertEqual(FiledUnder.sentence(destination, faces: .item("doc-s"), structure: script,
                                            projectType: .screenplay, firstReaderName: nil),
-                       "Filed under this script's intent")
+                       "Filed in Brief")
         XCTAssertEqual(FiledUnder.sentence(FiledDestination(kind: .intent, scope: .document("doc-a")),
                                            faces: .item("doc-a"), structure: structure,
                                            projectType: .collection, firstReaderName: nil),
-                       "Filed under this piece's intent")
+                       "Filed in Brief")
     }
 
     // MARK: - The line's life
@@ -158,6 +163,54 @@ final class FiledUnderTests: XCTestCase {
         line = FiledNotice.after(.lingered(second.id), current: line)
         XCTAssertNil(line, "its own linger ends it")
         XCTAssertEqual(FiledUnder.lingers, .seconds(6))
+    }
+
+    /// **To resolve's line stands until the writer's next act in the list**
+    /// (Task 6a), never on a timer: a press that began over the line ends
+    /// it; a press that itself filed (the line replaced mid-press) keeps the
+    /// new one; a press with no line standing changes nothing.
+    func test_toResolvesLineEndsAtTheNextActInTheList() throws {
+        let first = FiledNotice.Filing(sentence: FiledUnder.inBrief, brief: .item("doc-a"))
+        XCTAssertNil(FiledNotice.after(.listPressed(over: first.id), current: first),
+                     "the next press in the list ends the line")
+        let second = FiledNotice.Filing(sentence: "Filed under What I've Learned", brief: .project)
+        XCTAssertEqual(FiledNotice.after(.listPressed(over: first.id), current: second), second,
+                       "a press that filed keeps the line it made")
+        XCTAssertEqual(FiledNotice.after(.listPressed(over: nil), current: second), second,
+                       "a press that began with no line ends nothing")
+        XCTAssertNil(FiledNotice.after(.listPressed(over: nil), current: nil))
+
+        // Wired: To resolve's line does not linger, and the list's presses
+        // end it — simultaneously, so every control still takes its press.
+        let pane = Self.flattened(try Self.source(of: "Views/Resolve/ResolvePane.swift"))
+        XCTAssertTrue(pane.contains("FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)"))
+        XCTAssertTrue(pane.contains(".simultaneousGesture(DragGesture(minimumDistance: 0)"))
+        XCTAssertTrue(pane.contains(".listPressed(over: filedLineAtPress ?? nil), current: filedNotice)"))
+        let notice = Self.flattened(try Self.source(of: "Views/Brief/FiledUnder.swift"))
+        XCTAssertTrue(notice.contains("guard lingers else { return }"), "no timer where it does not linger")
+    }
+
+    /// **The line's button shows Brief and does nothing else** (Task 6a):
+    /// its action is `onOpenBrief(brief)`, and the window's `openBrief`
+    /// writes the faces, the column's visibility and its position — no
+    /// statement, no list, no other state.
+    func test_theFiledLinesButtonOnlyShowsBrief() throws {
+        let notice = Self.flattened(try Self.source(of: "Views/Brief/FiledUnder.swift"))
+        let actions = notice.components(separatedBy: "Button {").dropFirst()
+            .map { String($0.prefix(while: { $0 != "}" })) }
+        XCTAssertEqual(actions.map { $0.trimmingCharacters(in: .whitespaces) }, ["onOpenBrief(brief)"],
+                       "the line's one button")
+        let window = Self.flattened(try Self.source(of: "Views/ProjectWindow.swift"))
+        let body = try XCTUnwrap(Self.body(of: "func openBrief(", in: window))
+        let statements = body.dropFirst("func openBrief(_ target: BinderSubject) {".count).dropLast()
+            .trimmingCharacters(in: .whitespaces)
+        XCTAssertEqual(statements,
+                       "let next = Self.facesForABrief(target, subject: subject) if next != subject { subject = next } "
+                       + "showInspector = true rightColumnPosition = .brief",
+                       "openBrief moves the faces and shows Brief, and writes nothing else")
+        // To resolve's line is wired to it.
+        let column = Self.flattened(try Self.source(of: "Views/RightColumn.swift"))
+        XCTAssertTrue(column.contains("onOpenBrief: openBrief,"))
     }
 
     // MARK: - Every filing verb says where it filed
@@ -193,7 +246,8 @@ final class FiledUnderTests: XCTestCase {
     static let hosts: [(file: String, mustContain: [String])] = [
         ("Views/Resolve/ResolvePane.swift",
          ["diagnostics: diagnostics, filedUnder: { filed($0) })",
-          "onFiledUnder: { filed($0) })", "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
+          "onFiledUnder: { filed($0) })",
+          "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)"]),
         ("Views/Resolve/ResolveNoteVerbs.swift",
          ["undoManager: undoManager, filedUnder: onFiledUnder)",
           "filedUnder: onFiledUnder)"]),

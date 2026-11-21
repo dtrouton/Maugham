@@ -174,6 +174,16 @@ final class StatementMountFixture: RunLoopPumping {
                 ?? axAttribute($0, "accessibilityLabel") as? String }
     }
 
+    /// The screen frames of the accessibility elements identified `identifier`,
+    /// in tree order — a mounted measurement of where a control was laid out.
+    func axFrames(identifiedBy identifier: String, in window: NSWindow) throws -> [NSRect] {
+        try axTree(in: window).compactMap { element in
+            guard axAttribute(element, "accessibilityIdentifier") as? String == identifier,
+                  let frame = axAttribute(element, "accessibilityFrame") as? NSRect else { return nil }
+            return frame
+        }
+    }
+
     /// `staticTexts` as a predicate, for polling. Swallows the unavailable-tree
     /// skip on purpose — a `pumpUntil` condition cannot throw, and the
     /// assertion after the wait is what reports the skip.
