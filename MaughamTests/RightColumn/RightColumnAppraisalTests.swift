@@ -93,11 +93,11 @@ final class RightColumnAppraisalTests: XCTestCase {
         for nothing: BinderSubject in [.canvas, .inbox, .palette, .research("r1"), .item("gone")] {
             XCTAssertNil(title(nothing), "\(nothing) names nothing the panes are about")
         }
-        // It is drawn over To resolve (and its interim answers) and Brief,
+        // It is drawn over To resolve (and its interim answer) and Brief,
         // from the faces — never over the pulled-up position.
         let lines = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/RightColumn.swift"))
-        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine" }.count, 4,
-                       "To resolve, the review, the desk and Brief each lead with the line")
+        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine" }.count, 3,
+                       "To resolve (an edition's included), the review and Brief each lead with the line")
         XCTAssertTrue(lines.contains { $0.contains("of: subject.faces,") })
     }
 

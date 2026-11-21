@@ -87,13 +87,53 @@ final class EditionStatusCostTests: XCTestCase {
         return "\(chapters) chapters — before: \(before.text); after: \(after.text)"
     }
 
+    /// **What an edition's To resolve read costs a book** (shell p4 Task 6):
+    /// every chapter closed, each with a finished Spanish round leaving one
+    /// change, so the read quotes every chapter's source paragraph. Its wall
+    /// time and its longest single main-actor step (a one-chapter read; the
+    /// whole read yields between chapters).
+    private func toResolveProbe(chapters: Int) async throws -> String {
+        let book = try await ResolvePresenceTests.book(in: temp.url, chapters: chapters,
+                                                       noted: Set(0..<chapters))
+        let rounds = TranslationRoundStore(projectURL: book.url)
+        for (index, id) in book.ids.enumerated() {
+            let first = try XCTUnwrap(try book.store.derivedCache.state(forDocId: id, in: book.url)
+                .sequence.first)
+            var round = TranslationRound(number: index + 1, language: "es", docId: id, startedAt: Date())
+            round.endedAt = Date()
+            round.departures = [.init(id: "d\(index)", paragraphId: first, verdict: "drifted", kind: "tone",
+                                      note: "softer", gloss: "it whispers", outcome: nil)]
+            try rounds.append(round)
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let read = await ResolveEditionItems.read(language: "es", isSource: false, docIds: book.ids,
+                                                  problems: [], store: book.store,
+                                                  documentStore: book.documentStore)
+        var cost = Cost(wall: ms(clock.now - start))
+        XCTAssertEqual(read.departureRows.count, chapters, "premise: every chapter's change is quoted")
+        for id in book.ids.prefix(20) {
+            let one = clock.now
+            _ = await ResolveEditionItems.read(language: "es", isSource: false, docIds: [id], problems: [],
+                                               store: book.store, documentStore: book.documentStore)
+            cost.longest = max(cost.longest, ms(clock.now - one))
+        }
+        await book.documentStore.close()
+        return "\(chapters) chapters — \(cost.text)"
+    }
+
     func test_whatTheEditionsStatusReadCostsABook() async throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["MAUGHAM_PERF_FIXTURE"] == "1",
             "perf fixture: run with TEST_RUNNER_MAUGHAM_PERF_FIXTURE=1")
+        // Shell p4 Task 6 adds the edition's To resolve read to the same
+        // probe (one skip, one fixture shape).
         let table = ["EDITION STATUS COST (every chapter closed, one note and one es paragraph each)",
                      try await probe(chapters: 30),
-                     try await probe(chapters: 200)].joined(separator: "\n")
+                     try await probe(chapters: 200),
+                     "EDITION TO RESOLVE COST (every chapter closed, one unsettled es change each)",
+                     try await toResolveProbe(chapters: 30),
+                     try await toResolveProbe(chapters: 200)].joined(separator: "\n")
         let attachment = XCTAttachment(string: table)
         attachment.name = "edition-status-cost.txt"
         attachment.lifetime = .keepAlways

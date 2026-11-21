@@ -29,6 +29,13 @@ struct TranslationRoundActions {
     /// `refused(sentence)` — it did not, in its own words.
     enum Outcome: Equatable {
         case done(TranslationRound?, String)
+        /// **The verb filed a ruling, and this is where it went** — read off
+        /// the write (`RulingPerformer.rule`'s `FiledDestination`), never a
+        /// literal (shell p4 Task 6; ADR 0037's "Not yet built"). The surface
+        /// says it through `FiledUnder` from its own faces and links to the
+        /// Brief it names; the sentence is the verb's own, for a surface with
+        /// no filed line.
+        case filed(TranslationRound?, FiledDestination, String)
         case refused(String)
     }
 
@@ -260,8 +267,9 @@ extension TranslationRoundActions {
             // later round as though it did.
             guard !words.isEmpty else { return .refused(TranslatorsNoteCopy.emptyRefusal) }
             let (kind, scope) = TranslatorsNote.destination(home: home, docId: round.docId)
+            let destination: FiledDestination
             do {
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     Ruling.directiveText(paragraphId: paragraphId, words),
                     provenance: TranslationRoundReport.provenance(round: round,
                                                                   verb: "keep mine"),
@@ -270,7 +278,7 @@ extension TranslationRoundActions {
             } catch {
                 return .refused(error.localizedDescription)
             }
-            return .done(nil, TranslationRoundReport.keptLine(home: home))
+            return .filed(nil, destination, TranslationRoundReport.keptLine(home: home))
         }
 
         // MARK: Make it a rule
@@ -293,7 +301,7 @@ extension TranslationRoundActions {
             }
             // **Where it went, read off the write** (shell plan 3 Task 6): the
             // report draws this sentence under the row's own section.
-            return .done(nil, FiledUnder.sentence(
+            return .filed(nil, destination, FiledUnder.sentence(
                 destination, faces: .edition(language: round.language),
                 structure: store.manifest.structure, projectType: store.manifest.type,
                 firstReaderName: FirstReaderRuling.readerName(in: store.manifest)))
@@ -373,12 +381,13 @@ extension TranslationRoundActions {
             guard !proposal.term.trimmingCharacters(in: .whitespaces).isEmpty,
                   !proposal.rendering.trimmingCharacters(in: .whitespaces).isEmpty
             else { return .refused(TranslationRoundReport.emptyGlossaryTerm) }
+            let destination: FiledDestination
             do {
                 // `Ruling.Provenance.glossary`, not the round's own line: a
                 // glossary entry is read back BY SHAPE (`Ruling.glossary`) and
                 // its provenance is the one word every briefing recognises it
                 // by, whichever round proposed it.
-                try await RulingPerformer.rule(
+                destination = try await RulingPerformer.rule(
                     Ruling.glossaryText(term: proposal.term,
                                         rendering: proposal.rendering,
                                         note: proposal.reason),
@@ -394,7 +403,7 @@ extension TranslationRoundActions {
                 return .refused(TranslationRoundReport.adoptedButNotRecorded(
                     term: proposal.term, reason: refusal))
             }
-            return .done(updated, TranslationRoundReport.adoptedLine)
+            return .filed(updated, destination, TranslationRoundReport.adoptedLine)
         }
 
         actions.skip = { round, index in

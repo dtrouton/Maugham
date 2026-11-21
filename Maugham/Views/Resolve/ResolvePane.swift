@@ -155,6 +155,12 @@ struct ResolvePane: View {
     /// A filed line's link: the faces move to the Brief it names
     /// (`ProjectWindow.openBrief`). Nil draws the line as text.
     var onOpenBrief: ((BinderSubject) -> Void)? = nil
+    /// The window's publish centre (shell p4 Task 6): which edition is the
+    /// Source, the last compile's problems, and the covers an edition's rows
+    /// and head open (`show(round:)`, `show(proposal:)`, `show(problems:)`).
+    /// Nil where no centre stands behind the list: an edition then lists its
+    /// questions and changes, and its Shows do nothing.
+    var publishCentre: PublishCentreModel? = nil
 
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.undoManager) private var undoManager
@@ -184,6 +190,10 @@ struct ResolvePane: View {
     /// holds open, and by a figure note's verb (the walk's cache is not
     /// observable). Never by the open piece's own notes (review C1).
     @State private var annotationsToken = 0
+    /// An edition's own read (rounds, proposals, problems), and the events
+    /// and verbs heard that change it (shell p4 Task 6).
+    @State private var editionRead = ResolveEditionItems.Read.empty
+    @State private var editionHeard = 0
 
     // MARK: The writer's
 
@@ -246,8 +256,40 @@ struct ResolvePane: View {
     // MARK: - Derived per render (no walk)
 
     private var scope: ResolveScope {
-        ResolveScope.of(subject.faces, structure: store.manifest.structure,
-                        projectType: store.manifest.type)
+        ResolveScope.of(subject.faces, readIn: nil, sourceLanguage: sourceLanguage,
+                        structure: store.manifest.structure, projectType: store.manifest.type)
+    }
+
+    /// The book's own tag — which edition is the Source.
+    private var sourceLanguage: String {
+        publishCentre?.sourceLanguage ?? PublishConfig.Metadata().language
+    }
+
+    /// What an edition's own read is keyed on; nil off an edition.
+    private var editionKey: ResolveEditionKey? {
+        guard let language = scope.editionLanguage else { return nil }
+        return ResolveEditionKey(
+            scope: scope,
+            roundsModified: ResolveEditionKey.modified(
+                TranslationRoundStore.fileURL(language: language, in: store.url)),
+            heard: editionHeard,
+            problems: publishCentre?.compileRunner.state.problems ?? [])
+    }
+
+    /// The four edition kinds, from the edition's own read — never another
+    /// edition's (a read is of one language).
+    private var editionItems: [ResolveItem] {
+        guard case .edition(let language, let isSource, let docIds) = scope,
+              editionRead.language == language else { return [] }
+        return ResolveEditionItems.items(language: language, isSource: isSource, docIds: docIds,
+                                         read: editionRead)
+    }
+
+    /// The empty edition's sentence.
+    private var editionClear: String? {
+        guard case .edition(let language, let isSource, _) = scope else { return nil }
+        return ResolveEditionItems.clearLine(language: language, isSource: isSource,
+                                             hasRounds: editionRead.hasRounds)
     }
 
     private var openDocId: String? { subject.open.itemID }
@@ -305,7 +347,7 @@ struct ResolvePane: View {
 
     private var hasList: Bool {
         switch scope {
-        case .piece, .pieces, .figure: return true
+        case .piece, .pieces, .figure, .edition: return true
         case .elsewhere, .outside: return false
         }
     }
@@ -327,7 +369,10 @@ struct ResolvePane: View {
                 onOpenProjectSettings: onOpenProjectSettings,
                 onSetActivePass: onSetActivePass,
                 onSetPassState: onSetPassState,
-                onFiledUnder: { filed($0) })
+                onFiledUnder: { filed($0) },
+                editionRead: editionRead.language == scope.editionLanguage ? editionRead : .empty,
+                onShowRound: { publishCentre?.show(round: $0) },
+                onShowProposal: { publishCentre?.show(proposal: $0) })
             if filedNotice != nil {
                 FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)
                     .padding(.horizontal, 12).padding(.vertical, 4)
@@ -341,7 +386,7 @@ struct ResolvePane: View {
                     Label("To resolve", systemImage: "checklist")
                 } description: {
                     Text((Self.emptyState(scope: scope, hasItems: false, hasVisible: false,
-                                          offersColdStart: false)
+                                          offersColdStart: false, editionClear: editionClear)
                           ?? .outside).sentence)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -349,6 +394,28 @@ struct ResolvePane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: listKey) { refresh(listKey) }
+        // An edition's rounds, proposals and problems: once per key, the
+        // ledger off the main actor (shell p4 Task 6).
+        .task(id: editionKey) {
+            guard let key = editionKey, case .edition(let language, let isSource, let docIds) = key.scope
+            else {
+                editionRead = .empty
+                return
+            }
+            let read = await ResolveEditionItems.read(
+                language: language, isSource: isSource, docIds: docIds, problems: key.problems,
+                store: store, documentStore: documentStore)
+            guard !Task.isCancelled else { return }
+            editionRead = read
+            held = ResolveEditionItems.replacing(held, with: editionItems)
+            regroup(scope: scope, script: lastKey?.regroup.script)
+        }
+        .onProjectEvent(.maughamDesignProposalsChanged, url: store.url, window: window) { _ in
+            editionHeard &+= 1
+        }
+        .onProjectEvent(.maughamTranslationRoundEnded, url: store.url, window: window) { _ in
+            editionHeard &+= 1
+        }
         // The sidecar for the scope's pieces — never from `body`; its
         // `version` moves the read key.
         .task(id: scope) {
@@ -437,7 +504,8 @@ struct ResolvePane: View {
             chips: chips, selection: shownSelection, passes: passes,
             showsSelectionMode: showsSelectionMode,
             selectionModeOn: selectionModeOn,
-            showsNewTodo: creationVerbs.creation.offersAny,
+            // An edition lists no to-dos, so it makes none.
+            showsNewTodo: scope.editionLanguage == nil && creationVerbs.creation.offersAny,
             checksUnread: checksUnread,
             triage: triageOffered ? triageChoice : nil,
             onTriage: { triageChoice = $0 },
@@ -469,7 +537,8 @@ struct ResolvePane: View {
         let bulk = bulkDocId
         let empty = Self.emptyState(scope: scope, hasItems: !held.items.isEmpty,
                                     hasVisible: !shown.isEmpty,
-                                    offersColdStart: offersColdStart)
+                                    offersColdStart: offersColdStart,
+                                    editionClear: editionClear)
         let opensItsPiece = openThePieceLines(shown)
         return VStack(spacing: 0) {
             ScrollViewReader { proxy in
@@ -575,7 +644,7 @@ struct ResolvePane: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }
-        case .nothing?, .filteredOut?:
+        case .nothing?, .filteredOut?, .editionClear?:
             Text((empty ?? .nothing).sentence)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -663,6 +732,8 @@ struct ResolvePane: View {
                 findingRow(item, docId: docId, finding: finding, acting: acting)
             case .todo(let task):
                 todoRow(task, acting: acting, reorders: reorders)
+            case .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+                ResolveEditionRow(item: item, read: editionRead, verbs: editionVerbs)
             }
         }
         // A strain mark's jump marks its row (`.focusFinding`).
@@ -812,7 +883,10 @@ struct ResolvePane: View {
         }
         let hold = ResolveStetHold.keeping(fresh, previous: held, stettedAt: stettedAt,
                                            now: Date(), live: live)
-        held = hold.snapshot
+        // An edition's own kinds are not the walks': a read keeps the last
+        // edition read's (`ResolveEditionItems.replacing`).
+        held = scope.editionLanguage == nil
+            ? hold.snapshot : ResolveEditionItems.replacing(hold.snapshot, with: editionItems)
         keptStetted = hold.kept
         if step == .read {
             figureCells = walks.annotations?.figureCells ?? [:]
@@ -969,6 +1043,43 @@ struct ResolvePane: View {
             if case .figure(let id) = subject { revealFigure(id) }
             onTravel(subject)
         }
+    }
+
+    // MARK: - An edition's verbs
+
+    /// **The round report's verbs and the gate's, wired to this window** —
+    /// called, never re-spelled (shell p4 Task 6).
+    private var editionVerbs: ResolveEditionVerbs {
+        let projectURL = store.url
+        let statements = store.manifest.statements
+        return ResolveEditionVerbs(
+            round: TranslationRoundActions.production(
+                store: store, documentStore: documentStore, projectURL: projectURL, world: world),
+            authorVerbs: { [documentStore] docId, language in
+                TranslationAuthorVerbs.decide(
+                    document: documentStore.posture(forDocId: docId),
+                    editionBrief: documentStore.posture(
+                        ofStatement: .editionBrief(language), scope: .project, statements: statements),
+                    pieceIntent: documentStore.posture(
+                        ofStatement: .intent, scope: .document(docId), statements: statements))
+            },
+            translatorName: { [store] language in
+                EditionStatus.translatorName(for: language, in: store.manifest) ?? language.uppercased()
+            },
+            approve: { proposal in
+                await DesignGatePromotion.approve(
+                    proposal, projectURL: projectURL,
+                    jobManager: CentreColumn.compileJobs(for: projectURL))
+            },
+            discard: { proposal in DesignGatePromotion.discard(proposal, projectURL: projectURL) },
+            showRound: { publishCentre?.show(round: $0) },
+            showProposal: { publishCentre?.show(proposal: $0) },
+            showProblems: {
+                if let publishCentre { publishCentre.show(problems: publishCentre.compileRunner.state.problems) }
+            },
+            onChanged: { editionHeard &+= 1 },
+            onProposalChanged: { publishCentre?.adoptVerbAnswer($0) },
+            onFiled: { filed($0) })
     }
 
     // MARK: - A finding's verbs

@@ -146,10 +146,24 @@ struct DepartureRowView: View {
         return (verbs.keepMine ? [.keepMine] : []) + (verbs.rule ? [.makeRule] : [])
     }
 
+    /// One trailing line where it fits (the report's centre); in a narrow
+    /// column — To resolve's edition list (shell p4 Task 6) — the verbs wrap
+    /// at their own width rather than truncate.
     private var verbRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                verbButtons()
+            }
+            FlowLayout(spacing: 6) { verbButtons() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func verbButtons() -> some View {
         let offers = Self.offers(isSettled: isSettled, verbs: verbs)
-        return HStack(spacing: 8) {
-            Spacer(minLength: 0)
+        Group {
             if isSettled {
                 Text(TranslationRoundReport.ruledOutcomeLine)
                     .font(.caption)
@@ -172,6 +186,7 @@ struct DepartureRowView: View {
                     .help(DepartureRowCopy.makeRuleHelp)
             }
         }
+        .fixedSize()
     }
 }
 

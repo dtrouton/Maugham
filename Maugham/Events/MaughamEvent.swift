@@ -66,9 +66,8 @@ enum MaughamEvent {
     static let resolveFilterKey = "resolve_filter"
 
     /// Payload key for `.maughamSetRightColumn`: a `ResolveHint.rawValue` on
-    /// ⌘⌥L's and ⌘⌥K's posts, which ask To resolve to say how translation
-    /// review is entered, or where the Department desk shows, when what the
-    /// key names is not what the position shows.
+    /// ⌘⌥L's post, which asks To resolve to say how translation review is
+    /// entered when the review is not what the position shows.
     static let explainsKey = "explains"
 
     /// Payload key for `.maughamSetRightColumn`: a `BriefField.rawValue` on
@@ -245,13 +244,12 @@ enum MaughamEvent {
                        explainsKey: RightColumn.ResolveHint.translationReview.rawValue])
     }
 
-    /// ⌘⌥K: To resolve, where the Department desk shows while an edition is
-    /// the faces — and, with no edition there, with one line saying how the
-    /// desk is reached (⌘⌥L's treatment).
+    /// ⌘⌥K: To resolve — an edition's own list while an edition is the
+    /// faces (shell p4 Task 6; the desk and its hint line are gone). Task 7
+    /// makes it the reading edition's To resolve.
     static func postDeskPosition() {
         post(.maughamSetRightColumn, to: .keyWindow,
-             payload: [positionKey: RightColumnPosition.resolve.rawValue,
-                       explainsKey: RightColumn.ResolveHint.desk.rawValue])
+             payload: [positionKey: RightColumnPosition.resolve.rawValue])
     }
 
     /// ⌘⌥I and ⌘⌥N: Brief, with the keys in its line or in Going for's editor

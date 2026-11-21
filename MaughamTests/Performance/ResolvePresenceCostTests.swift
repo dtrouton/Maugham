@@ -86,7 +86,7 @@ final class ResolvePresenceCostTests: XCTestCase {
         let elapsed = ms(clock.measure {
             let manifest = store.manifest
             let read = ResolveReader.read(
-                scope: ResolveScope.of(.project, structure: manifest.structure, projectType: manifest.type),
+                scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
                 store: store, documentStore: documentStore, diagnostics: nil)
             let owners = ProjectStore.figureNoteOwners(manifest.figures ?? [])
             _ = ResolvePresence.marks(read, structure: manifest.structure, figureOwners: owners, sceneIndex: nil)
@@ -246,7 +246,7 @@ final class ResolvePresenceCostTests: XCTestCase {
     private func oneShotMarks(store: ProjectStore, documentStore: DocumentStore) -> ResolvePresence.Marks {
         let manifest = store.manifest
         let read = ResolveReader.read(
-            scope: ResolveScope.of(.project, structure: manifest.structure, projectType: manifest.type),
+            scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
             store: store, documentStore: documentStore, diagnostics: nil)
         return ResolvePresence.marks(read, structure: manifest.structure,
                                      figureOwners: ProjectStore.figureNoteOwners(manifest.figures ?? []),

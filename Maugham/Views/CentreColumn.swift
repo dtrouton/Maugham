@@ -704,7 +704,7 @@ struct CentreColumn: View {
     /// The project's ONE compile-job manager — the same instance every compile of
     /// this book contends on, which is the only thing that makes "a compile is
     /// running" answerable at all.
-    private static func compileJobs(for projectURL: URL) -> CompileJobManager {
+    static func compileJobs(for projectURL: URL) -> CompileJobManager {
         PublishingStores.sharedFor(
             projectID: ProjectIdentifier.id(for: projectURL),
             projectURL: projectURL).jobManager

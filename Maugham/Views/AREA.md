@@ -131,6 +131,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/AnnotationRowWiring.swift`, `FigureRowGate.swift`, `AnnotationsBulkBar.swift` — a row's closures, a figure note's gate, the multiselect bar.
 - `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
+- `Maugham/Views/Resolve/ResolveEditionItems.swift` — an edition's list: changes, glossary, design, compile; rows, verbs, head.
 - `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift`, `FiledUnder.swift`, `BriefDetails.swift` (Details, fold hint, History, proposal notice) (views).
 
 ### Statements, the letter and the ledger
@@ -154,8 +155,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 ### Publish (`Publish/`)
 - `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, an edition's book and Compile… bar, the notice cover, `PublishPreviewModifier`.
 - `Maugham/Views/Publish/EditionStatusView.swift`, `Maugham/Views/Publish/EditionStatusRows.swift` — an edition's Status.
-- `Maugham/Views/Publish/DepartmentPane.swift` — the desk (⌘⌥K).
-- `Maugham/Views/Publish/DepartmentPaneHost.swift` — the desk's disk work and verbs.
+- `Maugham/Views/Publish/DepartmentPane.swift`, `DepartmentPaneHost.swift` — the desk, unmounted; its statics serve the edition head.
 - `Maugham/Views/Publish/DepartmentRunState.swift`, `Maugham/Views/Publish/DepartmentDesignRow.swift`, `Maugham/Views/Publish/DepartmentCompileState.swift` — the desk's run, design and compile decisions as values. **→ Compiler**
 - `Maugham/Views/Publish/DepartmentCastSheet.swift` — the desk's cast sheet.
 - `Maugham/Views/Publish/DepartmentCompileSheet.swift`, `Maugham/Views/Publish/DeskCompileRunner.swift` — Compile… and the window's runner.
@@ -437,12 +437,11 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **`PublishPreviewResolver.readablePDFs` is both the picker's rows and the drawn book**; the pick is never persisted.
 - **`PublishPreviewModifier` is the resolution's only writer.**
 - **A proposal is a VALUE read once**, cleared on any change of `open` *before* `PublishPreviewModifier`'s edition guard, so leaving the edition clears it.
-- **The desk has no empty state**: the Design row's Run must always be reachable. A language row is `EditionStatus.LanguageRow`, the derivation `translation_status` reports.
+- **An edition's rows call the round report's and the gate's verbs**; a filing says the destination the write returned (`.filed`).
 - **Name, Add Language and Rename are asks of one sheet**; adding a language the book has says so and stops.
-- **Every desk refusal folds into one `notice`** (`DepartmentRunTests.test_theDeskCarriesOneMessageChannelAndNotTwo`).
 - **The desk's run gate reads the pipeline first** (`DepartmentRunSession.read`); a round's leg never joins `ReloadKey`.
 - **An unlisted language's first Run asks for a name.**
-- **The desk runs the OPEN document only** (`DepartmentRunTarget`); Run Whole Book uses the row's own `scopedDocumentIds`.
+- **Run Whole Book runs the imprint's `scopedDocumentIds`.**
 - **A language tag is lowercased before it is judged, unioned or sent**: `ES` beside `es` would draw one edition as two rows.
 - **Desk pre-flight asks the briefing's own gates** (`PublishStarter.isInitialized`, `publishablePieces()`), never a second disk probe.
 - **A refused desk verb is disabled with its reason, except Show, which hides.**

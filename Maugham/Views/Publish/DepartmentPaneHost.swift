@@ -904,35 +904,40 @@ struct DepartmentPaneHost: View {
     /// front of needs them and nobody else.
     @discardableResult
     private func nameCast(language: String, answer: DepartmentCastAnswer) async -> Bool {
+        let outcome = await Self.nameCast(language: language, answer: answer, store: store)
+        if let failure = outcome.failure { notice = failure }
+        return outcome.translatorNamed
+    }
+
+    /// **The naming itself, windowless** (shell p4 Task 6): the desk's sheet
+    /// and an edition's Run in To resolve name a cast the same way. Answers
+    /// whether the translator landed, and the sentence for any part that did
+    /// not.
+    @MainActor
+    static func nameCast(language: String, answer: DepartmentCastAnswer,
+                         store: ProjectStore) async -> (translatorNamed: Bool, failure: String?) {
         do {
             let translator = try await store.translatorRole(for: language)
             try await store.renameProductionRole(id: translator.id, to: answer.name)
         } catch {
             _departmentLog.error(
                 "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
-            notice = DepartmentCastCopy.mintFailed(language: language)
-            return false
+            return (false, DepartmentCastCopy.mintFailed(language: language))
         }
-        await nameCompanion(language: language, name: answer.reader,
-                            mint: store.readerRole(for:), what: "reader")
-        await nameCompanion(language: language, name: answer.collator,
-                            mint: store.collatorRole(for:), what: "collator")
-        return true
-    }
-
-    private func nameCompanion(
-        language: String, name: String?,
-        mint: (String) async throws -> ProductionRole, what: String
-    ) async {
-        guard let name else { return }
-        do {
-            let role = try await mint(language)
-            try await store.renameProductionRole(id: role.id, to: name)
-        } catch {
-            _departmentLog.error(
-                "could not name the \(language, privacy: .public) \(what, privacy: .public): \(error, privacy: .public)")
-            notice = DepartmentCastCopy.mintFailed(language: language)
+        var failure: String?
+        for (name, mint, what) in [(answer.reader, store.readerRole(for:), "reader"),
+                                   (answer.collator, store.collatorRole(for:), "collator")] {
+            guard let name else { continue }
+            do {
+                let role = try await mint(language)
+                try await store.renameProductionRole(id: role.id, to: name)
+            } catch {
+                _departmentLog.error(
+                    "could not name the \(language, privacy: .public) \(what, privacy: .public): \(error, privacy: .public)")
+                failure = DepartmentCastCopy.mintFailed(language: language)
+            }
         }
+        return (true, failure)
     }
 
     // MARK: - The design round (Task 4)

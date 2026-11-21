@@ -20,6 +20,10 @@ struct TreeEditionRows: View {
 
     let rows: [Row]
 
+    /// The window's marks — an edition row carries the dot while its To
+    /// resolve holds anything (shell p4 Task 6).
+    @Environment(\.resolvePresence) private var presence
+
     var body: some View {
         if !rows.isEmpty {
             Section {
@@ -35,6 +39,7 @@ struct TreeEditionRows: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
+                        ResolvePresenceMark(ResolvePresence.rowMark(.edition(row.language), in: presence))
                     }
                     // Under the title, as Research's and the Palette's are.
                     .padding(.leading, ProjectRowLabel.childIndent)

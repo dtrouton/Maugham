@@ -9,6 +9,10 @@ enum ResolveHeadShape: Equatable {
     case piece(docId: String)
     /// Book or Part: one line counting the pieces with something open.
     case count
+    /// An edition (shell p4 Task 6): where it stands and Run — the
+    /// translator's newest letter and a whole-book round, or for the Source
+    /// edition the designer's line and a design round (`EditionHeadView`).
+    case edition(language: String, isSource: Bool)
     /// A figure, a reference piece, or nothing To resolve reads.
     case nothing
 }
@@ -46,6 +50,7 @@ enum ResolveHead {
         switch scope {
         case .piece(let docId, _): return .piece(docId: docId)
         case .pieces: return .count
+        case .edition(let language, let isSource, _): return .edition(language: language, isSource: isSource)
         case .figure, .elsewhere, .outside: return .nothing
         }
     }
@@ -184,7 +189,11 @@ enum ResolveHead {
             guard item.docId == docId else { return false }
             switch item {
             case .note, .todo: return true
-            case .finding: return false
+            // A finding's Answer files a ruling; an edition's kinds act
+            // through the round's record, the gate or the centre — none
+            // needs the piece open.
+            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+                return false
             }
         }
     }
@@ -339,6 +348,12 @@ struct ResolveHeadView: View {
     /// Where the letter's Add to intent or Keep as lesson filed, once it
     /// landed — the list says so under the head (shell plan 3 Task 6).
     var onFiledUnder: (FiledDestination) -> Void = { _ in }
+    /// An edition's own read (`ResolveEditionItems.Read`) — its rounds and
+    /// proposals, which the edition head draws from.
+    var editionRead: ResolveEditionItems.Read = .empty
+    /// The round cover and the design gate (`PublishCentreModel.show`).
+    var onShowRound: (TranslationRound) -> Void = { _ in }
+    var onShowProposal: (DesignProposalStore.Proposal) -> Void = { _ in }
 
     @Environment(\.undoManager) private var undoManager
 
@@ -359,6 +374,11 @@ struct ResolveHeadView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.vertical, 6)
+        case .edition(let language, let isSource):
+            EditionHeadView(language: language, isSource: isSource, docIds: scope.docIds,
+                            store: store, documentStore: documentStore,
+                            editionRead: editionRead,
+                            onShowRound: onShowRound, onShowProposal: onShowProposal)
         case .nothing:
             EmptyView()
         }

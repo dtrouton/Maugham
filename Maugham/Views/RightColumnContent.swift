@@ -22,14 +22,11 @@ public enum PullUpRequest: String, CaseIterable, Sendable {
 /// each right-column position shows"). Pure over the subject, the remembered
 /// position and translation review; the column renders it with one `switch`.
 enum RightColumnContent: Equatable {
-    /// To resolve (`ResolvePane`).
+    /// To resolve (`ResolvePane`) — an edition's included (shell p4 Task 6).
     case resolve
     /// To resolve while translation review is on over the faces' open piece
     /// (`TranslationReviewPane`, interim until plan 4).
     case translationReview
-    /// To resolve while an edition is the faces (`DepartmentPaneHost`,
-    /// interim until plan 4).
-    case desk(language: String)
     case brief(BriefScope)
     /// The thing pulled up (`subject.beside`).
     case pulledUp(PulledUp)
@@ -47,9 +44,6 @@ enum RightColumnContent: Equatable {
             if translationLanguage != nil, subject.faces == subject.open,
                case .item(let id) = subject.open, ClickRule.isPiece(id, in: structure) {
                 return .translationReview
-            }
-            if case .edition(let language) = subject.faces {
-                return .desk(language: language)
             }
             return .resolve
         case .brief:
@@ -140,8 +134,8 @@ enum RightColumnContent: Equatable {
     /// 4. otherwise unchanged.
     ///
     /// Replaces `revealResearchColumn`'s segment write and plan 1's "leaving an
-    /// edition takes the desk" rule: the desk is To resolve's own answer while
-    /// an edition is the faces, so there is nothing left to coerce.
+    /// edition takes the desk" rule: an edition's To resolve is To resolve's
+    /// own list (shell p4 Task 6), so there is nothing left to coerce.
     static func positionAfterSubjectChange(_ position: RightColumnPosition,
                                            from old: WindowSubject, to new: WindowSubject,
                                            previousFace: RightColumnPosition,

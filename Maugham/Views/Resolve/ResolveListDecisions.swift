@@ -168,14 +168,24 @@ extension ResolvePane {
         func isLive(_ item: ResolveItem) -> Bool {
             switch item {
             case .note, .todo: return live[item.docId] != nil
-            case .finding: return false
+            case .finding, .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+                return false
             }
         }
-        let freshNotes = scope.docIds.flatMap { docId in
+        var freshNotes = scope.docIds.flatMap { docId in
             (live[docId]?.notes ?? []).filter { $0.status == .open }
                 .map { ResolveItem.note(ProjectAnnotation(docId: docId, annotation: $0)) }
         }
-        let freshTodos = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
+        var freshTodos = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
+        // An edition holds its language's questions and no to-do (the
+        // reader's own filter, `ResolveReader.snapshot`).
+        if case .edition(let language, let isSource, _) = scope {
+            freshNotes = isSource ? [] : freshNotes.filter { item in
+                guard case .note(let note) = item else { return false }
+                return note.annotation.language?.caseInsensitiveCompare(language) == .orderedSame
+            }
+            freshTodos = []
+        }
         let kept = held.items.filter { !isLive($0) }
         var sequences = held.sequences
         for (docId, piece) in live { sequences[docId] = piece.sequence }
@@ -332,11 +342,21 @@ extension ResolvePane {
 
     static let fromTheCheckCaption = "From the check"
     static let replacedByTheNextCheckCaption = "Replaced by the next check"
+    /// An edition's kinds wear their own lifetimes, in the check's style
+    /// (shell p4 Task 6; the design's "Two lifetimes").
+    static let replacedByTheNextRoundCaption = "Replaced by this chapter\u{2019}s next round"
+    static let replacedByTheNextDesignRoundCaption = "Replaced by the next design round"
+    static let replacedByTheNextCompileCaption = "Replaced by the next compile"
 
     /// The one caption a row may wear: a check-minted note is "From the
-    /// check"; a sidecar strain is "Replaced by the next check".
+    /// check"; a sidecar strain is "Replaced by the next check"; a round's
+    /// change or glossary proposal, a design proposal and a compile's problem
+    /// each name the run that replaces it.
     static func caption(for item: ResolveItem, localName: String) -> String? {
         switch item {
+        case .translationChange, .glossaryProposal: return replacedByTheNextRoundCaption
+        case .designProposal: return replacedByTheNextDesignRoundCaption
+        case .compileProblem: return replacedByTheNextCompileCaption
         case .finding: return replacedByTheNextCheckCaption
         case .note:
             return ResolveFilter.source(of: item, localName: localName) == .checks
@@ -407,6 +427,8 @@ extension ResolvePane {
         case nothing
         /// There are items, and the filter hides every one.
         case filteredOut
+        /// An edition with nothing waiting (`ResolveEditionItems.clearLine`).
+        case editionClear(String)
 
         var sentence: String {
             switch self {
@@ -421,15 +443,22 @@ extension ResolvePane {
                 return "Nothing to resolve."
             case .filteredOut:
                 return "Nothing under this filter."
+            case .editionClear(let sentence):
+                return sentence
             }
         }
     }
 
+    /// `editionClear` is what an edition with nothing in it says
+    /// (`ResolveEditionItems.clearLine`); nil anywhere else.
     static func emptyState(scope: ResolveScope, hasItems: Bool, hasVisible: Bool,
-                           offersColdStart: Bool) -> EmptyState? {
+                           offersColdStart: Bool, editionClear: String? = nil) -> EmptyState? {
         switch scope {
         case .outside: return .outside
         case .elsewhere: return .elsewhere
+        case .edition:
+            guard !hasItems else { return hasVisible ? nil : .filteredOut }
+            return editionClear.map(EmptyState.editionClear) ?? .nothing
         case .piece, .pieces, .figure:
             guard !hasItems else { return hasVisible ? nil : .filteredOut }
             return offersColdStart ? .coldStart : .nothing

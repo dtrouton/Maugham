@@ -124,8 +124,8 @@ struct ProjectWindow: View {
     /// when the pulled-up position is left with nothing to show
     /// (`RightColumnContent.positionAfterSubjectChange`).
     @State private var previousFace: RightColumnPosition = .resolve
-    /// ⌘⌥L was pressed outside translation review, or ⌘⌥K with no edition
-    /// faced: which, and the ground it was asked over. To resolve says in one
+    /// ⌘⌥L was pressed outside translation review: the ground it was asked
+    /// over. To resolve says in one
     /// line how to get there while that ground stands. Cleared by the column
     /// on the next move.
     @State private var resolveHint: RightColumn.AskedHint?
@@ -654,7 +654,8 @@ struct ProjectWindow: View {
         // tree hidden too. Load-bearing: without it no row is ever marked.
         .modifier(ResolvePresenceWiring(
             store: store, documentStore: documentStore, url: url, window: window,
-            state: treeState, diagnostics: compiler.diagnostics, script: lastParsedScript))
+            state: treeState, diagnostics: compiler.diagnostics, script: lastParsedScript,
+            compileProblems: !publishCentre.compileRunner.state.problems.isEmpty))
         // The compiled book the Publish centre draws, kept current by a compile
         // finishing, a window opening and an arrival into Publish. Load-bearing
         // line: deleting it leaves every decision test green, while a compile
@@ -952,8 +953,7 @@ struct ProjectWindow: View {
         /// To resolve's filter request — what ⌘⌥A, ⌘⌥D and ⌘⌥T ask for
         /// beside the position (`MaughamEvent.resolveFilterKey`).
         @Binding var resolveRequest: ResolveRequest?
-        /// ⌘⌥L outside translation review, ⌘⌥K with no edition faced
-        /// (`RightColumn` draws the line).
+        /// ⌘⌥L outside translation review (`RightColumn` draws the line).
         @Binding var resolveHint: RightColumn.AskedHint?
         /// ⌘⌥I's and ⌘⌥N's Brief field.
         @Binding var briefFocus: BriefField?
@@ -992,9 +992,11 @@ struct ProjectWindow: View {
                     // to open the Annotations, Diagnostics or Tasks pane opens
                     // To resolve on that pane's filter. Read after the one
                     // selection act, so the column is revealed exactly as for
-                    // any other position key. Where the position shows the
-                    // desk or the translation review, the filter is DROPPED,
-                    // never left to fire on a later mount (`positionAsk`).
+                    // any other position key — an edition's list included
+                    // (shell p4 Task 6). Where the position shows the
+                    // translation review (interim until Task 9), the filter is
+                    // DROPPED, never left to fire on a later mount
+                    // (`positionAsk`).
                     let ask = ProjectWindow.positionAsk(
                         in: note.userInfo,
                         shows: RightColumnContent.of(
@@ -2800,25 +2802,28 @@ struct ProjectWindow: View {
     }
 
     /// **What a `.maughamSetRightColumn` post asks beyond the position**:
-    /// To resolve's filter, ⌘⌥L's or ⌘⌥K's explanation, and ⌘⌥I's or ⌘⌥N's
-    /// Brief field.
+    /// To resolve's filter, ⌘⌥L's explanation, and ⌘⌥I's or ⌘⌥N's Brief
+    /// field.
     struct PositionAsk: Equatable {
         /// The request To resolve takes; nil where there is none to take.
         let request: ResolveRequest?
-        /// What To resolve says about how to reach the review or the desk.
+        /// What To resolve says about how to reach the review.
         let explains: RightColumn.ResolveHint?
         /// The Brief field that takes the keys; nil where Brief has none.
         var briefField: BriefField? = nil
     }
 
-    /// **The filter is handed over only where To resolve's list is what the
-    /// position shows** (`shows`, `RightColumnContent.of` for `.resolve`).
-    /// While it shows the Department desk or the translation review (both
-    /// interim, by the owner's decision) the key still selects the position
-    /// and the filter is dropped: a request left set would fire the next time
-    /// the list mounted, minutes later. An explanation (⌘⌥L's, ⌘⌥K's) is
-    /// said only there too: over the review or the desk the key has already
-    /// landed where it names. A Brief field is asked only where `briefShows`
+    /// **The filter is handed over wherever To resolve's list is what the
+    /// position shows** (`shows`, `RightColumnContent.of` for `.resolve`) —
+    /// on every ground, an edition's included (shell p4 Task 6: the desk's
+    /// interim loss ended). There a filter whose chip is absent selects
+    /// nothing (`ResolveFilter.selection(for:)` is nil) and is spent, never
+    /// left to fire later. Only while the translation review shows (interim
+    /// until Task 9, no list mounted to spend it) the key still selects the
+    /// position and the filter is dropped: a request left set would fire the
+    /// next time the list mounted, minutes later. ⌘⌥L's explanation is said
+    /// only over the list too: over the review the key has already landed
+    /// where it names. A Brief field is asked only where `briefShows`
     /// (`RightColumnContent.of` for `.brief`) draws it, so no request stands
     /// over a Brief that cannot take it. Pure.
     static func positionAsk(in userInfo: [AnyHashable: Any]?,

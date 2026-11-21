@@ -630,12 +630,18 @@ struct TranslationRoundReportView: View {
                 // the round: the record the verb produced is on disk, and the
                 // window's own value is what this surface reads.
                 if let updated { onRoundChanged(updated) }
+                notice = sentence
+                if let rowId { settled.insert(rowId) }
+            case .filed(let updated, let destination, let sentence):
+                if let updated { onRoundChanged(updated) }
                 if let section {
-                    // A filing says where it went under its own section.
+                    // A filing says where it went under its own section, and
+                    // links to the Brief the WRITE named (shell p4 Task 6:
+                    // never a literal).
                     filedSection = section
                     filedNotice = FiledNotice.after(
                         .filed(FiledNotice.Filing(sentence: sentence,
-                                                  brief: .edition(language: round.language))),
+                                                  brief: FiledUnder.brief(of: destination))),
                         current: filedNotice)
                 } else {
                     notice = sentence

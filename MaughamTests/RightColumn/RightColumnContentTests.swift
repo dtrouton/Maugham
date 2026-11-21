@@ -41,8 +41,8 @@ final class RightColumnContentTests: XCTestCase {
         // To resolve.
         XCTAssertEqual(content(.resolve, ws(.item("ch-1")), translating: "es"),
                        .translationReview)
-        XCTAssertEqual(content(.resolve, ws(.edition(language: "es"))),
-                       .desk(language: "es"))
+        XCTAssertEqual(content(.resolve, ws(.edition(language: "es"))), .resolve,
+                       "an edition's To resolve is To resolve's own list (shell p4 Task 6)")
         XCTAssertEqual(content(.resolve, ws(.item("ch-1"))), .resolve)
         XCTAssertEqual(content(.resolve, .book), .resolve)
         // Brief: the faces' scope, whatever it is.
@@ -81,14 +81,16 @@ final class RightColumnContentTests: XCTestCase {
                                                         projectType: .novel))
     }
 
-    func test_theDeskShowsOnlyWhileAnEditionIsTheFaces() {
-        XCTAssertEqual(content(.resolve, ws(.edition(language: "sr"))), .desk(language: "sr"))
+    /// Shell p4 Task 6 (re-made from the desk's rule): an edition on the
+    /// faces is To resolve's own list, on either side of the window — there
+    /// is no desk answer left.
+    func test_anEditionOnTheFacesIsToResolvesOwnList() {
+        XCTAssertEqual(content(.resolve, ws(.edition(language: "sr"))), .resolve)
         XCTAssertEqual(content(.resolve, ws(.edition(language: "sr"), .item("ch-1"))), .resolve,
                        "a piece clicked under the edition: its To resolve")
-        XCTAssertEqual(content(.resolve, ws(.item("ch-1"), .edition(language: "sr"))),
-                       .desk(language: "sr"))
+        XCTAssertEqual(content(.resolve, ws(.item("ch-1"), .edition(language: "sr"))), .resolve)
         XCTAssertEqual(content(.brief, ws(.edition(language: "sr"))),
-                       .brief(.edition(language: "sr")), "only To resolve is the desk")
+                       .brief(.edition(language: "sr")))
     }
 
     func test_translationReviewShowsOnlyOnTheOpenPiece() {

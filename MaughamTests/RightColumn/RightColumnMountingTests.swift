@@ -293,7 +293,7 @@ final class RightColumnMountingTests: XCTestCase {
                     position: position, subject: subject, translationLanguage: nil,
                     structure: structure, projectType: .novel)
                 switch (position, content) {
-                case (.resolve, .resolve), (.resolve, .desk), (.resolve, .translationReview),
+                case (.resolve, .resolve), (.resolve, .translationReview),
                      (.brief, .brief),
                      (.pulledUp, .pulledUp), (.pulledUp, .centreDetails), (.pulledUp, .nothingPulledUp):
                     break
@@ -304,18 +304,15 @@ final class RightColumnMountingTests: XCTestCase {
         }
     }
 
-    /// The desk shows only while an edition is the faces — and then To
-    /// resolve is where it is (⌘⌥K's landing).
-    func test_theDeskIsToResolvesAnswerOnlyWithAnEditionFaced() {
+    /// Shell p4 Task 6 (re-made from the desk's answer): with an edition
+    /// faced, To resolve is its own list like every other subject's — no
+    /// subject answers anything else outside translation review.
+    func test_everySubjectsToResolveIsTheList() {
         for subject in Self.subjects {
             let content = RightColumnContent.of(
                 position: .resolve, subject: subject, translationLanguage: nil,
                 structure: structure, projectType: .novel)
-            if case .edition(let language) = subject.faces {
-                XCTAssertEqual(content, .desk(language: language), "\(subject)")
-            } else {
-                XCTAssertEqual(content, .resolve, "\(subject)")
-            }
+            XCTAssertEqual(content, .resolve, "\(subject)")
         }
     }
 
@@ -346,7 +343,7 @@ final class RightColumnMountingTests: XCTestCase {
         facesOnly.faces = .item(f.documentItemId)
         XCTAssertEqual(RightColumnControl.unreadDocId(subject: facesOnly, store: f.store),
                        f.documentItemId, "the faces' piece, whether or not it is open")
-        let scope = ResolveScope.of(piece.faces, structure: f.store.manifest.structure,
+        let scope = ResolveScope.of(piece.faces, readIn: nil, sourceLanguage: "en", structure: f.store.manifest.structure,
                                     projectType: f.store.manifest.type)
         XCTAssertEqual(RightColumnControl.unreadDocId(subject: piece, store: f.store),
                        ResolvePane.unreadDocId(scope: scope),
@@ -701,13 +698,16 @@ final class RightColumnMountingTests: XCTestCase {
             hand)
     }
 
-    // MARK: - A key that cannot show its list drops its filter (review I3)
+    // MARK: - A filter key on every ground (shell p4 Task 6; was review I3)
 
-    /// While the To resolve position shows the Department desk or the
-    /// translation review (both interim), ⌘⌥A/D/T still select the position —
-    /// and the filter is DROPPED. A request left set would fire the next time
-    /// To resolve's list mounted, minutes after the key.
-    func test_aFilterKeyOverTheDeskOrTheReviewSelectsThePositionAndDropsItsFilter() throws {
+    /// ⌘⌥A/D/T hand their filter over wherever To resolve's list shows — an
+    /// edition's included: the desk's interim loss ended. Only over the
+    /// translation review (interim until Task 9; no list mounted to spend it)
+    /// the key still selects the position and the filter is DROPPED, never
+    /// left to fire the next time the list mounts. Over an edition a filter
+    /// whose chip is absent selects nothing (`ResolveEditionTests
+    /// .test_keyFiltersApplyWithAnEditionOnTheFaces`).
+    func test_aFilterKeyIsHandedOverOnEveryGroundButTheReview() throws {
         for filter in [ResolveKeyFilter.rounds, .checks, .mine, .questions] {
             let userInfo: [AnyHashable: Any] = [
                 MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
@@ -716,17 +716,15 @@ final class RightColumnMountingTests: XCTestCase {
                            "the key selects the position in every state")
             XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).request,
                            .filter(filter), "over the list, the filter is handed over")
-            for interim in [RightColumnContent.desk(language: "es"), .translationReview] {
-                XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: interim).request,
-                             "\(filter) over \(interim) must not be left to fire later")
-            }
+            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).request,
+                         "\(filter) over the review must not be left to fire later")
         }
-        // The states, as the table answers them.
+        // The states, as the table answers them: an edition is the list.
         XCTAssertEqual(RightColumnContent.of(
             position: .resolve,
             subject: WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es")),
             translationLanguage: nil, structure: structure, projectType: .novel),
-            .desk(language: "es"))
+            .resolve)
         XCTAssertEqual(RightColumnContent.of(
             position: .resolve, subject: Self.piece, translationLanguage: "es",
             structure: structure, projectType: .novel), .translationReview)
@@ -746,44 +744,35 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(receiver.contains("translationLanguage: translationLanguage,"))
     }
 
-    /// **⌘⌥L outside translation review, and ⌘⌥K with no edition faced**
-    /// (appraisal 5): To resolve shows, with one line saying how to get to
-    /// what the key names — the old Translation pane's sentence; where the
-    /// desk shows — until the writer moves on. Over the review or the desk
-    /// themselves, no line.
-    func test_theTranslationAndDeskKeysExplainHowToGetThere() throws {
-        for hint in [RightColumn.ResolveHint.translationReview, .desk] {
-            let userInfo: [AnyHashable: Any] = [
-                MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
-                MaughamEvent.explainsKey: hint.rawValue]
-            XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
-            XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explains, hint)
-            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).explains,
-                         "in review the pane itself shows")
-            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .desk(language: "es")).explains,
-                         "over an edition the desk itself shows")
-        }
+    /// **⌘⌥L outside translation review** (appraisal 5): To resolve shows,
+    /// with one line saying how to get to what the key names — the old
+    /// Translation pane's sentence — until the writer moves on. Over the
+    /// review itself, no line. (⌘⌥K's desk line went with the desk, shell p4
+    /// Task 6: ⌘⌥K is To resolve, an edition's own list where one is faced.)
+    func test_theTranslationKeyExplainsHowToGetThere() throws {
+        let userInfo: [AnyHashable: Any] = [
+            MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+            MaughamEvent.explainsKey: RightColumn.ResolveHint.translationReview.rawValue]
+        XCTAssertEqual(ProjectWindow.position(in: userInfo), .resolve)
+        XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).explains, .translationReview)
+        XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).explains,
+                     "in review the pane itself shows")
         XCTAssertNil(ProjectWindow.positionAsk(
             in: [MaughamEvent.positionKey: "resolve"], shows: .resolve).explains,
             "⌘1 explains nothing")
         XCTAssertNil(ProjectWindow.positionAsk(
-            in: [MaughamEvent.positionKey: "resolve", MaughamEvent.explainsKey: "references"],
-            shows: .resolve).explains, "a hint this build cannot read says nothing")
+            in: [MaughamEvent.positionKey: "resolve", MaughamEvent.explainsKey: "desk"],
+            shows: .resolve).explains, "the desk's old hint, or any this build cannot read, says nothing")
 
         let ground = RightColumn.hintStandsOver(position: .resolve, subject: Self.piece,
                                                 translationLanguage: nil)
-        let asked = RightColumn.AskedHint(hint: .desk, ground: ground)
-        XCTAssertEqual(RightColumn.shownHint(asked, ground: ground, shown: .resolve), .desk)
+        let asked = RightColumn.AskedHint(hint: .translationReview, ground: ground)
+        XCTAssertEqual(RightColumn.shownHint(asked, ground: ground, shown: .resolve), .translationReview)
         XCTAssertNil(RightColumn.shownHint(nil, ground: ground, shown: .resolve))
         XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .translationReview))
-        XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .desk(language: "es")))
         XCTAssertNil(RightColumn.shownHint(asked, ground: ground, shown: .brief(.book)))
         XCTAssertTrue(RightColumn.ResolveHint.translationReview.line.contains("Translation Review…"),
                       "the line names the menu item that enters review")
-        XCTAssertTrue(RightColumn.ResolveHint.desk.line.contains("edition"),
-                      "the desk's line says it shows with an edition selected")
-        XCTAssertTrue(RightColumn.ResolveHint.desk.line.contains("Editions"),
-                      "and names the tree's section where editions are")
 
         // It stands over one position, one subject and "not in review": any
         // of the three changing clears it.
@@ -805,7 +794,7 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertEqual(received.count, 2)
         XCTAssertEqual(received.map { ProjectWindow.position(in: $0.userInfo) }, [.resolve, .resolve])
         XCTAssertEqual(received.map { ProjectWindow.positionAsk(in: $0.userInfo, shows: .resolve).explains },
-                       [.translationReview, .desk])
+                       [.translationReview, nil], "⌘⌥K asks for To resolve and explains nothing")
         let receiver = Self.flat(try SourceTree.declaration(
             named: "onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in",
             under: "Maugham"))
@@ -1412,8 +1401,10 @@ final class RightColumnMountingTests: XCTestCase {
         let arms: [Arm] = [
             Arm(name: "To resolve", position: .resolve, subject: piece, expected: .resolve,
                 reads: "New To-do"),
-            Arm(name: "the desk", position: .resolve, subject: onAnEdition,
-                expected: .desk(language: "es"), reads: DepartmentDesk.noLanguagesYet),
+            // Shell p4 Task 6: an edition's own To resolve, its empty line.
+            Arm(name: "an edition's To resolve", position: .resolve, subject: onAnEdition,
+                expected: .resolve,
+                reads: ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: false)),
             Arm(name: "Brief", position: .brief, subject: piece,
                 expected: .brief(.piece(docId: docId)), reads: GoingForView.heading),
             Arm(name: "Brief, outside", position: .brief, subject: onTheCanvas,

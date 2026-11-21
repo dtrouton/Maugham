@@ -76,6 +76,8 @@ enum ResolveGrouping {
         case .elsewhere, .outside: return []
         case .piece: isPiece = true
         case .pieces, .figure: isPiece = false
+        case .edition:
+            return editionGroups(snapshot, scope: scope, structure: structure)
         }
 
         // One pass: the Book's to-dos, each figure's notes, each piece's items.
@@ -219,6 +221,58 @@ enum ResolveGrouping {
         return sections
     }
 
+    // MARK: - An edition
+
+    /// **An edition's groups** (shell p4 Task 6): the book's own first — a
+    /// pending design proposal, then the last compile's problems — then one
+    /// group per piece in manuscript order holding its questions (in
+    /// `AnnotationQueueOrder`), then its changes (in paragraph order, a
+    /// paragraph no longer in the text last), then its glossary proposals.
+    /// Empty groups are never emitted; a piece the scope does not name gets
+    /// a group of its own after the scope's.
+    private static func editionGroups(_ snapshot: ResolveSnapshot, scope: ResolveScope,
+                                      structure: [StructureItem]) -> [ResolveGroup] {
+        var design: [ResolveItem] = [], problems: [ResolveItem] = []
+        var docOrder: [String] = [], byDoc: [String: [ResolveItem]] = [:]
+        for item in snapshot.items {
+            switch item {
+            case .designProposal: design.append(item)
+            case .compileProblem: problems.append(item)
+            default:
+                if byDoc[item.docId] == nil { docOrder.append(item.docId) }
+                byDoc[item.docId, default: []].append(item)
+            }
+        }
+        var groups: [ResolveGroup] = []
+        if !(design + problems).isEmpty {
+            groups.append(ResolveGroup(key: .bookLevel, title: "The book", items: design + problems))
+        }
+        let pieces = scope.docIds + docOrder.filter { !scope.docIds.contains($0) }
+        for docId in pieces {
+            guard let items = byDoc[docId], !items.isEmpty else { continue }
+            let sequence = snapshot.sequences[docId] ?? []
+            var position: [String: Int] = [:]
+            for (index, pid) in sequence.enumerated() where position[pid] == nil { position[pid] = index }
+            var notes: [ResolveItem] = [], changes: [ResolveItem] = [], glossary: [ResolveItem] = []
+            for item in items {
+                switch item {
+                case .translationChange: changes.append(item)
+                case .glossaryProposal: glossary.append(item)
+                default: notes.append(item)
+                }
+            }
+            let placedChanges = changes.enumerated().sorted { lhs, rhs in
+                let l = lhs.element.paragraphId.flatMap { position[$0] } ?? .max
+                let r = rhs.element.paragraphId.flatMap { position[$0] } ?? .max
+                return (l, lhs.offset) < (r, rhs.offset)
+            }.map(\.element)
+            groups.append(ResolveGroup(key: .piece(docId: docId),
+                                       title: pieceTitle(docId, structure: structure),
+                                       items: ordered(notes, sequence: sequence) + placedChanges + glossary))
+        }
+        return groups
+    }
+
     // MARK: - Inside a group
 
     /// Notes in `AnnotationQueueOrder` (the queue's own rule, reused), then
@@ -226,11 +280,16 @@ enum ResolveGrouping {
     /// as the Tasks pane orders them; ties keep the reader's order).
     private static func ordered(_ items: [ResolveItem], sequence: [String]) -> [ResolveItem] {
         var notes: [ProjectAnnotation] = [], findings: [ResolveItem] = [], todos: [WriterTask] = []
+        var others: [ResolveItem] = []
         for item in items {
             switch item {
             case .note(let note): notes.append(note)
             case .finding: findings.append(item)
             case .todo(let task): todos.append(task)
+            // An edition's own kinds are placed by `editionGroups`; any that
+            // reach here keep the reader's order, after the notes.
+            case .translationChange, .glossaryProposal, .designProposal, .compileProblem:
+                others.append(item)
             }
         }
         // Map the sorted annotations back to their ProjectAnnotations, by id
@@ -248,7 +307,7 @@ enum ResolveGrouping {
         let sortedTodos = todos.enumerated()
             .sorted { ($0.element.priority, $0.offset) < ($1.element.priority, $1.offset) }
             .map { ResolveItem.todo($0.element) }
-        return sortedNotes + findings + sortedTodos
+        return sortedNotes + others + findings + sortedTodos
     }
 
     /// The paragraph's text as the editor shows it; a placeholder when there

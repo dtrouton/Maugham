@@ -52,7 +52,7 @@ final class ResolveNavigationTests: XCTestCase {
 
     /// What the pane posts for a row's click in `faces`' list.
     private func clickPayload(_ item: ResolveItem, faces: BinderSubject) -> [String: Any]? {
-        let scope = ResolveScope.of(faces, structure: structure, projectType: .novel)
+        let scope = ResolveScope.of(faces, readIn: nil, sourceLanguage: "en", structure: structure, projectType: .novel)
         return ResolveNavigation.opensInsideTheFaces(docId: item.docId, scope: scope)
             ? ResolveNavigation.insideTheFacesPayload(for: item, firstParagraph: "aa11")
             : ResolveNavigation.payload(for: item, firstParagraph: "aa11")
@@ -64,14 +64,14 @@ final class ResolveNavigationTests: XCTestCase {
     func test_aRowClickInTheBookListOpensThePieceAndLeavesTheFaces() throws {
         for faces in [BinderSubject.project, .item("part-1")] {
             let current = WindowSubject(open: .project, faces: faces)
-            let before = ResolveScope.of(faces, structure: structure, projectType: .novel)
+            let before = ResolveScope.of(faces, readIn: nil, sourceLanguage: "en", structure: structure, projectType: .novel)
             let row = note("n1", on: "doc-b", pid: "bb22")
             let control = EditorControl()
             let next = receive(clickPayload(row, faces: faces), current: current, control: control)
             XCTAssertEqual(next.open, .item("doc-b"), "\(faces): the row's piece takes the centre")
             XCTAssertEqual(next.faces, faces, "\(faces): the faces stay")
             XCTAssertEqual(next.lastClicked, faces, "\(faces): what was clicked last is still the faces")
-            XCTAssertEqual(ResolveScope.of(next.faces, structure: structure, projectType: .novel), before,
+            XCTAssertEqual(ResolveScope.of(next.faces, readIn: nil, sourceLanguage: "en", structure: structure, projectType: .novel), before,
                            "\(faces): so the list stays")
             XCTAssertEqual(control.pendingPlace?.docId, "doc-b", "\(faces): the place is held for the load")
             XCTAssertEqual(control.pendingPlace?.target, .paragraph(id: "bb22", offset: nil),
@@ -98,7 +98,7 @@ final class ResolveNavigationTests: XCTestCase {
         let current = WindowSubject(open: .canvas, faces: .item("doc-a"))
         let row = note("n1", on: "doc-a", pid: "aa11")
         XCTAssertFalse(ResolveNavigation.opensInsideTheFaces(
-            docId: "doc-a", scope: ResolveScope.of(.item("doc-a"), structure: structure, projectType: .novel)))
+            docId: "doc-a", scope: ResolveScope.of(.item("doc-a"), readIn: nil, sourceLanguage: "en", structure: structure, projectType: .novel)))
         let next = receive(clickPayload(row, faces: .item("doc-a")), current: current, control: EditorControl())
         XCTAssertEqual(next.open, .item("doc-a"))
         XCTAssertEqual(next.faces, .item("doc-a"))
@@ -145,8 +145,9 @@ final class ResolveNavigationTests: XCTestCase {
         XCTAssertEqual(posts.map(\.0), names, "the piece first, then To resolve")
         let place = try XCTUnwrap(posts.first?.1)
         let edition = WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es"))
-        XCTAssertEqual(ResolveScope.of(edition.faces, structure: structure, projectType: .novel), .outside,
-                       "premise: the edition's faces have no list")
+        XCTAssertEqual(ResolveScope.of(edition.faces, readIn: nil, sourceLanguage: "en", structure: structure,
+                                       projectType: .novel).editionLanguage, "es",
+                       "premise: the edition's faces are the edition's own list, not the piece's")
         let next = receive(place.reduce(into: [String: Any]()) { $0[String(describing: $1.key)] = $1.value },
                            current: edition, control: EditorControl())
         XCTAssertEqual(next.open, .item("doc-b"))

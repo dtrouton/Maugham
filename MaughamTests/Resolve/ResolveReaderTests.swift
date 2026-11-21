@@ -139,7 +139,7 @@ final class ResolveReaderTests: XCTestCase {
 
     func test_aScreenplaysBookHoldsTheBookLevelTodos() {
         let script = [StructureItem(id: "doc-s", title: "Script", type: .document, path: "script.fountain")]
-        let scope = ResolveScope.of(.project, structure: script, projectType: .screenplay)
+        let scope = ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: script, projectType: .screenplay)
         guard case .piece(let docId, _) = scope else { return XCTFail("grouped as the script: \(scope)") }
         XCTAssertEqual(docId, "doc-s")
         let read = ResolveReader.snapshot(

@@ -37,6 +37,9 @@ enum ResolvePresence {
         /// The Book row, when it carries no dot and something in it would
         /// not read.
         var bookUnknown: Bool = false
+        /// Edition rows whose To resolve holds anything, by language (shell
+        /// p4 Task 6; `ResolveEditionItems.markedEditions`).
+        var editions: Set<String> = []
 
         static let none = Marks(pieces: [], book: false, scenes: [])
     }
@@ -123,6 +126,8 @@ enum ResolvePresence {
         case book
         /// A screenplay's scene, by its `sceneSummaries()` index.
         case scene(Int)
+        /// An edition, by its language.
+        case edition(String)
     }
 
     enum RowMark: Equatable {
@@ -145,6 +150,8 @@ enum ResolvePresence {
             return marks.bookUnknown ? .unknown : .quiet
         case .scene(let index):
             return marks.scenes.contains(index) ? .something : .quiet
+        case .edition(let language):
+            return marks.editions.contains(language) ? .something : .quiet
         }
     }
 
@@ -276,13 +283,16 @@ struct ResolvePresenceWiring: ViewModifier {
     let diagnostics: DiagnosticsStore?
     /// The window's `lastParsedScript`.
     let script: FountainScript?
+    /// Whether the window's last compile left problems — in every edition's
+    /// list, so every edition row's mark (shell p4 Task 6).
+    var compileProblems: Bool = false
 
     func body(content: Content) -> some View {
         content.background {
             if let store, let documentStore {
                 ResolvePresenceWatch(store: store, documentStore: documentStore, url: url,
                                      window: window, state: state, diagnostics: diagnostics,
-                                     script: script)
+                                     script: script, compileProblems: compileProblems)
             }
         }
     }
@@ -344,7 +354,9 @@ final class ResolvePresenceReader {
                     diagnostics: DiagnosticsStore?, annotationsToken: Int,
                     script: FountainScript?) -> Key {
         let structure = store.manifest.structure
-        let scope = ResolveScope.of(.project, structure: structure, projectType: store.manifest.type)
+        let scope = ResolveScope.of(.project, readIn: nil,
+                                    sourceLanguage: PublishConfig.Metadata().language,
+                                    structure: structure, projectType: store.manifest.type)
         let inScope = Set(scope.docIds)
         var open: [String: LiveVersion] = [:]
         for doc in documentStore.allOpenDocuments() where inScope.contains(doc.docId) {
@@ -703,8 +715,15 @@ struct ResolvePresenceWatch: View {
     let state: BinderTreeSectionsState
     let diagnostics: DiagnosticsStore?
     let script: FountainScript?
+    var compileProblems: Bool = false
 
     @State private var reader = ResolvePresenceReader()
+    /// The editions' own half (shell p4 Task 6): languages whose latest
+    /// rounds leave something, and whether a design proposal waits — read
+    /// once per `EditionMarkKey`, the ledgers off the main actor.
+    @State private var roundsLeaveSomething: Set<String> = []
+    @State private var designPending = false
+    @State private var editionHeard = 0
     /// The walk the reader asked for.
     @State private var request: ResolveChunkedWalk.Request?
     /// Annotation events heard about documents no window holds open.
@@ -717,8 +736,34 @@ struct ResolvePresenceWatch: View {
                                   annotationsToken: annotationsToken, script: script)
     }
 
+    /// What the editions' half is read on: the edition rows, the book's
+    /// pieces, the ledgers' dates and the events heard.
+    struct EditionMarkKey: Equatable {
+        let languages: [String]
+        let docIds: [String]
+        let ledgers: [Date?]
+        let heard: Int
+    }
+
+    private var editionMarkKey: EditionMarkKey {
+        let languages = state.editionRows.filter { !$0.isSource }.map(\.language)
+        return EditionMarkKey(
+            languages: languages,
+            docIds: EditionStatus.manuscriptDocumentIds(in: store.manifest),
+            ledgers: languages.map {
+                ResolveEditionKey.modified(TranslationRoundStore.fileURL(language: $0, in: url))
+            },
+            heard: editionHeard)
+    }
+
     private func publish() {
-        if state.presence != reader.marks { state.presence = reader.marks }
+        var marks = reader.marks
+        marks.editions = ResolveEditionItems.markedEditions(
+            editions: state.editionRows.map { ($0.language, $0.isSource) },
+            questionLanguages: ResolveEditionItems.questionLanguages(reader.snapshot),
+            roundsLeaveSomething: roundsLeaveSomething,
+            bookLevel: designPending || compileProblems)
+        if state.presence != marks { state.presence = marks }
         if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
         let reading = ResolvePresence.bookReading(reader.snapshot)
         if state.bookReading != reading { state.bookReading = reading }
@@ -747,6 +792,27 @@ struct ResolvePresenceWatch: View {
             .task(id: key.read.scope) {
                 await diagnostics?.loadInBackground(
                     docIds: key.read.scope.docIds.filter { !DocumentClass.isFigureDocId($0) })
+            }
+            // The editions' half: the ledgers off the main actor, the
+            // proposals' listing on it (a few small files).
+            .task(id: editionMarkKey) {
+                let key = editionMarkKey
+                let leaving = await Task.detached(priority: .utility) {
+                    ResolveEditionItems.languagesLeavingSomething(
+                        projectURL: url, languages: key.languages, docIds: key.docIds)
+                }.value
+                guard !Task.isCancelled else { return }
+                roundsLeaveSomething = leaving
+                designPending = ResolveEditionItems.hasPendingProposal(projectURL: url)
+                publish()
+            }
+            .onChange(of: compileProblems) { _, _ in publish() }
+            .onChange(of: state.editionRows) { _, _ in publish() }
+            .onProjectEvent(.maughamDesignProposalsChanged, url: url, window: window) { _ in
+                editionHeard &+= 1
+            }
+            .onProjectEvent(.maughamTranslationRoundEnded, url: url, window: window) { _ in
+                editionHeard &+= 1
             }
             // A burst settles before its one walk.
             .task(id: heard) {

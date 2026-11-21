@@ -43,7 +43,13 @@ enum EditionStatusRows {
     /// (`outcome == nil`) and the writer has not said Fine (`dismissed`, or
     /// the legacy `.dismissed` outcome).
     static func changesToLookAt(_ round: TranslationRound) -> Int {
-        round.departures.filter { $0.outcome == nil && $0.dismissed != true }.count
+        round.departures.filter(isToLookAt).count
+    }
+
+    /// **The one predicate** (shell p4 Task 6): Status counts what it
+    /// holds, and an edition's To resolve lists exactly those departures.
+    static func isToLookAt(_ departure: TranslationRound.DepartureRecord) -> Bool {
+        departure.outcome == nil && departure.dismissed != true
     }
 
     // MARK: - What each cell says

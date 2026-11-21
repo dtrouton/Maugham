@@ -13,6 +13,13 @@ enum ResolveSource: Hashable {
     case checks
     case questions
     case others
+    /// An edition's: what the translator's latest rounds changed, and their
+    /// glossary proposals (shell p4 Task 6).
+    case changes
+    /// A design proposal waiting on a decision.
+    case design
+    /// The last compile's problems.
+    case compile
 }
 
 /// **What a key asks To resolve to show** (the old panes' shortcuts, now
@@ -40,6 +47,9 @@ enum ResolveFilter {
         switch item {
         case .finding: return .checks
         case .todo: return .mine
+        case .translationChange, .glossaryProposal: return .changes
+        case .designProposal: return .design
+        case .compileProblem: return .compile
         case .note(let note):
             let annotation = note.annotation
             if annotation.language != nil { return .questions }
@@ -52,7 +62,7 @@ enum ResolveFilter {
 
     /// The chips: only sources with items in scope, in the column's order —
     /// each pass in `passes` (`effectiveReviewPasses`) order, Mine, Checks,
-    /// Questions, Others. A pass id the manifest no longer lists still gets a
+    /// Questions, then an edition's Changes, Design and Compile, then Others. A pass id the manifest no longer lists still gets a
     /// chip, after the listed passes in first-appearance order, so its notes
     /// are never unreachable behind a single choice.
     static func chips(_ items: [ResolveItem], passes: [ReviewPass], localName: String) -> [ResolveSource] {
@@ -66,7 +76,7 @@ enum ResolveFilter {
             }
         }
         let order = passes.map { ResolveSource.pass($0.id) } + unlisted
-            + [.mine, .checks, .questions, .others]
+            + [.mine, .checks, .questions, .changes, .design, .compile, .others]
         return order.filter { present.contains($0) }
     }
 

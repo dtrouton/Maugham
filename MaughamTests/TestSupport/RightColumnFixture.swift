@@ -219,7 +219,6 @@ enum RightColumnFixture {
         switch content {
         case .resolve: return "resolve"
         case .translationReview: return "translationReview"
-        case .desk: return "desk"
         case .brief(let scope):
             switch scope {
             case .piece: return "brief.piece"
@@ -256,7 +255,7 @@ enum RightColumnFixture {
     /// the compiler forces the switch, and `test_theCensusWalksEveryArm`
     /// compares what a census walked against this list.
     static let armKinds: Set<String> = [
-        "resolve", "translationReview", "desk",
+        "resolve", "translationReview",
         "brief.piece", "brief.part", "brief.book", "brief.edition", "brief.elsewhere", "brief.outside",
         "pulledUp.research", "pulledUp.figure", "pulledUp.canvasScrap", "pulledUp.canvasPhoto",
         "pulledUp.canvasRegion",
@@ -287,8 +286,13 @@ enum RightColumnFixture {
             Arm(name: "To resolve, the Book", position: .resolve, subject: .book),
             Arm(name: "translation review", position: .resolve, subject: piece,
                 translationLanguage: "es"),
-            Arm(name: "the desk", position: .resolve,
+            // An edition's own To resolve (shell p4 Task 6): a translated
+            // edition's head and list, and the Source's design head with its
+            // direction field.
+            Arm(name: "To resolve, an edition", position: .resolve,
                 subject: WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es"))),
+            Arm(name: "To resolve, the Source edition", position: .resolve,
+                subject: WindowSubject(open: .edition(language: "en"), faces: .edition(language: "en"))),
             Arm(name: "Brief, a piece", position: .brief, subject: piece),
             Arm(name: "Brief, a Part", position: .brief,
                 subject: WindowSubject(open: .item(partId), faces: .item(partId))),

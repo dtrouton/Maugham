@@ -34,17 +34,23 @@ enum BriefScope: Hashable {
         switch faces {
         case .project:
             // ADR 0036 decision 3's rule, applied as To resolve applies it.
-            if case .piece(let docId, _) = ResolveScope.of(faces, structure: structure,
+            // The faces are the Book here, never an edition: no source
+            // language is asked.
+            if case .piece(let docId, _) = ResolveScope.of(faces, readIn: nil,
+                                                          sourceLanguage: PublishConfig.Metadata().language,
+                                                          structure: structure,
                                                           projectType: projectType) {
                 return .piece(docId: docId)
             }
             return .book
         case .item(let id):
-            switch ResolveScope.of(faces, structure: structure, projectType: projectType) {
+            switch ResolveScope.of(faces, readIn: nil,
+                                   sourceLanguage: PublishConfig.Metadata().language,
+                                   structure: structure, projectType: projectType) {
             case .piece(let docId, _): return .piece(docId: docId)
             case .elsewhere(let docId): return .elsewhere(docId: docId)
             case .pieces(let docIds, _): return .part(groupId: id, docIds: docIds)
-            case .figure, .outside: return .outside
+            case .figure, .edition, .outside: return .outside
             }
         case .edition(let language):
             return .edition(language: language)

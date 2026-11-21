@@ -54,7 +54,7 @@ final class ResolvePresenceTests: XCTestCase {
     ]
 
     private var book: ResolveScope {
-        ResolveScope.of(.project, structure: structure, projectType: .novel)
+        ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: structure, projectType: .novel)
     }
 
     private func read(notes: [ProjectAnnotation] = [], todos: [WriterTask] = [],
@@ -151,7 +151,7 @@ final class ResolvePresenceTests: XCTestCase {
         let script: [StructureItem] = [
             StructureItem(id: "doc-s", title: "Scene 1", type: .document, path: "script.fountain"),
         ]
-        let scope = ResolveScope.of(.project, structure: script, projectType: .screenplay)
+        let scope = ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: script, projectType: .screenplay)
         let snapshot = ResolveReader.snapshot(
             scope: scope,
             annotations: ProjectAnnotationsSnapshot(
@@ -299,8 +299,11 @@ final class ResolvePresenceTests: XCTestCase {
          ".environment(\\.resolvePresence, state.presence)", "every tree's List hands its rows the marks"),
         ("Maugham/Views/ProjectWindow.swift",
          ".modifier(ResolvePresenceWiring(", "the window mounts the read (and Status's to-dos with it)"),
+        ("Maugham/Views/TreeEditionRows.swift",
+         "ResolvePresenceMark(ResolvePresence.rowMark(.edition(row.language), in: presence))",
+         "an edition (shell p4 Task 6)"),
         ("Maugham/Views/Resolve/ResolvePresence.swift",
-         "if state.presence != reader.marks { state.presence = reader.marks }", "the watch writes the marks"),
+         "if state.presence != marks { state.presence = marks }", "the watch writes the marks"),
         ("Maugham/Views/Resolve/ResolvePresence.swift",
          "if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }",
          "the watch writes Status's to-dos"),
@@ -329,7 +332,7 @@ final class ResolvePresenceTests: XCTestCase {
         "Maugham/Views/BinderRow.swift", "Maugham/Views/PieceRow.swift",
         "Maugham/Views/ProjectRowLabel.swift", "Maugham/Views/SceneNavigatorPane.swift",
         "Maugham/Views/BinderView.swift", "Maugham/Views/CollectionPiecesPane.swift",
-        "Maugham/Views/TreeTopRows.swift",
+        "Maugham/Views/TreeTopRows.swift", "Maugham/Views/TreeEditionRows.swift",
     ]
     private static let readSpellings = ["ResolveReader", "ResolvePresence.marks(", "ResolvePresenceReader",
                                         "ResolvePane.refreshed("]
@@ -482,7 +485,7 @@ final class ResolvePresenceTests: XCTestCase {
         moved[1].children!.insert(chapter, at: 0)
         let after = ResolvePresenceReader.Key(read: before.read, script: before.script, open: before.open,
                                               structure: moved, figureOwners: before.figureOwners)
-        XCTAssertEqual(ResolveScope.of(.project, structure: moved, projectType: .novel), before.read.scope,
+        XCTAssertEqual(ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: moved, projectType: .novel), before.read.scope,
                        "premise: the document order did not move")
         let walks = watch.walks
         watch.reader.update(after, store: book.store, documentStore: book.documentStore, diagnostics: nil)
@@ -602,7 +605,7 @@ final class ResolvePresenceTests: XCTestCase {
     private func oneShot(_ book: Book) -> (ResolvePresence.Marks, [String: Int]) {
         let manifest = book.store.manifest
         let read = ResolveReader.read(
-            scope: ResolveScope.of(.project, structure: manifest.structure, projectType: manifest.type),
+            scope: ResolveScope.of(.project, readIn: nil, sourceLanguage: "en", structure: manifest.structure, projectType: manifest.type),
             store: book.store, documentStore: book.documentStore, diagnostics: nil)
         let owners = ProjectStore.figureNoteOwners(manifest.figures ?? [])
         return (ResolvePresence.marks(read, structure: manifest.structure, figureOwners: owners, sceneIndex: nil),

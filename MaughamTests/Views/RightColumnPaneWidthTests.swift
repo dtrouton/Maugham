@@ -286,6 +286,73 @@ final class RightColumnPaneWidthTests: XCTestCase {
                        "control: a title that does not truncate overflows even the widest column")
     }
 
+    // MARK: - An edition's loaded rows and heads (shell p4 Task 6)
+
+    /// **Every row an edition's To resolve draws once it has loaded** — a
+    /// change with all three verbs, a glossary
+    /// proposal, a design proposal with Show, Approve and Discard, a compile
+    /// problem with a long title — and both heads (a translator's letter with
+    /// Run Whole Book, the Source's design head with Run and Request
+    /// Changes) fit the column's floor, the default and the ceiling. Measured by proposal, not by a first frame: these draw only
+    /// after the edition's read (`PulledUpFitsTheColumnTests` cannot see
+    /// them in a fresh book).
+    func test_anEditionsRowsAndHeadsFitTheColumn() async throws {
+        let fixture = try await makeFixture()
+        let docId = try XCTUnwrap(TreeWalk.collect(in: fixture.store.manifest.structure,
+                                                   where: { $0.path != nil }).first?.id)
+        var round = TranslationRound(number: 12, language: "es", docId: docId, startedAt: Date())
+        round.endedAt = Date()
+        round.summary = String(repeating: "I kept the fog where it rolls in, and softened nothing. ", count: 4)
+        let departure = TranslationRound.DepartureRecord(
+            id: "d1", paragraphId: "aa11", verdict: "drifted", kind: "register",
+            note: "The translation is gentler than the source in the closing clause.",
+            gloss: "It now says she whispered the oath instead of spitting it.", outcome: nil)
+        round.departures = [departure]
+        let glossary = TranslationRound.GlossaryProposalRecord(
+            term: "the long grey fog over the harbour", rendering: "la larga niebla gris sobre el puerto",
+            reason: "It recurs in every chapter and has been rendered three ways.", adopted: false)
+        round.glossaryProposals = [glossary]
+        let change = ResolveItem.translationChange(docId: docId, language: "es", round: 12, departure)
+        let problem = TectonicLogParser.Diagnostic(
+            level: .error, file: nil, line: nil,
+            message: "A table is wider than the text block and runs into the margin.",
+            contextLines: [], pieceID: docId, paragraphID: "aa11")
+        let proposal = DesignProposalStore.Proposal(
+            id: "prop-1", designerName: "Tschichold Who Has A Very Long Name", round: 7, language: nil,
+            created: Date(), status: .pending, specMarkdown: "", filePaths: [], sampleResult: nil,
+            revertNote: nil)
+        var read = ResolveEditionItems.Read(language: "es", rounds: [docId: round],
+                                            proposals: [proposal], problems: [problem], hasRounds: true)
+        read.departureRows[change.id] = TranslationRoundReport.departureRows(
+            round, sources: ["aa11": String(repeating: "A source paragraph that runs on. ", count: 6)],
+            translatorName: "Lucía").first
+        for row in PublishProblems.rows([problem], titles: [docId: String(repeating: "Chapter ", count: 12)]) {
+            read.problemRows[ResolveItem.compileProblem(problem).id] = row
+        }
+        var verbs = ResolveEditionVerbs()
+        verbs.authorVerbs = { _, _ in .unrestricted }
+        let items = ResolveEditionItems.items(language: "es", isSource: false, docIds: [docId], read: read)
+        XCTAssertEqual(items.count, 4, "premise: a change, a glossary proposal, a design proposal, a problem")
+        var offenders: [String] = []
+        for width in Self.paneWidths + [Self.ceiling] {
+            for item in items {
+                let (fits, measured) = Self.fits(
+                    ResolveEditionRow(item: item, read: read, verbs: verbs), in: width)
+                if !fits { offenders.append("\(item.id) → \(measured)pt in \(width)pt") }
+            }
+            for isSource in [false, true] {
+                let head = EditionHeadView(language: isSource ? "en" : "es", isSource: isSource,
+                                           docIds: [docId], store: fixture.store,
+                                           documentStore: fixture.documentStore, editionRead: read,
+                                           onShowRound: { _ in }, onShowProposal: { _ in })
+                let (fits, measured) = Self.fits(head, in: width)
+                if !fits { offenders.append("\(isSource ? "Source" : "es") head → \(measured)pt in \(width)pt") }
+            }
+        }
+        XCTAssertEqual(offenders, [], "an edition's loaded faces are wider than the column:\n"
+                       + offenders.joined(separator: "\n"))
+    }
+
     private struct Fixture {
         let store: ProjectStore
         let documentStore: DocumentStore

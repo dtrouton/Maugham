@@ -190,10 +190,12 @@ final class TranslationRoundActionsTests: XCTestCase {
         let pid = h.doc.sequence[1]
         let actions = actionsFor(h)
 
-        guard case .done = await actions.keepMine(
+        guard case .filed(nil, let destination, _) = await actions.keepMine(
             round, pid, "keep the repetition", .edition("es")) else {
             return XCTFail("Keep mine was refused over the edition brief")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project),
+                       "where it went is read off the write (shell p4 Task 6)")
         let rulings = try briefRulings(h)
         XCTAssertEqual(rulings.count, 1)
         XCTAssertEqual(rulings[0].directive?.paragraphId, pid)
@@ -201,10 +203,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         XCTAssertEqual(rulings[0].provenance,
                        TranslationRoundReport.provenance(round: round, verb: "keep mine"))
 
-        guard case .done = await actions.keepMine(
+        guard case .filed(nil, let intentHome, _) = await actions.keepMine(
             round, pid, "one sentence", .everyEdition) else {
             return XCTFail("Keep mine was refused over the piece's own intent")
         }
+        XCTAssertEqual(intentHome, FiledDestination(kind: .intent, scope: .document(h.doc.docId)))
         let intent = try XCTUnwrap(
             h.store.statement(kind: .intent, scope: .document(h.doc.docId)),
             "every-edition did not reach the piece's craft intent")
@@ -243,10 +246,11 @@ final class TranslationRoundActionsTests: XCTestCase {
         let h = try await makeHarness()
         let round = roundFor(h, number: 3)
 
-        guard case .done = await actionsFor(h).makeRule(
+        guard case .filed(nil, let destination, _) = await actionsFor(h).makeRule(
             round, "Never soften an oath.") else {
             return XCTFail("Make it a rule was refused")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project))
         let rulings = try briefRulings(h)
         XCTAssertEqual(rulings.count, 1)
         XCTAssertEqual(rulings[0].text, "Never soften an oath.")
@@ -367,9 +371,10 @@ final class TranslationRoundActionsTests: XCTestCase {
             .init(term: "fog", rendering: "niebla", reason: "consistency", adopted: false)]
         try TranslationRoundStore(projectURL: h.projectURL).append(round)
 
-        guard case .done(let updated?, let sentence) = await actionsFor(h).adopt(round, 0) else {
-            return XCTFail("Adopt did not answer .done with the changed round")
+        guard case .filed(let updated?, let destination, let sentence) = await actionsFor(h).adopt(round, 0) else {
+            return XCTFail("Adopt did not answer .filed with the changed round")
         }
+        XCTAssertEqual(destination, FiledDestination(kind: .editionBrief("es"), scope: .project))
         XCTAssertEqual(sentence, TranslationRoundReport.adoptedLine)
         XCTAssertTrue(updated.glossaryProposals[0].adopted)
         XCTAssertEqual(storedRound(h)?.glossaryProposals[0].adopted, true,

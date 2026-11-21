@@ -286,7 +286,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **Words first; a rejected batch mints no queries** (queries have no fingerprint to dedupe).
 - **Queries mint through `Document.addAnnotation`, signed by the translator and language-tagged in `toolArgs`**; an anchorless one is a doc-scoped `.craftNote` with a `Translation query (<lang>) — ` prefix. The tag, not the kind, re-briefs and counts it.
 - **The translator identity is resolved before the briefing** (`ProjectStore.translatorRole(for:)`, find-or-create; read paths never mint a role), so the role frame and the signature name the same row.
-- **The translator has no run keys** (⌘R and ⌘⇧R are the compiler's) and starts on the desk's Run alone.
+- **The translator has no run keys** (⌘R and ⌘⇧R are the compiler's) and starts on an edition head's Run alone.
 - **Translation runs only on the OPEN document** (`DepartmentRunTarget.resolve`; `test_theBriefingAbandonIsClosedByTheOpenDocumentGate`). One round runs at a time across every language (`DepartmentRunSession.busy`).
 - **A translator is named only through the cast sheet** (`DepartmentCastSheet.swift`: Name & Run, Add Language…, Rename …): `translatorRole(for:)` + `renameProductionRole`.
 
@@ -320,7 +320,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **`onRunAbandoned` is not a summary**: the briefing answered `nil`, so the leg fails with `unbriefableSentence(role:)`, never `nothingToTranslate`.
 - **A declined note's reply lives in the query BODY** (`declinedBody`), authored by the reader or collator who raised it. No reply `OpKind` or `AnnotationKind`.
 - **The book queue stops on a failed round**; it never skips a chapter.
-- **The desk's busy gate reads `TranslationPipeline.Status` first** (`DepartmentRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
+- **The edition head's busy gate reads `TranslationPipeline.Status` first** (`DepartmentRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
 - **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
 - **`TranslationPreflight.budgets` opens each document ONCE** for every language; an empty answer means nothing could be read, distinct from a zero.
 

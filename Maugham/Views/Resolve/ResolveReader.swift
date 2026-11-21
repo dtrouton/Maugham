@@ -51,6 +51,22 @@ enum ResolveReader {
         let inScope = Set(docIds)
         let book = scope.includesBookLevel
 
+        // **An edition holds its language's questions and nothing else the
+        // walks find** (shell p4 Task 6): the open notes on its pieces that
+        // carry that language. Its changes, proposals and problems are not
+        // the walks' (`ResolveEditionItems`). The Source edition has none.
+        if case .edition(let language, let isSource, _) = scope {
+            let questions = isSource ? [] : annotations.annotations.filter {
+                $0.annotation.status == .open && inScope.contains($0.docId)
+                    && $0.annotation.language?.caseInsensitiveCompare(language) == .orderedSame
+            }
+            return ResolveSnapshot(
+                items: questions.map(ResolveItem.note),
+                sequences: annotations.sequences.filter { inScope.contains($0.key) },
+                paragraphText: [:],
+                unreadableDocIds: isSource ? [] : annotations.unreadableDocIds.filter(inScope.contains))
+        }
+
         func holds(_ docId: String) -> Bool {
             if inScope.contains(docId) { return true }
             guard DocumentClass.isFigureDocId(docId) else { return false }
@@ -91,6 +107,8 @@ enum ResolveReader {
     /// `.onChange`, never from a body.
     @MainActor
     static func loadFindings(scope: ResolveScope, diagnostics: DiagnosticsStore) {
+        // An edition lists no strains.
+        if case .edition = scope { return }
         for docId in scope.docIds where !DocumentClass.isFigureDocId(docId) {
             diagnostics.load(docId: docId)
         }
@@ -237,7 +255,9 @@ enum ResolveReader {
         if case .piece(let docId, _) = scope { paragraphText = text(of: docId) ?? [:] }
 
         var findings: [String: [Diagnostic]] = [:]
-        if let liveFindings {
+        // An edition lists no strains, so none is judged.
+        let listsStrains: Bool = if case .edition = scope { false } else { true }
+        if listsStrains, let liveFindings {
             for docId in scope.docIds where !DocumentClass.isFigureDocId(docId) {
                 var anchored = false
                 let unjudged = liveFindings(docId) { _ in anchored = true; return nil }

@@ -911,18 +911,19 @@ final class TranslatorEnvironmentTests: XCTestCase {
         XCTAssertTrue(windowCode.contains(".environment(roster)"),
                       "ProjectWindow no longer injects the roster — without it every "
                       + "roster member is unmounted from the right column")
-        let desk = try SourceTree.sourceOfType("RightColumnDesk", under: ["Maugham"])
+        // Shell p4 Task 6: the desk is unmounted; an edition's head reaches
+        // the translator and the pipeline (and the designer) the same way.
+        let desk = try SourceTree.sourceOfType("EditionHeadView", under: ["Maugham"])
         let deskCode = String(decoding: SourceTree.mask(desk), as: UTF8.self)
-        for token in ["@Environment(AgentRoster.self)", "DepartmentPaneHost(",
-                      "translator: roster?.translator", "runLog: roster?.translationRuns",
-                      "pipeline: roster?.pipeline"] {
+        for token in ["@Environment(AgentRoster.self)", "roster?.translator.runState",
+                      "roster?.pipeline.status", "roster?.designer"] {
             XCTAssertTrue(deskCode.contains(token),
-                          "RightColumnDesk is missing \(token) — without it a roster member "
+                          "EditionHeadView is missing \(token) — without it a roster member "
                           + "is unmounted")
         }
         let column = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
         let columnCode = String(decoding: SourceTree.mask(column), as: UTF8.self)
-        for token in [".environment(roster)", "RightColumnDesk(", "TranslationReviewPane(",
+        for token in [".environment(roster)", "ResolvePane(", "TranslationReviewPane(",
                       "coldCall: roster.coldCall"] {
             XCTAssertTrue(columnCode.contains(token),
                           "RightColumn is missing \(token) — without it a roster member "

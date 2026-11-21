@@ -258,6 +258,17 @@ extension DesignGate {
         "Finalized \u{2014} this design is permanent. The templates it replaced "
         + "have been discarded, and the next round can be approved."
 
+    static let discardedConfirmation =
+        "Discarded \u{2014} nothing this round proposed reached the live templates."
+
+    static let discardTitle = "Discard"
+    static let discardHelp =
+        "Turn this proposal down. Nothing it proposed reaches the live templates."
+
+    /// Discard over a proposal that is no longer waiting.
+    static let notPendingRefusal =
+        "This proposal is no longer waiting on you, so there is nothing to discard."
+
     static let changesSentConfirmation =
         "Sent \u{2014} the designer is taking another round of this proposal. "
         + "The department desk shows it running."
@@ -398,6 +409,24 @@ enum DesignGatePromotion {
         // what shipped — so the re-read is about the rest of the record.
         return settled(proposal, projectURL: projectURL, status: .approved,
                        sentence: DesignGate.finalizedConfirmation)
+    }
+
+    /// **Discard a proposal still waiting** (shell p4 Task 6): marks it
+    /// turned down, with the gate's own note, and moves no live byte — a
+    /// pending proposal never reached the templates. The verb To resolve's
+    /// design row offers beside Approve; the gate's settled note then says
+    /// `turnedDownNote`. Refused over anything but a pending proposal.
+    static func discard(_ proposal: DesignProposalStore.Proposal,
+                        projectURL: URL) -> DesignGateOutcome {
+        guard proposal.status == .pending else { return .refused(DesignGate.notPendingRefusal) }
+        do {
+            try DesignProposalStore(projectURL: projectURL)
+                .reject(id: proposal.id, note: DesignGate.turnedDownNote)
+        } catch {
+            return .refused(DesignGate.refusalSentence(error))
+        }
+        return settled(proposal, projectURL: projectURL, status: .rejected,
+                       sentence: DesignGate.discardedConfirmation)
     }
 
     /// The proposal as the store now holds it, and the announcement.

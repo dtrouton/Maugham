@@ -5,7 +5,7 @@ import AppKit
 /// **The window's right-hand column**: the resize handle on its leading edge
 /// and its drag, then `pane` — the three positions' control
 /// (`RightColumnControl`) over the one arm `RightColumnContent.of` names: To
-/// resolve (or, interim, the translation review or the Department desk),
+/// resolve (or, interim, the translation review),
 /// Brief, and the pulled-up thing (`PulledUpView`, which also draws the
 /// centre's own details) — plus the one width applied to both the content's
 /// frame and the split item, and the hidden arm when the column is closed. It
@@ -92,8 +92,8 @@ struct RightColumn: View {
     /// `ProjectWindow.pullUpItem` — Brief's pull-up links, through the one
     /// pull-up act (the position moves even when the item is already beside).
     var pullUp: (PulledUp) -> Void = { _ in }
-    /// ⌘⌥L was pressed outside translation review, or ⌘⌥K with no edition
-    /// faced: which, and the ground it was asked over. To resolve says how to
+    /// ⌘⌥L was pressed outside translation review: the ground it was asked
+    /// over. To resolve says how to
     /// get there while that ground stands. Cleared here on the next move
     /// (`hint(asked:groundNow:)`).
     @Binding var resolveHint: AskedHint?
@@ -297,21 +297,16 @@ struct RightColumn: View {
         "Not in translation review. Choose View ▸ Translation Review… to see a "
         + "paragraph's source text and reply to translator queries."
 
-    /// Where the Department desk shows — what ⌘⌥K says with no edition faced.
-    static let deskHintLine =
-        "No edition is selected. The Department desk shows here when you "
-        + "select an edition under Editions in the tree."
-
-    /// **The two keys that name what To resolve shows only on some ground**
-    /// (⌘⌥L, translation review; ⌘⌥K, the desk), and the line each says
-    /// off that ground.
+    /// **The key that names what To resolve shows only on some ground**
+    /// (⌘⌥L, translation review), and the line it says off that ground.
+    /// (⌘⌥K's desk line went with the desk, shell p4 Task 6: an edition's
+    /// To resolve is To resolve's own list.)
     enum ResolveHint: String, Equatable {
-        case translationReview, desk
+        case translationReview
 
         var line: String {
             switch self {
             case .translationReview: return RightColumn.translationReviewHintLine
-            case .desk: return RightColumn.deskHintLine
             }
         }
     }
@@ -347,7 +342,7 @@ struct RightColumn: View {
 
     /// The explanation drawn, if any: asked for over the ground that stands
     /// now, and To resolve's own list is what shows (never over the review
-    /// itself, or the desk).
+    /// itself).
     static func shownHint(_ asked: AskedHint?, ground: HintGround,
                           shown: RightColumnContent) -> ResolveHint? {
         guard let asked, asked.ground == ground, shown == .resolve else { return nil }
@@ -388,10 +383,6 @@ struct RightColumn: View {
         case .translationReview:
             subjectLine
             translationPane
-        case .desk:
-            subjectLine
-            RightColumnDesk(store: store, documentStore: documentStore,
-                            subject: selectedSubject, publishCentre: publishCentre)
         case .brief(let scope):
             subjectLine
             BriefPane(
@@ -402,8 +393,8 @@ struct RightColumn: View {
                 onPullUp: pullUp,
                 onShowStrain: showStrain,
                 onOpenBrief: openBrief,
-                // The desk is To resolve's answer while an edition is the
-                // faces — and an edition's Brief shows only then.
+                // An edition's To resolve (shell p4 Task 6). The cast
+                // sheet's own home moves in Task 7.
                 onOpenDesk: { _ in position = .resolve },
                 tree: figureTree)
                 .environment(\.briefFocus, briefFocus)
@@ -487,7 +478,10 @@ struct RightColumn: View {
                 figureWindows?.reveal(id, cell: cell, pending: pending) ?? false
             },
             // A filed line names a Brief: the faces move there.
-            onOpenBrief: openBrief)
+            onOpenBrief: openBrief,
+            // An edition's list: the Source, the compile's problems, and the
+            // covers its rows open (shell p4 Task 6).
+            publishCentre: publishCentre)
     }
 
     /// **The one write of a piece's pass state from this column** — the pass
@@ -549,42 +543,5 @@ struct RightColumn: View {
             // A region's member list names item nodes too, so the pane resolves a
             // title through the same index the canvas draws from.
             itemIndex: ProjectWindow.canvasItemIndex(in: store))
-    }
-}
-
-/// **Publish's desk in the To resolve position** (interim until plan 4):
-/// `DepartmentPaneHost`, mounted unchanged, while an edition is the faces.
-///
-/// **The services come from the environment** the column injects: the desk
-/// reaches the translator, the run log, the designer and the pipeline through
-/// the window's roster. An optional read, so a probe that injects none gets a
-/// desk that reads without acting.
-struct RightColumnDesk: View {
-    let store: ProjectStore
-    let documentStore: DocumentStore
-    /// The tree's own subject, unconverted: the run target has to tell a
-    /// group from a chapter and a research note from both.
-    let subject: BinderSubject?
-    /// The desk's Shows — the design gate's, a round's and the publish
-    /// problems' — reach the CENTRE column through this model. Each Show
-    /// clears the others (`PublishCentreModel.show`): one centre, one
-    /// selection.
-    let publishCentre: PublishCentreModel
-
-    @Environment(AgentRoster.self) private var roster: AgentRoster?
-    private var designer: DesignerOrchestrator? { roster?.designer }
-
-    var body: some View {
-        DepartmentPaneHost(store: store, documentStore: documentStore,
-                           projectURL: store.url,
-                           subject: subject,
-                           translator: roster?.translator,
-                           runLog: roster?.translationRuns,
-                           designer: designer,
-                           pipeline: roster?.pipeline,
-                           onShowProposal: { publishCentre.show(proposal: $0) },
-                           onShowRound: { publishCentre.show(round: $0) },
-                           onShowProblems: { publishCentre.show(problems: $0) },
-                           compileRunner: publishCentre.compileRunner)
     }
 }

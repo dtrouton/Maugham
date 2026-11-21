@@ -110,8 +110,11 @@ struct RightColumnControl: View {
     /// could not clear it.
     @MainActor
     static func unreadDocId(subject: WindowSubject, store: ProjectStore) -> String? {
+        // Only a piece has an unread dot; which edition is the Source is
+        // never asked.
         ResolvePane.unreadDocId(scope: ResolveScope.of(
-            subject.faces, structure: store.manifest.structure, projectType: store.manifest.type))
+            subject.faces, readIn: nil, sourceLanguage: PublishConfig.Metadata().language,
+            structure: store.manifest.structure, projectType: store.manifest.type))
     }
 
     /// A segment's tooltip: the position's own, or the pulled-up item's name.

@@ -14,11 +14,17 @@ enum ResolveScope: Hashable {
     case pieces(docIds: [String], includesBookLevel: Bool)
     /// One figure's notes.
     case figure(id: String)
+    /// An edition (shell p4 Task 6): `language`'s questions on `docIds` (the
+    /// book's documents, manuscript order), the changes and glossary
+    /// proposals of each piece's latest finished round in that language, a
+    /// pending design proposal and the last compile's problems. The Source
+    /// edition (`isSource`) has no questions or changes of its own.
+    case edition(language: String, isSource: Bool, docIds: [String])
     /// A Collection piece with `pieceKind == .reference`: it belongs to
     /// another project, so it holds nothing here.
     case elsewhere(docId: String)
-    /// An edition, the Canvas, the Inbox, the Palette, a research item —
-    /// nothing To resolve gathers is about these.
+    /// The Canvas, the Inbox, the Palette, a research item — nothing To
+    /// resolve gathers is about these.
     case outside
 
     /// The scope of `faces`. `.item` naming a document is `.piece` (a
@@ -26,8 +32,14 @@ enum ResolveScope: Hashable {
     /// descendants, `.project` `.pieces(includesBookLevel: true)` over every
     /// document — except a screenplay's Book, which is `.piece` over its one
     /// script, still holding the Book's own to-dos. An id the structure does not hold is `.outside`.
-    static func of(_ faces: BinderSubject, structure: [StructureItem],
-                   projectType: ProjectType) -> ResolveScope {
+    /// `.edition` is `.edition` over every document; it is the Source where
+    /// its language is `sourceLanguage` (case-insensitive — the tree's rule).
+    ///
+    /// `readIn` is the language a piece is read in (Task 9's piece in a
+    /// language); nil reads it in the source. Every caller passes nil until
+    /// then — an edition's language is the faces' own.
+    static func of(_ faces: BinderSubject, readIn: String?, sourceLanguage: String,
+                   structure: [StructureItem], projectType: ProjectType) -> ResolveScope {
         switch faces {
         case .project:
             let docs = documents(in: structure)
@@ -45,9 +57,19 @@ enum ResolveScope: Hashable {
             }
         case .figure(let id):
             return .figure(id: id)
-        case .research, .inbox, .canvas, .palette, .edition:
+        case .edition(let language):
+            return .edition(language: language,
+                            isSource: language.caseInsensitiveCompare(sourceLanguage) == .orderedSame,
+                            docIds: documents(in: structure))
+        case .research, .inbox, .canvas, .palette:
             return .outside
         }
+    }
+
+    /// The edition's language, at an `.edition` scope.
+    var editionLanguage: String? {
+        if case .edition(let language, _, _) = self { return language }
+        return nil
     }
 
     /// The documents whose items the scope holds, in manuscript order. A
@@ -57,6 +79,7 @@ enum ResolveScope: Hashable {
         switch self {
         case .piece(let docId, _): return [docId]
         case .pieces(let docIds, _): return docIds
+        case .edition(_, _, let docIds): return docIds
         case .figure(let id): return [id]
         case .elsewhere, .outside: return []
         }
@@ -66,7 +89,7 @@ enum ResolveScope: Hashable {
     var includesBookLevel: Bool {
         switch self {
         case .piece(_, let book), .pieces(_, let book): return book
-        case .figure, .elsewhere, .outside: return false
+        case .figure, .edition, .elsewhere, .outside: return false
         }
     }
 
