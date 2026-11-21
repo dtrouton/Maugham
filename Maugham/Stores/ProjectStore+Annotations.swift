@@ -304,46 +304,14 @@ extension ProjectStore {
             // gives: a pane refresh must not block on async actor init per
             // document, and per-doc op logs are small. The cache key folds each
             // closed doc's op-log mtimes, so this runs only when something moved.
-            //
-            // RULING-54 lenient, reason recorded: a project-wide COUNT skips a
-            // document whose log cannot be read rather than refusing the whole
-            // read — opening that document still refuses loudly. It is not
-            // silent, though: the id goes into `unreadableDocIds` so a count
-            // surface can render "unknown" rather than a number that is short.
-            // P3a Task 6 fix round 1: the queue judges an amendment as of its
-            // own line too, off the permits this walk's own classification
-            // recorded — one collector per document, because the map is keyed
-            // by op id and two chapters must not share one.
-            let amendmentPermits = AmendmentPermits()
-            guard let ops = try? OpLogStore.loadSyncMerged(
-                forDocId: item.id, in: url, trust: trust,
-                facts: facts,
-                amendmentPermits: amendmentPermits)
-            else {
+            // An unreadable log is named, never counted as empty (RULING-54;
+            // `readClosedDocument`).
+            guard let read = Self.readClosedDocument(item.id, in: url, trust: trust, facts: facts) else {
                 unreadable.append(item.id)
                 continue
             }
-            // One derive per document: `deriveWithSequenceFallback` gives both
-            // the paragraphs the notes anchor against and the order Task 7's
-            // cross-document sort needs (the fallback arm recovers an order for
-            // legacy sequence-less logs).
-            let derived = Deriver.deriveWithSequenceFallback(ops: ops)
-            sequences[item.id] = derived.sequence
-            // P3a Task 6: the same *whose annotation is it* rule the open
-            // document applies, off the table this walk already resolved and
-            // the manifest it already holds. The queue counts notes in pieces
-            // nobody has opened, so a rule only the editor applied would have
-            // two surfaces disagreeing about whether a note is still there.
-            annotations.append(contentsOf: AnnotationAggregation.allAnnotations(
-                ops: ops, paragraphs: derived.paragraphs,
-                amendments: .judged(
-                    by: trust, permits: amendmentPermits.resolved,
-                    insideTheUnsignedSnapshot:
-                        amendmentPermits.resolvedInsideTheUnsignedSnapshot,
-                    class: {
-                        DocumentClass.resolve(docId: item.id, facts: facts)
-                    }))
-                .map { ProjectAnnotation(docId: item.id, annotation: $0) })
+            sequences[item.id] = read.sequence
+            annotations.append(contentsOf: read.notes.map { ProjectAnnotation(docId: item.id, annotation: $0) })
         }
 
         // **The figures' notes** (report plan 6a): a figure is its own
@@ -375,6 +343,59 @@ extension ProjectStore {
         return snapshot
     }
 
+    /// **One closed document, read as the walk reads it** — its merged ops
+    /// (judged with this walk's trust), the derived order and paragraphs, and
+    /// every note in every status under the same *whose annotation is it*
+    /// rule the open document applies. Nil when its log will not read.
+    /// Nonisolated, so the tree's presence read (`ResolveChunkedWalk`) reads
+    /// a piece off the main actor exactly as this walk reads it on.
+    struct ClosedDocumentRead: Sendable {
+        let ops: [Op]
+        let sequence: [String]
+        let paragraphs: [String: String]
+        let notes: [Annotation]
+    }
+
+    nonisolated static func readClosedDocument(
+        _ docId: String, in url: URL, trust: TrustTable, facts: DocumentClass.Facts
+    ) -> ClosedDocumentRead? {
+        // RULING-54 lenient, reason recorded: a project-wide COUNT skips a
+        // document whose log cannot be read rather than refusing the whole
+        // read — opening that document still refuses loudly. It is not
+        // silent, though: the caller names the id in `unreadableDocIds`.
+        // P3a Task 6 fix round 1: the queue judges an amendment as of its
+        // own line too, off the permits this read's own classification
+        // recorded — one collector per document, because the map is keyed
+        // by op id and two chapters must not share one.
+        let amendmentPermits = AmendmentPermits()
+        guard let ops = try? OpLogStore.loadSyncMerged(
+            forDocId: docId, in: url, trust: trust,
+            facts: facts,
+            amendmentPermits: amendmentPermits)
+        else { return nil }
+        // One derive per document: `deriveWithSequenceFallback` gives both
+        // the paragraphs the notes anchor against and the order Task 7's
+        // cross-document sort needs (the fallback arm recovers an order for
+        // legacy sequence-less logs).
+        let derived = Deriver.deriveWithSequenceFallback(ops: ops)
+        // P3a Task 6: the same *whose annotation is it* rule the open
+        // document applies, off the table this walk already resolved and
+        // the manifest it already holds. The queue counts notes in pieces
+        // nobody has opened, so a rule only the editor applied would have
+        // two surfaces disagreeing about whether a note is still there.
+        let notes = AnnotationAggregation.allAnnotations(
+            ops: ops, paragraphs: derived.paragraphs,
+            amendments: .judged(
+                by: trust, permits: amendmentPermits.resolved,
+                insideTheUnsignedSnapshot:
+                    amendmentPermits.resolvedInsideTheUnsignedSnapshot,
+                class: {
+                    DocumentClass.resolve(docId: docId, facts: facts)
+                }))
+        return ClosedDocumentRead(ops: ops, sequence: derived.sequence,
+                                  paragraphs: derived.paragraphs, notes: notes)
+    }
+
     /// **One figure's notes** — its stream judged as the walk judges it,
     /// nil when the stream will not read. Nonisolated: the figure inspector
     /// reads it off the main actor (`figureNotes`), the walk inline.
@@ -404,8 +425,18 @@ extension ProjectStore {
     private func figureCells(
         _ suggestions: [(figureId: String, note: Annotation)], tables: [String: FigureTable]
     ) -> [String: SuggestionDisplay.FigureCells] {
+        Self.figureCells(suggestions, tables: tables, figures: manifest.figures ?? [],
+                         research: manifest.research, url: url)
+    }
+
+    /// `figureCells`, stateless — the presence read computes it off the main
+    /// actor from the same inputs.
+    nonisolated static func figureCells(
+        _ suggestions: [(figureId: String, note: Annotation)], tables: [String: FigureTable],
+        figures: [FigureRecord], research: [ResearchItem], url: URL
+    ) -> [String: SuggestionDisplay.FigureCells] {
         guard !suggestions.isEmpty else { return [:] }
-        let names = FormulaNames(records: manifest.figures ?? [], tables: tables, research: manifest.research)
+        let names = FormulaNames(records: figures, tables: tables, research: research)
         let tag = (try? Data(contentsOf: BookLanguage.configURL(in: url))) // adr-0018-ok: publish config JSON read, not manuscript
             .flatMap(BookLanguage.tag(fromConfigData:))
         let locale = TableLocale(languageTag: tag)

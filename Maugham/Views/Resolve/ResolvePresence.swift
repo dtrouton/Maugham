@@ -265,22 +265,34 @@ struct ResolvePresenceWiring: ViewModifier {
     }
 }
 
-/// **The presence read's decisions, held between keys** (fix round 1, I1 and
-/// I2): a class the watch holds and the tests drive exactly as the watch
+/// **The presence read's decisions, held between keys** (fix rounds 1 and
+/// 2): a class the watch holds and the tests drive exactly as the watch
 /// does, with no view.
 ///
-/// - **The walks run only on a real cross-piece signal**: the coalesced
-///   annotation-event token (a closed piece, a figure, a peer's sync), the
-///   scope, the Book's own to-dos. **Never on a piece opening or closing**:
-///   an open piece is read off its `Document` (`ResolveReader.overlaying`),
-///   and a piece closing folds its last live state into the held walks and
-///   the held snapshot (a closed `Document` is husked).
-/// - A diagnostics or pass change re-gathers over the held walks; a new parse
+/// - **No step of it holds the main actor for a walk** (fix round 2). The
+///   closed pieces are read off the main actor, a chunk at a time
+///   (`ResolveChunkedWalk`); `update` only decides what is stale and asks
+///   for it (`pendingRequest`), and `apply` folds each chunk in. A piece not
+///   yet read draws nothing — never the ring — and the marks fill in as the
+///   chunks land.
+/// - **What is read, and when**: every closed piece when the coalesced
+///   annotation-event token moves (a closed piece, a figure, a peer's sync);
+///   a piece the scope gained; the figures with the token or when the
+///   figures change. **Never on a piece opening or closing**: an open piece
+///   is read off its `Document` (`ResolveReader.overlaying`), and a piece
+///   closing folds its last live state into what is held. A Book's own to-do
+///   re-reads only the Book's own log (`ProjectStore.projectLevelTasks`).
+/// - **A change arriving mid-walk is neither lost nor counted twice**: a
+///   chunk replaces its pieces' entries (never adds); a chunk from a walk the
+///   token has since moved past is dropped (its generation is old) and the
+///   new walk reads every piece again; a piece open at any point during a
+///   walk keeps its live or folded state over what the walk read.
+/// - A diagnostics or pass change re-gathers over what is held; a new parse
 ///   re-reads the script's text; an open piece's note or to-do change is the
 ///   live splice. None walks.
-/// - **The marks are recomputed from the held snapshot on any change of the
-///   tree's shape or the figures' owners** — moving a chapter between Parts
-///   keeps the document order, and so moves no read key.
+/// - **The marks and Status's to-dos come from one snapshot**, recomputed on
+///   every step and on any change of the tree's shape or the figures'
+///   owners (moving a chapter between Parts moves no read key).
 @MainActor
 final class ResolvePresenceReader {
 
@@ -331,70 +343,279 @@ final class ResolvePresenceReader {
     private(set) var marks: ResolvePresence.Marks = .none
     private(set) var openToDos: [String: Int] = [:]
     private(set) var snapshot: ResolveSnapshot = .empty
+    /// The walk the held reads are waiting on; nil when nothing is stale.
+    private(set) var pendingRequest: ResolveChunkedWalk.Request?
+    /// Test seam: closed pieces read by walks so far (what "no walk" counts).
+    private(set) var piecesRead = 0
+    /// Test seam: walks asked for so far.
+    private(set) var walksRequested = 0
 
-    private var annotations: ProjectAnnotationsSnapshot?
-    private var annotationsKey: ResolveWalkKey?
-    private var tasks: [WriterTask]?
-    private var tasksKey: ResolveTasksWalkKey?
+    // What is held, per piece — replaced, never added to.
+    private var notes: [String: [ProjectAnnotation]] = [:]
+    private var tasks: [String: [WriterTask]] = [:]
+    private var sequences: [String: [String]] = [:]
+    private var paragraphs: [String: [String: String]] = [:]
+    /// A closed piece's file-set fingerprint at its read; nil after a fold
+    /// (its text is then read through the cache on demand).
+    private var tokens: [String: DerivedManuscriptCache.Token] = [:]
+    private var unreadable: Set<String> = []
+    private var figureNotes: [String: [ProjectAnnotation]] = [:]
+    private var figureUnreadable: [String] = []
+    private var figureCells: [String: SuggestionDisplay.FigureCells] = [:]
+    private var registryUnreadable: String?
+    private var bookTasks: [WriterTask] = []
+    private var bookTasksVersion: Int?
+
+    private var stale: Set<String> = []
+    private var figuresStale = true
+    private var heldFigureIds: [String] = []
+    private var walkedToken: Int?
+    private var generation = 0
+    /// Pieces open at any point during the current walk: their live or
+    /// folded state stands over what the walk read.
+    private var touched: Set<String> = []
     /// The open pieces as read at the last update — held so a piece that
     /// closes is folded in from its last live state (a closed `Document` is
     /// husked, so it cannot be asked afterwards).
     private var lastLive: [String: ResolveLivePiece] = [:]
     private var last: Key?
 
-    /// Bring the presence up to `key`. Returns whether `marks` or
-    /// `openToDos` changed.
+    /// Bring the presence up to `key` without walking: fold closed pieces,
+    /// decide what is stale (`pendingRequest`), re-read the Book's own
+    /// to-dos when they moved, and re-gather over what is held. Returns
+    /// whether `marks` or `openToDos` changed.
     @discardableResult
     func update(_ key: Key, store: ProjectStore, documentStore: DocumentStore,
                 diagnostics: DiagnosticsStore?) -> Bool {
         guard key != last else { return false }
         let scope = key.read.scope
         let live = ResolvePane.livePieces(scope: scope, documentStore: documentStore)
+        var dataMoved = false
 
         // A piece that closed: its last live state. Every note or to-do change
         // on an open piece moves its versions, and so the key, so that state
         // is its final one unless a change and the close land in one turn.
         let closed = lastLive.filter { live[$0.key] == nil }
+        for (docId, piece) in closed { fold(docId, piece) }
+        if !closed.isEmpty { dataMoved = true }
         lastLive = live
-        if !closed.isEmpty {
-            annotations = annotations.map { ResolveReader.overlaying($0, live: closed) }
-            tasks = tasks.map { ResolveReader.overlaying($0, live: closed) }
+        touched.formUnion(live.keys)
+
+        // What a walk must read.
+        let readable = readableDocIds(scope: scope, structure: key.structure)
+        let previousStale = stale
+        // The token moved: whatever a walk in flight has read may predate
+        // the change, so every piece is read again, by a new walk.
+        var mustWalk = false
+        if walkedToken != key.read.annotationsToken {
+            walkedToken = key.read.annotationsToken
+            stale = readable
+            figuresStale = true
+            mustWalk = true
+        } else {
+            let held = Set(notes.keys).union(unreadable)
+            stale.formUnion(readable.subtracting(held).subtracting(live.keys))
+        }
+        stale.formIntersection(readable)
+        let figureIds = (store.manifest.figures ?? []).map(\.id)
+        if figureIds != heldFigureIds { figuresStale = true }
+        // Drop what the scope no longer holds.
+        for docId in Set(notes.keys).union(unreadable).subtracting(readable) {
+            forget(docId)
+            dataMoved = true
+        }
+        if mustWalk || stale != previousStale || (figuresStale && pendingRequest == nil) {
+            requestWalk(order: scope.docIds)
         }
 
-        let walk = ResolveWalkKey(scope: scope, annotationsToken: key.read.annotationsToken, openPieces: [])
-        let tasksWalk = ResolveTasksWalkKey(walk: walk, projectTasksVersion: key.read.projectTasksVersion)
-        var walked = false
-        if annotations == nil || annotationsKey != walk {
-            annotations = store.listAnnotationsAcrossProject()
-            annotationsKey = walk
-            walked = true
-        }
-        if tasks == nil || tasksKey != tasksWalk {
-            tasks = store.listTasksAcrossProject(filter: TaskFilter(scope: .project, statuses: [.open]))
-            tasksKey = tasksWalk
-            walked = true
+        if bookTasksVersion != key.read.projectTasksVersion {
+            bookTasks = store.projectLevelTasks()
+            bookTasksVersion = key.read.projectTasksVersion
+            dataMoved = true
         }
 
-        if let last, !walked, last.read == key.read {
+        if let last, !dataMoved, last.read == key.read {
             var held = snapshot
             if last.script != key.script {
                 held = ResolveReader.rereadText(held, scope: scope, store: store, documentStore: documentStore)
             }
-            if last.open != key.open || !closed.isEmpty || last.script != key.script {
-                held = ResolvePane.splicing(held, scope: scope,
-                                            live: live.merging(closed) { current, _ in current })
+            if last.open != key.open || last.script != key.script {
+                held = ResolvePane.splicing(held, scope: scope, live: live)
             }
             snapshot = held
-        } else if let annotations, let tasks {
-            snapshot = ResolveReader.read(scope: scope, annotations: annotations, tasks: tasks, live: live,
-                                          store: store, documentStore: documentStore,
-                                          diagnostics: diagnostics)
+        } else {
+            snapshot = gather(scope: scope, live: live, store: store, documentStore: documentStore,
+                              diagnostics: diagnostics)
         }
         last = key
+        return remark()
+    }
 
+    /// Fold one step of the walk `generation` in. A step from a walk the
+    /// token has since moved past is dropped. Returns whether `marks` or
+    /// `openToDos` changed.
+    @discardableResult
+    func apply(_ step: ResolveChunkedWalk.Step, generation: Int, store: ProjectStore,
+               documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> Bool {
+        guard generation == self.generation, let key = last else { return false }
+        switch step {
+        case .trust(let name):
+            guard registryUnreadable != name else { return false }
+            registryUnreadable = name
+        case .pieces(let reads):
+            for read in reads where stale.contains(read.docId) {
+                stale.remove(read.docId)
+                piecesRead += 1
+                // Open during this walk: its live or folded state stands.
+                guard !touched.contains(read.docId) else { continue }
+                switch read {
+                case .read(let docId, let docNotes, let docTasks, let sequence, let text, let token):
+                    notes[docId] = docNotes.map { ProjectAnnotation(docId: docId, annotation: $0) }
+                    tasks[docId] = docTasks
+                    sequences[docId] = sequence
+                    paragraphs[docId] = text
+                    tokens[docId] = token
+                    unreadable.remove(docId)
+                case .unreadable(let docId):
+                    forget(docId)
+                    unreadable.insert(docId)
+                }
+            }
+        case .figures(let reads):
+            figureNotes = reads.notes.reduce(into: [:]) { out, pair in
+                out[pair.key] = pair.value.map { ProjectAnnotation(docId: pair.key, annotation: $0) }
+            }
+            figureUnreadable = reads.unreadable
+            figureCells = reads.cells
+            figuresStale = false
+            heldFigureIds = (store.manifest.figures ?? []).map(\.id)
+        }
+        let scope = key.read.scope
+        snapshot = gather(scope: scope,
+                          live: ResolvePane.livePieces(scope: scope, documentStore: documentStore),
+                          store: store, documentStore: documentStore, diagnostics: diagnostics)
+        return remark()
+    }
+
+    /// **Run `request`'s walk**: off the main actor, each step folded in as
+    /// one main-actor step, yielding between steps so a keystroke or a frame
+    /// queued behind one runs before the next. What the watch's walk task
+    /// does, and what the tests drive.
+    func run(_ request: ResolveChunkedWalk.Request, store: ProjectStore, documentStore: DocumentStore,
+             diagnostics: DiagnosticsStore?, chunkSize: Int = ResolveChunkedWalk.chunkSize,
+             onChange: () -> Void = {}) async {
+        var inputs = ResolveChunkedWalk.inputs(for: request, store: store)
+        inputs.chunkSize = chunkSize
+        for await step in ResolveChunkedWalk.steps(inputs) {
+            if apply(step, generation: request.generation, store: store,
+                     documentStore: documentStore, diagnostics: diagnostics) { onChange() }
+            await Task.yield()
+        }
+        guard !Task.isCancelled else { return }
+        finish(generation: request.generation)
+    }
+
+    /// The walk `generation` ended (or was cut short): ask again for
+    /// whatever is still stale.
+    func finish(generation: Int) {
+        guard generation == self.generation else { return }
+        pendingRequest = nil
+        if let last, !stale.isEmpty || figuresStale {
+            requestWalk(order: last.read.scope.docIds)
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// The scope's pieces a walk can read: those with a file (the store's
+    /// walk skips a path-less item the same way).
+    private func readableDocIds(scope: ResolveScope, structure: [StructureItem]) -> Set<String> {
+        if let held = readableHeld, held.structure == structure { return held.ids }
+        let withFile = Set(TreeWalk.collect(in: structure) { $0.type == .document && $0.path != nil }.map(\.id))
+        let ids = Set(scope.docIds).intersection(withFile)
+        readableHeld = (structure, ids)
+        return ids
+    }
+    private var readableHeld: (structure: [StructureItem], ids: Set<String>)?
+
+    private func requestWalk(order: [String]) {
+        generation += 1
+        touched = Set(lastLive.keys)
+        walksRequested += 1
+        pendingRequest = ResolveChunkedWalk.Request(
+            generation: generation, docIds: order.filter(stale.contains), readsFigures: figuresStale)
+    }
+
+    private func fold(_ docId: String, _ piece: ResolveLivePiece) {
+        notes[docId] = piece.notes.map { ProjectAnnotation(docId: docId, annotation: $0) }
+        tasks[docId] = piece.todos
+        sequences[docId] = piece.sequence
+        paragraphs[docId] = piece.paragraphs
+        tokens[docId] = nil
+        unreadable.remove(docId)
+        stale.remove(docId)
+    }
+
+    private func forget(_ docId: String) {
+        notes[docId] = nil
+        tasks[docId] = nil
+        sequences[docId] = nil
+        paragraphs[docId] = nil
+        tokens[docId] = nil
+        unreadable.remove(docId)
+    }
+
+    /// The held reads as the store's walk would have returned them, gathered
+    /// as To resolve gathers (`ResolveReader.read`'s rule): each open piece
+    /// answers for itself, and a closed piece's text is the walk's while its
+    /// file set has not moved, else read through the derived cache.
+    private func gather(scope: ResolveScope, live: [String: ResolveLivePiece], store: ProjectStore,
+                        documentStore: DocumentStore, diagnostics: DiagnosticsStore?) -> ResolveSnapshot {
+        guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
+        var annotations: [ProjectAnnotation] = []
+        var unreadableIds: [String] = []
+        var heldTasks: [WriterTask] = []
+        for docId in scope.docIds {
+            annotations += notes[docId] ?? []
+            heldTasks += tasks[docId] ?? []
+            if unreadable.contains(docId) { unreadableIds.append(docId) }
+        }
+        if let registryUnreadable { unreadableIds.append(registryUnreadable) }
+        for figure in store.manifest.figures ?? [] { annotations += figureNotes[figure.id] ?? [] }
+        unreadableIds += figureUnreadable
+        let walk = ProjectAnnotationsSnapshot(annotations: annotations, unreadableDocIds: unreadableIds,
+                                              sequences: sequences, figureCells: figureCells)
+        let liveFindings: ((String, (String) -> String?) -> [Diagnostic])? = diagnostics.map { diagnostics in
+            { docId, currentText in diagnostics.live(docId: docId, currentText: currentText) }
+        }
+        var currentTokens: [String: DerivedManuscriptCache.Token]?
+        let held = paragraphs
+        let heldTokens = tokens
+        return ResolveReader.gather(
+            scope: scope,
+            annotations: ResolveReader.overlaying(walk, live: live),
+            tasks: ResolveReader.overlaying(heldTasks + bookTasks, live: live),
+            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            liveFindings: liveFindings,
+            paragraphs: { docId in
+                if let piece = live[docId] { return piece.paragraphs }
+                if let text = held[docId], let token = heldTokens[docId] {
+                    if currentTokens == nil {
+                        currentTokens = DerivedManuscriptCache.tokens(forDocIds: Array(heldTokens.keys),
+                                                                      in: store.url)
+                    }
+                    if currentTokens?[docId] == token { return text }
+                }
+                return try currentParagraphState(documentId: docId, store: store,
+                                                 documentStore: documentStore, projectURL: store.url).paragraphs
+            })
+    }
+
+    private func remark() -> Bool {
+        guard let key = last else { return false }
         let marks = ResolvePresence.marks(
             snapshot, structure: key.structure, figureOwners: key.figureOwners,
-            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: scope, script: key.script))
+            sceneIndex: ResolvePresence.sceneIndex(snapshot, scope: key.read.scope, script: key.script))
         let toDos = ResolvePresence.openToDos(snapshot.items, figureOwners: key.figureOwners)
         let changed = marks != self.marks || toDos != openToDos
         self.marks = marks
@@ -404,12 +625,14 @@ final class ResolvePresenceReader {
 }
 
 /// **The watch: the reader, keyed, on the window** (tripwires 4, 30). One
-/// `update` per key change; a burst of closed-piece annotation events is
+/// `update` per key change, then the walk it asks for, off the main actor,
+/// folded in a chunk per step; a burst of closed-piece annotation events is
 /// coalesced into one token move (`ResolvePresenceReader.coalesce`), so a
 /// round minting into thirty closed chapters costs one walk, not thirty. The
 /// sidecars are read off the main actor. Writes `BinderTreeSectionsState
 /// .presence` and `.openToDos` (Status's column) only when they change.
-/// Draws nothing.
+/// Draws nothing; the window's first frame and first keystroke never wait
+/// on it.
 struct ResolvePresenceWatch: View {
     let store: ProjectStore
     let documentStore: DocumentStore
@@ -420,6 +643,8 @@ struct ResolvePresenceWatch: View {
     let script: FountainScript?
 
     @State private var reader = ResolvePresenceReader()
+    /// The walk the reader asked for.
+    @State private var request: ResolveChunkedWalk.Request?
     /// Annotation events heard about documents no window holds open.
     @State private var heard = 0
     /// The token the read is keyed on: `heard`, once a burst has settled.
@@ -430,16 +655,28 @@ struct ResolvePresenceWatch: View {
                                   annotationsToken: annotationsToken, script: script)
     }
 
+    private func publish() {
+        if state.presence != reader.marks { state.presence = reader.marks }
+        if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
+    }
+
     var body: some View {
         let key = key
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
             .task(id: key) {
-                guard reader.update(key, store: store, documentStore: documentStore,
-                                    diagnostics: diagnostics) else { return }
-                if state.presence != reader.marks { state.presence = reader.marks }
-                if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
+                if reader.update(key, store: store, documentStore: documentStore,
+                                 diagnostics: diagnostics) { publish() }
+                request = reader.pendingRequest
+            }
+            // The walk, off the main actor; each chunk is one main-actor step.
+            .task(id: request) {
+                guard let request else { return }
+                await reader.run(request, store: store, documentStore: documentStore,
+                                 diagnostics: diagnostics, onChange: publish)
+                guard !Task.isCancelled else { return }
+                self.request = reader.pendingRequest
             }
             // The sidecars the strains are read from, off the main actor; a
             // load moves `diagnostics.version`, which moves the key.

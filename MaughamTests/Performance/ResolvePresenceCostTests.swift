@@ -3,27 +3,26 @@ import MaughamCore
 @testable import Maugham
 
 /// **What the tree's "something to resolve" read costs a book** (shell p4
-/// Task 3, fix round 1; the review's I2).
+/// Task 3, fix rounds 1 and 2; the review's I2 and the owner's bar that
+/// opening a book must not hitch).
 ///
 /// The presence read runs in every window whether or not To resolve is
-/// visible, so its cost is the writer's on every chapter they move to. This
-/// probe measures it on a 200-chapter book whose every chapter is closed and
-/// holds one open note — so a walk that misses the store's cache re-derives
-/// all 200 — two ways, on one machine in one run:
+/// visible. This probe measures it on a 200-chapter book whose every chapter
+/// is closed and holds one open note — so a walk re-derives all 200 — and
+/// records, for each read, the LONGEST single main-actor step as well as the
+/// main-actor total and the wall time:
 ///
-/// - **before**: the watch as Task 3 first built it — To resolve's own
-///   refresh at the Book's scope (`ResolvePane.listKey` → `refreshStep` →
-///   `refreshed`), whose walk key holds the open pieces, with one token move
-///   per closed-piece event;
-/// - **after**: `ResolvePresenceReader`, which never walks on a piece opening
-///   or closing and whose watch coalesces a burst of events into one token
-///   move.
+/// - **before** (fix round 1): the store's synchronous walk on the main
+///   actor, gathered and marked, for the first read and for a burst's one
+///   coalesced walk;
+/// - **after** (fix round 2): `ResolvePresenceReader.update`, then its walk
+///   off the main actor (`ResolveChunkedWalk`), each chunk one main-actor
+///   step; plus a chapter opening and closing, which walks nothing.
 ///
-/// Each path has its own `ProjectStore` and `DocumentStore` over the same
-/// project, so neither reads through the other's cache. Each navigation
-/// figure is the median of seven; the burst is twenty notes landing in twenty
-/// closed chapters. Only the refresh is timed: opening the `Document`, and
-/// writing the notes, are the writer's and the round's, not the read's.
+/// The after half runs on its own `ProjectStore` and `DocumentStore`, so it
+/// reads through no cache the before half warmed. Only the read is timed:
+/// opening a `Document` and writing the notes are the writer's and the
+/// round's.
 ///
 /// **Env-gated and kept**, `NarrowedBookCostTests`' rule: it is heavy, it is
 /// a measurement, and nothing is asserted about a duration. Run it with:
@@ -47,71 +46,6 @@ final class ResolvePresenceCostTests: XCTestCase {
         temp = nil
     }
 
-    /// One way of keeping the presence current: refresh, then say how many
-    /// annotation walks ran.
-    @MainActor private protocol Path: AnyObject {
-        var token: Int { get set }
-        @MainActor func refresh()
-    }
-
-    /// Task 3 as first built: To resolve's refresh at the Book's scope.
-    @MainActor private final class Before: Path {
-        let store: ProjectStore
-        let documentStore: DocumentStore
-        var token = 0
-        var held: ResolveSnapshot = .empty
-        var last: ResolveListKey?
-        var walks = ResolveWalkHold()
-
-        init(store: ProjectStore, documentStore: DocumentStore) {
-            self.store = store
-            self.documentStore = documentStore
-        }
-
-        @MainActor func refresh() {
-            for _ in 0..<3 {
-                let scope = ResolveScope.of(.project, structure: store.manifest.structure,
-                                            projectType: store.manifest.type)
-                let key = ResolvePane.listKey(scope: scope, annotationsToken: token, store: store,
-                                              documentStore: documentStore, diagnostics: nil,
-                                              localName: "", script: nil)
-                guard key != last else { return }
-                let step = ResolvePane.refreshStep(key, last: last)
-                held = ResolvePane.refreshed(held, step: step, key: key.regroup.read, walks: &walks,
-                                             store: store, documentStore: documentStore, diagnostics: nil)
-                last = key
-                let owners = ProjectStore.figureNoteOwners(store.manifest.figures ?? [])
-                _ = ResolvePresence.marks(held, structure: store.manifest.structure,
-                                          figureOwners: owners, sceneIndex: nil)
-                _ = ResolvePresence.openToDos(held.items, figureOwners: owners)
-            }
-        }
-    }
-
-    /// The reader, as its watch drives it.
-    @MainActor private final class After: Path {
-        let store: ProjectStore
-        let documentStore: DocumentStore
-        let reader = ResolvePresenceReader()
-        var token = 0
-
-        init(store: ProjectStore, documentStore: DocumentStore) {
-            self.store = store
-            self.documentStore = documentStore
-        }
-
-        @MainActor func refresh() {
-            for _ in 0..<3 {
-                let key = ResolvePresenceReader.key(store: store, documentStore: documentStore,
-                                                    diagnostics: nil, annotationsToken: token, script: nil)
-                reader.update(key, store: store, documentStore: documentStore, diagnostics: nil)
-                if key == ResolvePresenceReader.key(store: store, documentStore: documentStore,
-                                                    diagnostics: nil, annotationsToken: token,
-                                                    script: nil) { return }
-            }
-        }
-    }
-
     private func ms(_ duration: Duration) -> Double {
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
@@ -121,51 +55,75 @@ final class ResolvePresenceCostTests: XCTestCase {
         return sorted[sorted.count / 2]
     }
 
-    private struct Measured {
-        var first = 0.0
-        var opens: [Double] = []
-        var closes: [Double] = []
-        var burst = 0.0
-        var walks = (navigation: 0, burst: 0)
+    /// One read's main-actor cost: its longest single step, the sum of its
+    /// steps, and the wall time to the last mark.
+    private struct Cost {
+        var longest = 0.0
+        var mainTotal = 0.0
+        var wall = 0.0
+        var steps = 0
+
+        mutating func add(_ step: Double) {
+            longest = max(longest, step)
+            mainTotal += step
+            steps += 1
+        }
+
+        var text: String {
+            String(format: "longest step %.1f ms, main-actor total %.1f ms over %d steps, wall %.1f ms",
+                   longest, mainTotal, steps, wall)
+        }
     }
 
-    private func measure(_ path: Path, store: ProjectStore, documentStore: DocumentStore,
-                         url: URL, ids: [String], burstFrom: Int, batched: Bool) async throws -> Measured {
+    /// **Before (fix round 1)**: the store's synchronous walk on the main
+    /// actor, gathered and marked — one step.
+    private func oneShot(store: ProjectStore, documentStore: DocumentStore) -> Cost {
         let clock = ContinuousClock()
-        var measured = Measured()
-        measured.first = ms(clock.measure { path.refresh() })
+        var cost = Cost()
+        let elapsed = ms(clock.measure {
+            let manifest = store.manifest
+            let read = ResolveReader.read(
+                scope: ResolveScope.of(.project, structure: manifest.structure, projectType: manifest.type),
+                store: store, documentStore: documentStore, diagnostics: nil)
+            let owners = ProjectStore.figureNoteOwners(manifest.figures ?? [])
+            _ = ResolvePresence.marks(read, structure: manifest.structure, figureOwners: owners, sceneIndex: nil)
+            _ = ResolvePresence.openToDos(read.items, figureOwners: owners)
+        })
+        cost.add(elapsed)
+        cost.wall = elapsed
+        return cost
+    }
 
-        let before = store._debugAnnotationsRebuildCount
-        for step in 0..<Self.navigations {
-            let id = ids[step * 11]
-            let rel = "manuscript/\(id).md"
-            let doc = try await Document.load(url: url.appendingPathComponent(rel), actor: .author,
-                                              session: "nav", presenter: nil)
-            documentStore.register(document: doc, for: rel)
-            measured.opens.append(ms(clock.measure { path.refresh() }))
-            documentStore.unregister(path: rel)
-            await doc.close()
-            measured.closes.append(ms(clock.measure { path.refresh() }))
-        }
-        measured.walks.navigation = store._debugAnnotationsRebuildCount - before
-
-        let beforeBurst = store._debugAnnotationsRebuildCount
-        var total = 0.0
-        for index in 0..<Self.burst {
-            try await ResolvePresenceTests.addNote(to: ids[burstFrom + index], in: url,
-                                                   body: "round note \(burstFrom + index)")
-            if !batched {
-                path.token += 1
-                total += ms(clock.measure { path.refresh() })
+    /// **After**: the reader's `update`, then its walk — each step timed as
+    /// the main actor pays it (`ResolvePresenceReader.run`'s loop).
+    private func chunked(_ reader: ResolvePresenceReader, token: Int, store: ProjectStore,
+                         documentStore: DocumentStore) async -> Cost {
+        let clock = ContinuousClock()
+        var cost = Cost()
+        let start = clock.now
+        for _ in 0..<4 {
+            let key = ResolvePresenceReader.key(store: store, documentStore: documentStore,
+                                                diagnostics: nil, annotationsToken: token, script: nil)
+            cost.add(ms(clock.measure {
+                reader.update(key, store: store, documentStore: documentStore, diagnostics: nil)
+            }))
+            while let request = reader.pendingRequest {
+                let inputs = ResolveChunkedWalk.inputs(for: request, store: store)
+                for await step in ResolveChunkedWalk.steps(inputs) {
+                    cost.add(ms(clock.measure {
+                        reader.apply(step, generation: request.generation, store: store,
+                                     documentStore: documentStore, diagnostics: nil)
+                    }))
+                    await Task.yield()
+                }
+                reader.finish(generation: request.generation)
             }
+            if key == ResolvePresenceReader.key(store: store, documentStore: documentStore,
+                                                diagnostics: nil, annotationsToken: token,
+                                                script: nil) { break }
         }
-        if batched {
-            path.token += 1
-            total += ms(clock.measure { path.refresh() })
-        }
-        measured.burst = total
-        measured.walks.burst = store._debugAnnotationsRebuildCount - beforeBurst
-        return measured
+        cost.wall = ms(clock.now - start)
+        return cost
     }
 
     func test_whatThePresenceReadCostsABook() async throws {
@@ -175,28 +133,57 @@ final class ResolvePresenceCostTests: XCTestCase {
         let book = try await ResolvePresenceTests.book(
             in: temp.url, chapters: Self.chapters, noted: Set(0..<Self.chapters))
 
-        let beforeDS = book.documentStore
-        let old = try await measure(Before(store: book.store, documentStore: beforeDS),
-                                    store: book.store, documentStore: beforeDS, url: book.url,
-                                    ids: book.ids, burstFrom: 100, batched: false)
+        // Before: the first read, and a burst's one coalesced walk.
+        let beforeFirst = oneShot(store: book.store, documentStore: book.documentStore)
+        for index in 0..<Self.burst {
+            try await ResolvePresenceTests.addNote(to: book.ids[100 + index], in: book.url,
+                                                   body: "round note \(100 + index)")
+        }
+        let beforeBurst = oneShot(store: book.store, documentStore: book.documentStore)
+        await book.documentStore.close()
 
+        // After, on its own stores (no cache shared with the run above).
         let store = try await ProjectStore.load(from: book.url)
         let documentStore = try await DocumentStore.open(url: book.url)
         store.documentStore = documentStore
         documentStore.projectStore = store
-        let new = try await measure(After(store: store, documentStore: documentStore),
-                                    store: store, documentStore: documentStore, url: book.url,
-                                    ids: book.ids, burstFrom: 150, batched: true)
-        await documentStore.close()
-        await beforeDS.close()
+        let reader = ResolvePresenceReader()
+        var token = 0
+        let afterFirst = await chunked(reader, token: token, store: store, documentStore: documentStore)
 
-        func line(_ name: String, _ m: Measured) -> String {
-            String(format: "%@: first read %.1f ms; open a chapter %.2f ms, close one %.2f ms (medians of %d; %d walks); burst of %d closed-chapter notes %.1f ms (%d walks)",
-                   name, m.first, median(m.opens), median(m.closes), Self.navigations,
-                   m.walks.navigation, Self.burst, m.burst, m.walks.burst)
+        var opens = Cost(), closes = Cost()
+        let walks = reader.walksRequested
+        for step in 0..<Self.navigations {
+            let rel = "manuscript/\(book.ids[step * 11]).md"
+            let doc = try await Document.load(url: book.url.appendingPathComponent(rel), actor: .author,
+                                              session: "nav", presenter: nil)
+            documentStore.register(document: doc, for: rel)
+            let open = await chunked(reader, token: token, store: store, documentStore: documentStore)
+            opens.add(open.longest)
+            documentStore.unregister(path: rel)
+            await doc.close()
+            let close = await chunked(reader, token: token, store: store, documentStore: documentStore)
+            closes.add(close.longest)
         }
-        let table = ["PRESENCE COST (\(Self.chapters) closed chapters, each with one open note)",
-                     line("before", old), line("after", new)].joined(separator: "\n")
+        let navigationWalks = reader.walksRequested - walks
+
+        for index in 0..<Self.burst {
+            try await ResolvePresenceTests.addNote(to: book.ids[150 + index], in: book.url,
+                                                   body: "round note \(150 + index)")
+        }
+        token += 1
+        let afterBurst = await chunked(reader, token: token, store: store, documentStore: documentStore)
+        await documentStore.close()
+
+        let table = [
+            "PRESENCE COST (\(Self.chapters) closed chapters, each with one open note; chunk \(ResolveChunkedWalk.chunkSize))",
+            "before (one synchronous walk on the main actor) — first read: " + beforeFirst.text,
+            "before — a burst of \(Self.burst) closed-chapter notes, one walk: " + beforeBurst.text,
+            "after (chunked, off the main actor) — first read: " + afterFirst.text,
+            "after — a burst of \(Self.burst) closed-chapter notes, one walk: " + afterBurst.text,
+            String(format: "after — open a chapter: longest step %.2f ms (worst of %d); close one: %.2f ms; %d walks",
+                   opens.longest, Self.navigations, closes.longest, navigationWalks),
+        ].joined(separator: "\n")
         // Kept in the result bundle (`NarrowedBookCostTests`' reason). Pull it with:
         //
         //   xcrun xcresulttool export attachments \
@@ -206,7 +193,18 @@ final class ResolvePresenceCostTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("\n" + table)
-        XCTAssertEqual(new.walks.navigation, 0, "the reader walks nothing on navigation")
-        XCTAssertEqual(new.walks.burst, 1, "a coalesced burst is one walk")
+        XCTAssertEqual(navigationWalks, 0, "the reader walks nothing on navigation")
+        XCTAssertEqual(reader.marks, oneShotMarks(store: store, documentStore: documentStore),
+                       "the chunked read ends at the one-shot answer")
+    }
+
+    private func oneShotMarks(store: ProjectStore, documentStore: DocumentStore) -> ResolvePresence.Marks {
+        let manifest = store.manifest
+        let read = ResolveReader.read(
+            scope: ResolveScope.of(.project, structure: manifest.structure, projectType: manifest.type),
+            store: store, documentStore: documentStore, diagnostics: nil)
+        return ResolvePresence.marks(read, structure: manifest.structure,
+                                     figureOwners: ProjectStore.figureNoteOwners(manifest.figures ?? []),
+                                     sceneIndex: nil)
     }
 }

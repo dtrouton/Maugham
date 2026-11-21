@@ -342,30 +342,43 @@ extension ProjectStore {
                 facts: DocumentClass.Facts(manifest))
             else { continue }
             let paragraphs = Deriver.deriveWithSequenceFallback(ops: ops).paragraphs
-            // `maughamDeviceId: nil` — this projection reads and never writes,
-            // so the rebalance ops it would build are discarded on the next
-            // line. Nil builds none of them and applies the priorities anyway
-            // (M2); the id it used to default to is disk I/O on the main actor
-            // for a value bound to `_`.
-            let (closedTasks, _, _) = TaskDeriver.derive(
-                ops: ops, paragraphs: paragraphs, docId: item.id,
-                maughamDeviceId: nil)
-            all.append(contentsOf: closedTasks)
+            all.append(contentsOf: Self.closedDocumentTasks(ops: ops, paragraphs: paragraphs, docId: item.id))
         }
 
-        // 2. Project-scope pane-created tasks. Derive from the synthetic
-        //    op log directly. No paragraphs (this log never references any).
-        let (projectTasks, _, _) = TaskDeriver.derive(
-            ops: _projectOpLogMirror,
-            paragraphs: [:],
-            docId: Self.projectTasksDocId,
-            maughamDeviceId: nil)   // read-only projection (M2)
-        all.append(contentsOf: projectTasks)
+        // 2. Project-scope pane-created tasks.
+        all.append(contentsOf: projectLevelTasks())
 
         _projectTasksCache = all
         _projectTasksCacheKey = key
         projectTasksVersion &+= 1
         return all
+    }
+
+    /// **One closed document's to-dos** (every status), from its merged ops
+    /// and derived paragraphs — the task walk's rule, nonisolated so the
+    /// tree's presence read (`ResolveChunkedWalk`) derives them off the main
+    /// actor from the same read it takes the notes from.
+    ///
+    /// `maughamDeviceId: nil` — this projection reads and never writes, so
+    /// the rebalance ops it would build are discarded. Nil builds none of
+    /// them and applies the priorities anyway (M2); the id it used to default
+    /// to is disk I/O for a value bound to `_`.
+    nonisolated static func closedDocumentTasks(
+        ops: [Op], paragraphs: [String: String], docId: String
+    ) -> [WriterTask] {
+        TaskDeriver.derive(ops: ops, paragraphs: paragraphs, docId: docId, maughamDeviceId: nil).0
+    }
+
+    /// **The Book's own to-dos** (every status): derived from the synthetic
+    /// project op log directly. No paragraphs (this log never references
+    /// any). A small in-memory derive.
+    func projectLevelTasks() -> [WriterTask] {
+        ensureProjectOpLogLoaded()
+        return TaskDeriver.derive(
+            ops: _projectOpLogMirror,
+            paragraphs: [:],
+            docId: Self.projectTasksDocId,
+            maughamDeviceId: nil).0   // read-only projection (M2)
     }
 
     private func matches(_ filter: TaskFilter) -> (WriterTask) -> Bool {
