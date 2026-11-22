@@ -122,6 +122,14 @@ public final class DocumentStore {
     /// How many closed-document passes have landed. Test only.
     @ObservationIgnored var closedPassesLandedForTesting = 0
 
+    /// The manuscript paths a promotion holds (`withdrawForPromotion`), each
+    /// with the loads waiting for it to be given back.
+    @ObservationIgnored private var withdrawnForPromotion: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Moves each time a promotion gives its piece's path back
+    /// (`returnFromPromotion`). Observed: `EditorHost` loads again on it, so
+    /// an editor the promotion closed under is never left on the husk.
+    private(set) var promotionReturns = 0
+
     /// A manifest from another device that arrived while a structural verb
     /// was running, held until `structuralVerbsSettled` decides who wrote last
     /// (F7 fix round, I1). Nil almost always.
@@ -1863,6 +1871,50 @@ public final class DocumentStore {
         } catch {
             documentStoreLog.error(
                 "closeFlushAndUnregister: pre-move flushPendingSave failed; proceeding with the move (a pending research-note save may be lost): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - A piece withdrawn for its promotion (shell p4 Task 11)
+
+    /// **The promotion closes only what it moves** (shell p4 Task 11, call 6).
+    /// It used to `close()` this whole store — every open `Document` drained,
+    /// every figure closed, the presenter removed — and neither a success nor
+    /// a failure reopened it, so the Collection window went on over a dead
+    /// store: typing in another piece reached no op log, and a peer's sync
+    /// was never seen. Now the piece's own `Document` is flushed, closed and
+    /// unregistered here (the typed mover's close, `closeFlushAndUnregister`),
+    /// its path is held until `returnFromPromotion`, and nothing else is
+    /// touched: the presenter stays installed throughout (its staging-move
+    /// callbacks find no open `Document` at the moved path and nothing to do).
+    func withdrawForPromotion(path: String) async {
+        if withdrawnForPromotion[path] == nil { withdrawnForPromotion[path] = [] }
+        await closeFlushAndUnregister(affectedPaths: [path])
+    }
+
+    /// The promotion is over, success or failure: the path is given back,
+    /// every load that waited on it goes on, and `promotionReturns` moves so
+    /// an editor left on the closed `Document` loads again — the piece the
+    /// rollback put back, or nothing, if the piece is now a reference.
+    func returnFromPromotion(path: String) {
+        guard let waiting = withdrawnForPromotion.removeValue(forKey: path) else { return }
+        promotionReturns &+= 1
+        for load in waiting { load.resume() }
+    }
+
+    /// Whether a promotion holds `path` now.
+    func isWithdrawnForPromotion(path: String) -> Bool {
+        withdrawnForPromotion[path] != nil
+    }
+
+    /// **A load of `path` waits while a promotion holds it** — the statement
+    /// gate's shape (`ProjectStore.lockStatementOpen`) for a manuscript: a
+    /// `Document` loaded mid-promotion would register at a path whose file is
+    /// staged away, and re-create it there. Returns at once when nothing holds
+    /// it. Never a timer: the promotion's `defer` resumes it.
+    func waitWhileWithdrawnForPromotion(path: String) async {
+        guard withdrawnForPromotion[path] != nil else { return }
+        await withCheckedContinuation { (load: CheckedContinuation<Void, Never>) in
+            withdrawnForPromotion[path, default: []].append(load)
         }
     }
 

@@ -390,6 +390,15 @@ struct EditorHost: View {
         .onChange(of: currentItem?.path) { _, _ in
             Task { await loadDocumentIfNeeded() }
         }
+        // **A promotion gave a piece back** (shell p4 Task 11). It closed the
+        // piece's `Document` under this host; after a failure the piece is
+        // where it was, at the same path and id, so nothing above fires and
+        // the husk would stay bound to "Loading…". Loads only when the held
+        // Document is closed or stale (`needsReload`); reads only the store's
+        // counter (tripwire 6 stays closed).
+        .onChange(of: documentStore.promotionReturns) { _, _ in
+            Task { await loadDocumentIfNeeded() }
+        }
         // The reference index's manifest edges are the window's
         // (`ReferenceIndexWiring`). Research changing can move a figure's pin
         // status (its card's flag); it never reads the text binding
@@ -1332,6 +1341,15 @@ struct EditorHost: View {
     /// with the same id nothing else here asks for a reload — the husk would be
     /// bound and every keystroke dropped. Static + pure for
     /// `EditorHostReloadPredicateTests`.
+    /// **Whether `item` is a manuscript this host loads**: a document with a
+    /// path, and never a Collection's reference piece — whose path is its
+    /// `.maugham-link.json`, and which a promotion turns the open piece into
+    /// while this host is still mounted on it (shell p4 Task 11). Static +
+    /// pure for `EditorHostReloadPredicateTests`.
+    static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
+        item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
     static func needsReload(
         itemId: String, path: String,
         loadedItemId: String?, loadedPath: String?,
@@ -1449,7 +1467,7 @@ struct EditorHost: View {
 
     private func loadDocumentIfNeeded() async {
         guard let item = currentItem,
-              item.type == .document,
+              Self.loadsAsAManuscript(item),
               let path = item.path,
               Self.needsReload(
                   itemId: item.id, path: path,
@@ -1485,6 +1503,18 @@ struct EditorHost: View {
             // document's mount does (plan 3b Task 1 fix round 1, I1).
             referenceIndex.invalidate(.piece(prior.docId))
         }
+        // **A promotion holds this piece** (shell p4 Task 11): its file is
+        // staged away, and a `Document` loaded now would register at the old
+        // path and write the file back there. Wait for the promotion to give
+        // the path back, then ask again what the item is: after a failure the
+        // same loose piece at the same path, which loads; after a success a
+        // reference, which never does (the centre shows its card).
+        if documentStore.isWithdrawnForPromotion(path: path) {
+            await documentStore.waitWhileWithdrawnForPromotion(path: path)
+            guard loads.isCurrent(generation), let now = currentItem,
+                  Self.loadsAsAManuscript(now), now.id == item.id, now.path == path
+            else { return }
+        }
         do {
             let doc = try await Document.load(
                 url: try store.resolvedProjectPath(path),
@@ -1496,6 +1526,14 @@ struct EditorHost: View {
             // markers; close it, or it deallocates with a pending buffer and
             // the load that IS wanted is the one left looking stale.
             guard loads.isCurrent(generation) else {
+                await doc.close()
+                return
+            }
+            // A promotion took the path while this load was reading it: the
+            // `Document` is never registered over a file being staged away.
+            // Closed, and the promotion's return (`promotionReturns`) loads
+            // again.
+            guard !documentStore.isWithdrawnForPromotion(path: path) else {
                 await doc.close()
                 return
             }

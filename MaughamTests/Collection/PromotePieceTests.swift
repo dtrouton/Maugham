@@ -1282,7 +1282,12 @@ final class PromotePieceFigureTests: XCTestCase {
             _ = try await projectStore.promotePieceToProject(
                 pieceId: piece.id, destination: root.appendingPathComponent("Promoted Story A"))
             XCTFail("the planted failure did not fail the promotion")
-        } catch is Planted {}
+        } catch let failed as PiecePromotionFailed {
+            // The writer is told the cause and that everything went back
+            // (shell p4 Task 11).
+            XCTAssertTrue(failed.cause is Planted, "\(failed.cause)")
+            XCTAssertEqual(failed.filesAre, .putBack)
+        }
 
         XCTAssertEqual(staged, 2, "precondition: the first sidecar was staged")
         XCTAssertEqual(stagingTrees(in: root), [])

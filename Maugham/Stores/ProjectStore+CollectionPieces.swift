@@ -69,6 +69,45 @@ public struct PiecePromotion: Sendable {
     }
 }
 
+/// **A promotion that failed once something had moved** (shell p4 Task 11):
+/// the cause, and where the writer's files are now — the one sentence the
+/// window's alert shows. A refusal before anything moves (a parked figure,
+/// a piece that is not loose) throws its own error instead: nothing moved,
+/// and that error already says why.
+public struct PiecePromotionFailed: LocalizedError {
+    /// Where the files are, as the rollback found them.
+    public enum Where: Equatable, Sendable {
+        /// Every staged file went back: the Collection is as it was.
+        case putBack
+        /// Some could not go back; they are in this folder beside the
+        /// destination, kept for recovery by hand.
+        case keptIn(URL)
+        /// The new project was already in place: it is whole at the
+        /// destination, and the Collection still lists the piece as its own.
+        case atTheDestination(URL)
+        /// The staging tree was consumed and nothing is at the destination.
+        case atNeitherPath(URL)
+    }
+
+    public let title: String
+    public let cause: Error
+    public let filesAre: Where
+
+    public var errorDescription: String? {
+        let why = cause.localizedDescription
+        switch filesAre {
+        case .putBack:
+            return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Everything was put back where it was."
+        case .keptIn(let folder):
+            return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Some of its files couldn\u{2019}t be put back; they are in \(folder.path)."
+        case .atTheDestination(let url):
+            return "\u{201C}\(title)\u{201D} is now a project at \(url.path), but the Collection couldn\u{2019}t be changed to point at it: \(why) The Collection still lists it as its own piece."
+        case .atNeitherPath(let url):
+            return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Its files are at neither the Collection nor \(url.path); see the log."
+        }
+    }
+}
+
 extension ProjectStore {
 
     /// Add a loose piece to a Collection. Creates `pieces/<NN>-<slug>/`
@@ -324,15 +363,22 @@ extension ProjectStore {
         let figureResearchTitles = researchTitles(of: figurePlan.problems)
         var figureProblems = figurePlan.problems
 
-        // 1. Flush + close any open document for this piece.
-        if let docStore = documentStore {
-            if let doc = docStore.document(for: piecePath) {
-                await doc.close()
-                docStore.unregister(path: piecePath)
-            }
-            try? await docStore.flushPendingSave()
-            await docStore.close()
+        // 1. The piece's own `Document` — flushed, closed, unregistered — and
+        // nothing else (shell p4 Task 11, call 6). This used to `close()` the
+        // window's whole store, which drained every other piece's open
+        // `Document` and removed the presenter, and nothing reopened it on
+        // either path: the Collection window went on over a dead store. Its
+        // path is held until the promotion is over, success or failure, so a
+        // load of it (the centre's editor, closed under here) waits and then
+        // binds the piece the rollback put back, or finds a reference. The
+        // moved figures' open hosts close too, now their state has been read
+        // for the carry; every other figure, and the presenter, stay.
+        let docStore = documentStore
+        if let docStore {
+            await docStore.withdrawForPromotion(path: piecePath)
+            for record in figurePlan.moved { await docStore.closeFigure(figureId: record.id) }
         }
+        defer { docStore?.returnFromPromotion(path: piecePath) }
         // The Intent pane can be showing this piece's intent in the right column
         // while the promotion runs, and a statement is deliberately in no
         // `DocumentStore` registry (spec §8), so the close above cannot reach it.
@@ -400,106 +446,118 @@ extension ProjectStore {
         _debugPromotionStrandedMoveBacks = []
         #endif
 
-        do {
-            // 2b. Create the new project's empty subfolders.
-            try stagePromotedSubfolders(staging: stagingURL)
+        // **The carried Research is in flight from here until the manifest
+        // names where it went** (#142 T2's span, which this verb never
+        // entered): the store stays live now, so a note's editor can still be
+        // saving while its file is staged away — the note door stops a
+        // timer's save (its text stays pending) instead of writing the note
+        // afresh at its old path, where it would block the rollback's
+        // move-back. After a failure the span's end lets the pending text
+        // land on the note put back; after a success the note is gone from
+        // this Collection and the door says so.
+        return try await withResearchItemsInFlight(Array(carriedResearchIds)) {
+            do {
+                // 2b. Create the new project's empty subfolders.
+                try stagePromotedSubfolders(staging: stagingURL)
 
-            // 3. Move main doc into staging/manuscript/
-            stagedMoves.append(try stagePromotedMainDocument(
-                staging: stagingURL,
-                from: pieceFolderURL,
-                docName: mainDocName))
+                // 3. Move main doc into staging/manuscript/
+                stagedMoves.append(try stagePromotedMainDocument(
+                    staging: stagingURL,
+                    from: pieceFolderURL,
+                    docName: mainDocName))
 
-            // 4. Move piece's research/ subfolder into staging/research/ (if non-empty)
-            if let researchMove = try stagePromotedResearch(
-                staging: stagingURL, from: pieceFolderURL) {
-                stagedMoves.append(researchMove)
+                // 4. Move piece's research/ subfolder into staging/research/ (if non-empty)
+                if let researchMove = try stagePromotedResearch(
+                    staging: stagingURL, from: pieceFolderURL) {
+                    stagedMoves.append(researchMove)
+                }
+
+                // 4b. Move the piece's intent statement, if it has one.
+                let stagedIntent = try stagePromotedIntent(
+                    staging: stagingURL, statement: carriedIntent)
+                if let stagedIntent { stagedMoves.append(stagedIntent.move) }
+
+                // 4c. The carried Research items' table sidecars, under the same
+                // ids — a parked figure's working copy finds its figure by one.
+                try stagePromotedResearchTableSidecars(
+                    staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
+                // 4c-2. Their versions folders, whole, beside the sidecars.
+                try stagePromotedResearchVersions(
+                    staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
+                // 4c-3. Their note records (who wrote a note's text), as the sidecars.
+                try stagePromotedResearchNoteRecords(
+                    staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
+
+                // 4d. The carried figures, re-created as this Mac's author in the
+                // staged root, and their pictures copied. Written into the staging
+                // tree only, so the rollback's removal of it takes them back.
+                figureProblems += try await writeCarriedFigureStreams(
+                    carriedFigures, states: figurePlan.states, parks: figurePlan.parks,
+                    researchPaths: carriedResearchPaths.compactMapValues { $0 }, into: stagingURL)
+
+                afterStaging?()
+
+                // 5. Build + write new project manifest
+                try writePromotedManifest(
+                    staging: stagingURL,
+                    piece: piece,
+                    newDocId: newDocId,
+                    newType: newType,
+                    docName: mainDocName,
+                    carriedResearch: carriedResearch,
+                    carriedIntent: stagedIntent?.statement,
+                    carriedFigures: carriedFigures,
+                    now: now)
+
+                // 6. Validate by loading
+                try await validatePromotedProject(staging: stagingURL)
+
+                // 7. Atomic replace to final destination
+                try atomicReplacePromotedProject(staging: stagingURL, destination: destination)
+
+                // 7b. The piece's own figures leave the Collection, each through
+                // the removal route (a restorable Trash entry); the copied ones
+                // stay. The promotion has happened by now, so a figure that will
+                // not go is listed rather than thrown — a throw here would roll
+                // back nothing and report a promotion that is already on disk as
+                // a failure.
+                figureProblems += await removePromotedFigures(figurePlan.moved)
+                trashedFigures = figurePlan.moved.filter { record in
+                    manifest.figures?.contains(where: { $0.id == record.id }) != true
+                }.map(\.name)
+
+                // 8. Convert Collection piece to a reference + prune carried research.
+                try await convertPromotedPieceToReference(
+                    pieceIdx: pieceIdx,
+                    piece: piece,
+                    pieceFolderURL: pieceFolderURL,
+                    pieceFolderRel: pieceFolderRel,
+                    researchPrefix: researchPrefix,
+                    carriedIntent: stagedIntent?.statement,
+                    destination: destination,
+                    now: now,
+                    encoder: encoder)
+
+                return PiecePromotion(
+                    url: destination, figureProblems: figureProblems,
+                    figureNotice: PiecePromotion.notice(
+                        for: figureProblems, figureNames: figureNames,
+                        researchTitles: figureResearchTitles))
+            } catch {
+                let filesAre = rollbackPromotionStaging(stagedMoves, staging: stagingURL,
+                                                        destination: destination, cause: error)
+                if !trashedFigures.isEmpty {
+                    // Step 8 failed after 7b: the piece is still loose, and these
+                    // figures, now in the promoted project, are in the
+                    // Collection's Trash, restorable from there.
+                    projectStoreLog.error(
+                        "Promotion failed after the piece's figures left the Collection; these are in its Trash and in \(destination.path, privacy: .public): \(trashedFigures.joined(separator: ", "), privacy: .public)")
+                }
+                // What the writer is told: the cause, and where the files are.
+                throw PiecePromotionFailed(title: piece.title, cause: error, filesAre: filesAre)
             }
-
-            // 4b. Move the piece's intent statement, if it has one.
-            let stagedIntent = try stagePromotedIntent(
-                staging: stagingURL, statement: carriedIntent)
-            if let stagedIntent { stagedMoves.append(stagedIntent.move) }
-
-            // 4c. The carried Research items' table sidecars, under the same
-            // ids — a parked figure's working copy finds its figure by one.
-            try stagePromotedResearchTableSidecars(
-                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
-
-            // 4c-2. Their versions folders, whole, beside the sidecars.
-            try stagePromotedResearchVersions(
-                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
-
-            // 4c-3. Their note records (who wrote a note's text), as the sidecars.
-            try stagePromotedResearchNoteRecords(
-                staging: stagingURL, itemIds: carriedResearchIds, recordingInto: &stagedMoves)
-
-            // 4d. The carried figures, re-created as this Mac's author in the
-            // staged root, and their pictures copied. Written into the staging
-            // tree only, so the rollback's removal of it takes them back.
-            figureProblems += try await writeCarriedFigureStreams(
-                carriedFigures, states: figurePlan.states, parks: figurePlan.parks,
-                researchPaths: carriedResearchPaths.compactMapValues { $0 }, into: stagingURL)
-
-            afterStaging?()
-
-            // 5. Build + write new project manifest
-            try writePromotedManifest(
-                staging: stagingURL,
-                piece: piece,
-                newDocId: newDocId,
-                newType: newType,
-                docName: mainDocName,
-                carriedResearch: carriedResearch,
-                carriedIntent: stagedIntent?.statement,
-                carriedFigures: carriedFigures,
-                now: now)
-
-            // 6. Validate by loading
-            try await validatePromotedProject(staging: stagingURL)
-
-            // 7. Atomic replace to final destination
-            try atomicReplacePromotedProject(staging: stagingURL, destination: destination)
-
-            // 7b. The piece's own figures leave the Collection, each through
-            // the removal route (a restorable Trash entry); the copied ones
-            // stay. The promotion has happened by now, so a figure that will
-            // not go is listed rather than thrown — a throw here would roll
-            // back nothing and report a promotion that is already on disk as
-            // a failure.
-            figureProblems += await removePromotedFigures(figurePlan.moved)
-            trashedFigures = figurePlan.moved.filter { record in
-                manifest.figures?.contains(where: { $0.id == record.id }) != true
-            }.map(\.name)
-
-            // 8. Convert Collection piece to a reference + prune carried research.
-            try await convertPromotedPieceToReference(
-                pieceIdx: pieceIdx,
-                piece: piece,
-                pieceFolderURL: pieceFolderURL,
-                pieceFolderRel: pieceFolderRel,
-                researchPrefix: researchPrefix,
-                carriedIntent: stagedIntent?.statement,
-                destination: destination,
-                now: now,
-                encoder: encoder)
-
-            return PiecePromotion(
-                url: destination, figureProblems: figureProblems,
-                figureNotice: PiecePromotion.notice(
-                    for: figureProblems, figureNames: figureNames,
-                    researchTitles: figureResearchTitles))
-        } catch {
-            rollbackPromotionStaging(stagedMoves, staging: stagingURL,
-                                     destination: destination, cause: error)
-            if !trashedFigures.isEmpty {
-                // Step 8 failed after 7b: the piece is still loose, and these
-                // figures, now in the promoted project, are in the
-                // Collection's Trash, restorable from there.
-                projectStoreLog.error(
-                    "Promotion failed after the piece's figures left the Collection; these are in its Trash and in \(destination.path, privacy: .public): \(trashedFigures.joined(separator: ", "), privacy: .public)")
-            }
-            throw error
         }
     }
 
@@ -524,7 +582,7 @@ extension ProjectStore {
     /// writer's notes, images and assets with nothing behind them.
     private func rollbackPromotionStaging(
         _ moves: [PromotionStagedMove], staging: URL, destination: URL, cause: Error
-    ) {
+    ) -> PiecePromotionFailed.Where {
         let fm = FileManager.default
 
         // The tree is gone only when step 7 already consumed it — in which case
@@ -543,11 +601,12 @@ extension ProjectStore {
             if fm.fileExists(atPath: destination.path) {
                 projectStoreLog.error(
                     "Promotion failed after its staged project was already moved to \(destination.path, privacy: .public); the files are there and the Collection's entry was not updated: \(cause.localizedDescription, privacy: .public)")
+                return .atTheDestination(destination)
             } else {
                 projectStoreLog.error(
                     "Promotion failed after its staging tree was consumed, and NOTHING is at \(destination.path, privacy: .public) either. The moved files are at neither path: \(cause.localizedDescription, privacy: .public)")
+                return .atNeitherPath(destination)
             }
-            return
         }
 
         // Reverse order, so a later move is undone before the earlier one whose
@@ -569,13 +628,16 @@ extension ProjectStore {
                     at: move.original.deletingLastPathComponent(),
                     withIntermediateDirectories: true)
                 // internal-move: the exact inverse of the staging moves above,
-                // on the same terms — every Document on these paths was closed
-                // and unregistered before staging began, and the promotion has
-                // closed the DocumentStore besides, so there is no live autosave
-                // to race back to a stale path. Routing this through the typed
-                // mover would re-enter a store the promotion has already shut,
-                // and `relocateUserContent` is `throws` — which is precisely what
-                // a compensation must not be. (TripwireGrepTests exclusion)
+                // on the same terms — the piece's Document was closed and
+                // unregistered before staging began and its path is held
+                // (`withdrawForPromotion`: a load waits), the intent is under
+                // its gate, and the carried notes are in flight (their door
+                // writes nothing at the old path), so there is no live
+                // autosave to race back to a stale path. Routing this through
+                // the typed mover would close and flush again what is already
+                // closed, and `relocateUserContent` is `throws` — which is
+                // precisely what a compensation must not be.
+                // (TripwireGrepTests exclusion)
                 try fm.moveItem(at: move.staged, to: move.original) // internal-move: staging rollback
             } catch {
                 stranded.append(
@@ -589,9 +651,10 @@ extension ProjectStore {
             #if DEBUG
             _debugPromotionStrandedMoveBacks = stranded
             #endif
-            return
+            return .keptIn(staging)
         }
         try? fm.removeItem(at: staging) // raw-delete: the emptied staging tree
+        return .putBack
     }
 
     /// Step 2b: create the new project's empty `manuscript/` and `notes/` subfolders
