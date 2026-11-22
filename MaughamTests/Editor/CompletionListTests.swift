@@ -512,7 +512,7 @@ final class CompletionListTests: XCTestCase {
         m.coordinator.setReviewMode(false)
         type("x [@", m)
         assertOpen(m)
-        m.coordinator.setTranslationReview(true)
+        m.coordinator.setReadingTranslation(true)
         assertClosed(m, "translation review")
     }
 

@@ -635,7 +635,7 @@ final class InsertCommandTests: XCTestCase {
     }
 
     func test_translationReviewRefusesBothInserts() throws {
-        try assertRefused { $0.setTranslationReview(true) }
+        try assertRefused { $0.setReadingTranslation(true) }
     }
 
     private func assertRefused(_ posture: (EditorCoordinator) -> Void,
@@ -777,7 +777,7 @@ final class InsertCommandTests: XCTestCase {
                   review: Bool = false, share: Bool = false, translation: Bool = false,
                   grid: Bool = false, route: CentreRoute? = bare) -> Bool {
             InsertMenuGate.isEnabled(posture: posture, format: format, manualReview: review,
-                                     shareIsReadOnly: share, isTranslationReview: translation,
+                                     shareIsReadOnly: share, isReadingTranslation: translation,
                                      gridHoldsTheKeys: grid, route: route)
         }
         XCTAssertTrue(gate(), "a writable Markdown chapter in the editor")
@@ -821,7 +821,7 @@ final class InsertCommandTests: XCTestCase {
             XCTAssertFalse(
                 InsertMenuGate.isEnabled(posture: Posture(.unrestricted), format: .markdown,
                                          manualReview: false, shareIsReadOnly: false,
-                                         isTranslationReview: false, gridHoldsTheKeys: false,
+                                         isReadingTranslation: false, gridHoldsTheKeys: false,
                                          route: route),
                 "the Insert menu is enabled under \(route)")
         }

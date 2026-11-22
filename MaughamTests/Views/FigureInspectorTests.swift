@@ -307,7 +307,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
 
         // The cross-reference sits on the SECOND line of its paragraph: the
         // reveal carries the line's offset, and it survives the reveal's
-        // payload (what `TranslationReviewModifier` decodes) and the reveal's
+        // payload (what `ReadingLanguageModifier` decodes) and the reveal's
         // own navigation (`TranslationReveal.perform`, which the window runs
         // once the piece's document is up — production's landing path).
         let reference = FigureUseTravel.destination(for: row.referencedFrom[0], store: m.store, documentStore: ds)

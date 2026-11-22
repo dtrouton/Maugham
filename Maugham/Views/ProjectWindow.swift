@@ -57,6 +57,11 @@ struct ProjectWindow: View {
     @State private var bookView: BookView = .outline
     /// How an edition is shown: its book or its Status (shell p4 Task 4).
     @State private var editionView: EditionView = .book
+    /// The window's reading state beside the language itself (shell p4 Task
+    /// 8): each piece's languages, the source-under setting, a language a
+    /// click is carrying to the piece it opens. `ReadingLanguageModifier`
+    /// writes it; the toolbar's switch reads it.
+    @State private var reading = ReadingLanguageModel()
     /// Moves when Status is chosen, so the board takes the keys
     /// (`ReviewBoardPane.keyboardRequest`).
     @State private var statusKeyboardRequest = 0
@@ -336,7 +341,11 @@ struct ProjectWindow: View {
             window: window,
             showInspector: $showInspector,
             centreViewOffer: centreViewOffer,
-            chooseCentreView: { chooseCentreView($0) }))
+            chooseCentreView: { chooseCentreView($0) },
+            readingOffer: readingOffer,
+            runningRound: runningRound,
+            openRunningRound: { RunningRound.open($0, openDocId: TranslationReveal.openDocId(subject),
+                                                  reading: reading) }))
         .background(WindowAccessor(window: $window))
         // Signed op log P2b: a device asking to be let into this book. Mounted on
         // the whole window, because the question is the PROJECT's and arrives
@@ -433,7 +442,9 @@ struct ProjectWindow: View {
             store: store, documentStore: documentStore, window: window,
             subject: subjectBinding, showInspector: $showInspector,
             position: $rightColumnPosition, editions: treeState.editionRows,
-            readingLanguage: editorControl.translationLanguage,
+            readingLanguage: ReadingLanguage.of(subject: subject,
+                                                switched: editorControl.translationLanguage,
+                                                sourceLanguage: publishCentre.sourceLanguage),
             select: { selectFromTheTree($0) }))
         .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
@@ -611,13 +622,14 @@ struct ProjectWindow: View {
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
         .modifier(FigureWindowOpenModifier(projectURL: url, window: window))
-        .modifier(TranslationReviewModifier(
+        .modifier(ReadingLanguageModifier(
             window: window,
             projectURL: url,
             subject: subjectBinding,
             centreItem: $centreItem,
             documentStore: documentStore,
-            editorControl: $editorControl))
+            editorControl: $editorControl,
+            reading: reading))
         .modifier(PaletteWallModifier(
             paletteWall: $paletteWall,
             showInspector: $showInspector,
@@ -747,7 +759,7 @@ struct ProjectWindow: View {
             posture: editorPosture, format: format,
             manualReview: isReviewModeOn,
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
-            isTranslationReview: editorControl.translationLanguage != nil,
+            isReadingTranslation: editorControl.translationLanguage != nil,
             gridHoldsTheKeys: figureGridPresence.holdsTheKeys,
             route: store.map { store in
                 // The same answer `CentreColumn.editorPane` switches on.
@@ -847,6 +859,12 @@ struct ProjectWindow: View {
         /// the window's one writer of the choice. Hidden where `.none`.
         let centreViewOffer: CentreViewSwitch.Offer
         let chooseCentreView: (CentreViewSwitch.Offer) -> Void
+        /// The language switch (`LanguageSwitch`): on a piece with a
+        /// translation; hidden elsewhere.
+        let readingOffer: LanguageSwitch.Offer?
+        /// The running round (`RunningRound`), hidden while nothing runs.
+        let runningRound: RunningRound.Line?
+        let openRunningRound: (RunningRound.Line) -> Void
 
         private var toolbarVisibility: Visibility {
             ProjectWindow.windowToolbarIsVisible(isNoChromeOn: isNoChromeOn) ? .visible : .hidden
@@ -864,6 +882,22 @@ struct ProjectWindow: View {
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
                         LockToggle(isLocked: $isLocked)
+                    }
+                    // A running round: the group's LEADING item, so its
+                    // coming and going moves none of the items after it
+                    // (the trailing group is anchored at the right edge).
+                    if let runningRound {
+                        ToolbarItem(placement: .primaryAction) {
+                            RunningRoundIndicator(line: runningRound,
+                                                  open: { openRunningRound(runningRound) })
+                        }
+                    }
+                    // What the piece is read in: in the view switch's place,
+                    // which a piece never has (`LanguageSwitch.offer`).
+                    if let readingOffer {
+                        ToolbarItem(placement: .primaryAction) {
+                            LanguageSwitchControl(offer: readingOffer)
+                        }
                     }
                     // Cards, Outline, Status (an edition's Book, Status):
                     // only where the centre has views — hidden, not
@@ -892,6 +926,8 @@ struct ProjectWindow: View {
                 }
                 // ⌃⌘1/2/3: View ▸ View as …, the switch from the keyboard.
                 .focusedSceneValue(\.centreViewOffer, centreViewOffer)
+                // View ▸ Read In and ⌃⌘L, the language switch from the menu.
+                .focusedSceneValue(\.readingOffer, readingOffer)
                 .onKeyWindowCommand(.maughamChooseCentreView, window: window) { note in
                     if let choice = CentreViewSwitch.choice(
                         from: note.userInfo?[MaughamEvent.centreViewKey] as? String) {
@@ -1649,6 +1685,26 @@ struct ProjectWindow: View {
     }
 
     /// **What the toolbar's view switch offers now** (`CentreViewSwitch.offer`).
+    /// **What the toolbar's language switch offers now** (`LanguageSwitch.offer`):
+    /// the open piece's languages, read from the window's listing — a lookup.
+    private var readingOffer: LanguageSwitch.Offer? {
+        guard let store else { return nil }
+        return LanguageSwitch.offer(
+            subject: subject, structure: store.manifest.structure,
+            languages: reading.languages(for: TranslationReveal.openDocId(subject)),
+            current: editorControl.translationLanguage,
+            showsSourceUnder: reading.showsSourceUnder)
+    }
+
+    /// **The round running on this project, if any** (`RunningRound.line`),
+    /// from the session's one roster — so every window on the project shows it.
+    private var runningRound: RunningRound.Line? {
+        guard let store else { return nil }
+        return RunningRound.line(
+            pipeline: roster.pipeline.status, compiler: compiler.runState,
+            titleOf: { TreeWalk.find(id: $0, in: store.manifest.structure)?.title })
+    }
+
     private var centreViewOffer: CentreViewSwitch.Offer {
         guard let store else { return .none }
         return CentreViewSwitch.offer(subject: subject, bookView: bookView,

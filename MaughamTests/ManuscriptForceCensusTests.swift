@@ -140,7 +140,7 @@ final class ManuscriptForceCensusTests: XCTestCase {
             // (shell p1 final fix, C1 — it went through the click rule, which
             // left the edition in the centre and dropped the reveal).
             Expectation(receiver: ".maughamRevealTranslation",
-                       file: "Maugham/Views/TranslationReviewModifier.swift",
+                       file: "Maugham/Views/ReadingLanguageModifier.swift",
                        call: "ManuscriptNavigation.go("),
         ]
         for expectation in expectations {
@@ -175,7 +175,7 @@ final class ManuscriptForceCensusTests: XCTestCase {
                      "Maugham/Views/CollectionBinderPaneToggle.swift",
                      Self.window,
                      "Maugham/Views/TreeTravel.swift",
-                     "Maugham/Views/TranslationReviewModifier.swift"] {
+                     "Maugham/Views/ReadingLanguageModifier.swift"] {
             XCTAssertFalse(try text(of: path).isEmpty, "\(path): read nothing")
         }
     }

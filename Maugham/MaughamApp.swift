@@ -266,7 +266,10 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option, .shift])
-                FocusedTranslationReviewButton()
+                // A piece read in a language (shell p4 Task 8): View ▸ Read
+                // In ▸ …, Read In Next Language (⌃⌘L), Show Source Under
+                // Translation — the toolbar switch's other two routes.
+                FocusedReadingItems()
                 // ⌘⌥0 shows or hides the right column; ⌘⌥⇧L is the
                 // toolbar padlock's. Each is titled for the focused window's
                 // state (`WindowChrome`).
@@ -947,20 +950,6 @@ private struct FocusedShareForReviewButton: View {
     var body: some View {
         Button("Share Project via iCloud…") {
             MaughamEvent.post(.maughamShareForReview, to: .keyWindow)
-        }
-        .disabled(projectURL == nil)
-    }
-}
-
-/// View → "Translation Review…". Disabled when no project window is focused.
-/// The app-global menu can't reach the focused window's active-doc selection,
-/// so the command just asks the key window to resolve that doc's available
-/// languages and present the picker (`TranslationReviewModifier` does the rest).
-private struct FocusedTranslationReviewButton: View {
-    @FocusedValue(\.projectURL) private var projectURL
-    var body: some View {
-        Button("Translation Review…") {
-            MaughamEvent.post(.maughamShowTranslationPicker, to: .keyWindow)
         }
         .disabled(projectURL == nil)
     }

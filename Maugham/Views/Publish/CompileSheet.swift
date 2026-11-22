@@ -99,8 +99,7 @@ struct CompileSheet: View {
                 Toggle(CompileSheetCopy.bookLanguageTitle(bookLanguage),
                        isOn: $includesBook)
                 ForEach(languages, id: \.self) { language in
-                    Toggle(TranslationReviewIndicator
-                        .displayLabel(forLanguageTag: language),
+                    Toggle(LanguageName.labelled(language),
                            isOn: Binding(
                             get: { selected.contains(language) },
                             set: { on in
@@ -172,7 +171,7 @@ enum CompileSheetCopy {
     /// wrote, and the tag is what the status line and the filename will say.
     static func bookLanguageTitle(_ tag: String) -> String {
         "The book\u{2019}s own language ("
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: tag) + ")"
+            + LanguageName.labelled(tag) + ")"
     }
 
     static let allowStaleTitle = "Allow stale translations"

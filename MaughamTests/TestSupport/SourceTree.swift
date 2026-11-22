@@ -852,7 +852,7 @@ extension SourceTree {
         "RewindModifier", "FocusPostureModifier", "CanvasCollapseModifier",
         "ContainerWidthReporter", "ParagraphNavModifier",
         "EditorControlMirror", "EditorControlMirrorModifier",
-        "TranslationReviewModifier", "CanvasPromotionModifier",
+        "ReadingLanguageModifier", "CanvasPromotionModifier",
         "CompilerFlashSink", "NoteOutcomeAlert", "CentreColumn", "RightColumn",
         "PaletteWallState", "WindowFlashes",
     ]

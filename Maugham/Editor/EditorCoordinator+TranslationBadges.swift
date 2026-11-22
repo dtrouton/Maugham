@@ -29,30 +29,30 @@ extension EditorCoordinator {
 
     /// Dim MISSING paragraphs' body text to `.tertiaryLabelColor` — they show the
     /// SOURCE text through (no translation yet), so the dimming reads as "not yet
-    /// translated" without hiding the text. Implemented as a LAYOUT-MANAGER
-    /// temporary attribute: display-only, never touches the op log or the text
-    /// storage's stored attributes (so a `retokenizeAndStyle` doesn't wipe it),
-    /// and trivially cleared. Clears any prior dimming wholesale first — in
-    /// translation review nothing else sets a temporary foreground color (the
-    /// caption bar's caret-line un-fade, report plan 7b Task 8, is skipped
+    /// translated" without hiding the text — and draw each SOURCE line under a
+    /// translation (shell p4 Task 8) in `.secondaryLabelColor`, the quieter ink
+    /// of a text you are not reading. Implemented as LAYOUT-MANAGER temporary
+    /// attributes: display-only, never touching the op log or the text
+    /// storage's stored attributes (so a `retokenizeAndStyle` doesn't wipe
+    /// them), and trivially cleared. Clears any prior dimming wholesale first —
+    /// in translation reading nothing else sets a temporary foreground color
+    /// (the caption bar's caret-line un-fade, report plan 7b Task 8, is skipped
     /// there), so a full-range removal is exact — then re-applies over the
-    /// current missing ranges. Outside translation review it clears, and the
-    /// caret's figure line takes its un-fade back.
+    /// current ranges (`TranslationBadgeLayout.inks`). Outside a translation it
+    /// clears, and the caret's figure line takes its un-fade back.
     func applyTranslationDimming() {
         guard let textView, let layoutManager = textView.layoutManager else { return }
         let fullRange = NSRange(location: 0, length: textView.textStorage?.length ?? 0)
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-        guard isTranslationReview else {
+        guard isReadingTranslation else {
             figureSyntaxUnfadeWasCleared()
             return
         }
-        for badge in resolvedTranslationBadges where badge.status == .missing {
-            let loc = min(badge.range.location, fullRange.length)
-            let len = min(badge.range.length, max(0, fullRange.length - loc))
-            guard len > 0 else { continue }
+        for ink in TranslationBadgeLayout.inks(resolvedTranslationBadges, length: fullRange.length) {
             layoutManager.addTemporaryAttribute(
-                .foregroundColor, value: NSColor.tertiaryLabelColor,
-                forCharacterRange: NSRange(location: loc, length: len))
+                .foregroundColor,
+                value: ink.isSource ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor,
+                forCharacterRange: ink.range)
         }
     }
 
@@ -60,10 +60,10 @@ extension EditorCoordinator {
     /// translation-review posture. Idempotent; mirrors `syncReviewOverlays`.
     func syncTranslationBadgeOverlay() {
         guard let textView else { return }
-        if isTranslationReview {
+        if isReadingTranslation {
             installTranslationBadgeOverlayIfNeeded(in: textView)
         }
-        translationBadgeOverlay?.isHidden = !isTranslationReview
+        translationBadgeOverlay?.isHidden = !isReadingTranslation
         layoutTranslationBadgeOverlay(in: textView)
         translationBadgeOverlay?.needsDisplay = true
     }

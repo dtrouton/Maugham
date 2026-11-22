@@ -227,7 +227,7 @@ enum TranslatorsNoteCopy {
 
     static func thisEditionOnly(_ language: String) -> String {
         "This edition only: "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
     }
 
     /// Both possible destinations, before the click.
@@ -238,7 +238,7 @@ enum TranslatorsNoteCopy {
                 + "craft intent, briefed to every translator, reader and collator."
         case .edition(let language):
             return "This becomes a dated ruling on this paragraph in the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
                 + " edition brief, briefed to that edition\u{2019}s people only."
         }
     }

@@ -279,12 +279,12 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
     /// Translation review never expands; turning it on folds an open grid.
     func test_translationReviewDoesNotExpand_andFoldsAnOpenGrid() async throws {
         let m = try await mount()
-        m.coordinator.setTranslationReview(true)
+        m.coordinator.setReadingTranslation(true)
         XCTAssertFalse(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
         XCTAssertNil(m.coordinator.figureGrid)
-        m.coordinator.setTranslationReview(false)
+        m.coordinator.setReadingTranslation(false)
         _ = try await expand(m)
-        m.coordinator.setTranslationReview(true)
+        m.coordinator.setReadingTranslation(true)
         XCTAssertNil(m.coordinator.figureGrid, "the grid folded")
     }
 

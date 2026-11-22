@@ -417,7 +417,7 @@ struct TranslationRunState: Equatable {
                 + "next round is the next click."
         }
         return "A "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " round is running. There is one session, and the next round is the "
             + "next click."
     }
@@ -426,7 +426,7 @@ struct TranslationRunState: Equatable {
     /// project-scope desk cannot say in its rows, since every row is about the
     /// whole book's coverage and the run is about one chapter of it.
     static func runHelp(language: String, target: TranslationRunTarget) -> String {
-        let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let edition = LanguageName.labelled(language)
         guard let title = target.title else {
             return "Translate a chapter into \(edition)."
         }
@@ -436,11 +436,11 @@ struct TranslationRunState: Equatable {
 
     static let runBookTitle = "Run Whole Book"
     static func runBookAccessibilityLabel(language: String) -> String {
-        "Run the whole book into " + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        "Run the whole book into " + LanguageName.labelled(language)
     }
     static func runBookHelp(language: String, count: Int,
                             preflight: TranslationPreflight.Budgets.Answer?) -> String {
-        let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let edition = LanguageName.labelled(language)
         let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
         let budget = preflightLine(preflight).map { " \u{2014} \($0)" } ?? ""
         return "Run one round on every chapter of this book into \(edition), in order: \(chapters)\(budget)."
@@ -449,7 +449,7 @@ struct TranslationRunState: Equatable {
         "There is nothing in this book to translate \u{2014} the imprint chosen above the book names no chapters."
     static let showRoundTitle = "Show"
     static func showRoundAccessibilityLabel(language: String) -> String {
-        "Show the latest " + TranslationReviewIndicator.displayLabel(forLanguageTag: language) + " round"
+        "Show the latest " + LanguageName.labelled(language) + " round"
     }
     static let showRoundHelp = "Read the round's report in the centre column"
 

@@ -239,7 +239,7 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         let lm = harness.textView.layoutManager!
         let key = ns.range(of: "@ghost").location
         let missing = ns.range(of: "Missing paragraph.")
-        coordinator.setTranslationReview(true)
+        coordinator.setReadingTranslation(true)
         coordinator.resolvedTranslationBadges = [
             .init(paragraphId: "a", range: missing, status: .missing),
         ]
@@ -253,7 +253,7 @@ final class ReferenceLabelOverlayTests: XCTestCase {
                        .tertiaryLabelColor, "the check leaves the dimming")
         XCTAssertEqual(underline(harness, at: key).style, dotted)
 
-        coordinator.setTranslationReview(false)
+        coordinator.setReadingTranslation(false)
         coordinator.applyTranslationDimming()   // leaving: the dimming clears
         XCTAssertNil(lm.temporaryAttribute(.foregroundColor, atCharacterIndex: missing.location,
                                            effectiveRange: nil))

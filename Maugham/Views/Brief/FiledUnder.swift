@@ -85,7 +85,7 @@ enum FiledUnder {
                   !name.isEmpty else { return BriefBookView.firstReaderTitle }
             return "\(name)'s instructions"
         case .editionBrief(let language):
-            return "the " + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            return "the " + LanguageName.labelled(language)
                 + " edition brief"
         case .visualLanguage:
             return BriefBookView.visualLanguageTitle

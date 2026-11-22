@@ -9,7 +9,7 @@ import MaughamCore
 /// single `shouldChangeTextIn` choke point that enforces review-mode and the
 /// role lock), so the translated surface a reader is inspecting can never be
 /// edited by accident and produces ZERO ops.
-final class TranslationReviewPostureTests: XCTestCase {
+final class ReadingTranslationPostureTests: XCTestCase {
 
     // MARK: - Policy (all 8 flag combinations)
 
@@ -25,7 +25,7 @@ final class TranslationReviewPostureTests: XCTestCase {
                         EditorEditPolicy.allowsTextMutation(
                             isReviewMode: review,
                             lockEditing: lock,
-                            isTranslationReview: translation),
+                            isReadingTranslation: translation),
                         expected,
                         "review=\(review) lock=\(lock) translation=\(translation) "
                         + "should allow=\(expected)")
@@ -38,18 +38,18 @@ final class TranslationReviewPostureTests: XCTestCase {
     /// mutation — it is an independent third reason.
     func test_translationReviewAlone_blocksMutation() {
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: false, isTranslationReview: true))
+            isReviewMode: false, lockEditing: false, isReadingTranslation: true))
         XCTAssertTrue(EditorEditPolicy.allowsTextMutation(
-            isReviewMode: false, lockEditing: false, isTranslationReview: false))
+            isReviewMode: false, lockEditing: false, isReadingTranslation: false))
     }
 
     // MARK: - Coordinator membrane (synchronous flip)
 
-    /// `setTranslationReview(true)` must block the very next keystroke through the
+    /// `setReadingTranslation(true)` must block the very next keystroke through the
     /// single `shouldChangeTextIn` choke point — no SwiftUI render round-trip —
     /// mirroring the `setReviewMode`/`setLockEditing` synchronous-flip contract.
     @MainActor
-    func test_setTranslationReview_blocksMutationImmediately() {
+    func test_setReadingTranslation_blocksMutationImmediately() {
         final class TextBox { var value = "Hello world" }
         let box = TextBox()
         let coordinator = EditorCoordinator(
@@ -68,13 +68,13 @@ final class TranslationReviewPostureTests: XCTestCase {
                                  replacementString: "x"),
             "edits must pass before translation review is on")
 
-        coordinator.setTranslationReview(true)
+        coordinator.setReadingTranslation(true)
         XCTAssertFalse(
             coordinator.textView(tv, shouldChangeTextIn: NSRange(location: 5, length: 0),
                                  replacementString: "x"),
             "translation review must block the very next keystroke")
 
-        coordinator.setTranslationReview(false)
+        coordinator.setReadingTranslation(false)
         XCTAssertTrue(
             coordinator.textView(tv, shouldChangeTextIn: NSRange(location: 5, length: 0),
                                  replacementString: "x"),
@@ -83,7 +83,7 @@ final class TranslationReviewPostureTests: XCTestCase {
 
     // MARK: - Harness: end-to-end read-only posture (zero ops)
 
-    /// Drives the coordinator membrane setter DIRECTLY (`setTranslationReview`),
+    /// Drives the coordinator membrane setter DIRECTLY (`setReadingTranslation`),
     /// i.e. the membrane in isolation — NOT the control-model/`updateNSView` entry
     /// path (that end-to-end race is covered by
     /// `test_enteringTranslationReview_*` / `test_exitingTranslationReview_*`
@@ -105,7 +105,7 @@ final class TranslationReviewPostureTests: XCTestCase {
         let bufferBefore = harness.currentText
 
         // Enter the read-only translation-review posture.
-        harness.coordinator.setTranslationReview(true)
+        harness.coordinator.setReadingTranslation(true)
 
         // Typing is fully blocked at the membrane, so no buffer replace can be
         // needed — assert applyExternalText never fires AROUND the typing itself.
@@ -126,7 +126,7 @@ final class TranslationReviewPostureTests: XCTestCase {
             "translation review must leave the text-view buffer unchanged")
 
         // Exit the posture — editing works again.
-        harness.coordinator.setTranslationReview(false)
+        harness.coordinator.setReadingTranslation(false)
         harness.typeCharacter("Q")
         XCTAssertNotEqual(doc.displayText, displayBefore,
             "leaving translation review must restore normal editing")
@@ -143,7 +143,7 @@ final class TranslationReviewPostureTests: XCTestCase {
     /// translated text is briefly EDITABLE and a keystroke lands in the op log.
     ///
     /// This drives the REAL entry point (mutating the observed `EditorControl`,
-    /// NOT `setTranslationReview` directly) and then hand-pumps
+    /// NOT `setReadingTranslation` directly) and then hand-pumps
     /// `EditorSurface.reconcileTextBuffer` — the exact reconciliation
     /// `updateNSView` performs — WITHOUT settling first, so the render deliberately
     /// wins the race against the not-yet-run async re-arm. The synchronous membrane
@@ -167,7 +167,7 @@ final class TranslationReviewPostureTests: XCTestCase {
         // apply runs with language nil, so the membrane starts off.
         let control = EditorControl()
         coordinator.observeControl(control)
-        XCTAssertFalse(coordinator.isTranslationReview)
+        XCTAssertFalse(coordinator.isReadingTranslation)
 
         let opCountBefore = doc.opLogMirrorCount
         let displayBefore = doc.displayText
@@ -224,7 +224,7 @@ final class TranslationReviewPostureTests: XCTestCase {
         let control = EditorControl()
         control.translationLanguage = "fr"
         coordinator.observeControl(control)
-        XCTAssertTrue(coordinator.isTranslationReview,
+        XCTAssertTrue(coordinator.isReadingTranslation,
             "initial apply with a language must enter translation review")
 
         // Model the entered state: translated text sits in the buffer.
@@ -250,7 +250,7 @@ final class TranslationReviewPostureTests: XCTestCase {
 
         XCTAssertEqual(harness.currentText, doc.displayText,
             "the source manuscript must be restored to the buffer on exit")
-        XCTAssertFalse(coordinator.isTranslationReview,
+        XCTAssertFalse(coordinator.isReadingTranslation,
             "the membrane must be released synchronously on exit")
 
         // Editing resumes right away — no settle for the async re-arm.
@@ -289,7 +289,7 @@ final class TranslationReviewPostureTests: XCTestCase {
             text: "Traduction un",
             undoCoherentApply: true)
 
-        XCTAssertTrue(coordinator.isTranslationReview)
+        XCTAssertTrue(coordinator.isReadingTranslation)
         XCTAssertFalse(um.canUndo,
             "a translation-entry swap must drop the stale native undo stack even "
             + "when the one-shot undo-coherent flag is set")
@@ -314,7 +314,7 @@ final class TranslationReviewPostureTests: XCTestCase {
         EditorSurface.reconcileTextBuffer(
             textView: harness.textView, coordinator: coordinator,
             translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
-        XCTAssertTrue(coordinator.isTranslationReview)
+        XCTAssertTrue(coordinator.isReadingTranslation)
 
         // A stale native action lands (or an accept/revert one-shot registration).
         um.registerUndo(withTarget: self) { _ in }
@@ -327,7 +327,7 @@ final class TranslationReviewPostureTests: XCTestCase {
             textView: harness.textView, coordinator: coordinator,
             translationLanguage: "fr", text: "Traduction deux", undoCoherentApply: true)
 
-        XCTAssertTrue(coordinator.isTranslationReview)
+        XCTAssertTrue(coordinator.isReadingTranslation)
         XCTAssertFalse(um.canUndo,
             "an in-mode translated-content refresh must clear the undo stack even "
             + "when the one-shot undo-coherent flag is set in the same pass")
@@ -354,7 +354,7 @@ final class TranslationReviewPostureTests: XCTestCase {
             text: "Accepted revision",
             undoCoherentApply: true)
 
-        XCTAssertFalse(coordinator.isTranslationReview)
+        XCTAssertFalse(coordinator.isReadingTranslation)
         XCTAssertTrue(um.canUndo,
             "a non-translation undo-coherent replace must keep the accept-undo "
             + "registration")

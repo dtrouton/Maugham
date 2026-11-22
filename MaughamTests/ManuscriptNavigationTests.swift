@@ -157,7 +157,7 @@ final class ManuscriptNavigationTests: XCTestCase {
         // The translation reveal onto the chapter already up never calls
         // `go`; it closes the cover itself.
         let reveal = SourceScan.codeLines(
-            of: try SourceTree.sourceOfType("TranslationReviewModifier", under: ["Maugham"]))
+            of: try SourceTree.sourceOfType("ReadingLanguageModifier", under: ["Maugham"]))
         let now = try XCTUnwrap(reveal.firstIndex { $0.contains("case .now:") })
         XCTAssertTrue(reveal[now + 1].contains("if centreItem != nil { centreItem = nil }"),
                       "\(reveal[now + 1])")

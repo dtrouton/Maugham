@@ -42,13 +42,22 @@ final class EditorControl {
     /// anyway.
     var posture: Posture? = nil
 
-    /// Selected translation language, or nil when the editor shows the source
-    /// manuscript (Task 11). Non-nil ⇒ the editor is in read-only translation
-    /// review: the coordinator flips its membrane (via `applyControl` →
-    /// `setTranslationReview`) and EditorHost swaps in the derived translated
-    /// surface. One-way (sources → model → coordinator); the UI sets it in a
-    /// later task. Genuine control state — never text-/cursor-derived (D1).
+    /// The language the open piece is read in, or nil when the editor shows
+    /// the source manuscript (shell p4 Task 8: the toolbar's language switch,
+    /// View ▸ Read In, ⌃⌘L and a reveal write it; nothing writes back).
+    /// Non-nil ⇒ the editor shows the read-only translated surface: the
+    /// coordinator flips its membrane (via `applyControl` →
+    /// `setReadingTranslation`) and EditorHost swaps in the derived surface.
+    /// One-way (sources → model → coordinator). Genuine control state —
+    /// never text-/cursor-derived (D1).
     var translationLanguage: String? = nil
+
+    /// **Whether a translation is drawn with its source under each
+    /// paragraph** (shell p4 Task 8; View ▸ Show Source Under Translation, on
+    /// by default, remembered per project in `UIState`). Read by EditorHost
+    /// alone, which re-derives the surface when it changes; the coordinator
+    /// never reads it — the surface's ranges carry the source.
+    var showsSourceUnder: Bool = true
 
     // Appearance.
     var theme: Theme = .light

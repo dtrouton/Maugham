@@ -178,8 +178,7 @@ struct TreeEditionRows: View {
     /// An edition's title: its language's name in the writer's locale, else
     /// its tag. The tree's rows and the Book's Brief name an edition alike.
     nonisolated static func title(forLanguage tag: String) -> String {
-        Locale.current.localizedString(forLanguageCode: tag)
-            .map { $0.capitalized(with: Locale.current) } ?? tag
+        LanguageName.title(tag)
     }
 }
 

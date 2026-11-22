@@ -190,7 +190,7 @@ enum ResolveEditionItems {
             return "Nothing about the book\u{2019}s design or its last compile waits on you. "
                 + "Run design above to ask for a new design."
         }
-        let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let edition = LanguageName.labelled(language)
         // **Never "nothing waits" over a book not yet read** (fix round 2,
         // N4): until the window's first walk has reached every chapter, a
         // question not yet reached is simply absent.
@@ -916,8 +916,9 @@ struct EditionHeadVerbs {
     /// the cast sheet's ask, or nil and the notice.
     var startBookRun: (_ language: String, _ documentIds: [String]) async -> TranslationRunStart
         = { _, _ in .init(notice: TranslationRunStart.noTranslatorWired) }
-    /// After the cast sheet named the translator.
-    var runBookNamed: (_ language: String, _ documentIds: [String]) -> Void = { _, _ in }
+    /// After the cast sheet named the translator: nil when it started, else
+    /// why not (a round already holds the project's one pipeline).
+    var runBookNamed: (_ language: String, _ documentIds: [String]) -> String? = { _, _ in nil }
     var cancelRound: () -> Void = {}
     /// A design round; nil when it went, else the refusal's sentence.
     var runDesign: (_ direction: String?) -> String? = { _ in DesignRoundState.noDesignerWired }
@@ -940,7 +941,8 @@ struct EditionHeadVerbs {
                     documentStore: documentStore, store: store)
             },
             runBookNamed: { language, documentIds in
-                pipeline.runBook(documentIds: documentIds, language: language)
+                TranslationRunStart.refusedIfBusy(
+                    pipeline.runBook(documentIds: documentIds, language: language), pipeline: pipeline)
             },
             cancelRound: {
                 roster.pipeline.cancel()
@@ -1215,8 +1217,7 @@ struct EditionHeadView: View {
         guard case .nameForBookRun(let language, let documentIds) = prompt.ask else { return nil }
         let named = await EditionCastVerbs.nameCast(language: language, answer: answer, store: store)
         guard named.translatorNamed else { return named.failure }
-        verbs.runBookNamed(language, documentIds)
-        return named.failure
+        return verbs.runBookNamed(language, documentIds) ?? named.failure
     }
 
     // MARK: The Source edition

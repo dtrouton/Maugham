@@ -73,20 +73,26 @@ extension Notification.Name {
         Notification.Name("maugham.run.round.fresheyes")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
     public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
-    /// Posted by the Translation Review menu command (`.keyWindow`, menu-command
-    /// class). The app-global menu can't reach the focused window's active-doc
-    /// selection or project URL, so it just asks the key window to resolve the
-    /// active doc's available translation languages and present the picker.
-    public static let maughamShowTranslationPicker = Notification.Name("maugham.showTranslationPicker")
-    /// Posted when the writer picks a translation to review — the key
-    /// ProjectWindow enters read-only translation-review posture for the active
-    /// doc (EditorHost swaps in the derived translated surface; the coordinator
-    /// flips its membrane synchronously). `userInfo["language"]` carries the
-    /// BCP-47 language tag. Scope: .keyWindow.
-    public static let maughamEnterTranslationReview = Notification.Name("maugham.enterTranslationReview")
-    /// Posted to leave translation review and show the source manuscript again.
+    /// **The open piece is to be read in a language** (shell p4 Task 8):
+    /// `userInfo["language"]` carries the BCP-47 tag. The SETTING event — a
+    /// reveal's first post (`TranslationReveal.perform`) and the window's own
+    /// choice (`ReadingLanguageModifier`) post it; the window writes
+    /// `EditorControl.translationLanguage` (EditorHost swaps in the derived
+    /// surface) and the key window's coordinator flips its membrane
+    /// synchronously. Scope: .keyWindow.
+    public static let maughamReadInLanguage = Notification.Name("maugham.readInLanguage")
+    /// **The open piece is to be read in its source again** — the setting
+    /// event's other half. Scope: .keyWindow.
+    public static let maughamReadInSource = Notification.Name("maugham.readInSource")
+    /// **The writer chose a language to read in** — the toolbar's language
+    /// switch, View ▸ Read In and ⌃⌘L. `userInfo["language"]` names it; its
+    /// absence is Source. The window keeps the writer's place (the caret's
+    /// paragraph) across the swap and posts the setting event itself.
     /// Scope: .keyWindow.
-    public static let maughamExitTranslationReview = Notification.Name("maugham.exitTranslationReview")
+    public static let maughamChooseReadingLanguage = Notification.Name("maugham.chooseReadingLanguage")
+    /// View ▸ Show Source Under Translation: the window flips it and
+    /// remembers it for the project. Scope: .keyWindow.
+    public static let maughamToggleSourceUnder = Notification.Name("maugham.toggleSourceUnder")
     /// Posted by `write_translation` after it appends new translation records —
     /// a data event, so its scope is `.project(for: projectURL)` (mirrors
     /// `maughamMCPNoteAdded`, delivered to live windows on the project only).

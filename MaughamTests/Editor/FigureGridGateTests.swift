@@ -9,7 +9,7 @@ final class FigureGridGateTests: XCTestCase {
                       review: Bool = false, locked: Bool = false, translation: Bool = false) -> FigureGridGate.Mode {
         FigureGridGate.mode(figureMayEdit: mayEdit, parked: parked, hostClosed: closed,
                             shareIsReadOnly: share, isReviewMode: review, isLocked: locked,
-                            isTranslationReview: translation)
+                            isReadingTranslation: translation)
     }
 
     func test_everyRow() {

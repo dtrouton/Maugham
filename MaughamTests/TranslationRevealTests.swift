@@ -102,7 +102,7 @@ final class TranslationRevealTests: XCTestCase {
 
         XCTAssertEqual(
             posts.map(\.0),
-            [.maughamEnterTranslationReview, .maughamNavigateToParagraph],
+            [.maughamReadInLanguage, .maughamNavigateToParagraph],
             "the order is the whole of it: the surface has to be the translation "
             + "before a paragraph in it is worth scrolling to")
         XCTAssertEqual(posts[0].1["language"] as? String, "es",
@@ -114,7 +114,7 @@ final class TranslationRevealTests: XCTestCase {
     /// **The order alone was not enough, and this is the test that says so**
     /// (fix round 1).
     ///
-    /// `.maughamEnterTranslationReview` only writes `translationLanguage`; the
+    /// `.maughamReadInLanguage` only writes `translationLanguage`; the
     /// translated buffer arrives on the NEXT SwiftUI body pass. Posted back to
     /// back, the navigate scrolls the source text and the swap discards the
     /// scroll, so every reveal opens the edition at the top. Production's `ready`
@@ -140,7 +140,7 @@ final class TranslationRevealTests: XCTestCase {
         guard await probe.waitUntilReadyEntered() else {
             return XCTFail("perform never reached its ready hook")
         }
-        XCTAssertEqual(probe.posts, [.maughamEnterTranslationReview],
+        XCTAssertEqual(probe.posts, [.maughamReadInLanguage],
             "entering review has gone, and the navigate must still be waiting: "
             + "posting it now would scroll the source buffer that the surface "
             + "swap is about to throw away")
@@ -150,7 +150,7 @@ final class TranslationRevealTests: XCTestCase {
 
         XCTAssertEqual(
             probe.posts,
-            [.maughamEnterTranslationReview, .maughamNavigateToParagraph],
+            [.maughamReadInLanguage, .maughamNavigateToParagraph],
             "the navigate goes once ready has returned, and only then")
     }
 
@@ -191,7 +191,7 @@ final class TranslationRevealTests: XCTestCase {
         probe.released = true
         await performing.value
 
-        XCTAssertEqual(probe.posts, [.maughamEnterTranslationReview],
+        XCTAssertEqual(probe.posts, [.maughamReadInLanguage],
             "a cancelled reveal must not post its navigate: the writer has moved "
             + "on, and this one would land on their new paragraph")
     }
@@ -284,9 +284,9 @@ final class SourceParagraphRevealTests: XCTestCase {
             source, showing: "es",
             ready: { postsWhenReady = posts },
             post: { name, _ in posts.append(name) })
-        XCTAssertEqual(postsWhenReady, [.maughamExitTranslationReview],
+        XCTAssertEqual(postsWhenReady, [.maughamReadInSource],
             "the navigate waits until the source surface is back")
-        XCTAssertEqual(posts, [.maughamExitTranslationReview, .maughamNavigateToParagraph])
+        XCTAssertEqual(posts, [.maughamReadInSource, .maughamNavigateToParagraph])
     }
 
     /// **What the window waits for** — the modifier's decision, as a value.

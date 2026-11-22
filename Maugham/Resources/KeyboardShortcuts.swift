@@ -82,6 +82,9 @@ public enum KeyboardShortcuts {
             // row cannot go missing again; it shipped absent from here AND from
             // docs/guide/ when the shell slice of 2026-08-03 moved it off ⌘⌥R.
             Entry(label: "Toggle Review Mode (annotate-only)", shortcut: "⌘⌥⇧R"),
+            // A piece read in a language (shell p4 Task 8): Source, then each
+            // translation, then Source again.
+            Entry(label: "Read In Next Language", shortcut: "⌘⌃L"),
             Entry(label: "To resolve", shortcut: "⌘1"),
             Entry(label: "Brief", shortcut: "⌘2"),
             Entry(label: "The pulled-up thing", shortcut: "⌘3"),

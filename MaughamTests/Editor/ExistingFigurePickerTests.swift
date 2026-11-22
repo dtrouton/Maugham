@@ -562,7 +562,7 @@ final class ExistingFigurePickerTests: XCTestCase {
         let postures: [(String, (EditorCoordinator) -> Void)] = [
             ("read-only", { $0.setLockEditing(true) }),
             ("review", { $0.setReviewMode(true) }),
-            ("translation review", { $0.setTranslationReview(true) }),
+            ("translation review", { $0.setReadingTranslation(true) }),
         ]
         for (name, posture) in postures {
             let m = try mount("Prose.")

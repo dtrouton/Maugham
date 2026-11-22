@@ -329,7 +329,7 @@ final class TranslationRunTests: XCTestCase {
                            "\(language)'s Run must refuse — there is one session")
             let refusal = try? XCTUnwrap(row.refusal)
             XCTAssertTrue(refusal?.contains(
-                TranslationReviewIndicator.displayLabel(forLanguageTag: "es")) ?? false,
+                LanguageName.labelled("es")) ?? false,
                 "the refusal must name the edition holding the session: "
                 + "\(row.refusal ?? "nil")")
         }
@@ -821,7 +821,7 @@ final class TranslationRunTests: XCTestCase {
     func test_aRoundForAnEditionIsNotDrawnAsTheBooksOwn() {
         let line = DesignRoundState.designingLine(round: 1, language: "es")
         XCTAssertTrue(
-            line.contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+            line.contains(LanguageName.labelled("es")),
             line)
         XCTAssertNotEqual(line, DesignRoundState.designingLine(round: 1,
                                                                  language: nil))

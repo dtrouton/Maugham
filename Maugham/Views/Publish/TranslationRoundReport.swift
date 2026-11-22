@@ -257,7 +257,7 @@ enum TranslationRoundReport {
     /// separators.
     static func header(_ round: TranslationRound, chapterTitle: String?) -> String {
         ["Round \(round.number)", chapterTitle,
-         TranslationReviewIndicator.displayLabel(forLanguageTag: round.language)]
+         LanguageName.labelled(round.language)]
             .compactMap { $0 }
             .joined(separator: " \u{00b7} ")
     }
@@ -380,7 +380,7 @@ enum TranslationRoundReport {
                 + "piece\u{2019}s craft intent, briefed to every edition."
         case .edition(let language):
             return "Kept \u{2014} your instruction is a dated ruling in the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
                 + " edition brief."
         }
     }
@@ -390,7 +390,7 @@ enum TranslationRoundReport {
     /// does not always.
     static func ruledLine(language: String) -> String {
         "Ruled \u{2014} it is doctrine for the "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " edition from the next round on."
     }
 

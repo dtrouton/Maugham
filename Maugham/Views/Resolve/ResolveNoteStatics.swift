@@ -11,7 +11,7 @@ extension ResolveNoteVerbs {
     /// refusal was knowable — did nothing at all (RULING-22's shape). The
     /// refusal's own sentence now goes to the window's notice channel
     /// (`MaughamEvent.postNotice`, the house path;
-    /// `TranslationReviewPaneLogic.reply`'s shape) and comes back to the caller.
+    /// the translation pane's reply's shape) and comes back to the caller.
     @MainActor
     @discardableResult
     static func sayRefused(_ error: Error, in document: Document) -> String {

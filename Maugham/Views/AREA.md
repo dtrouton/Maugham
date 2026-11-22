@@ -20,7 +20,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
-- `TranslationReviewModifier.swift` — this window's translation-review selection and the reveal's window half.
+- `ReadingLanguageModifier.swift`, `ReadingLanguage.swift` — the language a piece is read in, and the reveal's window half.
 - `EditorControlMirror.swift` — `EditorControlMirror` (the editor's membrane, pure, from the posture), `InsertMenuGate` (the Insert menu's enablement, focused value `mayInsertReportElement`), the modifier.
 - `NoteOutcomeAlert.swift`, `ContainerWidthReporter.swift` — the translator's-note outcome alert; a width reporter.
 - `CompilerRunModifier.swift` — the run commands' delivery path (`RunCommand`) and the session's teardown (`roster.shutdownAll()`). **→ Compiler**
@@ -36,7 +36,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `IntentStrip.swift` — the writer's signature line above the prose.
-- `ReviewModeIndicator.swift`, `TranslationReviewIndicator.swift` — the pills over the editor in review / translation review.
+- `ReviewModeIndicator.swift` — review's pill; `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
 - `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner.
 - `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.

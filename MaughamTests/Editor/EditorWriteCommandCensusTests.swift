@@ -28,8 +28,8 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         ".maughamNavigateToAnnotation": "a selection; `ParagraphNavModifier` closes the cover on it",
         ".maughamFindMatchSelected": "a selection; the window's receiver closes the cover first (`go`)",
         ".maughamToggleReviewMode": "flips the review membrane; writes no text",
-        ".maughamEnterTranslationReview": "flips the translation membrane; writes no text",
-        ".maughamExitTranslationReview": "flips the translation membrane; writes no text",
+        ".maughamReadInLanguage": "flips the translation membrane; writes no text",
+        ".maughamReadInSource": "flips the translation membrane; writes no text",
     ]
 
     static let askingContexts = ["manuscriptCommandContext()", "insertCommandContext()"]

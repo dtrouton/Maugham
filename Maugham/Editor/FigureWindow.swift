@@ -785,7 +785,7 @@ final class FigureWindowGrid {
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
             isReviewMode: frame?.isReviewMode() ?? false,
             isLocked: frame?.isLocked() ?? false,
-            isTranslationReview: false)
+            isReadingTranslation: false)
         // `.noExpand` is translation review's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }
         controller.setAccess(mode, captionMayEdit: false)

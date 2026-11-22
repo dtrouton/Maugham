@@ -361,7 +361,7 @@ struct CentreColumn: View {
                     // **A row as a way back into the manuscript.** The row knows its
                     // paragraph; the round knows the chapter and edition; which
                     // chapter is OPEN is the window's answer, so the post carries all
-                    // three and `TranslationReviewModifier` plans what to do.
+                    // three and `ReadingLanguageModifier` plans what to do.
                     onReveal: { paragraphId in
                         // The report gives way to the manuscript it points into —
                         // explicitly, since the arm draws over a chapter too and a

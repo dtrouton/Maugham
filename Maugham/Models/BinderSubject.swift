@@ -122,7 +122,7 @@ public enum BinderSubject: Hashable, Sendable, Codable {
     ///
     /// **Who reads it is deliberately not listed here.** The sentence that stood
     /// in this place named four panes and was wrong in the commit that wrote it —
-    /// a fifth reader (`ProjectWindow`'s `TranslationReviewModifier`) arrived in
+    /// a fifth reader (`ProjectWindow`'s `ReadingLanguageModifier`) arrived in
     /// the same slice, and no test guards a list in prose
     /// (`memory/feedback_prose_counts_are_unmaintainable.md`). What is guarded is
     /// the property that actually matters, and by a scan rather than a sentence:

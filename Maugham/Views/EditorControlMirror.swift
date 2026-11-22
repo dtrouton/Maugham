@@ -62,12 +62,12 @@ enum InsertMenuGate {
     ///   it before inserting into the text.
     static func isEnabled(posture: Posture?, format: DocumentFormat?,
                           manualReview: Bool, shareIsReadOnly: Bool,
-                          isTranslationReview: Bool, gridHoldsTheKeys: Bool,
+                          isReadingTranslation: Bool, gridHoldsTheKeys: Bool,
                           route: CentreRoute?) -> Bool {
         guard !gridHoldsTheKeys, ProjectWindow.manuscriptIsVisible(route: route),
               let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
-            && !manualReview && !isTranslationReview
+            && !manualReview && !isReadingTranslation
     }
 }
 

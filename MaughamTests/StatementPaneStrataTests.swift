@@ -1505,7 +1505,7 @@ final class StatementPaneStrataTests: XCTestCase {
         await fixture.waitOut(0.4)
         XCTAssertTrue(
             fixture.shows(
-                TranslationReviewIndicator.displayLabel(forLanguageTag: "es"), in: briefWindow),
+                LanguageName.labelled("es"), in: briefWindow),
             "control: the brief pane's own header never rendered, so the assertion "
             + "below proves nothing about what it refused to draw")
         XCTAssertTrue(

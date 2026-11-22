@@ -48,7 +48,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `EditorCoordinator+ReviewRender.swift` — the review overlays: resolving marks, the margin cards, the toolbar's annotation authoring, card actions. Tripwire 4.
 - `EditorCoordinator+TranslationBadges.swift` — the translation-review badge overlay and the dimming of missing translations.
 - `EditorControl.swift` — the `@Observable` control-plane model (posture, appearance, review annotations, translation language and badges); never text (ADR 0017).
-- `EditorEditPolicy.swift` — the pure membrane decisions: `allowsTextMutation(isReviewMode:lockEditing:isTranslationReview:)` and `allowsCheckboxToggle`.
+- `EditorEditPolicy.swift` — the pure membrane decisions: `allowsTextMutation(isReviewMode:lockEditing:isReadingTranslation:)` and `allowsCheckboxToggle`.
 - `CoordinatorLeakProbe.swift` — a dev-build weak registry of every coordinator, to check by hand that a closed window's coordinator is released.
 
 ### Modes, tokens and styling
@@ -77,7 +77,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `ReviewAnnotationComposerView.swift` — the inline annotation composer, a plain `NSView`. Tripwire 5.
 - `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note), a plain `NSView`. Tripwire 5.
 - `SuggestedEditDiff.swift` — a reviewer's replacement → the `(body, suggestedText)` pair.
-- `TranslationBadgeLayout.swift` — pure geometry for the staleness badges.
+- `TranslationBadgeLayout.swift` — the translated surface's pure geometry: badges, source lines, a caret's paragraph.
 - `TranslationBadgeOverlayView.swift` — the badge overlay in the left inset (amber filled = stale, grey hollow = missing).
 - `ImagePasteHandler.swift` — saves a pasted image beside the note it belongs to and returns the Markdown reference.
 
@@ -141,7 +141,7 @@ debounced burst flush → op log + autosave → off-main render+write → Docume
   - D2: `applyControl` stays no-op-guarded per sub-area.
   - **`armControlObservation` runs `applyControl` outside the tracking closure, and the closure reads only `control.*` properties.** `applyControl` reads through `Document` and `UserPreferences` in review posture, and a tracked read re-fired the whole-document restyle in every review window. Keep the tracked set equal to the consumed set (`EditorControlBridgeTests.test_reviewObservation_ignoresSharedPreferencesMutation`, `test_reviewObservation_stillFiresOnControlPropertyChange`, via `applyControlCount`).
   - The ⌘⌥⇧R `maughamToggleReviewMode` observer is kept deliberately (Bug B): it flips the review membrane synchronously, where a `control.*` mirror would land a frame later.
-- **A control flag that swaps which buffer the editor shows flips the membrane synchronously, before the buffer-swap decision.** `EditorSurface.reconcileTextBuffer` calls `coordinator.setTranslationReview(...)` first, then compares `textView.string` to decide a replace. A swap across a translation render always drops the native undo stack (ADR 0023's D1 corruption class; `EditorUndoStackClearTests`).
+- **A control flag that swaps which buffer the editor shows flips the membrane synchronously, before the buffer-swap decision.** `EditorSurface.reconcileTextBuffer` calls `coordinator.setReadingTranslation(...)` first, then compares `textView.string` to decide a replace. A swap across a translation render always drops the native undo stack (ADR 0023's D1 corruption class; `EditorUndoStackClearTests`).
 - **The script post is project-scoped** (ADR 0021): `postScriptDidUpdate` posts `.maughamScriptDidUpdate` to `.project(id: scriptOriginProjectId)`, and receivers adopt it through `.onProjectEvent` only when the id is their own. It is not a key-window guard: a background window's own re-parse must still reach its navigator. A nil origin skips only the post; the debounce bookkeeping stays unconditional (`ScriptUpdateScopingTests`). `scriptOriginProjectId` is wired by `EditorSurface` from `EditorHost` (`ProjectIdentifier.id(for: store.url)`).
 
 ### The membrane reads the posture

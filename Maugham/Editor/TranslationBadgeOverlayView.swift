@@ -69,7 +69,7 @@ final class TranslationBadgeOverlayView: NSView {
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer,
               let coordinator,
-              coordinator.isTranslationReview else { return }
+              coordinator.isReadingTranslation else { return }
 
         let badges = coordinator.resolvedTranslationBadges
         guard !badges.isEmpty else { return }

@@ -515,9 +515,9 @@ extension EditorCoordinator {
     func refreshFigureSyntaxUnfade(force: Bool = false) {
         guard let textView, let layoutManager = textView.layoutManager,
               let storage = textView.textStorage else { return }
-        if tokensDescribeAnEarlierText && !isTranslationReview { return }
+        if tokensDescribeAnEarlierText && !isReadingTranslation { return }
         let wanted: [NSRange]
-        if isTranslationReview || !paintsFigureSyntaxFaded {
+        if isReadingTranslation || !paintsFigureSyntaxFaded {
             wanted = []
         } else {
             wanted = figureCaptionLine(at: textView.selectedRange().location)?.syntax ?? []
@@ -562,7 +562,7 @@ extension EditorCoordinator {
         // crafted draft, not a dimmed sentence/paragraph window. Translation
         // review is the same read-only whole-document posture (the derived
         // translated surface), so it dims off too.
-        guard !isReviewMode, !isTranslationReview else { return }
+        guard !isReviewMode, !isReadingTranslation else { return }
         let useSentence = sentenceFocus
         let useParagraph = paragraphFocus && !sentenceFocus
         guard useSentence || useParagraph else { return }

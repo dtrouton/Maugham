@@ -22,17 +22,17 @@ enum EditorEditPolicy {
     ///     cannot be toggled off, so a reviewer's ⌘⌥⇧R can flip the review
     ///     RENDER but never unlock the text. The membrane is the authority
     ///     here — the manual toggle never wins over the lock.
-    ///   - `isTranslationReview`: the editor is displaying a derived translated
+    ///   - `isReadingTranslation`: the editor is displaying a derived translated
     ///     surface (Task 11) rather than the source manuscript. The buffer the
     ///     reader is inspecting is NOT the op-log-backed text, so any edit would
     ///     be meaningless — the membrane blocks all mutation so the read-only
     ///     translated view produces zero ops.
     ///
-    /// `isTranslationReview` defaults to false so the two-reason call sites
+    /// `isReadingTranslation` defaults to false so the two-reason call sites
     /// (review render + lock, pre-Task-11) keep compiling unchanged.
     static func allowsTextMutation(isReviewMode: Bool, lockEditing: Bool,
-                                   isTranslationReview: Bool = false) -> Bool {
-        !isReviewMode && !lockEditing && !isTranslationReview
+                                   isReadingTranslation: Bool = false) -> Bool {
+        !isReviewMode && !lockEditing && !isReadingTranslation
     }
 
     /// True when a click on a checkbox glyph may flip it. A flip writes text
@@ -44,7 +44,7 @@ enum EditorEditPolicy {
     /// `isReviewMode` is deliberately NOT a parameter: the writer's own review
     /// render keeps checkboxes live, matching the Tasks pane.
     static func allowsCheckboxToggle(lockEditing: Bool,
-                                     isTranslationReview: Bool) -> Bool {
-        !lockEditing && !isTranslationReview
+                                     isReadingTranslation: Bool) -> Bool {
+        !lockEditing && !isReadingTranslation
     }
 }

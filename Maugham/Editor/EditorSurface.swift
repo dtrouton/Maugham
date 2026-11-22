@@ -478,13 +478,13 @@ struct EditorSurface: NSViewRepresentable {
     ///
     /// Extracted from `updateNSView` so the ORDERING is unit-testable without a
     /// synthesizable `NSViewRepresentable.Context` (the closest real-wiring test
-    /// the entry/exit race admits — `TranslationReviewPostureTests` hand-pumps
+    /// the entry/exit race admits — `ReadingTranslationPostureTests` hand-pumps
     /// this against the real coordinator).
     ///
     /// Why the membrane flip lives HERE, strictly before the buffer swap: entering
     /// translation review changes `control.translationLanguage`, which drives TWO
     /// independent reactions with no ordering guarantee — (1) the coordinator's
-    /// `withObservationTracking` re-arm (`applyControl → setTranslationReview`),
+    /// `withObservationTracking` re-arm (`applyControl → setReadingTranslation`),
     /// which applies on a LATER main-actor turn, and (2) SwiftUI's
     /// `.onChange → translatedSurfaceText → render → updateNSView`, which swaps the
     /// translated text into the buffer via `applyExternalText`. If (2) wins,
@@ -493,7 +493,7 @@ struct EditorSurface: NSViewRepresentable {
     /// here, in the same pass as the swap, closes that window; the async re-arm
     /// stays for genuinely out-of-band control changes (ADR 0017's purpose).
     ///
-    /// `setTranslationReview` is a cheap no-op-guarded stored-property flip, so it
+    /// `setReadingTranslation` is a cheap no-op-guarded stored-property flip, so it
     /// is safe on every pass — this does NOT re-introduce the per-keystroke control
     /// bookkeeping ADR 0017 removed (that was the full appearance/posture/focus
     /// compare set; only the translation membrane flag is touched here).
@@ -507,7 +507,7 @@ struct EditorSurface: NSViewRepresentable {
     ) {
         // Membrane BEFORE swap — see the doc-comment above.
         let translationMembraneChanged =
-            coordinator.setTranslationReview(translationLanguage != nil)
+            coordinator.setReadingTranslation(translationLanguage != nil)
         guard textView.string != text else { return }
         // The undo stack may be preserved ONLY for an ordinary in-place
         // accept/revert replace on the SOURCE manuscript. Any translation-review
@@ -778,13 +778,21 @@ final class MaughamTextView: NSTextView {
     override func drawInsertionPoint(
         in rect: NSRect, color: NSColor, turnedOn flag: Bool
     ) {
+        // **A translation is read, not typed into** (shell p4 Task 8): no
+        // caret blinks over it, as none blinks in a read-only text view. The
+        // selection still moves — a click or the arrows still say which
+        // paragraph you are in — and selected text still shows and copies.
+        let on = flag && Self.drawsCaret(isReadingTranslation: coordinator?.isReadingTranslation ?? false)
         let font = (typingAttributes[.font] as? NSFont)
             ?? self.font
             ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         super.drawInsertionPoint(
             in: Self.clampedCaretRect(rect, toLineHeight: Self.caretLineHeight(for: font)),
-            color: color, turnedOn: flag)
+            color: color, turnedOn: on)
     }
+
+    /// Whether the caret is drawn: never over a translation.
+    static func drawsCaret(isReadingTranslation: Bool) -> Bool { !isReadingTranslation }
 
     /// Losing the focus closes the completion list (plan 3b Task 2): its keys
     /// arrive through this view's `doCommandBy`, so it has no use without it.

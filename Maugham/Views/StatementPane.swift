@@ -141,7 +141,7 @@ struct StatementPane: View {
         // coerces every subject to `.project` for any kind but `.intent`.
         if case .editionBrief(let language) = kind {
             return "How this book reads in "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
         }
         // **The ledger is about the writer, not about the book** (editorial
         // letter P2). Scope-blind for the same reason the two above are:

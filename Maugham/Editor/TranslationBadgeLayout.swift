@@ -17,61 +17,197 @@ import MaughamCore
 /// which is the whole point of extracting it from the overlay's `draw`.
 enum TranslationBadgeLayout {
 
-    /// One paragraph's ordered position, freshness, and rendered TEXT in the
-    /// translated surface. Carrying the block's own text (`translatedText ??
-    /// sourceText` — the same string EditorHost already holds when it builds
-    /// the rendered surface) is what lets `ranges` accumulate offsets directly
-    /// instead of re-splitting the joined string on `"\n\n"`: the same total
-    /// bytes as the old renderedText-only design, just chunked per paragraph
-    /// rather than pushed as one flat string, so this is not new text-derived
-    /// control state (EditorControl D1 still holds).
+    /// One paragraph's ordered position, freshness, rendered TEXT and — when
+    /// the writer reads the source under each paragraph (shell p4 Task 8) —
+    /// the SOURCE drawn under it. The block the surface shows is `text`, then
+    /// `sourceSeparator`, then `source` (`block`). Carrying the block's own
+    /// text is what lets `ranges` accumulate offsets directly instead of
+    /// re-splitting the joined string: the same bytes as the surface, just
+    /// chunked per paragraph, so this is not new text-derived control state
+    /// (EditorControl D1 still holds).
     struct Entry: Equatable {
         let paragraphId: String
+        /// What the paragraph reads in the language (its source where it has
+        /// no translation).
         let text: String
+        /// The source drawn under `text`, or nil: source-under is off, the
+        /// paragraph has no translation (its source is already `text` — shown
+        /// once, never twice), or repeating it would add nothing.
+        let source: String?
         let status: TranslationStatus
-        init(paragraphId: String, text: String, status: TranslationStatus) {
+        /// Between `text` and `source`: one newline in prose; a blank line in
+        /// a screenplay, so each half parses as its own Fountain block.
+        let sourceSeparator: String
+        init(paragraphId: String, text: String, source: String? = nil,
+             status: TranslationStatus, sourceSeparator: String = TranslationBadgeLayout.proseSourceSeparator) {
             self.paragraphId = paragraphId
             self.text = text
+            self.source = source
             self.status = status
+            self.sourceSeparator = sourceSeparator
+        }
+
+        /// The paragraph's whole block in the surface.
+        var block: String {
+            guard let source else { return text }
+            return text + sourceSeparator + source
         }
     }
 
-    /// One paragraph's resolved UTF-16 range + freshness in the rendered
-    /// translated surface. Named (rather than an anonymous tuple) so both
-    /// `ranges` and `EditorCoordinator.resolvedTranslationBadges` share one type.
+    /// The prose separator between a translation and its source.
+    static let proseSourceSeparator = "\n"
+    /// A screenplay's: a blank line, so the translated block keeps its own
+    /// structure and the source parses as the source does.
+    static let screenplaySourceSeparator = "\n\n"
+    /// Between paragraphs' blocks, as ever.
+    static let blockSeparator = "\n\n"
+
+    /// One paragraph's resolved UTF-16 ranges + freshness in the rendered
+    /// translated surface. `range` covers the TRANSLATION only, so the badges
+    /// and the caret's paragraph keep meaning "this paragraph"; `sourceRange`
+    /// covers the source line under it (drawn in secondary ink), nil where
+    /// none is drawn. Named (rather than an anonymous tuple) so both `ranges`
+    /// and `EditorCoordinator.resolvedTranslationBadges` share one type.
     struct BadgeRange: Equatable {
         let paragraphId: String
         let range: NSRange
+        let sourceRange: NSRange?
         let status: TranslationStatus
+        init(paragraphId: String, range: NSRange, sourceRange: NSRange? = nil,
+             status: TranslationStatus) {
+            self.paragraphId = paragraphId
+            self.range = range
+            self.sourceRange = sourceRange
+            self.status = status
+        }
+
+        /// The whole block: the translation and the source under it.
+        var blockRange: NSRange {
+            guard let sourceRange else { return range }
+            return NSRange(location: range.location,
+                           length: NSMaxRange(sourceRange) - range.location)
+        }
     }
 
-    /// Resolve each entry to its UTF-16 `NSRange` in the surface the entries'
-    /// own texts join into (entries-order blocks joined with `"\n\n"` — the
-    /// invariant EditorHost upholds when it builds the rendered surface).
+    /// The surface the entries join into — the one string EditorHost swaps in.
+    static func surface(entries: [Entry]) -> String {
+        entries.map(\.block).joined(separator: blockSeparator)
+    }
+
+    /// Resolve each entry to its UTF-16 ranges in the surface the entries'
+    /// blocks join into (`surface(entries:)`).
     ///
-    /// Accumulates directly over each entry's TEXT — `(entry.text as
-    /// NSString).length`, plus two UTF-16 code units for the `"\n\n"`
-    /// separator after every entry but the last — rather than splitting a
-    /// joined string back on `"\n\n"`. This makes the mapping immune BY
-    /// CONSTRUCTION to a translated paragraph that itself contains an
-    /// internal blank line: that paragraph is still exactly one entry with
-    /// one measured length, however many blank-line runs live inside its
-    /// text, so it can never desync a later paragraph's offset the way
-    /// re-splitting the rendered string would.
+    /// Accumulates directly over each entry's block — `(text as NSString)
+    /// .length`, the separator, the source's length — plus two UTF-16 code
+    /// units for the `"\n\n"` after every block but the last, rather than
+    /// splitting a joined string back on `"\n\n"`. This makes the mapping
+    /// immune BY CONSTRUCTION to a translated paragraph that itself contains
+    /// an internal blank line (or a screenplay's blank line before its
+    /// source): that paragraph is still exactly one entry with measured
+    /// lengths, so it can never desync a later paragraph's offset.
     static func ranges(entries: [Entry]) -> [BadgeRange] {
         guard !entries.isEmpty else { return [] }
-        let separatorLength = 2   // "\n\n" is two UTF-16 code units
+        let separatorLength = (blockSeparator as NSString).length
         var result: [BadgeRange] = []
         result.reserveCapacity(entries.count)
         var cursor = 0
         for entry in entries {
             let length = (entry.text as NSString).length
+            var sourceRange: NSRange?
+            var blockLength = length
+            if let source = entry.source {
+                let gap = (entry.sourceSeparator as NSString).length
+                sourceRange = NSRange(location: cursor + length + gap,
+                                      length: (source as NSString).length)
+                blockLength = length + gap + (source as NSString).length
+            }
             result.append(BadgeRange(
                 paragraphId: entry.paragraphId,
                 range: NSRange(location: cursor, length: length),
+                sourceRange: sourceRange,
                 status: entry.status))
-            cursor += length + separatorLength
+            cursor += blockLength + separatorLength
         }
         return result
+    }
+
+    /// **The paragraph a surface location belongs to** — the last block that
+    /// starts at or before it, so a caret in a source line, at a block's end
+    /// or in the separator after it belongs to that paragraph; a negative
+    /// location clamps to the first, one past the end to the last.
+    /// `Document.paragraphId(at:)`'s walk, over the translated surface.
+    static func index(at location: Int, in ranges: [BadgeRange]) -> Int? {
+        guard !ranges.isEmpty else { return nil }
+        var low = 0, high = ranges.count - 1, found = 0
+        while low <= high {
+            let mid = (low + high) / 2
+            if ranges[mid].range.location <= location { found = mid; low = mid + 1 } else { high = mid - 1 }
+        }
+        return found
+    }
+
+    /// **A caret in the translated surface, as a caret in the source** — the
+    /// paragraph it sits in, and its offset there clamped into the source
+    /// paragraph (`sourceRangeOf` is the source's display range of a
+    /// paragraph). This is what the surface tells `Document.cursorLocation`, so
+    /// every reader of the source caret (To resolve's caret group, the
+    /// Translator's note, the footer) finds the paragraph the writer clicked
+    /// in, a source line included. Nil where the surface names no paragraph
+    /// the source still has.
+    static func sourceLocation(forSurfaceLocation location: Int, ranges: [BadgeRange],
+                               sourceRangeOf: (String) -> NSRange?) -> Int? {
+        guard let i = index(at: location, in: ranges),
+              let source = sourceRangeOf(ranges[i].paragraphId) else { return nil }
+        let badge = ranges[i]
+        // In the source line: its own offset; in the translation: the same
+        // distance in, which is as near as a caret in another language gets.
+        let into: Int
+        if let sourceRange = badge.sourceRange, location >= sourceRange.location {
+            into = location - sourceRange.location
+        } else {
+            into = location - badge.range.location
+        }
+        return source.location + max(0, min(into, source.length))
+    }
+
+    /// **A source caret, as a caret in the translated surface** — the
+    /// inverse of `sourceLocation`: the same distance into the paragraph's
+    /// translation, clamped to it. Nil where the surface does not hold the
+    /// paragraph. A chapter opened already read in a language restores its
+    /// remembered caret through this, so the caret lands in its own paragraph
+    /// and the source's remembered place is not rewritten by a stray one.
+    static func surfaceLocation(forSourceLocation location: Int, paragraphId: String,
+                                sourceRange: NSRange, ranges: [BadgeRange]) -> Int? {
+        guard let badge = ranges.first(where: { $0.paragraphId == paragraphId }) else { return nil }
+        let into = max(0, min(location - sourceRange.location, badge.range.length))
+        return badge.range.location + into
+    }
+
+    /// **What the coordinator inks, clamped to the buffer**: each missing
+    /// paragraph's text (tertiary — the source showing through) and each source
+    /// line under a translation (secondary). Clamped because a torn push can
+    /// leave a range past the buffer for a moment. Pure, so which characters
+    /// go quiet is assertable without a layout manager.
+    struct Ink: Equatable {
+        let range: NSRange
+        let isSource: Bool
+    }
+
+    static func inks(_ badges: [BadgeRange], length: Int) -> [Ink] {
+        func clamped(_ r: NSRange) -> NSRange? {
+            let loc = min(r.location, length)
+            let len = min(r.length, max(0, length - loc))
+            return len > 0 ? NSRange(location: loc, length: len) : nil
+        }
+        var out: [Ink] = []
+        for badge in badges {
+            if badge.status == .missing, let r = clamped(badge.range) {
+                out.append(Ink(range: r, isSource: false))
+            }
+            if let source = badge.sourceRange, let r = clamped(source) {
+                out.append(Ink(range: r, isSource: true))
+            }
+        }
+        return out
     }
 }

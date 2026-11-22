@@ -249,7 +249,7 @@ final class StatementPaneTests: XCTestCase {
         let caption = StatementPane.headerCaption(
             kind: .editionBrief("es"), scope: .project, structure: structure)
         XCTAssertTrue(
-            caption.contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+            caption.contains(LanguageName.labelled("es")),
             "the header must name the edition: \(caption)")
         XCTAssertNotEqual(caption, "What this project is going for")
         XCTAssertEqual(

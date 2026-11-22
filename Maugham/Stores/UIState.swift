@@ -38,6 +38,9 @@ public struct UIState: Codable, Equatable, Sendable {
     /// How an edition is shown: its book or its Status (shell p4). Absent
     /// or unknown decodes as `.book`.
     public var editionView: EditionView
+    /// Whether a piece read in a language draws its source under each
+    /// paragraph (shell p4 Task 8). Absent decodes as `true`, the default.
+    public var showsSourceUnderTranslation: Bool
     public var isNoChromeOn: Bool
     public var researchPreviewVisible: Bool
     /// The right column's remembered position (shell p3): To resolve, Brief
@@ -214,6 +217,7 @@ public struct UIState: Codable, Equatable, Sendable {
         windowSubject: WindowSubject = .book,
         bookView: BookView = .outline,
         editionView: EditionView = .book,
+        showsSourceUnderTranslation: Bool = true,
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         rightColumnPosition: RightColumnPosition = .resolve,
@@ -230,6 +234,7 @@ public struct UIState: Codable, Equatable, Sendable {
         self.windowSubject = windowSubject
         self.bookView = bookView
         self.editionView = editionView
+        self.showsSourceUnderTranslation = showsSourceUnderTranslation
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.rightColumnPosition = rightColumnPosition
@@ -247,7 +252,7 @@ public struct UIState: Codable, Equatable, Sendable {
     public static let empty = UIState()
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, windowSubject, bookView, editionView, selectedItemId, selectedSubjectIsProject,
+        case schemaVersion, windowSubject, bookView, editionView, showsSourceUnderTranslation, selectedItemId, selectedSubjectIsProject,
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, rightColumnPosition, outlineLayout,
@@ -266,6 +271,7 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(windowSubject, forKey: .windowSubject)
         try c.encode(bookView, forKey: .bookView)
         try c.encode(editionView, forKey: .editionView)
+        try c.encode(showsSourceUnderTranslation, forKey: .showsSourceUnderTranslation)
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(rightColumnPosition, forKey: .rightColumnPosition)
@@ -330,6 +336,8 @@ public struct UIState: Codable, Equatable, Sendable {
             self.bookView = legacyLayout == .cards ? .cards : .outline
         }
         self.editionView = (try? c.decodeIfPresent(EditionView.self, forKey: .editionView)) ?? .book
+        self.showsSourceUnderTranslation =
+            (try? c.decodeIfPresent(Bool.self, forKey: .showsSourceUnderTranslation)) ?? true
         self.compilerModel =
             (try? c.decode(CompilerModelChoice.self, forKey: .compilerModel)) ?? .standard
         self.activePassMemory =

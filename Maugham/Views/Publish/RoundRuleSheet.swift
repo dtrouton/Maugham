@@ -80,7 +80,7 @@ enum RoundRuleCopy {
     /// which every later round is briefed on.
     static func confirmation(language: String) -> String {
         "This becomes a dated ruling in the "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " edition brief, briefed to every round after it."
     }
 }

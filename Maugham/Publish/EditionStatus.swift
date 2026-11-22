@@ -507,7 +507,7 @@ enum EditionStatus {
             TranslationStore.languages(forDocId: documentId, in: projectURL))
 
         // Open translator questions for this document, resolved the
-        // open/closed way `list_annotations` (and `TranslationReviewPane`'s
+        // open/closed way `list_annotations` (and the translation pane's
         // own filter) do, so every surface's count matches. Fetched once
         // per document; also the source of query-first languages.
         let openQuestions: [Annotation]

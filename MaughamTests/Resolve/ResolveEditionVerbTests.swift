@@ -407,7 +407,7 @@ final class ResolveEditionVerbTests: XCTestCase {
         let h = try await makeHarness()
         var ran: [(String, [String])] = []
         var verbs = EditionHeadVerbs()
-        verbs.runBookNamed = { ran.append(($0, $1)) }
+        verbs.runBookNamed = { ran.append(($0, $1)); return nil }
         let prompt = EditionCastPrompt(ask: .nameForBookRun(language: "xx", documentIds: ["doc-1"]))
         let notice = await EditionHeadView.confirmCast(
             EditionCastAnswer(language: nil, name: "Ana", reader: nil, collator: nil),

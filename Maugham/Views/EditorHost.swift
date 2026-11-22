@@ -271,6 +271,16 @@ struct EditorHost: View {
                 // tears the banner down and its `.onDisappear` cancels the
                 // readability watch. Nothing renders for an ordinary document.
                 .safeAreaInset(edge: .top) { recoveryBannerInset(doc: doc) }
+                // A piece read in a language says so over its text, quietly:
+                // read-only, what to do instead, what is out of date, and the
+                // press back to Source (shell p4 Task 8). It reads the control
+                // and feeds nothing back.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let language = control.translationLanguage {
+                        ReadingLanguageLine(language: language,
+                                            entries: control.translationBadges.entries)
+                    }
+                }
                 .id(path)
                 // Crafted review render (Component F): the open-annotation set now
                 // flows through the control model (ADR 0017), not a per-prop push.
@@ -326,6 +336,11 @@ struct EditorHost: View {
                 .onChange(of: control.translationLanguage) { _, language in
                     recomputeTranslatedSurface(doc: doc)
                     figureCards.setReviewLanguage(language)
+                }
+                // The source under each paragraph turned on or off: the same
+                // one-way recompute, while a translation is up.
+                .onChange(of: control.showsSourceUnder) { _, _ in
+                    if control.translationLanguage != nil { recomputeTranslatedSurface(doc: doc) }
                 }
                 .onAppear {
                     control.reviewAnnotations = control.isReviewMode
@@ -797,8 +812,15 @@ struct EditorHost: View {
             // the configuration this call site has always produced.
             readOnlyRecovery: doc.isReadOnlyRecovery,
             callbacks: .init(
-                initialCursorLocation: doc.cursorLocation,
-                onCursorChanged: { offset in
+                // A chapter opened already read in a language restores its
+                // caret in its own paragraph of the translated surface.
+                initialCursorLocation: Self.surfaceCaret(doc.cursorLocation, control: control, doc: doc),
+                onCursorChanged: { surfaceOffset in
+                    // Reading a translation, the caret is told to the source
+                    // as the same paragraph (a source line included), so
+                    // every reader of the source caret finds where the
+                    // writer clicked (`TranslationBadgeLayout.sourceLocation`).
+                    let offset = Self.sourceCaret(surfaceOffset, control: control, doc: doc)
                     doc.cursorLocation = offset
                     // Stash the latest cursor position so Document's V2
                     // task-anchor alignment in setFullText can read it
@@ -827,7 +849,10 @@ struct EditorHost: View {
                 // Where a pending place may land (`EditorControl.pendingPlace`).
                 documentId: doc.docId,
                 paragraphRangeProvider: { paragraphId in
-                    doc.displayRange(forParagraphId: paragraphId)
+                    // Reading a translation, a paragraph is where it stands
+                    // in the translated surface — its translation, not its
+                    // source's offset in a text that is not on screen.
+                    Self.paragraphRange(paragraphId, control: control, doc: doc)
                 },
                 paragraphLocator: { location in
                     guard let pid = doc.paragraphId(at: location),
@@ -1135,8 +1160,11 @@ struct EditorHost: View {
         // joins — same bytes as `translatedSurfaceText` below, just chunked
         // per paragraph (Task 12 fix round 1).
         //
-        let badgeEntries = Self.reviewBadgeEntries(from: derived.entries)
-        translatedSurfaceText = badgeEntries.map(\.text).joined(separator: "\n\n")
+        let badgeEntries = Self.reviewBadgeEntries(
+            from: derived.entries, showsSourceUnder: control.showsSourceUnder,
+            isScreenplay: currentItem?.path.map {
+                DocumentFormat.ofManuscript(path: $0).isScreenplay } ?? false)
+        translatedSurfaceText = TranslationBadgeLayout.surface(entries: badgeEntries)
         control.translationBadges = EditorControl.TranslationBadgeModel(
             entries: badgeEntries, orphans: derived.orphans)
     }
@@ -1152,6 +1180,44 @@ struct EditorHost: View {
         }
     }
 
+    /// **The source caret for a caret in the editor's surface**: itself on the
+    /// source, the same paragraph's (`TranslationBadgeLayout.sourceLocation`)
+    /// on a translation. A translation surface that names no paragraph (the
+    /// read refused) leaves the source caret where it was.
+    @MainActor static func sourceCaret(_ surfaceOffset: Int, control: EditorControl,
+                                       doc: Document) -> Int {
+        guard control.translationLanguage != nil else { return surfaceOffset }
+        return TranslationBadgeLayout.sourceLocation(
+            forSurfaceLocation: surfaceOffset,
+            ranges: TranslationBadgeLayout.ranges(entries: control.translationBadges.entries),
+            sourceRangeOf: { doc.displayRange(forParagraphId: $0) }) ?? doc.cursorLocation
+    }
+
+    /// **The editor's caret for a source caret** — `sourceCaret`'s inverse:
+    /// itself on the source; on a translation, the same paragraph's place
+    /// (`TranslationBadgeLayout.surfaceLocation`), else the surface's start.
+    @MainActor static func surfaceCaret(_ sourceOffset: Int, control: EditorControl,
+                                        doc: Document) -> Int {
+        guard control.translationLanguage != nil else { return sourceOffset }
+        guard let id = doc.paragraphId(at: sourceOffset),
+              let range = doc.displayRange(forParagraphId: id) else { return 0 }
+        return TranslationBadgeLayout.surfaceLocation(
+            forSourceLocation: sourceOffset, paragraphId: id, sourceRange: range,
+            ranges: TranslationBadgeLayout.ranges(entries: control.translationBadges.entries)) ?? 0
+    }
+
+    /// **Where a paragraph stands in the editor's surface**: its display range
+    /// on the source, its translation's range on a translation (nil where the
+    /// surface does not hold it — nothing moves).
+    @MainActor static func paragraphRange(_ paragraphId: String, control: EditorControl,
+                                          doc: Document) -> NSRange? {
+        guard control.translationLanguage != nil else {
+            return doc.displayRange(forParagraphId: paragraphId)
+        }
+        return TranslationBadgeLayout.ranges(entries: control.translationBadges.entries)
+            .first { $0.paragraphId == paragraphId }?.range
+    }
+
     /// What the read-only translation surface shows when the read refuses
     /// (P2a D0). Pure + static so `EditorHostTranslationSurfaceTests` can pin
     /// that the file's own name reaches the writer without an AppKit surface.
@@ -1159,24 +1225,67 @@ struct EditorHost: View {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
-    /// Build the per-paragraph review entries from a derived translation. This
-    /// is the ONE place the review plane's text is constructed — the surface
-    /// buffer (`translatedSurfaceText`), the badge ranges, and the ⌘⌥L pane all
-    /// derive from these entry texts, so stripping inline task anchors here
-    /// keeps them byte-consistent and anchor-free. A `missing` paragraph falls
-    /// back to its source text, which can carry `<!--t-XXXX-->` anchors; without
-    /// this strip they'd render raw in the read-only surface. Pure + static so
-    /// `EditorHostTranslationSurfaceTests` can pin the anchor-free rendering
-    /// without an AppKit surface (mirrors `TranslationBadgeLayout.ranges`).
+    /// Build the per-paragraph entries of the read-only translated surface
+    /// from a derived translation. This is the ONE place that surface's text
+    /// is constructed — the buffer (`translatedSurfaceText`, joined by
+    /// `TranslationBadgeLayout.surface`), the badge ranges, the source inks
+    /// and the translation pane all derive from these entries, so stripping
+    /// inline task anchors here keeps them byte-consistent and anchor-free. A
+    /// `missing` paragraph falls back to its source text, which can carry
+    /// `<!--t-XXXX-->` anchors; without this strip they'd render raw.
+    ///
+    /// **The source under each paragraph** (shell p4 Task 8), when
+    /// `showsSourceUnder`: drawn under a paragraph that HAS a translation
+    /// (`sourceUnder`). Off, the surface is byte-for-byte the surface before
+    /// there was a source under it (`TranslationSourceUnderTests`).
+    ///
+    /// **A screenplay keeps its structure**: its translated text carries the
+    /// source's elements (`TranslatedFountainStructure.displayText`, the rule
+    /// Publish renders by — the source element wins), and its source sits a
+    /// blank line under it, so each half parses as its own block.
+    ///
+    /// Pure + static so `EditorHostTranslationSurfaceTests` and
+    /// `TranslationSourceUnderTests` pin it without an AppKit surface.
     static func reviewBadgeEntries(
-        from entries: [TranslatedDocument.Entry]
+        from entries: [TranslatedDocument.Entry],
+        showsSourceUnder: Bool = false,
+        isScreenplay: Bool = false
     ) -> [TranslationBadgeLayout.Entry] {
-        entries.map {
-            TranslationBadgeLayout.Entry(
-                paragraphId: $0.paragraphId,
-                text: RenderFilter.stripTaskAnchorsInline($0.translatedText ?? $0.sourceText),
-                status: $0.status)
+        entries.map { entry in
+            let shown = isScreenplay
+                ? TranslatedFountainStructure.displayText(for: entry)
+                : (entry.translatedText ?? entry.sourceText)
+            let text = RenderFilter.stripTaskAnchorsInline(shown)
+            let source = showsSourceUnder
+                ? sourceUnder(entry, shownAs: text, isScreenplay: isScreenplay) : nil
+            return TranslationBadgeLayout.Entry(
+                paragraphId: entry.paragraphId, text: text, source: source,
+                status: entry.status,
+                sourceSeparator: isScreenplay
+                    ? TranslationBadgeLayout.screenplaySourceSeparator
+                    : TranslationBadgeLayout.proseSourceSeparator)
         }
+    }
+
+    /// **The source drawn under one paragraph, or nil.** Nil where the
+    /// paragraph has no translation (its source is already the text — shown
+    /// once, never twice), where the source is blank or says exactly what the
+    /// translation says (a verbatim paragraph), and under a figure or a table:
+    /// a second figure line would draw a second picture, and a second table a
+    /// second grid, for a caption or a cell the Publish pages carry anyway.
+    static func sourceUnder(_ entry: TranslatedDocument.Entry, shownAs text: String,
+                            isScreenplay: Bool) -> String? {
+        guard entry.translatedText != nil else { return nil }
+        let source = RenderFilter.stripTaskAnchorsInline(entry.sourceText)
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              source != text else { return nil }
+        if !isScreenplay, source.hasPrefix("![") || source.contains("|") {
+            switch ManuscriptBlocks.parse(source).first?.block {
+            case .figure?, .table?: return nil
+            default: break
+            }
+        }
+        return source
     }
 
     private var currentItem: StructureItem? {
@@ -1368,6 +1477,9 @@ struct EditorHost: View {
             document = doc
             loadedItemId = item.id
             priorLoadedPath = path
+            // The surface a carried language reads in is this document's from
+            // its first frame — never the chapter just left (shell p4 Task 8).
+            recomputeTranslatedSurface(doc: doc)
             loadOutcome = nil
             // A document that opened has no refusal to show: the ladder goes
             // away with the failure that raised it. This is the belt — the

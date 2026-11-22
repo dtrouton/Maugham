@@ -112,11 +112,11 @@ final class FiledUnderTests: XCTestCase {
                        "Filed under First Reader", "a blank name is no name")
         XCTAssertEqual(sentence(FiledDestination(kind: .editionBrief("es"), scope: .project), faces: faces),
                        "Filed under the "
-                       + TranslationReviewIndicator.displayLabel(forLanguageTag: "es")
+                       + LanguageName.labelled("es")
                        + " edition brief",
                        "the language as QueryRuling.confirmation spells it")
         XCTAssertTrue(QueryRuling.confirmation(language: "es")
-            .contains(TranslationReviewIndicator.displayLabel(forLanguageTag: "es") + " edition brief"))
+            .contains(LanguageName.labelled("es") + " edition brief"))
         // Where each line's click would take the faces (Task 9 wires it).
         XCTAssertEqual(FiledUnder.brief(of: FiledDestination(kind: .intent, scope: .document("doc-b"))),
                        .item("doc-b"))

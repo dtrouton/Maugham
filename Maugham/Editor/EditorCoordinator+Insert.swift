@@ -191,7 +191,7 @@ extension EditorCoordinator {
         (textView?.isEditable ?? false)
             && EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode,
                                                    lockEditing: lockEditing,
-                                                   isTranslationReview: isTranslationReview)
+                                                   isReadingTranslation: isReadingTranslation)
     }
 
     /// `applyCommandEdit` for a `ReportInsert.Edit`.

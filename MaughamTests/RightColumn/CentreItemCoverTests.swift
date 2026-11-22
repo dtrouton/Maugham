@@ -253,13 +253,13 @@ final class CentreItemCoverTests: XCTestCase {
         // The Insert menu asks it, with the window's centre item.
         XCTAssertFalse(InsertMenuGate.isEnabled(
             posture: .author, format: DocumentFormat.ofManuscript(path: "a.md"), manualReview: false,
-            shareIsReadOnly: false, isTranslationReview: false, gridHoldsTheKeys: false,
+            shareIsReadOnly: false, isReadingTranslation: false, gridHoldsTheKeys: false,
             route: route(WindowSubject(open: .item("ch-1"), faces: .item("ch-1")),
                          centreItem: .history(docId: "ch-1"))),
                        "Insert is disabled under the History cover")
         XCTAssertTrue(InsertMenuGate.isEnabled(
             posture: .author, format: DocumentFormat.ofManuscript(path: "a.md"), manualReview: false,
-            shareIsReadOnly: false, isTranslationReview: false, gridHoldsTheKeys: false,
+            shareIsReadOnly: false, isReadingTranslation: false, gridHoldsTheKeys: false,
             route: route(WindowSubject(open: .item("ch-1"), faces: .item("ch-1")), centreItem: nil)),
                       "premise: enabled over the bare chapter")
         let intent = CentreItem.statement(kind: .intent, scope: .document("ch-1"))

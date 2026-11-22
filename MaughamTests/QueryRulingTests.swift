@@ -294,7 +294,7 @@ final class QueryRulingTests: XCTestCase {
                       "the reply is not named: \(sentence)")
         XCTAssertTrue(
             sentence.contains(
-                TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+                LanguageName.labelled("es")),
             "the edition is not named: \(sentence)")
     }
 }

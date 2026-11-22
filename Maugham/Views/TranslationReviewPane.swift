@@ -29,16 +29,7 @@ enum TranslationReviewPaneLogic {
         cursorLocation: Int, entries: [TranslationBadgeLayout.Entry]
     ) -> TranslationBadgeLayout.Entry? {
         let ranges = TranslationBadgeLayout.ranges(entries: entries)
-        guard let first = ranges.first else { return nil }
-        var selectedId = first.paragraphId
-        for r in ranges {
-            if cursorLocation >= r.range.location {
-                selectedId = r.paragraphId
-            } else {
-                break
-            }
-        }
-        return entries.first { $0.paragraphId == selectedId }
+        return TranslationBadgeLayout.index(at: cursorLocation, in: ranges).map { entries[$0] }
     }
 
     /// Open queries belonging to the active translation pass: `kind == .query`,
@@ -238,9 +229,13 @@ struct TranslationReviewPane: View {
         control.translationBadges.entries
     }
 
+    /// The caret's paragraph. A translated surface tells the SOURCE caret
+    /// which paragraph it is in (`EditorHost.sourceCaret`, shell p4 Task 8),
+    /// so the source's own walk finds it — a source line under a paragraph
+    /// included.
     private var selected: TranslationBadgeLayout.Entry? {
-        TranslationReviewPaneLogic.selectedEntry(
-            cursorLocation: document.cursorLocation, entries: entries)
+        guard let id = document.paragraphId(at: document.cursorLocation) else { return nil }
+        return entries.first { $0.paragraphId == id }
     }
 
     private var openQueries: [Annotation] {

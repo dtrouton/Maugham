@@ -76,7 +76,7 @@ enum QueryRuling {
     /// translator's thread still open; naming only the reply would hide the
     /// doctrine this act exists to write.
     static func confirmation(language: String) -> String {
-        let edition = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let edition = LanguageName.labelled(language)
         return "This becomes a dated ruling in the \(edition) edition brief, "
             + "and posts as your reply here."
     }
@@ -161,7 +161,7 @@ enum QueryRuling {
                 id: annotation.id, userResponse: words, undoManager: undoManager)
         } catch {
             return "Your ruling is in the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
                 + " edition brief, but the reply could not be posted here: "
                 + error.localizedDescription
                 + " The question is still open — reply to it without ruling again."

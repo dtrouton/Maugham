@@ -395,7 +395,7 @@ struct DesignRoundState: Equatable {
     static func designingLine(round: Int, language: String?) -> String {
         guard let language else { return "Designing round \(round)\u{2026}" }
         return "Designing round \(round) of the "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " edition\u{2026}"
     }
 

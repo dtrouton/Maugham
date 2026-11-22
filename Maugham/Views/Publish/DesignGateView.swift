@@ -75,7 +75,7 @@ enum DesignGate {
     /// that did not say so would be collecting a verdict about something else.
     static func caveat(language: String?) -> String? {
         guard let language else { return nil }
-        let name = TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+        let name = LanguageName.labelled(language)
         return "These sample pages set the \(name) edition\u{2019}s text in the "
             + "book\u{2019}s base templates. Maugham keeps one template set per "
             + "book, so an edition round revises that set rather than adding a "

@@ -250,7 +250,7 @@ final class ResolveEditionTests: XCTestCase {
         let sentence = FiledUnder.sentence(destination, faces: .edition(language: "es"), structure: [],
                                            projectType: .novel, firstReaderName: nil)
         XCTAssertEqual(sentence, "Filed under the "
-                       + TranslationReviewIndicator.displayLabel(forLanguageTag: "es") + " edition brief")
+                       + LanguageName.labelled("es") + " edition brief")
         XCTAssertEqual(FiledUnder.brief(of: destination), .edition(language: "es"))
 
         // Fine changes the record: patched, and the row says so.

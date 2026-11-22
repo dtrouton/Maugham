@@ -6,7 +6,7 @@ import Foundation
 ///
 /// A departure row and a disagreement row each name one paragraph of one
 /// edition of one chapter, and the honest answer to a click on either is *show
-/// me that paragraph, in that edition* — which is `.maughamEnterTranslationReview`
+/// me that paragraph, in that language* — which is `.maughamReadInLanguage`
 /// followed by `.maughamNavigateToParagraph`, two events that already exist and
 /// already have receivers. This type is what stands between the row and them.
 ///
@@ -25,7 +25,7 @@ import Foundation
 ///   scrolls it.
 ///
 /// **The order alone is not enough, and the first draft of this file said it
-/// was** (fix round 1). `.maughamEnterTranslationReview` only writes
+/// was** (fix round 1). `.maughamReadInLanguage` only writes
 /// `EditorControl.translationLanguage`; the translated buffer is swapped in on
 /// the NEXT SwiftUI body pass, when `EditorHost`'s
 /// `.onChange(of: control.translationLanguage)` recomputes the derived surface
@@ -63,7 +63,7 @@ struct TranslationReveal: Equatable, Sendable {
 
     /// The payload keys — one spelling, shared by `post`, `decode` and the two
     /// posts `perform` makes. `languageKey` and `paragraphIdKey` are also what
-    /// `.maughamEnterTranslationReview`'s and `.maughamNavigateToParagraph`'s
+    /// `.maughamReadInLanguage`'s and `.maughamNavigateToParagraph`'s
     /// existing receivers read, which is why `perform` can reuse them.
     static let docIdKey = "document_id"
     static let languageKey = "language"
@@ -150,13 +150,19 @@ struct TranslationReveal: Equatable, Sendable {
     /// edition other than the one already showing waits: a source reveal has
     /// no translated surface to wait for, and waiting for one that never comes
     /// would stall the scroll for the whole poll.
+    ///
+    /// **A reveal arriving at a piece it had to open always waits** (shell p4
+    /// Task 8): the language is carried to the next chapter
+    /// (`ReadingLanguage.carried`), so the edition can already be "showing"
+    /// while the new chapter's surface has still to be derived.
     static func waitsForTranslatedSurface(_ reveal: TranslationReveal,
-                                          showing current: String?) -> Bool {
+                                          showing current: String?,
+                                          arrivingAtPiece: Bool = false) -> Bool {
         guard let language = reveal.language else { return false }
-        return language != current
+        return arrivingAtPiece || language != current
     }
 
-    /// **Whether a source reveal must first leave Translation Review** (fix
+    /// **Whether a source reveal must first leave the translation** (fix
     /// round 1, m4): the reveal names the SOURCE paragraph, and while an
     /// edition is up the open piece shows that edition instead. Only ever true
     /// for a source reveal; a translated one enters its own edition.
@@ -196,7 +202,7 @@ struct TranslationReveal: Equatable, Sendable {
     /// **A source reveal while an edition is up leaves review first** (fix
     /// round 1, m4): `showing` is the edition on screen when the reveal starts;
     /// when `leavesReview` says so, `perform` posts
-    /// `.maughamExitTranslationReview`, awaits `ready` (production: the badges
+    /// `.maughamReadInSource`, awaits `ready` (production: the badges
     /// emptying, i.e. the source surface back) and then navigates. `showing`
     /// defaults to nil, so every translated reveal is exactly as before.
     @MainActor
@@ -207,10 +213,10 @@ struct TranslationReveal: Equatable, Sendable {
         post: (Notification.Name, [String: Any]) -> Void
     ) async {
         if let language = reveal.language {
-            post(.maughamEnterTranslationReview, [languageKey: language])
+            post(.maughamReadInLanguage, [languageKey: language])
             await ready()
         } else if leavesReview(reveal, showing: current) {
-            post(.maughamExitTranslationReview, [:])
+            post(.maughamReadInSource, [:])
             await ready()
         }
         guard !Task.isCancelled else { return }

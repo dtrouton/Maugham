@@ -266,7 +266,7 @@ final class DesignGateTests: XCTestCase {
         let caveat = try XCTUnwrap(DesignGate.caveat(language: "es"))
         XCTAssertTrue(
             caveat.contains(
-                TranslationReviewIndicator.displayLabel(forLanguageTag: "es")),
+                LanguageName.labelled("es")),
             "the caveat names the edition it is about: \(caveat)")
         XCTAssertFalse(caveat.isEmpty)
     }

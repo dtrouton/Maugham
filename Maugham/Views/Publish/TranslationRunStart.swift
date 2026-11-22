@@ -21,6 +21,7 @@ struct TranslationRunStart: Equatable {
         documentStore: DocumentStore, store: ProjectStore
     ) async -> TranslationRunStart {
         var castPrompt: EditionCastPrompt?
+        var busy: String?
         let notice = await startTranslating(
             [docId], in: documentStore, structure: store.manifest.structure
         ) { _ in
@@ -29,9 +30,9 @@ struct TranslationRunStart: Equatable {
                     ask: .nameForRun(language: language, docId: docId))
                 return
             }
-            pipeline.run(docId: docId, language: language)
+            busy = refusedIfBusy(pipeline.run(docId: docId, language: language), pipeline: pipeline)
         }
-        return TranslationRunStart(notice: notice, castPrompt: castPrompt)
+        return TranslationRunStart(notice: busy ?? notice, castPrompt: castPrompt)
     }
 
     /// **One round on every chapter of `documentIds`, in order** — the pieces
@@ -42,6 +43,7 @@ struct TranslationRunStart: Equatable {
         documentStore: DocumentStore, store: ProjectStore
     ) async -> TranslationRunStart {
         var castPrompt: EditionCastPrompt?
+        var busy: String?
         let notice = await startTranslating(
             documentIds, in: documentStore, structure: store.manifest.structure
         ) { documents in
@@ -50,9 +52,20 @@ struct TranslationRunStart: Equatable {
                     ask: bookAsk(language: language, documentIds: documents))
                 return
             }
-            pipeline.runBook(documentIds: documents, language: language)
+            busy = refusedIfBusy(pipeline.runBook(documentIds: documents, language: language),
+                                 pipeline: pipeline)
         }
-        return TranslationRunStart(notice: notice, castPrompt: castPrompt)
+        return TranslationRunStart(notice: busy ?? notice, castPrompt: castPrompt)
+    }
+
+    /// **A second start is refused aloud** (shell p4 Task 8, review M12): the
+    /// project's windows share one pipeline (`ProjectSession`'s roster), and a
+    /// press in one window can land while another window's round — begun
+    /// after this window last looked — is under way. The pipeline refuses;
+    /// this says which round holds it, where the press used to do nothing.
+    @MainActor
+    static func refusedIfBusy(_ started: Bool, pipeline: TranslationPipeline) -> String? {
+        started ? nil : TranslationRunState.busyReason(language: pipeline.status.language)
     }
 
     /// The sheet a whole-book run stands behind, with the queue it was

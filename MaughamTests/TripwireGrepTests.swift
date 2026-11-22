@@ -9109,7 +9109,7 @@ final class TripwireGrepTests: XCTestCase {
         // runs from one window file into the next.
         let sources = try SourceTree.windowSources()
         let modifier = try SourceTree.declaration(
-            named: "struct TranslationReviewModifier", under: "Maugham")
+            named: "struct ReadingLanguageModifier", under: "Maugham")
 
         XCTAssertTrue(sources.contains(where: Self.reportArmPostsTheReveal(in:)),
             "the round report's `onReveal` must call TranslationReveal.post — "
@@ -9128,8 +9128,8 @@ final class TripwireGrepTests: XCTestCase {
             + "— it is the window's one source-paragraph reveal. It belongs in the "
             + "`case .publishProblems(let problems):` arm of the centre's switch.")
 
-        XCTAssertTrue(Self.translationReviewModifierHandlesTheReveal(in: modifier),
-            "TranslationReviewModifier must handle .maughamRevealTranslation — "
+        XCTAssertTrue(Self.readingLanguageModifierHandlesTheReveal(in: modifier),
+            "ReadingLanguageModifier must handle .maughamRevealTranslation — "
             + "it is the only thing in the window that knows which chapter is "
             + "open, so it is where the reveal's plan (.now vs .afterSelecting) "
             + "is made. Without the receiver the post reaches nobody and the "
@@ -9137,7 +9137,7 @@ final class TripwireGrepTests: XCTestCase {
     }
 
     /// Self-check: prove both halves fire on the pre-task shape — the Task 3
-    /// stub closure, and a `TranslationReviewModifier` with no reveal receiver —
+    /// stub closure, and a `ReadingLanguageModifier` with no reveal receiver —
     /// and that a comment naming either call suppresses neither. A grep pin that
     /// cannot fail is a comment.
     func test_theTranslationRevealPinsFireOnThePlantedStub() throws {
@@ -9159,12 +9159,12 @@ final class TripwireGrepTests: XCTestCase {
             }
         }
 
-        private struct TranslationReviewModifier: ViewModifier {
+        private struct ReadingLanguageModifier: ViewModifier {
             // A comment naming .onKeyWindowCommand(.maughamRevealTranslation is
             // not a receiver.
             func body(content: Content) -> some View {
                 content
-                    .onKeyWindowCommand(.maughamEnterTranslationReview, window: window) { _ in }
+                    .onKeyWindowCommand(.maughamReadInLanguage, window: window) { _ in }
             }
         }
 
@@ -9197,8 +9197,8 @@ final class TripwireGrepTests: XCTestCase {
             "self-check: the Task 3 stub `onReveal: { _ in }` must fire the "
             + "poster pin — neither a comment naming the call nor the same call "
             + "in the NEXT switch arm may satisfy it")
-        XCTAssertFalse(Self.translationReviewModifierHandlesTheReveal(in: planted),
-            "self-check: a TranslationReviewModifier with no reveal receiver "
+        XCTAssertFalse(Self.readingLanguageModifierHandlesTheReveal(in: planted),
+            "self-check: a ReadingLanguageModifier with no reveal receiver "
             + "must fire the handler pin — neither a comment naming the "
             + "receiver nor the receiver in ANOTHER modifier, which would have "
             + "no activeDocId to plan against, may satisfy it")
@@ -9231,12 +9231,12 @@ final class TripwireGrepTests: XCTestCase {
         return lines[start..<end].contains { $0.contains("TranslationReveal.post(") }
     }
 
-    /// `TranslationReviewModifier` receives `.maughamRevealTranslation`. Scoped
+    /// `ReadingLanguageModifier` receives `.maughamRevealTranslation`. Scoped
     /// to that one declaration, so the receiver landing in some other modifier —
     /// which would not have `activeDocId` to plan against — does not pass.
-    private static func translationReviewModifierHandlesTheReveal(in source: String) -> Bool {
+    private static func readingLanguageModifierHandlesTheReveal(in source: String) -> Bool {
         guard let body = topLevelDeclaration(
-            named: "struct TranslationReviewModifier", in: source) else { return false }
+            named: "struct ReadingLanguageModifier", in: source) else { return false }
         return body.contains {
             $0.contains(".onKeyWindowCommand(.maughamRevealTranslation")
         }

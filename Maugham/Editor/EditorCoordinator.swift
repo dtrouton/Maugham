@@ -57,8 +57,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// reader can inspect a translation of a manuscript they authored. Plain
     /// stored property, no observers (tripwire 2), threaded ONE-WAY from
     /// ProjectWindow → EditorHost → EditorSurface; nothing reads it back. Use
-    /// `setTranslationReview(_:)` to flip it so the membrane sees it immediately.
-    private(set) var isTranslationReview = false
+    /// `setReadingTranslation(_:)` to flip it so the membrane sees it immediately.
+    private(set) var isReadingTranslation = false
 
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
@@ -319,9 +319,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// rationale as `reviewToggleObserver`: flip the read-only membrane
     /// SYNCHRONOUSLY in the key window's coordinator so the very next keystroke
     /// already sees the toggled posture — the `control.translationLanguage`
-    /// mirror lands a frame later. `ProjectWindow`'s `TranslationReviewModifier`
+    /// mirror lands a frame later. `ProjectWindow`'s `ReadingLanguageModifier`
     /// still owns the language + the surface swap on the SAME posts; the
-    /// model-driven `applyControl → setTranslationReview` is the no-op-guarded
+    /// model-driven `applyControl → setReadingTranslation` is the no-op-guarded
     /// reconciler both paths converge through (ADR 0017), so they can't diverge.
     private var translationEnterObserver: NSObjectProtocol?
     private var translationExitObserver: NSObjectProtocol?
@@ -776,8 +776,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// their scope through `receiverContext(.keyWindow)`, which is where this is
     /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
-    /// `maughamToggleReviewMode`, `maughamEnterTranslationReview`,
-    /// `maughamExitTranslationReview`, and the Insert menu's
+    /// `maughamToggleReviewMode`, `maughamReadInLanguage`,
+    /// `maughamReadInSource`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
     /// `maughamInsertExistingFigure`,
     /// `maughamInsertCitation`, `maughamInsertCrossReference` and
@@ -901,16 +901,16 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // above. Language + surface swap stay EditorHost's; this only governs
         // the membrane so the next keystroke is already blocked (or unblocked).
         translationEnterObserver = MaughamEvent.observe(
-            .maughamEnterTranslationReview,
+            .maughamReadInLanguage,
             context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            self?.setTranslationReview(true)
+            self?.setReadingTranslation(true)
         }
         translationExitObserver = MaughamEvent.observe(
-            .maughamExitTranslationReview,
+            .maughamReadInSource,
             context: { [weak self] in self?.receiverContext(.keyWindow) }
         ) { [weak self] _ in
-            self?.setTranslationReview(false)
+            self?.setReadingTranslation(false)
         }
         // The Insert menu (plan 3a Task 4). The context asks the manuscript-
         // surface gate on top of the key-window one, so a research note — a
@@ -1077,7 +1077,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // dimming, a layout-manager temporary) come back on this text view —
         // the first attach has none to restore, its posture arrives later.
         if isReviewMode { syncReviewOverlays() }
-        if isTranslationReview {
+        if isReadingTranslation {
             applyTranslationDimming()
             syncTranslationBadgeOverlay()
         }
@@ -1374,12 +1374,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// coordinator's own stored flags — no new state (tripwire 2).
     var allowsCheckboxToggle: Bool {
         EditorEditPolicy.allowsCheckboxToggle(
-            lockEditing: lockEditing, isTranslationReview: isTranslationReview)
+            lockEditing: lockEditing, isReadingTranslation: isReadingTranslation)
     }
 
     /// Translation-review posture changed (Task 11). Plain stored-property flip
     /// threaded ONE-WAY from EditorSurface (tripwires 2 & 6). The membrane reads
-    /// `isTranslationReview` live in `shouldChangeTextIn`, so no restyle is needed
+    /// `isReadingTranslation` live in `shouldChangeTextIn`, so no restyle is needed
     /// — the next keystroke sees the new value (mirrors `setLockEditing`). The
     /// translated-surface buffer swap itself is EditorHost's job (the text binding
     /// value changes, flowing through the single `applyExternalText` site in
@@ -1391,9 +1391,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// swap in the same layout pass, so it can force a non-undo-coherent buffer
     /// replace regardless of any one-shot undo-coherent flag).
     @discardableResult
-    func setTranslationReview(_ enabled: Bool) -> Bool {
-        guard isTranslationReview != enabled else { return false }
-        isTranslationReview = enabled
+    func setReadingTranslation(_ enabled: Bool) -> Bool {
+        guard isReadingTranslation != enabled else { return false }
+        isReadingTranslation = enabled
         closeCompletionIfTheMembraneRefuses()
         refreshFigureGridAccess()
         // Translation review shows no caret line's syntax (its dimming owns
@@ -1519,7 +1519,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         updateReviewCardVerbs(for: c.posture) // self-guarded
         // Translation review is a pure membrane flip driven off language
         // presence; the surface buffer swap is EditorHost's (the text binding).
-        setTranslationReview(c.translationLanguage != nil)   // self-guarded
+        setReadingTranslation(c.translationLanguage != nil)   // self-guarded
         if theme != c.theme || typography != c.typography {
             applyAppearance(theme: c.theme, typography: c.typography)
         }
@@ -1598,7 +1598,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // no mutation leaks. Placed at the very top, before the existing guard.
         guard EditorEditPolicy.allowsTextMutation(
             isReviewMode: isReviewMode, lockEditing: lockEditing,
-            isTranslationReview: isTranslationReview) else {
+            isReadingTranslation: isReadingTranslation) else {
             return false
         }
         guard let replacementString,
@@ -1691,7 +1691,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         guard !(mode is ScreenplayMode), !isApplyingCommandEdit, !isApplyingFigureSeparation,
               !textView.hasMarkedText(), textView.isEditable,
               EditorEditPolicy.allowsTextMutation(isReviewMode: isReviewMode, lockEditing: lockEditing,
-                                                  isTranslationReview: isTranslationReview),
+                                                  isReadingTranslation: isReadingTranslation),
               textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true
         else { return }
         let text = textView.string as NSString

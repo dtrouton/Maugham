@@ -365,7 +365,7 @@ enum EditionCastCopy {
 
     static func nameForRunTitle(language: String) -> String {
         "Who translates into "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language) + "?"
+            + LanguageName.labelled(language) + "?"
     }
 
     /// **The placeholder explains who this is** (the brief's own phrase), so
@@ -399,7 +399,7 @@ enum EditionCastCopy {
     /// front of the click.
     static func cancelledLine(language: String) -> String {
         "Translation cancelled \u{2014} the "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " edition needs a named translator before a round can run."
     }
 
@@ -407,7 +407,7 @@ enum EditionCastCopy {
     /// the edition: a writer with three of them needs to know which one.
     static func mintFailed(language: String) -> String {
         "Couldn\u{2019}t name the "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " translator. Check that the project folder is still where it was."
     }
 
@@ -456,7 +456,7 @@ enum EditionCastCopy {
     /// cast is changed.
     static func alreadyAnEdition(language: String) -> String {
         "The book already has an edition in "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + ". Change its cast on its Brief."
     }
 
@@ -464,7 +464,7 @@ enum EditionCastCopy {
     /// translator landed, `missing` ("reader", "collator") did not.
     static func partlyNamed(language: String, missing: [String]) -> String {
         "The "
-            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + LanguageName.labelled(language)
             + " edition is started and its translator named, but its "
             + missing.joined(separator: " and ")
             + " couldn\u{2019}t be named. Cast \u{25B8} Change\u{2026} on its Brief names "
@@ -513,7 +513,7 @@ enum EditionCastCopy {
         switch subject {
         case .edition(let language):
             return "Whatever stands here signs the "
-                + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+                + LanguageName.labelled(language)
                 + " edition\u{2019}s paragraphs and queries from now on; its "
                 + "reader and collator sign the notes they write. Work already "
                 + "signed stays theirs \u{2014} a new name renames the person, "
