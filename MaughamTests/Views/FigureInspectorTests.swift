@@ -342,7 +342,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let m = try await mount()
         let (item, summary) = try await summaryReadingModel(m)
         let ds = try XCTUnwrap(m.store.documentStore)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = FigureCentreMount(
             figureId: summary.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
@@ -392,7 +392,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
         let ds = try XCTUnwrap(m.store.documentStore)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let actions = actions(m, windows: windows, model: FigureInspectorModel(figureId: figure.id))
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
@@ -438,7 +438,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
         let ds = try XCTUnwrap(m.store.documentStore)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
@@ -714,7 +714,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
         let ds = try XCTUnwrap(m.store.documentStore)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let grid = FigureWindowGrid()
         var focused = 0
         let registration = windows.opened(figure.id, focus: { focused += 1 }, grid: { [weak grid] in
@@ -789,7 +789,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let ds = try XCTUnwrap(m.store.documentStore)
         let built = try await listing(m)
         let row = try XCTUnwrap(built.row(forFigureId: figure.id))
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: (row.number, row.caption), piece: docId, typography: .defaults,

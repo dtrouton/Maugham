@@ -63,7 +63,9 @@ final class EditorControl {
         guard translationLanguage == nil, ReadThrough.isOn(docId, in: readThroughDocIds) else {
             return nil
         }
-        return .on(docId: docId, lacksCheckpoint: readThroughLackingCheckpoint.contains(docId))
+        return .on(docId: docId, lacksCheckpoint: readThroughLackingCheckpoint.contains(docId),
+                   mayTakeCheckpoint: ReadThroughOffer.mayTakeCheckpoint(
+                    posture: posture, shareIsReadOnly: shareIsReadOnly))
     }
 
     /// The language the open piece is read in, or nil when the editor shows

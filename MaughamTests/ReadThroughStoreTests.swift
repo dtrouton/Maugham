@@ -323,7 +323,7 @@ final class ReadThroughStoreTests: XCTestCase {
                        translation: Bool = false, pieces: Set<String> = []) -> ReadThroughOffer? {
         ReadThroughOffer.of(docId: docId, item: item ?? chapter, posture: posture,
                             shareIsReadOnly: share, isReadingTranslation: translation,
-                            pieces: pieces)
+                            isTextVisible: true, pieces: pieces, lackingCheckpoint: [])
     }
 
     private var reviewer: Posture {

@@ -28,8 +28,10 @@ final class ReadThroughStore {
     /// Piece id → when its read-through started.
     private(set) var pieces: [String: Date] = [:]
 
-    /// The ids alone — what `ReadThrough.isOn` and the gate ask.
-    var pieceIds: Set<String> { Set(pieces.keys) }
+    /// The ids alone — what `ReadThrough.isOn` and the gate ask. Stored, and
+    /// kept equal to `pieces.keys` by every writer, so a body pass reads it
+    /// without building a set.
+    private(set) var pieceIds: Set<String> = []
 
     /// Piece id → the id of the checkpoint its read-through took. A piece in
     /// read-through with no entry here has no checkpoint yet (a refused or
@@ -49,9 +51,19 @@ final class ReadThroughStore {
         Set(pieces.keys.filter { checkpoints[$0] == nil && !capturing.contains($0) })
     }
 
-    /// Called after each change of the set (`begin`, `end`, `prune`) — the
-    /// session's figure windows ask their gates again.
-    @ObservationIgnored var onChange: (@MainActor () -> Void)?
+    /// **Who hears each change of the set** (`begin`, `end`, `prune`): the
+    /// session's figure windows, which ask their gates again. A list, so a
+    /// second subscriber never silently replaces the first.
+    @ObservationIgnored private var changeObservers: [@MainActor () -> Void] = []
+
+    /// Adds `observer` to those told after each change of the set.
+    func addChangeObserver(_ observer: @escaping @MainActor () -> Void) {
+        changeObservers.append(observer)
+    }
+
+    private func changed() {
+        for observer in changeObservers { observer() }
+    }
 
     @ObservationIgnored private let projectRoot: URL
     @ObservationIgnored private let device: DeviceSlug
@@ -61,6 +73,7 @@ final class ReadThroughStore {
         self.device = device
         let file = Self.read(Self.fileURL(projectRoot: projectRoot, device: device))
         pieces = file.pieces
+        pieceIds = Set(file.pieces.keys)
         checkpoints = (file.checkpoints ?? [:]).filter { file.pieces[$0.key] != nil }
     }
 
@@ -75,16 +88,18 @@ final class ReadThroughStore {
     func begin(_ pieceId: String, at: Date) {
         guard pieces[pieceId] == nil else { return }
         pieces[pieceId] = at
+        pieceIds.insert(pieceId)
         persist()
-        onChange?()
+        changed()
     }
 
     /// Takes `pieceId` out of read-through. A piece not in it writes nothing.
     func end(_ pieceId: String) {
         guard pieces.removeValue(forKey: pieceId) != nil else { return }
+        pieceIds.remove(pieceId)
         checkpoints.removeValue(forKey: pieceId)
         persist()
-        onChange?()
+        changed()
     }
 
     /// Records the checkpoint `pieceId`'s read-through took. Nothing for a
@@ -112,10 +127,11 @@ final class ReadThroughStore {
         guard !gone.isEmpty else { return }
         for id in gone {
             pieces.removeValue(forKey: id)
+            pieceIds.remove(id)
             checkpoints.removeValue(forKey: id)
         }
         persist()
-        onChange?()
+        changed()
     }
 
     // MARK: - The file

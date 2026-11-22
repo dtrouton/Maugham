@@ -526,7 +526,7 @@ final class StatementEditorMountTests: XCTestCase {
     /// reach the stack. If the context filter were bypassed, or a future
     /// observer registered without a context, the mechanism test still passes
     /// and this one does not.
-    func test_toggleReviewModeReachesTheManuscriptEditorAndNotTheStatementPane() async throws {
+    func test_theReadThroughKeyReachesTheManuscriptEditorAndNotTheStatementPane() async throws {
         let fixture = try await fixture(named: "ReviewToggleCrossTalk")
         try await fixture.store.createStatement(kind: .intent, scope: .project)
 

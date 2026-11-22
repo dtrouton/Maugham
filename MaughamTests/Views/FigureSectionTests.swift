@@ -236,7 +236,7 @@ final class FigureSectionTests: XCTestCase {
     /// `FigureWindows.foldGrids(on:)` folds the in-place grid and closes the
     /// window on the figure, and only those.
     func test_foldGridsFoldsTheInPlaceGridAndClosesTheWindowOnTheFigure() async {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         var folded: [String] = [], closed: [String] = []
         var hold: FigureWindows.InPlaceHold?
         hold = windows.holdInPlace(cash.figureId, focus: {}, fold: {
@@ -346,7 +346,7 @@ final class FigureSectionVerbTests: XCTestCase {
         let (documentStore, store) = try await openBook()
         defer { withExtendedLifetime(documentStore) {} }
         let state = BinderTreeSectionsState()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         state.figureWindows = windows
         state.refreshFigureRows(listing: [FigureListing.Row(
             figureId: "fig-0a1b2c3d", kind: .table, name: "cash", caption: "Cash at year end",
@@ -371,7 +371,7 @@ final class FigureSectionVerbTests: XCTestCase {
         let (documentStore, store) = try await openBook()
         defer { withExtendedLifetime(documentStore) {} }
         let state = BinderTreeSectionsState()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         state.figureWindows = windows
         state.refreshFigureRows(listing: [
             FigureListing.Row(figureId: "fig-0a1b2c3d", kind: .table, name: "cash", caption: "",

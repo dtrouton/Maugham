@@ -23,7 +23,8 @@ final class HostBuilderCensusTests: XCTestCase {
 
     /// The hosts, by the name a construction spells.
     static let hosts = ["RightColumn", "PulledUpView", "RightColumnControl", "BinderView",
-                        "CollectionPiecesPane", "SceneNavigatorPane", "BinderPieceFold"]
+                        "CollectionPiecesPane", "SceneNavigatorPane", "BinderPieceFold",
+                        "CentreTopLines"]
 
     /// **Test files that name a host inside a string literal**, never in code,
     /// each with its reason. An entry whose file no longer quotes a host fails
@@ -158,6 +159,11 @@ final class HostBuilderCensusTests: XCTestCase {
                                      .file("Maugham/Views/BinderView.swift"),
                                      .file("Maugham/Views/CollectionPiecesPane.swift")],
              fixtureEnvironment: .declaration("static func fold(")),
+        Host(name: "CentreTopLines", productionSites: 1,
+             productionEnvironment: [.between("Maugham/Views/ProjectWindow.swift",
+                                              from: "private func contentColumn(",
+                                              to: "private var intentStripLine")],
+             fixtureEnvironment: .declaration("static func lines(")),
     ]
 
     func test_eachFixturePassesWhatProductionPasses() throws {

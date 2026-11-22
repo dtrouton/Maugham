@@ -360,12 +360,12 @@ final class FigureWindows {
     /// book-wide figure belongs to no piece and is never refused.
     let isInReadThrough: @MainActor (_ figureId: String) -> Bool
 
-    init(isInReadThrough: @escaping @MainActor (_ figureId: String) -> Bool = { _ in false }) {
+    init(isInReadThrough: @escaping @MainActor (_ figureId: String) -> Bool) {
         self.isInReadThrough = isInReadThrough
     }
 
-    /// **A piece entered or left read-through** (`ReadThroughStore`'s change
-    /// hook): every figure window asks its gate again.
+    /// **A piece entered or left read-through** (`ReadThroughStore
+    /// .addChangeObserver`): every figure window asks its gate again.
     func readThroughChanged() {
         for listening in listeners.values { listening.access() }
     }

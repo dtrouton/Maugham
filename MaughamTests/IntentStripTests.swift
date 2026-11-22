@@ -180,11 +180,18 @@ final class IntentStripTests: XCTestCase {
         // answers as `type:ProjectWindow`, so a split of the window moves
         // nothing here — and one in a child view sharing a window file answers
         // under that file (plan 2 final review, I1).
+        // The window's lines over the centre are one modifier
+        // (`CentreTopLines`, shell read-through Task 3 fix round M7): it
+        // builds the strip from the line the window hands it, and the window
+        // hands it the resolver's line.
         XCTAssertEqual(
             try Self.stripConstructionSites(in: sourceDir),
-            ["type:ProjectWindow"],
+            ["CentreTopLines.swift"],
             "the strip is constructed somewhere new; that site must feed it "
             + "statement text too")
+        let window = try code(of: sourceDir.appendingPathComponent("Views/ProjectWindow.swift"))
+        XCTAssertTrue(window.contains("intentLine: intentStripLine"),
+                      "the window hands the lines the resolver's line, and only it")
         // …and that it builds the line through `IntentStrip.line(`:
         // `WiringCensusTests`.
     }

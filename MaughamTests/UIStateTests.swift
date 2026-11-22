@@ -78,6 +78,21 @@ final class UIStateSchemaTests: XCTestCase {
         XCTAssertEqual(UIState.currentSchemaVersion, 5)
     }
 
+    /// **A window left in Manual Review Mode opens writing** (plan call 12,
+    /// shell read-through Task 3): the old key decodes without error, nothing
+    /// reads it, and it is never written back.
+    func test_aFileLeftInReviewModeOpensWriting() throws {
+        let json = Data("""
+        {"schemaVersion":5,"isNoChromeOn":false,"isReviewModeOn":true}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(UIState.self, from: json)
+        XCTAssertEqual(decoded, try JSONDecoder().decode(UIState.self, from: Data("""
+        {"schemaVersion":5,"isNoChromeOn":false}
+        """.utf8)), "the old key changes nothing a window reads")
+        let written = try XCTUnwrap(String(data: JSONEncoder().encode(decoded), encoding: .utf8))
+        XCTAssertFalse(written.contains("isReviewModeOn"), "and is not written back: \(written)")
+    }
+
     /// **A project saved by the build that had window modes opens on the same
     /// piece, with nothing lost and no error** (shell p1 review focus 1).
     func test_aFileWithTheOldModeKeysOpensOnTheSamePiece() throws {

@@ -223,6 +223,10 @@ struct ProjectWindow: View {
     let url: URL
 
     var body: some View {
+        // Read-through's facts and the open piece, once per pass (one walk,
+        // one posture read, one route): the receiver, the mirror and the
+        // Insert menu all read this one value.
+        let facts = readThroughFacts
         Group {
             if let store, let documentStore {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -591,10 +595,7 @@ struct ProjectWindow: View {
         .modifier(ReadThroughModifier(
             readThrough: session?.readThrough, store: store,
             documentStore: documentStore, window: window,
-            openDocId: selectedManuscriptDocId, posture: editorPosture,
-            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
-            isReadingTranslation: editorControl.translationLanguage != nil,
-            treeState: treeState,
+            facts: facts, treeState: treeState,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
@@ -627,12 +628,12 @@ struct ProjectWindow: View {
         }
         // Mirror posture + appearance into the EditorControl model (ADR 0017).
         .modifier(EditorControlMirrorModifier(
-            membrane: editorMembrane,
-            posture: editorPosture,
-            mayInsertReportElement: mayInsertReportElement,
+            membrane: Self.editorMembrane(facts),
+            posture: facts.posture,
+            mayInsertReportElement: mayInsertReportElement(facts),
             effectiveTypography: effectiveTypography,
-            readThroughPieces: session?.readThrough.pieceIds ?? [],
-            readThroughLackingCheckpoint: session?.readThrough.piecesLackingCheckpoint ?? [],
+            readThroughPieces: facts.pieces,
+            readThroughLackingCheckpoint: facts.lackingCheckpoint,
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
         .modifier(FigureWindowOpenModifier(projectURL: url, window: window))
@@ -750,35 +751,24 @@ struct ProjectWindow: View {
     /// (controller ruling I): reading it observes `postureEpoch`, so a demotion or a promotion
     /// arriving mid-session re-mirrors with no reopen. The rule itself is
     /// `EditorControlMirror.membrane`, pinned without a window.
-    private var editorMembrane: EditorControlMirror.Membrane {
-        EditorControlMirror.membrane(
-            posture: editorPosture,
-            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot))
+    private static func editorMembrane(_ facts: ReadThroughModifier.Facts) -> EditorControlMirror.Membrane {
+        EditorControlMirror.membrane(posture: facts.posture, shareIsReadOnly: facts.shareIsReadOnly)
     }
 
-    /// The drawing posture of the manuscript document in the editor, nil where
-    /// none is — the membrane's input and the margin card's, mirrored to
-    /// `EditorControl.posture`.
-    private var editorPosture: Posture? {
-        selectedManuscriptDocId.flatMap { id in documentStore?.posture(forDocId: id) }
-    }
-
-    /// **The Insert menu's enabled state** (plan 3a Task 4), published to the
-    /// menu bar by `EditorControlMirrorModifier`. The rule is
-    /// `InsertMenuGate.isEnabled`, pinned without a window; this only gathers
-    /// its inputs from the same drawing door the membrane asks.
-    private var mayInsertReportElement: Bool {
-        let format = selectedManuscriptDocId
-            .flatMap { id in store.flatMap { TreeWalk.find(id: id, in: $0.manifest.structure) } }
-            .flatMap(\.path)
-            .map { DocumentFormat.ofManuscript(path: $0) }
-        return InsertMenuGate.isEnabled(
-            posture: editorPosture, format: format,
-            readThrough: ReadThrough.isOn(selectedManuscriptDocId,
-                                          in: session?.readThrough.pieceIds ?? []),
+    /// **The open piece and read-through's facts, gathered once** — the
+    /// manuscript document the centre is FOR (`subject.open`, never the
+    /// faces), its item, its drawing posture (the membrane's input and the
+    /// margin card's, mirrored to `EditorControl.posture`), the share, a
+    /// translation, the centre's route, and the session's read-through sets.
+    private var readThroughFacts: ReadThroughModifier.Facts {
+        let item = store.flatMap { store in
+            subject.open.itemID.flatMap { TreeWalk.find(id: $0, in: store.manifest.structure) }
+        }.flatMap { $0.type == .document ? $0 : nil }
+        return ReadThroughModifier.Facts(
+            docId: item?.id, item: item,
+            posture: item.flatMap { documentStore?.posture(forDocId: $0.id) },
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
             isReadingTranslation: editorControl.translationLanguage != nil,
-            gridHoldsTheKeys: figureGridPresence.holdsTheKeys,
             route: store.map { store in
                 // The same answer `CentreColumn.editorPane` switches on.
                 Self.centreRoute(subject: subject,
@@ -791,7 +781,24 @@ struct ProjectWindow: View {
                                  round: publishCentre.selectedRound,
                                  problems: publishCentre.selectedProblems,
                                  centreItem: centreItem)
-            })
+            },
+            pieces: session?.readThrough.pieceIds ?? [],
+            lackingCheckpoint: session?.readThrough.piecesLackingCheckpoint ?? [])
+    }
+
+    /// **The Insert menu's enabled state** (plan 3a Task 4), published to the
+    /// menu bar by `EditorControlMirrorModifier`. The rule is
+    /// `InsertMenuGate.isEnabled`, pinned without a window; this only gathers
+    /// its inputs from the same drawing door the membrane asks.
+    private func mayInsertReportElement(_ facts: ReadThroughModifier.Facts) -> Bool {
+        InsertMenuGate.isEnabled(
+            posture: facts.posture,
+            format: facts.item?.path.map { DocumentFormat.ofManuscript(path: $0) },
+            readThrough: facts.openIsOn,
+            shareIsReadOnly: facts.shareIsReadOnly,
+            isReadingTranslation: facts.isReadingTranslation,
+            gridHoldsTheKeys: figureGridPresence.holdsTheKeys,
+            route: facts.route)
     }
 
     /// **The drawing posture of any document this window names** — for a
@@ -1561,33 +1568,12 @@ struct ProjectWindow: View {
                         target: statusFooterTarget, store: store)
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                // **Applied FIRST of the three top insets, which puts it nearest the
-                // prose**: each `safeAreaInset` sits outside what it wraps. So the
-                // read-only trap is outermost, the review banner under it, and the
-                // strip — a running head belonging to the page — directly over the
-                // writing; the two banners are notices about the WINDOW's posture.
-                if let line = intentStripLine {
-                    IntentStrip(line: line, mayTrailDraft: intentStripMayTrailDraft)
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                // **Why the words are not hers** — the posture's own reason, one
-                // sentence, over the editor. A role is the permit's, said in the
-                // standing line; read-through says itself over the text (`EditorHost`).
-                if let line = postureStandingLine {
-                    PostureStandingLineView(
-                        line: line, documentStore: documentStore)
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                // Read-only trap: a user on a VIEW-ONLY iCloud share cannot
-                // append annotation ops at all. Surface that loudly rather than
-                // letting a comment attempt fail silently.
-                if Self.shareIsReadOnly(shareSnapshot) {
-                    ViewOnlyShareNotice()
-                }
-            }
+            // The intent strip nearest the prose, the standing line, the
+            // view-only notice outermost (`CentreTopLines`).
+            .modifier(CentreTopLines(
+                intentLine: intentStripLine, intentMayTrailDraft: intentStripMayTrailDraft,
+                standingLine: postureStandingLine, documentStore: documentStore,
+                shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot)))
             .navigationSplitViewColumnWidth(
                 min: ProjectWindow.centreColumnFloor, ideal: 720)
     }

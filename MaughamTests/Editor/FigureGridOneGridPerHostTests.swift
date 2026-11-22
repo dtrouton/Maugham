@@ -92,7 +92,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// ⌘Z takes back alone. (Before: B's expand was ignored by the host but
     /// B still ended the open visit — A's — onto B's stack.)
     func test_aTableExpandedInOneProjectWindowIsNeverExpandedInAnother() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let a = try await mount(windows: windows)
         let b = try await mount(windows: windows, sharing: a)
         let line = location(a, "![Cash](")
@@ -203,7 +203,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// I4): type in place, ⤢, retype the cell in the window, close it, ⌘Z
     /// in the text — declined whole, and said neutrally, never "another device".
     func test_aVisitRetypedInThisMacsWindowDeclinesNeutrally() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows, openWindow: { _ in })
         let c = try await expanded(m)
         let b2 = cell(c, 2, 2)
@@ -234,7 +234,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// window's close takes the hand-off with it (T9 review M5), so a later
     /// window never inherits a stale piece or review mode.
     func test_theFigureIsHeldWhileItsWindowOpens_andTheHandoffLeavesWithIt() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows, openWindow: { _ in })
         let figureId = try XCTUnwrap(m.figure?.id)
         let line = location(m, "![Cash](")
@@ -261,7 +261,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// the figure's line tells the window its "Table N" and caption from
     /// that line — no label needed.
     func test_anUnlabelledLineStillReachesTheWindow() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount("Intro.\n\n![Cash flow](../figures/t.csv)\n\nThe end.", windows: windows)
         let figureId = try XCTUnwrap(m.figure?.id)
         var told: [String] = []

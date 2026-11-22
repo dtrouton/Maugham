@@ -82,7 +82,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         var flashes = 0
 
         let task = ReadThroughVerbs.start(
-            docId: docId, store: store, documentStore: documents,
+            docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
             backups: BackupCoordinator(), flash: { flashes += 1 },
             now: started, record: { steps.append($0) })
         XCTAssertTrue(ReadThrough.isOn(docId, in: store.pieceIds),
@@ -109,10 +109,10 @@ final class ReadThroughVerbsTests: XCTestCase {
     /// A piece already in read-through takes no second checkpoint.
     func test_aSecondStartTakesNoSecondCheckpoint() async throws {
         let (documents, store, document) = try await window(.bookAuthor)
-        await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        await ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                      backups: BackupCoordinator(), flash: {})?.value
         let count = await checkpoints().count
-        XCTAssertNil(ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        XCTAssertNil(ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                             backups: BackupCoordinator(), flash: {}))
         let after = await checkpoints().count
         XCTAssertEqual(after, count)
@@ -125,7 +125,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         let (documents, store, _) = try await window(.reviewer, open: false)
         let before = await checkpoints().count
         var flashes = 0
-        await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        await ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                      backups: BackupCoordinator(), flash: { flashes += 1 })?.value
         XCTAssertTrue(ReadThrough.isOn(docId, in: store.pieceIds))
         XCTAssertFalse(store.hasCheckpoint(docId))
@@ -133,7 +133,9 @@ final class ReadThroughVerbsTests: XCTestCase {
         XCTAssertEqual(after, before, "the door wrote nothing")
         XCTAssertEqual(flashes, 0, "no flash over a version that was not saved")
         XCTAssertEqual(notices, [ReadThroughVerbs.unsavedCheckpointNotice(
-            why: PostureStandingLine.checkpointRefusal)])
+            why: PostureStandingLine.checkpointRefusal, offersSaveOne: false)],
+                       "a posture's refusal never points at Save one, which it would refuse again")
+        XCTAssertFalse(notices.first?.contains("Save one") == true)
     }
 
     /// The checkpoint file this Mac appends to, occupied by a folder so the
@@ -154,7 +156,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         let before = await checkpoints().count
         let broken = try breakTheCheckpointFile()
         var flashes = 0
-        await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        await ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                      backups: BackupCoordinator(), flash: { flashes += 1 },
                                      now: started)?.value
         XCTAssertTrue(ReadThrough.isOn(docId, in: store.pieceIds))
@@ -171,13 +173,14 @@ final class ReadThroughVerbsTests: XCTestCase {
                        "the line over the text now offers Save one")
         XCTAssertEqual(ReadThroughOffer.of(
             docId: docId, item: project.flatMap { TreeWalk.find(id: docId, in: $0.manifest.structure) },
-            posture: nil, shareIsReadOnly: false, isReadingTranslation: false,
+            posture: .author, shareIsReadOnly: false, isReadingTranslation: false,
+            isTextVisible: true,
             pieces: store.pieceIds, lackingCheckpoint: store.piecesLackingCheckpoint)?
             .saveCheckpointRequest, ReadThrough.Request(docId: docId, on: true),
             "Save one posts the Start that takes the missing checkpoint")
 
         try FileManager.default.removeItem(at: broken)
-        let retry = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        let retry = ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                            backups: BackupCoordinator(), flash: { flashes += 1 },
                                            now: started.addingTimeInterval(60))
         XCTAssertNotNil(retry, "Start on a piece in read-through with no checkpoint takes it")
@@ -189,7 +192,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         XCTAssertEqual(store.checkpoints[docId], saved.last?.checkpointId)
         XCTAssertEqual(store.pieces[docId], started, "the read-through keeps its first start")
         XCTAssertEqual(flashes, 1)
-        XCTAssertNil(ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        XCTAssertNil(ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                             backups: BackupCoordinator(), flash: {}),
                      "with its checkpoint, a further Start takes none")
         await document?.close()
@@ -206,7 +209,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         XCTAssertTrue(ReadThrough.isOn(docId, in: relaunched.pieceIds))
         XCTAssertFalse(relaunched.hasCheckpoint(docId))
         XCTAssertEqual(relaunched.piecesLackingCheckpoint, [docId], "the line offers Save one")
-        await ReadThroughVerbs.start(docId: docId, store: relaunched, documentStore: documents,
+        await ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: relaunched, documentStore: documents,
                                      backups: BackupCoordinator(), flash: {})?.value
         XCTAssertTrue(relaunched.hasCheckpoint(docId))
         let saved = await checkpoints()
@@ -218,9 +221,9 @@ final class ReadThroughVerbsTests: XCTestCase {
     func test_twoStartsAtOnceTakeOneCheckpoint() async throws {
         let (documents, store, document) = try await window(.bookAuthor)
         let before = await checkpoints().count
-        let a = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        let a = ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                        backups: BackupCoordinator(), flash: {})
-        let b = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        let b = ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                        backups: BackupCoordinator(), flash: {})
         XCTAssertNotNil(a)
         XCTAssertNil(b, "the first is still capturing")
@@ -302,7 +305,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         let (documents, store, document) = try await window(.bookAuthor)
         let doc = try XCTUnwrap(document)
         doc.setFullText("Hello.\n\nThe version under review.\n")
-        await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+        await ReadThroughVerbs.start(docId: docId, mayTakeCheckpoint: true, store: store, documentStore: documents,
                                      backups: BackupCoordinator(), flash: {},
                                      now: started)?.value
         let opsAtStart = try await doc.opLog()

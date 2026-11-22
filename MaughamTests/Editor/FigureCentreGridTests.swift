@@ -216,7 +216,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// collapses into a text step), and ⌘Z there takes it back.
     func test_theCentreMountsTheGrid_typesThroughTheKeyPath_andKeepsItsOwnStack() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let figureId = try XCTUnwrap(m.figure?.id)
@@ -259,7 +259,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// with the keys.
     func test_escWithNothingToCancelDoesNothing() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let b2 = cell(c, 2, 2)
@@ -281,7 +281,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// stack — and the next grid on the figure begins after the write.
     func test_leavingTheSubjectMidEditCommits_andReleasesTheFigure() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let figureId = c.figureId
@@ -309,7 +309,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// project's close.
     func test_closingTheWindowCommitsTheOpenEdit() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let a2 = cell(c, 1, 2)
@@ -328,7 +328,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// write, and the figure is free before the park.
     func test_reviewFocus1_aSendFromTheTreeFoldsTheCentreWithoutAWrite() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         var appended = 0
@@ -348,7 +348,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// without a write.
     func test_reviewFocus1_aParkElsewhereTurnsTheCentreReadOnly_andLeavingWritesNothing() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         _ = try await m.store.sendToResearch(figureId: c.figureId, scope: .shared)
@@ -371,7 +371,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// expand — it says the figure is being edited in another window and
     /// brings the centre's grid front with the keys.
     func test_reviewFocus2_theCentreHoldsIt_aCardInTheTextFocusesTheCentre() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
@@ -388,7 +388,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// the figure is being edited and brings that grid front; when the text
     /// folds it, the centre takes the figure, after that visit's writes.
     func test_reviewFocus2_theTextHoldsIt_theCentreFocusesTheTextsGrid_thenTakesItWhenLetGo() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
         let inPlace = try await opened(m)
@@ -423,7 +423,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     func test_aFigureWindowOpeningTakesTheFigureFromTheCentreBeforeItsGridOpens() async throws {
         let m = try await mount()
         let ds = try XCTUnwrap(m.store.documentStore)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let b2 = cell(c, 2, 2)
@@ -456,7 +456,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// nothing for ever: once the opening grace lapses, it takes the figure.
     func test_aWindowThatNeverComesGivesTheFigureBackToTheCentre() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let figureId = try XCTUnwrap(m.figure?.id)
         windows.handOff(figureId, .init(number: "—", caption: "", piece: nil, typography: .defaults))
         let centre = try centre(m, windows: windows)
@@ -472,7 +472,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// centre's visit too: its open edit is committed and `settle` awaits it.
     func test_closeAllEndsTheCentresVisitAndCommitsItsOpenEdit() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         let a3 = cell(c, 1, 3)
@@ -497,7 +497,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// it folded — the control is the tree's send test above.
     func test_aRefusedSendFromOutsideTheGridGivesTheCentreItsGridBack() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         struct Refused: Error {}
@@ -527,7 +527,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// send that lands leaves it folded (the tree's send test above).
     func test_aRefusedSendFromInsideTheGridGivesTheCentreItsGridBack() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         struct Refused: Error {}
@@ -559,7 +559,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// window's ⌘⌥⇧R flips an open grid; a view-only share is read-only.
     func test_theLockAndReadThroughAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let review = try centre(m, windows: windows, isLocked: true)
         let r = try await mounted(review)
         XCTAssertEqual(r.mode, .readOnly(.locked))
@@ -590,7 +590,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     func test_anotherPersonsPieceOpensReadOnly() async throws {
         let m = try await mount()
         try await samWritesTheChapter(m)
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         XCTAssertEqual(c.mode, .readOnly(.notYours))
@@ -611,7 +611,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     func test_formatTableReachesTheCentreGridWhileItHasTheKeysAndItsWindowIsKey() async throws {
         let m = try await mount()
         m.window.reportsKey = false
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         XCTAssertTrue(windows.focus(c.figureId))
@@ -636,7 +636,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     func test_formatTableWritesNothingWhileTheKeysAreInATextField() async throws {
         let m = try await mount()
         m.window.reportsKey = false
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows)
         let c = try await mounted(centre)
         XCTAssertTrue(windows.focus(c.figureId))
@@ -685,7 +685,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let figureId = try XCTUnwrap(m.figure?.id)
         XCTAssertEqual(listing.row(forFigureId: figureId)?.number, "Table 1", "premise: the book uses it")
 
-        let centre = try centre(m, windows: FigureWindows(), listing: listing)
+        let centre = try centre(m, windows: FigureWindows(isInReadThrough: { _ in false }), listing: listing)
         let c = try await mounted(centre)
         XCTAssertEqual(c.bars.numberLabel.stringValue, "Table 1")
         XCTAssertEqual(c.bars.captionField.stringValue, "Cash flow")
@@ -735,7 +735,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         XCTAssertNil(urls.url(of: outside, in: m.store.url), "a new path is resolved again")
         XCTAssertEqual(urls.resolutions, 2)
 
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let centre = try centre(m, windows: windows, figureId: record.id)
         let host = try XCTUnwrap(centre.window.contentView)
         let drawn = await RunLoopPump.until(deadline: 5) { host.fittingSize.height > 0 }
@@ -771,7 +771,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// next grid; the centre the travel mounts selects it at its mount, and
     /// the strip shows the note. Taken once.
     func test_travel_theCentreMountSelectsThePendingCell_andTheStripShowsItsNote() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, noteId) = try await noteOnC2(m)
 
@@ -790,7 +790,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// comes front with the keys and selects the cell; the reveal answers
     /// true, so the queue moves no subject, and nothing is left pending.
     func test_travel_aGridElsewhereIsFocusedAndSelects_withNoTravel() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, noteId) = try await noteOnC2(m)
         XCTAssertTrue(m.coordinator.expandFigureGrid(lineAt: location(m, "![Cash](")))
@@ -811,7 +811,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     /// The centre holding it is the grid that selects: focused, no travel.
     func test_travel_theCentreHoldingItSelectsAndTakesTheKeys() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, noteId) = try await noteOnC2(m)
         let centre = try centre(m, windows: windows)
@@ -826,7 +826,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// The in-place expansion takes a pending cell too; a reveal that will
     /// not travel (`pending: false`) leaves none.
     func test_travel_anInPlaceExpansionSelectsThePendingCell_andANonTravellingRevealLeavesNone() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, noteId) = try await noteOnC2(m)
 
@@ -861,7 +861,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// here its visit closes before the grid comes — so an unrelated
     /// expansion later selects nothing. No clock is involved.
     func test_travel_aStaleCellIsNeverSelectedByALaterGrid() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, _) = try await noteOnC2(m)
 
@@ -895,7 +895,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// load fails because the op log's folder cannot be listed (RULING-54:
     /// unreadable is never empty) — the figure is not open in the store yet.
     func test_travel_aFailedOpeningDropsTheCell() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (_, c2, _) = try await noteOnC2(m)
         let ds = try XCTUnwrap(m.store.documentStore)
@@ -920,7 +920,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// I2): the centre shows the figure's name and number (no table record),
     /// so no grid will ever take the cell.
     func test_travel_aSubjectWithNoGridDropsTheCell() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (_, c2, _) = try await noteOnC2(m)
         let gone = "fig-gone"
@@ -936,7 +936,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// no clock, so a grid that mounts long after the travel — past the two
     /// seconds the slot once lapsed after — still selects it.
     func test_travel_aSlowLoadStillSelectsTheCell() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, _) = try await noteOnC2(m)
 
@@ -952,7 +952,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// registration): focused, no travel; and a window's mount takes a
     /// pending cell as the centre's does.
     func test_travel_aFigureWindowHoldingItIsFocusedAndSelects_andItsMountTakesAPendingCell() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let ds = try XCTUnwrap(m.store.documentStore)
         let (figureId, c2, noteId) = try await noteOnC2(m)
@@ -984,7 +984,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// reveal still answers true (no travel), nothing moves, and the writer
     /// reads why.
     func test_travel_aCellTheGridCannotSelectIsSaid() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, _) = try await noteOnC2(m)
         let centre = try centre(m, windows: windows)
@@ -1004,7 +1004,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
     /// is on a live cell, and its press selects there with nothing left
     /// pending — it travels nowhere.
     func test_travel_theInspectorsNoteLineLeadsToItsCell_andLeavesNothingPending() async throws {
-        let windows = FigureWindows()
+        let windows = FigureWindows(isInReadThrough: { _ in false })
         let m = try await mount(windows: windows)
         let (figureId, c2, noteId) = try await noteOnC2(m)
         let ds = try XCTUnwrap(m.store.documentStore)

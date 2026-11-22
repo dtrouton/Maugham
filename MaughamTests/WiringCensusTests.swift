@@ -525,7 +525,7 @@ final class WiringCensusTests: XCTestCase {
         Entry(window, .anyOrder, ["detailResizeHandle(documentStore: documentStore)"],
               why: "a fixed column's own divider is inert: without its handle the writer's one width is one width forever"),
         Entry(window, .anyOrder,
-              ["IntentStrip.line(", "IntentDrift.mayTrailDraft(", "mayTrailDraft: intentStripMayTrailDraft",
+              ["IntentStrip.line(", "IntentDrift.mayTrailDraft(", "intentMayTrailDraft: intentStripMayTrailDraft",
                "lastRun(docId:"],
               why: "the strip's line is the one resolver's, and its draft mark comes from the one decision fed the standing run"),
 

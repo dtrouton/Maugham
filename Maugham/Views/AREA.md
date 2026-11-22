@@ -17,7 +17,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
-- `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), `ReadThroughVerbs`, the receiver, ⌘⌥⇧R, `ReadThroughLine`, `ReadThroughMark`.
+- `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), `ReadThroughVerbs`, the receiver, `ReadThroughLine`, `ReadThroughMark`.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
@@ -36,7 +36,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `LockToggle.swift` — the window's Lock (`WindowLock`): toolbar padlock and ⌘⌥⇧L.
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
-- `IntentStrip.swift` — the writer's signature line above the prose.
+- `IntentStrip.swift`, `CentreTopLines.swift` — the signature line; the centre's top lines.
 - `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
 - `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner.

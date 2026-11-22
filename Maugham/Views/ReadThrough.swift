@@ -156,12 +156,17 @@ struct ReadThroughOffer: Equatable {
     /// In read-through with no checkpoint saved and none being taken
     /// (`ReadThroughStore.piecesLackingCheckpoint`).
     var lacksCheckpoint: Bool = false
+    /// **Save one is offered**: the checkpoint is missing AND a Start's
+    /// checkpoint could land here — the posture allows `.writeText` and the
+    /// share is writable. Elsewhere the line only says none was saved.
+    var offersSaveOne: Bool = false
 
     static let postureRefusal =
         "This Mac may not change this piece’s text, so there is nothing to start."
     static let shareRefusal =
         "This piece is shared with you to view, so there is nothing to start."
     static let translationRefusal = "Read Source to start a read-through."
+    static let hiddenTextRefusal = "Open the piece’s text to start a read-through."
 
     /// The View menu item's two titles.
     static let startTitle = "Start Read-through"
@@ -184,29 +189,42 @@ struct ReadThroughOffer: Equatable {
     /// The line's Save one: a Start for a piece already in read-through, which
     /// takes only the missing checkpoint (`ReadThroughVerbs.start`).
     var saveCheckpointRequest: ReadThrough.Request? {
-        isOn && lacksCheckpoint ? ReadThrough.Request(docId: docId, on: true) : nil
+        isOn && offersSaveOne ? ReadThrough.Request(docId: docId, on: true) : nil
+    }
+
+    /// **Whether a Start's checkpoint could land**: the posture allows
+    /// `.writeText` and the share is writable — the checkpoint door's own
+    /// refusals (`CheckpointFlashDecision.labelledCapture`).
+    static func mayTakeCheckpoint(posture: Posture?, shareIsReadOnly: Bool) -> Bool {
+        (posture?.allows(.writeText) ?? false) && !shareIsReadOnly
     }
 
     /// The offer for a piece in read-through: Resume is always enabled,
-    /// whatever the posture, the share or a translation.
-    static func on(docId: String, lacksCheckpoint: Bool) -> ReadThroughOffer {
+    /// whatever the posture, the share, a translation or the centre; Save one
+    /// only where `mayTakeCheckpoint`.
+    static func on(docId: String, lacksCheckpoint: Bool,
+                   mayTakeCheckpoint: Bool) -> ReadThroughOffer {
         ReadThroughOffer(docId: docId, isOn: true, isEnabled: true, reason: nil,
-                         lacksCheckpoint: lacksCheckpoint)
+                         lacksCheckpoint: lacksCheckpoint,
+                         offersSaveOne: lacksCheckpoint && mayTakeCheckpoint)
     }
 
     /// nil where no manuscript piece is open. **Resume** is always enabled
     /// while the piece is in read-through; **Start** only where the posture
     /// (the drawing one the window already shows) `allows(.writeText)`, the
-    /// share is writable and no translation is being read.
+    /// share is writable, no translation is being read, and the piece's text
+    /// is what the centre shows (`isTextVisible`) — a writer never enters a
+    /// state whose line she cannot see.
     @MainActor
     static func of(docId: String?, item: StructureItem?, posture: Posture?,
-                   shareIsReadOnly: Bool, isReadingTranslation: Bool,
-                   pieces: Set<String>,
-                   lackingCheckpoint: Set<String> = []) -> ReadThroughOffer? {
+                   shareIsReadOnly: Bool, isReadingTranslation: Bool, isTextVisible: Bool,
+                   pieces: Set<String>, lackingCheckpoint: Set<String>) -> ReadThroughOffer? {
         guard let docId, let item, item.id == docId,
               EditorHost.loadsAsAManuscript(item) else { return nil }
         if ReadThrough.isOn(docId, in: pieces) {
-            return .on(docId: docId, lacksCheckpoint: lackingCheckpoint.contains(docId))
+            return .on(docId: docId, lacksCheckpoint: lackingCheckpoint.contains(docId),
+                       mayTakeCheckpoint: mayTakeCheckpoint(posture: posture,
+                                                            shareIsReadOnly: shareIsReadOnly))
         }
         let reason: String?
         if !(posture?.allows(.writeText) ?? false) {
@@ -215,6 +233,8 @@ struct ReadThroughOffer: Equatable {
             reason = shareRefusal
         } else if isReadingTranslation {
             reason = translationRefusal
+        } else if !isTextVisible {
+            reason = hiddenTextRefusal
         } else {
             reason = nil
         }

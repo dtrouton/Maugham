@@ -61,7 +61,7 @@ final class ProjectSession {
         })
         self.figureWindows = windows
         // Every Start and Resume reaches the open figure windows' gates.
-        readThrough.onChange = { [weak windows] in windows?.readThroughChanged() }
+        readThrough.addChangeObserver { [weak windows] in windows?.readThroughChanged() }
     }
 
     /// Opens the project's stores at `url` — no service is configured and no

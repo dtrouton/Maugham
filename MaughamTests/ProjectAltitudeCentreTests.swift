@@ -648,7 +648,7 @@ final class ProjectAltitudeCentreTests: XCTestCase {
         let probe = WindowSubjectProbe(subject)
         let bookView = BookViewProbe(view)
         let life = EditorHostLifeCounter()
-        let figureWindows = FigureWindows()
+        let figureWindows = FigureWindows(isInReadThrough: { _ in false })
         // `EditorHost` reads `UserPreferences` out of the environment, and a
         // missing environment value is a trap in SwiftUI's own accessor rather
         // than a nil — the whole test process goes down. Its own defaults suite,

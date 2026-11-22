@@ -107,10 +107,15 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         XCTAssertTrue(gate.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
         let window = SourceScan.codeLines(
             of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
-        let start = try XCTUnwrap(window.firstIndex { $0.contains("private var mayInsertReportElement: Bool") })
+        // The route is gathered once per pass (`readThroughFacts`) and the
+        // Insert gate reads it from there.
+        let start = try XCTUnwrap(window.firstIndex { $0.contains("private var readThroughFacts: ReadThroughModifier.Facts") })
         let end = try XCTUnwrap(window[start...].firstIndex { $0.trimmingCharacters(in: .whitespaces) == "}" })
         XCTAssertTrue(window[start...end].joined().contains("centreItem: centreItem"),
                       "the gate's route sees the centre item")
+        let gateStart = try XCTUnwrap(window.firstIndex { $0.contains("private func mayInsertReportElement(") })
+        let gateEnd = try XCTUnwrap(window[gateStart...].firstIndex { $0.trimmingCharacters(in: .whitespaces) == "}" })
+        XCTAssertTrue(window[gateStart...gateEnd].joined().contains("route: facts.route"))
         let covered = try SourceTree.declaration(named: "func editorIsCovered(", under: "Maugham")
         XCTAssertTrue(covered.contains("ProjectWindow.manuscriptIsVisible(route: route)"))
         // ⌘Z under the centre item's cover (fix 3): the cover's arrival drops

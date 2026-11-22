@@ -44,11 +44,12 @@ final class ReadThroughSurfaceTests: XCTestCase {
     }
 
     private func offer(on: Bool = false, lacking: Bool = false, posture: Posture? = .author,
-                       share: Bool = false, translation: Bool = false) -> ReadThroughOffer? {
+                       share: Bool = false, translation: Bool = false,
+                       visible: Bool = true) -> ReadThroughOffer? {
         let item = chapter()
         return ReadThroughOffer.of(
             docId: item.id, item: item, posture: posture, shareIsReadOnly: share,
-            isReadingTranslation: translation,
+            isReadingTranslation: translation, isTextVisible: visible,
             pieces: on ? [item.id] : [], lackingCheckpoint: lacking ? [item.id] : [])
     }
 
@@ -66,48 +67,134 @@ final class ReadThroughSurfaceTests: XCTestCase {
         XCTAssertEqual(reading.resumeRequest, ReadThrough.Request(docId: "Chapter-1", on: false))
         XCTAssertNil(reading.saveCheckpointRequest, "its checkpoint was saved")
 
-        for refused in [offer(posture: .settling), offer(share: true), offer(translation: true)] {
+        for refused in [offer(posture: .settling), offer(share: true), offer(translation: true),
+                        offer(visible: false)] {
             let refused = try XCTUnwrap(refused)
             XCTAssertEqual(refused.menuTitle, "Start Read-through")
             XCTAssertNil(refused.toggleRequest, "a refused Start posts nothing: \(String(describing: refused.reason))")
         }
         XCTAssertEqual(offer(translation: true)?.reason, "Read Source to start a read-through.")
         XCTAssertNil(ReadThroughOffer.of(docId: nil, item: nil, posture: .author, shareIsReadOnly: false,
-                                         isReadingTranslation: false, pieces: []),
+                                         isReadingTranslation: false, isTextVisible: true,
+                                         pieces: [], lackingCheckpoint: []),
                      "no piece open: the item is disabled under its Start title")
     }
 
+    /// **You never enter a state you cannot see** (fix round M2): under an
+    /// altitude, a cover or any centre that hides the piece's text, Start is
+    /// refused with its reason; Resume stays wherever the piece is the open one.
+    func test_startNeedsThePiecesTextOnScreen_resumeDoesNot() throws {
+        let hidden = try XCTUnwrap(offer(visible: false))
+        XCTAssertFalse(hidden.isEnabled)
+        XCTAssertEqual(hidden.reason, ReadThroughOffer.hiddenTextRefusal)
+        let resume = try XCTUnwrap(offer(on: true, visible: false))
+        XCTAssertEqual(resume.toggleRequest, ReadThrough.Request(docId: "Chapter-1", on: false))
+
+        // The window's answer, from its route (`ProjectWindow.manuscriptIsVisible`).
+        let bare = facts(route: .editor(altitude: nil, cover: nil))
+        XCTAssertEqual(ReadThroughModifier.offer(bare)?.isEnabled, true)
+        for route: CentreRoute? in [.editor(altitude: .outline, cover: nil),
+                                    .editor(altitude: nil, cover: .notice(.neverCompiled)),
+                                    .canvas, nil] {
+            XCTAssertEqual(ReadThroughModifier.offer(facts(route: route))?.isEnabled, false,
+                           "Start under \(String(describing: route))")
+            XCTAssertEqual(ReadThroughModifier.offer(facts(route: route, on: true))?.isEnabled, true,
+                           "Resume under \(String(describing: route))")
+        }
+    }
+
+    /// **The window's offer, as the menu reads it** (fix round M5): built from
+    /// the facts the window gathers once — the item, the lacking set passed
+    /// through, nothing for a reference piece.
+    func test_theWindowsOfferIsBuiltFromItsFacts() throws {
+        let reading = try XCTUnwrap(ReadThroughModifier.offer(facts(on: true, lacking: true)))
+        XCTAssertTrue(reading.lacksCheckpoint)
+        XCTAssertNotNil(reading.saveCheckpointRequest)
+        let reference = StructureItem(id: "Chapter-1", title: "Linked", type: .document,
+                                      path: "pieces/ref/.maugham-link.json", pieceKind: .reference)
+        XCTAssertNil(ReadThroughModifier.offer(facts(item: reference)), "a reference piece is never offered")
+        XCTAssertNil(ReadThroughModifier.offer(facts(item: nil)), "no piece open")
+        let modifier = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ReadThroughModifier.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(modifier.contains(".focusedSceneValue(\\.readThroughOffer, Self.offer(facts))"),
+                      "the modifier publishes the window's offer")
+        let item = try SourceTree.declaration(named: "struct FocusedReadThroughItem", under: "Maugham")
+        XCTAssertTrue(item.contains("@FocusedValue(\\.readThroughOffer) private var offer"),
+                      "and the menu item reads it")
+        let window = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+            .joined(separator: "\n")
+        XCTAssertEqual(window.components(separatedBy: "let facts = readThroughFacts").count - 1, 1,
+                       "the window gathers its facts once per pass")
+        XCTAssertTrue(window.contains("facts: facts, treeState: treeState,"))
+    }
+
+    private func facts(item: StructureItem? = StructureItem(
+                           id: "Chapter-1", title: "Chapter One", type: .document,
+                           path: "manuscript/one.md"),
+                       route: CentreRoute? = .editor(altitude: nil, cover: nil),
+                       on: Bool = false, lacking: Bool = false,
+                       posture: Posture? = .author) -> ReadThroughModifier.Facts {
+        ReadThroughModifier.Facts(
+            docId: item?.id, item: item, posture: posture, shareIsReadOnly: false,
+            isReadingTranslation: false, route: route,
+            pieces: on ? ["Chapter-1"] : [], lackingCheckpoint: lacking ? ["Chapter-1"] : [])
+    }
+
     /// **On, but no checkpoint was saved** (carry B): Resume stays, and Save one
-    /// posts the Start that takes the missing checkpoint — under a translation
-    /// or a refusing posture too, since Resume is always the writer's.
-    func test_aPieceWithoutItsCheckpointOffersSaveOneBesideResume() throws {
+    /// posts the Start that takes the missing checkpoint — but only where that
+    /// checkpoint could land (fix round I1). Under a refusing posture or a
+    /// view-only share the line says none was saved and offers no button, and
+    /// the notice names none.
+    func test_saveOneIsOfferedOnlyWhereTheCheckpointCanLand() throws {
         for lacking in [offer(on: true, lacking: true),
-                        offer(on: true, lacking: true, posture: .settling, translation: true)] {
+                        offer(on: true, lacking: true, translation: true, visible: false)] {
             let lacking = try XCTUnwrap(lacking)
             XCTAssertTrue(lacking.lacksCheckpoint)
             XCTAssertEqual(lacking.menuTitle, "Resume Writing")
             XCTAssertEqual(lacking.saveCheckpointRequest, ReadThrough.Request(docId: "Chapter-1", on: true))
             XCTAssertEqual(lacking.resumeRequest, ReadThrough.Request(docId: "Chapter-1", on: false))
         }
+        for refused in [offer(on: true, lacking: true, posture: .settling),
+                        offer(on: true, lacking: true, posture: nil),
+                        offer(on: true, lacking: true, share: true)] {
+            let refused = try XCTUnwrap(refused)
+            XCTAssertTrue(refused.lacksCheckpoint, "the line still says none was saved")
+            XCTAssertNil(refused.saveCheckpointRequest, "but offers no Save one that would be refused")
+            XCTAssertEqual(refused.resumeRequest, ReadThrough.Request(docId: "Chapter-1", on: false))
+        }
         XCTAssertEqual(ReadThroughLine.fullText(lacksCheckpoint: true),
                        "In read-through · no checkpoint was saved")
         XCTAssertEqual(ReadThroughLine.saveTitle, "Save one")
-        XCTAssertTrue(ReadThroughVerbs.unsavedCheckpointNotice(why: "it failed.")
-            .hasSuffix("Press Save one over the text to save it."),
+        XCTAssertTrue(ReadThroughVerbs.unsavedCheckpointNotice(why: "it failed.", offersSaveOne: true)
+            .hasSuffix("it failed. Press Save one over the text to save it."),
                       "the notice names the button that exists")
+        XCTAssertEqual(ReadThroughVerbs.unsavedCheckpointNotice(why: "it failed.", offersSaveOne: false),
+                       "Read-through is on, but no checkpoint was saved — it failed.",
+                       "and names none where none is drawn")
     }
 
     /// **The line the editor draws, from the control**: only for its own
-    /// document in read-through, never over a translation.
+    /// document in read-through, never over a translation; Save one only
+    /// where the control's posture and share let a checkpoint land.
     func test_theControlDrawsTheLineForItsOwnPieceOnly() {
         let control = EditorControl()
+        control.posture = .author
         XCTAssertNil(control.readThroughLineOffer(docId: "Chapter-1"))
         control.readThroughDocIds = ["Chapter-1"]
         XCTAssertEqual(control.readThroughLineOffer(docId: "Chapter-1"),
-                       .on(docId: "Chapter-1", lacksCheckpoint: false))
+                       .on(docId: "Chapter-1", lacksCheckpoint: false, mayTakeCheckpoint: true))
         XCTAssertNil(control.readThroughLineOffer(docId: "Chapter-2"), "another piece draws none")
         control.readThroughLackingCheckpoint = ["Chapter-1"]
+        XCTAssertNotNil(control.readThroughLineOffer(docId: "Chapter-1")?.saveCheckpointRequest)
+        control.shareIsReadOnly = true
+        XCTAssertNil(control.readThroughLineOffer(docId: "Chapter-1")?.saveCheckpointRequest,
+                     "a view-only share: no Save one")
+        control.shareIsReadOnly = false
+        control.posture = .settling
         XCTAssertEqual(control.readThroughLineOffer(docId: "Chapter-1")?.lacksCheckpoint, true)
+        XCTAssertNil(control.readThroughLineOffer(docId: "Chapter-1")?.saveCheckpointRequest,
+                     "a posture that may not write: no Save one")
+        control.posture = .author
         control.translationLanguage = "sr"
         XCTAssertNil(control.readThroughLineOffer(docId: "Chapter-1"),
                      "over a translation the language's line stands, never both")
@@ -271,26 +358,42 @@ final class ReadThroughSurfaceTests: XCTestCase {
 
     /// **The key window's receiver starts and resumes**, and a window that is
     /// not key does neither. The post is read synchronously: Start's state
-    /// lands in the same turn (`ReadThroughStore.begin`).
+    /// lands in the same turn (`ReadThroughStore.begin`), and each Start that
+    /// runs says its one notice — so one notice is one receiver (fix round M5).
     func test_theKeyWindowsReceiverStartsAndResumes() async throws {
         let (store, ds) = try await novel()
-        let docId = try XCTUnwrap(store.manifest.structure.first { $0.type == .document }?.id)
+        let item = try XCTUnwrap(store.manifest.structure.first { $0.type == .document })
+        let docId = item.id
         // No project behind the document store: Start lands its state, then
         // says no checkpoint was saved — no capture task outlives the test.
         ds.projectStore = nil
+        final class Heard { var notices: [String] = [] }
+        let heard = Heard()
+        let projectId = ProjectIdentifier.id(for: ds.projectURL)
+        let token = MaughamEvent.observe(
+            .maughamDocumentNotice,
+            context: { EventReceiverContext(kind: .project(id: projectId), isWindowLive: true, isWindowKey: false) },
+            handler: { note in
+                if let message = note.userInfo?[MaughamEvent.noticeMessageKey] as? String {
+                    heard.notices.append(message)
+                }
+            })
+        defer { NotificationCenter.default.removeObserver(token) }
         let readThrough = ReadThroughStore(projectRoot: store.url,
                                            device: DeviceSlug.make(from: "surface-test"))
         let treeState = BinderTreeSectionsState()
-        let key = mountReceiver(KeyTestWindow.self, readThrough: readThrough, store: store,
+        let key = mountReceiver(readThrough: readThrough, store: store, item: item,
                                 documentStore: ds, treeState: treeState)
-        let other = mountReceiver(KeyTestWindow.self, readThrough: readThrough, store: store,
+        let other = mountReceiver(readThrough: readThrough, store: store, item: item,
                                   documentStore: ds, treeState: BinderTreeSectionsState())
         other.reportsKey = false
         pump(0.2)
-        _ = key
 
         ReadThrough.post(.init(docId: docId, on: true))
-        XCTAssertEqual(readThrough.pieceIds, [docId], "the key window started it, once")
+        XCTAssertEqual(readThrough.pieceIds, [docId], "the key window started it")
+        XCTAssertEqual(heard.notices.count, 1, "one Start ran, not two: \(heard.notices)")
+        XCTAssertEqual(heard.notices.first, ReadThroughVerbs.unsavedCheckpointNotice(
+            why: "the project isn’t open.", offersSaveOne: false))
         pump(0.2)
         XCTAssertEqual(treeState.readThrough, [docId], "the tree's lock follows the store")
 
@@ -300,6 +403,7 @@ final class ReadThroughSurfaceTests: XCTestCase {
         key.reportsKey = false
         ReadThrough.post(.init(docId: docId, on: true))
         XCTAssertEqual(readThrough.pieceIds, [], "no key window: nothing acts")
+        XCTAssertEqual(heard.notices.count, 1)
     }
 
     // MARK: - The line, mounted
@@ -307,7 +411,7 @@ final class ReadThroughSurfaceTests: XCTestCase {
     /// **Three widths**: the whole line, the lead, the lead cut short — and
     /// the Resume writing button whole at the trailing edge in each.
     func test_theLineShortensAndTheButtonStays() throws {
-        let offer = ReadThroughOffer.on(docId: "Chapter-1", lacksCheckpoint: false)
+        let offer = ReadThroughOffer.on(docId: "Chapter-1", lacksCheckpoint: false, mayTakeCheckpoint: true)
         let callout = NSFont.preferredFont(forTextStyle: .callout)
         func width(_ s: String) -> CGFloat {
             (s as NSString).size(withAttributes: [.font: callout]).width
@@ -363,7 +467,7 @@ final class ReadThroughSurfaceTests: XCTestCase {
         pump(0.3)
         let reading = try editor()
         let own = NSHostingView(rootView: ReadThroughLine(
-            offer: .on(docId: fixture.documentItemId, lacksCheckpoint: false))).fittingSize.height
+            offer: .on(docId: fixture.documentItemId, lacksCheckpoint: false, mayTakeCheckpoint: true))).fittingSize.height
         XCTAssertGreaterThan(own, 10)
         XCTAssertLessThan(own, 60, "one line of callout text and its padding")
         XCTAssertEqual(reading.top - writing.top, own, accuracy: 1.5,
@@ -421,6 +525,89 @@ final class ReadThroughSurfaceTests: XCTestCase {
         XCTAssertEqual(after, before, "the Part's row is untouched")
     }
 
+    /// **A chapter inside an expanded Part carries its own lock** (fix round
+    /// M5), between its title and its presence dot.
+    func test_aChapterInsideAnOpenPartCarriesTheLock() async throws {
+        let (store, _) = try await novel()
+        let part = try await store.addStructureItem(parentId: nil, title: "Part One", kind: .group)
+        let chapter = try XCTUnwrap(store.manifest.structure.first { $0.type == .document })
+        try await store.moveStructureItem(id: chapter.id, toParentId: part.id, atIndex: 0)
+        let state = BinderTreeSectionsState()
+        state.expandedStructureGroups.insert(part.id)
+        let window = try await mountTree(AnyView(SurfaceBinderProbe(store: store, treeState: state)))
+        try assertTheLock(on: chapter.id, in: window, state: state)
+    }
+
+    // MARK: - The lines over the centre, stacked (fix round M7)
+
+    /// **Every line the window can stand over the text with read-through's**
+    /// — the intent strip, the posture's standing line, the view-only notice,
+    /// stood as `ProjectWindow.contentColumn` stands them (`CentreTopLines`)
+    /// over the real `EditorHost` — moves the editor down by at least its own
+    /// height and by no more than a gap: no two lines overlap, and the text
+    /// starts right under the last.
+    func test_theLinesOverTheCentreStackWithoutOverlap() async throws {
+        let fixture = try await StatementMountFixture.novel(named: "Stack")
+        addTeardownBlock { await fixture.closeAndTearDown() }
+        let control = EditorControl()
+        let lines = CentreLinesProbe()
+        let window = await fixture.hostTheManuscriptEditor(control: control, lines: lines)
+        let content = try XCTUnwrap(window.contentView)
+        func editorTop() throws -> CGFloat {
+            let scroll = try XCTUnwrap(fixture.firstTextView(in: window)?.enclosingScrollView)
+            let rect = scroll.convert(scroll.bounds, to: content)
+            return content.isFlipped ? rect.minY : content.bounds.height - rect.maxY
+        }
+        func own(_ view: some View) -> CGFloat {
+            NSHostingView(rootView: view.frame(width: 700)).fittingSize.height
+        }
+        let standing = PostureStandingLine.Line(kind: .reviewer, docId: fixture.documentItemId)
+        let steps: [(name: String, height: CGFloat, add: () -> Void)] = [
+            ("read-through's line",
+             own(ReadThroughLine(offer: .on(docId: fixture.documentItemId, lacksCheckpoint: false,
+                                            mayTakeCheckpoint: true))),
+             { control.readThroughDocIds = [fixture.documentItemId] }),
+            ("the intent strip",
+             own(IntentStrip(line: "A book about tides.", mayTrailDraft: false)),
+             { lines.intentLine = "A book about tides." }),
+            ("the posture's standing line",
+             own(PostureStandingLineView(line: standing, documentStore: fixture.documentStore)),
+             { lines.standingLine = standing }),
+            ("the view-only notice", own(ViewOnlyShareNotice()), { lines.shareIsReadOnly = true }),
+        ]
+        var top = try editorTop()
+        for step in steps {
+            step.add()
+            pump(0.3)
+            let next = try editorTop()
+            XCTAssertGreaterThan(step.height, 8, "premise: \(step.name) draws")
+            XCTAssertGreaterThanOrEqual(next - top, step.height - 1,
+                                        "\(step.name) overlaps what stands under it")
+            XCTAssertLessThanOrEqual(next - top, step.height + 12,
+                                     "\(step.name) takes more than its own height")
+            top = next
+        }
+    }
+
+    // MARK: - The store's subscribers (fix round M8)
+
+    /// Two subscribers both hear each change; no second one replaces the first.
+    func test_everyChangeObserverHearsEachChange() {
+        let store = ReadThroughStore(projectRoot: temp.url, device: DeviceSlug.make(from: "surface-test"))
+        final class Count { var a = 0, b = 0 }
+        let count = Count()
+        store.addChangeObserver { count.a += 1 }
+        store.addChangeObserver { count.b += 1 }
+        store.begin("ch-1", at: Date())
+        store.end("ch-1")
+        store.begin("ch-2", at: Date())
+        store.prune(keeping: [])
+        XCTAssertEqual(count.a, 4)
+        XCTAssertEqual(count.b, 4)
+        store.end("absent")
+        XCTAssertEqual(count.a, 4, "a change that changes nothing tells nobody")
+    }
+
     // MARK: - Helpers
 
     private func assertTheLock(on id: String, in window: NSWindow, state: BinderTreeSectionsState,
@@ -476,15 +663,14 @@ final class ReadThroughSurfaceTests: XCTestCase {
         return window
     }
 
-    private func mountReceiver(_ type: KeyTestWindow.Type, readThrough: ReadThroughStore,
-                               store: ProjectStore, documentStore: DocumentStore,
+    private func mountReceiver(readThrough: ReadThroughStore, store: ProjectStore, item: StructureItem,
+                               documentStore: DocumentStore,
                                treeState: BinderTreeSectionsState) -> KeyTestWindow {
         let window = TestWindow.make(KeyTestWindow.self,
                                      contentRect: CGRect(x: 0, y: 0, width: 200, height: 100))
-        window.contentView = NSHostingView(rootView: Color.clear
-            .modifier(ReadThroughModifier(
-                readThrough: readThrough, store: store, documentStore: documentStore,
-                window: window, treeState: treeState, onSaveFlash: {}))
+        window.contentView = NSHostingView(rootView: ReceiverProbe(
+            readThrough: readThrough, store: store, item: item, documentStore: documentStore,
+            window: window, treeState: treeState)
             .environment(BackupCoordinator()))
         windows.append(window)
         return window
@@ -599,5 +785,27 @@ private struct SurfaceScenesProbe: View {
         TreeHostFixture.scenes(store: store,
                                script: FountainTokenizer().parse("INT. KITCHEN - DAY\n\nLarry sits.\n"),
                                subject: $subject, treeState: treeState, onSelect: { _ in })
+    }
+}
+
+/// `ReadThroughModifier` with the facts the window gathers each pass, read
+/// here from the store the probe observes — as `ProjectWindow.body` does.
+@MainActor
+private struct ReceiverProbe: View {
+    let readThrough: ReadThroughStore
+    let store: ProjectStore
+    let item: StructureItem
+    let documentStore: DocumentStore
+    let window: NSWindow
+    let treeState: BinderTreeSectionsState
+
+    var body: some View {
+        Color.clear.modifier(ReadThroughModifier(
+            readThrough: readThrough, store: store, documentStore: documentStore, window: window,
+            facts: ReadThroughModifier.Facts(
+                docId: item.id, item: item, posture: .author, shareIsReadOnly: false,
+                isReadingTranslation: false, route: .editor(altitude: nil, cover: nil),
+                pieces: readThrough.pieceIds, lackingCheckpoint: readThrough.piecesLackingCheckpoint),
+            treeState: treeState, onSaveFlash: {}))
     }
 }

@@ -196,3 +196,21 @@ enum TreeHostFixture {
             .environment(\.windowCanvas, windowCanvas ?? CanvasModel())
     }
 }
+
+/// `CentreTopLines` as `ProjectWindow.contentColumn` applies it, over
+/// `content` — the lines the window stands over the centre column.
+@MainActor
+enum CentreTopLinesFixture {
+
+    static func lines(
+        over content: some View,
+        intentLine: String?, intentMayTrailDraft: Bool = false,
+        standingLine: PostureStandingLine.Line?, documentStore: DocumentStore,
+        shareIsReadOnly: Bool
+    ) -> some View {
+        content.modifier(CentreTopLines(
+            intentLine: intentLine, intentMayTrailDraft: intentMayTrailDraft,
+            standingLine: standingLine, documentStore: documentStore,
+            shareIsReadOnly: shareIsReadOnly))
+    }
+}

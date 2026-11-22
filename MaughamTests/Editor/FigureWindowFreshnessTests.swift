@@ -45,7 +45,7 @@ final class FigureWindowFreshnessTests: FigureGridMountedTestCase {
         let ds = try XCTUnwrap(m.store.documentStore)
         let grid = FigureWindowGrid()
         grids.append(grid)
-        grid.open(figureId: figureId, store: ds, projectStore: m.store, windows: FigureWindows(), close: {})
+        grid.open(figureId: figureId, store: ds, projectStore: m.store, windows: FigureWindows(isInReadThrough: { _ in false }), close: {})
         await grid.opening?.value
         return try XCTUnwrap(grid.controller, grid.container.message)
     }

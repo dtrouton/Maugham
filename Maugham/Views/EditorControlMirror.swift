@@ -87,7 +87,7 @@ struct EditorControlMirrorModifier: ViewModifier {
     /// The session's pieces in read-through (`ReadThroughStore.pieceIds`).
     let readThroughPieces: Set<String>
     /// Those whose checkpoint was not saved (`piecesLackingCheckpoint`).
-    var readThroughLackingCheckpoint: Set<String> = []
+    let readThroughLackingCheckpoint: Set<String>
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 

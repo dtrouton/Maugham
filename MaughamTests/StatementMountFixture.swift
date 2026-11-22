@@ -373,12 +373,16 @@ final class StatementMountFixture: RunLoopPumping {
         return window
     }
 
-    /// **The manuscript editor alone**, on `control` — the centre's
-    /// `EditorHost` with the arguments `TwoEditorProbeView` passes (each one
-    /// production's), so a test reads what stands over the text.
-    func hostTheManuscriptEditor(control: EditorControl) async -> NSWindow {
+    /// **The manuscript editor**, on `control` — the centre's `EditorHost`
+    /// with the arguments `TwoEditorProbeView` passes (each one production's),
+    /// under the window's own top lines as `ProjectWindow.contentColumn`
+    /// stands them (`CentreTopLinesFixture`), so a test reads what stands
+    /// over the text. The lines are held by `lines`, so a test can add them.
+    func hostTheManuscriptEditor(control: EditorControl,
+                                 lines: CentreLinesProbe? = nil) async -> NSWindow {
         await mount(AnyView(ManuscriptEditorProbeView(
-            store: store, documentStore: documentStore, itemId: documentItemId, control: control)
+            store: store, documentStore: documentStore, itemId: documentItemId,
+            control: control, lines: lines ?? CentreLinesProbe())
             .environment(preferences)))
     }
 
@@ -527,20 +531,35 @@ private struct TwoEditorProbeView: View {
     }
 }
 
-/// The manuscript editor alone, on a control the test holds.
+/// The window's lines over the centre, held outside the views so a test can
+/// stand them one at a time.
+@Observable
+@MainActor
+final class CentreLinesProbe {
+    var intentLine: String?
+    var standingLine: PostureStandingLine.Line?
+    var shareIsReadOnly = false
+    init() {}
+}
+
+/// The manuscript editor under the window's lines, on a control the test holds.
 @MainActor
 private struct ManuscriptEditorProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let itemId: String
     let control: EditorControl
+    let lines: CentreLinesProbe
 
     @State private var referenceIndex = ReferenceIndexHost()
 
     var body: some View {
-        EditorHost(
-            store: store, documentStore: documentStore,
-            selectedItemId: itemId, control: control, referenceIndex: referenceIndex)
+        CentreTopLinesFixture.lines(
+            over: EditorHost(
+                store: store, documentStore: documentStore,
+                selectedItemId: itemId, control: control, referenceIndex: referenceIndex),
+            intentLine: lines.intentLine, standingLine: lines.standingLine,
+            documentStore: documentStore, shareIsReadOnly: lines.shareIsReadOnly)
     }
 }
 
