@@ -415,24 +415,61 @@ final class PermitPartitionSignerTests: XCTestCase {
 
     // MARK: - Many notes, no seal (M-1)
 
-    /// A legacy-sized unsealed file with many notes is read in one pass: every
-    /// wanted line answers, and the answer is the same as for one.
+    /// A legacy-sized unsealed file with many notes is read in one pass:
+    /// every wanted line answers, and the lines visited are at most the
+    /// file's lines plus the wanted ones — a count, never a clock (fix
+    /// round 2), so a saturated gate cannot make it flake.
     func test_aLargeUnsealedFileReadsEveryNoteInOnePass() throws {
         let table = TrustResolution.keyless(mine: identities)
-        let lines = (0..<100_000).map { _ in
+        let lines = (0..<20_000).map { _ in
             OpLogChain.Line(bytes: Data("{}".utf8), kind: .op, state: .legacy)
         }
         let verification = OpLogChain.Verification(
             lines: lines, head: nil, legacyCount: lines.count, verifiedCount: 0,
             unsealedCount: 0, foreignSealCount: 0, quarantined: [], breakReason: nil)
-        let wanted = Array(stride(from: 0, to: 100_000, by: 10))
-        let started = Date()
+        let wanted = Array(stride(from: 0, to: 20_000, by: 10))
+        var visits = 0
         let read = PermitPartition.sealReadings(
-            of: verification, atLines: wanted, trust: table, deviceSlug: nil)
+            of: verification, atLines: wanted, trust: table, deviceSlug: nil,
+            settledBy: nil, visits: &visits)
         XCTAssertEqual(read.count, wanted.count)
         XCTAssertTrue(read.values.allSatisfy { $0 == .uncovered })
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0,
-                          "one backward pass, not a forward scan per note")
+        XCTAssertGreaterThan(visits, 0, "the premise: the counter counts")
+        XCTAssertLessThanOrEqual(visits, lines.count + wanted.count,
+                                 "one backward pass, not a forward scan per note")
+    }
+
+    /// **A settled segment whose `.sig` is gone is walked, not handed to its
+    /// stamps** (fix round 2, N-1). Its inner seals still cover its notes,
+    /// and a seal always wins: a human-stamped note the assistant's key
+    /// sealed is the assistant's, on a cold memory, as after a relaunch.
+    func test_aSettledSegmentWithItsSignatureGoneIsReadOffItsInnerSeals() async throws {
+        let store = store()
+        let filler = String(repeating: "x", count: 2_000)
+        for id in ["01GONE1", "01GONE2"] {
+            try await store.append(note(id, by: identities.assistant.deviceId, stamp: "human", body: filler))
+        }
+        _ = try await store.sealChain(docId: docId)
+        let rotated = try await store.sealTailIfNeeded(
+            docId: docId, deviceSlug: identities.assistant.slug, threshold: 1_000)
+        let segURL = try XCTUnwrap(rotated, "the premise: the tail rotated")
+        _ = try await readings(self.store())
+        let digest = try XCTUnwrap(
+            OpLogSegment.decodeVerifying(try Data(contentsOf: segURL)).digest)
+        XCTAssertTrue(state.isVerified(segmentDigest: digest),
+                      "the premise: it settles from memory from now on")
+
+        try FileManager.default.removeItem(at: OpLogStore.segmentSignatureURL(for: segURL))
+        OpLogClassifier.SettledSigners.shared.forgetForTesting()
+
+        let signers = LineSigners()
+        let loaded = try await self.store().loadDiagnosed(docId: docId, lineSigners: signers)
+        XCTAssertEqual(Set(loaded.ops.map(\.opId)), ["01GONE1", "01GONE2"],
+                       "the premise: still applied")
+        XCTAssertEqual(signers.reading(ofOp: "01GONE1"), .sealed(.assistant, ofThisWriter: true))
+        XCTAssertEqual(
+            NoteOwner.of(signers.reading(ofOp: "01GONE2"), stampedBy: human),
+            .verified(.assistant, ofThisWriter: true), "the stamp never beats a seal")
     }
 
     // MARK: - The recorder
@@ -496,6 +533,22 @@ final class PermitPartitionSignerTests: XCTestCase {
             Self.offences(in: code, path: path)
         }
         XCTAssertEqual(offenders, [])
+
+        // The population is real and the allowed callers still make each call:
+        // a census over a call nobody makes passes over anything.
+        let files = try Self.productionFiles()
+        for reader in Self.namedReaders {
+            XCTAssertTrue(
+                files.contains { $0.0.hasSuffix(reader.allowed) && $0.1.contains(reader.token) },
+                "\(reader.allowed) no longer makes `\(reader.token)`: the census reads nothing")
+        }
+        // And no other file reaches the readings unqualified, from inside an
+        // `extension PermitPartition`.
+        let unqualified = files.filter { path, code in
+            !path.hasSuffix("PermitPartition.swift")
+                && code.contains("extension PermitPartition") && code.contains("sealReading")
+        }.map(\.0)
+        XCTAssertEqual(unqualified, [])
 
         let planted = "let r = PermitPartition.sealReading(ofSealKey: k, sealedAt: d, trust: t, deviceSlug: nil)"
         XCTAssertFalse(Self.offences(in: planted, path: "Maugham/Views/Margin.swift").isEmpty,

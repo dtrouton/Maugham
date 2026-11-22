@@ -81,7 +81,7 @@ public enum OpLogClassifier {
     /// bytes, so the signature over it never changes, and a load or re-read
     /// must not re-read the `.sig` and re-run a P256 verify for it. Nil where
     /// no signature beside the segment names these bytes and holds together —
-    /// which reads as `.uncovered`: no seal to believe, none to disbelieve.
+    /// and then the segment is walked, so its inner seals are read (N-1).
     private nonisolated static func settledSigner(
         ofSegmentAt url: URL, digest: String
     ) -> (key: String, at: Date)? {
@@ -95,8 +95,9 @@ public enum OpLogClassifier {
     }
 
     /// `settledSigner`'s memory: digest → the verified signature's key and
-    /// date. `@unchecked Sendable` over one lock.
-    private final class SettledSigners: @unchecked Sendable {
+    /// date. `@unchecked Sendable` over one lock. Internal so a test can
+    /// start cold (`forgetForTesting`), as a relaunch does.
+    final class SettledSigners: @unchecked Sendable {
         static let shared = SettledSigners()
         private let lock = NSLock()
         private var byDigest: [String: (key: String, at: Date)] = [:]
@@ -105,6 +106,8 @@ public enum OpLogClassifier {
             get { lock.lock(); defer { lock.unlock() }; return byDigest[digest] }
             set { lock.lock(); defer { lock.unlock() }; byDigest[digest] = newValue }
         }
+
+        func forgetForTesting() { lock.lock(); defer { lock.unlock() }; byDigest = [:] }
     }
 
     struct FileClassification {
@@ -459,17 +462,26 @@ public enum OpLogClassifier {
         // no memory at all.
         if settled, mayJudge, attributable == nil { settled = false }
 
+        // **What the seal over its notes says: the signature that settled
+        // it** (shell p5 Task 1). Every line is under that one signature, so
+        // the readings need no line matching for an unjudged segment; a
+        // segment the partition narrows is read from the narrowed walk below,
+        // so a line it holds records nothing (fix round 1, M-3).
+        //
+        // **No signature to read, and readings wanted: walk it** (fix round
+        // 2, N-1). A segment settled from MEMORY whose `.sig` has gone still
+        // carries its inner seals, and they cover its notes — so answering
+        // `.uncovered` would hand a sealed note to its stamp, and a seal
+        // always wins. The walk reads them, at the cost of a walk, paid only
+        // where a `.sig` is missing; the same trade `mayJudge` makes above.
         let wantsSigners = permit?.signers != nil
+        let signer = (wantsSigners && settled) ? digest.flatMap {
+            settledSigner(ofSegmentAt: url, digest: $0)
+        } : nil
+        if settled, wantsSigners, signer == nil { settled = false }
+
         let parsedAll = parseOps(jsonl, numberingCreations: wantsSigners && settled)
         if settled {
-            // **What the seal over its notes says: the signature that settled
-            // it** (shell p5 Task 1). Every line is under that one signature,
-            // so the readings need no line matching for an unjudged segment;
-            // a segment the partition narrows is read from the narrowed walk
-            // below, so a line it holds records nothing (fix round 1, M-3).
-            let signer = wantsSigners ? digest.flatMap {
-                settledSigner(ofSegmentAt: url, digest: $0)
-            } : nil
             // Per-line skips inside a segment only matter when the container
             // itself verified (otherwise the container record covers it) — and
             // a settled segment always verified.

@@ -733,6 +733,20 @@ public enum PermitPartition {
         trust: TrustTable, deviceSlug: String?,
         settledBy settled: (key: String, at: Date)? = nil
     ) -> [Int: SealReading] {
+        var visits = 0
+        return sealReadings(
+            of: verification, atLines: wanted, trust: trust, deviceSlug: deviceSlug,
+            settledBy: settled, visits: &visits)
+    }
+
+    /// `sealReadings`, counting the lines it visits — every step of the
+    /// backward pass and every wanted line — so a test can pin the cost by
+    /// count rather than by clock (fix round 2): at most `lines + wanted`.
+    static func sealReadings(
+        of verification: OpLogChain.Verification, atLines wanted: [Int],
+        trust: TrustTable, deviceSlug: String?,
+        settledBy settled: (key: String, at: Date)?, visits: inout Int
+    ) -> [Int: SealReading] {
         let lines = verification.lines
         let wanted = wanted.filter { lines.indices.contains($0) && isApplied(lines[$0]) }
         guard !wanted.isEmpty else { return [:] }
@@ -747,12 +761,14 @@ public enum PermitPartition {
         var coveringSeal = [Int?](repeating: nil, count: lines.count)
         var next: Int?
         for index in stride(from: lines.count - 1, through: first, by: -1) {
+            visits += 1
             coveringSeal[index] = next
             if lines[index].kind == .seal { next = index }
         }
         var readingOfSealAt: [Int: SealReading] = [:]
         var out: [Int: SealReading] = [:]
         for index in wanted {
+            visits += 1
             guard let sealIndex = coveringSeal[index] else {
                 out[index] = .uncovered
                 continue

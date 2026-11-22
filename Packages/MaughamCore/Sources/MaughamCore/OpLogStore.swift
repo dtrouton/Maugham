@@ -396,8 +396,9 @@ public final class OpLogStore {
     /// hands one over and reads it afterwards; everybody else passes nothing
     /// and nothing is recorded. See `AmendmentPermits`.
     ///
-    /// `lineSigners` is the same shape for shell p5 Task 1: which writer's key
-    /// sealed each annotation creation the load applied (`LineSigners`).
+    /// `lineSigners` is the same shape for shell p5 Task 1: what the seal over
+    /// each annotation creation the load applied says — sealed by which
+    /// writer, uncovered, or not ours (`SealReading`, `LineSigners`).
     public func loadDiagnosed(
         docId: String, amendmentPermits: AmendmentPermits? = nil,
         lineSigners: LineSigners? = nil
