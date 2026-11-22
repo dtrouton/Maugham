@@ -492,8 +492,12 @@ extension Document {
         // evaluated as of the line and never as of today, and the deriver has
         // no way to ask that question once the bytes are parsed.
         let amendmentPermits = AmendmentPermits()
+        // Shell p5 Task 1: and which writer's key sealed each note, read off
+        // the same walk (`LineSigners`).
+        let lineSigners = LineSigners()
         let loaded = try await opStore.loadDiagnosed(
-            docId: docId, amendmentPermits: amendmentPermits)
+            docId: docId, amendmentPermits: amendmentPermits,
+            lineSigners: lineSigners)
         var ops = loaded.ops
 
         // Forensics (audit 0.6 / Sweep 6): any op-log line that failed to decode
@@ -735,6 +739,7 @@ extension Document {
         // nobody has claimed — the one held line the writer can answer today.
         doc.startedAPiece = amendmentPermits.whoStartedAPiece
         doc.keptWritingInATakenPiece = amendmentPermits.whoKeptWritingInATakenPiece
+        doc.noteSignersReadOffSeals = lineSigners.resolved
         // **A diverged `.md` is re-rendered, not only snapshotted** (P3 plan
         // 3, carry C12, ruling C12-1's closed half). A trust change or a sync
         // that reached this piece while it was closed re-derived nothing on

@@ -84,16 +84,86 @@ public struct PermitContext: Sendable {
     /// inbox) has nothing to answer, and §4.5 cannot reach such a stream.
     public let startedBy: @Sendable () -> String?
 
+    /// **Where the key that sealed each annotation creation is written down**
+    /// (shell p5 Task 1), or nil where no caller asked. The same carrier
+    /// shape, and the same reason, as `amendments`: a fact about one line,
+    /// read where the walk's seals and the parsed op are both in hand, and
+    /// needed by the editor long after the bytes are gone.
+    public let signers: LineSigners?
+
     public init(
         documentClass: @escaping @Sendable () -> DocumentClass,
         unowned: @escaping @Sendable () -> PermitPartition.UnownedPiece,
         amendments: AmendmentPermits? = nil,
-        startedBy: @escaping @Sendable () -> String? = { nil }
+        startedBy: @escaping @Sendable () -> String? = { nil },
+        signers: LineSigners? = nil
     ) {
         self.documentClass = documentClass
         self.unowned = unowned
         self.amendments = amendments
         self.startedBy = startedBy
+        self.signers = signers
+    }
+}
+
+/// **Which of the four writers sealed each annotation creation a load
+/// applied** (shell p5 Task 1) — the margin's *My Notes* asks it, and it is
+/// the one honest answer to *whose note is this*: the provenance stamp
+/// (`AnnotationAuthor.sourceKind`) is a field any writer of a line may set.
+///
+/// **Read, never guessed.** A creation is recorded only where a seal this
+/// device stands behind (`.mine`, `.admitted`) COVERS its line, or a settled
+/// segment's signature does, and the actor is named through the partition's
+/// own reading (`PermitPartition.signingActor(ofSealKey:trust:deviceSlug:)`).
+/// So an unsealed line, an unsigned file, a stranger's, a revoked or retired
+/// key's, an unrecorded key's, and a key whose actor nothing names all answer
+/// nil — and **nil is never a person**: no caller falls back to the stamp,
+/// the display name or the file name.
+///
+/// It records ACTORS read off the one trust table, never verdicts (tripwire
+/// 39: no parallel trust table). Filled per file by `OpLogClassifier`,
+/// where each applied op is matched to the line it was parsed from; read
+/// once by the load. `@unchecked Sendable` over one lock, `AmendmentPermits`'
+/// own shape.
+public final class LineSigners: @unchecked Sendable {
+    private let lock = NSLock()
+    private var byOpId: [String: DeviceActor] = [:]
+    private var contested: Set<String> = []
+
+    public init() {}
+
+    /// Record that `actor`'s key sealed the line carrying `opId`.
+    ///
+    /// **Two copies sealed by two different writers name nobody.** One op id
+    /// can sit in two files (ADR 0012's legacy-plus-per-device case); where
+    /// both are sealed by the same writer that is the answer, and where they
+    /// disagree there is no fact to choose between them, so the op is
+    /// contested and answers nil for good — whichever file was listed first.
+    func record(_ opId: String, _ actor: DeviceActor) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !contested.contains(opId) else { return }
+        if let standing = byOpId[opId], standing != actor {
+            byOpId[opId] = nil
+            contested.insert(opId)
+            return
+        }
+        byOpId[opId] = actor
+    }
+
+    /// The writer whose key sealed this op's line, or nil where no seal this
+    /// device stands behind covers it.
+    public func actor(ofOp opId: String) -> DeviceActor? {
+        lock.lock()
+        defer { lock.unlock() }
+        return byOpId[opId]
+    }
+
+    /// Everything gathered, across every file of the document.
+    public var resolved: [String: DeviceActor] {
+        lock.lock()
+        defer { lock.unlock() }
+        return byOpId
     }
 }
 
@@ -516,7 +586,8 @@ extension OpLogStore {
     nonisolated public static func permitContext(
         forDocId docId: String, in projectURL: URL, trust: TrustTable?,
         facts: DocumentClass.Facts? = nil,
-        amendments: AmendmentPermits? = nil
+        amendments: AmendmentPermits? = nil,
+        signers: LineSigners? = nil
     ) -> PermitContext {
         // One memo each, so a document spread over four actor files resolves
         // its class once and answers §4.5 once (fix round 1, I1 / minor (d)).
@@ -558,7 +629,8 @@ extension OpLogStore {
                 }
             },
             amendments: amendments,
-            startedBy: { placement.startedBy(ofPiece: startersPiece()) })
+            startedBy: { placement.startedBy(ofPiece: startersPiece()) },
+            signers: signers)
     }
 }
 

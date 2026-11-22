@@ -212,6 +212,12 @@ extension Document {
                 compilerFingerprint: compilerFingerprint,
                 compilerLessonHeading: compilerLessonHeading))
         try await opStore.append(op)
+        // Shell p5 Task 1: the stream this went to is the key that will seal
+        // it — the same lookup `OpLogStore.append` signs by — so its signer is
+        // known now, before that seal. A key that cannot sign never seals.
+        if let writer = opStore.identities.identity(forDeviceId: op.device), writer.canSign {
+            noteSignersAppendedHere[op.opId] = writer.actor
+        }
         appendToMirror(op)
         _hasAnyAnnotationOps = true
         invalidateAnnotationsCache()

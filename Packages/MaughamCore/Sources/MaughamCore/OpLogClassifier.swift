@@ -24,9 +24,56 @@ public enum OpLogClassifier {
     /// document is made of. Only the coordinated one performs the side effects.
     /// A file's ops: deduplicated and sorted by id, as every reader takes
     /// them, with the order the file held them in (`appendOrder`).
-    nonisolated static func parseOps(_ bytes: Data) -> (elements: [Op], diagnostics: ParseDiagnostics, order: [String]) {
-        let parsed = JSONLAppendStore<Op>.parse(bytes: bytes, dedupKey: { $0.opId })
-        return (parsed.elements.sorted { $0.opId < $1.opId }, parsed.diagnostics, parsed.elements.map(\.opId))
+    ///
+    /// `numberingCreations` also answers each annotation CREATION with the
+    /// number of the line it was parsed from (among the non-empty lines of
+    /// `bytes`, as `JSONLAppendStore.parse` counts them) — what `LineSigners`
+    /// needs to match an op to the seal over it. Off, it costs nothing.
+    nonisolated static func parseOps(
+        _ bytes: Data, numberingCreations: Bool = false
+    ) -> (elements: [Op], diagnostics: ParseDiagnostics, order: [String],
+          creations: [(line: Int, opId: String)]) {
+        var creations: [(line: Int, opId: String)] = []
+        let parsed = JSONLAppendStore<Op>.parse(
+            bytes: bytes, dedupKey: { $0.opId },
+            onElement: numberingCreations ? { line, op in
+                if AnnotationKind.fromOpKind(op.kind) != nil {
+                    creations.append((line, op.opId))
+                }
+            } : nil)
+        return (parsed.elements.sorted { $0.opId < $1.opId }, parsed.diagnostics,
+                parsed.elements.map(\.opId), creations)
+    }
+
+    /// **Who sealed each annotation creation this file applied** (shell p5
+    /// Task 1), written into the load's `LineSigners`.
+    ///
+    /// `creations` are numbered among the lines of the bytes that were
+    /// PARSED — `JSONLAppendStore.applied`, which is the walk's lines minus
+    /// the held-back ones, in order — so the n-th of those is the walk line
+    /// the op came from. The reading itself is the partition's
+    /// (`PermitPartition.signers`); nothing here decides whose a key is.
+    private nonisolated static func recordingSigners(
+        of creations: [(line: Int, opId: String)],
+        in verification: OpLogChain.Verification,
+        url: URL, trust: TrustTable?, permit: PermitContext?,
+        settledByKey: String? = nil
+    ) {
+        guard let signers = permit?.signers, let trust, !creations.isEmpty else { return }
+        let parsedLines = verification.lines.indices.filter {
+            !verification.lines[$0].state.isHeldBack
+        }
+        var opIdAt: [Int: String] = [:]
+        for creation in creations where creation.line < parsedLines.count {
+            opIdAt[parsedLines[creation.line]] = creation.opId
+        }
+        let actors = PermitPartition.signers(
+            of: verification, atLines: Array(opIdAt.keys), trust: trust,
+            deviceSlug: PermitMark.stream(of: url)?.deviceSlug,
+            settledByKey: settledByKey)
+        for (index, opId) in opIdAt {
+            if let actor = actors[index] { signers.record(opId, actor) }
+        }
     }
 
     struct FileClassification {
@@ -224,7 +271,11 @@ public enum OpLogClassifier {
         let settled = partitioningByPermit(
             readmitted, url: url, trust: trust, permit: permit)
 
-        let parsed = parseOps(JSONLAppendStore<Op>.applied(settled, whole: bytes))
+        let parsed = parseOps(
+            JSONLAppendStore<Op>.applied(settled, whole: bytes),
+            numberingCreations: permit?.signers != nil)
+        recordingSigners(
+            of: parsed.creations, in: settled, url: url, trust: trust, permit: permit)
 
         return FileClassification(
             ops: parsed.elements,
@@ -377,8 +428,26 @@ public enum OpLogClassifier {
         // no memory at all.
         if settled, mayJudge, attributable == nil { settled = false }
 
-        let parsedAll = parseOps(jsonl)
+        let wantsSigners = permit?.signers != nil
+        let parsedAll = parseOps(jsonl, numberingCreations: wantsSigners && settled)
         if settled {
+            // **Who sealed its notes: the key that settled it** (shell p5
+            // Task 1). Every line of a settled segment is under the one
+            // signature, so its creations need no line matching — only the
+            // key, from the partition's own read where it ran, else from the
+            // `.sig` beside it (a segment settled from MEMORY carries none),
+            // and only where that signature still names these bytes.
+            if wantsSigners, let trust, let signers = permit?.signers,
+               !parsedAll.creations.isEmpty,
+               let key = attributable?.key ?? digest.flatMap({ digest in
+                   SegmentSignature.read(at: OpLogStore.segmentSignatureURL(for: url))
+                       .flatMap { $0.digest == digest && $0.verifies() ? $0.key : nil }
+               }),
+               let actor = PermitPartition.signingActor(
+                   ofSealKey: key, trust: trust,
+                   deviceSlug: PermitMark.stream(of: url)?.deviceSlug) {
+                for creation in parsedAll.creations { signers.record(creation.opId, actor) }
+            }
             // Per-line skips inside a segment only matter when the container
             // itself verified (otherwise the container record covers it) — and
             // a settled segment always verified.
@@ -466,7 +535,11 @@ public enum OpLogClassifier {
         let verification = partitioningByPermit(
             readmitted, url: url, trust: trust, permit: permit,
             fileSegmentDigest: digest)
-        let read = parseOps(JSONLAppendStore<Op>.applied(verification, whole: jsonl))
+        let read = parseOps(
+            JSONLAppendStore<Op>.applied(verification, whole: jsonl),
+            numberingCreations: wantsSigners)
+        recordingSigners(
+            of: read.creations, in: verification, url: url, trust: trust, permit: permit)
         if decoded.isVerified {
             skipped.append(contentsOf: read.diagnostics.skipped)
         }

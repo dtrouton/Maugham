@@ -243,6 +243,31 @@ public final class Document {
     /// the deriver did before P3a.
     internal var annotationAmendments: AnnotationAmendments = .honourEverything
 
+    /// **Which writer's key sealed each note's creation line** (shell p5
+    /// Task 1), as the last load or re-read read it off the seals
+    /// (`LineSigners`). Replaced whole by each read, never edited.
+    ///
+    /// Not observed: it changes only beside an annotations invalidation, which
+    /// is what a surface keys its redraw on.
+    @ObservationIgnored internal var noteSignersReadOffSeals: [String: DeviceActor] = [:]
+
+    /// The notes THIS Document appended, under the actor whose stream (and
+    /// key) each went to — first-hand, so a new note's signer is known before
+    /// the seal that will say so lands. Recorded only where that key can sign:
+    /// an unsigned device's line is never sealed, and a reload would then
+    /// answer nil for it, so it answers nil from the start.
+    @ObservationIgnored internal var noteSignersAppendedHere: [String: DeviceActor] = [:]
+
+    /// **The writer whose key sealed this note's creation**, or nil where it
+    /// is not known: an unsealed line from another Document, an unsigned
+    /// file, a stranger's, a revoked or retired key's, a key nothing names.
+    /// **Nil is never a person**: a caller must not fall back to the note's
+    /// stamped author, its display name or the file's name
+    /// (`DocumentNoteSignerTests.test_theMarginNeverReadsTheStamp`).
+    func noteSigner(_ annotationId: String) -> DeviceActor? {
+        noteSignersReadOffSeals[annotationId] ?? noteSignersAppendedHere[annotationId]
+    }
+
     /// **Whether this Document's pending file is this Document's to spend**
     /// (P3a Task 8).
     ///

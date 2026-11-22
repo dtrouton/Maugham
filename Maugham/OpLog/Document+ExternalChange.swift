@@ -113,9 +113,16 @@ extension Document {
         // stop. Reassigned below only past the echo guard, so this Document's
         // own appends change nothing.
         let amendmentPermits = AmendmentPermits()
+        let lineSigners = LineSigners()
         let loaded = try await opStore.loadDiagnosed(
-            docId: docId, amendmentPermits: amendmentPermits)
+            docId: docId, amendmentPermits: amendmentPermits,
+            lineSigners: lineSigners)
         let ops = loaded.ops
+        // Shell p5 Task 1: taken BEFORE the echo guard, because this
+        // Document's own seal arriving is exactly an echo — the re-read that
+        // turns a note's first-hand signer into one read off its seal. It is
+        // not observed, so assigning it costs no redraw.
+        noteSignersReadOffSeals = lineSigners.resolved
         if provenance != loaded.provenance { provenance = loaded.provenance }
         let kept = loaded.provenance.ownLinesKeptInHistory
         if ownLinesKeptInHistory != kept { ownLinesKeptInHistory = kept }

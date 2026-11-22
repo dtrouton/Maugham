@@ -641,7 +641,8 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
     nonisolated static func parse(
         bytes: Data,
         dedupKey: ((Element) -> String)? = nil,
-        sortedBy: ((Element, Element) -> Bool)? = nil
+        sortedBy: ((Element, Element) -> Bool)? = nil,
+        onElement: ((_ line: Int, Element) -> Void)? = nil
     ) -> (elements: [Element], diagnostics: ParseDiagnostics) {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = Self.dateDecoding
@@ -649,11 +650,15 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
         var seen = Set<String>()
         var skipped: [ParseDiagnostics.SkippedLine] = []
         var offset = 0
+        // `onElement`'s line number: the index among NON-EMPTY lines, seals
+        // included — the numbering `OpLogChain.verify` gives its own `lines`.
+        var lineNumber = -1
         let slices: [Data] = bytes.split(omittingEmptySubsequences: false, whereSeparator: { (byte: UInt8) in byte == 0x0A })
         for lineBytes in slices {
             let lineLen = lineBytes.count
             defer { offset += lineLen + 1 }  // +1 for the consumed newline
             if lineBytes.isEmpty { continue }  // blank line: not corruption
+            lineNumber += 1
             let data = Data(lineBytes)
             // A seal is a line of its own kind, not an element — it belongs to
             // the chain, and `OpLogChain` is the only thing that reads one. It
@@ -669,6 +674,7 @@ public final class JSONLAppendStore<Element: Codable & Sendable> {
             }
             if let key = dedupKey?(element), !seen.insert(key).inserted { continue }
             elements.append(element)
+            onElement?(lineNumber, element)
         }
         if let sortedBy { elements.sort(by: sortedBy) }
         return (elements, ParseDiagnostics(skipped: skipped))
