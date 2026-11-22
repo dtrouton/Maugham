@@ -8692,7 +8692,9 @@ final class TripwireGrepTests: XCTestCase {
     /// call, so what is guarded is the number and identity of its callers.
     ///
     /// Two sanctioned sites, and the second is a deliberate exception:
-    /// `TranslationReviewPaneLogic.purgeOrphans` appends TOMBSTONES ONLY. It
+    /// `ResolvePieceInLanguage.clear` (a piece read in a language's Clear of
+    /// its left-over translations, shell p4 Task 9; the translation review
+    /// pane's orphan purge before it) appends TOMBSTONES ONLY. It
     /// builds no translated text, stamps no source hash against live text (an
     /// orphan's paragraph is gone, so it hashes `""`), and validates nothing
     /// the pipeline validates, because a purge has no `text` entry to check.
@@ -8704,7 +8706,7 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(sites.count, 2,
             "Expected exactly TWO production appendBatch sites: "
             + "TranslationWritePipeline.swift (the one write pipeline) and "
-            + "TranslationReviewPane.swift (the tombstone-only orphan purge). "
+            + "ResolvePieceInLanguage.swift (the tombstone-only Clear of left-over translations). "
             + "A new site is a second write pipeline — route it through "
             + "TranslationWritePipeline.perform instead, so the MCP tool and "
             + "the ingest path cannot disagree about validation or the "
@@ -8713,12 +8715,12 @@ final class TripwireGrepTests: XCTestCase {
         XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationWritePipeline.swift:") }.count, 1,
             "The one write pipeline should append exactly once. Found:\n"
             + sites.joined(separator: "\n"))
-        XCTAssertEqual(sites.filter { $0.hasPrefix("TranslationReviewPane.swift:") }.count, 1,
-            "The orphan purge should append exactly once. Found:\n"
+        XCTAssertEqual(sites.filter { $0.hasPrefix("ResolvePieceInLanguage.swift:") }.count, 1,
+            "The left-over Clear should append exactly once. Found:\n"
             + sites.joined(separator: "\n"))
         XCTAssertTrue(sites.allSatisfy {
             $0.hasPrefix("TranslationWritePipeline.swift:")
-                || $0.hasPrefix("TranslationReviewPane.swift:")
+                || $0.hasPrefix("ResolvePieceInLanguage.swift:")
         }, "Unsanctioned appendBatch site. Found:\n" + sites.joined(separator: "\n"))
 
         // Carried over from the retired WriteTranslationToolTests census: a

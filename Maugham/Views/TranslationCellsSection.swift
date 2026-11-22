@@ -256,3 +256,36 @@ struct TranslationCellsSection: View {
         }
     }
 }
+
+/// Freshness chip for a translation (fresh / stale / missing) — a table
+/// cell's here, and the caret's paragraph's in a piece read in a language
+/// (`PieceInLanguageCaretSection`). Terse capsule mirroring the annotation-pane badge idiom.
+struct TranslationStatusChip: View {
+    let status: TranslationStatus
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .textCase(.uppercase)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint.opacity(0.18), in: Capsule())
+            .foregroundStyle(tint)
+    }
+
+    private var label: String {
+        switch status {
+        case .fresh: return "Fresh"
+        case .stale: return "Stale"
+        case .missing: return "Missing"
+        }
+    }
+
+    private var tint: Color {
+        switch status {
+        case .fresh: return .green
+        case .stale: return .orange
+        case .missing: return .secondary
+        }
+    }
+}

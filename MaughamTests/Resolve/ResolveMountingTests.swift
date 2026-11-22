@@ -90,7 +90,7 @@ final class ResolveMountingTests: XCTestCase {
         let canvasOverPiece = WindowSubject(open: .canvas, faces: .item("doc-a"), beside: nil)
         let structure = [StructureItem(id: "doc-a", title: "A", type: .document, path: "a.md")]
         XCTAssertEqual(RightColumnContent.of(
-            position: .resolve, subject: canvasOverPiece, translationLanguage: nil,
+            position: .resolve, subject: canvasOverPiece,
             structure: structure, projectType: .novel), .resolve,
             "To resolve reads a piece without loading it")
         // …and it is the first segment on every subject: it says itself what
@@ -111,10 +111,6 @@ final class ResolveMountingTests: XCTestCase {
         XCTAssertEqual(RightColumnContent.pulledUp(
             for: .historyOfTheFaces, subject: canvasOverPiece, structure: structure),
             .history(docId: "doc-a"))
-        // Translation review alone needs the piece open: it IS the editor's.
-        XCTAssertEqual(RightColumnContent.of(
-            position: .resolve, subject: canvasOverPiece, translationLanguage: "es",
-            structure: structure, projectType: .novel), .resolve)
     }
 
     // MARK: - The unread dot

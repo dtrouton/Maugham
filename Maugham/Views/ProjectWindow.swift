@@ -574,7 +574,6 @@ struct ProjectWindow: View {
             resolveRequest: $resolveRequest,
             briefFocus: $briefFocus,
             pulledUpMemory: pulledUpMemory,
-            translationLanguage: editorControl.translationLanguage,
             subject: subjectBinding,
             centreItem: $centreItem,
             restoreOutcome: $restoreOutcome,
@@ -1005,8 +1004,6 @@ struct ProjectWindow: View {
         /// The window's pulled-up memory: a key's pull-up of what is already
         /// up still shows it over a canvas selection (`ProjectWindow.pullUp`).
         let pulledUpMemory: PulledUpMemory
-        /// The editor's review language, for what To resolve shows now.
-        let translationLanguage: String?
         /// The window's subject. **Going to a place opens its piece**
         /// (`ManuscriptNavigation`): a `[[wiki-link]]`, the Inspector's Links
         /// row, the statistics window's jump and a find result in a piece all
@@ -1037,21 +1034,19 @@ struct ProjectWindow: View {
                     // to open the Annotations, Diagnostics or Tasks pane opens
                     // To resolve on that pane's filter. Read after the one
                     // selection act, so the column is revealed exactly as for
-                    // any other position key — an edition's list included
-                    // (shell p4 Task 6). Where the position shows the
-                    // translation review (interim until Task 9), the filter is
-                    // DROPPED, never left to fire on a later mount
-                    // (`positionAsk`).
+                    // any other position key — an edition's list and a piece
+                    // read in a language included (shell p4 Tasks 6 and 9). A
+                    // filter whose chip the list lacks is inert there
+                    // (`ResolveFilter.selection(for:)`), never left to fire on
+                    // a later mount (`positionAsk`).
                     let ask = ProjectWindow.positionAsk(
                         in: note.userInfo,
                         shows: RightColumnContent.of(
                             position: .resolve, subject: subject,
-                            translationLanguage: translationLanguage,
                             structure: store?.manifest.structure ?? [],
                             projectType: store?.manifest.type ?? .novel),
                         briefShows: RightColumnContent.of(
                             position: .brief, subject: subject,
-                            translationLanguage: translationLanguage,
                             structure: store?.manifest.structure ?? [],
                             projectType: store?.manifest.type ?? .novel))
                     if let request = ask.request { resolveRequest = request }

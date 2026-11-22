@@ -1880,7 +1880,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertTrue(section(hers).mayPurge)
     }
 
-    /// **Removing an orphan is the author's own translation write** and asks
+    /// **Clearing a left-over translation is the author's own translation write** and asks
     /// the author's key the same door: refused, nothing appended.
     func test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate() async throws {
         let h = try await makeStatementHarness()
@@ -1890,7 +1890,7 @@ final class PostureSurfaceTests: XCTestCase {
         try await writeTranslation("doc-a", h)  // and of her own A
         let before = translationBytes("doc-b", h.projectURL)
         do {
-            try await TranslationReviewPaneLogic.purgeOrphans(
+            try await ResolvePieceInLanguage.clear(
                 ["zz99"], docId: "doc-b", language: "es", identities: h.identities,
                 deviceState: try XCTUnwrap(Document.deviceStateForTesting),
                 projectURL: h.projectURL)
@@ -1900,7 +1900,7 @@ final class PostureSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(translationBytes("doc-b", h.projectURL), before)
         let aBefore = translationBytes("doc-a", h.projectURL)
-        try await TranslationReviewPaneLogic.purgeOrphans(
+        try await ResolvePieceInLanguage.clear(
             ["zz99"], docId: "doc-a", language: "es", identities: h.identities,
             deviceState: try XCTUnwrap(Document.deviceStateForTesting),
             projectURL: h.projectURL)
@@ -1991,7 +1991,7 @@ final class PostureSurfaceTests: XCTestCase {
         beAReviewer(h.doc)
         var returned: String?
         let said = await notices {
-            returned = await TranslationReviewPaneLogic.reply(
+            returned = await ResolveNoteVerbs.reply(
                 to: query, with: "usted", in: h.doc, undoManager: nil)
         }
         let sentence = try XCTUnwrap(returned, "the refusal comes back")
@@ -1999,7 +1999,7 @@ final class PostureSurfaceTests: XCTestCase {
         XCTAssertEqual(annotation(h.doc, query)?.status, .open, "the query still stands")
 
         h.doc.stamp(localWritePermit: .unrestricted)
-        let accepted = await TranslationReviewPaneLogic.reply(
+        let accepted = await ResolveNoteVerbs.reply(
             to: query, with: "usted", in: h.doc, undoManager: nil)
         XCTAssertNil(accepted, "promotion: the reply files")
         XCTAssertEqual(annotation(h.doc, query)?.status, .accepted)

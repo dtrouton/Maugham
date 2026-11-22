@@ -120,6 +120,23 @@ struct TranslationRoundStore {
         return (byPiece, newest)
     }
 
+    /// **One piece's rounds in `language`, from ONE decode** (shell p4 Task
+    /// 9): its newest finished round (`latestFinished`'s answer), its newest
+    /// round of ANY outcome — what its To resolve head says stopped — and
+    /// its trend (`trend(language:docId:)`).
+    func pieceRounds(language: String, docId: String)
+    -> (latestFinished: TranslationRound?, newest: TranslationRound?, trend: [Int]) {
+        let ledger = reading(language) { $0 }
+        let ringed = ledger.rounds.filter { $0.docId == docId }
+        var finished = ledger.latestByPiece[docId]
+        if let last = ringed.last(where: Self.isFinished),
+           finished.map({ last.number > $0.number }) ?? true {
+            finished = last
+        }
+        let newest = (ringed + (finished.map { [$0] } ?? [])).max { $0.number < $1.number }
+        return (finished, newest, ringed.map(\.noteCount))
+    }
+
     /// **`latestFinishedByPiece` and `trendsByPiece` from ONE decode** —
     /// what an edition's Status reads (shell p4 Task 6 fix round 2, N5: the
     /// ledger is megabytes at book size, and the two calls decoded it twice).

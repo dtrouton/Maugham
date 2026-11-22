@@ -306,13 +306,17 @@ final class TreeEditionRowsTests: XCTestCase {
             ("re-reads on a proposal", views + "Resolve/ResolvePresence.swift",
              ".onProjectEvent(.maughamStatementProposalsChanged, url: url, window: window) { _ in"),
             ("⌘⌥K", "Maugham/MaughamApp.swift", "FocusedEditionResolveButton()"),
+            // A one-chapter run in a language: the piece read in it (shell p4 Task 9).
+            ("Run (one chapter)", views + "Resolve/ResolvePieceInLanguage.swift",
+             "Button(TranslationRunState.runTitle) { runThisPiece() }"),
+            ("the open chapter's last run report (lastRun)", views + "Resolve/ResolvePieceInLanguage.swift",
+             "lastRun: roster?.translationRuns.run(docId: docId, language: language),"),
+            ("\"Open a chapter to run it\"", views + "Resolve/ResolvePieceInLanguage.swift",
+             "ResolveOpenThePieceButton(line: ResolvePieceInLanguage.openToRunLine(noun: noun)) {"),
         ]
         let gone: [String: String] = [
             "the book's title over the desk": "the edition is the subject; the tree and the centre name it",
             "the \"No imprints yet\" line": "the picker is hidden with none; where an imprint comes from is plan 5's guide",
-            "Run (one chapter)": "a one-chapter run in a language is plan 4 Task 9's",
-            "the open chapter's last run report (lastRun)": "plan 4 Task 9's chapter head reads `roster.translationRuns`",
-            "\"Open a chapter to run it\"": "goes with the one-chapter Run (Task 9)",
             "\"No translations yet.\"": "the Editions header and its `+` stand in a book with none",
             "one notice slot for the whole desk": "each surface says its own (Brief, the head, the add sheet's alert)",
         ]

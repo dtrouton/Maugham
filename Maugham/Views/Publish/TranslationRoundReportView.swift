@@ -710,3 +710,38 @@ struct TranslationRoundReportView: View {
             : TranslationRoundReport.disagreementsHeading
     }
 }
+
+/// Reply sheet for a translator query — the round report's Questions
+/// section's (the writer's answer flows into `acceptAnnotation` as the
+/// `userResponse`). Moved here when the translation review pane, its other
+/// home, was deleted (shell p4 Task 9).
+@MainActor
+struct TranslationQueryReplySheet: View {
+    let annotation: Annotation
+    let onReply: (String) -> Void
+    let onCancel: () -> Void
+    @State private var reply: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Reply")
+                .font(.headline)
+            Text(annotation.body)
+                .font(.callout).foregroundStyle(.secondary)
+            TextEditor(text: $reply)
+                .frame(minHeight: 80)
+                .border(Color.gray.opacity(0.3))
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Reply") {
+                    onReply(reply.trimmingCharacters(
+                        in: .whitespacesAndNewlines))
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20).frame(width: 380)
+    }
+}

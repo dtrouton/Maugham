@@ -1,0 +1,637 @@
+import XCTest
+@testable import MaughamCore
+@testable import Maugham
+
+/// **To resolve for a piece read in a language** (shell p4 Task 9): the
+/// scope, its list, its head's decisions, Earlier letters at a piece's
+/// ordinary head, and the census that the translation review pane it replaces
+/// is gone with every capability homed. Pure functions, one real round ledger
+/// and one real translation store on disk, and source censuses — nothing is
+/// pressed and waited on (tripwire 33).
+@MainActor
+final class ResolvePieceInLanguageTests: XCTestCase {
+
+    // MARK: - Builders
+
+    private let t = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private let structure: [StructureItem] = [
+        StructureItem(id: "doc-a", title: "One", type: .document, path: "one.md"),
+        StructureItem(id: "doc-b", title: "Two", type: .document, path: "two.md"),
+    ]
+
+    private func note(_ id: String, on docId: String, language: String?,
+                      kind: AnnotationKind = .query, status: AnnotationStatus = .open,
+                      paragraphId: String? = "aa11") -> ProjectAnnotation {
+        ProjectAnnotation(docId: docId, annotation: Annotation(
+            id: id, kind: kind, paragraphId: paragraphId, body: id, suggestedText: nil,
+            priorText: nil, createdAt: t, createdBySession: nil, status: status,
+            userResponse: nil, resolvedAt: nil, isStale: false, language: language))
+    }
+
+    private func departure(_ id: String, paragraphId: String = "aa11") -> TranslationRound.DepartureRecord {
+        TranslationRound.DepartureRecord(id: id, paragraphId: paragraphId, verdict: "drifted",
+                                         kind: "register", note: "Softer.", gloss: "It whispers.",
+                                         outcome: nil)
+    }
+
+    private func round(_ number: Int, docId: String, language: String = "sr",
+                       summary: String? = nil, departures: [String] = [],
+                       glossary: [String] = [], failed: Bool = false,
+                       cancelled: Bool = false) -> TranslationRound {
+        var round = TranslationRound(number: number, language: language, docId: docId,
+                                     startedAt: t.addingTimeInterval(TimeInterval(number) * 60))
+        round.endedAt = round.startedAt.addingTimeInterval(30)
+        round.summary = summary
+        round.departures = departures.map { departure($0) }
+        round.glossaryProposals = glossary.map {
+            TranslationRound.GlossaryProposalRecord(term: $0, rendering: "\($0)-sr", reason: "", adopted: false)
+        }
+        if failed { round.legs = [.init(leg: .read, status: .failed, reason: "the session ended")] }
+        if cancelled { round.legs = [.init(leg: .read, status: .cancelled)] }
+        return round
+    }
+
+    private func problem(_ message: String) -> TectonicLogParser.Diagnostic {
+        TectonicLogParser.Diagnostic(level: .error, file: nil, line: nil, message: message,
+                                     contextLines: [], pieceID: nil, paragraphID: nil)
+    }
+
+    private func proposal() -> DesignProposalStore.Proposal {
+        DesignProposalStore.Proposal(id: "p1", designerName: "Tschichold", round: 1, language: nil,
+                                     created: t, status: .pending, specMarkdown: "", filePaths: [],
+                                     sampleResult: nil, revertNote: nil)
+    }
+
+    private func scope(_ subject: WindowSubject, switched: String?) -> ResolveScope {
+        ResolveScope.of(subject.faces,
+                        readIn: ReadingLanguage.of(subject: subject, switched: switched, sourceLanguage: "en"),
+                        sourceLanguage: "en", structure: structure, projectType: .novel)
+    }
+
+    private func makeProject() throws -> URL {
+        let root = TestTemp.root.appendingPathComponent("PieceInLanguage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    // MARK: - The scope and its list
+
+    /// **A piece read in Serbian lists only Serbian items**: its own Serbian
+    /// questions and its latest Serbian round's changes and glossary
+    /// proposals — never another language's question, a source note, a
+    /// to-do, another chapter's item, the book's design proposal or a
+    /// compile's problem.
+    func test_aPieceReadInSerbianListsOnlySerbianItems() {
+        let read = scope(WindowSubject(open: .item("doc-a"), faces: .item("doc-a")), switched: "sr")
+        let annotations = ProjectAnnotationsSnapshot(
+            annotations: [note("q-sr", on: "doc-a", language: "sr"),
+                          note("q-SR-case", on: "doc-a", language: "SR"),
+                          note("q-es", on: "doc-a", language: "es"),
+                          note("source", on: "doc-a", language: nil, kind: .comment),
+                          note("q-sr-other", on: "doc-b", language: "sr"),
+                          note("q-sr-settled", on: "doc-a", language: "sr", status: .accepted)],
+            unreadableDocIds: [], sequences: ["doc-a": ["aa11"], "doc-b": ["bb22"]])
+        let todo = WriterTask(id: "t1", kind: .paneCreated, anchor: TaskAnchor(docId: "doc-a", paragraphId: nil),
+                              body: "t", status: .open, priority: 0, parentTaskId: nil,
+                              createdAt: t, createdBySession: nil)
+        let snapshot = ResolveReader.snapshot(
+            scope: read, annotations: annotations, tasks: [todo],
+            findings: ["doc-a": [Diagnostic(id: "s1", docId: "doc-a", anchor: nil, body: "s", category: nil,
+                                            runId: "r", kind: .conformanceStrain)]],
+            paragraphText: ["aa11": "One."], figureOwners: [:])
+        XCTAssertEqual(snapshot.items.map(\.id),
+                       ["note:doc-a/q-sr", "note:doc-a/q-SR-case"],
+                       "its questions in Serbian, and nothing the source's list holds")
+        XCTAssertEqual(snapshot.paragraphText, ["aa11": "One."], "its text titles its paragraph groups")
+
+        var edition = ResolveEditionItems.Read(language: "sr",
+                                               rounds: ["doc-a": round(4, docId: "doc-a", departures: ["d1"],
+                                                                       glossary: ["fog"]),
+                                                        "doc-b": round(3, docId: "doc-b", departures: ["d2"])],
+                                               proposals: [proposal()], problems: [problem("x")])
+        edition.hasRounds = true
+        guard case .pieceInLanguage(let docId, let language) = read else {
+            return XCTFail("premise: a piece read in Serbian is .pieceInLanguage, got \(read)")
+        }
+        let items = ResolveEditionItems.items(language: language, isSource: false, docIds: [docId],
+                                              read: edition, bookLevel: false)
+        XCTAssertEqual(items.map(\.id), ["change:sr/doc-a#4/d1", "glossary:sr/doc-a#4/\u{00AB}fog\u{00BB}\u{2192}\u{00AB}fog-sr\u{00BB}"],
+                       "its own round's change and term — no design proposal, no compile problem")
+        XCTAssertEqual(ResolveEditionItems.items(language: "sr", isSource: false, docIds: ["doc-a"],
+                                                 read: edition).count, 4,
+                       "control: the edition's list holds the book's two as well")
+
+        // The list groups as a piece: a question and a change on one
+        // paragraph together, the term under the whole piece.
+        let groups = ResolveGrouping.groups(
+            ResolveSnapshot(items: snapshot.items + items, sequences: snapshot.sequences,
+                            paragraphText: snapshot.paragraphText, unreadableDocIds: []),
+            scope: read, structure: structure, sceneIndex: nil, sceneTitles: [], figureNames: [:],
+            projectType: .novel)
+        XCTAssertEqual(groups.map(\.key), [.wholePiece(docId: "doc-a"),
+                                            .paragraph(docId: "doc-a", paragraphId: "aa11")])
+        XCTAssertEqual(groups.last?.items.map(\.id),
+                       ["note:doc-a/q-sr", "note:doc-a/q-SR-case", "change:sr/doc-a#4/d1"])
+    }
+
+    /// The live splice keeps a piece read in a language to its language too.
+    func test_theOpenPiecesLiveNotesKeepToTheLanguage() {
+        let live = ResolveLivePiece(
+            notes: [note("q-sr", on: "doc-a", language: "sr").annotation,
+                    note("q-es", on: "doc-a", language: "es").annotation,
+                    note("c", on: "doc-a", language: nil, kind: .comment).annotation],
+            todos: [WriterTask(id: "t", kind: .paneCreated, anchor: TaskAnchor(docId: "doc-a", paragraphId: nil),
+                               body: "t", status: .open, priority: 0, parentTaskId: nil,
+                               createdAt: t, createdBySession: nil)],
+            sequence: ["aa11"], paragraphs: ["aa11": "Live."])
+        let spliced = ResolvePane.splicing(.empty, scope: .pieceInLanguage(docId: "doc-a", language: "sr"),
+                                           live: ["doc-a": live])
+        XCTAssertEqual(spliced.items.map(\.id), ["note:doc-a/q-sr"])
+        XCTAssertEqual(spliced.paragraphText, ["aa11": "Live."])
+    }
+
+    /// **An edition open with a chapter faced is that chapter in that
+    /// language** — the design's "the faces follow the piece".
+    func test_anEditionWithAChapterFacedIsThatChapterInThatLanguage() {
+        XCTAssertEqual(scope(WindowSubject(open: .edition(language: "sr"), faces: .item("doc-b")), switched: nil),
+                       .pieceInLanguage(docId: "doc-b", language: "sr"))
+        XCTAssertEqual(scope(WindowSubject(open: .edition(language: "sr"), faces: .edition(language: "sr")),
+                             switched: nil),
+                       .edition(language: "sr", isSource: false, docIds: ["doc-a", "doc-b"]),
+                       "control: the edition faced is the edition")
+        XCTAssertEqual(scope(WindowSubject(open: .edition(language: "en"), faces: .item("doc-b")), switched: nil),
+                       .piece(docId: "doc-b", includesBookLevel: false),
+                       "the Source edition reads the piece in its source")
+        XCTAssertEqual(scope(WindowSubject(open: .item("doc-a"), faces: .item("doc-a")), switched: nil),
+                       .piece(docId: "doc-a", includesBookLevel: false), "read in Source: the source's list")
+        XCTAssertEqual(ResolveScope.pieceInLanguage(docId: "doc-a", language: "sr").translationLanguage, "sr")
+        XCTAssertEqual(ResolveHead.shape(.pieceInLanguage(docId: "doc-a", language: "sr")),
+                       .pieceInLanguage(docId: "doc-a", language: "sr"))
+        XCTAssertEqual(BriefScope.of(.item("doc-a"), structure: structure, projectType: .novel),
+                       .piece(docId: "doc-a"), "Brief stays the piece's")
+    }
+
+    /// ⌘⌥L lands on Questions over a piece read in a language; ⌘⌥A/D/T,
+    /// whose chips such a list never has, leave the writer's filter as it was.
+    func test_questionsKeyLandsOnQuestionsAndTheOthersAreInert() {
+        let chips = ResolveFilter.chips(
+            [.note(note("q", on: "doc-a", language: "sr")),
+             .translationChange(docId: "doc-a", language: "sr", round: 1, departure("d"))],
+            passes: [], localName: "Denver")
+        XCTAssertEqual(chips, [.questions, .changes])
+        let questions = ResolvePane.apply(.filter(.questions), groups: [], chips: chips, activePassId: nil,
+                                          dense: false, selection: [.changes], choices: [:])
+        XCTAssertEqual(questions.selection, [.questions])
+        for key in [ResolveKeyFilter.rounds, .checks, .mine] {
+            let outcome = ResolvePane.apply(.filter(key), groups: [], chips: chips, activePassId: nil,
+                                            dense: false, selection: [.changes], choices: [:])
+            XCTAssertEqual(outcome.selection, [.changes], "\(key) leaves the filter as it was")
+        }
+        // Over a piece read in a language the key's filter is handed over —
+        // the review that dropped it is gone.
+        let info: [AnyHashable: Any] = [MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
+                                        MaughamEvent.resolveFilterKey: ResolveKeyFilter.questions.rawValue]
+        XCTAssertEqual(ProjectWindow.positionAsk(in: info, shows: .resolve).request, .filter(.questions))
+    }
+
+    // MARK: - The head's round
+
+    /// **The head is that chapter's own latest round** — after a whole-book
+    /// run and then a second run on one chapter (Review Focus 1), and with
+    /// another chapter's newer round in the ledger: one decode answers the
+    /// chapter's finished round, its newest of any outcome and its trend.
+    func test_theHeadIsThatChaptersOwnLatestRound() throws {
+        let store = TranslationRoundStore(projectURL: try makeProject())
+        for (number, docId) in ["doc-a", "doc-b", "doc-c"].enumerated() {
+            try store.append(round(number + 1, docId: docId, summary: "Book run on \(docId)."))
+        }
+        try store.append(round(4, docId: "doc-b", summary: "Second run on two."))
+        try store.append(round(5, docId: "doc-c", summary: "Another chapter, newer."))
+        // Age the whole-book run out of the ring.
+        for number in 6...16 { try store.append(round(number, docId: "doc-z\(number)")) }
+
+        let a = store.pieceRounds(language: "sr", docId: "doc-a")
+        XCTAssertEqual(a.latestFinished?.number, 1, "the first run's letter is still reachable")
+        let b = store.pieceRounds(language: "sr", docId: "doc-b")
+        XCTAssertEqual(b.latestFinished?.number, 4)
+        XCTAssertEqual(b.newest?.number, 4)
+
+        var read = ResolveEditionItems.Read(language: "sr")
+        read.rounds = b.latestFinished.map { ["doc-b": $0] } ?? [:]
+        read.newestRound = b.newest
+        let head = ResolvePieceInLanguage.headRounds(read, docId: "doc-b", running: false, now: t)
+        XCTAssertEqual(head.letter?.number, 4)
+        XCTAssertEqual(head.letter.flatMap(ResolveEditionItems.letter(of:)), "Second run on two.")
+        XCTAssertNil(head.stopped)
+
+        // A cancelled run on two now: said above the finished letter, which
+        // is then the earlier one.
+        try store.append(round(17, docId: "doc-b", cancelled: true))
+        let stopped = store.pieceRounds(language: "sr", docId: "doc-b")
+        XCTAssertEqual(stopped.latestFinished?.number, 4, "a cancelled round is not finished")
+        read.newestRound = stopped.newest
+        let said = ResolvePieceInLanguage.headRounds(read, docId: "doc-b", running: false, now: t)
+        XCTAssertEqual(said.stopped?.number, 17)
+        XCTAssertTrue(said.letterIsEarlier)
+        XCTAssertNil(ResolvePieceInLanguage.headRounds(read, docId: "doc-b", running: true, now: t).stopped,
+                     "while a round runs, its own line speaks")
+        // Another chapter's newest is never this chapter's.
+        read.newestRound = round(18, docId: "doc-c", failed: true)
+        XCTAssertNil(ResolvePieceInLanguage.headRounds(read, docId: "doc-b", running: false, now: t).stopped)
+        XCTAssertEqual(store.pieceRounds(language: "sr", docId: "doc-b").trend.count, 1,
+                       "the trend is this piece's rounds still in the ring")
+    }
+
+    func test_theHeadsLinesSayWhatIsTrue() {
+        XCTAssertEqual(ResolvePieceInLanguage.noLetterLine(translator: "Kiš", language: "sr", noun: "chapter",
+                                                           hasRounds: false),
+                       "Kiš has not run a round on this chapter in \(LanguageName.title("sr")) yet.")
+        XCTAssertEqual(ResolvePieceInLanguage.noLetterLine(translator: "Kiš", language: "sr", noun: "chapter",
+                                                           hasRounds: true),
+                       "Kiš wrote no letter on this chapter\u{2019}s latest round.")
+        let signed = ResolvePieceInLanguage.signature(translator: "Kiš", round: round(4, docId: "doc-a"))
+        XCTAssertTrue(signed.hasPrefix("\u{2014} Kiš \u{00B7} round 4"), signed)
+        XCTAssertEqual(ResolvePieceInLanguage.runScopeLine(noun: "chapter", language: "sr",
+                                                           preflight: .words(1200)),
+                       "Runs this chapter into \(LanguageName.title("sr")) \u{00B7} "
+                       + (TranslationRunState.preflightLine(.words(1200)) ?? "") + ".")
+    }
+
+    // MARK: - The empty list
+
+    /// **Never "nothing waits" while the questions are still being read**, and
+    /// where the piece's SOURCE has something open — the dot its tree row
+    /// carries — the empty list says so.
+    func test_anEmptyListSaysWhatIsTrue() throws {
+        let reading = ResolvePieceInLanguage.clearLine(language: "sr", noun: "chapter", hasRounds: true,
+                                                       readingBook: true, sourceHasSomething: false)
+        XCTAssertTrue(reading.hasPrefix("Still reading"), reading)
+        let none = ResolvePieceInLanguage.clearLine(language: "sr", noun: "chapter", hasRounds: false,
+                                                    readingBook: false, sourceHasSomething: false)
+        XCTAssertTrue(none.hasPrefix("No round has run on this chapter"), none)
+        let settled = ResolvePieceInLanguage.clearLine(language: "sr", noun: "chapter", hasRounds: true,
+                                                       readingBook: false, sourceHasSomething: false)
+        XCTAssertTrue(settled.contains("waits on you"), settled)
+        XCTAssertFalse(settled.contains("Source"))
+        let dotted = ResolvePieceInLanguage.clearLine(language: "sr", noun: "chapter", hasRounds: true,
+                                                      readingBook: false, sourceHasSomething: true)
+        XCTAssertTrue(dotted.hasSuffix("read it in Source to see them."), dotted)
+        // One predicate: the row's dot (`rowMark`) is what the pane asks.
+        let pane = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+            .joined(separator: " ")
+        XCTAssertTrue(pane.contains("ResolvePresence.rowMark(.item(docId), in: $0) == .something"))
+        XCTAssertEqual(ResolvePane.emptyState(scope: .pieceInLanguage(docId: "doc-a", language: "sr"),
+                                              hasItems: false, hasVisible: false, offersColdStart: false,
+                                              editionClear: dotted),
+                       .editionClear(dotted))
+        XCTAssertEqual(ResolvePane.emptyState(scope: .pieceInLanguage(docId: "doc-a", language: "sr"),
+                                              hasItems: true, hasVisible: false, offersColdStart: false),
+                       .filteredOut)
+    }
+
+    // MARK: - Run, on this piece
+
+    /// **Run is hidden where the translator may not translate the piece**, and
+    /// off the open piece (where the head says how instead).
+    func test_runIsHiddenWhereTheTranslatorMayNot() {
+        XCTAssertTrue(ResolvePieceInLanguage.offersRun(docId: "doc-a", isOpen: true, mayTranslate: { _ in true }))
+        XCTAssertFalse(ResolvePieceInLanguage.offersRun(docId: "doc-a", isOpen: true, mayTranslate: { _ in false }),
+                       "the translator may not: no Run")
+        XCTAssertFalse(ResolvePieceInLanguage.offersRun(docId: "doc-a", isOpen: true,
+                                                        mayTranslate: { $0 == "doc-b" }),
+                       "another piece's permission is not this one's")
+        XCTAssertFalse(ResolvePieceInLanguage.offersRun(docId: "doc-a", isOpen: false, mayTranslate: { _ in true }),
+                       "not open: no Run")
+        XCTAssertEqual(ResolvePieceInLanguage.openToRunLine(noun: "chapter"),
+                       "Open this chapter to run a round on it")
+    }
+
+    /// Run's refusals in order, then the one start over this piece; the
+    /// cast sheet's Confirm runs the piece it was asked over.
+    func test_runDecidesThenStartsThisPiece() async {
+        var started: [(String, String)] = []
+        var verbs = PieceInLanguageHeadVerbs()
+        verbs.startRun = { language, docId in
+            started.append((language, docId))
+            return .init(notice: nil)
+        }
+        let busy = await ResolvePieceInLanguage.run(language: "sr", docId: "doc-a",
+                                                    session: .busy(language: "es"), verbs: verbs)
+        XCTAssertEqual(busy.notice, TranslationRunState.busyReason(language: "es"))
+        let unusable = await ResolvePieceInLanguage.run(language: "SR", docId: "doc-a", session: .free,
+                                                        verbs: verbs)
+        XCTAssertEqual(unusable.notice, TranslationRunState.unusableTag(language: "SR"))
+        XCTAssertTrue(started.isEmpty, "a refusal starts nothing")
+        _ = await ResolvePieceInLanguage.run(language: "sr", docId: "doc-a", session: .free, verbs: verbs)
+        XCTAssertEqual(started.map { "\($0.0)/\($0.1)" }, ["sr/doc-a"])
+    }
+
+    // MARK: - Left over from deleted paragraphs
+
+    /// **Left-over rows act only on the open piece**, where the author may
+    /// translate it; the door refuses a press that arrives anyway
+    /// (`PostureSurfaceTests.test_anOrphanPurgeIsRefusedWhereTheAuthorMayNotTranslate`).
+    func test_leftOverRowsActOnlyOnTheOpenPiece() {
+        let author = Posture(.unrestricted)
+        let reviewer = Posture(LocalWritePermit(permit: .reviewer, actor: .author,
+                                                documentClass: .piece("doc-a")))
+        XCTAssertTrue(ResolvePieceInLanguage.offersClear(isOpen: true, authorPosture: author))
+        XCTAssertFalse(ResolvePieceInLanguage.offersClear(isOpen: false, authorPosture: author),
+                       "not open: no Clear")
+        XCTAssertFalse(ResolvePieceInLanguage.offersClear(isOpen: true, authorPosture: reviewer),
+                       "may not translate: no Clear")
+    }
+
+    func test_whatTheTranslationLacksAndLeavesOver() {
+        let translation = ResolvePieceInLanguage.translation(
+            docId: "doc-a", language: "sr",
+            statuses: [("aa11", .fresh), ("bb22", .stale), ("cc33", .missing), ("dd44", .stale)],
+            orphans: [TranslationRecord(paragraphId: "zzzz", language: "sr", text: "Siroče", sourceHash: "x"),
+                      TranslationRecord(paragraphId: "yyyy", language: "sr", text: nil, sourceHash: "x")])
+        XCTAssertEqual(translation.outOfDate, ["bb22", "dd44"])
+        XCTAssertEqual(translation.untranslated, ["cc33"])
+        XCTAssertEqual(translation.leftOvers, [.init(id: "zzzz", staleText: "Siroče")],
+                       "a tombstone is no left-over (the derive's backstop)")
+        XCTAssertEqual(ResolvePieceInLanguage.freshnessLine(translation),
+                       "2 paragraphs out of date \u{00B7} 1 paragraph not translated yet")
+        XCTAssertNil(ResolvePieceInLanguage.freshnessLine(
+            .init(docId: "doc-a", language: "sr", paragraphCount: 3)), "nothing lacking: no line")
+        let untouched = ResolvePieceInLanguage.translation(
+            docId: "doc-a", language: "sr", statuses: [("aa11", .missing), ("bb22", .missing)], orphans: [])
+        XCTAssertEqual(ResolvePieceInLanguage.freshnessLine(untouched), "none of its 2 paragraphs translated yet")
+        XCTAssertEqual(ResolvePieceInLanguage.leftOverLine(count: 1),
+                       "1 translation left over from a deleted paragraph")
+    }
+
+    /// **Clear writes one tombstone per id, in one batch, in the writer's own
+    /// file** (moved from the review pane's purge).
+    func test_clearWritesOneTombstonePerIdInOneBatch() async throws {
+        let dir = try makeProject()
+        let identities = LocalIdentities.current
+        try await TranslationStore.appendBatch(
+            ["zzzz", "yyyy"].map {
+                TranslationRecord(paragraphId: $0, language: "es", text: "Huérfano", sourceHash: "x")
+            },
+            forDocId: "doc1", language: "es", identity: identities.translator,
+            identities: identities, in: dir)
+        try await ResolvePieceInLanguage.clear(["zzzz", "yyyy"], docId: "doc1", language: "es",
+                                               identities: identities, projectURL: dir)
+        let url = try TranslationStore.fileURL(forDocId: "doc1", language: "es",
+                                               deviceSlug: identities.author.slug, in: dir)
+        let lines = try Data(contentsOf: url)
+            .split(separator: 0x0A, omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty }.map { Data($0) }
+            .filter { !OpLogChain.isSealLine($0) }
+        XCTAssertEqual(lines.count, 2, "one tombstone line per id, in the writer's own file")
+        let loaded = try TranslationStore.loadMerged(forDocId: "doc1", language: "es", in: dir)
+        XCTAssertEqual(loaded.suffix(2).filter { $0.text == nil }.count, 2)
+        let derived = TranslationDeriver.derive(records: loaded, sequence: ["aaaa"],
+                                                paragraphs: ["aaaa": "One"], language: "es")
+        XCTAssertTrue(derived.orphans.isEmpty, "a cleared left-over does not come back")
+    }
+
+    // MARK: - Moved from the review pane's logic
+
+    func test_openQueriesKeepTheLanguagesOpenQueriesOnly() {
+        let anns = [note("1", on: "d", language: "fr").annotation,
+                    note("2", on: "d", language: "es").annotation,
+                    note("3", on: "d", language: "fr", kind: .comment).annotation,
+                    note("4", on: "d", language: "fr", status: .accepted).annotation,
+                    note("5", on: "d", language: "FR").annotation,
+                    note("6", on: "d", language: nil).annotation]
+        XCTAssertEqual(ResolveEditionItems.openQueries(anns, language: "fr").map(\.id), ["1", "5"])
+        XCTAssertTrue(ResolveEditionItems.openQueries(anns, language: nil).isEmpty,
+                      "no language: nothing, never a nil == nil match")
+    }
+
+    func test_aSpotChecksAnswerBelongsOnlyUnderTheParagraphItWasAskedAbout() {
+        XCTAssertTrue(PieceInLanguageCaretSection.answerStillBelongs(askedAbout: "aaaa", selected: "aaaa"))
+        XCTAssertFalse(PieceInLanguageCaretSection.answerStillBelongs(askedAbout: "aaaa", selected: "bbbb"))
+        XCTAssertFalse(PieceInLanguageCaretSection.answerStillBelongs(askedAbout: "aaaa", selected: nil))
+    }
+
+    func test_twoDeparturesOnOneParagraphAreTwoRows() {
+        let report = CollatorReport(overall: "Close.", departures: [
+            .init(paragraphId: "aa11", verdict: .drifted, kind: .mistranslation, note: "n1", gloss: "g1"),
+            .init(paragraphId: "aa11", verdict: .drifted, kind: .inconsistency, note: "n2", gloss: "g2")])
+        let rows = PieceInLanguageCaretSection.departureRows(report, dismissed: ["aa11-1"], source: { _ in "S" })
+        XCTAssertEqual(rows.map(\.id), ["aa11-0", "aa11-1"])
+        XCTAssertEqual(rows.map(\.isDismissed), [false, true])
+        XCTAssertNil(rows.first?.after, "a spot-check has no rewrite to show")
+    }
+
+    // MARK: - Earlier letters (a piece's ordinary head)
+
+    private func letter(_ about: String) -> Letter {
+        Letter(about: about, oneThing: "One thing.", working: [], habits: [], questions: [],
+               scenes: nil, scenePosition: nil)
+    }
+
+    private func run(_ id: String, passId: String?, round: Int?, letter: Letter?,
+                     kind: RunKind = .round) -> CompilerRun {
+        CompilerRun(id: id, at: t, model: "m", lastOpId: nil, deltaSummary: "", intentSnapshot: nil,
+                    passId: passId, round: round, kind: kind, readerName: nil, letter: letter)
+    }
+
+    private let passes = [ReviewPass(id: "line", name: "Line", editorName: "Lish"),
+                          ReviewPass(id: "structure", name: "Structure", editorName: "Perkins")]
+
+    func test_earlierLettersListsEachPassesLatest() {
+        let perkins = run("r-p", passId: "structure", round: 2, letter: letter("Structure."))
+        let lish = run("r-l", passId: "line", round: 5, letter: letter("Line."))
+        let retired = run("r-x", passId: "gone", round: 1, letter: letter("Retired."))
+        let mute = run("r-m", passId: "line", round: 6, letter: nil)
+        let earlier = ResolveHead.earlierLetters([lish, perkins, retired, mute], shown: lish, passes: passes)
+        XCTAssertEqual(earlier.map(\.id), ["r-p"],
+                       "each other pass's latest that says something, of a pass still listed")
+        XCTAssertEqual(ResolveHead.earlierLetterTitle(perkins, passes: passes), "Perkins \u{00B7} round 2")
+        // Choosing one draws it; a choice no longer listed falls back.
+        XCTAssertEqual(HeadLetterArea.shown(latest: lish, earlier: earlier, chosen: "r-p")?.id, "r-p")
+        XCTAssertEqual(HeadLetterArea.shown(latest: lish, earlier: earlier, chosen: "r-gone")?.id, "r-l")
+        XCTAssertEqual(HeadLetterArea.shown(latest: lish, earlier: earlier, chosen: nil)?.id, "r-l")
+    }
+
+    /// **Mid-round the head shows the round arriving** (`lastRound`, the
+    /// preview) and Earlier letters lists the finished ones behind it
+    /// (`latestRounds`, which never holds a preview) — Task 2 review M6.
+    func test_earlierLettersAreFinishedAndTheHeadShowsWhatArrives() throws {
+        let previous = run("r-l4", passId: "line", round: 4, letter: letter("Finished line."))
+        let preview = run("r-l5", passId: "line", round: 5, letter: letter("Arriving."))
+        XCTAssertEqual(ResolveHead.earlierLetters([previous], shown: preview, passes: passes).map(\.id),
+                       ["r-l4"], "the finished letter behind the one arriving")
+        let head = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/Resolve/ResolveHead.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(head.contains("round: diagnostics.lastRound(docId: docId))"),
+                      "the head's letter is the standing round, the preview included")
+        XCTAssertTrue(head.contains("earlier: ResolveHead.earlierLetters(diagnostics.latestRounds(docId: docId),"),
+                      "Earlier letters reads the finished rounds")
+        XCTAssertTrue(head.contains(".id(docId)"), "until the faces change")
+    }
+
+    func test_earlierLettersIsHiddenWithOneLetter() {
+        let only = run("r-l", passId: "line", round: 1, letter: letter("Line."))
+        XCTAssertTrue(ResolveHead.earlierLetters([only], shown: only, passes: passes).isEmpty)
+        XCTAssertTrue(ResolveHead.earlierLetters([], shown: nil, passes: passes).isEmpty)
+        let check = run("c", passId: nil, round: nil, letter: letter("Check."), kind: .check)
+        XCTAssertTrue(ResolveHead.earlierLetters([only], shown: check, passes: passes).count == 1,
+                      "control: with the check's letter shown, the round's is an earlier one")
+    }
+
+    // MARK: - The wiring
+
+    /// **Every row and head button reaches its verb, behind its gate** — a
+    /// census of the production source, since the verbs themselves are the
+    /// functions the tests above call (tripwire 33).
+    func test_theHeadsButtonsReachTheirVerbsBehindTheirGates() throws {
+        func code(_ type: String) throws -> String {
+            SourceScan.codeLines(of: try SourceTree.sourceOfType(type, under: ["Maugham"]))
+                .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let head = try code("PieceInLanguageHeadView")
+        for token in [
+            "if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {",
+            "TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)",
+            "Button(TranslationRunState.runTitle) { runThisPiece() }",
+            "let outcome = await ResolvePieceInLanguage.run(language: language, docId: docId,",
+            "Button(TranslationRunState.cancelTitle) { verbs.cancel() }",
+            "notice = await ResolvePieceInLanguage.confirmCast(",
+            "lastRun: roster?.translationRuns.run(docId: docId, language: language),",
+            "if ResolvePieceInLanguage.offersClear(",
+            "isOpen: isOpen, authorPosture: documentStore.posture(forDocId: docId)) {",
+            "clear(translation.leftOvers.map(\\.id))",
+            "notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,",
+            "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(stopped) }",
+            "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(round) }",
+            "TranslationReveal.post(ResolvePieceInLanguage.reveal(",
+            "let answer = await TranslationPreflight.editionBudget(",
+            "documentIds: [docId], language: language, store: store, documentStore: documentStore)",
+        ] {
+            XCTAssertTrue(head.contains(token), "the head lost \(token)")
+        }
+        let verbs = try code("PieceInLanguageHeadVerbs")
+        XCTAssertTrue(verbs.contains("await TranslationRunStart.startRun("),
+                      "Run reaches the one start, which asks the translator's settled posture")
+        let caret = try code("PieceInLanguageCaretSection")
+        for token in ["Button(SpotCheck.glossTitle) { runGloss(paragraphId) }",
+                      "Button(SpotCheck.askTitle) { runAsk(paragraphId) }",
+                      "await SpotCheck.gloss(", "await SpotCheck.askTheCollator(",
+                      "verbs: authorVerbs,", "try await RulingPerformer.rule(",
+                      "let refusal = await TranslatorsNote.commit("] {
+            XCTAssertTrue(caret.contains(token), "the caret section lost \(token)")
+        }
+        let column = try code("RightColumn")
+        XCTAssertTrue(column.contains(
+            "readIn: ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage),"))
+        let pane = try code("ResolvePane")
+        XCTAssertTrue(pane.contains("ResolveScope.of(subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,"))
+        XCTAssertTrue(pane.contains("read = await ResolveEditionItems.readPiece("))
+        // A reply's refusal is said on every row path.
+        let noteVerbs = try code("ResolveNoteVerbs")
+        XCTAssertTrue(noteVerbs.contains("await Self.reply(to: ann.id, with: reply, in: document,"))
+        XCTAssertFalse(noteVerbs.contains("try? await document.acceptAnnotation(id: ann.id, userResponse: reply"),
+                       "a reply is never swallowed")
+    }
+
+    // MARK: - The translation review pane is gone
+
+    func test_theTranslationReviewPaneIsGone() throws {
+        let files = try SourceTree.swiftFiles(under: "Maugham")
+        XCTAssertFalse(files.contains { $0.hasSuffix("TranslationReviewPane.swift") })
+        for file in files {
+            let text = SourceScan.codeLines(of: try SourceTree.read(file)).joined(separator: "\n")
+            for gone in ["TranslationReviewPane", "translationPane", ".translationReview"] {
+                XCTAssertFalse(text.contains(gone), "\(file) still names \(gone)")
+            }
+        }
+        XCTAssertFalse(try SourceTree.read("Maugham/Views/RightColumnContent.swift").isEmpty, "control")
+    }
+
+    /// **Every capability the translation review pane had has a home, or is
+    /// named gone with its reason** — built from reading the pane at
+    /// 670d03af before it was deleted; one row per display, state, refusal,
+    /// empty state and verb (Task 7's lesson: a census of verbs alone lost
+    /// four of the desk's). Each home is a code token in a production file.
+    func test_everyReviewPaneCapabilityHasAHome() throws {
+        let resolve = "Maugham/Views/Resolve/"
+        let head = resolve + "ResolvePieceInLanguage.swift"
+        let caret = resolve + "PieceInLanguageCaretSection.swift"
+        let homes: [(capability: String, file: String, token: String)] = [
+            ("\"No translation yet\"", head, "\"none of its \\(missing) paragraphs translated yet\""),
+            ("the caret paragraph's source", caret,
+             "if !control.showsSourceUnder, let source = document.paragraph(id: selected.paragraphId),"),
+            ("the caret paragraph's freshness chip", caret, "TranslationStatusChip(status: selected.status)"),
+            ("no caret paragraph: a placeholder", caret, "Text(Self.placeCaretLine)"),
+            ("Gloss", caret, "Button(SpotCheck.glossTitle) { runGloss(paragraphId) }"),
+            ("Ask the Collator", caret, "Button(SpotCheck.askTitle) { runAsk(paragraphId) }"),
+            ("busy while the window's runner is out", caret,
+             "private var busy: Bool { spotChecking || roster?.coldCall.isRunning == true }"),
+            ("the in-flight spinner", caret, "if spotChecking { ProgressView().controlSize(.small) }"),
+            ("a refused spot-check said", caret, "if case .refused(let sentence) = gloss { return sentence }"),
+            ("the not-wired refusal", caret, "notice = SpotCheck.notWiredRefusal"),
+            ("the gloss", caret, "Text(SpotCheck.glossLabel)"),
+            ("the collator's overall", caret, "Text(report.overall)"),
+            ("a departure's row", caret, "DepartureRowView("),
+            ("Fine on a departure (transient)", caret, "onFine: { dismissedDepartures.insert(row.id) },"),
+            ("Keep mine", caret, "TranslatorsNoteSheet("),
+            ("Keep mine invalidates the craft-intent cache", caret,
+             "instruction, target: target, home: home, store: store, world: world,"),
+            ("Make it a rule", caret, "RoundRuleSheet(seed: seed, language: language,"),
+            ("a departure filed once", caret, "isSettled: settledDepartures.contains(row.id),"),
+            ("the filings' provenance", caret, "static let keepMineProvenance = \"spot-check, keep mine\""),
+            ("a departure reveals its paragraph in the language", caret,
+             "TranslationReveal.post(.init(docId: document.docId, language: language,"),
+            ("an answer belongs to the paragraph it was asked about", caret,
+             "guard Self.answerStillBelongs(askedAbout: paragraphId, selected: selected?.paragraphId)"),
+            ("answers cleared when the caret moves", caret,
+             ".onChange(of: selected?.paragraphId) { _, _ in clear() }"),
+            ("a table's cells under the caret", caret, "TranslationCellsSection("),
+            ("the caret section only on the open piece", head,
+             "if isOpen, let document = documentStore.document(forDocId: docId), let control = editorControl {"),
+            ("open queries in the language", resolve + "ResolveReader.swift",
+             "inScope.contains($0.docId) && ResolveEditionItems.isQuestion($0.annotation, in: language)"),
+            ("\"No open queries for this language.\"", head, "every question is answered "),
+            ("Reply", resolve + "ResolveDialogs.swift",
+             "verbs.replyToQuery(target.document, target.annotation, reply: reply)"),
+            ("a refused reply said", resolve + "ResolveNoteVerbs.swift",
+             "MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)"),
+            ("Answer as ruling", resolve + "ResolveDialogs.swift", "QueryRulingSheet("),
+            ("a refused ruling said", resolve + "ResolveDialogs.swift", "\"That answer could not be filed\","),
+            ("the author's verbs follow the posture", resolve + "ResolvePane.swift", "AnnotationRowVerbs.decide("),
+            ("left-over translations listed", head, "ForEach(leftOvers) { leftOver in"),
+            ("Remove All", head, "clear(translation.leftOvers.map(\\.id))"),
+            ("Remove hidden where the author may not translate", head, "if ResolvePieceInLanguage.offersClear("),
+            ("a Clear re-derives every surface", head,
+             "MaughamEvent.post(.maughamTranslationDidUpdate, to: .project(for: projectURL),"),
+            ("a Clear signs as the author, behind the door", head,
+             "documentId: docId, actor: .author, identities: identities,"),
+            ("⌘⌥L opens the translator's questions", resolve + "ResolveFilter.swift",
+             "case .questions: requested = chips.contains(.questions) ? [.questions] : []"),
+        ]
+        let gone: [String: String] = [
+            "\"Not in translation review\"":
+                "there is no review mode: the list follows the reading language, and a piece read in Source lists the source's",
+            "a refused purge only logged":
+                "a refused Clear is said (`clearAndAnnounce` posts the sentence and returns it) — RULING-54's honesty rule",
+            "Remove on one left-over":
+                "one Clear for the group (the plan's 'one group with Clear'): a left-over is stale by definition and recreatable",
+            "the left-over's paragraph id":
+                "it named a paragraph that no longer exists; the text is what the writer can recognise",
+        ]
+        XCTAssertEqual(homes.count + gone.count, 41, "one row per line of the capability table")
+        XCTAssertEqual(Set(homes.map(\.capability)).count, homes.count, "a capability is listed once")
+        XCTAssertTrue(Set(homes.map(\.capability)).isDisjoint(with: gone.keys))
+        var lost: [String] = []
+        var sources: [String: String] = [:]
+        for home in homes {
+            if sources[home.file] == nil {
+                sources[home.file] = SourceScan.codeLines(of: try SourceTree.read(home.file))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+            }
+            if !(sources[home.file] ?? "").contains(home.token) {
+                lost.append("\(home.capability): \(home.file) lacks \(home.token)")
+            }
+        }
+        XCTAssertEqual(lost, [], "a review pane capability lost its home:\n" + lost.joined(separator: "\n"))
+    }
+}

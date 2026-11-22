@@ -233,7 +233,7 @@ final class PassStateWriterCensusTests: XCTestCase {
         let chapter = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
         XCTAssertEqual(
             RightColumnContent.of(
-                position: .resolve, subject: chapter, translationLanguage: nil,
+                position: .resolve, subject: chapter,
                 structure: [StructureItem(id: "ch-1", title: "One", type: .document, path: "one.md")],
                 projectType: .novel),
             .resolve, "…and with a chapter open that position IS To resolve")

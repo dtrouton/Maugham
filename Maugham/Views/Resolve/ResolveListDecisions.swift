@@ -124,7 +124,8 @@ extension ResolvePane {
             guard !scope.docIds.isEmpty || scope.includesBookLevel else { return .empty }
             // **An edition reads its questions from the presence read** (review
             // I4): no annotation or task walk on the main actor per navigation.
-            if case .edition = scope, let presence {
+            // So does a piece read in a language (shell p4 Task 9).
+            if scope.translationLanguage != nil, let presence {
                 return ResolveReader.read(
                     scope: scope, annotations: presence.languageNotesSnapshot, tasks: [],
                     live: live, store: store, documentStore: documentStore, diagnostics: diagnostics)
@@ -189,7 +190,8 @@ extension ResolvePane {
         var freshTodos = scope.docIds.flatMap { live[$0]?.todos ?? [] }.map(ResolveItem.todo)
         // An edition holds its language's questions and no to-do — the one
         // predicate (`ResolveEditionItems.isQuestion`, review M13).
-        if case .edition(let language, let isSource, _) = scope {
+        if let language = scope.translationLanguage {
+            let isSource = scope.isSourceEdition
             freshNotes = isSource ? [] : freshNotes.filter { item in
                 guard case .note(let note) = item else { return false }
                 return ResolveEditionItems.isQuestion(note.annotation, in: language)
@@ -200,7 +202,11 @@ extension ResolvePane {
         var sequences = held.sequences
         for (docId, piece) in live { sequences[docId] = piece.sequence }
         var text = held.paragraphText
-        if case .piece(let docId, _) = scope, let piece = live[docId] { text = piece.paragraphs }
+        switch scope {
+        case .piece(let docId, _), .pieceInLanguage(let docId, _):
+            if let piece = live[docId] { text = piece.paragraphs }
+        case .pieces, .figure, .edition, .elsewhere, .outside: break
+        }
         return ResolveSnapshot(items: freshNotes + kept + freshTodos, sequences: sequences,
                                paragraphText: text,
                                unreadableDocIds: held.unreadableDocIds.filter { live[$0] == nil })
@@ -437,7 +443,8 @@ extension ResolvePane {
         case nothing
         /// There are items, and the filter hides every one.
         case filteredOut
-        /// An edition with nothing waiting (`ResolveEditionItems.clearLine`).
+        /// An edition, or a piece read in a language, with nothing waiting
+        /// (`ResolveEditionItems.clearLine`, `ResolvePieceInLanguage.clearLine`).
         case editionClear(String)
 
         var sentence: String {
@@ -466,7 +473,7 @@ extension ResolvePane {
         switch scope {
         case .outside: return .outside
         case .elsewhere: return .elsewhere
-        case .edition:
+        case .edition, .pieceInLanguage:
             guard !hasItems else { return hasVisible ? nil : .filteredOut }
             return editionClear.map(EmptyState.editionClear) ?? .nothing
         case .piece, .pieces, .figure:

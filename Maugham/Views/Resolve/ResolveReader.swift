@@ -55,14 +55,19 @@ enum ResolveReader {
         // walks find** (shell p4 Task 6): the open notes on its pieces that
         // carry that language. Its changes, proposals and problems are not
         // the walks' (`ResolveEditionItems`). The Source edition has none.
-        if case .edition(let language, let isSource, _) = scope {
+        // A piece read in a language holds the same, for its one piece (shell
+        // p4 Task 9), with its text for the paragraph groups' titles.
+        if let language = scope.translationLanguage {
+            let isSource = scope.isSourceEdition
             let questions = isSource ? [] : annotations.annotations.filter {
                 inScope.contains($0.docId) && ResolveEditionItems.isQuestion($0.annotation, in: language)
             }
+            var text: [String: String] = [:]
+            if case .pieceInLanguage = scope { text = paragraphText }
             return ResolveSnapshot(
                 items: questions.map(ResolveItem.note),
                 sequences: annotations.sequences.filter { inScope.contains($0.key) },
-                paragraphText: [:],
+                paragraphText: text,
                 unreadableDocIds: isSource ? [] : annotations.unreadableDocIds.filter(inScope.contains))
         }
 
@@ -106,8 +111,8 @@ enum ResolveReader {
     /// `.onChange`, never from a body.
     @MainActor
     static func loadFindings(scope: ResolveScope, diagnostics: DiagnosticsStore) {
-        // An edition lists no strains.
-        if case .edition = scope { return }
+        // An edition, or a piece read in a language, lists no strains.
+        if scope.translationLanguage != nil { return }
         for docId in scope.docIds where !DocumentClass.isFigureDocId(docId) {
             diagnostics.load(docId: docId)
         }
@@ -251,11 +256,15 @@ enum ResolveReader {
         }
 
         var paragraphText: [String: String] = [:]
-        if case .piece(let docId, _) = scope { paragraphText = text(of: docId) ?? [:] }
+        switch scope {
+        case .piece(let docId, _), .pieceInLanguage(let docId, _): paragraphText = text(of: docId) ?? [:]
+        case .pieces, .figure, .edition, .elsewhere, .outside: break
+        }
 
         var findings: [String: [Diagnostic]] = [:]
-        // An edition lists no strains, so none is judged.
-        let listsStrains: Bool = if case .edition = scope { false } else { true }
+        // An edition, or a piece read in a language, lists no strains, so
+        // none is judged.
+        let listsStrains = scope.translationLanguage == nil
         if listsStrains, let liveFindings {
             for docId in scope.docIds where !DocumentClass.isFigureDocId(docId) {
                 var anchored = false

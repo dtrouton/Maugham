@@ -150,14 +150,38 @@ struct ResolveNoteVerbs {
         }
     }
 
-    /// Reply to a query — an accept carrying the writer's words.
+    /// Reply to a query — an accept carrying the writer's words, whose
+    /// refusal is SAID (`reply(to:with:in:…)`).
     func replyToQuery(
         _ document: Document, _ ann: Annotation, reply: String
     ) {
+        let mayWrite = mayWriteText(document)
+        let undoManager = undoManager
         Task {
-            try? await document.acceptAnnotation(
-                id: ann.id, userResponse: reply, undoManager: undoManager,
-                mayWrite: mayWriteText(document))
+            await Self.reply(to: ann.id, with: reply, in: document, undoManager: undoManager,
+                             mayWrite: mayWrite)
+        }
+    }
+
+    /// **A reply to a question, whose refusal is SAID** (P3c Task 8,
+    /// controller ruling Q; moved from the translation review pane with its
+    /// translator's queries, shell p4 Task 9): a reply the `Document`'s door
+    /// refuses goes to the window's notice channel in its own sentence and
+    /// comes back to the caller — never a sheet closing as if it had landed.
+    /// Nil means the reply was filed.
+    @discardableResult
+    static func reply(to annotationId: String, with reply: String, in document: Document,
+                      undoManager: UndoManager?,
+                      mayWrite: (@MainActor () -> Bool)? = nil) async -> String? {
+        do {
+            try await document.acceptAnnotation(id: annotationId, userResponse: reply,
+                                                undoManager: undoManager, mayWrite: mayWrite)
+            return nil
+        } catch {
+            let sentence = error.localizedDescription
+            documentLog.warning("query reply refused: \(sentence, privacy: .public)")
+            MaughamEvent.postNotice(sentence, projectURL: document.opStore.projectURL)
+            return sentence
         }
     }
 

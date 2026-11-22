@@ -149,7 +149,7 @@ struct TranslationRoundReportHost: View {
             let found = try await withAnnotationDocument(
                 store: store, projectURL: projectURL, documentId: round.docId
             ) { document in
-                TranslationReviewPaneLogic.openQueries(
+                ResolveEditionItems.openQueries(
                     document.annotations(filter: AnnotationFilter(
                         kinds: [.query], statuses: [.open])),
                     language: round.language)

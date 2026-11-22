@@ -296,10 +296,10 @@ final class RightColumnMountingTests: XCTestCase {
         for subject in Self.subjects {
             for position in RightColumnPosition.allCases {
                 let content = RightColumnContent.of(
-                    position: position, subject: subject, translationLanguage: nil,
+                    position: position, subject: subject,
                     structure: structure, projectType: .novel)
                 switch (position, content) {
-                case (.resolve, .resolve), (.resolve, .translationReview),
+                case (.resolve, .resolve),
                      (.brief, .brief),
                      (.pulledUp, .pulledUp), (.pulledUp, .centreDetails), (.pulledUp, .nothingPulledUp):
                     break
@@ -312,11 +312,11 @@ final class RightColumnMountingTests: XCTestCase {
 
     /// Shell p4 Task 6 (re-made from the desk's answer): with an edition
     /// faced, To resolve is its own list like every other subject's — no
-    /// subject answers anything else outside translation review.
+    /// subject answers anything else.
     func test_everySubjectsToResolveIsTheList() {
         for subject in Self.subjects {
             let content = RightColumnContent.of(
-                position: .resolve, subject: subject, translationLanguage: nil,
+                position: .resolve, subject: subject,
                 structure: structure, projectType: .novel)
             XCTAssertEqual(content, .resolve, "\(subject)")
         }
@@ -514,7 +514,7 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(shown, "a hidden column is revealed")
         XCTAssertEqual(position, .brief)
         XCTAssertEqual(RightColumnContent.of(
-            position: position, subject: subject, translationLanguage: nil,
+            position: position, subject: subject,
             structure: structure, projectType: .novel), .brief(.piece(docId: "ch-1")))
 
         // The hand-off goes through the one selection act, after the faces.
@@ -648,7 +648,7 @@ final class RightColumnMountingTests: XCTestCase {
         XCTAssertTrue(shown)
         XCTAssertEqual(position, .pulledUp)
         XCTAssertEqual(RightColumnContent.of(
-            position: .pulledUp, subject: subject, translationLanguage: nil,
+            position: .pulledUp, subject: subject,
             structure: structure, projectType: .novel), .pulledUp(.projectHistory))
     }
 
@@ -706,14 +706,14 @@ final class RightColumnMountingTests: XCTestCase {
 
     // MARK: - A filter key on every ground (shell p4 Task 6; was review I3)
 
-    /// ⌘⌥A/D/T hand their filter over wherever To resolve's list shows — an
-    /// edition's included: the desk's interim loss ended. Only over the
-    /// translation review (interim until Task 9; no list mounted to spend it)
-    /// the key still selects the position and the filter is DROPPED, never
-    /// left to fire the next time the list mounts. Over an edition a filter
-    /// whose chip is absent selects nothing (`ResolveEditionTests
-    /// .test_keyFiltersApplyWithAnEditionOnTheFaces`).
-    func test_aFilterKeyIsHandedOverOnEveryGroundButTheReview() throws {
+    /// ⌘⌥A/D/T/L hand their filter over wherever To resolve's list shows —
+    /// an edition's included, and since shell p4 Task 9 a piece read in a
+    /// language (the translation review that used to drop it is gone: the
+    /// list is there to spend it). Over an edition or a piece in a language
+    /// a filter whose chip is absent selects nothing
+    /// (`ResolveEditionTests.test_keyFiltersApplyWithAnEditionOnTheFaces`,
+    /// `ResolvePieceInLanguageTests.test_questionsKeyLandsOnQuestionsAndTheOthersAreInert`).
+    func test_aFilterKeyIsHandedOverOnEveryGround() throws {
         for filter in [ResolveKeyFilter.rounds, .checks, .mine, .questions] {
             let userInfo: [AnyHashable: Any] = [
                 MaughamEvent.positionKey: RightColumnPosition.resolve.rawValue,
@@ -722,18 +722,17 @@ final class RightColumnMountingTests: XCTestCase {
                            "the key selects the position in every state")
             XCTAssertEqual(ProjectWindow.positionAsk(in: userInfo, shows: .resolve).request,
                            .filter(filter), "over the list, the filter is handed over")
-            XCTAssertNil(ProjectWindow.positionAsk(in: userInfo, shows: .translationReview).request,
-                         "\(filter) over the review must not be left to fire later")
         }
         // The states, as the table answers them: an edition is the list.
         XCTAssertEqual(RightColumnContent.of(
             position: .resolve,
             subject: WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es")),
-            translationLanguage: nil, structure: structure, projectType: .novel),
+            structure: structure, projectType: .novel),
             .resolve)
         XCTAssertEqual(RightColumnContent.of(
-            position: .resolve, subject: Self.piece, translationLanguage: "es",
-            structure: structure, projectType: .novel), .translationReview)
+            position: .resolve, subject: Self.piece,
+            structure: structure, projectType: .novel), .resolve,
+            "a piece read in a language is the list too")
         // A plain position post asks for nothing.
         XCTAssertEqual(ProjectWindow.positionAsk(
             in: [MaughamEvent.positionKey: "resolve"], shows: .resolve),
@@ -747,7 +746,8 @@ final class RightColumnMountingTests: XCTestCase {
                       receiver)
         XCTAssertFalse(receiver.contains("resolveRequest = .filter("),
                        "the receiver sets a filter without asking what the position shows")
-        XCTAssertTrue(receiver.contains("translationLanguage: translationLanguage,"))
+        XCTAssertFalse(receiver.contains("translationLanguage"),
+                       "what the list shows no longer depends on the reading language")
     }
 
     /// **⌘⌥L is To resolve on Questions, ⌘⌥K the edition's To resolve**
@@ -824,7 +824,7 @@ final class RightColumnMountingTests: XCTestCase {
         subject = ProjectWindow.facesForABrief(.edition(language: row!.language), subject: subject)
         XCTAssertEqual(subject.faces, .edition(language: "sr"))
         XCTAssertEqual(subject.open, .item("ch-1"), "the centre stays on the piece being read")
-        XCTAssertEqual(RightColumnContent.of(position: .resolve, subject: subject, translationLanguage: nil,
+        XCTAssertEqual(RightColumnContent.of(position: .resolve, subject: subject,
                                              structure: structure, projectType: .novel), .resolve,
                        "an edition's faces are To resolve's own list")
     }
@@ -1403,7 +1403,7 @@ final class RightColumnMountingTests: XCTestCase {
 
         for arm in arms {
             XCTAssertEqual(RightColumnContent.of(
-                position: arm.position, subject: arm.subject, translationLanguage: nil,
+                position: arm.position, subject: arm.subject,
                 structure: f.store.manifest.structure, projectType: f.store.manifest.type),
                 arm.expected, "premise: the table's answer for \(arm.name)")
             probe.subject = arm.subject
@@ -1430,10 +1430,11 @@ final class RightColumnMountingTests: XCTestCase {
         }
     }
 
-    /// The translation review is To resolve's answer while review is on over
-    /// the open piece, and To resolve itself until the piece's document is
-    /// there to review.
-    func test_translationReviewTakesToResolveWhileItIsOn() async throws {
+    /// **A piece read in a language shows its own To resolve** (shell p4 Task
+    /// 9, re-made from the translation review's mount): the column hands the
+    /// reading language to the list, whose head is that language's and which
+    /// makes no to-do (the writer's to-dos are one Source switch away).
+    func test_aPieceReadInALanguageShowsItsOwnToResolve() async throws {
         try requireAssistiveClient()
         let f = try await fixture("ReviewArm")
         let docId = f.documentItemId
@@ -1441,9 +1442,9 @@ final class RightColumnMountingTests: XCTestCase {
         let control = EditorControl()
         control.translationLanguage = "es"
         XCTAssertEqual(RightColumnContent.of(
-            position: .resolve, subject: piece, translationLanguage: "es",
+            position: .resolve, subject: piece,
             structure: f.store.manifest.structure, projectType: f.store.manifest.type),
-            .translationReview)
+            .resolve)
 
         let probe = RightColumnFixture.Probe(position: .resolve, subject: piece)
         let window = TestWindow.mount(
@@ -1452,15 +1453,15 @@ final class RightColumnMountingTests: XCTestCase {
                 .environment(f.preferences),
             size: CGSize(width: 320, height: 700))
         windows.append(window)
-        // No `Document` is registered for the piece: To resolve stands in.
-        XCTAssertNil(f.documentStore.document(forDocId: docId), "premise")
-        let resolve = await pumpUntil(deadline: 5) {
-            (try? self.everythingRead(in: window).contains("New To-do")) ?? false
+        let header = ResolvePieceInLanguage.headerLine(language: "es")
+        let shown = await pumpUntil(deadline: 5) {
+            (try? self.everythingRead(in: window).contains(header)) ?? false
         }
         let read = try everythingRead(in: window)
-        XCTAssertTrue(resolve, "with nothing to review yet, To resolve shows: \(read)")
+        XCTAssertTrue(shown, "the Spanish list's head shows: \(read)")
+        XCTAssertFalse(read.contains("New To-do"), "a piece read in a language makes no to-do: \(read)")
 
-        // Entering review selects To resolve from wherever the column was.
+        // Reading in a language selects To resolve from wherever the column was.
         let source = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
         let flat = Self.flat(source)
         XCTAssertTrue(flat.contains(

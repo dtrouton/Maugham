@@ -47,7 +47,8 @@ enum BriefScope: Hashable {
             switch ResolveScope.of(faces, readIn: nil,
                                    sourceLanguage: PublishConfig.Metadata().language,
                                    structure: structure, projectType: projectType) {
-            case .piece(let docId, _): return .piece(docId: docId)
+            // A piece's Brief is the piece's, whatever it is read in.
+            case .piece(let docId, _), .pieceInLanguage(let docId, _): return .piece(docId: docId)
             case .elsewhere(let docId): return .elsewhere(docId: docId)
             case .pieces(let docIds, _): return .part(groupId: id, docIds: docIds)
             case .figure, .edition, .outside: return .outside

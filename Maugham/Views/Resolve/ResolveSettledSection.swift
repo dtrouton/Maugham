@@ -51,7 +51,7 @@ enum ResolveSettled {
     static func offersFigures(scope: ResolveScope) -> Bool {
         switch scope {
         case .figure, .piece: return true
-        case .pieces, .edition, .elsewhere, .outside: return false
+        case .pieces, .edition, .pieceInLanguage, .elsewhere, .outside: return false
         }
     }
 
@@ -71,7 +71,7 @@ enum ResolveSettled {
                 case .figure(let id): return note.docId == id
                 case .piece(let docId, _):
                     return ProjectStore.countsOn(note.docId, owners: figureOwners) == docId
-                case .pieces, .edition, .elsewhere, .outside: return false
+                case .pieces, .edition, .pieceInLanguage, .elsewhere, .outside: return false
                 }
             }
             .sorted {

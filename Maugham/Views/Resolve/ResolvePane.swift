@@ -167,6 +167,21 @@ struct ResolvePane: View {
     /// Nil where no centre stands behind the list: an edition then lists its
     /// questions and changes, and its Shows do nothing.
     var publishCentre: PublishCentreModel? = nil
+    /// **The language the faces are read in** (`ReadingLanguage.of`, shell
+    /// p4 Task 9): a piece faced while it is read in a language lists that
+    /// language's questions and changes (`ResolveScope.pieceInLanguage`).
+    /// Nil reads the faces in the source.
+    var readIn: String? = nil
+    /// The window's editor control: the translated surface the editor shows
+    /// (its badges — what the translation lacks, what is left over) and the
+    /// caret's paragraph's spot-checks and cells, on a piece read in a
+    /// language. Nil where no editor stands behind the list.
+    var editorControl: EditorControl? = nil
+    /// **The tree's marks** (`BinderTreeSectionsState.presence`): a piece read
+    /// in a language whose list is empty says when its SOURCE has something
+    /// open — the dot its row carries — so the two never disagree. Nil where
+    /// no tree stands behind the list.
+    var presenceMarks: ResolvePresence.Marks? = nil
 
     @Environment(UserPreferences.self) private var userPreferences
     @Environment(\.undoManager) private var undoManager
@@ -199,7 +214,14 @@ struct ResolvePane: View {
     /// An edition's own read (rounds, proposals, problems), and the events
     /// and verbs heard that change it (shell p4 Task 6).
     @State private var editionRead = ResolveEditionItems.Read.empty
+    /// The scope `editionRead` was read for — a list moving between an
+    /// edition and one of its pieces in the same language never draws one's
+    /// read under the other's head (shell p4 Task 9).
+    @State private var editionReadScope: ResolveScope?
     @State private var editionHeard = 0
+    /// Bumped by `.maughamTranslationDidUpdate`: a piece read in a language
+    /// re-reads what its translation lacks and leaves over.
+    @State private var translationHeard = 0
 
     // MARK: The writer's
 
@@ -265,7 +287,7 @@ struct ResolvePane: View {
     // MARK: - Derived per render (no walk)
 
     private var scope: ResolveScope {
-        ResolveScope.of(subject.faces, readIn: nil, sourceLanguage: sourceLanguage,
+        ResolveScope.of(subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,
                         structure: store.manifest.structure, projectType: store.manifest.type)
     }
 
@@ -274,36 +296,79 @@ struct ResolvePane: View {
         publishCentre?.sourceLanguage ?? PublishConfig.Metadata().language
     }
 
-    /// What an edition's own read is keyed on; nil off an edition.
+    /// What an edition's own read — or a piece read in a language's — is
+    /// keyed on; nil at every source scope. A piece's has no problems and no
+    /// imprint: those are the book's.
     private var editionKey: ResolveEditionKey? {
-        guard let language = scope.editionLanguage else { return nil }
+        guard let language = scope.translationLanguage else { return nil }
+        let isEdition = scope.editionLanguage != nil
         return ResolveEditionKey(
             scope: scope,
             roundsModified: ResolveEditionKey.modified(
                 TranslationRoundStore.fileURL(language: language, in: store.url)),
             heard: editionHeard,
-            problems: publishCentre.map { ResolveEditionItems.stoppingProblems($0.compileRunner.state) } ?? [],
-            imprint: documentStore.uiState.publishImprint)
+            problems: isEdition
+                ? publishCentre.map { ResolveEditionItems.stoppingProblems($0.compileRunner.state) } ?? []
+                : [],
+            imprint: isEdition ? documentStore.uiState.publishImprint : nil)
     }
 
-    /// The four edition kinds, from the edition's own read — never another
-    /// edition's (a read is of one language).
+    /// Whether `editionRead` is this scope's.
+    private var editionReadIsCurrent: Bool { editionReadScope == scope }
+
+    /// The edition kinds, from this scope's own read — never another
+    /// edition's, nor an edition's under one of its pieces. A piece read in
+    /// a language lists only its own: no design proposal, no problem.
     private var editionItems: [ResolveItem] {
-        guard case .edition(let language, let isSource, let docIds) = scope,
-              editionRead.language == language else { return [] }
-        return ResolveEditionItems.items(language: language, isSource: isSource, docIds: docIds,
-                                         read: editionRead)
+        guard editionReadIsCurrent else { return [] }
+        switch scope {
+        case .edition(let language, let isSource, let docIds):
+            return ResolveEditionItems.items(language: language, isSource: isSource, docIds: docIds,
+                                             read: editionRead)
+        case .pieceInLanguage(let docId, let language):
+            return ResolveEditionItems.items(language: language, isSource: false, docIds: [docId],
+                                             read: editionRead, bookLevel: false)
+        case .piece, .pieces, .figure, .elsewhere, .outside:
+            return []
+        }
     }
 
     /// The empty edition's sentence — none until this edition's read has
     /// landed (review M4: a list must not say "No round has run" over an
-    /// edition with rounds while it reads them).
+    /// edition with rounds while it reads them). A piece read in a language
+    /// says its own (`ResolvePieceInLanguage.clearLine`).
     private var editionClear: String? {
-        guard case .edition(let language, let isSource, _) = scope,
-              editionRead.language == language else { return nil }
-        return ResolveEditionItems.clearLine(language: language, isSource: isSource,
-                                             hasRounds: editionRead.hasRounds,
-                                             readingBook: presenceReading.map { !$0.isComplete } ?? false)
+        guard editionReadIsCurrent else { return nil }
+        switch scope {
+        case .edition(let language, let isSource, _):
+            return ResolveEditionItems.clearLine(language: language, isSource: isSource,
+                                                 hasRounds: editionRead.hasRounds,
+                                                 readingBook: presenceReading.map { !$0.isComplete } ?? false)
+        case .pieceInLanguage(let docId, let language):
+            return ResolvePieceInLanguage.clearLine(
+                language: language,
+                noun: FiledUnder.pieceNoun(TreeWalk.find(id: docId, in: store.manifest.structure),
+                                           projectType: store.manifest.type),
+                hasRounds: editionRead.hasRounds,
+                readingBook: Self.readsQuestionsFromPresence(docId: docId, presence: presenceReading,
+                                                             documentStore: documentStore),
+                sourceHasSomething: presenceMarks.map {
+                    ResolvePresence.rowMark(.item(docId), in: $0) == .something
+                } ?? false)
+        case .piece, .pieces, .figure, .elsewhere, .outside:
+            return nil
+        }
+    }
+
+    /// **Whether a piece read in a language may still be missing a
+    /// question** — its questions come from the window's presence read
+    /// (the piece is not open, so no `Document` answers for it) and that
+    /// read has not reached the whole book yet. An open piece's own notes
+    /// are always whole. Pure over its inputs.
+    static func readsQuestionsFromPresence(docId: String, presence: ResolvePresence.BookReading?,
+                                           documentStore: DocumentStore) -> Bool {
+        guard let presence, documentStore.document(forDocId: docId) == nil else { return false }
+        return !presence.isComplete
     }
 
     private var openDocId: String? { subject.open.itemID }
@@ -359,7 +424,7 @@ struct ResolvePane: View {
     /// The presence read, at an edition scope only — what its questions
     /// come from, and what its read is keyed on.
     private var editionPresence: ResolvePresence.BookReading? {
-        scope.editionLanguage == nil ? nil : presenceReading
+        scope.translationLanguage == nil ? nil : presenceReading
     }
 
     private var shownSelection: Set<ResolveSource> {
@@ -368,7 +433,7 @@ struct ResolvePane: View {
 
     private var hasList: Bool {
         switch scope {
-        case .piece, .pieces, .figure, .edition: return true
+        case .piece, .pieces, .figure, .edition, .pieceInLanguage: return true
         case .elsewhere, .outside: return false
         }
     }
@@ -391,10 +456,12 @@ struct ResolvePane: View {
                 onSetActivePass: onSetActivePass,
                 onSetPassState: onSetPassState,
                 onFiledUnder: { filed($0) },
-                editionRead: editionRead.language == scope.editionLanguage ? editionRead : .empty,
+                editionRead: editionReadIsCurrent ? editionRead : .empty,
                 onShowRound: { publishCentre?.show(round: $0) },
                 onShowProposal: { publishCentre?.show(proposal: $0) },
-                mayDecideDesign: editionVerbs?.mayDecideDesign ?? false)
+                mayDecideDesign: editionVerbs?.mayDecideDesign ?? false,
+                editorControl: editorControl,
+                translationHeard: translationHeard)
             if filedNotice != nil {
                 FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief, lingers: false)
                     .padding(.horizontal, 12).padding(.vertical, 4)
@@ -432,17 +499,29 @@ struct ResolvePane: View {
         .task(id: listKey) { refresh(listKey) }
         // An edition's rounds, proposals and problems: once per key, the
         // ledger off the main actor (shell p4 Task 6).
+        // A piece read in a language reads its own rounds the same way
+        // (shell p4 Task 9).
         .task(id: editionKey) {
-            guard let key = editionKey, case .edition(let language, let isSource, let docIds) = key.scope
-            else {
+            guard let key = editionKey else {
                 editionRead = .empty
+                editionReadScope = nil
                 return
             }
-            let read = await ResolveEditionItems.read(
-                language: language, isSource: isSource, docIds: docIds, problems: key.problems,
-                store: store, documentStore: documentStore)
+            let read: ResolveEditionItems.Read
+            switch key.scope {
+            case .edition(let language, let isSource, let docIds):
+                read = await ResolveEditionItems.read(
+                    language: language, isSource: isSource, docIds: docIds, problems: key.problems,
+                    store: store, documentStore: documentStore)
+            case .pieceInLanguage(let docId, let language):
+                read = await ResolveEditionItems.readPiece(
+                    docId: docId, language: language, store: store, documentStore: documentStore)
+            case .piece, .pieces, .figure, .elsewhere, .outside:
+                return
+            }
             guard !Task.isCancelled else { return }
             editionRead = read
+            editionReadScope = key.scope
             held = ResolveEditionItems.replacing(held, with: editionItems)
             regroup(scope: scope, script: lastKey?.regroup.script)
         }
@@ -456,6 +535,11 @@ struct ResolvePane: View {
         // in another window (shell p4 Task 6 fix round, review I1).
         .onProjectEvent(.maughamTranslationRoundChanged, url: store.url, window: window) { _ in
             editionHeard &+= 1
+        }
+        // A translation written — a round's ingest, Claude's write, a Clear:
+        // what a piece read in a language lacks and leaves over moved.
+        .onProjectEvent(.maughamTranslationDidUpdate, url: store.url, window: window) { _ in
+            translationHeard &+= 1
         }
         // The sidecar for the scope's pieces — never from `body`; its
         // `version` moves the read key.
@@ -546,7 +630,7 @@ struct ResolvePane: View {
             showsSelectionMode: showsSelectionMode,
             selectionModeOn: selectionModeOn,
             // An edition lists no to-dos, so it makes none.
-            showsNewTodo: scope.editionLanguage == nil && creationVerbs.creation.offersAny,
+            showsNewTodo: scope.translationLanguage == nil && creationVerbs.creation.offersAny,
             checksUnread: checksUnread,
             triage: triageOffered ? triageChoice : nil,
             onTriage: { triageChoice = $0 },
@@ -928,7 +1012,7 @@ struct ResolvePane: View {
                                            now: Date(), live: live)
         // An edition's own kinds are not the walks': a read keeps the last
         // edition read's (`ResolveEditionItems.replacing`).
-        held = scope.editionLanguage == nil
+        held = scope.translationLanguage == nil
             ? hold.snapshot : ResolveEditionItems.replacing(hold.snapshot, with: editionItems)
         keptStetted = hold.kept
         if step == .read {
@@ -1069,8 +1153,9 @@ struct ResolvePane: View {
         }
         // **An edition's question opens in its language** (shell p4 Task 6
         // fix round): the paragraph it asks about, read in the edition, as a
-        // change's click does.
-        if case .note(let note) = item, let language = scope.editionLanguage,
+        // change's click does — and so does a piece's read in a language
+        // (Task 9).
+        if case .note(let note) = item, let language = scope.translationLanguage,
            let reveal = Self.editionQuestionReveal(note, language: language) {
             TranslationReveal.post(reveal)
             return
@@ -1118,7 +1203,7 @@ struct ResolvePane: View {
     @State private var editionVerbs: ResolveEditionVerbs?
 
     private func rebuildEditionVerbs() {
-        guard let language = scope.editionLanguage else {
+        guard let language = scope.translationLanguage else {
             editionVerbs = nil
             editionAuthorVerbs = [:]
             return

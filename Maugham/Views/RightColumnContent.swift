@@ -19,14 +19,14 @@ public enum PullUpRequest: String, CaseIterable, Sendable {
 }
 
 /// **What the right column shows: one exhaustive answer** (shell plan 3, "What
-/// each right-column position shows"). Pure over the subject, the remembered
-/// position and translation review; the column renders it with one `switch`.
+/// each right-column position shows"). Pure over the subject and the
+/// remembered position; the column renders it with one `switch`.
 enum RightColumnContent: Equatable {
-    /// To resolve (`ResolvePane`) — an edition's included (shell p4 Task 6).
+    /// To resolve (`ResolvePane`) — an edition's included (shell p4 Task 6),
+    /// and a piece read in a language, whose list is that language's (shell
+    /// p4 Task 9: the reading language is the list's scope, never a pane of
+    /// its own).
     case resolve
-    /// To resolve while translation review is on over the faces' open piece
-    /// (`TranslationReviewPane`, interim until plan 4).
-    case translationReview
     case brief(BriefScope)
     /// The thing pulled up (`subject.beside`).
     case pulledUp(PulledUp)
@@ -37,14 +37,10 @@ enum RightColumnContent: Equatable {
     case nothingPulledUp
 
     static func of(position: RightColumnPosition, subject: WindowSubject,
-                   translationLanguage: String?, structure: [StructureItem],
+                   structure: [StructureItem],
                    projectType: ProjectType) -> RightColumnContent {
         switch position {
         case .resolve:
-            if translationLanguage != nil, subject.faces == subject.open,
-               case .item(let id) = subject.open, ClickRule.isPiece(id, in: structure) {
-                return .translationReview
-            }
             return .resolve
         case .brief:
             return .brief(BriefScope.of(subject.faces, structure: structure,
@@ -116,7 +112,7 @@ enum RightColumnContent: Equatable {
     /// otherwise — Global Constraints).
     static func offersPulledUp(_ subject: WindowSubject, structure: [StructureItem],
                                projectType: ProjectType) -> Bool {
-        of(position: .pulledUp, subject: subject, translationLanguage: nil,
+        of(position: .pulledUp, subject: subject,
            structure: structure, projectType: projectType) != .nothingPulledUp
     }
 

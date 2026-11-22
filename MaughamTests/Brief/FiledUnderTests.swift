@@ -259,7 +259,7 @@ final class FiledUnderTests: XCTestCase {
                                               "FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
         ("Views/Brief/BriefBookView.swift", ["FiledNotice(filing: $filedNotice, onOpenBrief: onOpenBrief)"]),
         // Shell p4 Task 6: To resolve's call also hands the publish centre on.
-        ("Views/RightColumn.swift", ["onOpenBrief: openBrief,", "publishCentre: publishCentre)"]),
+        ("Views/RightColumn.swift", ["onOpenBrief: openBrief,", "publishCentre: publishCentre,"]),
         ("Views/Resolve/ResolvePane.swift", ["onFiled: { filed($0) })"]),
         ("Views/Publish/TranslationRoundReportView.swift",
          ["run(settling: id, filedIn: ruleSection(of: id))",

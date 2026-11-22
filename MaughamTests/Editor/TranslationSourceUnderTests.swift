@@ -59,8 +59,6 @@ final class TranslationSourceUnderTests: XCTestCase {
         // and the badge marks is the translation alone.
         XCTAssertFalse(NSLocationInRange(inTwo, ranges[1].range))
         XCTAssertTrue(ranges[1].sourceRange.map { NSLocationInRange(inTwo, $0) } ?? false)
-        XCTAssertEqual(TranslationReviewPaneLogic.selectedEntry(cursorLocation: inTwo, entries: entries)?.paragraphId,
-                       "b")
         // The source text "One\n\nTwo\n\nThree": b is 5..<8.
         let sourceRanges = ["a": NSRange(location: 0, length: 3), "b": NSRange(location: 5, length: 3),
                             "c": NSRange(location: 10, length: 5)]

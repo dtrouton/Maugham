@@ -23,9 +23,9 @@ import Observation
 /// the translator it is waiting on stops existing.
 ///
 /// `translationRuns` holds no session — it is the record finished rounds
-/// leave (`TranslationRunState.resolve`'s `lastRun`). The desk that read it
-/// is gone (shell p4 Task 7); its next reader is a piece read in a
-/// language's one-chapter run (plan 4 Task 9). It is here because it is
+/// leave (`TranslationRunState.resolve`'s `lastRun`), read by a piece read
+/// in a language's To resolve head (`PieceInLanguageHeadView`, shell p4 Task
+/// 9) for the last run's report on that piece. It is here because it is
 /// wired with the services (`onRunEnded`) and lives exactly as long as they
 /// do.
 @MainActor @Observable

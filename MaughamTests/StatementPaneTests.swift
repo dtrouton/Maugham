@@ -42,7 +42,7 @@ final class StatementPaneTests: XCTestCase {
                     selected: selected).contains(.brief), "\(subject)")
             }
             guard case .brief = RightColumnContent.of(
-                position: .brief, subject: subject, translationLanguage: nil,
+                position: .brief, subject: subject,
                 structure: structure, projectType: .novel) else {
                 return XCTFail("\(subject): Brief is Brief under every subject")
             }
@@ -50,7 +50,7 @@ final class StatementPaneTests: XCTestCase {
             XCTAssertEqual(RightColumnContent.pulledUp(
                 for: .visualLanguage, subject: subject, structure: structure), .visualLanguage)
             XCTAssertEqual(RightColumnContent.of(
-                position: .pulledUp, subject: pulled, translationLanguage: nil,
+                position: .pulledUp, subject: pulled,
                 structure: structure, projectType: .novel), .pulledUp(.visualLanguage), "\(subject)")
             XCTAssertTrue(RightColumnContent.offersPulledUp(
                 pulled, structure: structure, projectType: .novel))

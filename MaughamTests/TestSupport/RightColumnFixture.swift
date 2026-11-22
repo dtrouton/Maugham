@@ -205,7 +205,7 @@ enum RightColumnFixture {
         let name: String
         let position: RightColumnPosition
         let subject: WindowSubject
-        /// Translation review on, in this language.
+        /// The piece read in this language (`EditorControl.translationLanguage`).
         var translationLanguage: String? = nil
     }
 
@@ -216,7 +216,6 @@ enum RightColumnFixture {
     static func kind(of content: RightColumnContent) -> String {
         switch content {
         case .resolve: return "resolve"
-        case .translationReview: return "translationReview"
         case .brief(let scope):
             switch scope {
             case .piece: return "brief.piece"
@@ -253,7 +252,7 @@ enum RightColumnFixture {
     /// the compiler forces the switch, and `test_theCensusWalksEveryArm`
     /// compares what a census walked against this list.
     static let armKinds: Set<String> = [
-        "resolve", "translationReview",
+        "resolve",
         "brief.piece", "brief.part", "brief.book", "brief.edition", "brief.elsewhere", "brief.outside",
         "pulledUp.research", "pulledUp.figure", "pulledUp.canvasScrap", "pulledUp.canvasPhoto",
         "pulledUp.canvasRegion",
@@ -282,7 +281,9 @@ enum RightColumnFixture {
         return [
             Arm(name: "To resolve", position: .resolve, subject: piece),
             Arm(name: "To resolve, the Book", position: .resolve, subject: .book),
-            Arm(name: "translation review", position: .resolve, subject: piece,
+            // A piece read in Spanish: To resolve's list in that language,
+            // its head with the caret's paragraph (shell p4 Task 9).
+            Arm(name: "To resolve, a piece read in Spanish", position: .resolve, subject: piece,
                 translationLanguage: "es"),
             // An edition's own To resolve (shell p4 Task 6): a translated
             // edition's head and list, and the Source's design head with its
@@ -331,7 +332,6 @@ enum RightColumnFixture {
         Set(arms.map {
             kind(of: RightColumnContent.of(
                 position: $0.position, subject: $0.subject,
-                translationLanguage: $0.translationLanguage,
                 structure: store.manifest.structure, projectType: store.manifest.type))
         })
     }

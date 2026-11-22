@@ -232,7 +232,7 @@ final class LockTests: XCTestCase {
         // …and it is the arm the content table names for that subject.
         let inTheCentre = WindowSubject(open: .research("r1"), faces: .research("r1"))
         XCTAssertEqual(RightColumnContent.of(
-            position: .pulledUp, subject: inTheCentre, translationLanguage: nil,
+            position: .pulledUp, subject: inTheCentre,
             structure: [], projectType: .novel), .centreDetails(.research("r1")))
         // The same answer as the item pulled up.
         XCTAssertEqual(PulledUpView.centreResearchIsReadOnly("r1", isLocked: true),

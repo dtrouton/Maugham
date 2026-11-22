@@ -450,7 +450,7 @@ final class PulledUpViewTests: XCTestCase {
         subject.beside = pulled
         XCTAssertTrue(ProjectWindow.pulledUpIsShownBeside(subject: subject))
         XCTAssertEqual(RightColumnContent.of(position: .pulledUp, subject: subject,
-                                             translationLanguage: nil, structure: structure,
+                                             structure: structure,
                                              projectType: .novel),
                        .pulledUp(pulled))
         XCTAssertTrue(PulledUpEscapeModifier.claims(pulledUp: pulled, position: .pulledUp,

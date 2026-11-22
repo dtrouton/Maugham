@@ -923,11 +923,20 @@ final class TranslatorEnvironmentTests: XCTestCase {
         }
         let column = try SourceTree.sourceOfType("RightColumn", under: ["Maugham"])
         let columnCode = String(decoding: SourceTree.mask(column), as: UTF8.self)
-        for token in [".environment(roster)", "ResolvePane(", "TranslationReviewPane(",
-                      "coldCall: roster.coldCall"] {
+        for token in [".environment(roster)", "ResolvePane("] {
             XCTAssertTrue(columnCode.contains(token),
                           "RightColumn is missing \(token) — without it a roster member "
                           + "is unmounted")
+        }
+        // The spot-checks reach the window's one cold-call runner from the
+        // environment the column injects (shell p4 Task 9; the translation
+        // review pane that took it as an argument is gone).
+        let caret = try SourceTree.sourceOfType("PieceInLanguageCaretSection", under: ["Maugham"])
+        let caretCode = String(decoding: SourceTree.mask(caret), as: UTF8.self)
+        for token in ["@Environment(AgentRoster.self)", "roster?.coldCall"] {
+            XCTAssertTrue(caretCode.contains(token),
+                          "PieceInLanguageCaretSection is missing \(token) — the spot-checks "
+                          + "would have no runner")
         }
         let toggle = desk + column
         XCTAssertFalse(window.contains("translator.notARealVerb(")

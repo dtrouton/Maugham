@@ -358,6 +358,70 @@ final class RightColumnPaneWidthTests: XCTestCase {
                        + offenders.joined(separator: "\n"))
     }
 
+    // MARK: - A piece read in a language, loaded (shell p4 Task 9)
+
+    /// **A piece read in a language's head, once it has loaded** — a stopped
+    /// round's line, the last finished letter labelled earlier, Run with its
+    /// line and the trend, what the translation lacks and what is left over
+    /// (Clear), and the caret's paragraph with its chip, source, spot-checks
+    /// — and the two disclosed lists, at the column's floor, the default and
+    /// the ceiling. Its list rows are an edition's (measured above).
+    func test_aPieceReadInALanguagesHeadFitsTheColumn() async throws {
+        let fixture = try await makeFixture()
+        let item = try XCTUnwrap(TreeWalk.collect(in: fixture.store.manifest.structure,
+                                                  where: { $0.path != nil }).first)
+        let document = try XCTUnwrap(fixture.documentStore.document(forDocId: item.id),
+                                     "premise: the piece is open")
+        let long = String(repeating: "A translated sentence that runs on and on. ", count: 5)
+        let control = EditorControl()
+        control.translationLanguage = "es"
+        control.showsSourceUnder = false
+        control.translationBadges = .init(
+            entries: document.sequence.enumerated().map { index, id in
+                TranslationBadgeLayout.Entry(paragraphId: id, text: long,
+                                             status: index == 0 ? .stale : .missing)
+            },
+            orphans: [TranslationRecord(paragraphId: "zzzz", language: "es", text: long, sourceHash: "x")])
+        var letter = TranslationRound(number: 12, language: "es", docId: item.id, startedAt: Date())
+        letter.endedAt = Date()
+        letter.summary = String(repeating: "I kept the fog where it rolls in, and softened nothing. ", count: 4)
+        var stopped = TranslationRound(number: 13, language: "es", docId: item.id, startedAt: Date())
+        stopped.endedAt = Date()
+        stopped.legs = [.init(leg: .read, status: .cancelled)]
+        let read = ResolveEditionItems.Read(language: "es", rounds: [item.id: letter], hasRounds: true,
+                                            newestRound: stopped, runBook: [item.id], trend: [9, 7, 4])
+        let translation = ResolvePieceInLanguage.translation(
+            docId: item.id, language: "es",
+            statuses: control.translationBadges.entries.map { ($0.paragraphId, $0.status) },
+            orphans: control.translationBadges.orphans)
+        let text = Dictionary(uniqueKeysWithValues: document.sequence.map { ($0, long) })
+        var offenders: [String] = []
+        for width in Self.paneWidths + [Self.ceiling] {
+            for isOpen in [true, false] {
+                let head = PieceInLanguageHeadView(
+                    docId: item.id, language: "es", store: fixture.store,
+                    documentStore: fixture.documentStore, read: read, isOpen: isOpen,
+                    editorControl: control, firstParagraph: document.sequence.first,
+                    paragraphText: text, model: "m", world: nil, onShowRound: { _ in })
+                    .environment(fixture.preferences)
+                let (fits, measured) = Self.fits(head, in: width)
+                if !fits { offenders.append("head (open: \(isOpen)) → \(measured)pt in \(width)pt") }
+            }
+            for (name, list) in [
+                ("paragraph links", AnyView(PieceInLanguageParagraphLinks(translation: translation,
+                                                                          paragraphText: text))),
+                ("left-overs", AnyView(PieceInLanguageLeftOvers(leftOvers: translation.leftOvers))),
+            ] {
+                let (fits, measured) = Self.fits(list, in: width)
+                if !fits { offenders.append("\(name) → \(measured)pt in \(width)pt") }
+            }
+        }
+        XCTAssertFalse(translation.outOfDate.isEmpty || translation.leftOvers.isEmpty,
+                       "premise: the head has lines to draw")
+        XCTAssertEqual(offenders, [], "a piece read in a language is wider than the column:\n"
+                       + offenders.joined(separator: "\n"))
+    }
+
     private struct Fixture {
         let store: ProjectStore
         let documentStore: DocumentStore

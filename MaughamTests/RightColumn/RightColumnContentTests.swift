@@ -16,10 +16,8 @@ final class RightColumnContentTests: XCTestCase {
                       pieceKind: .reference),
     ]
 
-    private func content(_ position: RightColumnPosition, _ subject: WindowSubject,
-                         translating: String? = nil) -> RightColumnContent {
-        RightColumnContent.of(position: position, subject: subject,
-                              translationLanguage: translating, structure: structure,
+    private func content(_ position: RightColumnPosition, _ subject: WindowSubject) -> RightColumnContent {
+        RightColumnContent.of(position: position, subject: subject, structure: structure,
                               projectType: .novel)
     }
 
@@ -39,8 +37,6 @@ final class RightColumnContentTests: XCTestCase {
 
     func test_eachPositionShowsWhatTheTableSays() {
         // To resolve.
-        XCTAssertEqual(content(.resolve, ws(.item("ch-1")), translating: "es"),
-                       .translationReview)
         XCTAssertEqual(content(.resolve, ws(.edition(language: "es"))), .resolve,
                        "an edition's To resolve is To resolve's own list (shell p4 Task 6)")
         XCTAssertEqual(content(.resolve, ws(.item("ch-1"))), .resolve)
@@ -93,18 +89,39 @@ final class RightColumnContentTests: XCTestCase {
                        .brief(.edition(language: "sr")))
     }
 
-    func test_translationReviewShowsOnlyOnTheOpenPiece() {
-        XCTAssertEqual(content(.resolve, ws(.item("ch-1")), translating: "es"),
-                       .translationReview)
-        XCTAssertEqual(content(.resolve, ws(.canvas, .item("ch-1")), translating: "es"),
-                       .resolve, "the faces' piece is not open")
-        XCTAssertEqual(content(.resolve, ws(.item("ch-2"), .item("ch-1")), translating: "es"),
-                       .resolve, "the faces are not what is open")
-        XCTAssertEqual(content(.resolve, ws(.item("part-1")), translating: "es"), .resolve,
-                       "a Part is no piece")
-        XCTAssertEqual(content(.resolve, .book, translating: "es"), .resolve)
-        XCTAssertEqual(content(.brief, ws(.item("ch-1")), translating: "es"),
-                       .brief(.piece(docId: "ch-1")), "only To resolve is the review")
+    /// **The reading language scopes To resolve; it is no pane of its own**
+    /// (shell p4 Task 9, re-made from the translation review's table row):
+    /// the column shows To resolve on every subject, and a piece faced while
+    /// it is read in a language — switched on the open piece, or clicked
+    /// while its edition is open — is that language's list. A Part, the Book,
+    /// a piece faced over the canvas and Brief are not.
+    func test_theReadingLanguageScopesToResolveAndIsNoPaneOfItsOwn() {
+        func scope(_ subject: WindowSubject, switched: String?) -> ResolveScope {
+            ResolveScope.of(subject.faces,
+                            readIn: ReadingLanguage.of(subject: subject, switched: switched,
+                                                       sourceLanguage: "en"),
+                            sourceLanguage: "en", structure: structure, projectType: .novel)
+        }
+        for subject in [ws(.item("ch-1")), ws(.canvas, .item("ch-1")), ws(.item("part-1")), .book,
+                        ws(.edition(language: "es"), .item("ch-1"))] {
+            XCTAssertEqual(content(.resolve, subject), .resolve, "\(subject)")
+        }
+        XCTAssertEqual(scope(ws(.item("ch-1")), switched: "es"),
+                       .pieceInLanguage(docId: "ch-1", language: "es"))
+        XCTAssertEqual(scope(ws(.edition(language: "es"), .item("ch-1")), switched: nil),
+                       .pieceInLanguage(docId: "ch-1", language: "es"),
+                       "an edition open, a chapter faced: that chapter in that language")
+        XCTAssertEqual(scope(ws(.canvas, .item("ch-1")), switched: "es"),
+                       .piece(docId: "ch-1", includesBookLevel: false),
+                       "the faces' piece is not the one read in a language")
+        XCTAssertEqual(scope(ws(.item("part-1")), switched: "es"),
+                       .pieces(docIds: ["ch-1"], includesBookLevel: false), "a Part is no piece")
+        XCTAssertEqual(scope(ws(.edition(language: "es"), .project), switched: nil),
+                       .pieces(docIds: ["ch-1", "ch-2"], includesBookLevel: true),
+                       "the Book faced under an edition is the Book")
+        XCTAssertEqual(scope(ws(.item("ref-1")), switched: "es"), .elsewhere(docId: "ref-1"))
+        XCTAssertEqual(content(.brief, ws(.item("ch-1"))), .brief(.piece(docId: "ch-1")),
+                       "Brief stays the piece's")
     }
 
     func test_pullingSomethingUpMovesTheColumnToIt() {

@@ -239,25 +239,23 @@ final class ReadingLanguageTests: XCTestCase {
     // MARK: - Translation review is gone
 
     /// **No `TranslationReview`/`translationReview` name remains in the app**
-    /// but the right column's review pane, which Task 9 deletes (its file, the
-    /// content case and the column's arm, and the round report's one call
-    /// into the pane's logic). Task 9 empties `inheritedByTask9`.
+    /// (shell p4 Task 9 deleted the last: the review pane's file, the content
+    /// case, the column's arm and the round report's call into the pane's
+    /// logic). A piece read in a language is To resolve's own scope
+    /// (`ResolveScope.pieceInLanguage`).
     func test_noTranslationReviewNamesRemain() throws {
-        let inheritedByTask9: [String: Int] = [
-            "Maugham/Views/RightColumnContent.swift": 3,
-            "Maugham/Views/RightColumn.swift": 2,
-            "Maugham/Views/Publish/TranslationRoundReportHost.swift": 1,
-        ]
         var found: [String: Int] = [:]
-        for file in try SourceTree.swiftFiles(under: "Maugham")
-        where !file.hasSuffix("Views/TranslationReviewPane.swift") {
+        for file in try SourceTree.swiftFiles(under: "Maugham") {
             let count = try SourceTree.read(file).components(separatedBy: "\n").filter {
                 $0.contains("TranslationReview") || $0.contains("translationReview")
             }.count
             if count > 0 { found[file] = count }
         }
-        XCTAssertEqual(found, inheritedByTask9)
-        // Control: the census reads real files.
-        XCTAssertFalse(try SourceTree.read("Maugham/Views/TranslationReviewPane.swift").isEmpty)
+        XCTAssertEqual(found, [:])
+        // Control: the census reads real files — a name it would find.
+        XCTAssertFalse(try SourceTree.read("Maugham/Views/Resolve/ResolveScope.swift").isEmpty)
+        XCTAssertTrue(try SourceTree.swiftFiles(under: "Maugham").contains {
+            (try? SourceTree.read($0).contains("pieceInLanguage")) ?? false
+        })
     }
 }

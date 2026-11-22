@@ -132,6 +132,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Resolve/ResolveHead.swift`, `ResolveHeadStatics.swift` — the head; the shared letter host, cockpit mount and nudge row.
 - `Maugham/Views/Resolve/ResolvePane.swift`, `ResolveListDecisions.swift`, `ResolveFilterBar.swift`, `ResolveSettledSection.swift` — the list (⌘1), decisions, chips, Settled section.
 - `Maugham/Views/Resolve/ResolveEditionItems.swift` — an edition's list: changes, glossary, design, compile; rows, verbs, head.
+- `Maugham/Views/Resolve/ResolvePieceInLanguage.swift`, `PieceInLanguageCaretSection.swift` — a piece read in a language: head, caret paragraph.
 - `Maugham/Views/Brief/BriefScope.swift`, `BriefLine.swift`, `BriefDecisions.swift`, `ClauseMarks.swift`, `BriefReader.swift` (model); `BriefPane.swift`, `BriefPieceView.swift`, `GoingForView.swift`, `BriefDecidedSection.swift`, `BriefPartView.swift`, `BriefBookView.swift`, `BriefEditionView.swift`, `FiledUnder.swift`, `BriefDetails.swift` (the foot, proposal notice) (views).
 
 ### Statements, the letter and the ledger
@@ -166,7 +167,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/PublishStatusPill.swift` — the compiling pill.
 
 ### Translation
-- `TranslationReviewPane.swift`, `TranslationCellsSection.swift` — the translation pane (⌘⌥L): queries, spot-check (Gloss / Ask the Collator), a table's cells.
+- `TranslationCellsSection.swift` — a table's cells in a language.
 - `TranslationReveal.swift` — a round-report row as a way back into the manuscript.
 - `TranslatorsNote.swift` — Translator's note… (⌘⌥C).
 
@@ -441,7 +442,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **A run's gate reads the pipeline first** (`TranslationRunSession.read`).
 - **An unlisted language's first Run asks for a name.**
 - **Run Whole Book runs the imprint's `scopedDocumentIds`.**
-- **A language tag is lowercased before it is judged, unioned or sent**: `ES` beside `es` would draw one edition as two rows.
+- **A language tag is lowercased before it is judged, unioned or sent.**
 - **Design pre-flight asks the briefing's own gates** (`PublishStarter.isInitialized`, `publishablePieces()`), never a second disk probe.
 - **A refused run verb is disabled with its reason, except Show, which hides.**
 - **Gate refusals are read from the error types, never recomposed** (`DesignGate.refusalSentence`); Finalize confirms; nothing on the gate reaches `NSUndoManager` (`DesignGateTests.test_nothingAboutTheGatesVerbsReachesTheUndoManager`).
@@ -453,7 +454,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - **The gate's verbs are a pure function of the proposal's status** (`DesignGate.verbs`); a verb posts `.maughamDesignProposalsChanged` so To resolve re-reads.
 - **A dismissed departure is a separate fact from the pipeline's outcome.**
 - **The reveal waits for the translated surface between its two posts** (a source reveal, `language == nil`, waits for the source), and a pending reveal is taken on the next `activeDocId` change: `TripwireGrepTests.test_theTranslationRevealIsPostedByTheReportArmAndHandledByTheWindow`.
-- **A spot-check answer belongs to the paragraph it was asked about** (`TranslationReviewPaneLogic.answerStillBelongs`); spot-check mints nothing. The reveal's `revealTask` is cancelled `.onDisappear`.
+- **A piece read in a language is a To resolve scope**, never a pane; a spot-check answer belongs to its paragraph. The reveal's `revealTask` is cancelled `.onDisappear`.
 
 ### History, recovery and rewind
 - **`HistoryPaneVerbs` is `documentStore.sendHeldWordsToInbox(`'s one counted caller** (tripwire 50, `TripwireGrepTests.test_theP3bCountedListsAreExactlyTheNamedArrays`).

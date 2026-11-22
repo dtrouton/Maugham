@@ -300,7 +300,7 @@ final class CanvasClaudeBannerTests: XCTestCase {
         let after = to.subject(from: WindowSubject(open: .item("ch-1"), faces: .item("ch-1"),
                                                    beside: .research("r1")))
         XCTAssertEqual(RightColumnContent.of(
-            position: .pulledUp, subject: after, translationLanguage: nil,
+            position: .pulledUp, subject: after,
             structure: [], projectType: .novel), .centreDetails(.canvas))
     }
 

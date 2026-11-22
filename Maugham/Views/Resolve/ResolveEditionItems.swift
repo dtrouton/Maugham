@@ -54,6 +54,10 @@ enum ResolveEditionItems {
         var runBook: [String] = []
         /// That imprint's name; nil for the whole book.
         var imprint: String?
+        /// A piece read in a language only (shell p4 Task 9): notes per
+        /// round over that piece's rounds still in the ring, oldest first —
+        /// the head's trend.
+        var trend: [Int] = []
 
         static let empty = Read()
 
@@ -67,16 +71,22 @@ enum ResolveEditionItems {
     /// **The four kinds, for one edition**, in the reader's order: the
     /// pending design proposal, the problems (exact repeats once), then per
     /// piece in `docIds` order its changes and its glossary proposals.
+    ///
+    /// `bookLevel` false (a piece read in a language, shell p4 Task 9) lists
+    /// only the pieces' own: no design proposal and no compile problem —
+    /// those are the book's, and its editions' lists hold them.
     static func items(language: String, isSource: Bool, docIds: [String],
-                      read: Read) -> [ResolveItem] {
+                      read: Read, bookLevel: Bool = true) -> [ResolveItem] {
         var items: [ResolveItem] = []
-        if let pending = read.pendingProposal { items.append(.designProposal(pending)) }
-        var seen = Set<String>()
-        for problem in read.problems {
-            // `read.problems` is already `stoppingProblems` — the one
-            // predicate the tree's mark asks too.
-            let item = ResolveItem.compileProblem(problem)
-            if seen.insert(item.id).inserted { items.append(item) }
+        if bookLevel {
+            if let pending = read.pendingProposal { items.append(.designProposal(pending)) }
+            var seen = Set<String>()
+            for problem in read.problems {
+                // `read.problems` is already `stoppingProblems` — the one
+                // predicate the tree's mark asks too.
+                let item = ResolveItem.compileProblem(problem)
+                if seen.insert(item.id).inserted { items.append(item) }
+            }
         }
         guard !isSource else { return items }
         for docId in docIds {
@@ -122,6 +132,15 @@ enum ResolveEditionItems {
     /// Whether `annotation` is one of `language`'s questions.
     static func isQuestion(_ annotation: Annotation, in language: String) -> Bool {
         questionLanguage(of: annotation) == language.lowercased()
+    }
+
+    /// **A round's open queries in its language** — `isQuestion` narrowed to
+    /// the `.query` kind: what the round report's Questions section answers
+    /// (moved from the translation review pane, shell p4 Task 9). A nil
+    /// language holds none, never a `nil == nil` match.
+    static func openQueries(_ annotations: [Annotation], language: String?) -> [Annotation] {
+        guard let language else { return [] }
+        return annotations.filter { $0.kind == .query && isQuestion($0, in: language) }
     }
 
     /// A glossary proposal nobody has answered.
@@ -304,9 +323,44 @@ enum ResolveEditionItems {
                         problems: problems, hasRounds: !rounds.isEmpty,
                         newestRound: ledger.newest,
                         runBook: scope.docIds, imprint: scope.imprint)
+        await quoteChanges(into: &read, language: language, store: store, documentStore: documentStore)
+        let titles = PublishProblems.titles(in: store.manifest.structure)
+        for row in PublishProblems.rows(problems, titles: titles) {
+            read.problemRows[ResolveItem.compileProblem(problems[row.id]).id] = row
+        }
+        return read
+    }
+
+    /// **One piece's read in a language** (shell p4 Task 9): the piece's own
+    /// latest finished round, its newest of any outcome (what the head says
+    /// stopped) and its trend — one ledger decode, off the main actor — then
+    /// the source its changes quote. No proposal and no problem: those are
+    /// the book's.
+    @MainActor
+    static func readPiece(docId: String, language: String,
+                          store: ProjectStore, documentStore: DocumentStore) async -> Read {
+        let projectURL = store.url
+        let ledger = await Task.detached(priority: .userInitiated) {
+            TranslationRoundStore(projectURL: projectURL).pieceRounds(language: language, docId: docId)
+        }.value
+        let rounds = ledger.latestFinished.map { [docId: $0] } ?? [:]
+        var read = Read(language: language, rounds: rounds, hasRounds: !rounds.isEmpty,
+                        newestRound: ledger.newest, runBook: [docId], trend: ledger.trend)
+        await quoteChanges(into: &read, language: language, store: store, documentStore: documentStore)
+        return read
+    }
+
+    /// The source paragraphs each listed change quotes, and the rows the
+    /// round report draws for them — only for the pieces whose changes are
+    /// listed, a yield between pieces (`currentParagraphState`: the open
+    /// document, else the derived state; never a load).
+    @MainActor
+    private static func quoteChanges(into read: inout Read, language: String,
+                                     store: ProjectStore, documentStore: DocumentStore) async {
+        let projectURL = store.url
         let liveTranslator = EditionStatus.translatorName(for: language, in: store.manifest)
             ?? TranslationRoundReport.anonymousTranslator
-        for (docId, round) in rounds {
+        for (docId, round) in read.rounds {
             // The name the round was signed with (review M3).
             let translator = round.signedBy(liveName: liveTranslator)
             let wanted = Set(round.departures.filter(EditionStatusRows.isToLookAt).map(\.paragraphId))
@@ -336,11 +390,6 @@ enum ResolveEditionItems {
             await Task.yield()
             if Task.isCancelled { break }
         }
-        let titles = PublishProblems.titles(in: store.manifest.structure)
-        for row in PublishProblems.rows(problems, titles: titles) {
-            read.problemRows[ResolveItem.compileProblem(problems[row.id]).id] = row
-        }
-        return read
     }
 
     /// **A round as a verb wrote it, in a read** (review C1): the piece's

@@ -222,7 +222,7 @@ final class PulledUpBackAndDetailsTests: XCTestCase {
                 if above == nil, pulled == nil {
                     // Nothing pulled up: the details are the whole position, as before.
                     XCTAssertEqual(RightColumnContent.of(position: .pulledUp, subject: subject,
-                                                         translationLanguage: nil, structure: structure,
+                                                         structure: structure,
                                                          projectType: .novel),
                                    expected.map(RightColumnContent.centreDetails)
                                     ?? (open == .canvas ? .centreDetails(.canvas) : .nothingPulledUp))

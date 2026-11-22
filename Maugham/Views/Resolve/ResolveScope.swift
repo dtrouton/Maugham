@@ -20,6 +20,12 @@ enum ResolveScope: Hashable {
     /// pending design proposal and the last compile's problems. The Source
     /// edition (`isSource`) has no questions or changes of its own.
     case edition(language: String, isSource: Bool, docIds: [String])
+    /// **One piece read in a language** (shell p4 Task 9): that language's
+    /// questions on the piece, and the changes and glossary proposals of the
+    /// piece's latest finished round in it — an edition's list, narrowed to
+    /// one piece. The writer's to-dos and the source's notes are not in it:
+    /// they are one Source switch away.
+    case pieceInLanguage(docId: String, language: String)
     /// A Collection piece with `pieceKind == .reference`: it belongs to
     /// another project, so it holds nothing here.
     case elsewhere(docId: String)
@@ -35,9 +41,12 @@ enum ResolveScope: Hashable {
     /// `.edition` is `.edition` over every document; it is the Source where
     /// its language is `sourceLanguage` (case-insensitive — the tree's rule).
     ///
-    /// `readIn` is the language a piece is read in (Task 9's piece in a
-    /// language); nil reads it in the source. Every caller passes nil until
-    /// then — an edition's language is the faces' own.
+    /// `readIn` is the language the faces are read in
+    /// (`ReadingLanguage.of`); nil reads them in the source. A document
+    /// faced while it is read in a language — switched in the centre, or a
+    /// chapter clicked while its edition is open — is `.pieceInLanguage`.
+    /// Every other subject ignores it: an edition's language is the faces'
+    /// own, and a Book or Part has no one language to be read in.
     static func of(_ faces: BinderSubject, readIn: String?, sourceLanguage: String,
                    structure: [StructureItem], projectType: ProjectType) -> ResolveScope {
         switch faces {
@@ -51,7 +60,9 @@ enum ResolveScope: Hashable {
             guard let item = TreeWalk.find(id: id, in: structure) else { return .outside }
             switch item.type {
             case .document:
-                return isReference(item) ? .elsewhere(docId: id) : .piece(docId: id, includesBookLevel: false)
+                if isReference(item) { return .elsewhere(docId: id) }
+                if let readIn { return .pieceInLanguage(docId: id, language: readIn) }
+                return .piece(docId: id, includesBookLevel: false)
             case .group:
                 return .pieces(docIds: documents(in: item.children ?? []), includesBookLevel: false)
             }
@@ -72,6 +83,22 @@ enum ResolveScope: Hashable {
         return nil
     }
 
+    /// **The language whose translator's work the list holds** — an
+    /// edition's, or a piece read in a language. What the round ledger, the
+    /// changes and the questions are read in; nil for every source scope.
+    var translationLanguage: String? {
+        switch self {
+        case .edition(let language, _, _), .pieceInLanguage(_, let language): return language
+        case .piece, .pieces, .figure, .elsewhere, .outside: return nil
+        }
+    }
+
+    /// The Source edition — which holds no questions or changes of its own.
+    var isSourceEdition: Bool {
+        if case .edition(_, let isSource, _) = self { return isSource }
+        return false
+    }
+
     /// The documents whose items the scope holds, in manuscript order. A
     /// figure scope names the figure's stream; `.elsewhere` and `.outside`
     /// name none.
@@ -80,6 +107,7 @@ enum ResolveScope: Hashable {
         case .piece(let docId, _): return [docId]
         case .pieces(let docIds, _): return docIds
         case .edition(_, _, let docIds): return docIds
+        case .pieceInLanguage(let docId, _): return [docId]
         case .figure(let id): return [id]
         case .elsewhere, .outside: return []
         }
@@ -89,7 +117,7 @@ enum ResolveScope: Hashable {
     var includesBookLevel: Bool {
         switch self {
         case .piece(_, let book), .pieces(_, let book): return book
-        case .figure, .edition, .elsewhere, .outside: return false
+        case .figure, .edition, .pieceInLanguage, .elsewhere, .outside: return false
         }
     }
 

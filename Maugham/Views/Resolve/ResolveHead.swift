@@ -13,6 +13,12 @@ enum ResolveHeadShape: Equatable {
     /// translator's newest letter and a whole-book round, or for the Source
     /// edition the designer's line and a design round (`EditionHeadView`).
     case edition(language: String, isSource: Bool)
+    /// A piece read in a language (shell p4 Task 9): that piece's own latest
+    /// round in the language — its letter, or why it stopped — then Run on
+    /// this piece, what the translation still lacks, what is left over from
+    /// deleted paragraphs, and the caret's paragraph's spot-checks
+    /// (`PieceInLanguageHeadView`).
+    case pieceInLanguage(docId: String, language: String)
     /// A figure, a reference piece, or nothing To resolve reads.
     case nothing
 }
@@ -51,6 +57,7 @@ enum ResolveHead {
         case .piece(let docId, _): return .piece(docId: docId)
         case .pieces: return .count
         case .edition(let language, let isSource, _): return .edition(language: language, isSource: isSource)
+        case .pieceInLanguage(let docId, let language): return .pieceInLanguage(docId: docId, language: language)
         case .figure, .elsewhere, .outside: return .nothing
         }
     }
@@ -157,6 +164,35 @@ enum ResolveHead {
         if count.bookFigures > 0 { lines.append(bookFiguresLine) }
         return lines.isEmpty ? [nothingLine] : lines
     }
+
+    // MARK: Earlier letters (shell p4 Task 9; the plan's call 9)
+
+    /// **The editors' earlier letters on a piece** — each pass's latest
+    /// FINISHED round (`DiagnosticsStore.latestRounds`, which never holds a
+    /// round still arriving), that says something, of a pass the project
+    /// still lists (Task 2 review M2: the map is unpruned), less the letter
+    /// the head already shows. Mid-round the head shows the round arriving
+    /// (`lastRound`) and this lists the finished letters behind it — never
+    /// the preview twice. Empty — and the menu hidden — with one letter.
+    static func earlierLetters(_ latestRounds: [CompilerRun], shown: CompilerRun?,
+                               passes: [ReviewPass]) -> [CompilerRun] {
+        let listed = Set(passes.map(\.id))
+        return latestRounds.filter { run in
+            guard run.id != shown?.id, let passId = run.passId, listed.contains(passId),
+                  let letter = run.letter, !letter.isEmpty else { return false }
+            return true
+        }
+    }
+
+    /// One earlier letter's line in the menu: its editor and its round.
+    static func earlierLetterTitle(_ run: CompilerRun, passes: [ReviewPass]) -> String {
+        let editor = roundLetterVoice(run: run, passes: passes)
+        return run.round.map { "\(editor) \u{00B7} round \($0)" } ?? editor
+    }
+
+    static let earlierLettersTitle = "Earlier letters"
+    static let backToTheLatestLetterTitle = "The latest letter"
+    static let earlierLetterShownLabel = "An earlier letter"
 
     static let nothingLine = "Nothing to resolve"
     static let bookTodosLine = "Book to-dos open"
@@ -357,6 +393,12 @@ struct ResolveHeadView: View {
     /// Whether this Mac may decide the book's design (`ResolvePane
     /// .mayDecideDesign`).
     var mayDecideDesign = false
+    /// The window's editor control — a piece read in a language's head reads
+    /// the translated surface's badges and the caret off it.
+    var editorControl: EditorControl? = nil
+    /// `.maughamTranslationDidUpdate`s heard: a piece read in a language
+    /// re-reads its translation.
+    var translationHeard = 0
 
     @Environment(\.undoManager) private var undoManager
 
@@ -382,6 +424,18 @@ struct ResolveHeadView: View {
                             store: store, documentStore: documentStore,
                             editionRead: editionRead, mayDecideDesign: mayDecideDesign,
                             onShowRound: onShowRound, onShowProposal: onShowProposal)
+        case .pieceInLanguage(let docId, let language):
+            PieceInLanguageHeadView(
+                docId: docId, language: language, store: store, documentStore: documentStore,
+                read: editionRead,
+                isOpen: ResolveVerbGate.mayAct(
+                    onDocId: docId, openDocId: openDocId,
+                    isRegistered: { documentStore.document(forDocId: $0) != nil }),
+                editorControl: editorControl,
+                firstParagraph: snapshot.sequences[docId]?.first,
+                paragraphText: snapshot.paragraphText,
+                model: compilerModel.claudeModel, world: world,
+                onShowRound: onShowRound, translationHeard: translationHeard)
         case .nothing:
             EmptyView()
         }
@@ -462,35 +516,42 @@ struct ResolveHeadView: View {
     private func latestLetter(_ docId: String, offers: ResolveHeadOffers,
                               diagnostics: DiagnosticsStore) -> some View {
         let _ = diagnostics.version
-        if let run = ResolveHead.latestLetter(
+        let latest = ResolveHead.latestLetter(
             check: diagnostics.lastCheck(docId: docId),
-            round: diagnostics.lastRound(docId: docId)),
-           let letter = run.letter {
-            HeadLetterBlock(
-                letter: letter, run: run,
-                voice: ResolveHead.letterVoice(run: run, reader: reader, passes: passes),
-                docId: docId, store: store, world: world,
-                postureOf: { kind, scope in
-                    documentStore.posture(
-                        ofStatement: kind, scope: scope,
-                        statements: store.manifest.statements)
-                },
-                currentText: { snapshot.paragraphText[$0] },
-                onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) },
-                onAcceptExercise: offers.acceptsExercise ? { habit in
-                    documentStore.document(forDocId: docId)?.createPaneTask(
-                        body: habit.exercise ?? habit.name,
-                        parentTaskId: nil,
-                        paragraphId: habit.refs.first?.paragraphId,
-                        undoManager: undoManager)
-                } : nil,
-                onFiledUnder: onFiledUnder)
-                // **Keyed by piece and run** (fix round 1, I1): a piece switch
-                // or the check's letter giving way to the round's mounts a
-                // fresh block, so no refusal outlives its letter.
-                .id(ResolveHead.letterIdentity(docId: docId, runId: run.id))
-            Divider()
-        }
+            round: diagnostics.lastRound(docId: docId))
+        HeadLetterArea(
+            latest: latest,
+            earlier: ResolveHead.earlierLetters(diagnostics.latestRounds(docId: docId),
+                                                shown: latest, passes: passes),
+            passes: passes,
+            block: { run, letter in
+                AnyView(HeadLetterBlock(
+                    letter: letter, run: run,
+                    voice: ResolveHead.letterVoice(run: run, reader: reader, passes: passes),
+                    docId: docId, store: store, world: world,
+                    postureOf: { kind, scope in
+                        documentStore.posture(
+                            ofStatement: kind, scope: scope,
+                            statements: store.manifest.statements)
+                    },
+                    currentText: { snapshot.paragraphText[$0] },
+                    onJump: { ResolveNavigation.go(toDocId: docId, paragraphId: $0) },
+                    onAcceptExercise: offers.acceptsExercise ? { habit in
+                        documentStore.document(forDocId: docId)?.createPaneTask(
+                            body: habit.exercise ?? habit.name,
+                            parentTaskId: nil,
+                            paragraphId: habit.refs.first?.paragraphId,
+                            undoManager: undoManager)
+                    } : nil,
+                    onFiledUnder: onFiledUnder)
+                    // **Keyed by piece and run** (fix round 1, I1): a piece
+                    // switch, the check's letter giving way to the round's,
+                    // or an earlier letter chosen mounts a fresh block, so no
+                    // refusal outlives its letter.
+                    .id(ResolveHead.letterIdentity(docId: docId, runId: run.id)))
+            })
+            // "Until the faces change": a new piece starts on its latest.
+            .id(docId)
     }
 
     // MARK: Run
@@ -612,6 +673,62 @@ struct HeadLetterBlock: View {
             ledgerFailure: $ledgerFailure,
             ledgerRevision: $ledgerRevision,
             onFiledUnder: onFiledUnder)
+    }
+}
+
+// MARK: - The head's letter, and the earlier ones
+
+/// **The piece's letter, with "Earlier letters"** (shell p4 Task 9): the
+/// latest letter (the check's or the round's, `ResolveHead.latestLetter`),
+/// or — chosen from the one menu, hidden with one letter — an earlier
+/// editor's latest finished letter, drawn in its place until the faces
+/// change (the host mounts this `.id(docId)`).
+@MainActor
+struct HeadLetterArea: View {
+    let latest: CompilerRun?
+    let earlier: [CompilerRun]
+    let passes: [ReviewPass]
+    let block: (CompilerRun, Letter) -> AnyView
+
+    @State private var chosenRunId: String?
+
+    /// The run drawn: the chosen earlier one while it is still listed, else
+    /// the latest. Pure.
+    static func shown(latest: CompilerRun?, earlier: [CompilerRun], chosen: String?) -> CompilerRun? {
+        earlier.first { $0.id == chosen } ?? latest
+    }
+
+    var body: some View {
+        let run = Self.shown(latest: latest, earlier: earlier, chosen: chosenRunId)
+        let isEarlier = run.map { $0.id != latest?.id } ?? false
+        if !earlier.isEmpty {
+            HStack(spacing: 6) {
+                if isEarlier {
+                    Text(ResolveHead.earlierLetterShownLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 0)
+                Menu(ResolveHead.earlierLettersTitle) {
+                    if isEarlier, latest != nil {
+                        Button(ResolveHead.backToTheLatestLetterTitle) { chosenRunId = nil }
+                        Divider()
+                    }
+                    ForEach(earlier, id: \.id) { run in
+                        Button(ResolveHead.earlierLetterTitle(run, passes: passes)) { chosenRunId = run.id }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .font(.caption)
+                .accessibilityIdentifier("resolve.earlierLetters")
+            }
+            .padding(.horizontal, 12).padding(.top, 4)
+        }
+        if let run, let letter = run.letter {
+            block(run, letter)
+            Divider()
+        }
     }
 }
 

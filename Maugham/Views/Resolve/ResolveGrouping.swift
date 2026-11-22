@@ -74,7 +74,10 @@ enum ResolveGrouping {
         let isPiece: Bool
         switch scope {
         case .elsewhere, .outside: return []
-        case .piece: isPiece = true
+        // A piece read in a language groups as the piece does: its
+        // questions and its round's changes under the paragraph they are
+        // about, a glossary proposal under the whole piece (shell p4 Task 9).
+        case .piece, .pieceInLanguage: isPiece = true
         case .pieces, .figure: isPiece = false
         case .edition:
             return editionGroups(snapshot, scope: scope, structure: structure)

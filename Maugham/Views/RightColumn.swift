@@ -5,7 +5,7 @@ import AppKit
 /// **The window's right-hand column**: the resize handle on its leading edge
 /// and its drag, then `pane` — the three positions' control
 /// (`RightColumnControl`) over the one arm `RightColumnContent.of` names: To
-/// resolve (or, interim, the translation review),
+/// resolve (scoped to the reading language where there is one),
 /// Brief, and the pulled-up thing (`PulledUpView`, which also draws the
 /// centre's own details) — plus the one width applied to both the content's
 /// frame and the split item, and the hidden arm when the column is closed. It
@@ -267,8 +267,9 @@ struct RightColumn: View {
         // Presenter changes (`DocumentStore`'s `.inbox` arm) keep it fresh.
         // (The pane picker ran this; it moved here with the column.)
         .task { await documentStore.inboxStore.refresh() }
-        // Entering translation review shows it: the review is To resolve's
-        // own answer while it is on. Leaving moves nothing.
+        // Reading in a language shows To resolve, which is then that
+        // language's list for the piece (shell p4 Task 9). Back to Source
+        // moves nothing.
         .onChange(of: editorControl.translationLanguage) { _, lang in
             if lang != nil { position = .resolve }
         }
@@ -282,7 +283,6 @@ struct RightColumn: View {
     /// What the column shows now — the table's one answer.
     private var shown: RightColumnContent {
         RightColumnContent.of(position: position, subject: subject,
-                              translationLanguage: editorControl.translationLanguage,
                               structure: store.manifest.structure,
                               projectType: store.manifest.type)
     }
@@ -295,9 +295,6 @@ struct RightColumn: View {
         case .resolve:
             subjectLine
             resolvePane
-        case .translationReview:
-            subjectLine
-            translationPane
         case .brief(let scope):
             subjectLine
             BriefPane(
@@ -396,7 +393,18 @@ struct RightColumn: View {
             presenceReading: figureTree?.bookReading,
             // An edition's list: the Source, the compile's problems, and the
             // covers its rows open (shell p4 Task 6).
-            publishCentre: publishCentre)
+            publishCentre: publishCentre,
+            // The language the faces are read in — one answer, the one ⌘⌥K
+            // reads (`EditionWiring(readingLanguage:)`): a piece read in a
+            // language lists that language's (shell p4 Task 9).
+            readIn: ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage,
+                                       sourceLanguage: publishCentre.sourceLanguage),
+            // The translated surface the editor shows, the caret's
+            // paragraph's spot-checks and cells (shell p4 Task 9).
+            editorControl: editorControl,
+            // Whether a piece's SOURCE has something open — the tree's dot,
+            // which a piece read in a language's empty list must agree with.
+            presenceMarks: figureTree?.presence)
     }
 
     /// **The one write of a piece's pass state from this column** — the pass
@@ -409,25 +417,6 @@ struct RightColumn: View {
     /// dropped, with nothing red anywhere.
     func setPassState(_ pieceId: String, _ passId: String, _ state: PassState?) {
         Task { try? await store.setPassState(id: pieceId, passId: passId, state) }
-    }
-
-    /// **The translation review** (interim until plan 4) — To resolve's answer
-    /// while review is on over the faces' open piece. Before the piece's
-    /// `Document` is registered there is nothing to review yet, and To
-    /// resolve itself shows.
-    @ViewBuilder
-    private var translationPane: some View {
-        if let doc = documentStore.document(forDocId: Self.panesDocId(of: subject)) {
-            TranslationReviewPane(
-                document: doc, control: editorControl, store: store,
-                // The two spot-checks (P4 Task 6): the window's runner, its
-                // documents, the project, the compiler's model setting, and
-                // the craft-intent cache a Keep mine has to invalidate.
-                coldCall: roster.coldCall, documentStore: documentStore, projectURL: store.url,
-                model: compilerModel.claudeModel, world: declaredWorld)
-        } else {
-            resolvePane
-        }
     }
 
     /// The canvas's inspector arm — the selected region, or an empty state.
