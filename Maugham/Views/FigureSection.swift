@@ -374,6 +374,7 @@ struct FigureSectionVerbs {
         return FigureActions(
             store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
             windowRefusesWrites: { state.figureWritesRefused },
+            readThrough: { state.figureReadThrough },
             report: { state.pendingError = $0 },
             // A success with something to say is a notice, not the alert.
             notice: { [url = store.url] in MaughamEvent.postNotice($0, projectURL: url) })
@@ -383,8 +384,10 @@ struct FigureSectionVerbs {
     /// line) and the window's refusal as the caller observes it.
     func shared(report: @escaping (String) -> Void, notice: ((String) -> Void)? = nil,
                 windowRefusesWrites: Bool) -> FigureActions {
-        FigureActions(store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
-                      windowRefusesWrites: { windowRefusesWrites }, report: report, notice: notice)
+        let state = state
+        return FigureActions(store: store, figureWindows: state.figureWindows, typography: state.figureTypography,
+                             windowRefusesWrites: { windowRefusesWrites },
+                             readThrough: { state.figureReadThrough }, report: report, notice: notice)
     }
 
     /// A Research row's verb toward Figures (`FigureActions.researchVerb`).
@@ -462,6 +465,8 @@ struct FigureSectionVerbs {
     /// Said when a figure is dropped on Research in a window that refuses
     /// figure writes — the window's refusal, not the Mac's (task 5 review M4).
     static let windowSendsNoFigures = "This window doesn’t change figures, so it stays in Figures."
+    /// Said when a figure whose piece is in read-through is dropped on Research.
+    static let readThroughSendsNoFigures = "This figure’s piece is in read-through, so it stays in Figures."
 
     /// **A Research item dropped on Figures** is *Use in Document* — Task 4's
     /// verb, no confirmation (D8-2). Refused, with the reason, where the
@@ -483,7 +488,9 @@ struct FigureSectionVerbs {
     func dropToSend(figureId: String, scope: ResearchScope, group: String?) -> Bool {
         let shared = shared
         guard shared.mayEdit(figureId) else {
-            state.pendingError = shared.windowRefusesWrites() ? Self.windowSendsNoFigures : Self.mayNotSend
+            state.pendingError = shared.windowRefusesWrites() ? Self.windowSendsNoFigures
+                : shared.refusesWrites(to: figureId) ? Self.readThroughSendsNoFigures
+                : Self.mayNotSend
             return false
         }
         let row = state.figureRows.first { $0.id == figureId }
@@ -604,11 +611,11 @@ struct FigureSectionWiring: ViewModifier {
     let treeState: BinderTreeSectionsState
     let figureWindows: FigureWindows?
     let typography: TypographySettings
-    /// The window's control plane (the share) and its Lock: the one
-    /// answer to whether this window refuses figure writes, shared with the
-    /// inspector (`FigureActions.windowRefusesWrites`).
+    /// The window's control plane (the share) and its read-through gate:
+    /// what a row's verbs ask of a figure (`FigureActions.refusesWrites`),
+    /// shared with the inspector.
     let control: EditorControl
-    let isLocked: Bool
+    let readThrough: ReadThroughGate
 
     func body(content: Content) -> some View {
         content
@@ -633,11 +640,13 @@ struct FigureSectionWiring: ViewModifier {
                 treeState.figureWindows = figureWindows
             }
             .onChange(of: typography, initial: true) { _, next in treeState.figureTypography = next }
-            .onChange(of: FigureActions.windowRefusesWrites(control: control, isLocked: isLocked),
-                      initial: true) { _, refused in treeState.figureWritesRefused = refused }
-            // New Table where the research grid could edit it (D8b-2).
-            .onChange(of: BinderTreeSectionsState.offersNewTable(
-                        shareIsReadOnly: control.shareIsReadOnly, isLocked: isLocked),
+            .onChange(of: control.shareIsReadOnly, initial: true) { _, refused in
+                treeState.figureWritesRefused = refused
+            }
+            .onChange(of: readThrough, initial: true) { _, gate in treeState.figureReadThrough = gate }
+            // New Table wherever the share takes writes (D8b-2): making a
+            // table damages nothing, so read-through never refuses it.
+            .onChange(of: BinderTreeSectionsState.offersNewTable(shareIsReadOnly: control.shareIsReadOnly),
                       initial: true) { _, offers in treeState.offersNewTable = offers }
             // Which Research items bring a parked figure back: asked again
             // when Research, the registry, the set of parked figures or the

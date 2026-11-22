@@ -240,7 +240,7 @@ final class FigureWindowTests: XCTestCase {
     /// Two windows on one figure are counted apart; `closeAll` closes each
     /// once and a late `closed` does nothing.
     func test_theRegistryClosesEachWindowOnce() {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         var closes: [String] = []
         let a = windows.opened("fig-a") { closes.append("a") }
         _ = windows.opened("fig-a") { closes.append("a2") }

@@ -45,12 +45,11 @@ final class FigureCentreMount {
     @ObservationIgnored private(set) var piece: String?
     @ObservationIgnored private(set) var typography: TypographySettings
     @ObservationIgnored private(set) var isInReadThrough: Bool
-    @ObservationIgnored private(set) var isLocked: Bool
     @ObservationIgnored private(set) var shareIsReadOnly: Bool
 
     init(figureId: String, windows: FigureWindows, presence: FigureGridPresence,
          store: DocumentStore, projectStore: ProjectStore, line: (number: String, caption: String),
-         piece: String?, typography: TypographySettings, isInReadThrough: Bool, isLocked: Bool,
+         piece: String?, typography: TypographySettings, isInReadThrough: Bool,
          shareIsReadOnly: Bool) {
         self.figureId = figureId
         self.windows = windows
@@ -61,7 +60,6 @@ final class FigureCentreMount {
         self.piece = piece
         self.typography = typography
         self.isInReadThrough = isInReadThrough
-        self.isLocked = isLocked
         self.shareIsReadOnly = shareIsReadOnly
     }
 
@@ -94,7 +92,6 @@ final class FigureCentreMount {
             number: line.number, caption: line.caption, piece: piece, typography: typography,
             isInReadThrough: { [weak self] in self?.isInReadThrough ?? true },
             shareIsReadOnly: { [weak self] in self?.shareIsReadOnly ?? true },
-            isLocked: { [weak self] in self?.isLocked ?? true },
             takesTheKeysAtMount: false, offersDone: false, listensForTheLine: false,
             armsTheMenuOnlyWithTheKeys: true)
         // Send to Research from the grid: the centre lets the figure go first
@@ -204,7 +201,7 @@ final class FigureCentreMount {
     /// The view's inputs changed: the bottom bar follows the listing, the gate
     /// is asked again over the read-through and share answers.
     func update(line: (number: String, caption: String), piece: String?,
-                isInReadThrough: Bool, isLocked: Bool, shareIsReadOnly: Bool) {
+                isInReadThrough: Bool, shareIsReadOnly: Bool) {
         if line != self.line {
             self.line = line
             grid?.refreshLine(number: line.number, caption: line.caption)
@@ -213,11 +210,9 @@ final class FigureCentreMount {
             self.piece = piece
             grid?.controller?.researchPiece = piece
         }
-        if isInReadThrough != self.isInReadThrough || isLocked != self.isLocked
-            || shareIsReadOnly != self.shareIsReadOnly {
+        if isInReadThrough != self.isInReadThrough || shareIsReadOnly != self.shareIsReadOnly {
             self.isInReadThrough = isInReadThrough
-            self.isLocked = isLocked
-            self.shareIsReadOnly = shareIsReadOnly
+                self.shareIsReadOnly = shareIsReadOnly
             grid?.refreshAccess()
         }
     }
@@ -233,7 +228,7 @@ final class FigureCentreMount {
 /// the right column beside the canvas), its bottom bar's number and caption from the window's
 /// figure listing (the caption read-only, R7d-6; an unused figure shows its
 /// name and "—"), the gate asked over the figure's posture, the share, the
-/// figure's piece's read-through and the window's Lock, each with its own sentence.
+/// figure's pieces' read-through (`ReadThroughGate`), each with its own sentence.
 /// Mount it with `.id(figureId)`: one mount per figure.
 struct FigureCentreGrid: View {
     let figureId: String
@@ -244,9 +239,8 @@ struct FigureCentreGrid: View {
     let presence: FigureGridPresence
     let listing: FigureListingModel
     let typography: TypographySettings
+    /// One of the figure's pieces is in read-through (`ReadThroughGate.refusesEdits`).
     let isInReadThrough: Bool
-    /// The window's Lock (`WindowLock.refusesEdits`).
-    let isLocked: Bool
     let shareIsReadOnly: Bool
     /// The project window, whose key-window posts reach this grid.
     let window: NSWindow?
@@ -262,11 +256,11 @@ struct FigureCentreGrid: View {
     }
     private var inputs: Inputs {
         Inputs(number: line.number, caption: line.caption, piece: piece,
-               isInReadThrough: isInReadThrough, isLocked: isLocked, shareIsReadOnly: shareIsReadOnly)
+               isInReadThrough: isInReadThrough, shareIsReadOnly: shareIsReadOnly)
     }
     private struct Inputs: Equatable {
         let number: String, caption: String, piece: String?
-        let isInReadThrough: Bool, isLocked: Bool, shareIsReadOnly: Bool
+        let isInReadThrough: Bool, shareIsReadOnly: Bool
     }
     /// What the project's grids look like for this figure, observed.
     private var holders: Holders {
@@ -295,7 +289,7 @@ struct FigureCentreGrid: View {
             let mount = FigureCentreMount(
                 figureId: figureId, windows: figureWindows, presence: presence,
                 store: documentStore, projectStore: store, line: line, piece: piece,
-                typography: typography, isInReadThrough: isInReadThrough, isLocked: isLocked,
+                typography: typography, isInReadThrough: isInReadThrough,
                 shareIsReadOnly: shareIsReadOnly)
             self.mount = mount
             mount.take()
@@ -303,7 +297,7 @@ struct FigureCentreGrid: View {
         .onDisappear { mount?.leave() }
         .onChange(of: inputs) { _, next in
             mount?.update(line: (next.number, next.caption), piece: next.piece,
-                          isInReadThrough: next.isInReadThrough, isLocked: next.isLocked,
+                          isInReadThrough: next.isInReadThrough,
                           shareIsReadOnly: next.shareIsReadOnly)
         }
         .onChange(of: holders) { _, _ in mount?.reconsider() }

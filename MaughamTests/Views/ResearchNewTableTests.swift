@@ -235,15 +235,13 @@ final class ResearchNewTableTests: XCTestCase {
 
     // MARK: - Where it is not offered
 
-    /// A view-only share and a locked window offer no New Table — not in
-    /// the header, a row's menu or a fold — and the window's rule is the
-    /// research centre's own.
-    func test_aViewOnlyShareAndALockedWindowOfferNoNewTable() async throws {
-        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, isLocked: false))
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true, isLocked: false),
+    /// A view-only share offers no New Table — not in the header, a row's
+    /// menu or a fold. Read-through never takes it away: making a table
+    /// damages nothing (shell read-through Task 4).
+    func test_aViewOnlyShareOffersNoNewTable() async throws {
+        XCTAssertTrue(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false))
+        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true),
                        "a view-only share")
-        XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: false, isLocked: true),
-                       "a locked window")
 
         let store = try await collection()
         let piece = try await store.addLoosePiece(title: "Alpha", format: .markdown)
@@ -345,7 +343,7 @@ final class ResearchNewTableTests: XCTestCase {
     @MainActor
     final class WindowBox {
         var control = EditorControl()
-        var isLocked = false
+        var readThrough = ReadThroughGate.writing
     }
 
     /// The tree wired as `ProjectWindow` wires it.
@@ -357,14 +355,14 @@ final class ResearchNewTableTests: XCTestCase {
             Color.clear.modifier(FigureSectionWiring(
                 store: store, documentStore: store.documentStore, listing: FigureListingModel(),
                 treeState: tree, figureWindows: nil, typography: .defaults,
-                control: box.control, isLocked: box.isLocked))
+                control: box.control, readThrough: box.readThrough))
         }
     }
 
     /// **The window tells the tree** (`FigureSectionWiring`): a tree no
-    /// window has told offers nothing; a writable unlocked window offers New
-    /// Table; a view-only share and the window's Lock take it away, and
-    /// lifting them gives it back.
+    /// window has told offers nothing; a writable window offers New Table; a
+    /// view-only share takes it away and lifting it gives it back; a piece in
+    /// read-through never does.
     func test_theWindowsWiringOffersNewTableOnlyWhereTheGridCouldEditIt() async throws {
         let store = try await novel()
         let tree = BinderTreeSectionsState()
@@ -384,12 +382,10 @@ final class ResearchNewTableTests: XCTestCase {
         let back = await pumpUntil(deadline: 5) { tree.offersNewTable }
         XCTAssertTrue(back)
 
-        box.isLocked = true
-        let lockHides = await pumpUntil(deadline: 5) { !tree.offersNewTable }
-        XCTAssertTrue(lockHides, "the window's Lock hides it")
-        box.isLocked = false
-        let unlocked = await pumpUntil(deadline: 5) { tree.offersNewTable }
-        XCTAssertTrue(unlocked, "unlocking gives it back")
+        box.readThrough = ReadThroughGateFixture.gate(pieces: [ReadThroughGateFixture.pieceA])
+        _ = await pumpUntil(deadline: 5) { tree.figureReadThrough == box.readThrough }
+        XCTAssertEqual(tree.figureReadThrough, box.readThrough, "premise: the gate reached the tree")
+        XCTAssertTrue(tree.offersNewTable, "a piece in read-through still offers New Table")
         FigureSectionWiring.attach(tree, to: nil)
     }
 }

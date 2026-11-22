@@ -271,15 +271,13 @@ struct MaughamApp: App {
                 // In ▸ …, Read In Next Language (⌃⌘L), Show Source Under
                 // Translation — the toolbar switch's other two routes.
                 FocusedReadingItems()
-                // ⌘⌥0 shows or hides the right column; ⌘⌥⇧L is the
-                // toolbar padlock's. Each is titled for the focused window's
-                // state (`WindowChrome`).
+                // ⌘⌥0 shows or hides the right column, titled for the
+                // focused window's state (`WindowChrome`).
                 FocusedRightColumnToggle()
                 Button("Toggle Research Preview") {
                     MaughamEvent.post(.maughamToggleResearchPreview, to: .keyWindow)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                FocusedLockToggle()
                 Divider()
 
                 // **The right column's keys, declared here and nowhere else**
@@ -851,12 +849,10 @@ struct FocusedReadThroughItem: View {
 }
 
 
-/// **What the View menu titles its two window toggles by** (appraisal 5 and
-/// the Lock minor): whether the focused window's right column is shown, and
-/// whether its Lock is on. Published by `ProjectWindow.TopChromeModifier`;
-/// read only by `FocusedRightColumnToggle` and `FocusedLockToggle`.
+/// **What the View menu titles its window toggle by** (appraisal 5):
+/// whether the focused window's right column is shown. Published by
+/// `ProjectWindow.TopChromeModifier`; read only by `FocusedRightColumnToggle`.
 struct WindowChrome: Equatable {
-    let isLocked: Bool
     let rightColumnShown: Bool
 }
 
@@ -878,19 +874,6 @@ private struct FocusedRightColumnToggle: View {
             MaughamEvent.post(.maughamToggleInspector, to: .keyWindow)
         }
         .keyboardShortcut("0", modifiers: [.command, .option])
-    }
-}
-
-/// View → "Lock Research and Figures" / "Unlock Research and Figures"
-/// (⌘⌥⇧L): the toolbar padlock, from the keyboard. Titled for what it locks
-/// — never the manuscript (`WindowLock`).
-private struct FocusedLockToggle: View {
-    @FocusedValue(\.windowChrome) private var chrome
-    var body: some View {
-        Button(LockToggle.menuTitle(isLocked: chrome?.isLocked ?? false)) {
-            MaughamEvent.post(.maughamToggleLock, to: .keyWindow)
-        }
-        .keyboardShortcut("l", modifiers: [.command, .option, .shift])
     }
 }
 

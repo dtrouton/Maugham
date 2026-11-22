@@ -107,7 +107,7 @@ final class ReadThroughReplaceTests: XCTestCase {
         var asked: [String] = []
         let gate = ProjectSearchView.ReplaceGate(
             results, posture: { _ in Posture(.unrestricted) },
-            inReadThrough: { asked.append($0); return $0 == "manuscript/three.md" })
+            inReadThrough: { path, _ in asked.append(path); return path == "manuscript/three.md" })
         XCTAssertEqual(asked.sorted(), ["manuscript/one.md", "manuscript/three.md"], "once per document")
         XCTAssertTrue(one.allSatisfy(gate.mayReplace))
         XCTAssertFalse(gate.mayReplace(three), "no per-row Replace in a piece in read-through")
@@ -124,8 +124,84 @@ final class ReadThroughReplaceTests: XCTestCase {
             .joined(separator: "\n")
         XCTAssertTrue(view.contains("} else if showReplace, gate.isInReadThrough(match) {"))
         XCTAssertTrue(view.contains(".help(Self.readThroughRowHelp)"))
-        XCTAssertTrue(view.contains("inReadThrough: { store.pieceInReadThrough(atPath: $0) != nil })"))
+        XCTAssertTrue(view.contains("case .manuscript: return store.pieceInReadThrough(atPath: path) != nil"))
+        XCTAssertTrue(view.contains("case .research: return store.researchIsInReadThrough(atPath: path)"))
         XCTAssertTrue(view.contains("inReadThrough: gate.isInReadThrough)"), "the confirm counts it")
+    }
+
+    // MARK: - A piece's own research (shell read-through Task 4)
+
+    /// A Collection: piece A (in read-through) with a note in its own folder,
+    /// and a shared note, each saying "cat".
+    private func makeCollection() async throws -> ProjectStore {
+        project = TestTemp.root.appendingPathComponent("ReadThroughReplaceResearch-\(UUID().uuidString)")
+        let files = ["pieces/01-a/a.md": "Alpha.\n", "pieces/01-a/research/tide.md": "A cat at the tide.\n",
+                     "research/ships.md": "A cat on the ship.\n"]
+        for (path, text) in files {
+            let url = project.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        let manifest = ProjectManifest(
+            type: .collection, title: "T", author: "A", created: Date(), modified: Date(),
+            structure: [StructureItem(id: "piece-a", title: "Alpha", type: .document,
+                                      path: "pieces/01-a/a.md", pieceKind: .loose)],
+            research: [
+                ResearchItem(id: "tide", title: "Tide", type: .asset, kind: .document,
+                             path: "pieces/01-a/research/tide.md"),
+                ResearchItem(id: "ships", title: "Ships", type: .asset, kind: .document,
+                             path: "research/ships.md"),
+            ])
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(manifest).write(to: project.appendingPathComponent("project.maugham.json"))
+        let doc = try await Document.load(url: project.appendingPathComponent("pieces/01-a/a.md"),
+                                          device: "test", session: "bootstrap", presenter: nil)
+        await doc.close()
+        let store = try await ProjectStore.load(from: project)
+        store.readThroughPieceIds = { ["piece-a"] }
+        await store.searchNow(query: "cat", options: SearchOptions())
+        XCTAssertEqual(store.currentSearch?.matches.map(\.documentPath).sorted(),
+                       ["pieces/01-a/research/tide.md", "research/ships.md"], "premise: one match in each note")
+        return store
+    }
+
+    private func read(_ path: String) throws -> String {
+        try String(contentsOf: project.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    /// **A note in the folder of a piece in read-through is left as it was**,
+    /// like the piece: a single Replace refuses with its name, Replace All
+    /// skips and names it, the row offers no Replace; a shared note is
+    /// replaced (control).
+    func test_aNoteInThePiecesFolderIsLeftAsItWas_aSharedNoteIsReplaced() async throws {
+        let store = try await makeCollection()
+        let results = try XCTUnwrap(store.currentSearch)
+        let tide = try XCTUnwrap(results.matches.first { $0.documentPath == "pieces/01-a/research/tide.md" })
+        let ships = try XCTUnwrap(results.matches.first { $0.documentPath == "research/ships.md" })
+        XCTAssertTrue(store.researchIsInReadThrough(atPath: tide.documentPath))
+        XCTAssertFalse(store.researchIsInReadThrough(atPath: ships.documentPath))
+
+        let gate = ProjectSearchView.ReplaceGate(
+            results, posture: { _ in Posture(.unrestricted) },
+            inReadThrough: { path, source in
+                source == .research && store.researchIsInReadThrough(atPath: path)
+            })
+        XCTAssertTrue(gate.isInReadThrough(tide))
+        XCTAssertFalse(gate.mayReplace(tide), "no per-row Replace in the piece's folder")
+        XCTAssertTrue(gate.mayReplace(ships), "control: a shared note takes one")
+
+        do {
+            try await store.replaceMatch(tide, with: "dog")
+            XCTFail("a Replace in the piece's folder must refuse")
+        } catch let error as ProjectStoreError {
+            XCTAssertEqual(error, .inReadThrough(title: tide.documentTitle))
+        }
+        let outcome = try await store.replaceAll(in: results, with: "dog")
+        XCTAssertEqual(outcome.inReadThrough, [tide.documentTitle])
+        XCTAssertTrue(try read("pieces/01-a/research/tide.md").contains("A cat at the tide."), "left as it was")
+        XCTAssertTrue(try read("research/ships.md").contains("A dog on the ship."), "the shared note is replaced")
     }
 
     /// The session hands the store its pieces, weakly.

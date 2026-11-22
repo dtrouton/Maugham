@@ -234,6 +234,11 @@ extension ProjectStore {
             url = nil
             target = nil
         case .research:
+            // A note in the folder of a piece in read-through takes no
+            // Replace, as the piece itself takes none.
+            if researchIsInReadThrough(atPath: match.documentPath) {
+                throw ProjectStoreError.inReadThrough(title: match.documentTitle)
+            }
             // A path that escapes the project is refused as unsafe first (tripwire 58).
             url = try resolvedProjectPathToChange(match.documentPath)
             target = researchReplaceTarget(at: match.documentPath)
@@ -504,6 +509,11 @@ extension ProjectStore {
                 }
 
             case .research:
+                // In the folder of a piece in read-through: skipped, and named.
+                if researchIsInReadThrough(atPath: path) {
+                    reading.append(matches[0].documentTitle)
+                    continue
+                }
                 // A path that escapes the project is refused as unsafe first (tripwire 58).
                 let url = try resolvedProjectPathToChange(path)
                 // Not Research text Maugham may change: left as it was, and named.
@@ -525,6 +535,15 @@ extension ProjectStore {
         }
         return ReplaceAllOutcome(leftAlone: leftAlone, beingPromoted: beingPromoted,
                                  inReadThrough: reading)
+    }
+
+    /// **Whether a research file belongs to a piece in read-through on this
+    /// Mac**: a Collection piece's own folder (`researchScopePieceId`, the
+    /// gate's research rule). Shared research belongs to no piece.
+    func researchIsInReadThrough(atPath path: String) -> Bool {
+        let pieces = readThroughPieceIds()
+        guard !pieces.isEmpty else { return false }
+        return ReadThrough.isOn(researchScopePieceId(ofPath: path), in: pieces)
     }
 
     /// The title of the manuscript piece at `path` when it is in read-through

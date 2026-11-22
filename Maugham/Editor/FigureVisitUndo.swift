@@ -130,3 +130,9 @@ final class FigureVisitUndo {
         if visitEnded { workTaskSink?(task) }   // else `settled` publishes it
     }
 }
+
+/// A visit step held without keeping it: the window's undo stack owns a live
+/// step (`EditorCoordinator.figureVisitStepRefs`).
+struct WeakFigureVisitUndo {
+    weak var step: FigureVisitUndo?
+}

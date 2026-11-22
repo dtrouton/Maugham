@@ -75,7 +75,7 @@ extension FigureGridController {
     /// (`askChangedSince`), so a sheet never holds later writes, a fold or a
     /// close; yes asks for the accept again, no writes nothing.
     func stripAccept(_ noteId: String) {
-        guard beginStripAnswer(writesTheCell: true) else { return }
+        guard beginStripAnswer() else { return }
         enqueueAccept(noteId, confirmed: false)
     }
 
@@ -99,7 +99,7 @@ extension FigureGridController {
         }
         stripQuestion = Task { @MainActor [weak self] in
             guard let self, await self.askChangedSince(question),
-                  self.beginStripAnswer(writesTheCell: true) else { return }
+                  self.beginStripAnswer() else { return }
             self.enqueueAccept(noteId, confirmed: true)
         }
     }
@@ -107,7 +107,7 @@ extension FigureGridController {
     /// **Got it from the strip**: a comment's or query's status-only accept,
     /// on `gridUndo`, after the open edit.
     func stripGotIt(_ noteId: String) {
-        guard beginStripAnswer(writesTheCell: false) else { return }
+        guard beginStripAnswer() else { return }
         enqueue { [host, gridUndo] in
             try await host.acceptNote(id: noteId, userResponse: nil, undoManager: gridUndo)
         }
@@ -117,7 +117,7 @@ extension FigureGridController {
     /// by ⌘Z while the grid is open; after an in-place fold by Reopen in the
     /// queue (the visit records cell changes only, plan ruling).
     func stripReject(_ noteId: String, reason: String?) {
-        guard beginStripAnswer(writesTheCell: false, keeping: reason) else { return }
+        guard beginStripAnswer(keeping: reason) else { return }
         enqueue { [host, gridUndo] in
             try await host.rejectAnnotation(id: noteId, reason: reason, undoManager: gridUndo)
         }
@@ -128,7 +128,7 @@ extension FigureGridController {
     /// not answer says so before asking.
     @discardableResult
     func askToReject(_ noteId: String) -> Task<Void, Never> {
-        guard mayAnswer(writesTheCell: false) else { return Task {} }
+        guard mayAnswer() else { return Task {} }
         let entry = stripPlan.entries.first { $0.noteId == noteId }
         let question = FigureGridStrip.RejectQuestion(heading: entry?.heading ?? "", body: entry?.body ?? "")
         return Task { @MainActor [weak self] in
@@ -142,29 +142,22 @@ extension FigureGridController {
     /// sentence, carrying a typed reason), allowed (`mayAnswer`), the open
     /// cell edit committed (one that will not read stays open with its error,
     /// and nothing is answered).
-    private func beginStripAnswer(writesTheCell: Bool, keeping reason: String? = nil) -> Bool {
+    private func beginStripAnswer(keeping reason: String? = nil) -> Bool {
         syncFromHost()
         guard !isClosed, !isFolded else {
             MaughamEvent.postNotice(Self.foldedBeforeTheAnswer(reason: reason), projectURL: host.projectURL)
             return false
         }
-        guard mayAnswer(writesTheCell: writesTheCell) else { return false }
+        guard mayAnswer() else { return false }
         return commitOpenEdit()
     }
 
     /// **Whether the gate lets the strip answer** (fix round ruling I1): a
     /// read-only grid answers nothing, with its reason — except read-through,
-    /// where every answer is a decision and passes, and the window's review
-    /// mode or Lock, where Got it and Reject (no cell moves) are the posture's
-    /// to decide and only Accept (it writes the cell) is refused, saying so.
-    private func mayAnswer(writesTheCell: Bool) -> Bool {
+    /// where every answer is a decision and passes.
+    private func mayAnswer() -> Bool {
         guard let reason = mode.readOnlyReason,
               !FigureGridStrip.Plan.acceptWrites(under: reason) else { return true }
-        if let refusal = FigureGridStrip.Plan.acceptRefusal(for: reason) {
-            guard writesTheCell else { return true }
-            bars.showReason(refusal)
-            return false
-        }
         answer(reason)
         return false
     }

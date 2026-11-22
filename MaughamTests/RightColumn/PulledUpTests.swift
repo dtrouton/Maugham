@@ -218,22 +218,26 @@ final class PulledUpTests: XCTestCase {
     }
 
     /// The owner's rule (2026-11-16): research and a palette card are edited
-    /// beside, under Lock; a canvas card is read-only beside.
+    /// beside, under read-through; a canvas card is read-only beside.
     func test_whatIsEditedBesideIsOneAnswerPerKind() {
         XCTAssertTrue(PulledUp.research("palette-card").isEditableBeside)
         XCTAssertTrue(PulledUp.figure("f-1").isEditableBeside)
         XCTAssertFalse(PulledUp.canvasScrap(nodeId: "n").isEditableBeside)
         XCTAssertFalse(PulledUp.canvasPhoto(path: "p").isEditableBeside)
         XCTAssertFalse(PulledUp.canvasRegion(id: "rg").isEditableBeside, "a region is its cards")
-        XCTAssertTrue(PulledUp.canvasRegion(id: "rg").refusesEdits(isLocked: false))
-        XCTAssertFalse(PulledUp.canvasRegion(id: "rg").lockApplies, "read-only already: Lock adds nothing")
+        let writing = ReadThroughGate.writing
+        let reading = ReadThroughGateFixture.gate(pieces: [ReadThroughGateFixture.pieceA])
+        XCTAssertTrue(PulledUp.canvasRegion(id: "rg").refusesEdits(readThrough: writing))
         XCTAssertFalse(PulledUp.history(docId: "ch-1").isEditableBeside)
-        XCTAssertFalse(PulledUp.research("r").refusesEdits(isLocked: false))
-        XCTAssertTrue(PulledUp.research("r").refusesEdits(isLocked: true), "Lock covers it")
-        XCTAssertTrue(PulledUp.figure("f").refusesEdits(isLocked: true))
-        XCTAssertFalse(PulledUp.lessons.refusesEdits(isLocked: true),
-                       "a statement answers to its posture, not Lock")
-        XCTAssertTrue(PulledUp.canvasScrap(nodeId: "n").refusesEdits(isLocked: false))
+        let note = PulledUp.research(ReadThroughGateFixture.nestedNote)
+        XCTAssertFalse(note.refusesEdits(readThrough: writing))
+        XCTAssertTrue(note.refusesEdits(readThrough: reading), "its piece is in read-through")
+        XCTAssertFalse(PulledUp.research(ReadThroughGateFixture.sharedNote).refusesEdits(readThrough: reading),
+                       "shared research is no piece's")
+        XCTAssertTrue(PulledUp.figure(ReadThroughGateFixture.figureA).refusesEdits(readThrough: reading))
+        XCTAssertFalse(PulledUp.lessons.refusesEdits(readThrough: reading),
+                       "a statement answers to its posture, not read-through")
+        XCTAssertTrue(PulledUp.canvasScrap(nodeId: "n").refusesEdits(readThrough: writing))
         XCTAssertEqual(PulledUp.lessons.statement?.kind, .lessons)
         XCTAssertEqual(PulledUp.lessons.statement?.scope, .project)
         XCTAssertNil(PulledUp.research("r").statement)

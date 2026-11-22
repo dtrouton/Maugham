@@ -1012,10 +1012,12 @@ final class BinderTreeSectionsState {
     @ObservationIgnored weak var figureWindows: FigureWindows?
     /// The editor's typography, handed to a figure window a row opens.
     @ObservationIgnored var figureTypography: TypographySettings = .defaults
-    /// The window refuses figure writes (a view-only share, the
-    /// window's Lock — `FigureActions.windowRefusesWrites`), as the
+    /// The window refuses figure writes (a view-only share), as the
     /// inspector asks it; asked by a row's menu builder.
     @ObservationIgnored var figureWritesRefused = false
+    /// The window's read-through gate: a row's verbs refuse a figure one of
+    /// whose pieces is in read-through (`FigureActions.refusesWrites`).
+    @ObservationIgnored var figureReadThrough: ReadThroughGate = .writing
     /// **Research items that bring a parked figure back**, item id → figure
     /// id (`ProjectStore.figuresToBringBack`): what a Research row's menu and
     /// inspector read to say *Bring Back to Figures* (report plan 8b Task 4).
@@ -1070,16 +1072,16 @@ final class BinderTreeSectionsState {
         pendingAlert = queuedError.map(TreeAlert.error)
         queuedError = nil
     }
-    /// **Whether Research offers New Table** (D8b-2): not on a view-only share
-    /// or while the window is locked — where the table could not be edited (`offersNewTable(…)`).
+    /// **Whether Research offers New Table** (D8b-2): not on a view-only share,
+    /// where the table could not be edited (`offersNewTable(…)`).
     /// False until the window's wiring says otherwise (`FigureSectionWiring`):
     /// a tree no window has told offers nothing it might not allow.
     var offersNewTable = false
 
     /// The one answer `FigureSectionWiring` keeps `offersNewTable` to: the
     /// research centre's own read-only rule (`ResearchSubjectCentre`).
-    static func offersNewTable(shareIsReadOnly: Bool, isLocked: Bool) -> Bool {
-        !shareIsReadOnly && !WindowLock.refusesEdits(isLocked: isLocked)
+    static func offersNewTable(shareIsReadOnly: Bool) -> Bool {
+        !shareIsReadOnly
     }
 
     /// Whether `section` is open — the flag its header's chevron reads.

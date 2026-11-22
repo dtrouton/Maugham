@@ -92,7 +92,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// ⌘Z takes back alone. (Before: B's expand was ignored by the host but
     /// B still ended the open visit — A's — onto B's stack.)
     func test_aTableExpandedInOneProjectWindowIsNeverExpandedInAnother() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let a = try await mount(windows: windows)
         let b = try await mount(windows: windows, sharing: a)
         let line = location(a, "![Cash](")
@@ -168,16 +168,21 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
 
     /// **⤢ from a grid in read-through** (final review I2, rehomed by shell
     /// read-through Task 3): the grid is read-only in place, ⤢ still offered;
-    /// the window it opens asks the figure's piece (`FigureWindows
-    /// .isInReadThrough`, the session's store in production), and follows
-    /// each Start and Resume (`readThroughChanged`).
+    /// the window it opens asks the project's gate (`FigureWindows
+    /// .isInReadThrough`, the window's `ReadThroughGate` in production), and
+    /// follows each Start and Resume (`setReadThrough`).
     func test_readThroughCarriesIntoTheFigureWindow_andFollowsResume() async throws {
-        final class Flag { var on = true }
-        let flag = Flag()
-        let windows = FigureWindows(isInReadThrough: { _ in flag.on })
+        let windows = FigureWindows()
         var asked: [String] = []
         let m = try await mount(windows: windows, openWindow: { asked.append($0) })
         let figureId = try XCTUnwrap(m.figure?.id)
+        func gate(_ on: Bool) -> ReadThroughGate {
+            // The figure's piece, by the one rule: its record's.
+            let record = FigureRecord(id: figureId, name: "T", kind: .table, piece: "piece-a", path: "")
+            return ReadThroughGate(pieces: on ? ["piece-a"] : [], structure: [], research: [],
+                                   figures: [record], figureLines: [])
+        }
+        windows.setReadThrough(gate(true))
         m.coordinator.setReadThrough(true)
         let c = try await expanded(m)
         XCTAssertEqual(c.mode, .readOnly(.readThrough), "premise: read-through in place")
@@ -189,11 +194,9 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
 
         let (_, w, _) = try await openWindowGrid(m, windows)
         XCTAssertEqual(w.mode, .readOnly(.readThrough), "the window opens read-only")
-        flag.on = false
-        windows.readThroughChanged()
+        windows.setReadThrough(gate(false))
         XCTAssertEqual(w.mode, .editable, "and follows Resume")
-        flag.on = true
-        windows.readThroughChanged()
+        windows.setReadThrough(gate(true))
         XCTAssertEqual(w.mode, .readOnly(.readThrough), "and a Start again")
     }
 
@@ -203,7 +206,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// I4): type in place, ⤢, retype the cell in the window, close it, ⌘Z
     /// in the text — declined whole, and said neutrally, never "another device".
     func test_aVisitRetypedInThisMacsWindowDeclinesNeutrally() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let m = try await mount(windows: windows, openWindow: { _ in })
         let c = try await expanded(m)
         let b2 = cell(c, 2, 2)
@@ -234,7 +237,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// window's close takes the hand-off with it (T9 review M5), so a later
     /// window never inherits a stale piece or review mode.
     func test_theFigureIsHeldWhileItsWindowOpens_andTheHandoffLeavesWithIt() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let m = try await mount(windows: windows, openWindow: { _ in })
         let figureId = try XCTUnwrap(m.figure?.id)
         let line = location(m, "![Cash](")
@@ -261,7 +264,7 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
     /// the figure's line tells the window its "Table N" and caption from
     /// that line — no label needed.
     func test_anUnlabelledLineStillReachesTheWindow() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let m = try await mount("Intro.\n\n![Cash flow](../figures/t.csv)\n\nThe end.", windows: windows)
         let figureId = try XCTUnwrap(m.figure?.id)
         var told: [String] = []

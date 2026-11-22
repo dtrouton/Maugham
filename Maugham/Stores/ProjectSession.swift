@@ -54,14 +54,9 @@ final class ProjectSession {
         self.declaredWorld = declaredWorld
         self.readThrough = readThrough
         self.roster = roster
-        let windows = FigureWindows(isInReadThrough: { [weak readThrough, weak projectStore] figureId in
-            guard let readThrough, let projectStore else { return false }
-            let piece = projectStore.manifest.figures?.first { $0.id == figureId }?.piece
-            return ReadThrough.isOn(piece, in: readThrough.pieceIds)
-        })
-        self.figureWindows = windows
-        // Every Start and Resume reaches the open figure windows' gates.
-        readThrough.addChangeObserver { [weak windows] in windows?.readThroughChanged() }
+        // Its read-through gate is the project window's (`ReadThroughModifier
+        // .gate`), handed over at each change of the set or the book.
+        self.figureWindows = FigureWindows()
     }
 
     /// Opens the project's stores at `url` — no service is configured and no

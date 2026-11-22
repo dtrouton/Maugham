@@ -118,16 +118,16 @@ final class ResearchTableMount {
         Task { @MainActor in await host.fileMayHaveChanged() }
     }
 
-    /// **The gate**: the window's Lock (`WindowLock`) and a view-only share
+    /// **The gate**: a view-only share and the table's piece in read-through
     /// read the table. The share is the project's, so the shared host refuses
-    /// every edit under it too; the Lock is this window's, so it is this
-    /// grid's gate alone (as a figure's is).
+    /// every edit under it too; read-through is this grid's gate alone (as a
+    /// figure's is) — the writer's own refusal, which no other writer obeys.
     func refreshAccess() {
         guard let controller, let host, !hasLeft else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: true, parked: false, hostClosed: host.isClosed,
-            shareIsReadOnly: shareIsReadOnly, isLocked: readOnly,
-            isInReadThrough: false,   // Task 4 passes the real value
+            shareIsReadOnly: shareIsReadOnly,
+            isInReadThrough: readOnly,
             isReadingTranslation: false)
         host.refusal = shareIsReadOnly ? .viewOnlyShare : nil
         guard mode != controller.mode else { return }
@@ -253,7 +253,8 @@ struct ResearchTableGrid: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let typography: TypographySettings
-    /// The window's Lock (`WindowLock.refusesEdits`) — a locked window reads, never edits.
+    /// The table's piece is in read-through (`ReadThroughGate.refusesEdits(.research(id))`):
+    /// it reads, never edits.
     let readOnly: Bool
     let shareIsReadOnly: Bool
     /// The project window's presence, which Format ▸ Table reads.

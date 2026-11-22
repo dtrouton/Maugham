@@ -246,32 +246,11 @@ final class ReadThroughStoreTests: XCTestCase {
     // MARK: - The gate
 
     private func doc(_ id: String, _ path: String, loose: Bool = false) -> StructureItem {
-        StructureItem(id: id, title: id, type: .document, path: path,
-                      pieceKind: loose ? .loose : nil)
+        ReadThroughGateFixture.doc(id, path, loose: loose)
     }
 
-    /// A Collection: piece A with its own research folder (a nested note), a
-    /// shared note, A's figure and a book-wide one.
     private func collectionGate(pieces: Set<String>) -> ReadThroughGate {
-        let structure = [doc("piece-a", "pieces/01-a/a.md", loose: true),
-                         doc("piece-b", "pieces/02-b/b.md", loose: true)]
-        let research = [
-            ResearchItem(id: "a-folder", title: "A notes", type: .group,
-                         path: "pieces/01-a/research/notes",
-                         children: [ResearchItem(id: "a-nested", title: "Tide", type: .asset,
-                                                 kind: .document,
-                                                 path: "pieces/01-a/research/notes/tide.md")]),
-            ResearchItem(id: "shared", title: "Shared", type: .asset, kind: .document,
-                         path: "research/shared.md"),
-        ]
-        let figures = [
-            FigureRecord(id: "fig-a", name: "A's table", kind: .table, piece: "piece-a",
-                         path: "figures/a.csv"),
-            FigureRecord(id: "fig-book", name: "Book table", kind: .table, piece: nil,
-                         path: "figures/book.csv"),
-        ]
-        return ReadThroughGate(pieces: pieces, structure: structure, research: research,
-                               figures: figures)
+        ReadThroughGateFixture.gate(pieces: pieces)
     }
 
     func test_theWritingGateRefusesNothing() {
@@ -287,7 +266,7 @@ final class ReadThroughStoreTests: XCTestCase {
         XCTAssertTrue(gate.refusesEdits(.research("a-folder")))
         XCTAssertTrue(gate.refusesEdits(.research("a-nested")), "nested items through their root")
         XCTAssertTrue(gate.refusesEdits(.figure("fig-a")))
-        XCTAssertEqual(gate.owner(of: .research("a-nested")), "piece-a")
+        XCTAssertEqual(gate.owners(of: .research("a-nested")), ["piece-a"])
         XCTAssertFalse(gate.refusesEdits(.piece("piece-b")), "control: another piece writes")
     }
 
@@ -295,8 +274,8 @@ final class ReadThroughStoreTests: XCTestCase {
         let gate = collectionGate(pieces: ["piece-a", "piece-b"])
         XCTAssertFalse(gate.refusesEdits(.research("shared")))
         XCTAssertFalse(gate.refusesEdits(.figure("fig-book")))
-        XCTAssertNil(gate.owner(of: .research("shared")))
-        XCTAssertNil(gate.owner(of: .figure("fig-book")))
+        XCTAssertEqual(gate.owners(of: .research("shared")), [])
+        XCTAssertEqual(gate.owners(of: .figure("fig-book")), [])
     }
 
     /// A novel's research linked to the chapter is the book's, and stays
@@ -308,7 +287,7 @@ final class ReadThroughStoreTests: XCTestCase {
             pieces: ["ch-1"], structure: [chapter],
             research: [ResearchItem(id: "linked", title: "Ships", type: .asset,
                                     kind: .document, path: "research/ships.md")],
-            figures: [])
+            figures: [], figureLines: [])
         XCTAssertTrue(gate.refusesEdits(.piece("ch-1")))
         XCTAssertFalse(gate.refusesEdits(.research("linked")))
     }

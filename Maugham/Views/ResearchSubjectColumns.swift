@@ -274,10 +274,10 @@ struct ResearchSubjectCentre: View {
     /// is `.missing`, which is the empty state.
     let itemID: String?
     let previewVisible: Bool
-    /// **Threaded from the mount off `WindowLock.refusesEdits`** (shell p1
-    /// Task 5; Review's read-only centre before it, shell-finish stage 3b Task
-    /// 6) — never re-derived here, so this view cannot answer a different
-    /// question than the window's Lock did. True only while locked: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
+    /// **Threaded from the mount off `ReadThroughGate.refusesEdits(.research(id))`**
+    /// (shell read-through Task 4; the window's Lock and Review's read-only
+    /// centre before it) — never re-derived here. True only while the item's
+    /// piece is in read-through: the `.paletteCard` arm mounts `PaletteCardReadView` instead of
     /// `PaletteCardEditor`, and the `.note` arm locks `ResearchNoteEditor`
     /// rather than leaving it editable. `.preview` and `.missing` are
     /// unaffected — both were already read-only. The `.table` arm's grid reads
@@ -352,10 +352,14 @@ struct ResearchSubjectInspector: View {
     var figureTree: BinderTreeSectionsState? = nil
     var figureWritesRefused: Bool = false
     /// What a Research table's grid needs beside the canvas: the window's
-    /// `DocumentStore` (nil previews the table as text), the Lock's and
-    /// share's answers, the typography.
+    /// `DocumentStore` (nil previews the table as text), the read-only and
+    /// share answers, the typography.
     var documentStore: DocumentStore? = nil
     var readOnly: Bool = false
+    /// The item's piece is in read-through (`ReadThroughGate`): the panel's
+    /// Versions refuse Restore with that reason. `readOnly` can also mean the
+    /// centre shows the item, which refuses nothing there.
+    let inReadThrough: Bool
     var shareIsReadOnly: Bool = false
     var typography: TypographySettings = .defaults
     /// The project window, whose close writes the grid's last edit, and its
@@ -378,13 +382,13 @@ struct ResearchSubjectInspector: View {
                     InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           isLocked: readOnly)
+                                           inReadThrough: inReadThrough)
                 }
             } else {
                 InspectorResearchPanel(store: store, item: item, figureTree: figureTree,
                                            figureWritesRefused: figureWritesRefused,
                                            documentStore: documentStore, shareIsReadOnly: shareIsReadOnly,
-                                           isLocked: readOnly)
+                                           inReadThrough: inReadThrough)
             }
         } else {
             ContentUnavailableView(
@@ -464,9 +468,9 @@ struct ResearchSubjectInspector: View {
 }
 
 /// **Which surface a palette card gets in a research column** — the one
-/// answer the centre's card and the beside card both ask, so the window's
-/// Lock reaches both (`readOnly` is `WindowLock.refusesEdits`, threaded from
-/// the mount). Hidden, not disabled: a locked card mounts the read view.
+/// answer the centre's card and the beside card both ask, so read-through
+/// reaches both (`readOnly`, threaded from the mount). Hidden, not disabled:
+/// a read-only card mounts the read view.
 enum PaletteCardSurface: Equatable {
     case read
     case edit

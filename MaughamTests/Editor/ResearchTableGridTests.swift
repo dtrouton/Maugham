@@ -411,18 +411,18 @@ final class ResearchTableGridTests: XCTestCase {
 
     // MARK: - Read-only
 
-    /// **A locked window reads the table, never edits it**: the grid opens
-    /// read-only (with the Lock's own reason) and typing writes nothing.
-    /// (The Lock is this window's gate; the host is shared with any other
-    /// window's grid.)
-    func test_aLockedWindowOpensTheTableReadOnly() async throws {
+    /// **A table whose piece is in read-through reads, never edits**: the
+    /// grid opens read-only (with read-through's own reason) and typing
+    /// writes nothing. (Read-through is this grid's gate; the host is shared
+    /// with any other window's grid.)
+    func test_aTableInReadThroughOpensReadOnly() async throws {
         let (store, projectStore) = try await openBook()
         let item = try await researchTable("model.csv", "Year,Revenue\n2025,10\n", in: projectStore)
         let before = try bytes(of: item)
-        let mount = await mount(item, store, projectStore, readOnly: WindowLock.refusesEdits(isLocked: true))
+        let mount = await mount(item, store, projectStore, readOnly: true)
         let c = try XCTUnwrap(mount.controller)
         let host = try XCTUnwrap(mount.host)
-        XCTAssertEqual(c.mode, .readOnly(.locked))
+        XCTAssertEqual(c.mode, .readOnly(.readThrough))
 
         await type("99", at: 2, 2, in: c)
         XCTAssertEqual(host.state.table[key(host, 2, 2)]?.content, .value(.number(10)), "typing wrote nothing")
@@ -1060,7 +1060,7 @@ final class ResearchTableGridTests: XCTestCase {
         let window = TestWindow.mount(
             ResearchSubjectInspector(store: projectStore, itemID: item.id,
                                      showsPreview: placement.previewsInTheRightColumn,
-                                     documentStore: store, readOnly: WindowLock.refusesEdits(isLocked: false)),
+                                     documentStore: store, readOnly: false, inReadThrough: false),
             size: CGSize(width: 420, height: 640))
         windows.append(window)
         let up = await RunLoopPump.until(deadline: 5) { Self.gridView(in: window.contentView) != nil }

@@ -10,9 +10,11 @@ import MaughamCore
 /// line).
 ///
 /// - **Who may write** is the posture's one door (tripwires 47, 51:
-///   `.editFigure`) and the window's own refusal (`windowRefusesWrites`: a
-///   view-only share, the window's Lock): either offers Open in
-///   Window alone (Review Focus 5).
+///   `.editFigure`), the window's own refusal (`windowRefusesWrites`: a
+///   view-only share) and the figure's read-through (`readThrough`, the
+///   gate's one rule for a figure's pieces): any one offers Open in Window
+///   alone (Review Focus 5). Read-through refuses only the figure's own
+///   writes; making a figure from Research is creation, refused by nothing.
 /// - **Import and Refresh act through the grid open on the figure**
 ///   (`FigureWindows.gridController(on:)`) — the centre's, an editor's in
 ///   place, or a figure window's — so their writes are that grid's own
@@ -27,9 +29,12 @@ struct FigureActions {
     let figureWindows: FigureWindows?
     /// The editor's typography, handed to a window this opens.
     let typography: TypographySettings
-    /// Whether the window refuses figure writes (`windowRefusesWrites`,
-    /// asked when a menu is built).
-    var windowRefusesWrites: () -> Bool = { false }
+    /// Whether the window refuses figure writes — a view-only share — asked
+    /// when a menu is built.
+    let windowRefusesWrites: () -> Bool
+    /// The window's read-through gate, asked when a menu is built
+    /// (`refusesWrites(to:)`).
+    let readThrough: () -> ReadThroughGate
     let report: (String) -> Void
     /// The window this helper acts for (the inspector's project window); nil
     /// takes the grid wherever it is open.
@@ -40,26 +45,25 @@ struct FigureActions {
 
     // MARK: Who may write
 
-    /// **Does the window itself refuse figure writes?** A view-only share,
-    /// or the window's Lock
-    /// (`WindowLock`) — what the centre grid opens read-only for
-    /// (`FigureSubjectSurface`). ONE answer, read off the window's control
-    /// plane, for the tree's row (through `FigureSectionWiring`) and the
-    /// inspector alike.
-    static func windowRefusesWrites(control: EditorControl, isLocked: Bool) -> Bool {
-        control.shareIsReadOnly || WindowLock.refusesEdits(isLocked: isLocked)
+    /// **Does this window refuse writes to this figure?** A view-only share,
+    /// or one of the figure's pieces in read-through
+    /// (`ReadThroughGate.refusesEdits(.figure(id))`) — what the centre grid
+    /// opens read-only for (`FigureSubjectSurface`). ONE answer for the
+    /// tree's row (`FigureSectionVerbs`), the inspector and what is pulled up.
+    func refusesWrites(to figureId: String) -> Bool {
+        windowRefusesWrites() || readThrough().refusesEdits(.figure(figureId))
     }
 
-    /// The posture's one door and the window's own refusal: Send to
-    /// Research, Rename and Import are offered only when this answers true.
+    /// The posture's one door and the window's refusal: Send to Research,
+    /// Rename and Import are offered only when this answers true.
     func mayEdit(_ figureId: String) -> Bool {
-        Self.mayEdit(windowRefusesWrites: windowRefusesWrites(),
+        Self.mayEdit(windowRefusesWrites: refusesWrites(to: figureId),
                      posture: store.documentStore?.posture(forDocId: figureId))
     }
 
-    /// The same answer, pure: the window's refusal (the share, the
-    /// Lock) AND the posture's door — neither can stand in for the other, and
-    /// no posture (no session) refuses.
+    /// The same answer, pure: the window's refusal (the share, read-through)
+    /// AND the posture's door — neither can stand in for the other, and no
+    /// posture (no session) refuses.
     static func mayEdit(windowRefusesWrites: Bool, posture: Posture?) -> Bool {
         guard !windowRefusesWrites else { return false }
         return posture?.allows(.editFigure) ?? false

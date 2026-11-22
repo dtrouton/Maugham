@@ -157,6 +157,29 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
 
     // MARK: - Read-through (shell read-through Task 2, review M2)
 
+    /// **The visit steps the editor remembers are bounded by the stack**
+    /// (shell read-through Task 4, carry from Task 2's re-review): three
+    /// folded visits are three live steps; once the stack lets them go, the
+    /// next note forgets them — the list never grows for the editor's life.
+    func test_theRememberedVisitStepsAreBoundedByTheStack() async throws {
+        let m = try await mount(rows: 6)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        for value in ["3", "4", "5"] {
+            let (_, c) = try await expanded(m)
+            typeCell(m, c, cell(c, 1, 1), value)
+            await c.settleWrites()
+            try asOneEvent(m) { c.perform(.done) }
+            await settled(m)
+        }
+        XCTAssertEqual(m.coordinator.figureVisitSteps.count, 3, "premise: three live steps")
+        undo.removeAllActions()
+        let last = try XCTUnwrap(m.coordinator.lastFigureVisitStep)
+        await last.settled?.value
+        m.coordinator.noteFigureVisitStep(last)
+        XCTAssertEqual(m.coordinator.figureVisitStepRefs.count, 1,
+                       "the steps the stack let go are forgotten; only the one still held remains")
+    }
+
     /// **Cells typed before read-through are not what ⌘Z reaches in it**: a
     /// visit folded before the entry, and one still open with an edit typed
     /// and not committed — the entry folds the open grid (its edit

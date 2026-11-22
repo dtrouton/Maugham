@@ -466,8 +466,21 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var lastFigureVisitStep: FigureVisitUndo?
     /// Every visit step this editor registered on the window's stack, so the
     /// entry into read-through drops them by target: a visit is cells typed,
-    /// not a decision. Cleared with the stack.
-    var figureVisitSteps: [FigureVisitUndo] = []
+    /// not a decision. Held weakly — the stack holds a live step (its handler
+    /// captures it) — and pruned at each append, so the list is bounded by
+    /// the steps still on the stack, never the editor's life. Cleared with
+    /// the stack.
+    var figureVisitSteps: [FigureVisitUndo] { figureVisitStepRefs.compactMap(\.step) }
+    private(set) var figureVisitStepRefs: [WeakFigureVisitUndo] = []
+
+    /// Notes a registered visit step, dropping those the stack let go.
+    func noteFigureVisitStep(_ step: FigureVisitUndo) {
+        figureVisitStepRefs.removeAll { $0.step == nil || $0.step === step }
+        figureVisitStepRefs.append(WeakFigureVisitUndo(step: step))
+    }
+
+    /// Forgets every noted visit step (the stack was cleared, or they were dropped).
+    func forgetFigureVisitSteps() { figureVisitStepRefs.removeAll() }
     /// How many times `figureTrailingRoom` asked the cards (tests read it).
     var trailingFigureRoomLookupCount = 0
 
@@ -1276,7 +1289,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func dropTheUndoStack() {
         typingUndoManager?.removeAllActions()
         readingUndoManager.removeAllActions()
-        figureVisitSteps.removeAll()
+        forgetFigureVisitSteps()
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
@@ -1539,7 +1552,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 if let storage = view.textStorage { um.removeAllActions(withTarget: storage) }
                 um.removeAllActions(withTarget: um)
                 for step in figureVisitSteps { um.removeAllActions(withTarget: step) }
-                figureVisitSteps.removeAll()
+                forgetFigureVisitSteps()
             }
         }
         isInReadThrough = on

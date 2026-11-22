@@ -26,9 +26,10 @@ import MaughamCore
 ///   over the reading view and never a second editor;
 /// - History is `HistoryPane`, for a piece open or not.
 ///
-/// **Lock and posture apply exactly as in the centre**: research and figures
-/// ask `PulledUp.refusesEdits(isLocked:)` / take `isLocked`; a statement asks
-/// its own posture inside `StatementPane`. Hidden, never disabled.
+/// **Read-through and posture apply exactly as in the centre**: research and
+/// figures ask `PulledUp.refusesEdits(readThrough:)` / take the window's
+/// `ReadThroughGate`; a statement asks its own posture inside `StatementPane`.
+/// Hidden, never disabled.
 ///
 /// **With nothing pulled up** it shows the details of what the centre holds
 /// (`RightColumnContent.centreDetails`): the canvas's selected card or region,
@@ -57,7 +58,9 @@ struct PulledUpView: View {
     let figureGridPresence: FigureGridPresence
     let figureWindows: FigureWindows?
     let window: NSWindow?
-    let isLocked: Bool
+    /// The window's read-through gate: a research item or figure whose piece
+    /// is in read-through reads, never edits.
+    let readThrough: ReadThroughGate
     let figureTree: BinderTreeSectionsState?
     let bible: BibleStore?
     let world: DeclaredWorldStore?
@@ -157,7 +160,7 @@ struct PulledUpView: View {
         }
     }
 
-    static func face(of pulled: PulledUp, centre: Centre, isLocked: Bool,
+    static func face(of pulled: PulledUp, centre: Centre, readThrough: ReadThroughGate,
                      card: CanvasCardRead?) -> Face {
         let inTheCentre = centreShows(pulled, centre: centre)
         var subject = centre.subject
@@ -167,7 +170,7 @@ struct PulledUpView: View {
             // The item itself only where the placement previews it beside;
             // read-only wherever the centre shows it.
             return .research(id: id,
-                             readOnly: inTheCentre || pulled.refusesEdits(isLocked: isLocked),
+                             readOnly: inTheCentre || pulled.refusesEdits(readThrough: readThrough),
                              preview: ProjectWindow.researchSubjectPlacement(subject: subject)
                                 .previewsInTheRightColumn)
         case .figure(let id):
@@ -254,11 +257,11 @@ struct PulledUpView: View {
         return read(pulled, scene: scene, scraps: [:]) != .missing
     }
 
-    /// **The centre's own research details under Lock** (its citation, tags
-    /// and versions, drawn here while nothing is pulled up): read-only exactly
-    /// where the same item pulled up would be — Lock's one answer.
-    static func centreResearchIsReadOnly(_ id: String, isLocked: Bool) -> Bool {
-        PulledUp.research(id).refusesEdits(isLocked: isLocked)
+    /// **The centre's own research details in read-through** (its citation,
+    /// tags and versions, drawn here while nothing is pulled up): read-only
+    /// exactly where the same item pulled up would be — one answer.
+    static func centreResearchIsReadOnly(_ id: String, readThrough: ReadThroughGate) -> Bool {
+        PulledUp.research(id).refusesEdits(readThrough: readThrough)
     }
 
     /// The node holding a canvas-owned picture on whichever canvas is real
@@ -482,7 +485,7 @@ struct PulledUpView: View {
     private func content(_ pulled: PulledUp) -> some View {
         let card = Self.liveCard(card, pulled: pulled, model: canvasModel)
         let centre = Centre(subject: subject, centreItem: centreItem, paletteWallCard: paletteWallCard)
-        switch Self.face(of: pulled, centre: centre, isLocked: isLocked, card: card) {
+        switch Self.face(of: pulled, centre: centre, readThrough: readThrough, card: card) {
         case .research(let id, let readOnly, let preview):
             researchInspector(id, showsPreview: preview, readOnly: readOnly)
         case .figure(let id, let surface):
@@ -492,7 +495,7 @@ struct PulledUpView: View {
                         figureID: id, store: store, documentStore: documentStore,
                         figureWindows: figureWindows, presence: figureGridPresence,
                         listing: figureListing, control: editorControl,
-                        isLocked: isLocked, window: window)
+                        readThrough: readThrough, window: window)
                         .frame(maxHeight: .infinity)
                     Divider()
                     figureInspector(id).frame(maxHeight: .infinity)
@@ -597,8 +600,10 @@ struct PulledUpView: View {
         ResearchSubjectInspector(
             store: store, itemID: id,
             showsPreview: showsPreview, figureTree: figureTree,
-            figureWritesRefused: FigureActions.windowRefusesWrites(control: editorControl, isLocked: isLocked),
+            // Making a figure from Research is creation: the share alone refuses it.
+            figureWritesRefused: editorControl.shareIsReadOnly,
             documentStore: documentStore, readOnly: readOnly,
+            inReadThrough: Self.centreResearchIsReadOnly(id, readThrough: readThrough),
             shareIsReadOnly: editorControl.shareIsReadOnly, typography: editorControl.typography,
             window: window, presence: figureGridPresence,
             editsNotes: true)
@@ -608,7 +613,7 @@ struct PulledUpView: View {
         FigureInspector(
             figureId: id, store: store, documentStore: documentStore, listing: figureListing,
             figureWindows: figureWindows, figureTree: figureTree, control: editorControl,
-            isLocked: isLocked, window: window,
+            readThrough: readThrough, window: window,
             select: { target in
                 subject = ManuscriptNavigation.travel(
                     to: target, current: subject, structure: store.manifest.structure,
@@ -645,7 +650,7 @@ struct PulledUpView: View {
             figureInspector(id)
         case .research(let id)?:
             researchInspector(id, showsPreview: false,
-                              readOnly: Self.centreResearchIsReadOnly(id, isLocked: isLocked))
+                              readOnly: Self.centreResearchIsReadOnly(id, readThrough: readThrough))
         case .referencePiece(let id)?:
             ReferencePieceInspector(store: store, pieceId: id)
         case nil:

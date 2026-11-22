@@ -275,8 +275,12 @@ final class ReadThroughSurfaceTests: XCTestCase {
             if code.contains("ReadThrough.post(") { postCalls.append(file) }
         }
         XCTAssertEqual(posters, ["Maugham/Views/ReadThrough.swift"], "one sender")
-        XCTAssertEqual(Set(postCalls), ["Maugham/MaughamApp.swift", "Maugham/Views/ReadThroughLine.swift"],
-                       "the routes: the menu item and the line (Task 4 adds the padlock)")
+        XCTAssertEqual(Set(postCalls), ["Maugham/MaughamApp.swift", "Maugham/Views/ReadThroughLine.swift",
+                                        "Maugham/Views/ReadThroughToggle.swift"],
+                       "the routes: the menu item, the line and the padlock")
+        let padlock = try SourceTree.declaration(named: "struct ReadThroughToggle", under: "Maugham")
+        XCTAssertTrue(padlock.contains("static func request(_ offer: ReadThroughOffer?) -> ReadThrough.Request? {"))
+        XCTAssertTrue(padlock.contains("offer?.toggleRequest"), "the padlock posts only what the offer gives")
     }
 
     /// **Manual Review Mode's names are gone from the app.**
@@ -589,25 +593,6 @@ final class ReadThroughSurfaceTests: XCTestCase {
         }
     }
 
-    // MARK: - The store's subscribers (fix round M8)
-
-    /// Two subscribers both hear each change; no second one replaces the first.
-    func test_everyChangeObserverHearsEachChange() {
-        let store = ReadThroughStore(projectRoot: temp.url, device: DeviceSlug.make(from: "surface-test"))
-        final class Count { var a = 0, b = 0 }
-        let count = Count()
-        store.addChangeObserver { count.a += 1 }
-        store.addChangeObserver { count.b += 1 }
-        store.begin("ch-1", at: Date())
-        store.end("ch-1")
-        store.begin("ch-2", at: Date())
-        store.prune(keeping: [])
-        XCTAssertEqual(count.a, 4)
-        XCTAssertEqual(count.b, 4)
-        store.end("absent")
-        XCTAssertEqual(count.a, 4, "a change that changes nothing tells nobody")
-    }
-
     // MARK: - Helpers
 
     private func assertTheLock(on id: String, in window: NSWindow, state: BinderTreeSectionsState,
@@ -798,6 +783,7 @@ private struct ReceiverProbe: View {
     let documentStore: DocumentStore
     let window: NSWindow
     let treeState: BinderTreeSectionsState
+    @State private var gate = ReadThroughGate.writing
 
     var body: some View {
         Color.clear.modifier(ReadThroughModifier(
@@ -806,6 +792,6 @@ private struct ReceiverProbe: View {
                 docId: item.id, item: item, posture: .author, shareIsReadOnly: false,
                 isReadingTranslation: false, route: .editor(altitude: nil, cover: nil),
                 pieces: readThrough.pieceIds, lackingCheckpoint: readThrough.piecesLackingCheckpoint),
-            treeState: treeState, onSaveFlash: {}))
+            treeState: treeState, figureRows: [], figureWindows: nil, gate: $gate, onSaveFlash: {}))
     }
 }

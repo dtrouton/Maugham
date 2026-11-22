@@ -214,10 +214,12 @@ final class RightColumnAppraisalTests: XCTestCase {
         let positions = [Self.toResolveGroup, Self.briefGroup, Self.pullUpGroup]
             .compactMap { groups.firstIndex(of: $0) }
         XCTAssertEqual(positions, positions.sorted())
-        // The window toggles, titled for the right column and the Lock.
+        // The window's toggles: the right column's, and the open piece's
+        // read-through (the padlock's menu twin, Lock's slot gone).
         let toggles = try XCTUnwrap(groups.first)
         XCTAssertTrue(toggles.contains("FocusedRightColumnToggle"))
-        XCTAssertTrue(toggles.contains("FocusedLockToggle"))
+        XCTAssertTrue(toggles.contains("FocusedReadThroughItem"))
+        XCTAssertFalse(toggles.contains("FocusedLockToggle"))
         XCTAssertFalse(Self.viewMenuSequence(app).contains("Toggle Inspector"),
                        "the item names a panel that no longer exists")
         XCTAssertEqual(RightColumn.toggleTitle(shown: true), "Hide Right Column")
@@ -263,13 +265,13 @@ final class RightColumnToggleTests: XCTestCase {
     }
 
     /// **On the trailing edge, in the toolbar `⌘\` hides, unconditionally**:
-    /// the item sits in `TopChromeModifier`'s `.toolbar`, beside the Lock,
+    /// the item sits in `TopChromeModifier`'s `.toolbar`, beside the padlock,
     /// whose visibility is `windowToolbarIsVisible` — and no `if` guards it,
     /// so it is drawn with the column hidden as well as shown.
     func test_theButtonRidesTheWindowToolbarOnItsTrailingEdge() throws {
         let window = try Self.flat("Maugham/Views/ProjectWindow.swift")
         XCTAssertTrue(window.contains(
-            ".toolbar { ToolbarItem(placement: .navigation) { LockToggle(isLocked: $isLocked) } "
+            ".toolbar { ToolbarItem(placement: .navigation) { ReadThroughToggle(offer: readThroughOffer) } "
             + "if let runningRound { ToolbarItem(placement: .primaryAction) { "
             + "RunningRoundIndicator(line: runningRound, full: runningRoundIsFull, open: { openRunningRound(runningRound) }) } } "
             + "if let readingOffer { ToolbarItem(placement: .primaryAction) { "
@@ -284,7 +286,8 @@ final class RightColumnToggleTests: XCTestCase {
         XCTAssertFalse(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: true))
         XCTAssertTrue(ProjectWindow.windowToolbarIsVisible(isNoChromeOn: false))
         XCTAssertTrue(window.contains("TopChromeModifier( projectURL: url, store: store, "
-                                      + "isNoChromeOn: isNoChromeOn, isLocked: $isLocked, "
+                                      + "isNoChromeOn: isNoChromeOn, "
+                                      + "readThroughOffer: ReadThroughModifier.offer(facts), "
                                       + "window: window, showInspector: $showInspector,"),
                       "the button is bound to the window's own showInspector")
     }

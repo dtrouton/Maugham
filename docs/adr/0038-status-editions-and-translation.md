@@ -241,7 +241,7 @@ The sixteen items the controller put to the owner on 2026-11-22, and the owner's
 12. **Permissions narrowed** (tags, targets, links and Publishing need restructure permission). *Fine as built.*
 13. **Rewind works only on the open piece.** *Agreed: keep,* plus an "Open this chapter to rewind it" button where Rewind is missing. **Built in the closing round.**
 14. **Opening an intent or History in the centre clears the chapter's typing Undo.** *Fine.*
-15. **Lock and the manuscript text.** *Resolved by design:* Lock is replaced by Read-through (`docs/superpowers/specs/2026-11-22-read-through-design.md`), its own plan; not built here.
+15. **Lock and the manuscript text.** *Resolved by design:* Lock is replaced by Read-through (`docs/superpowers/specs/2026-11-22-read-through-design.md`), its own plan. *Built:* [ADR 0039](0039-read-through.md).
 16. **Small wording.** "Details of …" stays; ⌘[ is **Back** (built in the closing round); "… is running" is superseded by the toolbar's running-round indicator; a piece is named by the project's own word (chapter, piece, story) — plan 5's wording pass.
 
 **Also answered on 2026-11-22.** The hand checks of the `9896e3cf` build "look good": a single click on a fold card stays up; the insertion line follows the pointer in a real drag; arrowing with nothing pulled up leaves the column alone. The plan's other hand checks (1–21, the smoke last) are still owed. **Promotion:** the history survives in the original, and the promoted project should also carry the history, notes and translations — its own plan; not built.
@@ -267,7 +267,7 @@ Not-done minors from every task, each with its reason.
 
 Nothing above depends on any of these.
 
-- **Read-through**, which replaces Lock (owed item 15; `docs/superpowers/specs/2026-11-22-read-through-design.md`): its own plan. `LockToggle` and Manual Review Mode are unchanged.
+- ~~**Read-through**, which replaces Lock (owed item 15)~~ — *built:* [ADR 0039](0039-read-through.md); Lock and Manual Review Mode are deleted.
 - **Promotion carries the history**: the promoted project gets a copy of the piece's op log, notes and translations, the Collection keeping its own (the owner's answer of 2026-11-22): its own plan.
 - **Plan 5** of the same milestone; the list is in the plan's "Plan 5" section:
   - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.

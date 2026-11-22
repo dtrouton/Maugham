@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// **One write, the menu's.** A press flips the window's `showInspector`,
 /// exactly as ⌘⌥0's receiver (`ProjectWindow`'s `.maughamToggleInspector`)
-/// does — the Lock's shape (`LockToggle`). So it behaves as the menu item
+/// does. So it behaves as the menu item
 /// does everywhere: with the palette wall holding the column hidden, a press
 /// shows it (the wall's stash is written only by the wall's own open and
 /// close). The canvas's `⌘\` collapse happens only in focus mode, where this

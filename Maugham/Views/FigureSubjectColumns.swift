@@ -48,8 +48,8 @@ extension ProjectWindow {
 
 /// **What a figure subject shows** (report plan 8a Task 6), in the centre and
 /// in the right column beside the canvas alike: a table's grid (`FigureCentreGrid`, one mount
-/// per figure), read-only where the window is locked (`WindowLock`) or the
-/// figure's piece is in read-through; an image, its picture large (`FigureImageSubject`);
+/// per figure), read-only where one of the figure's pieces is in
+/// read-through (`ReadThroughGate`); an image, its picture large (`FigureImageSubject`);
 /// anything else — a kind from a later build, a window with no session —
 /// its name and number.
 struct FigureSubjectSurface: View {
@@ -60,7 +60,8 @@ struct FigureSubjectSurface: View {
     let presence: FigureGridPresence
     let listing: FigureListingModel
     let control: EditorControl
-    let isLocked: Bool
+    /// The window's read-through gate, asked of this figure.
+    let readThrough: ReadThroughGate
     let window: NSWindow?
 
     /// The image figure's file, resolved once per path, never per body pass.
@@ -99,11 +100,8 @@ struct FigureSubjectSurface: View {
                     figureId: figureID, store: store, documentStore: documentStore,
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
-                    // The figure's piece in read-through: the gate's `.figure(id)`.
-                    isInReadThrough: ReadThroughGate(
-                        pieces: control.readThroughDocIds, structure: [], research: [],
-                        figures: store.manifest.figures ?? []).refusesEdits(.figure(figureID)),
-                    isLocked: WindowLock.refusesEdits(isLocked: isLocked),
+                    // One of the figure's pieces in read-through: the gate's one rule.
+                    isInReadThrough: readThrough.refusesEdits(.figure(figureID)),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)
             }

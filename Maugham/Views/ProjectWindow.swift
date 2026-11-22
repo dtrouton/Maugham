@@ -128,11 +128,12 @@ struct ProjectWindow: View {
     /// ⌘⌥I's or ⌘⌥N's request for a Brief field (`BriefField`), consumed by
     /// the field.
     @State private var briefFocus: BriefField?
-    /// **The window's Lock** (`WindowLock`, shell p1 Task 5): research, palette
-    /// cards and figures read and never edit while it is on. Per window and
-    /// never stored — every window opens unlocked — and it only adds refusals
-    /// beside the posture's. It does not lock the manuscript text.
-    @State private var isLocked = WindowLock.atOpen
+    /// **The read-through gate** (`ReadThroughGate`): what every non-editor
+    /// surface asks of its research item or figure. Built once per change of
+    /// the session's set, the book and the figure listing by
+    /// `ReadThroughModifier`, which also hands it to the figure windows;
+    /// `.writing` while no piece is in read-through.
+    @State private var readThroughGate = ReadThroughGate.writing
     /// **What the centre shows while an edition is open** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for
     /// changing it. Window-transient: see `PublishCentreModel`.
@@ -337,7 +338,7 @@ struct ProjectWindow: View {
             projectURL: url,
             store: store,
             isNoChromeOn: isNoChromeOn,
-            isLocked: $isLocked,
+            readThroughOffer: ReadThroughModifier.offer(facts),
             window: window,
             showInspector: $showInspector,
             centreViewOffer: centreViewOffer,
@@ -556,7 +557,7 @@ struct ProjectWindow: View {
         .modifier(FigureSectionWiring(
             store: store, documentStore: documentStore, listing: figureListing,
             treeState: treeState, figureWindows: session?.figureWindows,
-            typography: effectiveTypography, control: editorControl, isLocked: isLocked))
+            typography: effectiveTypography, control: editorControl, readThrough: readThroughGate))
         .modifier(SessionAndNavigationModifier(
             documentStore: documentStore,
             store: store,
@@ -596,6 +597,8 @@ struct ProjectWindow: View {
             readThrough: session?.readThrough, store: store,
             documentStore: documentStore, window: window,
             facts: facts, treeState: treeState,
+            figureRows: figureListing.rows, figureWindows: session?.figureWindows,
+            gate: $readThroughGate,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
@@ -855,11 +858,11 @@ struct ProjectWindow: View {
         }
     }
 
-    /// The Lock (`LockToggle`), the top banners (software-update,
+    /// The read-through padlock (`ReadThroughToggle`), the top banners (software-update,
     /// backups-paused, settings-file-restored), and the focused project URL,
     /// pulled off `body` for the Release type-check ceiling.
     ///
-    /// The Lock is a WINDOW TOOLBAR item, not part of the safe-area
+    /// The padlock is a WINDOW TOOLBAR item, not part of the safe-area
     /// strip: a permanently non-zero top safe-area inset outside a
     /// `NavigationSplitView` occludes the top of every column (2026-07-25
     /// smoke, defect A). The three banners keep the inset because they are
@@ -873,9 +876,10 @@ struct ProjectWindow: View {
         let projectURL: URL
         let store: ProjectStore?
         let isNoChromeOn: Bool
-        /// The window's Lock, whose toggle is the toolbar's item.
-        @Binding var isLocked: Bool
-        /// For View ▸ Lock Research and Figures' receiver (⌘⌥⇧L).
+        /// The open piece's read-through offer (`ReadThroughModifier.offer`):
+        /// the padlock's state, and what a press posts.
+        let readThroughOffer: ReadThroughOffer?
+        /// The key window's posts reach this window's receivers.
         let window: NSWindow?
         /// Whether the right column shows: ⌘⌥0's title, and the toolbar's
         /// right-column button, which flips it as ⌘⌥0's receiver does.
@@ -910,7 +914,7 @@ struct ProjectWindow: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
-                        LockToggle(isLocked: $isLocked)
+                        ReadThroughToggle(offer: readThroughOffer)
                     }
                     // A running round: the group's LEADING item, so its
                     // coming and going moves none of the items after it
@@ -946,13 +950,8 @@ struct ProjectWindow: View {
                 }
                 .toolbar(toolbarVisibility, for: .windowToolbar)
                 .focusedSceneValue(\.projectURL, projectURL)
-                // The View menu's two window toggles title themselves by this.
-                .focusedSceneValue(\.windowChrome,
-                                   WindowChrome(isLocked: isLocked, rightColumnShown: showInspector))
-                // ⌘⌥⇧L: the padlock's press, from the menu.
-                .onKeyWindowCommand(.maughamToggleLock, window: window) { _ in
-                    isLocked.toggle()
-                }
+                // View ▸ Show/Hide Right Column titles itself by this.
+                .focusedSceneValue(\.windowChrome, WindowChrome(rightColumnShown: showInspector))
                 // ⌃⌘1/2/3: View ▸ View as …, the switch from the keyboard.
                 .focusedSceneValue(\.centreViewOffer, centreViewOffer)
                 // View ▸ Read In and ⌃⌘L, the language switch from the menu.
@@ -1515,7 +1514,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows,
             publishCentre: publishCentre, designer: designer,
             declaredWorld: declaredWorld, bible: bible, window: window,
-            isLocked: isLocked, bookView: bookView, editionView: editionView,
+            readThrough: readThroughGate, bookView: bookView, editionView: editionView,
             treeState: treeState,
             statusKeyboardRequest: statusKeyboardRequest,
             researchPreviewVisible: researchPreviewVisible,
@@ -2068,7 +2067,7 @@ struct ProjectWindow: View {
             figureGridPresence: figureGridPresence, figureWindows: session?.figureWindows, window: window,
             publishCentre: publishCentre,
             roster: roster, bible: bible, declaredWorld: declaredWorld,
-            isLocked: isLocked, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
+            readThrough: readThroughGate, subject: subjectBinding, isNoChromeOn: isNoChromeOn,
             showInspector: showInspector,
             width: width, containerWidth: containerWidth,
             detailColumnWidth: $detailColumnWidth,

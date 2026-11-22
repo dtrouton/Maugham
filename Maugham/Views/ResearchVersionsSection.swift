@@ -26,11 +26,12 @@ enum ResearchVersionsModel {
     static let beforeAssistantMark = "Before the assistant’s change"
 
     /// Why Restore is off, nil when it is on: a view-only share first, then
-    /// the window's Lock (whose grid reads the table and refuses its edits) — the grid's
-    /// own reasons and sentences (`FigureGridGate.Reason`).
-    static func restoreRefusal(shareIsReadOnly: Bool, isLocked: Bool) -> FigureGridGate.Reason? {
+    /// the item's piece in read-through (whose grid reads the table and
+    /// refuses its edits) — the grid's own reasons and sentences
+    /// (`FigureGridGate.Reason`).
+    static func restoreRefusal(shareIsReadOnly: Bool, inReadThrough: Bool) -> FigureGridGate.Reason? {
         if shareIsReadOnly { return .viewOnlyShare }
-        if isLocked { return .locked }
+        if inReadThrough { return .readThrough }
         return nil
     }
 
@@ -106,8 +107,9 @@ struct ResearchVersionsSection: View {
     var kind: ResearchVersionPayload = .table
     /// What a refusal calls it (`ResearchVersionsModel.noun(for:)`).
     var noun: String = "table"
-    /// The window's Lock: Research is read, not changed.
-    var isLocked: Bool = false
+    /// The item's piece is in read-through (`ReadThroughGate.refusesEdits`):
+    /// read, not changed.
+    let inReadThrough: Bool
 
     /// Nil until the first listing lands.
     @State private var rows: [ResearchVersionsModel.Row]?
@@ -115,7 +117,8 @@ struct ResearchVersionsSection: View {
     @State private var isRestoring = false
 
     var body: some View {
-        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly, isLocked: isLocked)
+        let refusal = ResearchVersionsModel.restoreRefusal(shareIsReadOnly: shareIsReadOnly,
+                                                           inReadThrough: inReadThrough)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Versions").font(.headline)

@@ -100,13 +100,9 @@ struct PaletteWallView: View {
 struct PaletteWallCentre: View {
     let store: ProjectStore
     @Binding var selectedPaletteCardId: String?
+    /// The wall's card is always edited here: a palette card belongs to the
+    /// book, no piece owns it, so read-through never reaches it.
     let onClose: () -> Void
-    /// The window's Lock (`WindowLock`, shell p1 Task 5), asked by the card
-    /// arm below: a locked window reads a card and does not edit it — what
-    /// the old Review mode's adjudicating columns did before the window lost its modes
-    /// (shell-finish stage 3b Task 6). `ResearchSubjectCentre` asks the same
-    /// answer at its own mount.
-    let isLocked: Bool
 
     @FocusState private var isFocused: Bool
 
@@ -124,11 +120,7 @@ struct PaletteWallCentre: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     Divider()
-                    if !WindowLock.refusesEdits(isLocked: isLocked) {
-                        PaletteCardEditor(store: store, cardId: cardId)
-                    } else {
-                        PaletteCardReadHost(store: store, cardId: cardId)
-                    }
+                    PaletteCardEditor(store: store, cardId: cardId)
                 }
             } else {
                 PaletteWallView(store: store, selectedCardId: $selectedPaletteCardId)

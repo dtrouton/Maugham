@@ -575,7 +575,7 @@ private struct ResearchRevealProbeView: View {
         if let id = placement.centreItemID {
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
-                                  readOnly: WindowLock.refusesEdits(isLocked: WindowLock.atOpen))
+                                  readOnly: ReadThroughGate.writing.refusesEdits(.research(id)))
         } else {
             Color.clear
         }

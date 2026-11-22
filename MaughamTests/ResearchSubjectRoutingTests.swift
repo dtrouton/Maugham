@@ -514,7 +514,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .binder, isLocked: false)
+        let mount = try await host(store: store, tree: .binder)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
@@ -527,7 +527,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .collection, isLocked: false)
+        let mount = try await host(store: store, tree: .collection)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         await select(row: 1 + TreeFurniture.topRows + store.manifest.structure.count + 1, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
@@ -540,33 +540,13 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
         try seedNoteText(Self.noteText, at: note, in: store)
 
-        let mount = try await host(store: store, tree: .navigator, isLocked: false)
+        let mount = try await host(store: store, tree: .navigator)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // project, script, two sluglines, the Research header, then the note.
         await select(row: 5 + TreeFurniture.topRows, in: table,
                      until: { mount.probe.subject.beside == .research(note.id) })
 
         try await assertTheNoteIsBesideThenInTheCentre(of: mount, note: note)
-    }
-
-    /// **A locked window's centre locks a note opened there** (shell p1 Task
-    /// 5; Review's read-only centre before it, shell-finish stage 3b Task 6)
-    /// — `WindowLock.refusesEdits` is the question.
-    func test_aNoteOpenedInALockedWindowReachesTheCentreLocked() async throws {
-        let store = try await novel(notes: ["Ships"], cards: [])
-        let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
-        try seedNoteText(Self.noteText, at: note, in: store)
-
-        let mount = try await host(store: store, tree: .binder, isLocked: true,
-                                   subject: SubjectSamples.opened(.research(note.id)))
-
-        await pumpUntil(deadline: 5) {
-            self.textViews(in: mount.window).contains { $0.string.contains(Self.noteText) }
-        }
-        let editor = try XCTUnwrap(
-            textViews(in: mount.window).first { $0.string.contains(Self.noteText) },
-            "a locked window must still show the note's own text — locked, not hidden")
-        XCTAssertEqual(editor.coordinator?.lockEditing, true)
     }
 
     // MARK: - Mounted: the palette card takes the card editor
@@ -578,7 +558,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: ["Ships"], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
-        let mount = try await host(store: store, tree: .binder, isLocked: false)
+        let mount = try await host(store: store, tree: .binder)
         let table = try XCTUnwrap(firstTableView(in: mount.window))
         // the project row, the chapters, Research (header + note), then the
         // Palette header and the card.
@@ -609,7 +589,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: [], cards: [])
         let pdf = try await importPDF(named: "Tide tables", into: store)
 
-        let mount = try await host(store: store, tree: .binder, isLocked: false,
+        let mount = try await host(store: store, tree: .binder,
                                    subject: SubjectSamples.opened(.canvas))
         await pumpUntil(deadline: 5) { mount.canvasLoads.count >= 1 }
         let loadsBefore = mount.canvasLoads.count
@@ -670,7 +650,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let note = try XCTUnwrap(researchItem(named: "Ships", in: store))
 
         let model = CanvasModel()
-        let mount = try await host(store: store, tree: .binder, isLocked: false,
+        let mount = try await host(store: store, tree: .binder,
                                    subject: SubjectSamples.opened(.canvas), canvasModel: model)
 
         // Seeded AFTER the mount: `CanvasView`'s `.onAppear` load replaces the
@@ -719,7 +699,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
         let store = try await novel(notes: [], cards: ["Harbour"])
         let card = try XCTUnwrap(store.paletteCardItems().first)
 
-        let mount = try await host(store: store, tree: .binder, isLocked: false,
+        let mount = try await host(store: store, tree: .binder,
                                    subject: WindowSubject(open: .canvas, faces: .canvas,
                                                           beside: .research(card.id)))
         XCTAssertEqual(mount.probe.subject.beside, .research(card.id), "precondition")
@@ -856,11 +836,11 @@ final class ResearchSubjectRoutingTests: XCTestCase {
     ///   - subject: the window's subject **before the first render** — `UIState`
     ///     restores one on launch. Seeded on the probe rather than clicked: the
     ///     tree has no canvas row until shell p1 Task 3.
-    ///   - isLocked: the window's Lock, as production's `CentreColumn` asks it.
+    ///   - readThrough: the window's gate, as production's `CentreColumn` asks it.
     ///   - canvasModel: the board the centre and the region inspector share.
     ///     Given by a caller that has selected something on it.
     private func host(store: ProjectStore, tree: Tree,
-                      isLocked: Bool,
+                      readThrough: ReadThroughGate = .writing,
                       subject: WindowSubject = .book,
                       canvasModel: CanvasModel = CanvasModel()) async throws -> Mount {
         let probe = WindowSubjectProbe(subject)
@@ -874,7 +854,7 @@ final class ResearchSubjectRoutingTests: XCTestCase {
             store: store,
             documentStore: documentStore,
             tree: tree,
-            isLocked: isLocked,
+            readThrough: readThrough,
             script: tree == .navigator ? Self.twoScenes : nil,
             documentID: TreeWalk.first(in: store.manifest.structure,
                                        where: { $0.type == .document })?.id,
@@ -989,7 +969,7 @@ private struct ResearchRoutingProbeView: View {
     let store: ProjectStore
     let documentStore: DocumentStore
     let tree: ResearchSubjectRoutingProbeTree
-    let isLocked: Bool
+    let readThrough: ReadThroughGate
     let script: FountainScript?
     let documentID: String?
     let probe: WindowSubjectProbe
@@ -1043,7 +1023,7 @@ private struct ResearchRoutingProbeView: View {
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: false,
-                                  readOnly: WindowLock.refusesEdits(isLocked: isLocked))
+                                  readOnly: readThrough.refusesEdits(.research(id)))
         case .canvas:
             CanvasView(model: canvasModel, projectRoot: store.url,
                        paletteSwatchHexes: { canvasLoads.record(); return [] })
@@ -1063,7 +1043,8 @@ private struct ResearchRoutingProbeView: View {
     private var right: some View {
         if let id = placement.inspectedItemID {
             ResearchSubjectInspector(store: store, itemID: id,
-                                     showsPreview: placement.previewsInTheRightColumn)
+                                     showsPreview: placement.previewsInTheRightColumn,
+                                     inReadThrough: readThrough.refusesEdits(.research(id)))
         } else if ProjectWindow.inspectorRoute(subject: probe.subject,
                                                projectType: store.manifest.type) == .canvas {
             RegionInspectorPane(model: canvasModel, pieces: [],

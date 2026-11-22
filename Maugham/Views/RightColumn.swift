@@ -50,8 +50,9 @@ struct RightColumn: View {
     let declaredWorld: DeclaredWorldStore?
 
     // The window's state this column only reads.
-    /// The window's Lock (`WindowLock`): research and figures read, never edit.
-    let isLocked: Bool
+    /// The window's read-through gate: a research item or figure whose piece
+    /// is in read-through reads, never edits.
+    let readThrough: ReadThroughGate
     /// The window's subject. This column is about its `faces` (the document
     /// the panes follow) and shows what is opened `beside`, whose Open in
     /// Centre and close controls write it — a `Binding`, never a copy.
@@ -328,7 +329,7 @@ struct RightColumn: View {
                 centreItem: centreItem, canvasModel: canvasModel,
                 editorControl: editorControl, figureListing: figureListing,
                 figureGridPresence: figureGridPresence, figureWindows: figureWindows,
-                window: window, isLocked: isLocked, figureTree: figureTree,
+                window: window, readThrough: readThrough, figureTree: figureTree,
                 bible: bible, world: declaredWorld,
                 onOpenInCentre: openInCentre,
                 paletteWallCard: paletteWallCard,

@@ -163,9 +163,10 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
 
     /// **Every arm a novel's window can show** (`RightColumnFixture.arms`,
     /// whose coverage of the content enum `RightColumnPaneWidthTests`
-    /// asserts), plus the palette card's two faces, the editor and the
-    /// read-only card a locked window shows — each mounted at the narrowest
-    /// column and left to load.
+    /// asserts), plus a palette card pulled up — each mounted at the
+    /// narrowest column and left to load. (The read-only card is the centre's
+    /// own card's face, which `face(of:)` pins; Lock's second pass went with
+    /// Lock: no piece owns a palette card, so read-through never reaches it.)
     func test_everyArmFitsTheNarrowestColumnOnceLoaded() async throws {
         let f = try await makeFixture()
         let width = Self.narrowest
@@ -174,23 +175,19 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
         arms.append(.init(name: "a palette card pulled up", position: .pulledUp, subject: palette))
         var offenders: [String] = []
         for arm in arms {
-            for locked in [false, true] {
-                let control = EditorControl()
-                control.translationLanguage = arm.translationLanguage
-                let probe = RightColumnFixture.Probe(position: arm.position, subject: arm.subject)
-                let (overflow, _) = try await overflowOnceSettled(
-                    RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
-                                              probe: probe, editorControl: control,
-                                              width: width, isLocked: locked)
-                        .environment(f.preferences),
-                    width: width)
-                if !overflow.isEmpty {
-                    offenders.append("\(arm.name)\(locked ? " (locked)" : ""): "
-                                     + overflow.prefix(3).joined(separator: "; "))
-                }
-                for window in windows { window.contentView = NSView(frame: .zero) }
-                windows.removeAll()
+            let control = EditorControl()
+            control.translationLanguage = arm.translationLanguage
+            let probe = RightColumnFixture.Probe(position: arm.position, subject: arm.subject)
+            let (overflow, _) = try await overflowOnceSettled(
+                RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
+                                          probe: probe, editorControl: control, width: width)
+                    .environment(f.preferences),
+                width: width)
+            if !overflow.isEmpty {
+                offenders.append("\(arm.name): " + overflow.prefix(3).joined(separator: "; "))
             }
+            for window in windows { window.contentView = NSView(frame: .zero) }
+            windows.removeAll()
         }
         XCTAssertEqual(offenders, [],
             "these arms run past the \(width)pt column once loaded:\n"
@@ -203,7 +200,7 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
     /// translated edition with its whole cast named long and a proposed brief
     /// pending, an edition nobody is cast for, and the Source with a long
     /// designer's name and proposals for two languages it has no edition of —
-    /// each unlocked and locked, once loaded.
+    /// each once loaded.
     func test_anEditionsBriefFitsTheNarrowestColumnInEveryState() async throws {
         let f = try await makeFixture()
         let width = Self.narrowest
@@ -230,22 +227,19 @@ final class PulledUpFitsTheColumnTests: XCTestCase {
         var offenders: [String] = []
         for (name, language) in [("a cast edition", "es"), ("an uncast edition", "xx"),
                                  ("the Source", source)] {
-            for locked in [false, true] {
-                let subject = WindowSubject(open: .edition(language: language),
-                                            faces: .edition(language: language))
-                let probe = RightColumnFixture.Probe(position: .brief, subject: subject)
-                let (overflow, _) = try await overflowOnceSettled(
-                    RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
-                                              probe: probe, width: width, isLocked: locked)
-                        .environment(f.preferences),
-                    width: width)
-                if !overflow.isEmpty {
-                    offenders.append("\(name)\(locked ? " (locked)" : ""): "
-                                     + overflow.prefix(3).joined(separator: "; "))
-                }
-                for window in windows { window.contentView = NSView(frame: .zero) }
-                windows.removeAll()
+            let subject = WindowSubject(open: .edition(language: language),
+                                        faces: .edition(language: language))
+            let probe = RightColumnFixture.Probe(position: .brief, subject: subject)
+            let (overflow, _) = try await overflowOnceSettled(
+                RightColumnFixture.column(store: f.store, documentStore: f.documentStore,
+                                          probe: probe, width: width)
+                    .environment(f.preferences),
+                width: width)
+            if !overflow.isEmpty {
+                offenders.append("\(name): " + overflow.prefix(3).joined(separator: "; "))
             }
+            for window in windows { window.contentView = NSView(frame: .zero) }
+            windows.removeAll()
         }
         XCTAssertEqual(offenders, [],
             "an edition's Brief runs past the \(width)pt column:\n" + offenders.joined(separator: "\n"))

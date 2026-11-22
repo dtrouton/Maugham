@@ -46,9 +46,9 @@ struct CentreColumn: View {
     let bible: BibleStore?
     let window: NSWindow?
 
-    // Inputs this column only reads. `isLocked` is the window's Lock
-    // (`WindowLock`): research, palette cards and figures read, never edit.
-    let isLocked: Bool
+    // Inputs this column only reads. `readThrough` is the window's gate: a
+    // research item or figure whose piece is in read-through reads, never edits.
+    let readThrough: ReadThroughGate
     /// How the Book is shown — the route's input. Read only: the toolbar's
     /// switch writes it (`ProjectWindow.chooseCentreView`).
     let bookView: BookView
@@ -157,11 +157,11 @@ struct CentreColumn: View {
                                          centreItem: centreItem) {
         case .paletteWall:
             PaletteWallCentre(store: store, selectedPaletteCardId: $selectedPaletteCardId,
-                              onClose: closePaletteWall, isLocked: isLocked)
+                              onClose: closePaletteWall)
         case .research(let id):
             ResearchSubjectCentre(store: store, documentStore: documentStore,
                                   itemID: id, previewVisible: researchPreviewVisible,
-                                  readOnly: WindowLock.refusesEdits(isLocked: isLocked),
+                                  readOnly: readThrough.refusesEdits(.research(id)),
                                   shareIsReadOnly: editorControl.shareIsReadOnly,
                                   typography: editorControl.typography,
                                   presence: figureGridPresence, window: window)
@@ -169,7 +169,7 @@ struct CentreColumn: View {
             FigureSubjectSurface(
                 figureID: id, store: store, documentStore: documentStore, figureWindows: figureWindows,
                 presence: figureGridPresence, listing: figureListing, control: editorControl,
-                isLocked: isLocked, window: window)
+                readThrough: readThrough, window: window)
         case .canvas:
             canvasCentre(store: store, documentStore: documentStore)
         case .reference(let piece):

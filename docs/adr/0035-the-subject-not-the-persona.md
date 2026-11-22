@@ -1,6 +1,6 @@
 # ADR 0035 — The subject, not the persona: the tree decides what the window shows
 
-**Date:** 2026-11-17 · **Status:** Accepted (plan 1 of a multi-plan milestone; see "Not yet built"; extended by [ADR 0036](0036-to-resolve.md), [ADR 0037](0037-brief-and-the-pulled-up-thing.md) and [ADR 0038](0038-status-editions-and-translation.md)) · **Milestone:** shell-p1-subject-takes-over (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`
+**Date:** 2026-11-17 · **Status:** Accepted (plan 1 of a multi-plan milestone; see "Not yet built"; extended by [ADR 0036](0036-to-resolve.md), [ADR 0037](0037-brief-and-the-pulled-up-thing.md) and [ADR 0038](0038-status-editions-and-translation.md); its "Lock" section and decision 14 superseded by [ADR 0039](0039-read-through.md)) · **Milestone:** shell-p1-subject-takes-over (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`
 
 ## Context
 
@@ -46,6 +46,8 @@ Rows, top to bottom, in `TreeRowSlot` order: the Book; Inbox (only when the proj
 Row states as built: the system's selection fill is the row last clicked; the row that is open is tinted; a row that is `faces` but not open, or `beside`, is outlined. The table keeps the clicked row selected, and a note dismissed through the `List` is deselected. Whether the fill belongs on the open row instead is a smoke question and a cheap restyle.
 
 ### Lock
+
+*Superseded by [ADR 0039](0039-read-through.md): Lock is deleted; the padlock is the open piece's read-through.*
 
 `LockToggle` is a toolbar item. `WindowLock.refusesEdits(isLocked:)` is the one answer. Lock is per window, never stored, and every window opens unlocked. It is what the old Review mode's read-only research, palette and figure surfaces became: with Lock on, edits to research, a palette card, a figure and New Table are refused. Lock **does not lock the manuscript text** (that is `EditorControl.isManualReviewMode`, ⌘⌥⇧R, a separate control). Lock **only adds refusals**: each site asks it beside the posture and the share, unchanged and in the same position, so a read-only share, a narrowed book or a piece owned by someone else refuses with Lock off, and Lock off never answers for them.
 
@@ -94,5 +96,5 @@ Each was a ruling taken in the build ledger on the agent's authority, not Denver
 11. There is no capture-to-canvas drag in one window; Send to Canvas remains. (Superseded by [ADR 0038](0038-status-editions-and-translation.md): a capture dropped on the tree's Canvas row is sent loose, the command's placement.)
 12. The word ceiling of `docs/tripwires.md` is raised by 10 for the `NoPersonaCensusTests` line.
 13. `NoPersonaCensusTests` greps `\bPersona\b` and `\bpersona\b` only.
-14. **Lock does not lock the manuscript text**, a departure from the approved design, which said it would cover "the text and the research and figure surfaces Review locks today". Review locked only research, figures and palette cards, and no existing plain text lock was found to reuse (`isManualReviewMode` is the editor's own control). Cost if wrong: Denver may want the text locked later, a new refusal at the editor's write door.
+14. *Superseded by [ADR 0039](0039-read-through.md).* **Lock does not lock the manuscript text**, a departure from the approved design, which said it would cover "the text and the research and figure surfaces Review locks today". Review locked only research, figures and palette cards, and no existing plain text lock was found to reuse (`isManualReviewMode` is the editor's own control). Cost if wrong: Denver may want the text locked later, a new refusal at the editor's write door.
 15. The final fix wave (whole-branch review C1, I1, I2): a reveal and a publish problem are places; `WindowSubject` records which of `faces` and `beside` was clicked last; the document panes and a run ask whether the faces' piece is open (the smallest fix, not the store-level read, which is plan 2's).

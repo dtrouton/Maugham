@@ -129,10 +129,6 @@ extension Notification.Name {
     /// move-to-iCloud explanation when the folder isn't in iCloud Drive.
     public static let maughamShareForReview = Notification.Name("maugham.shareForReview")
     public static let maughamToggleInspector = Notification.Name("maugham.toggleInspector")
-    /// Posted by View ▸ Lock Research and Figures (⌘⌥⇧L): the key window's
-    /// Lock (`WindowLock`) flips, as its toolbar padlock does. Scope:
-    /// .keyWindow — a command, not a data event.
-    public static let maughamToggleLock = Notification.Name("maugham.toggleLock")
     /// Posted by View ▸ View as … (⌃⌘1/2/3): the key window's centre shows
     /// the chosen view (`CentreViewSwitch`), as its toolbar switch does.
     /// Payload: `MaughamEvent.centreViewKey`. Scope: .keyWindow.

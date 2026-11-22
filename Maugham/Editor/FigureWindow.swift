@@ -354,19 +354,26 @@ final class FigureWindows {
         yieldInPlace(figureId)
     }
 
-    /// **Whether a figure's piece is in read-through** — injected by
-    /// `ProjectSession`, which holds the store and the figures; a figure
-    /// window's gate asks it each time (its frame's `isInReadThrough`). A
-    /// book-wide figure belongs to no piece and is never refused.
-    let isInReadThrough: @MainActor (_ figureId: String) -> Bool
+    /// **The project's read-through gate**, as a project window last built
+    /// it (`ReadThroughModifier.gate`): a figure window's gate, and an
+    /// editor's grid in place, ask it (`isInReadThrough`). Observed, so an
+    /// editor's expanded grid asks its gate again when it moves
+    /// (`EditorCoordinator.observeFigureWindows`).
+    private(set) var readThrough: ReadThroughGate = .writing
 
-    init(isInReadThrough: @escaping @MainActor (_ figureId: String) -> Bool) {
-        self.isInReadThrough = isInReadThrough
+    init() {}
+
+    /// **Whether a figure refuses edits because one of its pieces is in
+    /// read-through** — the gate's one rule (`ReadThroughGate.refusesEdits`).
+    func isInReadThrough(_ figureId: String) -> Bool {
+        readThrough.refusesEdits(.figure(figureId))
     }
 
-    /// **A piece entered or left read-through** (`ReadThroughStore
-    /// .addChangeObserver`): every figure window asks its gate again.
-    func readThroughChanged() {
+    /// **The window built a new gate** (a Start, a Resume, a figure line
+    /// moved): every figure window asks its gate again. Self-guarded.
+    func setReadThrough(_ gate: ReadThroughGate) {
+        guard gate != readThrough else { return }
+        readThrough = gate
         for listening in listeners.values { listening.access() }
     }
 
@@ -499,7 +506,7 @@ private final class ResumeOnce {
 ///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
 ///   Read-through is the figure's piece's (`FigureWindows.isInReadThrough`):
 ///   the grid is read-only while that piece is in read-through, its notes
-///   still answered, and follows each Start and Resume (`readThroughChanged`).
+///   still answered, and follows each Start and Resume (`setReadThrough`).
 /// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
 ///   nothing. Send to Research closes it first (R7d-7).
 /// - **Closing ends the visit** (`finish`, from the window's `willClose`):
@@ -525,9 +532,6 @@ final class FigureWindowGrid {
         /// Whether the figure's piece is in read-through.
         var isInReadThrough: @MainActor () -> Bool
         var shareIsReadOnly: @MainActor () -> Bool
-        /// The window's Lock (`WindowLock`): the centre's grid asks its
-        /// window's; a figure window has none.
-        var isLocked: @MainActor () -> Bool = { false }
         /// The grid takes the keys when it mounts (a window); the centre
         /// leaves them where the writer has them (the tree).
         var takesTheKeysAtMount = true
@@ -784,7 +788,6 @@ final class FigureWindowGrid {
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
-            isLocked: frame?.isLocked() ?? false,
             isInReadThrough: frame?.isInReadThrough() ?? false,
             isReadingTranslation: false)
         // `.noExpand` is a translation's alone, which no frame here is.

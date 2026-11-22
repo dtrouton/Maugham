@@ -51,20 +51,6 @@ final class ReadThroughStore {
         Set(pieces.keys.filter { checkpoints[$0] == nil && !capturing.contains($0) })
     }
 
-    /// **Who hears each change of the set** (`begin`, `end`, `prune`): the
-    /// session's figure windows, which ask their gates again. A list, so a
-    /// second subscriber never silently replaces the first.
-    @ObservationIgnored private var changeObservers: [@MainActor () -> Void] = []
-
-    /// Adds `observer` to those told after each change of the set.
-    func addChangeObserver(_ observer: @escaping @MainActor () -> Void) {
-        changeObservers.append(observer)
-    }
-
-    private func changed() {
-        for observer in changeObservers { observer() }
-    }
-
     @ObservationIgnored private let projectRoot: URL
     @ObservationIgnored private let device: DeviceSlug
 
@@ -90,7 +76,6 @@ final class ReadThroughStore {
         pieces[pieceId] = at
         pieceIds.insert(pieceId)
         persist()
-        changed()
     }
 
     /// Takes `pieceId` out of read-through. A piece not in it writes nothing.
@@ -99,7 +84,6 @@ final class ReadThroughStore {
         pieceIds.remove(pieceId)
         checkpoints.removeValue(forKey: pieceId)
         persist()
-        changed()
     }
 
     /// Records the checkpoint `pieceId`'s read-through took. Nothing for a
@@ -131,7 +115,6 @@ final class ReadThroughStore {
             checkpoints.removeValue(forKey: id)
         }
         persist()
-        changed()
     }
 
     // MARK: - The file

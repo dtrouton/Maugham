@@ -105,12 +105,16 @@ final class ReadThroughFigureUndoTests: XCTestCase {
         let action = Selector(("undo:"))
         var responder: NSResponder? = m.window.firstResponder
         while let current = responder, !current.responds(to: action) { responder = current.nextResponder }
-        if let target = responder {
-            let item = NSMenuItem(title: "Undo", action: action, keyEquivalent: "z")
-            let enabled = (target as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item)
-                ?? (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
-            XCTAssertFalse(enabled, "Edit ▸ Undo is off at \(target)", file: file, line: line)
+        // A chain no responder answers would validate nothing: that is a
+        // failure of the premise, never a silent pass.
+        guard let target = responder else {
+            XCTFail("no responder in the chain answers undo:", file: file, line: line)
+            return
         }
+        let item = NSMenuItem(title: "Undo", action: action, keyEquivalent: "z")
+        let enabled = (target as? NSUserInterfaceValidations)?.validateUserInterfaceItem(item)
+            ?? (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+        XCTAssertFalse(enabled, "Edit ▸ Undo is off at \(target)", file: file, line: line)
         XCTAssertEqual(m.textView.string, text, file: file, line: line)
         XCTAssertEqual(figureIds(store), figures, "the figure stays in the book", file: file, line: line)
     }

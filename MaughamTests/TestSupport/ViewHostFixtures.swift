@@ -41,7 +41,7 @@ enum PulledUpFixture {
         figureListing: FigureListingModel? = nil,
         figureGridPresence: FigureGridPresence? = nil,
         figureWindows: FigureWindows? = nil, window: NSWindow? = nil,
-        isLocked: Bool = false,
+        readThrough: ReadThroughGate = .writing,
         figureTree: BinderTreeSectionsState,
         bible: BibleStore? = nil, world: DeclaredWorldStore? = nil,
         onOpenInCentre: @escaping (CentreItem) -> Void,
@@ -57,7 +57,7 @@ enum PulledUpFixture {
             figureListing: figureListing ?? FigureListingModel(),
             figureGridPresence: figureGridPresence ?? FigureGridPresence(),
             figureWindows: figureWindows,
-            window: window, isLocked: isLocked, figureTree: figureTree,
+            window: window, readThrough: readThrough, figureTree: figureTree,
             bible: bible, world: world,
             onOpenInCentre: onOpenInCentre,
             paletteWallCard: paletteWallCard,
@@ -212,5 +212,26 @@ enum CentreTopLinesFixture {
             intentLine: intentLine, intentMayTrailDraft: intentMayTrailDraft,
             standingLine: standingLine, documentStore: documentStore,
             shareIsReadOnly: shareIsReadOnly))
+    }
+}
+
+/// `ResearchSubjectCentre` as `CentreColumn`'s `.research` arm builds it:
+/// `readOnly` is the window's gate asked of THIS item
+/// (`ReadThroughGate.refusesEdits(.research(id))`), the share, typography and
+/// presence off the window's control plane.
+@MainActor
+enum ResearchCentreFixture {
+    static func centre(
+        store: ProjectStore, documentStore: DocumentStore, itemID: String,
+        readThrough: ReadThroughGate, editorControl: EditorControl? = nil,
+        presence: FigureGridPresence? = nil, window: NSWindow? = nil
+    ) -> ResearchSubjectCentre {
+        let control = editorControl ?? EditorControl()
+        return ResearchSubjectCentre(store: store, documentStore: documentStore,
+                                     itemID: itemID, previewVisible: false,
+                                     readOnly: readThrough.refusesEdits(.research(itemID)),
+                                     shareIsReadOnly: control.shareIsReadOnly,
+                                     typography: control.typography,
+                                     presence: presence ?? FigureGridPresence(), window: window)
     }
 }

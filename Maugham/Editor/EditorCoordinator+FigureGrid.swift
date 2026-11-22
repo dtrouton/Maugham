@@ -621,6 +621,7 @@ extension EditorCoordinator {
         withObservationTracking {
             _ = windows.openFigureIds
             _ = windows.inPlaceHolds
+            _ = windows.readThrough
         } onChange: { [weak self] in
             // The list is the main actor's: its change is announced there.
             MainActor.assumeIsolated {
@@ -674,7 +675,10 @@ extension EditorCoordinator {
         figureThumbnailOverlay?.needsDisplay = true
         if let expansion = figureGrid, figureGridOpening?.windows?.isOpen(expansion.figureId) == true {
             forceFoldFigureGrid(.navigation)
+            return
         }
+        // The read-through gate may have moved (another piece of the figure's).
+        refreshFigureGridAccess()
     }
 
     // MARK: Folding
@@ -806,7 +810,7 @@ extension EditorCoordinator {
             if recorded, cause.collapsesTheVisit, host.visitHasRecorded || controller.writesInFlight > 0,
                let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
                 lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
-                if let step = lastFigureVisitStep { figureVisitSteps.append(step) }
+                if let step = lastFigureVisitStep { noteFigureVisitStep(step) }
             }
         }
         // The figure is free for another grid, which begins its visit once
@@ -928,13 +932,17 @@ extension EditorCoordinator {
     /// drawing posture from the window's door, the share, the editor's modes.
     /// Never the review forced where the text is refused (R7c-6: a Mac that
     /// may change the figure but not the text around it gets an editable
-    /// grid, its caption locked); the piece's read-through, which the writer
-    /// chose, refuses typing into it.
+    /// grid, its caption locked). Read-through, which the writer chose,
+    /// refuses typing into it by the one rule a figure window and the centre
+    /// ask (`FigureWindows.isInReadThrough`: any of the figure's pieces), and
+    /// by this buffer's own piece at once — the line is in it, so the rule
+    /// would say the same once the window's gate catches up.
     func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
         FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isInReadThrough: isInReadThrough,
+            isInReadThrough: isInReadThrough
+                || (figureGridOpening?.windows?.isInReadThrough(figureId) ?? false),
             isReadingTranslation: isReadingTranslation)
     }
 

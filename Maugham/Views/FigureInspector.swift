@@ -316,8 +316,9 @@ struct FigureInspector: View {
     /// figure revision instead).
     let figureTree: BinderTreeSectionsState?
     let control: EditorControl
-    /// The window's Lock (`WindowLock`), asked beside the share.
-    let isLocked: Bool
+    /// The window's read-through gate, asked of this figure beside the share
+    /// (`FigureActions.refusesWrites(to:)`).
+    let readThrough: ReadThroughGate
     /// The project window, whose annotation changes reload the notes.
     let window: NSWindow?
     /// The window's subject-picker, for a Used-in link that can only select its piece.
@@ -333,7 +334,7 @@ struct FigureInspector: View {
 
     init(figureId: String, store: ProjectStore, documentStore: DocumentStore, listing: FigureListingModel,
          figureWindows: FigureWindows?, figureTree: BinderTreeSectionsState? = nil,
-         control: EditorControl, isLocked: Bool, window: NSWindow?,
+         control: EditorControl, readThrough: ReadThroughGate, window: NSWindow?,
          select: @escaping (BinderSubject) -> Void, showNotes: @escaping (String) -> Void) {
         self.figureId = figureId
         self.store = store
@@ -342,7 +343,7 @@ struct FigureInspector: View {
         self.figureWindows = figureWindows
         self.figureTree = figureTree
         self.control = control
-        self.isLocked = isLocked
+        self.readThrough = readThrough
         self.window = window
         self.select = select
         self.showNotes = showNotes
@@ -351,14 +352,17 @@ struct FigureInspector: View {
 
     /// The one helper (`FigureActions`), as the inspector hands it what it knows.
     static func actions(store: ProjectStore, figureWindows: FigureWindows?, control: EditorControl,
-                        isLocked: Bool, model: FigureInspectorModel, window: NSWindow? = nil) -> FigureActions {
+                        readThrough: ReadThroughGate, model: FigureInspectorModel,
+                        window: NSWindow?) -> FigureActions {
         FigureActions(store: store, figureWindows: figureWindows, typography: control.typography,
-                      windowRefusesWrites: { FigureActions.windowRefusesWrites(control: control, isLocked: isLocked) },
+                      windowRefusesWrites: { control.shareIsReadOnly },
+                      readThrough: { readThrough },
                       report: { [weak model] in model?.message = $0 }, window: window)
     }
 
     private var actions: FigureActions {
-        Self.actions(store: store, figureWindows: figureWindows, control: control, isLocked: isLocked, model: model,
+        Self.actions(store: store, figureWindows: figureWindows, control: control, readThrough: readThrough,
+                     model: model,
                      window: window)
     }
     private var record: FigureRecord? { store.manifest.figures?.first { $0.id == figureId } }

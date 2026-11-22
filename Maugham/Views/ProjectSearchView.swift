@@ -296,7 +296,12 @@ struct ProjectSearchView: View {
         return ReplaceGate(
             store.currentSearch,
             posture: { documentStore?.posture(forPath: $0) },
-            inReadThrough: { store.pieceInReadThrough(atPath: $0) != nil })
+            inReadThrough: { path, source in
+                switch source {
+                case .manuscript: return store.pieceInReadThrough(atPath: path) != nil
+                case .research: return store.researchIsInReadThrough(atPath: path)
+                }
+            })
     }
 
     /// Why a match in a piece in read-through offers no Replace.
@@ -311,19 +316,26 @@ struct ProjectSearchView: View {
     /// hers. No door behind the host (`posture` answering nil) fails CLOSED.
     struct ReplaceGate {
         private let manuscriptPaths: [String: Bool]
-        /// The manuscript paths whose piece is in read-through on this Mac:
-        /// left as they were, and said so before the press.
+        /// The paths whose piece is in read-through on this Mac — a piece, or
+        /// a note in its own folder: left as they were, and said so before
+        /// the press.
         private let readThroughPaths: Set<String>
 
+        /// `inReadThrough` is asked once per document, manuscript or research
+        /// (a note in a piece's own folder follows the piece).
         init(_ results: SearchResults?, posture: (String) -> Posture?,
-             inReadThrough: (String) -> Bool = { _ in false }) {
+             inReadThrough: (_ path: String, _ source: SearchDocumentSource) -> Bool) {
             var answers: [String: Bool] = [:]
             var reading: Set<String> = []
-            for match in results?.matches ?? []
-            where match.documentSource == .manuscript && answers[match.documentPath] == nil {
-                answers[match.documentPath] = ProjectSearchView.mayReplace(
-                    match, posture: posture(match.documentPath))
-                if inReadThrough(match.documentPath) { reading.insert(match.documentPath) }
+            var asked: Set<String> = []
+            for match in results?.matches ?? [] where asked.insert(match.documentPath).inserted {
+                if match.documentSource == .manuscript {
+                    answers[match.documentPath] = ProjectSearchView.mayReplace(
+                        match, posture: posture(match.documentPath))
+                }
+                if inReadThrough(match.documentPath, match.documentSource) {
+                    reading.insert(match.documentPath)
+                }
             }
             manuscriptPaths = answers
             readThroughPaths = reading
@@ -337,7 +349,7 @@ struct ProjectSearchView: View {
                 && (manuscriptPaths[match.documentPath] ?? (match.documentSource == .research))
         }
 
-        /// The match is in a manuscript piece in read-through.
+        /// The match is in a piece in read-through, or in its folder.
         func isInReadThrough(_ match: SearchMatch) -> Bool {
             readThroughPaths.contains(match.documentPath)
         }
@@ -361,7 +373,7 @@ struct ProjectSearchView: View {
 
     static func replaceability(
         _ results: SearchResults, mayReplace: (SearchMatch) -> Bool,
-        inReadThrough: (SearchMatch) -> Bool = { _ in false }
+        inReadThrough: (SearchMatch) -> Bool
     ) -> Replaceability {
         var replaceable = 0
         var leftAlone: [String] = []

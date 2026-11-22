@@ -83,24 +83,35 @@ enum ReadThroughTarget: Equatable {
 }
 
 /// **Whether a target refuses edits because its piece is in read-through** —
-/// the value every non-editor surface asks. A piece owns itself; a research
+/// the value every non-editor surface asks, built once per change by the
+/// window (`ReadThroughModifier.gate`) and handed to the session's figure
+/// windows (`FigureWindows.setReadThrough`). A piece owns itself; a research
 /// item belongs to the Collection piece whose folder holds it (nested items
-/// through their root, `ProjectStore.researchRootPath`); a figure follows its
-/// `FigureRecord.piece`. Shared research and a book-wide figure belong to no
-/// piece and are refused by nothing.
+/// through their root, `ProjectStore.researchRootPath`). Shared research and
+/// a book-wide figure no line places belong to no piece and are refused by
+/// nothing.
+///
+/// **A figure's pieces — the one rule, asked everywhere** (the centre's grid,
+/// a figure window, an editor's grid in place, the inspector, the tree's row,
+/// what is pulled up): the piece it was made in (`FigureRecord.piece`, the
+/// permit's owner) AND every piece whose text holds one of its lines
+/// (`FigureListing.Row.usedIn`). Read-through only adds refusals, so a figure
+/// whose line moved to another piece is refused while EITHER is in
+/// read-through — never editable in one surface and read-only in the next.
 struct ReadThroughGate: Equatable {
     let pieces: Set<String>
     private let researchOwners: [String: String]
-    private let figureOwners: [String: String]
+    private let figureOwners: [String: Set<String>]
 
     /// The empty gate: refuses nothing.
     static let writing = ReadThroughGate(
-        pieces: [], structure: [], research: [], figures: [])
+        pieces: [], structure: [], research: [], figures: [], figureLines: [])
 
     /// Builds the owner maps only when some piece is in read-through — the
-    /// common case asks nothing of the structure.
+    /// common case asks nothing of the structure. `figureLines` is the
+    /// window's figure listing (`FigureListingModel.rows`).
     init(pieces: Set<String>, structure: [StructureItem], research: [ResearchItem],
-         figures: [FigureRecord]) {
+         figures: [FigureRecord], figureLines: [FigureListing.Row]) {
         self.pieces = pieces
         guard !pieces.isEmpty else {
             researchOwners = [:]
@@ -121,24 +132,29 @@ struct ReadThroughGate: Equatable {
             mark(root)
         }
         researchOwners = research_
-        var figures_: [String: String] = [:]
+        var figures_: [String: Set<String>] = [:]
         for figure in figures {
-            if let piece = figure.piece { figures_[figure.id] = piece }
+            if let piece = figure.piece { figures_[figure.id, default: []].insert(piece) }
+        }
+        for row in figureLines {
+            for use in row.usedIn { figures_[row.figureId, default: []].insert(use.docId) }
         }
         figureOwners = figures_
     }
 
-    /// The piece a target belongs to, or nil for one that belongs to none.
-    func owner(of target: ReadThroughTarget) -> String? {
+    /// The pieces a target belongs to; empty for one that belongs to none.
+    func owners(of target: ReadThroughTarget) -> Set<String> {
         switch target {
-        case .piece(let id): return id
-        case .research(let id): return researchOwners[id]
-        case .figure(let id): return figureOwners[id]
+        case .piece(let id): return [id]
+        case .research(let id): return researchOwners[id].map { [$0] } ?? []
+        case .figure(let id): return figureOwners[id] ?? []
         }
     }
 
+    /// **The one answer**: true while any piece the target belongs to is in
+    /// read-through.
     func refusesEdits(_ target: ReadThroughTarget) -> Bool {
-        ReadThrough.isOn(owner(of: target), in: pieces)
+        owners(of: target).contains { ReadThrough.isOn($0, in: pieces) }
     }
 }
 

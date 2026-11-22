@@ -35,7 +35,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
     /// line brings that window front instead of expanding; once the window
     /// closes, the card is a card again and expands.
     func test_aFigureInAWindow_saysSo_andItsCardFocusesTheWindow() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let m = try await mount(windows: windows)
         let figureId = try XCTUnwrap(m.figure?.id)
         let line = location(m, "![Cash](")
@@ -76,7 +76,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
     /// visit collapsed into one step as Done's would be — then what only this
     /// editor knows is handed over and the window is asked for.
     func test_openInWindowFoldsFirst_collapsesTheVisit_andAsksForTheWindow() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         var asked: [String] = []
         let m = try await mount(windows: windows, openWindow: { asked.append($0) })
         let figureId = try XCTUnwrap(m.figure?.id)
@@ -104,7 +104,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
     /// no window opens; with no figure windows to open, ⤢ is not offered.
     func test_openInWindowStopsOnAnUnreadableEdit_andIsHiddenWithoutWindows() async throws {
         var asked: [String] = []
-        let m = try await mount(windows: FigureWindows(isInReadThrough: { _ in false }), openWindow: { asked.append($0) })
+        let m = try await mount(windows: FigureWindows(), openWindow: { asked.append($0) })
         let c = try await expanded(m)
         c.handle(.click(cell(c, 1, 1), extend: false))
         c.handle(.type("="))
@@ -122,7 +122,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
     /// A window opened on the figure from elsewhere (another project window)
     /// while it is expanded here folds this grid: never two grids on one host.
     func test_aWindowOpenedElsewhereFoldsTheInPlaceGrid() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         let m = try await mount(windows: windows)
         _ = try await expanded(m)
         _ = windows.opened(try XCTUnwrap(m.figure?.id), close: {})
@@ -175,7 +175,7 @@ final class FigureCardWindowTests: FigureGridMountedTestCase {
     /// version each open figure's "Table N" and caption from the whole book
     /// when the editor does not show the figure's line itself.
     func test_theEditorTellsTheWindowsTheShareAndTheLine() async throws {
-        let windows = FigureWindows(isInReadThrough: { _ in false })
+        let windows = FigureWindows()
         // The figure's line is in no text this editor shows: the index tells it.
         let m = try await mount("Intro.\n\nThe end.", windows: windows)
         let figureId = try XCTUnwrap(m.figure?.id)

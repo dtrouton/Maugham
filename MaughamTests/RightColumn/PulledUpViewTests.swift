@@ -6,9 +6,10 @@ import MaughamCore
 @testable import Maugham
 
 /// **The pulled-up view** (shell plan 3 Task 7): what it draws for each kind
-/// under Lock, a posture and "the centre's cover holds it", what Open in
+/// under read-through, a posture and "the centre's cover holds it", what Open in
 /// Centre does, and — mounted, as measurements only (tripwire 33) — that a
-/// pulled-up note is a second editor, that Lock reaches it, that a pulled-up
+/// pulled-up note is a second editor (read-through reaching it is
+/// `ReadThroughResearchSurfaceTests`), that a pulled-up
 /// statement and the centre's cover never both bind, and that it fits the
 /// column.
 @MainActor
@@ -40,7 +41,8 @@ final class PulledUpViewTests: XCTestCase {
 
     private let onAPiece = WindowSubject(open: .item("ch-1"), faces: .item("ch-1"))
 
-    private func face(_ pulled: PulledUp, isLocked: Bool = false, centreItem: CentreItem? = nil,
+    private func face(_ pulled: PulledUp, readThrough: ReadThroughGate = .writing,
+                      centreItem: CentreItem? = nil,
                       card: PulledUpView.CanvasCardRead? = nil,
                       open: BinderSubject? = nil, wallCard: String? = nil) -> PulledUpView.Face {
         var subject = open.map { WindowSubject(open: $0, faces: $0) } ?? onAPiece
@@ -48,22 +50,25 @@ final class PulledUpViewTests: XCTestCase {
         return PulledUpView.face(
             of: pulled,
             centre: .init(subject: subject, centreItem: centreItem, paletteWallCard: wallCard),
-            isLocked: isLocked, card: card)
+            readThrough: readThrough, card: card)
     }
 
     // MARK: - What each kind draws (pure)
 
-    func test_aPulledUpPaletteCardFollowsLock() {
-        // A palette card is a research item: the inspector's preview asks
-        // `PaletteCardSurface` with the pulled-up thing's own Lock answer.
-        XCTAssertEqual(face(.research("card-1"), isLocked: true),
-                       .research(id: "card-1", readOnly: true, preview: true))
-        XCTAssertEqual(PaletteCardSurface.of(readOnly: PulledUp.research("card-1").refusesEdits(isLocked: true)),
-                       .read, "locked: the read host, never the editor")
-        XCTAssertEqual(face(.research("card-1"), isLocked: false),
-                       .research(id: "card-1", readOnly: false, preview: true))
-        XCTAssertEqual(PaletteCardSurface.of(readOnly: PulledUp.research("card-1").refusesEdits(isLocked: false)),
-                       .edit, "control: unlocked, the card edits beside")
+    func test_aPulledUpResearchItemFollowsItsPiecesReadThrough() {
+        // A research item asks `PaletteCardSurface`/the note editor with the
+        // pulled-up thing's own read-through answer.
+        let note = ReadThroughGateFixture.nestedNote
+        let reading = ReadThroughGateFixture.gate(pieces: [ReadThroughGateFixture.pieceA])
+        XCTAssertEqual(face(.research(note), readThrough: reading),
+                       .research(id: note, readOnly: true, preview: true))
+        XCTAssertEqual(PaletteCardSurface.of(readOnly: PulledUp.research(note).refusesEdits(readThrough: reading)),
+                       .read, "in read-through: the read host, never the editor")
+        XCTAssertEqual(face(.research(note)),
+                       .research(id: note, readOnly: false, preview: true))
+        XCTAssertEqual(face(.research(ReadThroughGateFixture.sharedNote), readThrough: reading),
+                       .research(id: ReadThroughGateFixture.sharedNote, readOnly: false, preview: true),
+                       "control: shared research edits beside while a piece reads")
         // The arm asks exactly the route the centre's card asks.
         let code = try? SourceTree.read("Maugham/Views/PulledUpView.swift")
         XCTAssertTrue(code?.contains("ResearchSubjectInspector(") == true)
@@ -142,8 +147,9 @@ final class PulledUpViewTests: XCTestCase {
             XCTAssertEqual(face(pulled), .statement(kind), "control: nothing in the centre, its own host")
             XCTAssertEqual(face(pulled, centreItem: .statement(kind: .intent, scope: .project)),
                            .statement(kind), "another statement in the centre is not this one")
-            XCTAssertEqual(face(pulled, isLocked: true), .statement(kind),
-                           "Lock is not a statement's; its posture is, inside StatementPane")
+            XCTAssertEqual(face(pulled, readThrough: ReadThroughGateFixture.gate(
+                               pieces: [ReadThroughGateFixture.pieceA])), .statement(kind),
+                           "read-through is not a statement's; its posture is, inside StatementPane")
         }
     }
 
@@ -462,32 +468,12 @@ final class PulledUpViewTests: XCTestCase {
     func test_aPulledUpNoteIsASecondEditor() async throws {
         let f = try await fixture("PulledUpNote")
         let note = try await f.store.addResearchTextNote(parentId: nil, title: "Tides")
-        let window = f.hostView(view(f, pulled: .research(note.id), isLocked: false), width: 360)
+        let window = f.hostView(view(f, pulled: .research(note.id)), width: 360)
         await pumpUntil(deadline: 5) { f.firstTextView(in: window) != nil }
         let editor = try XCTUnwrap(f.firstTextView(in: window), "the note's editor mounted beside")
         XCTAssertTrue(editor.usesPrivateUndoManager,
                       "a second editor in its window: its own undo stack, none of the window's commands")
         XCTAssertEqual(f.allTextViews(in: window).count, 1)
-    }
-
-    func test_aPulledUpNoteIsReadOnlyUnderLock() async throws {
-        let f = try await fixture("PulledUpNoteLocked")
-        let note = try await f.store.addResearchTextNote(parentId: nil, title: "Tides")
-        let locked = f.hostView(view(f, pulled: .research(note.id), isLocked: true), width: 360)
-        await pumpUntil(deadline: 5) { f.firstTextView(in: locked) != nil }
-        let lockedEditor = try XCTUnwrap(f.firstTextView(in: locked))
-        await waitOut(0.2)
-        XCTAssertFalse(lockedEditor.shouldChangeText(in: NSRange(location: 0, length: 0),
-                                                     replacementString: "x"),
-                       "Lock reaches the note pulled up, as it does in the centre")
-
-        let open = f.hostView(view(f, pulled: .research(note.id), isLocked: false), width: 360)
-        await pumpUntil(deadline: 5) { f.firstTextView(in: open) != nil }
-        let openEditor = try XCTUnwrap(f.firstTextView(in: open))
-        await waitOut(0.2)
-        XCTAssertTrue(openEditor.shouldChangeText(in: NSRange(location: 0, length: 0),
-                                                  replacementString: "x"),
-                      "control: unlocked, the note takes typing")
     }
 
     /// **One statement, one host** (Review Focus 3): What I've Learned pulled
@@ -504,7 +490,7 @@ final class PulledUpViewTests: XCTestCase {
             CentreItemCover(store: f.store, documentStore: f.documentStore, item: lessons,
                             bible: nil, world: nil, window: nil, findIsUp: false, onClose: {})
                 .frame(width: 400)
-            view(f, pulled: .lessons, isLocked: false, centreItem: lessons)
+            view(f, pulled: .lessons, centreItem: lessons)
                 .frame(width: 300)
         }), width: 700)
         await pumpUntil(deadline: 5) { f.store.openStatementDocument(id: statement.id) != nil }
@@ -518,7 +504,7 @@ final class PulledUpViewTests: XCTestCase {
         // Control: with nothing in the centre, the pulled-up view is the host.
         let g = try await fixture("PulledUpLessonsAlone")
         let alone = try await g.store.createStatement(kind: .lessons, scope: .project)
-        let solo = g.hostView(view(g, pulled: .lessons, isLocked: false), width: 320)
+        let solo = g.hostView(view(g, pulled: .lessons), width: 320)
         await pumpUntil(deadline: 5) { g.store.openStatementDocument(id: alone.id) != nil }
         await pumpUntil(deadline: 5) { g.firstTextView(in: solo) != nil }
         XCTAssertEqual(g.allTextViews(in: solo).count, 1, "control: the pulled-up statement edits")
@@ -546,8 +532,7 @@ final class PulledUpViewTests: XCTestCase {
         let f = try await fixture("PulledUpWidth")
         for width: CGFloat in [240, 480] {
             let pane = width - RightColumn.resizeHandleWidth
-            let hosted = NSHostingController(rootView: view(f, pulled: .canvasScrap(nodeId: "gone"),
-                                                            isLocked: true))
+            let hosted = NSHostingController(rootView: view(f, pulled: .canvasScrap(nodeId: "gone")))
             let size = hosted.sizeThatFits(in: CGSize(width: pane, height: 700))
             XCTAssertLessThanOrEqual(size.width, pane + 0.5, "the pulled-up view fits a \(width)pt column")
         }
@@ -613,14 +598,14 @@ final class PulledUpViewTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func view(_ f: StatementMountFixture, pulled: PulledUp, isLocked: Bool,
+    private func view(_ f: StatementMountFixture, pulled: PulledUp,
                       centreItem: CentreItem? = nil) -> AnyView {
         var subject = onAPiece
         subject.beside = pulled
         return AnyView(PulledUpFixture.view(
             store: f.store, documentStore: f.documentStore,
             subject: .constant(subject), centreItem: centreItem,
-            isLocked: isLocked, figureTree: BinderTreeSectionsState(),
+            figureTree: BinderTreeSectionsState(),
             onOpenInCentre: { _ in }, memory: PulledUpMemory(), onShowNotes: { _ in },
             canvasDetails: PulledUpFixture.markerDetails)
             .environment(f.preferences))

@@ -115,8 +115,10 @@ enum ReadThroughVerbs {
 /// **The window's read-through receiver**: `.maughamSetReadThrough` from every
 /// route, and the prune that drops a piece that left the structure (deleted,
 /// trashed, promoted) while keeping a renamed or moved one. It also publishes
-/// the open piece's offer to the menu bar (`FocusedValues.readThroughOffer`)
-/// and writes the tree's lock marks (`BinderTreeSectionsState.readThrough`).
+/// the open piece's offer to the menu bar (`FocusedValues.readThroughOffer`),
+/// writes the tree's lock marks (`BinderTreeSectionsState.readThrough`), and
+/// builds the window's `ReadThroughGate` — once per change of the set, the
+/// book or the figure listing — handing it to the session's figure windows.
 /// Kept out of `ProjectWindow.body` for the type-check ceiling.
 struct ReadThroughModifier: ViewModifier {
     /// **What the window knows about read-through and its open piece**,
@@ -155,6 +157,12 @@ struct ReadThroughModifier: ViewModifier {
     let facts: Facts
     /// The tree the lock marks are written to.
     let treeState: BinderTreeSectionsState?
+    /// The window's figure listing: which pieces hold each figure's lines.
+    let figureRows: [FigureListing.Row]
+    /// The session's figure windows, handed each new gate.
+    let figureWindows: FigureWindows?
+    /// The window's gate, written here only.
+    @Binding var gate: ReadThroughGate
     let onSaveFlash: () -> Void
     @Environment(BackupCoordinator.self) private var backupCoordinator
 
@@ -170,9 +178,42 @@ struct ReadThroughModifier: ViewModifier {
             pieces: facts.pieces, lackingCheckpoint: facts.lackingCheckpoint)
     }
 
+    /// What the gate is built from; equal inputs build an equal gate.
+    struct GateInputs: Equatable {
+        let pieces: Set<String>
+        let structure: [StructureItem]
+        let research: [ResearchItem]
+        let figures: [FigureRecord]
+        let figureRows: [FigureListing.Row]
+    }
+
+    /// **The window's gate** from its inputs: `.writing` while no piece is in
+    /// read-through, so the common case compares nothing else.
+    static func gate(_ inputs: GateInputs) -> ReadThroughGate {
+        guard !inputs.pieces.isEmpty else { return .writing }
+        return ReadThroughGate(pieces: inputs.pieces, structure: inputs.structure,
+                               research: inputs.research, figures: inputs.figures,
+                               figureLines: inputs.figureRows)
+    }
+
+    private var gateInputs: GateInputs {
+        // The book is read only while some piece is in read-through.
+        guard !facts.pieces.isEmpty, let manifest = store?.manifest else {
+            return GateInputs(pieces: facts.pieces, structure: [], research: [], figures: [], figureRows: [])
+        }
+        return GateInputs(pieces: facts.pieces, structure: manifest.structure,
+                          research: manifest.research, figures: manifest.figures ?? [],
+                          figureRows: figureRows)
+    }
+
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.readThroughOffer, Self.offer(facts))
+            .onChange(of: gateInputs, initial: true) { _, inputs in
+                let next = Self.gate(inputs)
+                if gate != next { gate = next }
+                figureWindows?.setReadThrough(next)
+            }
             .onKeyWindowCommand(.maughamSetReadThrough, window: window) { note in
                 guard let request = ReadThrough.request(of: note.userInfo),
                       let readThrough, let documentStore else { return }

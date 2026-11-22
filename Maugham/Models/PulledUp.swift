@@ -113,7 +113,7 @@ public enum PulledUp: Hashable, Codable, Sendable {
 
     /// **Whether it is edited where it is pulled up** — the one answer
     /// (owner, 2026-11-16 / 2026-11-18). A research note, a palette card, a
-    /// table and a figure are edited beside, under Lock as in the centre. A
+    /// table and a figure are edited beside, under read-through as in the centre. A
     /// canvas card is READ-ONLY beside, with Open in Centre: its words live in
     /// the canvas's shared text storage, and a second editor on them is the
     /// tripwires 26–28 risk (open question 4: either answer is this one line);
@@ -127,11 +127,16 @@ public enum PulledUp: Hashable, Codable, Sendable {
         }
     }
 
-    /// Whether the window's Lock covers it — exactly the items it covers in
-    /// the centre (`WindowLock`: research, a palette card, a table, a figure).
-    var lockApplies: Bool {
+    /// **May this be edited beside?** Its kind (`isEditableBeside`), then
+    /// read-through, asked beside the posture and never in its place: a
+    /// research item or a figure whose piece is in read-through reads
+    /// (`ReadThroughGate`); every other kind is no piece's. A statement's
+    /// posture is asked of `statement` through `StatementEditorHost.postureDocId`.
+    func refusesEdits(readThrough: ReadThroughGate) -> Bool {
+        guard isEditableBeside else { return true }
         switch self {
-        case .research, .figure: return true
+        case .research(let id): return readThrough.refusesEdits(.research(id))
+        case .figure(let id): return readThrough.refusesEdits(.figure(id))
         case .canvasScrap, .canvasPhoto, .canvasRegion, .lessons, .firstReader, .visualLanguage,
              .history:
             return false

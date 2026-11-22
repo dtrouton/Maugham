@@ -9,14 +9,16 @@ struct InspectorResearchPanel: View {
     /// in, and its cached answer to which items bring a figure back. Nil
     /// offers no verb toward Figures.
     var figureTree: BinderTreeSectionsState? = nil
-    /// The window refuses figure writes (`FigureActions.windowRefusesWrites`).
+    /// The window refuses figure writes (a view-only share): no verb toward
+    /// Figures. Read-through never refuses making a figure.
     var figureWritesRefused: Bool = false
-    /// The window's store, share lock and Lock, for a Research table's
-    /// version list (nil store shows no list; a view-only share or the
-    /// window's Lock lists it with Restore off).
+    /// The window's store and share lock, and whether the item's piece is in
+    /// read-through (`ReadThroughGate.refusesEdits(.research(id))`), for a
+    /// Research table's version list (nil store shows no list; a view-only
+    /// share or read-through lists it with Restore off).
     var documentStore: DocumentStore? = nil
     var shareIsReadOnly: Bool = false
-    var isLocked: Bool = false
+    let inReadThrough: Bool
 
     /// What the verb toward Figures last said (a refusal, the cells kept as
     /// text); cleared when the item changes or the verb flips.
@@ -85,7 +87,7 @@ struct InspectorResearchPanel: View {
                                             kind: versionsKind,
                                             noun: ResearchVersionsModel.noun(for: item, structure: store.manifest.structure,
                                                                              research: store.manifest.research),
-                                            isLocked: isLocked)
+                                            inReadThrough: inReadThrough)
                         .id(item.id)
                 }
                 if item.type != .group {
