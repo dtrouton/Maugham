@@ -308,6 +308,13 @@ deleted piece falls back to whole-book); the reveal routes over a closed fold; d
 
 ---
 
+**Added by the owner, 2026-11-22 ("Yes right click is a good idea"):** a writer can comment on
+their own text without entering read-through. The text's right-click menu on a selection gains
+"Comment…" (and "Suggest…" where the posture offers it), and Edit gains the same item with a key
+chosen in this task's key pass (every key once). It opens the same composer the read-through
+selection toolbar opens; the floating toolbar itself stays read-through's. Offered by `Posture`,
+never by read-through; pinned through the real menu builder, with the menu table gaining its row.
+
 ### Task 8: The guide (merge gate)
 
 **Seat.** Before: Help ▸ Maugham Help opens a guide whose first pages teach four personas and ⌘1–4, an Inspector, a Department desk (35 mentions on 8 pages), a translation review pane (9 on 4), and an index that titles page 5 "Inspector, Research & Outline". After: the guide teaches the window that ships, in the order a writer meets it.
