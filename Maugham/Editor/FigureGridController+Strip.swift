@@ -33,7 +33,8 @@ extension FigureGridController {
         }
         stripPlan = FigureGridStrip.Plan.make(
             notes: cellNotes, active: active, table: values.table, names: names, locale: values.locale,
-            mayAccept: notesMayBeAnswered && mode.readOnlyReason == nil, mayReject: notesMayBeAnswered,
+            mayAccept: notesMayBeAnswered && FigureGridStrip.Plan.acceptWrites(under: mode.readOnlyReason),
+            mayReject: notesMayBeAnswered,
             readOnly: mode.readOnlyReason)
         stripPage = min(stripPage, max(0, stripPlan.entries.count - 1))
         showStrip()
@@ -152,11 +153,13 @@ extension FigureGridController {
     }
 
     /// **Whether the gate lets the strip answer** (fix round ruling I1): a
-    /// read-only grid answers nothing, with its reason — except the window's
-    /// review mode or Lock, where Got it and Reject (no cell moves) are the posture's
+    /// read-only grid answers nothing, with its reason — except read-through,
+    /// where every answer is a decision and passes, and the window's review
+    /// mode or Lock, where Got it and Reject (no cell moves) are the posture's
     /// to decide and only Accept (it writes the cell) is refused, saying so.
     private func mayAnswer(writesTheCell: Bool) -> Bool {
-        guard let reason = mode.readOnlyReason else { return true }
+        guard let reason = mode.readOnlyReason,
+              !FigureGridStrip.Plan.acceptWrites(under: reason) else { return true }
         if let refusal = FigureGridStrip.Plan.acceptRefusal(for: reason) {
             guard writesTheCell else { return true }
             bars.showReason(refusal)

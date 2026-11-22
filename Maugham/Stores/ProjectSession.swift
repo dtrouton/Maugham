@@ -86,6 +86,8 @@ final class ProjectSession {
         let bibleStore = BibleStore(projectRoot: url, device: device)
         let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
         let readThrough = ReadThroughStore(projectRoot: url, device: device)
+        // Replace and Replace All leave a piece in read-through as it was.
+        s.readThroughPieceIds = { [weak readThrough] in readThrough?.pieceIds ?? [] }
         return ProjectSession(url: url, projectStore: s, documentStore: ds,
                               bible: bibleStore, declaredWorld: worldStore,
                               readThrough: readThrough, roster: AgentRoster())

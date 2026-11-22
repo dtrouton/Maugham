@@ -632,6 +632,7 @@ struct ProjectWindow: View {
             posture: editorPosture,
             mayInsertReportElement: mayInsertReportElement,
             effectiveTypography: effectiveTypography,
+            readThroughPieces: session?.readThrough.pieceIds ?? [],
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
         .modifier(FigureWindowOpenModifier(projectURL: url, window: window))

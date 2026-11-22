@@ -30,6 +30,7 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         ".maughamToggleReviewMode": "flips the review membrane; writes no text",
         ".maughamReadInLanguage": "flips the translation membrane; writes no text",
         ".maughamReadInSource": "flips the translation membrane; writes no text",
+        ".maughamSetReadThrough": "flips the read-through membrane of its own document; writes no text",
     ]
 
     static let askingContexts = ["manuscriptCommandContext()", "insertCommandContext()"]

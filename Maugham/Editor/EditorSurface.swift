@@ -433,6 +433,7 @@ struct EditorSurface: NSViewRepresentable {
         // the refusal holds from the first frame too (fix I1) — and the fact
         // is set BEFORE `attach`, whose first parse must already know it
         // (fix 2, N2: no translated script, translation-only counts).
+        context.coordinator.readOnlyRecovery = configuration.readOnlyRecovery
         Self.mount(context.coordinator, on: textView,
                    servesTranslation: configuration.servesTranslatedSurface,
                    control: configuration.control)
@@ -471,14 +472,21 @@ struct EditorSurface: NSViewRepresentable {
         return scrollView
     }
 
-    /// **The mount's order** (fix 2, N2): the buffer's fact first, then
-    /// `attach`, whose first parse, metrics and caret restore read it.
+    /// **The mount's order** (fix 2, N2): the buffer's facts first — a
+    /// translation, and read-through of the document the coordinator holds
+    /// (asked of its own `documentId`), so a piece in read-through refuses
+    /// from its first frame — then `attach`, whose first parse, metrics and
+    /// caret restore read them.
     @MainActor
     static func mount(_ coordinator: EditorCoordinator, on textView: NSTextView,
                       servesTranslation: Bool, control: EditorControl) {
         if servesTranslation {
             coordinator.setBufferHoldsTranslation(true, in: textView, control: control)
         }
+        coordinator.setReadThrough(
+            ReadThrough.isOn(coordinator.documentId, in: control.readThroughDocIds), in: textView)
+        // A view made again on this coordinator takes the facts it already holds.
+        coordinator.refreshEditability(in: textView)
         coordinator.attach(to: textView)
     }
 
@@ -823,13 +831,12 @@ final class MaughamTextView: NSTextView {
     override func drawInsertionPoint(
         in rect: NSRect, color: NSColor, turnedOn flag: Bool
     ) {
-        // **A translation is read, not typed into** (shell p4 Task 8, fix
-        // round (b)): the view is not editable there, and its reading position
-        // is drawn in the quieter secondary ink — the arrows move it, so
+        // **A translation, or a piece in read-through, is read, not typed
+        // into** (shell p4 Task 8, fix round (b)): the view is not editable
+        // there, and its reading position is drawn in the quieter secondary ink — the arrows move it, so
         // keyboard reading is not blind, and it does not look like a caret
         // that types.
-        let reading = coordinator?.bufferHoldsTranslation ?? false
-        let ink = Self.caretColor(isReadingTranslation: reading, editing: color)
+        let ink = Self.caretColor(typingIsOff: coordinator?.typingIsOff ?? false, editing: color)
         let font = (typingAttributes[.font] as? NSFont)
             ?? self.font
             ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
@@ -864,23 +871,23 @@ final class MaughamTextView: NSTextView {
     }
 
     /// The caret's ink: the editing colour, or the secondary ink of a reading
-    /// position over a translation.
-    static func caretColor(isReadingTranslation: Bool, editing: NSColor) -> NSColor {
-        isReadingTranslation ? .secondaryLabelColor : editing
+    /// position where typing is off (a translation, read-through).
+    static func caretColor(typingIsOff: Bool, editing: NSColor) -> NSColor {
+        typingIsOff ? .secondaryLabelColor : editing
     }
 
-    /// A non-editable view draws no insertion point; over a translation it
-    /// draws the reading position (fix round (b)).
+    /// A non-editable view draws no insertion point; where typing is off it
+    /// draws the reading position (fix round (b)), which the arrows move.
     override var shouldDrawInsertionPoint: Bool {
         super.shouldDrawInsertionPoint || Self.drawsReadingPosition(
-            isReadingTranslation: coordinator?.bufferHoldsTranslation ?? false,
+            typingIsOff: coordinator?.typingIsOff ?? false,
             isFirstResponder: window?.firstResponder === self,
             selectionIsEmpty: selectedRange().length == 0)
     }
 
-    static func drawsReadingPosition(isReadingTranslation: Bool, isFirstResponder: Bool,
+    static func drawsReadingPosition(typingIsOff: Bool, isFirstResponder: Bool,
                                      selectionIsEmpty: Bool) -> Bool {
-        isReadingTranslation && isFirstResponder && selectionIsEmpty
+        typingIsOff && isFirstResponder && selectionIsEmpty
     }
 
     /// Losing the focus closes the completion list (plan 3b Task 2): its keys

@@ -204,15 +204,15 @@ final class TranslationSourceUnderTests: XCTestCase {
     /// translation the insertion point is drawn — the view is not editable,
     /// which would otherwise draw none — in the quieter secondary ink.
     func test_aReadingPositionIsDrawnInQuietInkOverATranslation() {
-        XCTAssertEqual(MaughamTextView.caretColor(isReadingTranslation: true, editing: .systemRed),
+        XCTAssertEqual(MaughamTextView.caretColor(typingIsOff: true, editing: .systemRed),
                        .secondaryLabelColor)
-        XCTAssertEqual(MaughamTextView.caretColor(isReadingTranslation: false, editing: .systemRed),
+        XCTAssertEqual(MaughamTextView.caretColor(typingIsOff: false, editing: .systemRed),
                        .systemRed)
-        XCTAssertTrue(MaughamTextView.drawsReadingPosition(isReadingTranslation: true,
+        XCTAssertTrue(MaughamTextView.drawsReadingPosition(typingIsOff: true,
                                                            isFirstResponder: true, selectionIsEmpty: true))
-        XCTAssertFalse(MaughamTextView.drawsReadingPosition(isReadingTranslation: false,
+        XCTAssertFalse(MaughamTextView.drawsReadingPosition(typingIsOff: false,
                                                             isFirstResponder: true, selectionIsEmpty: true))
-        XCTAssertFalse(MaughamTextView.drawsReadingPosition(isReadingTranslation: true,
+        XCTAssertFalse(MaughamTextView.drawsReadingPosition(typingIsOff: true,
                                                             isFirstResponder: false, selectionIsEmpty: true))
     }
 

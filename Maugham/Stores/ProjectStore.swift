@@ -132,6 +132,10 @@ public enum ProjectStoreError: Error, Equatable {
     /// or its occurrence is gone from the text just read. Refused before
     /// anything is written, never re-aimed at a guessed occurrence.
     case staleSearchMatch
+    /// A single Replace in a piece its writer has put into read-through on
+    /// this Mac (`readThroughPieceIds`): typing is off there, so Replace is
+    /// too. Refused before anything is written.
+    case inReadThrough(title: String)
 }
 
 /// Human-readable messages so `error.localizedDescription` in the pane alerts
@@ -193,6 +197,8 @@ extension ProjectStoreError: LocalizedError {
             return "This project’s profile was set by a newer version of Maugham, so it can’t be changed here."
         case .staleSearchMatch:
             return "That match has changed. Search again."
+        case .inReadThrough(let title):
+            return "Left as it was — “\(title)” is in read-through. Resume writing to replace it."
         case .deletedInPart(let trashed, let removed, let failed, let underlying):
             func quoted(_ titles: [String]) -> String { titles.map { "“\($0)”" }.joined(separator: ", ") }
             var done: [String] = []
@@ -431,6 +437,11 @@ public final class ProjectStore {
     /// The Replace (single or Replace All) in flight, if any: the next one
     /// waits for it and its refresh, so it is judged against fresh results.
     @ObservationIgnored var replaceTail: Task<Void, Never>?
+    /// **The pieces in read-through on this Mac** — the session's
+    /// `ReadThroughStore`, set by `ProjectSession.open` (a weak capture).
+    /// Replace and Replace All leave such a piece as it was; nothing else
+    /// here reads it. Empty for a store no session opened.
+    @ObservationIgnored var readThroughPieceIds: @MainActor () -> Set<String> = { [] }
     /// Test seam: awaited by every search after it has read the text and
     /// before its results land, with the search's query. Nil in production.
     @ObservationIgnored var searchWillLandForTesting: (@MainActor (String) async -> Void)?

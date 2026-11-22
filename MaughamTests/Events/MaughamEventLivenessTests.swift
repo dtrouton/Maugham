@@ -236,6 +236,31 @@ final class MaughamEventLivenessTests: XCTestCase {
         XCTAssertEqual(notKeyDelivered, 0, "a window behind the key one acts on nothing")
     }
 
+    /// `.maughamTypingRefused` (shell read-through Task 2) is a key-window
+    /// post: only the key window's quiet line pulses, never a closed window's
+    /// or one behind it.
+    func test_typingRefused_reachesOnlyALiveKeyWindow() {
+        let w = makeWindow()
+        var closedDelivered = 0, keyDelivered = 0, notKeyDelivered = 0
+        let closed = MaughamEvent.observe(
+            .maughamTypingRefused, context: { .forWindow(w, kind: .keyWindow) },
+            handler: { _ in closedDelivered += 1 })
+        let key = MaughamEvent.observe(
+            .maughamTypingRefused,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: true) },
+            handler: { _ in keyDelivered += 1 })
+        let notKey = MaughamEvent.observe(
+            .maughamTypingRefused,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: false) },
+            handler: { _ in notKeyDelivered += 1 })
+        defer { [closed, key, notKey].forEach { NotificationCenter.default.removeObserver($0) } }
+        w.close()
+        MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+        XCTAssertEqual(closedDelivered, 0, "a closed window's line does not pulse")
+        XCTAssertEqual(keyDelivered, 1)
+        XCTAssertEqual(notKeyDelivered, 0)
+    }
+
     // MARK: - Teardown discipline (Task 8, ADR 0021)
     // Pins the two headless-testable teardown obligations traced in
     // docs/superpowers/notes/2026-07-02-window-teardown-audit.md.

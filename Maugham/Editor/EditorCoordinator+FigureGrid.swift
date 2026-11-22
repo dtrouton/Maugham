@@ -929,7 +929,8 @@ extension EditorCoordinator {
         FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isReviewMode: isManualReviewMode, isReadingTranslation: isReadingTranslation)
+            isReviewMode: isManualReviewMode, isInReadThrough: isInReadThrough,
+            isReadingTranslation: isReadingTranslation)
     }
 
     /// The gate over a visit's own host.
@@ -941,7 +942,8 @@ extension EditorCoordinator {
     /// The caption is the line's text: the text's membrane decides (R7c-6).
     var figureGridCaptionMayEdit: Bool {
         EditorEditPolicy.allowsTextMutation(
-            isReviewMode: isReviewMode, lockEditing: lockEditing, isReadingTranslation: isReadingTranslation)
+            isReviewMode: isReviewMode, lockEditing: lockEditing, isReadingTranslation: isReadingTranslation,
+            isInReadThrough: isInReadThrough)
     }
 
     /// **Ask the gate again** for the expanded grid — at a `figureCardVersion`

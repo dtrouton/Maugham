@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MaughamCore
 
 /// **The toolbar's language switch** (shell p4 Task 8): which language the
@@ -182,6 +183,8 @@ struct FocusedReadingItems: View {
 struct ReadingLanguageLine: View {
     let language: String
     let entries: [TranslationBadgeLayout.Entry]
+    /// The hosting window, for the typing-refused pulse's key-window scope.
+    var window: NSWindow? = nil
 
     struct Counts: Equatable {
         let stale: Int
@@ -239,6 +242,7 @@ struct ReadingLanguageLine: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+        .modifier(TypingRefusedPulse(window: window))
         .help(Self.instead(language)
               + " Amber dots mark paragraphs whose source changed after they were translated; "
               + "hollow ones, paragraphs not translated yet, shown in their source.")
@@ -250,5 +254,23 @@ struct ReadingLanguageLine: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize()
+    }
+}
+
+/// **A quiet line over the text answers a refused keystroke by pulsing
+/// once** (shell read-through Task 2): the line over a translation, and the
+/// read-through line, light up and fade on `.maughamTypingRefused`, posted by
+/// the key window's editor where AppKit would have beeped
+/// (`EditorHost.typingRefusal`). One pulse per keystroke refused.
+struct TypingRefusedPulse: ViewModifier {
+    let window: NSWindow?
+    @State private var refusals = 0
+
+    func body(content: Content) -> some View {
+        content
+            .phaseAnimator([false, true, false], trigger: refusals) { line, lit in
+                line.background(Color.accentColor.opacity(lit ? 0.18 : 0))
+            } animation: { _ in .easeInOut(duration: 0.18) }
+            .onKeyWindowCommand(.maughamTypingRefused, window: window) { _ in refusals += 1 }
     }
 }

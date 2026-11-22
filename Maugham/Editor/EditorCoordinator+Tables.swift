@@ -267,8 +267,10 @@ extension EditorCoordinator {
     /// scheduled as any other leave would be (whole-branch review M3 — Insert
     /// Table from inside a table lands its new table after it).
     func noteSelectionForTableTidy(in textView: NSTextView) {
+        // A view that takes no typing (read-through, a translation, a
+        // recovery) arms no tidy: the caret only reads there.
         guard !tableTidy.isApplying, !tokensDescribeAnEarlierText,
-              !textView.hasMarkedText() else { return }
+              !textView.hasMarkedText(), textView.isEditable else { return }
         if let undo = textView.undoManager, undo.isUndoing || undo.isRedoing {
             tableTidy.anchor = nil
             tableTidy.cancelPending()

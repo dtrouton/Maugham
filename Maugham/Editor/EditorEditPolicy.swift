@@ -28,11 +28,16 @@ enum EditorEditPolicy {
     ///     be meaningless — the membrane blocks all mutation so the read-only
     ///     translated view produces zero ops.
     ///
-    /// `isReadingTranslation` defaults to false so the two-reason call sites
-    /// (review render + lock, pre-Task-11) keep compiling unchanged.
+    ///   - `isInReadThrough`: the piece the buffer holds is in read-through —
+    ///     typing off, decisions on. A belt beside the view's `isEditable`,
+    ///     which refuses first (`EditorCoordinator.refreshEditability`).
+    ///
+    /// The last two default to false so the two-reason call sites keep
+    /// compiling unchanged.
     static func allowsTextMutation(isReviewMode: Bool, lockEditing: Bool,
-                                   isReadingTranslation: Bool = false) -> Bool {
-        !isReviewMode && !lockEditing && !isReadingTranslation
+                                   isReadingTranslation: Bool = false,
+                                   isInReadThrough: Bool = false) -> Bool {
+        !isReviewMode && !lockEditing && !isReadingTranslation && !isInReadThrough
     }
 
     /// True when a click on a checkbox glyph may flip it. A flip writes text

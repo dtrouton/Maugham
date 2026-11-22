@@ -88,6 +88,8 @@ struct EditorControlMirrorModifier: ViewModifier {
     /// here because this modifier already carries the window's editor posture.
     let mayInsertReportElement: Bool
     let effectiveTypography: TypographySettings
+    /// The session's pieces in read-through (`ReadThroughStore.pieceIds`).
+    let readThroughPieces: Set<String>
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
@@ -101,6 +103,7 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isManualReviewMode = membrane.manualReview
             }
             .onChange(of: posture) { _, posture in editorControl.posture = posture }
+            .onChange(of: readThroughPieces) { _, pieces in editorControl.readThroughDocIds = pieces }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
             .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
             .onChange(of: userPreferences.typewriterScroll) { _, v in
@@ -120,6 +123,7 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.shareIsReadOnly = membrane.shareIsReadOnly
                 editorControl.isManualReviewMode = membrane.manualReview
                 editorControl.posture = posture
+                editorControl.readThroughDocIds = readThroughPieces
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography
                 editorControl.typewriterScroll = userPreferences.typewriterScroll

@@ -277,6 +277,11 @@ extension Notification.Name {
     /// resume `userInfo["doc_id"]`'s read-through as `userInfo["on"]` says
     /// (`ReadThroughModifier`). Scope: .keyWindow.
     public static let maughamSetReadThrough = Notification.Name("maugham.set.read.through")
+    /// Posted by the manuscript editor when a typed character met a view
+    /// that refuses typing (a piece in read-through, a translation —
+    /// `EditorHost.typingRefusal`): the quiet line over the text pulses once.
+    /// Scope: .keyWindow.
+    public static let maughamTypingRefused = Notification.Name("maugham.typing.refused")
     public static let maughamMCPNoteAdded = Notification.Name("maugham.mcp.note.added")
     public static let maughamAddLoosePiece = Notification.Name("maugham.add.loose.piece")
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")

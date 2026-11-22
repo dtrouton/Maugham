@@ -1046,10 +1046,10 @@
   "claim_id": "M5-AN-066",
   "scope": "Figure grid suggestion strip / cell dots",
   "kind": "POSTCONDITION",
-  "statement": "A cell with an open live note shows a dot; selecting it shows a strip offering Accept and Reject for a suggestion, Got it and Reject for a comment or query; in review mode Accept is disabled with its reason while Got it and Reject act; a refused answer is said as a sentence; an answer after the fold is reversed by Reopen in the queue.",
+  "statement": "A cell with an open live note shows a dot; selecting it shows a strip offering Accept and Reject for a suggestion, Got it and Reject for a comment or query; in review mode Accept is disabled with its reason while Got it and Reject act; in read-through (the grid read-only, reason .readThrough) Accept, Got it and Reject all act, the Accept writes the cell, and the grid's ⌘Z takes it back (the entry dropped the grid's earlier steps); a refused answer is said as a sentence; an answer after the fold is reversed by Reopen in the queue.",
   "source": {
    "type": "PRODUCTION",
-   "ref": "MaughamTests/Editor/FigureGridStripTests.swift: test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot, test_gotItResolvesAComment_andTheGridsUndoReopensIt, test_rejectKeepsTheReasonTheSheetGave_cancelRejectsNothing, test_aRefusedAnswerIsSaidAsASentence, test_anAnswerAfterTheFoldIsSaidWithItsReason; MaughamCore FigureCellNotesTests"
+   "ref": "MaughamTests/Editor/FigureGridStripTests.swift: test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot, test_inReadThroughAcceptWritesTheCell_andGotItAndRejectAct, test_gotItResolvesAComment_andTheGridsUndoReopensIt, test_rejectKeepsTheReasonTheSheetGave_cancelRejectsNothing, test_aRefusedAnswerIsSaidAsASentence, test_anAnswerAfterTheFoldIsSaidWithItsReason; MaughamCore FigureCellNotesTests"
   },
   "warrant": "HIGH",
   "intent": "INTENTIONAL",

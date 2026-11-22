@@ -221,6 +221,27 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         assertReadOnly(c, .reviewMode)
     }
 
+    /// **Read-through expands read-only, the caption with it, and Resume
+    /// gives the grid back** (shell read-through Task 2): the key's post
+    /// flips the coordinator synchronously, for its own document only.
+    func test_readThroughIsReadOnly_flippedMidVisitByTheKey() async throws {
+        let m = try await mount()
+        XCTAssertTrue(m.window.isKeyWindow, "premise: a .keyWindow post reaches this editor")
+        let docId = try chapterId(m)
+        m.coordinator.documentId = docId
+        let c = try await expand(m)
+        assertEditable(c)
+        ReadThrough.post(.init(docId: "another-piece", on: true))
+        assertEditable(c)
+        ReadThrough.post(.init(docId: docId, on: true))
+        XCTAssertTrue(m.coordinator.isInReadThrough)
+        assertReadOnly(c, .readThrough)
+        XCTAssertFalse(c.bars.captionField.isEditable, "the caption is the text's, and its typing is off")
+        ReadThrough.post(.init(docId: docId, on: false))
+        assertEditable(c)
+        XCTAssertTrue(c.bars.captionField.isEditable)
+    }
+
     /// **⌘⌥⇧R flips the grid at once** (T8 review M3): the toggle's
     /// key-window post sets the coordinator's explicit review mode
     /// synchronously, and the open grid turns read-only — and back.

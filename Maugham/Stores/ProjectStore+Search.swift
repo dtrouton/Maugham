@@ -131,13 +131,18 @@ extension ProjectStore {
         /// Pieces a promotion was moving to their own project, left as they
         /// were (fix round 1, I1).
         public var beingPromoted: [String] = []
+        /// Pieces in read-through on this Mac, left as they were (shell
+        /// read-through Task 2).
+        public var inReadThrough: [String] = []
 
         /// What the window says after a Replace All, or nil.
         public var notice: String? {
             let promoting = beingPromoted.isEmpty ? nil :
                 "Left as it was \u{2014} being promoted to its own project: "
                     + beingPromoted.joined(separator: ", ") + ". Try again in a moment."
-            let sentences = [ProjectStore.leftAloneSentence(leftAlone), promoting].compactMap { $0 }
+            let reading = inReadThrough.isEmpty ? nil :
+                "Left as it was \u{2014} in read-through: " + inReadThrough.joined(separator: ", ") + "."
+            let sentences = [ProjectStore.leftAloneSentence(leftAlone), promoting, reading].compactMap { $0 }
             return sentences.isEmpty ? nil : sentences.joined(separator: " ")
         }
     }
@@ -211,6 +216,10 @@ extension ProjectStore {
         let target: ResearchReplaceTarget?
         switch match.documentSource {
         case .manuscript:
+            // A piece in read-through takes no Replace: its typing is off.
+            if let title = pieceInReadThrough(atPath: match.documentPath) {
+                throw ProjectStoreError.inReadThrough(title: title)
+            }
             // With no live search there is nothing we can do safely.
             guard !query.isEmpty else {
                 throw ProjectStoreError.fileSystemError(
@@ -458,6 +467,7 @@ extension ProjectStore {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         var leftAlone: [String] = []
         var beingPromoted: [String] = []
+        var reading: [String] = []
         // Once for the whole replace: the editor's queued note edits land
         // before any research file below is read.
         if results.matches.contains(where: { $0.documentSource == .research }) {
@@ -468,6 +478,11 @@ extension ProjectStore {
                   let source = matches.first?.documentSource else { continue }
             switch source {
             case .manuscript:
+                // A piece in read-through: skipped, and named.
+                if let title = pieceInReadThrough(atPath: path) {
+                    reading.append(title)
+                    continue
+                }
                 // Replace ALL occurrences (clicked: nil).
                 do {
                     try await replaceInManuscript(
@@ -502,7 +517,18 @@ extension ProjectStore {
                 try await writeReplacedResearchText(updated, to: target, path: path, url: url)
             }
         }
-        return ReplaceAllOutcome(leftAlone: leftAlone, beingPromoted: beingPromoted)
+        return ReplaceAllOutcome(leftAlone: leftAlone, beingPromoted: beingPromoted,
+                                 inReadThrough: reading)
+    }
+
+    /// The title of the manuscript piece at `path` when it is in read-through
+    /// on this Mac (`readThroughPieceIds`), else nil.
+    private func pieceInReadThrough(atPath path: String) -> String? {
+        let pieces = readThroughPieceIds()
+        guard !pieces.isEmpty,
+              let item = TreeWalk.first(in: manifest.structure, where: { $0.path == path }),
+              ReadThrough.isOn(item.id, in: pieces) else { return nil }
+        return item.title
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op

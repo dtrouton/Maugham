@@ -324,6 +324,45 @@ final class FigureGridStripTests: XCTestCase {
         XCTAssertEqual(c.bars.reasonMessage, FigureGridStrip.Plan.lockedAccept)
     }
 
+    /// **In read-through every answer is a decision** (shell read-through
+    /// Task 2): the grid is read-only, yet Accept is offered and writes the
+    /// cell, on the grid's own undo; Got it and Reject act too.
+    func test_inReadThroughAcceptWritesTheCell_andGotItAndRejectAct() async throws {
+        let (store, c, host) = try await openGrid()
+        let b2 = key(host, "B2"), c2 = key(host, "C2")
+        try await host.setCell(number(12), at: b2)
+        let suggestion = try await suggest(number(14), at: b2, store: store, host: host)
+        let note = try await comment(on: c2, store: store, host: host)
+        let other = try await comment(on: c2, store: store, host: host)
+        await landed(c)
+        final class Step { var undone = false }
+        let typedBefore = Step()
+        c.gridUndo.registerUndo(withTarget: typedBefore) { $0.undone = true }   // a cell typed before the entry
+        c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
+        XCTAssertFalse(c.gridUndo.canUndo, "the entry drops the grid's steps before it")
+        c.handle(.click(b2, extend: false))
+        XCTAssertEqual(c.stripPlan.entries.first?.actions,
+                       [.init(verb: .accept, isEnabled: true), .init(verb: .reject, isEnabled: true)])
+        XCTAssertNil(c.stripPlan.reason, "nothing is refused, so nothing is said")
+
+        c.stripAccept(suggestion)
+        await landed(c)
+        XCTAssertEqual(host.state.table[b2], number(14), "the Accept writes the cell")
+        XCTAssertEqual(status(suggestion, host), .accepted)
+        XCTAssertEqual(c.gridUndo.undoActionName, "Accept Suggestion")
+        c.undoInGrid()
+        await landed(c)
+        XCTAssertEqual(host.state.table[b2], number(12), "⌘Z in the grid takes it back")
+        XCTAssertFalse(typedBefore.undone)
+
+        c.stripGotIt(note)
+        c.askRejectReason = { _ in .reject(reason: nil) }
+        await c.askToReject(other).value
+        await landed(c)
+        XCTAssertEqual(status(note, host), .accepted)
+        XCTAssertEqual(status(other, host), .rejected)
+    }
+
     func test_anAnswerAfterTheFoldIsSaidWithItsReason() async throws {
         let (store, c, host) = try await openGrid()
         let id = try await comment(on: key(host, "A2"), store: store, host: host)

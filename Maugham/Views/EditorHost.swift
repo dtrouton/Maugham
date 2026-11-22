@@ -22,6 +22,11 @@ final class EditorHostLoadGeneration {
     func abandon() { current += 1 }
 }
 
+/// Who answers a keystroke the manuscript view refused
+/// (`EditorHost.typingRefusal`): the recovery banner, the quiet line over
+/// the text (read-through, or a translation), or nobody but AppKit's beep.
+enum TypingRefusal: Equatable { case recovery, readThrough, none }
+
 /// Hosts the EditorSurface for a single selected document.
 /// Picks the WritingMode by file extension. As of Stage 2 of the
 /// document-first-class refactor (T10), the editor binds to a per-document
@@ -278,7 +283,8 @@ struct EditorHost: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if let language = control.translationLanguage {
                         ReadingLanguageLine(language: language,
-                                            entries: control.translationBadges.entries)
+                                            entries: control.translationBadges.entries,
+                                            window: window)
                     }
                 }
                 .id(path)
@@ -288,13 +294,13 @@ struct EditorHost: View {
                 // `control.reviewAnnotations` whenever it changes; the coordinator
                 // observes the model and reconciles via `applyControl` →
                 // `setReviewAnnotations`. Reading `doc.annotationsVersion` /
-                // `control.isReviewMode` in these closures is safe (unlike reading
+                // `control.reviewRenders(docId:)` in these closures is safe (unlike reading
                 // `displayText`): it never feeds the text binding, so the
                 // cursor-race triad (tripwires 6/7) stays closed. An Annotations pane
                 // edit bumps `annotationsVersion` on the SAME registered Document
                 // instance, so the first `.onChange` carries it through.
                 .onChange(of: doc.annotationsVersion) { _, _ in
-                    control.reviewAnnotations = control.isReviewMode
+                    control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
                     // While a translation is read, a source-side edit (which
@@ -337,7 +343,7 @@ struct EditorHost: View {
                     guard !Task.isCancelled else { return }
                     await refreshTranslatedSurface(doc: doc)
                 }
-                .onChange(of: control.isReviewMode) { _, nowReview in
+                .onChange(of: control.reviewRenders(docId: doc.docId)) { _, nowReview in
                     control.reviewAnnotations = nowReview
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
@@ -356,7 +362,7 @@ struct EditorHost: View {
                     if control.translationLanguage != nil { recomputeTranslatedSurface(doc: doc) }
                 }
                 .onAppear {
-                    control.reviewAnnotations = control.isReviewMode
+                    control.reviewAnnotations = control.reviewRenders(docId: doc.docId)
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
                     // A re-mount while a language is selected must restore the
@@ -859,9 +865,19 @@ struct EditorHost: View {
                     onMetricsChanged?(metrics)
                     referenceIndex.noteSettled(docId: doc.docId, text: doc.displayText)
                 },
-                onTypingRefused: doc.isReadOnlyRecovery
-                    ? { recoveryBannerModel?.noteTypingRefused() }
-                    : nil),
+                // Every manuscript answers a refused keystroke: the recovery
+                // banner as ever, else the quiet line over the text pulses
+                // (`.maughamTypingRefused`) instead of AppKit's beep.
+                onTypingRefused: {
+                    switch Self.typingRefusal(
+                        isRecovery: doc.isReadOnlyRecovery,
+                        isInReadThrough: ReadThrough.isOn(doc.docId, in: control.readThroughDocIds),
+                        isReadingTranslation: control.translationLanguage != nil) {
+                    case .recovery: recoveryBannerModel?.noteTypingRefused()
+                    case .readThrough: MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
+                    case .none: NSSound.beep()
+                    }
+                }),
             paragraphProviders: .init(
                 wikiLinkResolver: wikiLinkResolver,
                 wikiLinkClickResolver: wikiLinkClickResolver,
@@ -1337,6 +1353,17 @@ struct EditorHost: View {
     /// pure for `EditorHostReloadPredicateTests`.
     static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
         item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
+    /// **Who answers a keystroke the view refused** (shell read-through Task
+    /// 2): a read-only recovery's banner; a piece in read-through, or a
+    /// translation, by the quiet line over the text pulsing once
+    /// (`.maughamTypingRefused`); otherwise AppKit's beep.
+    static func typingRefusal(isRecovery: Bool, isInReadThrough: Bool,
+                              isReadingTranslation: Bool) -> TypingRefusal {
+        if isRecovery { return .recovery }
+        if isInReadThrough || isReadingTranslation { return .readThrough }
+        return .none
     }
 
     /// Whether the bound document must be (re)loaded for the given item.

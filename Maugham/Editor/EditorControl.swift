@@ -42,6 +42,19 @@ final class EditorControl {
     /// anyway.
     var posture: Posture? = nil
 
+    /// **The pieces in read-through on this Mac** (`ReadThroughStore`),
+    /// mirrored one way by `EditorControlMirrorModifier`. The editor asks it
+    /// about the document its buffer holds (`ReadThrough.isOn(documentId, …)`),
+    /// never about the window's subject. Moves only at Start or Resume (D1).
+    var readThroughDocIds: Set<String> = []
+
+    /// **Whether the review render is drawn for `docId`**: the window's
+    /// review mode, or the piece in read-through. The one rule the coordinator
+    /// and `EditorHost`'s open-annotation mirror both ask.
+    func reviewRenders(docId: String?) -> Bool {
+        isReviewMode || ReadThrough.isOn(docId, in: readThroughDocIds)
+    }
+
     /// The language the open piece is read in, or nil when the editor shows
     /// the source manuscript (shell p4 Task 8: the toolbar's language switch,
     /// View ▸ Read In, ⌃⌘L and a reveal write it; nothing writes back).

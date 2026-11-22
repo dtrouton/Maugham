@@ -78,6 +78,23 @@ enum FigureGridStrip {
             }
         }
 
+        /// **Whether a read-only grid still answers its notes**: review mode
+        /// and the Lock (Got it and Reject; Accept refused, `acceptRefusal`),
+        /// and read-through, where an Accept is a decision and writes the
+        /// cell (all three). Every other reason hides the buttons.
+        static func keepsAnswers(_ reason: FigureGridGate.Reason?) -> Bool {
+            switch reason {
+            case .reviewMode?, .locked?, .readThrough?: return true
+            default: return false
+            }
+        }
+
+        /// Whether Accept may write the cell under `reason`: an editable grid,
+        /// or one in read-through.
+        static func acceptWrites(under reason: FigureGridGate.Reason?) -> Bool {
+            reason == nil || reason == .readThrough
+        }
+
         /// The entry on `page` (clamped) and its "1 of 2" (nil with one note).
         func page(_ page: Int) -> (entry: Entry, label: String?)? {
             guard !entries.isEmpty else { return nil }
@@ -103,7 +120,7 @@ enum FigureGridStrip {
             guard !found.isEmpty else { return .empty }
             let acceptRefusal = acceptRefusal(for: readOnly)
             let reviewing = acceptRefusal != nil
-            let hidden = readOnly != nil && !reviewing
+            let hidden = readOnly != nil && !keepsAnswers(readOnly)
             let entries = found.map { note -> Entry in
                 let address: String? = switch note.figureAnchor?.resolve(in: table) {
                 case .live(let a1)?: a1

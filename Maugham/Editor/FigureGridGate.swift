@@ -49,6 +49,9 @@ enum FigureGridGate {
         case notYours
         /// A read-only iCloud share: the folder takes no writes.
         case viewOnlyShare
+        /// The piece is in read-through: typing off, decisions on — the
+        /// notes strip keeps Accept, Got it and Reject.
+        case readThrough
         /// The window's explicit review mode (⌘⌥⇧R) — never the review
         /// forced where the text is not hers (R7c-6).
         case reviewMode
@@ -67,6 +70,7 @@ enum FigureGridGate {
             case .closed: return "This table was closed, so it can’t be changed here."
             case .notYours: return "This table isn’t yours to change — you can read it."
             case .viewOnlyShare: return "This share is view-only, so the \(noun) can’t be changed."
+            case .readThrough: return "In read-through — the \(noun) can be read, not typed into."
             case .reviewMode: return "You’re reviewing — the \(noun) can be read, not changed."
             case .locked: return "The window is locked — the \(noun) can be read, not changed."
             }
@@ -74,12 +78,14 @@ enum FigureGridGate {
     }
 
     static func mode(figureMayEdit: Bool, parked: Bool, hostClosed: Bool, shareIsReadOnly: Bool,
-                     isReviewMode: Bool, isLocked: Bool = false, isReadingTranslation: Bool) -> Mode {
+                     isReviewMode: Bool, isLocked: Bool = false, isInReadThrough: Bool = false,
+                     isReadingTranslation: Bool) -> Mode {
         if isReadingTranslation { return .noExpand }
         if parked { return .readOnly(.parked) }
         if hostClosed { return .readOnly(.closed) }
         if !figureMayEdit { return .readOnly(.notYours) }
         if shareIsReadOnly { return .readOnly(.viewOnlyShare) }
+        if isInReadThrough { return .readOnly(.readThrough) }
         if isReviewMode { return .readOnly(.reviewMode) }
         if isLocked { return .readOnly(.locked) }
         return .editable

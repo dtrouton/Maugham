@@ -6,10 +6,11 @@ import XCTest
 final class FigureGridGateTests: XCTestCase {
 
     private func mode(mayEdit: Bool = true, parked: Bool = false, closed: Bool = false, share: Bool = false,
-                      review: Bool = false, locked: Bool = false, translation: Bool = false) -> FigureGridGate.Mode {
+                      review: Bool = false, locked: Bool = false, readThrough: Bool = false,
+                      translation: Bool = false) -> FigureGridGate.Mode {
         FigureGridGate.mode(figureMayEdit: mayEdit, parked: parked, hostClosed: closed,
                             shareIsReadOnly: share, isReviewMode: review, isLocked: locked,
-                            isReadingTranslation: translation)
+                            isInReadThrough: readThrough, isReadingTranslation: translation)
     }
 
     func test_everyRow() {
@@ -21,6 +22,22 @@ final class FigureGridGateTests: XCTestCase {
         XCTAssertEqual(mode(share: true), .readOnly(.viewOnlyShare), "a read-only share is read-only")
         XCTAssertEqual(mode(review: true), .readOnly(.reviewMode), "review mode expands read-only")
         XCTAssertEqual(mode(locked: true), .readOnly(.locked), "the window's Lock expands read-only")
+        XCTAssertEqual(mode(readThrough: true), .readOnly(.readThrough), "read-through expands read-only")
+    }
+
+    /// **Read-through is asked after the share and before review mode**, and
+    /// its strip keeps every answer: Accept is a decision (shell read-through
+    /// Task 2).
+    func test_readThroughComesAfterTheShareAndBeforeReview_andKeepsAccept() {
+        XCTAssertEqual(mode(share: true, readThrough: true), .readOnly(.viewOnlyShare))
+        XCTAssertEqual(mode(review: true, readThrough: true), .readOnly(.readThrough))
+        XCTAssertEqual(mode(readThrough: true, translation: true), .noExpand)
+        XCTAssertNil(FigureGridStrip.Plan.acceptRefusal(for: .readThrough))
+        XCTAssertTrue(FigureGridStrip.Plan.keepsAnswers(.readThrough))
+        XCTAssertTrue(FigureGridStrip.Plan.acceptWrites(under: .readThrough))
+        XCTAssertFalse(FigureGridStrip.Plan.acceptWrites(under: .reviewMode))
+        XCTAssertEqual(FigureGridGate.Reason.readThrough.sentence,
+                       "In read-through \u{2014} the table can be read, not typed into.")
     }
 
     /// **The Lock says the window is locked**, never that the writer is
@@ -51,7 +68,8 @@ final class FigureGridGateTests: XCTestCase {
 
     func test_eachReasonHasItsSentence_parkedIsTheHostsOwn() {
         XCTAssertEqual(FigureGridGate.Reason.parked.sentence, "This table is in Research.")
-        let sentences = [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare, .reviewMode, .locked].map(\.sentence)
+        let sentences = [FigureGridGate.Reason.parked, .closed, .notYours, .viewOnlyShare, .readThrough, .reviewMode,
+                         .locked].map(\.sentence)
         XCTAssertEqual(Set(sentences).count, sentences.count, "each reason says something of its own")
         XCTAssertNil(FigureGridGate.Mode.editable.readOnlyReason)
         XCTAssertEqual(FigureGridGate.Mode.readOnly(.notYours).readOnlyReason, .notYours)
