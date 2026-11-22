@@ -256,7 +256,10 @@ struct RightColumn: View {
                 readIn: readingLanguage,
                 sourceLanguage: publishCentre.sourceLanguage)
             Divider()
-            content
+            // One stack, framed once: `content` is several views (the subject
+            // line, then the pane), and a frame on it would frame each —
+            // the line and the pane splitting the column's height.
+            VStack(spacing: 0) { content }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

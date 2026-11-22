@@ -1483,6 +1483,37 @@ final class RightColumnMountingTests: XCTestCase {
             flat)
     }
 
+    /// **The subject line takes its own height and no more** (owner's hand
+    /// check, 2026-11-22: a blank half-column under "Chapter 1" in To resolve
+    /// and Brief). `content` is two views, and a `maxHeight: .infinity` frame
+    /// applied to it framed EACH of them, so the line and the pane split the
+    /// column's height. Measured: Brief's line field starts right under the
+    /// subject line.
+    func test_theSubjectLineDoesNotTakeHalfTheColumn() async throws {
+        try requireAssistiveClient()
+        let f = try await fixture("SubjectLineHeight")
+        let docId = f.documentItemId
+        let piece = WindowSubject(open: .item(docId), faces: .item(docId))
+        let probe = RightColumnFixture.Probe(position: .brief, subject: piece)
+        let window = TestWindow.mount(
+            RightColumnFixture.pane(store: f.store, documentStore: f.documentStore, probe: probe)
+                .environment(f.preferences),
+            size: CGSize(width: 320, height: 700))
+        windows.append(window)
+        let shown = await pumpUntil(deadline: 5) {
+            ((try? f.axFrames(identifiedBy: "brief.line", in: window)) ?? []).isEmpty == false
+        }
+        XCTAssertTrue(shown, "Brief's line field is drawn")
+        let subject = try XCTUnwrap(f.axFrames(identifiedBy: "rightColumn.subject", in: window).first)
+        let line = try XCTUnwrap(f.axFrames(identifiedBy: "brief.line", in: window).first)
+        // Screen frames, y up: the gap from the subject line's foot down to
+        // the line field's head.
+        let gap = subject.minY - line.maxY
+        XCTAssertLessThan(gap, 60, "Brief starts under its subject line, not half a column down "
+                          + "(subject \(subject), line \(line))")
+        XCTAssertGreaterThanOrEqual(gap, 0, "and below it")
+    }
+
     /// Everything the mounted column says: its texts, button labels and
     /// tooltips.
     private func everythingRead(in window: NSWindow) throws -> Set<String> {
