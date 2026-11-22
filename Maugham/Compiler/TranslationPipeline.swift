@@ -153,7 +153,9 @@ final class TranslationPipeline {
     /// will), and a run whose owner shut it down and then started another must
     /// NOT: the second run's `.running` is already on screen.
     private var runToken = 0
-    private var queue: [String] = []
+    /// The chapters a book run has still to reach (the running one is in `status`)
+    /// — read by a piece's To resolve head to tell its own run from another's.
+    private(set) var queue: [String] = []
 
     private enum TranslatorLegEnd {
         case refused

@@ -327,6 +327,138 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertEqual(started.map { "\($0.0)/\($0.1)" }, ["sr/doc-a"])
     }
 
+    // MARK: - Whose run it is (fix round 1, I2 + M10)
+
+    private func running(_ docId: String, _ language: String = "es",
+                         book: TranslationPipeline.BookProgress? = nil) -> TranslationPipeline.Status {
+        .running(docId: docId, language: language, leg: .reread, book: book)
+    }
+
+    /// **A chapter's head speaks only for its own run.** Another chapter's
+    /// round — or this chapter's in another language — is said quietly, with
+    /// no Cancel and no Run; this chapter's, or a book run still to reach it,
+    /// is the head's.
+    func test_aRoundOnAnotherChapterIsNotThisChaptersRun() {
+        let other = ResolvePieceInLanguage.pieceRun(status: running("doc-7"), queued: [],
+                                                    docId: "doc-3", language: "es")
+        XCTAssertEqual(other, .elsewhere(docId: "doc-7", language: "es", book: nil))
+        XCTAssertEqual(ResolvePieceInLanguage.pieceRun(status: running("doc-3", "fr"), queued: [],
+                                                       docId: "doc-3", language: "es"),
+                       .elsewhere(docId: "doc-3", language: "fr", book: nil),
+                       "this chapter in another language is not this list's run")
+        XCTAssertEqual(ResolvePieceInLanguage.pieceRun(status: running("doc-3"), queued: [],
+                                                       docId: "doc-3", language: "ES"), .this)
+        XCTAssertEqual(ResolvePieceInLanguage.pieceRun(status: .idle, queued: [], docId: "doc-3", language: "es"),
+                       .none)
+        let book = TranslationPipeline.BookProgress(position: 2, count: 12)
+        XCTAssertEqual(ResolvePieceInLanguage.pieceRun(status: running("doc-2", book: book),
+                                                       queued: ["doc-3", "doc-4"],
+                                                       docId: "doc-3", language: "es"), .this,
+                       "a book run still to reach this chapter is its run")
+        XCTAssertEqual(ResolvePieceInLanguage.pieceRun(status: running("doc-2", book: book),
+                                                       queued: ["doc-4"], docId: "doc-1", language: "es"),
+                       .elsewhere(docId: "doc-2", language: "es", book: book),
+                       "a book run that has passed this chapter, or leaves it out, is not")
+        let line = ResolvePieceInLanguage.elsewhereLine(other, titleOf: { $0 == "doc-7" ? "Chapter Seven" : nil })
+        XCTAssertEqual(line, "Translating \u{201C}Chapter Seven\u{201D} into \(LanguageName.title("es"))\u{2026}")
+        XCTAssertNil(ResolvePieceInLanguage.elsewhereLine(.this, titleOf: { _ in nil }))
+        XCTAssertTrue(ResolvePieceInLanguage.elsewhereLine(
+            .elsewhere(docId: "doc-2", language: "es", book: book), titleOf: { _ in "Two" })?
+            .contains("2 of 12") ?? false)
+    }
+
+    /// **Cancel reaches only its own run**: the head hands `resolve` the
+    /// pipeline's status only for this chapter's run, so another chapter's
+    /// round draws no Cancel and no leg line here.
+    func test_cancelReachesOnlyItsOwnRun() {
+        func state(_ status: TranslationPipeline.Status, queued: [String] = []) -> TranslationRunState {
+            let relation = ResolvePieceInLanguage.pieceRun(status: status, queued: queued,
+                                                           docId: "doc-3", language: "es")
+            return TranslationRunState.resolve(
+                language: "es", target: .ready(docId: "doc-3", title: "Three"),
+                session: TranslationRunSession.read(runState: .idle, isRunning: false, pipeline: status),
+                runState: .idle, lastRun: nil,
+                pipeline: ResolvePieceInLanguage.pipelineStatus(status, relation: relation))
+        }
+        XCTAssertFalse(state(running("doc-7")).isRunning, "another chapter's round: no Cancel, no leg")
+        XCTAssertNil(state(running("doc-7")).statusLine)
+        XCTAssertTrue(state(running("doc-3")).isRunning, "this chapter's round: Cancel")
+        XCTAssertTrue(state(running("doc-2", book: .init(position: 1, count: 3)), queued: ["doc-3"]).isRunning)
+        XCTAssertFalse(state(running("doc-2", book: .init(position: 1, count: 3)), queued: ["doc-4"]).isRunning)
+        XCTAssertFalse(ResolvePieceInLanguage.offersRun(docId: "doc-3", isOpen: true, mayTranslate: { _ in true },
+                                                        relation: .elsewhere(docId: "doc-7", language: "es", book: nil)),
+                       "Run is not offered while the one pipeline runs another chapter")
+        // The stopped line hides only while THIS chapter runs.
+        var read = ResolveEditionItems.Read(language: "es")
+        read.newestRound = round(9, docId: "doc-3", language: "es", cancelled: true)
+        XCTAssertNotNil(ResolvePieceInLanguage.headRounds(
+            read, docId: "doc-3",
+            running: ResolvePieceInLanguage.pieceRun(status: running("doc-9", "fr"), queued: [],
+                                                     docId: "doc-3", language: "es") == .this,
+            now: t).stopped, "a French round elsewhere does not hide why this one stopped")
+    }
+
+    /// The edition's head names the chapter of a one-chapter round; a book
+    /// run's line already counts.
+    func test_theEditionsLegLineNamesAOneChapterRound() {
+        XCTAssertEqual(ResolveEditionItems.runningLine("Re-reading", pipeline: running("doc-7"),
+                                                       titleOf: { _ in "Seven" }),
+                       "\u{201C}Seven\u{201D} \u{00B7} Re-reading")
+        XCTAssertEqual(ResolveEditionItems.runningLine("Re-reading (2 of 3)",
+                                                       pipeline: running("doc-7", book: .init(position: 2, count: 3)),
+                                                       titleOf: { _ in "Seven" }), "Re-reading (2 of 3)")
+    }
+
+    // MARK: - The open-the-piece line (fix round 1, I1 + M12)
+
+    func test_offThePieceTheHeadSaysWhyAndOpensIt() {
+        XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: false, isOpening: false, hasItemsToAnswer: true,
+                                                       noun: "chapter"),
+                       .open("Open this chapter to answer its questions"))
+        XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: false, isOpening: false, hasItemsToAnswer: false,
+                                                       noun: "chapter"),
+                       .open("Open this chapter to run a round on it"))
+        XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: false, isOpening: true, hasItemsToAnswer: true,
+                                                       noun: "chapter"),
+                       .opening, "never 'open' what is already opening")
+        XCTAssertEqual(ResolvePieceInLanguage.openSlot(isOpen: true, isOpening: false, hasItemsToAnswer: true,
+                                                       noun: "chapter"), .run)
+        XCTAssertTrue(ResolveHead.hasItemsToAnswer([.note(note("q", on: "doc-a", language: "es"))], docId: "doc-a"))
+        XCTAssertFalse(ResolveHead.hasItemsToAnswer(
+            [.translationChange(docId: "doc-a", language: "es", round: 1, departure("d"))], docId: "doc-a"),
+            "a change acts without the piece open")
+    }
+
+    // MARK: - The cost under Run (fix round 1, M1)
+
+    func test_theCostIsShownOnlyForThePieceItWasTakenFor() {
+        let taken = ResolvePieceInLanguage.Cost(docId: "doc-7", language: "es", answer: .words(900))
+        XCTAssertEqual(taken.answer(docId: "doc-7", language: "es"), .words(900))
+        XCTAssertNil(taken.answer(docId: "doc-3", language: "es"), "another chapter: nothing, never a stale figure")
+        XCTAssertNil(taken.answer(docId: "doc-7", language: "fr"))
+    }
+
+    // MARK: - Clear asks and decides over the store (fix round 1, M2 + M3)
+
+    func test_clearDecidesOverWhatTheStoreHoldsAtThePress() {
+        let shown: [ResolvePieceInLanguage.LeftOver] = [.init(id: "zz11", staleText: "A"),
+                                                         .init(id: "zz22", staleText: "B")]
+        XCTAssertEqual(ResolvePieceInLanguage.clearDecision(shown: shown, now: shown + [.init(id: "zz33", staleText: "C")]),
+                       .clear(["zz11", "zz22"]), "exactly what was shown, never a newer one")
+        XCTAssertEqual(ResolvePieceInLanguage.clearDecision(shown: shown, now: [.init(id: "zz11", staleText: "A")]),
+                       .refuse(ResolvePieceInLanguage.changedSinceShownLine),
+                       "a paragraph came back: refused, nothing cleared")
+        XCTAssertEqual(ResolvePieceInLanguage.clearDecision(
+            shown: shown, now: [.init(id: "zz11", staleText: "A"), .init(id: "zz22", staleText: "B2")]),
+                       .refuse(ResolvePieceInLanguage.changedSinceShownLine), "a text changed: refused")
+        XCTAssertEqual(ResolvePieceInLanguage.clearConfirmTitle(count: 3),
+                       "Clear 3 left-over translations? Their paragraphs no longer exist.")
+        XCTAssertEqual(ResolvePieceInLanguage.clearConfirmTitle(count: 1),
+                       "Clear 1 left-over translation? Its paragraph no longer exists.")
+        XCTAssertTrue(ResolvePieceInLanguage.leftOversStartShown(count: 3))
+        XCTAssertFalse(ResolvePieceInLanguage.leftOversStartShown(count: 4))
+    }
+
     // MARK: - Left over from deleted paragraphs
 
     /// **Left-over rows act only on the open piece**, where the author may
@@ -491,6 +623,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         let head = try code("PieceInLanguageHeadView")
         for token in [
             "if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {",
+            "let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,",
             "TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)",
             "Button(TranslationRunState.runTitle) { runThisPiece() }",
             "let outcome = await ResolvePieceInLanguage.run(language: language, docId: docId,",
@@ -499,7 +632,11 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             "lastRun: roster?.translationRuns.run(docId: docId, language: language),",
             "if ResolvePieceInLanguage.offersClear(",
             "isOpen: isOpen, authorPosture: documentStore.posture(forDocId: docId)) {",
-            "clear(translation.leftOvers.map(\\.id))",
+            "confirmingClear = translation.leftOvers",
+            "switch ResolvePieceInLanguage.clearDecision(shown: shown, now: now.leftOvers) {",
+            "if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, titleOf: {",
+            "pipeline: ResolvePieceInLanguage.pipelineStatus(pipeline, relation: relation),",
+            "}, relation: relation) {",
             "notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,",
             "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(stopped) }",
             "Button(ResolveEditionItems.openTheReportTitle) { onShowRound(round) }",
@@ -561,7 +698,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             ("the caret paragraph's source", caret,
              "if !control.showsSourceUnder, let source = document.paragraph(id: selected.paragraphId),"),
             ("the caret paragraph's freshness chip", caret, "TranslationStatusChip(status: selected.status)"),
-            ("no caret paragraph: a placeholder", caret, "Text(Self.placeCaretLine)"),
+            ("no caret paragraph: a placeholder", caret, "Text(entries.isEmpty ? Self.noSurfaceLine : Self.placeCaretLine)"),
             ("Gloss", caret, "Button(SpotCheck.glossTitle) { runGloss(paragraphId) }"),
             ("Ask the Collator", caret, "Button(SpotCheck.askTitle) { runAsk(paragraphId) }"),
             ("busy while the window's runner is out", caret,
@@ -598,8 +735,8 @@ final class ResolvePieceInLanguageTests: XCTestCase {
             ("Answer as ruling", resolve + "ResolveDialogs.swift", "QueryRulingSheet("),
             ("a refused ruling said", resolve + "ResolveDialogs.swift", "\"That answer could not be filed\","),
             ("the author's verbs follow the posture", resolve + "ResolvePane.swift", "AnnotationRowVerbs.decide("),
-            ("left-over translations listed", head, "ForEach(leftOvers) { leftOver in"),
-            ("Remove All", head, "clear(translation.leftOvers.map(\\.id))"),
+            ("left-over translations listed", head, "PieceInLanguageLeftOvers(leftOvers: translation.leftOvers, preview: !shown.wrappedValue)"),
+            ("Remove All", head, "confirmingClear = translation.leftOvers"),
             ("Remove hidden where the author may not translate", head, "if ResolvePieceInLanguage.offersClear("),
             ("a Clear re-derives every surface", head,
              "MaughamEvent.post(.maughamTranslationDidUpdate, to: .project(for: projectURL),"),

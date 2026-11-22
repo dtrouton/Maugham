@@ -435,7 +435,9 @@ struct ResolveHeadView: View {
                 firstParagraph: snapshot.sequences[docId]?.first,
                 paragraphText: snapshot.paragraphText,
                 model: compilerModel.claudeModel, world: world,
-                onShowRound: onShowRound, translationHeard: translationHeard)
+                onShowRound: onShowRound, translationHeard: translationHeard,
+                isOpening: openDocId == docId && documentStore.document(forDocId: docId) == nil,
+                hasItemsToAnswer: ResolveHead.hasItemsToAnswer(snapshot.items, docId: docId))
         case .nothing:
             EmptyView()
         }

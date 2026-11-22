@@ -457,6 +457,16 @@ enum ResolveEditionItems {
                           letterIsEarlier: letter.map { $0.number < newest.number } ?? false)
     }
 
+    /// **The edition head's leg line names the chapter of a one-chapter
+    /// round** (shell p4 Task 9 fix round, I2's sibling): a book run's line
+    /// already says "3 of 12"; a single chapter's said only the leg, and read
+    /// as the whole edition running.
+    static func runningLine(_ line: String, pipeline: TranslationPipeline.Status,
+                            titleOf: (String) -> String?) -> String {
+        guard case .running(let docId, _, _, nil) = pipeline, let title = titleOf(docId) else { return line }
+        return "\u{201C}\(title)\u{201D} \u{00B7} \(line)"
+    }
+
     static let earlierLetterLabel = "The last finished round\u{2019}s letter"
 
     /// `held` with its edition kinds replaced by `items`: the walks' questions
@@ -1207,7 +1217,9 @@ struct EditionHeadView: View {
             // from the ledger: this head's run has no chapter, so the
             // translator's own failure phase never reaches it — fix round I3.)
             if run.isRunning, let status = run.statusLine {
-                Text(status)
+                Text(ResolveEditionItems.runningLine(
+                    status, pipeline: roster?.pipeline.status ?? .idle,
+                    titleOf: { TreeWalk.find(id: $0, in: store.manifest.structure)?.title }))
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)

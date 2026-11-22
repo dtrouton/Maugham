@@ -71,8 +71,7 @@ A row with anything To resolve would list carries one small accent dot at its tr
 ## Not yet built
 
 - Built in [ADR 0037](0037-brief-and-the-pulled-up-thing.md): the Brief, the pulled-up thing and the fold, ⌘2 and ⌘3, and the check's strains and silent-clause readings (drawn as marks on the intent in Brief; a clause the draft holds draws nothing).
-- The translator's letter at the head (a `TranslationRound`, kept per language) and edition scope. The translator's changes (the design lists "questions and changes"; only questions, a note carrying a `language`, are built).
-- Glossary proposals, design proposals, compile problems and figure source-changed items in To resolve.
+- Built in shell plan 4 (Tasks 6 and 9): the translator's letter at the head, edition scope and a piece read in a language; the translator's changes, glossary proposals, design proposals and compile problems as items. Still unbuilt: figure source-changed items.
 - Status views; the margin setting; the rewrite of the guide, the welcome tour and Claude's help text (`docs/guide/annotations-and-suggestions.md` and others still describe the old panes). The translation round report's interim pane still uses the old "ruled" sentence.
 
 ## Consequences

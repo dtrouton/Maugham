@@ -124,6 +124,38 @@ enum ResolvePieceInLanguage {
             : "\(count) translations left over from deleted paragraphs"
     }
 
+    // MARK: Clear, asked and decided over the store (fix round 1, M2 + M3)
+
+    /// Whether the left-over texts start shown: a few, always; many start as
+    /// the count with their first lines.
+    static func leftOversStartShown(count: Int) -> Bool { count <= 3 }
+
+    static func clearConfirmTitle(count: Int) -> String {
+        count == 1
+            ? "Clear 1 left-over translation? Its paragraph no longer exists."
+            : "Clear \(count) left-over translations? Their paragraphs no longer exist."
+    }
+
+    enum ClearDecision: Equatable {
+        case clear([String])
+        case refuse(String)
+    }
+
+    /// **Clear writes exactly what was shown, and only while the store still
+    /// holds it so.** `now` is the store's left-overs at the press; a shown
+    /// one that came back to a paragraph, or whose text changed, refuses the
+    /// whole Clear — nothing is cleared that the writer did not see.
+    static func clearDecision(shown: [LeftOver], now: [LeftOver]) -> ClearDecision {
+        let current = Dictionary(now.map { ($0.id, $0.staleText) }, uniquingKeysWith: { a, _ in a })
+        guard !shown.isEmpty, shown.allSatisfy({ current[$0.id] == $0.staleText }) else {
+            return .refuse(changedSinceShownLine)
+        }
+        return .clear(shown.map(\.id))
+    }
+
+    static let changedSinceShownLine =
+        "These translations changed since they were shown, so nothing was cleared. Look at them again."
+
     static let clearTitle = "Clear"
     static let clearHelp = "Remove these translations: the paragraphs they were made for are gone. "
         + "Nothing in the text changes."
@@ -168,20 +200,97 @@ enum ResolvePieceInLanguage {
         "\(LanguageName.title(language)) translation"
     }
 
+    // MARK: Whose run it is (fix round 1, I2)
+
+    /// **What the project's one pipeline is doing, seen from this piece in
+    /// this language.** The pipeline is project-wide and its status names a
+    /// pair, so a head that matched by language alone drew another chapter's
+    /// leg and a Cancel that killed it (review I2).
+    enum PieceRun: Equatable {
+        case none
+        /// This piece's round in this language — or a book run in it that has
+        /// this piece still to reach (`TranslationPipeline.queue`).
+        case this
+        /// Any other round: another chapter, or this one in another language.
+        case elsewhere(docId: String, language: String, book: TranslationPipeline.BookProgress?)
+    }
+
+    static func pieceRun(status: TranslationPipeline.Status, queued: [String],
+                         docId: String, language: String) -> PieceRun {
+        guard case .running(let runDoc, let runLanguage, _, let book) = status else { return .none }
+        if runLanguage.caseInsensitiveCompare(language) == .orderedSame,
+           runDoc == docId || queued.contains(docId) {
+            return .this
+        }
+        return .elsewhere(docId: runDoc, language: runLanguage, book: book)
+    }
+
+    /// The pipeline's status as this head may draw it: its own run's, else
+    /// idle — so `TranslationRunState.resolve` draws no leg and no Cancel for
+    /// another chapter's round.
+    static func pipelineStatus(_ status: TranslationPipeline.Status,
+                               relation: PieceRun) -> TranslationPipeline.Status {
+        relation == .this ? status : .idle
+    }
+
+    /// The quiet line for a round running elsewhere — no Cancel here; the
+    /// toolbar's indicator is where that run is reached.
+    static func elsewhereLine(_ relation: PieceRun, titleOf: (String) -> String?) -> String? {
+        guard case .elsewhere(let docId, let language, let book) = relation else { return nil }
+        let title = titleOf(docId).map { "\u{201C}\($0)\u{201D}" } ?? "another chapter"
+        let progress = book.map { " (\($0.position) of \($0.count))" } ?? ""
+        return "Translating \(title) into \(LanguageName.title(language))\(progress)\u{2026}"
+    }
+
     // MARK: Run, on this piece
 
     /// **Whether Run is drawn**: on the open piece only (plan 2's rule — a
     /// round translates the document the window is on), where this Mac's
     /// TRANSLATOR may translate it (`TranslationRunOffers.decide`, the
-    /// desk's rule). Elsewhere the head says how instead.
-    static func offersRun(docId: String, isOpen: Bool, mayTranslate: (String) -> Bool) -> Bool {
-        isOpen && TranslationRunOffers.decide(target: docId, book: [docId], mayTranslate: mayTranslate).run
+    /// desk's rule), and not while the one pipeline runs another round
+    /// (the head says which instead).
+    static func offersRun(docId: String, isOpen: Bool, mayTranslate: (String) -> Bool,
+                          relation: PieceRun = .none) -> Bool {
+        if case .elsewhere = relation { return false }
+        return isOpen && TranslationRunOffers.decide(target: docId, book: [docId], mayTranslate: mayTranslate).run
     }
 
     /// In place of Run on a piece that is not open: its click opens it,
     /// read in the language.
     static func openToRunLine(noun: String) -> String {
         "Open this \(noun) to run a round on it"
+    }
+
+    /// **What the Run slot holds** (fix round 1, I1 + M12): Run on the open
+    /// piece; "Opening…" while the open piece is still registering (never an
+    /// offer to open what is already opening); otherwise the line that opens
+    /// it — naming its questions when the list has some whose Reply needs it
+    /// open (`ResolveHead.hasItemsToAnswer`), as the ordinary head does.
+    enum OpenSlot: Equatable {
+        case run
+        case opening
+        case open(String)
+    }
+
+    static func openSlot(isOpen: Bool, isOpening: Bool, hasItemsToAnswer: Bool, noun: String) -> OpenSlot {
+        if isOpen { return .run }
+        if isOpening { return .opening }
+        return .open(hasItemsToAnswer ? "Open this \(noun) to answer its questions" : openToRunLine(noun: noun))
+    }
+
+    static let openingLine = "Opening\u{2026}"
+
+    /// **What Run costs, for the piece and language it was taken for**
+    /// (fix round 1, M1): another piece shows nothing, never a stale figure.
+    struct Cost: Equatable {
+        let docId: String
+        let language: String
+        let answer: TranslationPreflight.Budgets.Answer?
+
+        func answer(docId: String, language: String) -> TranslationPreflight.Budgets.Answer? {
+            docId == self.docId && language.caseInsensitiveCompare(self.language) == .orderedSame
+                ? answer : nil
+        }
     }
 
     static func runHelp(language: String, title: String) -> String {
@@ -405,15 +514,35 @@ struct PieceInLanguageHeadView: View {
     let onShowRound: (TranslationRound) -> Void
     /// The read's own key: a new translation re-reads (`.maughamTranslationDidUpdate`).
     var translationHeard: Int = 0
+    /// The piece is the one open in the centre but its `Document` is still
+    /// registering (fix round 1, M12): the head says it is opening.
+    var isOpening: Bool = false
+    /// The list holds a question whose Reply needs the piece open
+    /// (`ResolveHead.hasItemsToAnswer`, fix round 1, I1).
+    var hasItemsToAnswer: Bool = false
 
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
     @State private var castPrompt: EditionCastPrompt?
-    @State private var preflight: TranslationPreflight.Budgets.Answer?
+    @State private var cost: ResolvePieceInLanguage.Cost?
     @State private var derived: ResolvePieceInLanguage.Translation?
     @State private var showsOutOfDate = false
-    @State private var showsLeftOvers = false
+    /// nil: the default for the count (`leftOversStartShown`).
+    @State private var showsLeftOvers: Bool?
     @State private var clearing = false
+    @State private var confirmingClear: [ResolvePieceInLanguage.LeftOver]?
+
+    /// What Run costs on THIS piece in this language; nil for any other.
+    private var preflight: TranslationPreflight.Budgets.Answer? {
+        cost?.answer(docId: docId, language: language)
+    }
+
+    /// The project's one pipeline, seen from this piece (fix round 1, I2).
+    private var relation: ResolvePieceInLanguage.PieceRun {
+        guard let pipeline = roster?.pipeline else { return .none }
+        return ResolvePieceInLanguage.pieceRun(status: pipeline.status, queued: pipeline.queue,
+                                               docId: docId, language: language)
+    }
 
     private struct PreflightKey: Equatable {
         let docId: String
@@ -446,6 +575,10 @@ struct PieceInLanguageHeadView: View {
               control.translationLanguage?.caseInsensitiveCompare(language) == .orderedSame
         else { return nil }
         let badges = control.translationBadges
+        // An empty surface is a refused read (the editor says why in the
+        // centre) or one not derived yet: the head reads for itself and says
+        // what is true (fix round 1, M4).
+        guard !badges.entries.isEmpty else { return nil }
         return ResolvePieceInLanguage.translation(
             docId: docId, language: language,
             statuses: badges.entries.map { ($0.paragraphId, $0.status) }, orphans: badges.orphans)
@@ -495,14 +628,31 @@ struct PieceInLanguageHeadView: View {
                                heard: translationHeard)) {
             guard isOpen, TranslationPreflight.refillsBudgets(pipeline: roster?.pipeline.status ?? .idle)
             else { return }
+            let asked = (docId, language)
             let answer = await TranslationPreflight.editionBudget(
                 documentIds: [docId], language: language, store: store, documentStore: documentStore)
-            if !Task.isCancelled { preflight = answer }
+            if !Task.isCancelled {
+                cost = ResolvePieceInLanguage.Cost(docId: asked.0, language: asked.1, answer: answer)
+            }
         }
         .onChange(of: docId) { _, _ in
             notice = nil
             showsOutOfDate = false
-            showsLeftOvers = false
+            showsLeftOvers = nil
+            confirmingClear = nil
+        }
+        .confirmationDialog(
+            ResolvePieceInLanguage.clearConfirmTitle(count: confirmingClear?.count ?? 0),
+            isPresented: Binding(get: { confirmingClear != nil },
+                                 set: { if !$0 { confirmingClear = nil } })
+        ) {
+            Button(ResolvePieceInLanguage.clearTitle, role: .destructive) {
+                if let shown = confirmingClear { clear(shown) }
+                confirmingClear = nil
+            }
+            Button(TranslationRunState.cancelTitle, role: .cancel) { confirmingClear = nil }
+        } message: {
+            Text(ResolvePieceInLanguage.clearHelp)
         }
         .sheet(item: $castPrompt) { prompt in
             EditionCastSheet(prompt: prompt,
@@ -527,10 +677,8 @@ struct PieceInLanguageHeadView: View {
         EditionStatus.translatorName(for: language, in: store.manifest) ?? language.uppercased()
     }
 
-    private var isRunning: Bool {
-        let status = roster?.pipeline.status ?? .idle
-        return status != .idle
-    }
+    /// Whether THIS piece's round runs — never another chapter's (M10).
+    private var isRunning: Bool { relation == .this }
 
     @ViewBuilder
     private var letter: some View {
@@ -598,15 +746,31 @@ struct PieceInLanguageHeadView: View {
                 runState: runState, isRunning: roster?.translator.isRunning ?? false, pipeline: pipeline),
             runState: runState,
             lastRun: roster?.translationRuns.run(docId: docId, language: language),
-            pipeline: pipeline, trend: read.trend, chapterPreflight: preflight)
+            pipeline: ResolvePieceInLanguage.pipelineStatus(pipeline, relation: relation),
+            trend: read.trend, chapterPreflight: preflight)
     }
 
     @ViewBuilder
     private var runSection: some View {
         let run = runState
+        let relation = relation
+        let slot = ResolvePieceInLanguage.openSlot(isOpen: isOpen, isOpening: isOpening,
+                                                   hasItemsToAnswer: hasItemsToAnswer, noun: noun)
+        // Another chapter's round: said quietly, no Cancel and no Run here
+        // (the toolbar's indicator reaches it) — fix round 1, I2.
+        if let elsewhere = ResolvePieceInLanguage.elsewhereLine(relation, titleOf: {
+            TreeWalk.find(id: $0, in: store.manifest.structure)?.title
+        }) {
+            Text(elsewhere)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("resolve.pieceInLanguage.elsewhere")
+        }
         if ResolvePieceInLanguage.offersRun(docId: docId, isOpen: isOpen, mayTranslate: {
             TranslationRunStart.postureOfTheTranslator(forPiece: $0, in: documentStore).allows(.translate)
-        }) {
+        }, relation: relation) {
             FlowLayout(spacing: 6) {
                 Button(TranslationRunState.runTitle) { runThisPiece() }
                     .controlSize(.small)
@@ -628,8 +792,12 @@ struct PieceInLanguageHeadView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if !isOpen {
-            ResolveOpenThePieceButton(line: ResolvePieceInLanguage.openToRunLine(noun: noun)) {
+        } else if case .opening = slot {
+            Text(ResolvePieceInLanguage.openingLine)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if case .open(let line) = slot {
+            ResolveOpenThePieceButton(line: line) {
                 if let firstParagraph {
                     TranslationReveal.post(ResolvePieceInLanguage.reveal(
                         docId: docId, language: language, paragraphId: firstParagraph))
@@ -689,13 +857,18 @@ struct PieceInLanguageHeadView: View {
             }
         }
         if !translation.leftOvers.isEmpty {
+            let count = translation.leftOvers.count
+            let shown = Binding(
+                get: { showsLeftOvers ?? ResolvePieceInLanguage.leftOversStartShown(count: count) },
+                set: { showsLeftOvers = $0 })
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                disclosureLine(ResolvePieceInLanguage.leftOverLine(count: translation.leftOvers.count),
-                               isShown: $showsLeftOvers, identifier: "resolve.pieceInLanguage.leftOvers")
+                disclosureLine(ResolvePieceInLanguage.leftOverLine(count: count),
+                               isShown: shown, identifier: "resolve.pieceInLanguage.leftOvers")
                 if ResolvePieceInLanguage.offersClear(
                     isOpen: isOpen, authorPosture: documentStore.posture(forDocId: docId)) {
+                    // Asks first, naming the count (fix round 1, M3).
                     Button(ResolvePieceInLanguage.clearTitle) {
-                        clear(translation.leftOvers.map(\.id))
+                        confirmingClear = translation.leftOvers
                     }
                     .controlSize(.small)
                     .fixedSize()
@@ -703,9 +876,9 @@ struct PieceInLanguageHeadView: View {
                     .help(ResolvePieceInLanguage.clearHelp)
                 }
             }
-            if showsLeftOvers {
-                PieceInLanguageLeftOvers(leftOvers: translation.leftOvers)
-            }
+            // The texts are what Clear removes: shown, or — many — their
+            // first lines under the count.
+            PieceInLanguageLeftOvers(leftOvers: translation.leftOvers, preview: !shown.wrappedValue)
         }
     }
 
@@ -731,11 +904,21 @@ struct PieceInLanguageHeadView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private func clear(_ ids: [String]) {
+    /// **Clear what was shown, as the STORE holds it at the press** (fix
+    /// round 1, M2): the left-overs are read again from the translation
+    /// files, and a shown one that changed refuses the whole Clear.
+    private func clear(_ shown: [ResolvePieceInLanguage.LeftOver]) {
         clearing = true
         Task { @MainActor in
-            notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,
-                                                                   projectURL: store.url)
+            let now = await ResolvePieceInLanguage.readTranslation(
+                docId: docId, language: language, store: store, documentStore: documentStore)
+            switch ResolvePieceInLanguage.clearDecision(shown: shown, now: now.leftOvers) {
+            case .clear(let ids):
+                notice = await ResolvePieceInLanguage.clearAndAnnounce(ids, docId: docId, language: language,
+                                                                       projectURL: store.url)
+            case .refuse(let sentence):
+                notice = now.unreadable.map(ResolvePieceInLanguage.unreadableLine) ?? sentence
+            }
             clearing = false
         }
     }
@@ -750,10 +933,17 @@ struct PieceInLanguageParagraphLinks: View {
     let translation: ResolvePieceInLanguage.Translation
     let paragraphText: [String: String]
 
+    private struct Row: Identifiable {
+        let id: String
+        let stale: Bool
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(translation.outOfDate + translation.untranslated, id: \.self) { paragraphId in
-                paragraphLink(paragraphId, stale: translation.outOfDate.contains(paragraphId))
+            // Each row's kind travels with it — no per-row lookup (tripwire 4).
+            ForEach(translation.outOfDate.map { Row(id: $0, stale: true) }
+                    + translation.untranslated.map { Row(id: $0, stale: false) }) { row in
+                paragraphLink(row.id, stale: row.stale)
             }
         }
         .padding(.leading, 14)
@@ -789,16 +979,26 @@ struct PieceInLanguageParagraphLinks: View {
 /// discloses them: their text, selectable, quiet.
 struct PieceInLanguageLeftOvers: View {
     let leftOvers: [ResolvePieceInLanguage.LeftOver]
+    /// The count's preview: the first two, two lines each, and how many more.
+    var preview: Bool = false
+
+    static let previewCount = 2
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(leftOvers) { leftOver in
+            ForEach(preview ? Array(leftOvers.prefix(Self.previewCount)) : leftOvers) { leftOver in
                 Text(leftOver.staleText)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    .lineLimit(preview ? 2 : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if preview, leftOvers.count > Self.previewCount {
+                Text("and \(leftOvers.count - Self.previewCount) more")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding(.leading, 14)

@@ -101,7 +101,9 @@ struct PieceInLanguageCaretSection: View {
                         projectURL: store.url, cardVersion: control.figureCardVersion)
                 }
             } else {
-                Text(Self.placeCaretLine)
+                // No translated surface at all is not a caret the writer can
+                // move (fix round 1, M4): say what is missing.
+                Text(entries.isEmpty ? Self.noSurfaceLine : Self.placeCaretLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -117,6 +119,8 @@ struct PieceInLanguageCaretSection: View {
 
     static let heading = "This paragraph"
     static let placeCaretLine = "Put the caret in a paragraph to spot-check it."
+    static let noSurfaceLine =
+        "Spot-checks need this translation on screen, and it is not: see the line above the text."
     static let glossHelp = "Ask what this paragraph now says, rendered back into your own language."
     static let askHelp = "Ask the collator whether this paragraph still says what you wrote."
 

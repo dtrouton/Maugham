@@ -16,7 +16,7 @@ The right column has three positions, in one order, selected by ⌘1, ⌘2 and �
 
 | Position | Faces / state | Shows |
 |---|---|---|
-| To resolve | translation review on, the faces' piece open | `TranslationReviewPane` (interim) |
+| To resolve | a piece read in a language (switched, or faced under its edition) | that language's list for the piece, headed by its round (`ResolveScope.pieceInLanguage`; the translation review pane was deleted in shell p4 Task 9) |
 | To resolve | an edition is the faces | the edition's own list and head (`ResolveScope.edition`; the desk was deleted in shell p4 Task 7) |
 | To resolve | anything else | `ResolvePane` ([ADR 0036](0036-to-resolve.md)) |
 | Brief | a piece; a Part; the Book; an edition; a Collection reference piece; anything else | the piece's Brief; the Part's; the Book's; the edition's; "This piece belongs to another project"; an empty state naming what Brief holds |

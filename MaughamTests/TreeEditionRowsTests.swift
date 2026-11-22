@@ -312,7 +312,7 @@ final class TreeEditionRowsTests: XCTestCase {
             ("the open chapter's last run report (lastRun)", views + "Resolve/ResolvePieceInLanguage.swift",
              "lastRun: roster?.translationRuns.run(docId: docId, language: language),"),
             ("\"Open a chapter to run it\"", views + "Resolve/ResolvePieceInLanguage.swift",
-             "ResolveOpenThePieceButton(line: ResolvePieceInLanguage.openToRunLine(noun: noun)) {"),
+             "return .open(hasItemsToAnswer ? \"Open this \\(noun) to answer its questions\" : openToRunLine(noun: noun))"),
         ]
         let gone: [String: String] = [
             "the book's title over the desk": "the edition is the subject; the tree and the centre name it",

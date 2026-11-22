@@ -411,6 +411,19 @@ final class RightColumnPaneWidthTests: XCTestCase {
                 ("paragraph links", AnyView(PieceInLanguageParagraphLinks(translation: translation,
                                                                           paragraphText: text))),
                 ("left-overs", AnyView(PieceInLanguageLeftOvers(leftOvers: translation.leftOvers))),
+                ("left-overs, previewed", AnyView(PieceInLanguageLeftOvers(
+                    leftOvers: Array(repeating: translation.leftOvers, count: 4).flatMap { $0 }.enumerated()
+                        .map { .init(id: "z\($0.offset)", staleText: $0.element.staleText) },
+                    preview: true))),
+                // A piece's ordinary head with Earlier letters (fix round 1, M11).
+                ("Earlier letters", AnyView(HeadLetterArea(
+                    latest: nil,
+                    earlier: [CompilerRun(id: "r1", at: Date(), model: "m", lastOpId: nil, deltaSummary: "",
+                                          intentSnapshot: nil, passId: "line", round: 12, kind: .round,
+                                          readerName: nil, letter: nil)],
+                    passes: [ReviewPass(id: "line", name: "Line",
+                                        editorName: String(repeating: "Maxwell Perkins ", count: 4))],
+                    block: { _, _ in AnyView(EmptyView()) }))),
             ] {
                 let (fits, measured) = Self.fits(list, in: width)
                 if !fits { offenders.append("\(name) → \(measured)pt in \(width)pt") }
