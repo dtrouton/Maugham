@@ -1,6 +1,6 @@
 # ADR 0037 — Brief, the pulled-up thing and the fold: what the right column is about, and what hangs under a piece
 
-**Date:** 2026-11-20 · **Status:** Accepted (plan 3 of a multi-plan milestone; see "Not yet built"; brought true at the final fix wave) · **Milestone:** shell-p3-brief-and-the-pulled-up-thing (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md` ("Brief", "The pulled-up thing", "The fold") · **Builds on:** [ADR 0035](0035-the-subject-not-the-persona.md), [ADR 0036](0036-to-resolve.md) · **Cited by:** the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1 (plan 5)
+**Date:** 2026-11-20 · **Status:** Accepted (plan 3 of a multi-plan milestone; see "Not yet built"; brought true at the final fix wave; the interim homes closed by [ADR 0038](0038-status-editions-and-translation.md)) · **Milestone:** shell-p3-brief-and-the-pulled-up-thing (branch `claude/shell-without-personas`) · **Design:** `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md` ("Brief", "The pulled-up thing", "The fold") · **Builds on:** [ADR 0035](0035-the-subject-not-the-persona.md), [ADR 0036](0036-to-resolve.md) · **Cited by:** the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1 (plan 5)
 
 ## Context
 
@@ -16,8 +16,8 @@ The right column has three positions, in one order, selected by ⌘1, ⌘2 and �
 
 | Position | Faces / state | Shows |
 |---|---|---|
-| To resolve | a piece read in a language (switched, or faced under its edition) | that language's list for the piece, headed by its round (`ResolveScope.pieceInLanguage`; the translation review pane was deleted in shell p4 Task 9) |
-| To resolve | an edition is the faces | the edition's own list and head (`ResolveScope.edition`; the desk was deleted in shell p4 Task 7) |
+| To resolve | a piece read in a language (switched, or faced under its edition) | that language's list for the piece, headed by its round (`ResolveScope.pieceInLanguage`; the translation review pane is deleted, [ADR 0038](0038-status-editions-and-translation.md)) |
+| To resolve | an edition is the faces | the edition's own list and head (`ResolveScope.edition`; the desk is deleted, [ADR 0038](0038-status-editions-and-translation.md)) |
 | To resolve | anything else | `ResolvePane` ([ADR 0036](0036-to-resolve.md)) |
 | Brief | a piece; a Part; the Book; an edition; a Collection reference piece; anything else | the piece's Brief; the Part's; the Book's; the edition's; "This piece belongs to another project"; an empty state naming what Brief holds |
 | Pulled up | something is pulled up (`subject.beside`) | that item with its details, under `BesideHeader` (Back, Open in Centre, Close); with the canvas the centre and a card, region or line selected on it since the last pull-up, the canvas's details instead (below); with a figure, a research item or a Collection reference piece the centre, the centre's details above it as a section, collapsed until opened (below) |
@@ -26,7 +26,7 @@ The right column has three positions, in one order, selected by ⌘1, ⌘2 and �
 
 A screenplay's Book Brief is its script's Brief, by the rule To resolve applies (`ResolveScope.of`, [ADR 0036](0036-to-resolve.md)), which Brief asks rather than restates. The Pulled up position is **hidden, never disabled, while it would show nothing** (`RightColumnContent.offersPulledUp`); a window restored on it with nothing to show still draws the selected segment over "Nothing pulled up". The control is three plain buttons rather than a segmented `Picker`, because a picker cannot carry a middle-truncated title or a dot per segment; the title is drawn at 200pt and wider (`RightColumnControl.titleFloor`), below which a segment is its icon. **To resolve and Brief are written out where they fit** (appraisal wave, 2026-11-20; `RightColumnControl.showsNames`, pure): with the two segments alone from 200pt of pane, beside the pulled-up segment's icon from 260pt, beside its title from 340pt; below that the title keeps the room and the names are icons. A name is drawn whole or not at all. The unread dot sits on To resolve; the "proposed" signal is the dot on Brief.
 
-**The faces are named** (appraisal wave): To resolve (and its two interim answers) and Brief lead with one quiet line, the faces' title (`RightColumnSubjectLine.title`: a piece's or Part's tree title, the book's title, a figure's name, "<Language> edition"), from the faces the panes already render from; nothing where the faces name nothing (the canvas, the Inbox, the Palette, research). On the canvas, or with an edition open, the line says whose To resolve and whose Brief the writer is in.
+**The faces are named** (appraisal wave): To resolve and Brief lead with one quiet line, the faces' title (`RightColumnSubjectLine.title`: a piece's or Part's tree title, the book's title, a figure's name, "<Language> edition"), from the faces the panes already render from; nothing where the faces name nothing (the canvas, the Inbox, the Palette, research). On the canvas, or with an edition open, the line says whose To resolve and whose Brief the writer is in.
 
 **Why one answer.** The old picker's order, offers and carried segments were four rules agreeing by accident (`DetailSegmentOrderTests`). One value cannot disagree with itself, and the mounting census (`RightColumnMountingTests.test_theControlIsTheOneOrderUnderEverySubject`) measures it under every subject.
 
@@ -146,18 +146,16 @@ Brief's intent, the centre cover and a pulled-up statement can name one statemen
 | ⌘⌥H | pull up the faces' piece's History, or the project's where no piece is faced or open |
 | ⌘[ | pull up again what was pulled up before (Back; disabled with nothing to go back to) |
 | ⌘⌥E | open the faces' piece's fold in the tree (and the Parts above it; shows a hidden tree) |
-| ⌘⌥L | To resolve on Questions (shell p4 Task 7; the hint lines are gone) |
+| ⌘⌥L | To resolve on Questions ([ADR 0038](0038-status-editions-and-translation.md); the hint lines are gone) |
 | ⌘⌥K | the To resolve of the edition the window reads in, else the Source edition's; the faces move to it, the item is titled for it and disabled in a book with no editions (`EditionWiring`) |
 
 `RightColumnMountingTests.test_eachOldPaneKeyLandsWhereTheMapSays` and `test_everyPositionAndPullUpHasAMenuShortcut` pin the map.
 
 **The View menu groups them by where each lands** (appraisal wave): the window's toggles (⌘⌥0 is **Hide Right Column** / **Show Right Column**, titled for the focused window's state; ⌘⌥⇧L is **Lock Research and Figures** / **Unlock…**, the toolbar padlock's press); then To resolve (⌘1, ⌘⌥D, ⌘⌥A, ⌘⌥T, ⌘⌥L, ⌘⌥K); Brief (⌘2, ⌘⌥I, ⌘⌥N); Pull Up (⌘3, ⌘⌥G, ⌘⌥Y, ⌘⌥V, ⌘⌥H, ⌘[); then the tree's places (⌘⌥E, ⌘⌥R, ⌘⌥P, ⌘⌥O, ⌘⌥B), each group behind a divider (`RightColumnAppraisalTests.test_theViewMenuGroupsTheRightColumnByWhereEachItemLands`). **A Brief field takes the keys through one request**: the post names the field, the receiver keeps it only where the faces' Brief draws it (`BriefField.isOffered(in:)`: a piece both, the Book Going for), the column hands it to Brief through the environment (`EnvironmentValues.briefFocus`), and the field consumes it whether or not it could take the keys, so it never fires on a later mount. Going for's editor is found and given the keys by `EditorFocusProbe`, which looks again on a short step while the statement binds.
 
-### Interim homes
+### Interim homes (closed)
 
-Until plan 4 builds an edition's faces and the piece-in-a-language view, the Department desk showed in To resolve while an edition was the faces (closed by shell p4 Tasks 6–7), and the translation review pane shows there while translation review is on: today's views, mounted unchanged in the position the design gives their successors (owner's answer, 2026-11-18). Without them publishing and translation review would have no home.
-
-**The interim loss** (owner's decision, recorded at the final wave): while the desk or the review shows in that position, To resolve's own list is unreachable, so ⌘⌥A, ⌘⌥D and ⌘⌥T select the position and DROP their filter (never left to fire on a later mount, `ProjectWindow.positionAsk`). Plan 4 closes it.
+Until plan 4 built an edition's faces and the piece-in-a-language view, the Department desk showed in To resolve while an edition was the faces, and the translation review pane while translation review was on: the old views, mounted unchanged in the position the design gives their successors (owner's answer, 2026-11-18). While either showed, To resolve's own list was unreachable, so ⌘⌥A, ⌘⌥D and ⌘⌥T selected the position and dropped their filter (the interim loss, owner's decision at the final wave). [ADR 0038](0038-status-editions-and-translation.md) closed both: an edition and a piece read in a language have their own To resolve, both views are deleted, and the keys keep their filter on every subject (`ProjectWindow.positionAsk` still drops a filter only where the column does not show the list).
 
 ### Where each old Inspector field went
 
@@ -194,7 +192,7 @@ The target field is a String that commits what was typed on Set, Return and focu
 - The Intent, Visual Language, What I've Learned and First Reader panes as picker members: they are Brief's Going for and the long statements pulled up or opened in the centre. The "Open Intent" row is gone because Brief shows the intent itself.
 - The References pane and its empty state naming two ways to pin: the shelf is a piece's fold, and an empty fold has no chevron; its piece's Brief names the ways in instead (appraisal wave). (The shelf's thumbnails were gone here too until the owner asked for them back on 2026-11-20: see the fold.)
 - The study column (`AssistantColumn`): one pin, read-only, ended by any newer act. The pulled-up thing persists until closed, and a research note or palette card is editable there.
-- The History, Translation and Department panes as pickers: History is pulled up, the other two are To resolve's interim answers.
+- The History, Translation and Department panes as pickers: History is pulled up; the other two were To resolve's interim answers until [ADR 0038](0038-status-editions-and-translation.md) deleted them.
 - A selected group showing the project's intent: it shows the Part's Brief.
 - The Inspector's debounced draft (it saved every field together 500 ms after any edit): each home writes on its own commit. Brief's line keeps the 500 ms debounce of its own (above), so ⌘Q never loses it.
 - The retired picker, study-column, References and Inspector suites: each assertion that policed behaviour that still ships moved onto the live code (the mapping is in the task report), and the presentation rule is `RightColumnMountingTests.test_escapeClosesThePulledUpThing`.
@@ -218,10 +216,9 @@ The target field is a String that commits what was typed on Set, Return and focu
 
 ## Not yet built
 
-Plans 4 and 5 of the same milestone. Nothing above depends on them.
+Plan 5 of the same milestone. Nothing above depends on it.
 
-- **Status views** and an edition's own faces; the edition scope in To resolve; the translation surfaces that replace the two interim homes (the translation round report's "Make it a rule" filing line still hard-codes its Brief).
-- **Round letters per piece.**
+- Built since, in [ADR 0038](0038-status-editions-and-translation.md): Status views and an edition's own faces; the edition scope in To resolve; a piece read in a language, which replaced the two interim homes; round letters per piece; a palette card inside a region listing under its region (decision 18). The round report's filed lines share To resolve's "Filed under" family (decision 22).
 - **The margin setting** and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1, which cites this ADR for the marks.
 - **The guide, the welcome tour and Claude's help text.** They still describe the old panes and ⌘⌥ keys; the branch does not ship before they are rewritten.
 
@@ -231,7 +228,7 @@ Plans 4 and 5 of the same milestone. Nothing above depends on them.
 - A piece's material is where the piece is, in the tree. A writer can pull a note up beside any chapter and keep it there while changing chapters.
 - Brief and the marks are the first place a check's reading of the intent is shown, under four terms a reviewer can check at any commit.
 - The statement host is now the load-bearing seam for three surfaces (Brief, the cover, the pulled-up statement); its gate, its close and its foreign re-read are tested as orderings.
-- Known limits: the narrower permissions above; opening an intent or History in the centre clears the chapter's typing undo; the interim desk and review pane carry old wording ("ruled" sentences) until plan 4.
+- Known limits: the narrower permissions above; opening an intent or History in the centre clears the chapter's typing undo. (The interim desk and review pane, with their old "ruled" wording, are gone: [ADR 0038](0038-status-editions-and-translation.md).)
 
 ## Decisions made during the build
 
@@ -254,7 +251,7 @@ Rulings taken on the build ledger's authority unless marked as the owner's. Cost
 15. The tree's Inbox refresh, which the picker's `.task` did, moved to `RightColumn.pane` (pinned in `WiringCensusTests`).
 16. `revealResearchColumn` is renamed `revealPulledUp`, not removed: Open on an item already pulled up changes no subject, so the observer never fires.
 17. Plan 2's parked minors: ADR 0036's "outlines" reads "draws selected"; the three register claims that said "the pane" say To resolve.
-18. **A region in the fold and pulled up** (owner's ask, 2026-11-20), built with these choices for the owner to overrule: a region row counts as one entry toward the six and sits in the Cards group; a palette card inside a region still lists under Palette (superseded by shell p4 Task 10: it lists under its region); the region's row shows a bare count; a promoted region shows its note first, beside; the fold's region holds what the shelf pins while the region beside holds what the canvas shows.
+18. **A region in the fold and pulled up** (owner's ask, 2026-11-20), built with these choices for the owner to overrule: a region row counts as one entry toward the six and sits in the Cards group; a palette card inside a region still lists under Palette (superseded by [ADR 0038](0038-status-editions-and-translation.md) section 11: it lists under its region, unless it is also pinned to the piece); the region's row shows a bare count; a promoted region shows its note first, beside; the fold's region holds what the shelf pins while the region beside holds what the canvas shows.
 19. **The appraisal wave** (owner, 2026-11-20: "we want the experience of users to be amazing not just ok"), built with these choices for the owner to overrule: the names in the control at the widths above; the faces' title over To resolve and Brief, and none over the pulled-up position (its header names its item); To resolve's line on a piece that is not open reads "Open this chapter to answer its notes" where the piece has notes or to-dos (the noun the project gives a piece), and "Open this chapter to run a check or a round on it" otherwise, and a Book or Part group whose piece is not open carries the first; ⌘⌥0 titled Hide/Show Right Column; ⌘⌥⇧L for Lock (L for Lock; ⌘⌥L was taken), whose padlock tooltip now says the manuscript stays editable; ⌘3's empty state names the fold and four keys, but not figures, because a fold's figure opens in the centre.
 20. **Brief's appraisal wave** (same ruling), built with these choices for the owner to overrule: Brief's order is the faces' title, the proposal notice, the format caption, the line, Going for, Decided, Details, From the book, What Claude has read, the empty fold's line, History; History is the last item of a piece's row menu, after Publishing…, behind the same divider; Details shows links as a count ("2 links") that opens Add Link…, and publishing as one line, "Publishing settings", with no values (they live in the publish config, which Brief does not read); an unset target reads "Set a target" for words and pages alike; the empty-fold line names dragging a research note onto the piece and setting a canvas region's Piece to it (a short story, whose fold is all its research, says adding research instead); the proposal notice shows on every Brief, the Book's included, where Visual Language's line keeps its own dot; Going for's editor starts at 120pt (it was a fixed 220pt) and has no ceiling.
 21. **The fold and pulled-up wave** (same ruling, 2026-11-21), built with these choices for the owner to overrule: a figure in a piece's fold pulls up beside, while the tree's Figures section still opens a figure in the centre (decision 19's reason for leaving figures out of ⌘3's empty state is gone, and the empty state now names them); a fold row's double-click is two presses on the same row within the system's double-click interval, and the first press still pulls the row up (or puts it away) for that moment, as a research row's does; Back keeps at most 10 entries, remembers what Close put away, and ⌘[ (View ▸ Pull Up Previous, the system's own Back key, free in this app) reaches it from the keyboard; the centre's details above a pulled-up thing start collapsed, read "Details of <name>" ("Details of what the centre shows" when the item has no name), take half the column when opened, and stay open for the window's session once opened; a piece row's sheets are presented by the window rather than the tree.

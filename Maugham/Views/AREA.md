@@ -27,7 +27,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
-- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority.
+- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority, let go when the window closes.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout`, `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and its `claude` services through `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
@@ -516,7 +516,7 @@ Checks: `PostureSurfaceTests`, `TripwireGrepTests.test_postureIsAskedOfThePermit
 
 ## Pointers
 - `docs/history/views.md` — the old guide verbatim: each rule's why and origin.
-- ADR 0035 (the subject, not the persona; supersedes in part 0005, 0025, 0031); ADR 0021 (window events); ADR 0023 (undo); ADR 0030 (the department desk, the round report, the reveal); ADR 0032 (posture and register surfaces).
+- ADRs 0035–0038 (the shell: subject, To resolve, Brief, Status and editions); 0021 (window events); 0023 (undo); 0030 (the round report, the reveal); 0032 (posture surfaces).
 - `docs/tripwires.md` rows 2–7, 9, 14–16, 21, 22, 33, 43, 47, 49–52, 55.
 - Specs: `docs/superpowers/specs/2026-11-16-subject-resolve-brief-shell-design.md`, `docs/superpowers/specs/2026-08-08-shell-finish-design.md`.
 - Neighbouring guides: `Maugham/Editor/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Stores/AREA.md`, `Maugham/OpLog/AREA.md`, `Maugham/Compiler/AREA.md`, `Maugham/Publish/AREA.md`.

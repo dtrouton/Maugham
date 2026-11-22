@@ -19,7 +19,7 @@ Plan 4 of 5 on `claude/shell-without-personas`. Twelve tasks, so it is split in 
 
 The cut falls where the edition's faces exist and the desk is unmounted but not yet deleted: 4b's first task deletes a view nothing mounts, so no task builds anything to be replaced. One branch; nothing is pushed, merged or tagged by any task; the branch merges only when all five plans are whole. No test-data migrations (tripwire 11).
 
-**Plan 5, not here:** the margin setting and the ADR 0027 §1 amendment; the guide, tour, help and cheat sheet; the whole-menu review (it will revisit the ⌘⌥ map this plan touches, File ▸ Add Language…, View ▸ "To Resolve: Questions" and the dynamic "To Resolve: <Language> Edition"; ⌘⌥L's silence where a scope has no questions; and the tree's ⌘↓ "Open in Centre" (Task 10), which has no menu item yet).
+**Plan 5, not here** (gathered in one list in "Plan 5's list" below, at Task 12): the margin setting and the ADR 0027 §1 amendment; the guide, tour, help and cheat sheet; the whole-menu review (it will revisit the ⌘⌥ map this plan touches, File ▸ Add Language…, View ▸ "To Resolve: Questions" and the dynamic "To Resolve: <Language> Edition"; ⌘⌥L's silence where a scope has no questions; and the tree's ⌘↓ "Open in Centre" (Task 10), which has no menu item yet).
 
 **Merge gate (Task 7 review M7):** the bundled in-app Help still describes the deleted Department desk (about 49 mentions across `docs/guide/publish-department.md`, `publishing.md`, `translation-review.md`, `right-pane.md`, `review-passes.md`, `sense-pass.md`; also `docs/roadmap.md`). The branch does not merge until plan 5 rewrites them (workflow rule 7).
 
@@ -302,7 +302,7 @@ Added after the plan was written; build it after Task 6. Denver's ruling: drop t
 
 **Tests.** The table above; a mounted Brief built through Task 1's host builder for a fresh piece asserting the foot is one line and that neither sentence nor an empty Decided heading is in the tree; one for a piece with a target and tags; the filing confirmation's rule as a pure test plus a wiring census that its button writes the position and nothing else. No press-then-wait (tripwire 33). **Disable experiment:** restore `emptyLine`'s draw and see the fresh-piece test go red.
 **Tripwires:** 4, 47/51, the `pieceRowSheet` presenter census, DocBudgetTests (Views/AREA.md ceiling), any test pinning the removed strings (delete those assertions with the strings; say which).
-**Hand check:** a brand-new chapter's Brief is the line, Going for and one foot line; set a target and tags and they appear in the foot; answer a note and "Filed in Brief" takes you there.
+**Hand check:** 18, 19 (a brand-new chapter's Brief is the line, Going for and one foot line; set a target and tags and they appear in the foot; answer a note and "Filed in Brief" takes you there).
 
 ---
 
@@ -442,7 +442,7 @@ enum TreeRowTag: Hashable { case subject(BinderSubject); case pullUp(PulledUp) }
 - [ ] **Step 4:** `./scripts/test.sh` (foreground). Commit `shell p4 task 10: a script's fold has its scenes, a region holds its palette cards, the keys reach every fold row`.
 
 **Tripwires:** 3 (the binding setter calls only `resolved` / `ClickRule.pullUp`), 4, 9, 31 (no membership change), `ReviewPassEditorTests`' `pullUp(` site count, `BinderTreeMultiselectMountTests` (re-made in Task 11).
-**Hand check:** 12, 13, 14.
+**Hand check:** 12, 13, 14, 15, 16.
 
 ---
 
@@ -470,7 +470,7 @@ enum TreeRowTag: Hashable { case subject(BinderSubject); case pullUp(PulledUp) }
 - [ ] **Steps:** failing tests; implement; disable experiments as above; `./gen.sh`; `./scripts/test.sh` (foreground) and `./scripts/test.sh full` (foreground) for the culls. Commit `shell p4 task 11: a promotion leaves the Collection's store live; three once-only failures settled`.
 
 **Tripwires:** 14, 33, `PromotePieceFigureTests`, `StatementGateOrderTests`.
-**Hand check:** 15.
+**Hand check:** 17.
 
 ---
 
@@ -488,9 +488,33 @@ enum TreeRowTag: Hashable { case subject(BinderSubject); case pullUp(PulledUp) }
 
 ---
 
+## Plan 5's list (gathered at Task 12)
+
+Everything this plan handed on, in one place. Plan 5 is written against the code, not this list (workflow rule 11); this is what it must not miss.
+
+1. **The whole-menu review.**
+   - ⌘↓ (Open in Centre on the selected tree row, Task 10) has no menu item.
+   - File ▸ Add Language… (Task 7) — keep, move or retitle.
+   - ⌘⌥L reads "To Resolve: Questions" and ⌘⌥K "To Resolve: <Language> Edition" (dynamic, `EditionWiring.editionForTheKey`); ⌘⌥L is silent where the scope has no questions (To resolve shows with its filter as it was).
+   - Two "Outline" items in the View menu: ⌘⌥O ("Outline", which selects the Book row) and ⌃⌘2 ("View as Outline"). Retitle ⌘⌥O.
+   - ⌃⌘1/2/3 (View as Cards / Outline / Status; Book / Status on an edition, Task 4): keep or move.
+   - ⌃⌘L (Read In Next Language) and View ▸ Read In ▸ … (Task 8).
+   - View ▸ Show Source Under Translation has no key.
+2. **The in-app Help merge gate.** The bundled guide (`docs/guide/`, shipped in the app) still describes the deleted desk and the deleted translation review pane, and the branch does not merge until plan 5 rewrites it (workflow rule 7). Counted at Task 12 (case-insensitive; "desk" not followed by "t", so "Claude Desktop" is not counted — Task 7's review's "about 49" counted more loosely):
+   - **The desk, 35 mentions on 8 pages:** `publish-department.md` 17, `publishing.md` 8, `review-passes.md` 3, `right-pane.md` 2, `translation-review.md` 2, `getting-started.md` 1, `reference.md` 1, `sense-pass.md` 1.
+   - **The review pane ("translation review", "review pane", "Review Translation"), 9 mentions on 4 pages:** `translation-review.md` 4, `editor-and-focus.md` 2, `publish-department.md` 2, `research.md` 1. `index.json` still titles the `translation-review` page.
+   - `docs/roadmap.md`: the desk 21 times, the review pane 5.
+   - `reference.md`'s rows for ⌘⌥L ("Translation pane") and ⌘⌥K ("Department pane — Publish's desk") are false.
+3. **The cheat sheet and the reference.** `Maugham/Resources/KeyboardShortcuts.swift` and `docs/guide/reference.md` name none of ⌃⌘1/2/3, ⌃⌘L or ⌘↓.
+4. **The margin setting** and the amendment to ADR 0027 §1.
+5. **The welcome tour and Claude's help text** (personas and ⌘1–4, from plan 1, still stand there too).
+6. **Figure source-changed items** in To resolve (ADR 0036's last unbuilt item kind).
+
 ## Hand checks owed to the owner
 
 Plans 1–3's hand checks stand. This plan adds:
+
+(Numbered once at Task 12, the smoke last. The owner's answers so far, 2026-11-22: in 14, the single click on a fold card staying up and arrowing with nothing pulled up; and the insertion line in 15 — "look good".)
 
 1. Run a check on two chapters and a round on a third, then close them all: those three rows carry a small dot beside the stage dot, a Part over one of them does too, and the others carry none. Settle a chapter's last note: its dot goes. In a screenplay, a scene with a note carries the dot.
 2. The toolbar switch on the Book: Cards, Outline, Status. Status reads stage, each pass, notes and to-dos per chapter; click a to-do count: the chapter opens on Mine. Click a chapter (Cards, Outline or Status): it opens.
@@ -506,12 +530,12 @@ Plans 1–3's hand checks stand. This plan adds:
 12. A Collection with a script: the script's fold is grouped with Scenes first ("Scenes (N)"); a scene opens the script there, from any centre. Type a new slugline in the script and pause: the Scenes group gains it. A prose piece beside it has no Scenes group.
 13. Put a palette card inside a canvas region bound to a chapter: the fold lists it under the region, not Palette, and the region pulled up beside lists it in the same place. (A card ALSO pinned to the chapter lists once, under Palette — the shelf's first claim.)
 14. Arrow keys through a chapter's fold, with the right column showing a pulled-up thing: cards, a picture, a region, a palette pin and a figure are each reached and selected at once; pause on one (~⅓ s) and it replaces what is pulled up; arrow quickly through five and only the last is pulled up, and ⌘[ goes back past none of the rows merely passed. With the column on To resolve or Brief (or hidden), arrowing only selects: the column never opens or changes. The same for research notes in the Research section and in folds. Return (or Space) on a selected row pulls it up now and shows the column; Return again puts it away (the row stays selected). ⌘↓ opens the selected row in the centre (a card or region: the canvas with it selected). The centre and the faces never move on an arrow. **Click safety (review I1):** a single click on a fold card that is not up comes up and STAYS up; a single click on the one up puts it away; a double-click opens it in the centre; after a click, ↓ continues from the clicked row. While renaming a note, Return commits the rename and pulls nothing up. VoiceOver on a card row reads "Card: <title>" and says what activating it does.
-14a. Drop-target feedback — the drop look is a DASHED ring (filled for "into"), or an insertion line with a hollow dot at its left end; nothing standing in the tree (the open row's fill, the faces' and the pulled-up row's solid outline, the selection) is dashed. Drag a research note over a chapter: dashed and filled (it will be linked); over the chapter it is already linked to: nothing. Drag a chapter over another chapter: a line above it in its top third, below it in its lower two thirds; over a Part: a line above in the top third, the Part filled in the middle third (it goes in), a line below in the bottom third. In a Collection, a piece over a piece: line above in the top half, below in the bottom half. Drag a note over a shared research note: line above or below where it lands; over a research group: line above, filled in the middle (into the group), line below. A Finder file over a research group: filled only in its middle third, a plain dashed ring at its edges (it lands in the group's container). A note over the Research header after dragging it out of a fold: filled; over Figures: nothing; a table over Figures: filled; anything over "No cards yet.": nothing. Drag over the open chapter's row and over a selected row: the look reads clearly on both, light and dark. Every look you see is the drop that lands; every target that shows nothing springs the drag back.
-14b. The Canvas row: with the Inbox in the centre, drag a capture onto the tree's Canvas row — it fills while you hover; the capture leaves the Inbox and the Canvas row gains a RED dot (the Inbox's "new" look, not the accent "to resolve" dot); open the Canvas: the card is selected and in view, loose, outside every region, and the dot is gone. Do the same with a research note, a research picture and a Finder photo. With the canvas already in the centre, drop a note on the Canvas row: it lands and no dot appears. A Finder text file or PDF over the Canvas row shows nothing and springs back. A chapter dragged over it shows nothing. With a canvas layout this build cannot read, nothing is accepted.
-15. (Task 11) A Collection with three pieces in two windows: Story B open in one, typing; Story A open in the other. Promote Story A from its window. **Success:** the new project opens in its own window; the Collection window's centre shows Story A's reference card (Open); Story B's window never stopped (no reload, no "Loading…"); open Story C in either window — it loads; quit and relaunch: every word is there. **Failure** (choose a destination inside a locked folder — Finder ▸ Get Info ▸ Locked): the alert gives the reason; nothing moved. (A failure after files moved — not reachable by hand; the tests drive it — reads "“Story A” couldn’t be promoted: <why> Everything was put back where it was.", or names the folder holding what could not go back, or "“Story A” is now a project at <path>, but the Collection couldn’t be changed to point at it…".) Story A's centre shows "Loading…" only for the moment the promotion runs, then its text again, editable; Story B never stopped. Let an edit to Story B sync in from another Mac: the window shows it. Then: Esc on a dimmed canvas, close that window, open another project and press Esc in a text field: it is not eaten.
-16. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
-17. (Task 6a) A brand-new chapter's Brief: the line, Going for, and one quiet line at the foot reading "Details · History" — no "Decided", no "What you answer…", no "Nothing is attached…". Click Details: Tags…, Add Link…, Target…, Publishing… (Publishing… only where publishing is set up). Set a target of 3,000 and tags rome, draft: the foot reads "3,000 words · rome, draft · Details · History", each value opens its sheet, Details still lists every sheet, and right-clicking the line offers them too. Narrow the column to its minimum: the tags read "2 tags", and Details and History stay whole on screen. Hover: each door brightens. With Keyboard navigation on, Tab reaches the foot's doors; VoiceOver reads "Word target: 3,000 words", "Tags: rome, draft", "History".
-18. (Task 6a) Answer a finding in a chapter's To resolve: the line under the head reads "Filed in Brief" in the accent colour; leave it a minute — it stays; click it — Brief shows that chapter with the answer under Decided. Back in To resolve, click anything in the list: the line goes. From the Book's list it reads "Filed in “<chapter>”'s Brief"; on an edition, "Filed under the Spanish edition brief" still.
+15. Drop-target feedback — the drop look is a DASHED ring (filled for "into"), or an insertion line with a hollow dot at its left end; nothing standing in the tree (the open row's fill, the faces' and the pulled-up row's solid outline, the selection) is dashed. Drag a research note over a chapter: dashed and filled (it will be linked); over the chapter it is already linked to: nothing. Drag a chapter over another chapter: a line above it in its top third, below it in its lower two thirds; over a Part: a line above in the top third, the Part filled in the middle third (it goes in), a line below in the bottom third. In a Collection, a piece over a piece: line above in the top half, below in the bottom half. Drag a note over a shared research note: line above or below where it lands; over a research group: line above, filled in the middle (into the group), line below. A Finder file over a research group: filled only in its middle third, a plain dashed ring at its edges (it lands in the group's container). A note over the Research header after dragging it out of a fold: filled; over Figures: nothing; a table over Figures: filled; anything over "No cards yet.": nothing. Drag over the open chapter's row and over a selected row: the look reads clearly on both, light and dark. Every look you see is the drop that lands; every target that shows nothing springs the drag back.
+16. The Canvas row: with the Inbox in the centre, drag a capture onto the tree's Canvas row — it fills while you hover; the capture leaves the Inbox and the Canvas row gains a RED dot (the Inbox's "new" look, not the accent "to resolve" dot); open the Canvas: the card is selected and in view, loose, outside every region, and the dot is gone. Do the same with a research note, a research picture and a Finder photo. With the canvas already in the centre, drop a note on the Canvas row: it lands and no dot appears. A Finder text file or PDF over the Canvas row shows nothing and springs back. A chapter dragged over it shows nothing. With a canvas layout this build cannot read, nothing is accepted.
+17. (Task 11) A Collection with three pieces in two windows: Story B open in one, typing; Story A open in the other. Promote Story A from its window. **Success:** the new project opens in its own window; the Collection window's centre shows Story A's reference card (Open); Story B's window never stopped (no reload, no "Loading…"); open Story C in either window — it loads; quit and relaunch: every word is there. **Failure** (choose a destination inside a locked folder — Finder ▸ Get Info ▸ Locked): the alert gives the reason; nothing moved. (A failure after files moved — not reachable by hand; the tests drive it — reads "“Story A” couldn’t be promoted: <why> Everything was put back where it was.", or names the folder holding what could not go back, or "“Story A” is now a project at <path>, but the Collection couldn’t be changed to point at it…".) Story A's centre shows "Loading…" only for the moment the promotion runs, then its text again, editable; Story B never stopped. Let an edit to Story B sync in from another Mac: the window shows it. Then: Esc on a dimmed canvas, close that window, open another project and press Esc in a text field: it is not eaten.
+18. (Task 6a) A brand-new chapter's Brief: the line, Going for, and one quiet line at the foot reading "Details · History" — no "Decided", no "What you answer…", no "Nothing is attached…". Click Details: Tags…, Add Link…, Target…, Publishing… (Publishing… only where publishing is set up). Set a target of 3,000 and tags rome, draft: the foot reads "3,000 words · rome, draft · Details · History", each value opens its sheet, Details still lists every sheet, and right-clicking the line offers them too. Narrow the column to its minimum: the tags read "2 tags", and Details and History stay whole on screen. Hover: each door brightens. With Keyboard navigation on, Tab reaches the foot's doors; VoiceOver reads "Word target: 3,000 words", "Tags: rome, draft", "History".
+19. (Task 6a) Answer a finding in a chapter's To resolve: the line under the head reads "Filed in Brief" in the accent colour; leave it a minute — it stays; click it — Brief shows that chapter with the answer under Decided. Back in To resolve, click anything in the list: the line goes. From the Book's list it reads "Filed in “<chapter>”'s Brief"; on an edition, "Filed under the Spanish edition brief" still.
+20. Smoke: launch → New project → Novel → "Smoke" → type a sentence → ⌘Q → relaunch → open from Recents → sentence intact.
 
 ---
 
@@ -546,3 +570,10 @@ Plans 1–3's hand checks stand. This plan adds:
 3. A click on a chapter in an edition's Status opens it in the edition's language, as recommended.
 4. The two ADR 0035 leftovers no plan owned — drop-target feedback on the tree, and a drop on the Canvas row as the capture-to-canvas route — join Task 10. Its implementer derives the contract from ADR 0035's "Not yet built" lines and the built drop routes, and pins each with a test.
 5. Brief's how-to lines go: Task 6a.
+
+## Denver's answers (2026-11-22)
+
+6. Hand checks on the `9896e3cf` dev build: a single click on a fold card stays up, the insertion line follows the pointer, and arrowing with nothing pulled up leaves the column alone — "look good".
+7. **Promotion (question 4):** the piece's history survives in the original (the Collection keeps it); the promoted project should also carry the history, notes and translations — a copy, not a move, of the op log, annotations and translations. Its own piece of work, planned after plan 4.
+
+Everything still owed to Denver from this plan is one numbered list in ADR 0038 ("Owed to the owner").

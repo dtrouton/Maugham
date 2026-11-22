@@ -186,13 +186,23 @@
   "reason": "The close order is an internal invariant (a clean close leaves no pending file; a failed flush keeps it). RULING-56/60 are about what a Research note or table saves at close, not this buffer, and nothing rules the order of a document's close. The coordinator's call, hardening 2026-11-16, not Denver's."
  },
  {
+  "claim_id": "M9-OL-020",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "An internal invariant against a second Document on a path being staged; the promotion's outcome sentences are RULING-7's ground but not this claim, and one-at-a-time is the controller's ruling, not Denver's."
+ },
+ {
+  "claim_id": "M9-OL-021",
+  "outcome": "NO_RULING_REACHES",
+  "reason": "A read-only surface over a translation is the agent's design (ADR 0038 §6); RULING-6 rules what is the writer's text versus presentation, not which surface may write, and no ruling covers reading in a language."
+ },
+ {
   "_summary": {
    "reached": 18,
    "complies": 18,
    "violates": 0,
-   "no_ruling": 1,
-   "total": 19,
-   "coverage": "95%",
+   "no_ruling": 3,
+   "total": 21,
+   "coverage": "86%",
    "by_ruling": {
     "RULING-52": [
      "M9-OL-004",

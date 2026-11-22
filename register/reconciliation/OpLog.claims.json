@@ -302,5 +302,37 @@
   "evidence": {
    "property_test": null
   }
+ },
+ {
+  "claim_id": "M9-OL-020",
+  "scope": "DocumentStore.loadManuscript — the promotion door; withdrawForPromotion / returnFromPromotion",
+  "kind": "INVARIANT",
+  "statement": "Every production load of a manuscript by path passes one door, `DocumentStore.loadManuscript(path:title:url:actor:session:presenter:recovery:through:)`: a path a promotion has withdrawn (`withdrawForPromotion`) is refused with `ManuscriptBeingPromoted` before any load, and a load a promotion overtook mid-read is closed and refused rather than handed out, so no second `Document` is registered on a path being staged. Only the hold that took a path gives it back (a token), one promotion runs at a time per Collection (`PromotionAlreadyRunning`), the editor waits on the hold and loads again on the return, and the Collection's store stays live after a refusal, a failure or a success. Replace All skips the held piece and an MCP annotation on it is refused. No other production `Document.load(` exists outside the census's named sites.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/TripwireGrepTests.swift: test_everyManuscriptLoadPassesThePromotionDoor, test_theManuscriptLoadDoorCensusFiresOnAPlantedLoad; MaughamTests/Collection/PromotionLeavesTheStoreLiveTests.swift: test_aFailedPromotionLeavesTheStoreLive, test_aSuccessfulPromotionLeavesTheCollectionLive, test_aLoadOfTheHeldPieceWaitsForTheReturn, test_onlyTheHoldThatTookThePathGivesItBack, test_aSecondPromotionWhileOneIsRunningIsRefused, test_replaceAllDuringAPromotionChangesEveryPieceButTheHeldOne, test_anMCPAnnotationOnTheHeldPieceIsRefused, test_aLoadOverTakenByASuccessfulPromotionIsNotHandedOut, test_theEditorWaitsOnTheHoldAndLoadsAgainOnTheReturn"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — shell plan 4 Task 11 and its review (the hold first protected EditorHost alone); one promotion at a time is the controller's ruling, not Denver's (ADR 0038 §10, tripwire 59)",
+  "reachability": "LIVE — Promote to Project on a Collection piece; every editor open, Replace / Replace All, the figure relabel, the wiki-link rename sweep and every MCP read of a piece during it",
+  "evidence": {
+   "property_test": null
+  }
+ },
+ {
+  "claim_id": "M9-OL-021",
+  "scope": "EditorCoordinator.bufferHoldsTranslation — the read-only membrane while a translation is shown",
+  "kind": "INVARIANT",
+  "statement": "While the editor's buffer holds a translation, nothing the writer or the system does writes to the manuscript: `bufferHoldsTranslation` is set before the translated swap (or at mount, `EditorSurface.mount(_:on:servesTranslation:control:)`, before the first frame) and cleared only when the source has landed, so the window between switching back and the source arriving refuses too; while it holds the text view is not editable and typing, text replacement, spelling correction, an input method's composition, a drop, a drag-move, a Service, Writing Tools, Find's Replace, paste and a sync merge are each refused and write nothing to the op log. Copy takes the translation; a selection inside a source line copies that source.",
+  "source": {
+   "type": "PRODUCTION",
+   "ref": "MaughamTests/Editor/ReadingTranslationWriteRouteTests.swift: test_theExitWindowRefusesUntilTheSourceLands, test_aChangeReachingTheDelegateOverATranslationIsNeverWritten, test_typingAndTextReplacementAreRefused, test_spellingCorrectionIsRefused, test_anInputMethodsCompositionIsRefused, test_aDropADragMoveAndAServiceAreRefused, test_writingToolsAndFindBarReplaceAreRefused, test_pasteIsRefused, test_aMergeWhileReadingWritesNothingBack, test_aMountAlreadyReadingRefusesFromTheFirstFrame, test_theHostsBindingRefusesATranslationAndSaysWhatItServes, test_everyPasteboardWriterTakesTheTranslationAndTheSourceCopiesAsEver"
+  },
+  "warrant": "HIGH",
+  "intent": "INTENTIONAL — shell plan 4 Task 8 and its review I1 (the membrane follows what the buffer holds, not the control); the agent's design (ADR 0038 §6), not Denver's",
+  "reachability": "LIVE — the toolbar's language switch, View ▸ Read In, ⌃⌘L, a chapter opened from an edition's Status or carried in its language to the next chapter",
+  "evidence": {
+   "property_test": null
+  }
  }
 ]

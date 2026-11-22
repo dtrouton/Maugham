@@ -182,7 +182,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **The ledger folds in as the RENDERED `lessonsSection`, never its markdown**, so a retirement does not re-embed everything; a retired entry is briefed to nobody.
 - **Standing instruction text is budgeted**: `letterInstruction`'s `process` sentence rides every run and counts toward the 715-word budget (`CompilerPromptTests.test_theStandingPerRunInstructionAdditionsStayUnderAWordBudget`); `stageSection`/`processSection` themselves do not.
 - **`pinnedListing` carries the `PinnedShelf`'s grouping**: one `pinnedListingLine` per pin, `## <title>` over each titled section only; an empty section is omitted.
-- **`PinnedReferences.pinned` is one pure function with two production callers**, the run's context and the Author surfaces; neither may re-derive it. `linkedResearchIds`, never `StructureItem.links`, is the field a caller names (`PinnedReferencesTests`). The assistant column studies the shelf in Author and Review only (`Persona.studiesPinnedReferences`).
+- **`PinnedReferences.pinned` is one pure function, called for the run's context** (`PinnedReferenceResolver`); nothing re-derives it. `linkedResearchIds`, never `StructureItem.links`, is the field a caller names (`PinnedReferencesTests`).
 - **The scene position is derived app-side and stated, never inferred**: `ScenePosition.derive` reads the project type, the WHOLE intent statement (not `StatementEssay.half(of:)`: Add-to-intent files under `## Rulings`) and the verb's brief (`CompilerRunCommandTests.test_theDerivationReadsTheRulingsHalfAndNotJustTheEssay`).
 - **For a check only `AuthorReader.brief` (the coach's) is a form brief**, never a first reader's statement. The writer's explicit scene-table opt-out beats everything, even a turn clause in the same statement.
 - **`strongDeclared` vs `strongDefault`**: a turn-less scene is a strain ONLY when the writer's own words carry the clause (conformance keys on a `clause_quote`, never synthesised); otherwise an observation. `ScenePosition` raw values are a disk format.
@@ -321,7 +321,7 @@ Every file in `Maugham/Compiler/` appears once.
 - **A declined note's reply lives in the query BODY** (`declinedBody`), authored by the reader or collator who raised it. No reply `OpKind` or `AnnotationKind`.
 - **The book queue stops on a failed round**; it never skips a chapter.
 - **The edition head's busy gate reads `TranslationPipeline.Status` first** (`TranslationRunSession.read(runState:isRunning:pipeline:)`), on the body path, never through `ReloadKey` (language only).
-- **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `update(_:)` belongs to the round report.
+- **`TranslationRoundStore` keeps `ringSize` (10) rounds per language, plus each piece's latest finished**, numbered past the ring. `append` is this area's only write; `mutateInOrder` is the round's verbs' (the report, To resolve), on the project's queue.
 - **`TranslationPreflight.budgets` opens each document ONCE** for every language; an empty answer means nothing could be read, distinct from a zero.
 
 ## Recipes
@@ -359,7 +359,7 @@ Checks: `DiagnosticIngestTests`, `CompilerPromptTests`, `DiagnosticsStoreTests`.
 Follow Core's recipe, "Add a Statement.Kind" in `Packages/MaughamCore/Sources/MaughamCore/AREA.md`. In this area: `RulingPerformer`'s `noun` switch, and one production file naming the kind to `RulingPerformer` with its own census. If nothing derives a world from it, its callers pass `world: nil`.
 
 ## Pointers
-- ADRs: 0027 (the compiler and the editor boundary), 0028 (Maugham goes outbound: the toggle, two-flag confinement, the read-only allowlist, the warm session and `--resume`, billing), 0029 (the report is materialised), 0030 (three people, seven legs, directives as rulings), 0031 (the persona is an input to the run), 0018/0019 (derived reads), 0021 (scoped events), 0023 (undo conventions).
+- ADRs: 0027 (the compiler and the editor boundary), 0028 (Maugham goes outbound: the toggle, two-flag confinement, the read-only allowlist, the warm session and `--resume`, billing), 0029 (the report is materialised), 0030 (three people, seven legs, directives as rulings), 0031 (the persona is an input to the run), 0038 (round letters per piece and per pass), 0018/0019 (derived reads), 0021 (scoped events), 0023 (undo conventions).
 - Specs (`docs/superpowers/specs/`): `2026-08-04-m2-author-compiler-design.md`, `2026-08-07-compiler-second-draft-design.md`, `2026-08-17-one-loop-two-tempos-design.md`, `2026-09-05-two-loops-two-readers-design.md`, `2026-08-19-publish-department-design.md`.
 - `docs/tripwires.md` rows 2, 3, 6, 11, 17, 20, 21, 24 and 34.
 - Tests worth knowing (the suites are the specification): `CompilerRunCommandTests` (⌘R's real path), `CompilerAllowlistTests`, `ClaudeCLISessionTests`, `CompilerPromptTests`, `DiagnosticIngestTests`, `DiagnosticsStoreTests`, `DiagnosticsPaneTests`, `RulingPerformerTests`, `StatementPaneStrataTests`, `DeclaredWorldDeriverTests`, `BibleStoreTests`, `LetterMarkdownTests`, `TranslatorEnvironmentTests`, `TranslationPipelineTests`, `AgentRosterTests`.

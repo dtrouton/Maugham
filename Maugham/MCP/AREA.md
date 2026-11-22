@@ -309,7 +309,7 @@ The count is `MCPToolCatalog.all.count`; `DocSyncTests` checks this heading agai
 
 ## Pointers
 
-- ADRs: 0003 (live-only Unix socket), 0004 (foundation scope, the 1 MB incident), 0010 (typed seams, the sweep reason), 0020 (the test MCP), 0026 (the canvas write), 0032 (the signed op log, actors); ADR 0030 §7 and the translation pipeline spec for the propose tools.
+- ADRs: 0003 (live-only Unix socket), 0004 (foundation scope, the 1 MB incident), 0010 (typed seams, the sweep reason), 0020 (the test MCP), 0026 (the canvas write), 0032 (the signed op log, actors); ADR 0030 §7 and the translation pipeline spec for the propose tools; ADR 0038 for `last_round`.
 - `docs/superpowers/specs/2026-07-01-test-mcp-design.md`.
 - `docs/tripwires.md` rows 10, 13, 20, 21, 38, 51, 52, 54.
 - Tests: `MCPCatalogConsistencyTests`, `MCPProtocolHandlersTests`, `DocSyncTests`, `CompilerAllowlistTests`, `MCPBinaryIntegrationTests`, `MCPColdStartTests`, `MCPServerLifecycleTests`, `PresenterRoutingTests`, `TestMCPCatalogConsistencyTests`, and per-tool tests under `MaughamTests/MCP/`.

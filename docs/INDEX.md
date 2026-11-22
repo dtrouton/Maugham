@@ -19,7 +19,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 ## Building, testing, releasing
 
 - [`docs/testing/TROUBLESHOOTING.md`](testing/TROUBLESHOOTING.md) — read it when a gate is red and the failure doesn't name your change. Indexed by symptom.
-- [`docs/RELEASING.md`](RELEASING.md) — cutting a Mac or phone release, signing, notarization, auto-update.
+- [`docs/RELEASING.md`](RELEASING.md) — cutting a release, signing, notarization, auto-update. Notes: `docs/release-notes/`, a `DRAFT-` file for one not yet cut.
 
 ## Work in progress and its history
 
@@ -27,7 +27,7 @@ A one-page map of Maugham's docs. Each line says what a file is for and when to 
 - [docs/superpowers/plans/](superpowers/plans/) — implementation plans.
 - [docs/superpowers/notes/](superpowers/notes/) — audits (`*-audit.md`, `*-sweep.md`, `*-maintainability-review.md`), diagnoses, handoffs.
 - [`docs/history/README.md`](history/README.md) — narrative, provenance and rejected alternatives moved out of the `AREA.md` guides. Not required reading.
-- [`docs/history/views.md`](history/views.md) — the Views guide's moved rationale. Not required reading.
+- [`docs/history/views.md`](history/views.md) — the Views guide's moved rationale.
 
 ## The code, area by area
 
@@ -37,7 +37,7 @@ Each directory with an `AREA.md` asks you to read it before editing anything the
 - [`Maugham/OpLog/AREA.md`](../Maugham/OpLog/AREA.md) — the op log, the signed chain, the register and permits.
 - [`Maugham/Stores/AREA.md`](../Maugham/Stores/AREA.md) — project and document stores, the project session that owns them, the typed mover, the `.maugham/` layout.
 - [`Maugham/Editor/AREA.md`](../Maugham/Editor/AREA.md) — the editor coordinator and its fragile binding contract.
-- [`Maugham/Publish/AREA.md`](../Maugham/Publish/AREA.md) — PDF and EPUB publishing, the department desk, imprints and editions.
+- [`Maugham/Publish/AREA.md`](../Maugham/Publish/AREA.md) — PDF and EPUB publishing, compiling an edition, imprints.
 - [`Maugham/Canvas/AREA.md`](../Maugham/Canvas/AREA.md) — the planning canvas.
 - [`Maugham/Compiler/AREA.md`](../Maugham/Compiler/AREA.md) — checks, rounds, the editorial letter, the translation pipeline.
 - [`Maugham/MCP/AREA.md`](../Maugham/MCP/AREA.md) — the MCP server and its tool catalogue.

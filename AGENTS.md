@@ -130,6 +130,8 @@ One line each; the why, the history and the full enforcement are in docs/tripwir
 | 56 | An `async` function in the `OpLogStore` split's files says `@MainActor` | `OpLogClassifierIsolationTests` (core) |
 | 57 | No `CanvasView.load()` closure reads a plain stored view property, even through a callee | `TripwireGrepTests.test_theCanvasLoadClosuresReadNoChangingViewValue` +1 |
 | 58 | A synced path or file name reaches the disk only through `SafeRelativePath` (`resolve` to read, `resolveForChange` to change); a locally minted name says `// local-path: <why>` | `TripwireGrepTests.test_syncedPathsReachTheDiskOnlyThroughSafeRelativePath` +1 |
+| 59 | Every manuscript load by path passes the promotion door, `DocumentStore.loadManuscript`; no other production `Document.load(` | `TripwireGrepTests.test_everyManuscriptLoadPassesThePromotionDoor` +1 |
+| 60 | No test writes or pastes from the general pasteboard; it pastes from its own through `paste(from:)` | `TripwireGrepTests.test_noTestWritesTheGeneralPasteboard` +1 |
 
 ## Default workflow
 
@@ -167,10 +169,9 @@ Before editing a path, read the area guide its row names. If a path matches seve
 | `Maugham/Models/**` | `Maugham/Views/AREA.md` for WindowSubject, ClickRule, RightColumnPosition, PulledUp, BinderSubject, TreePane; `Maugham/Compiler/AREA.md` for AuthorReader, RoundEditor, ActivePassMemory, CompilerModelChoice | A run never resolves its reader from the other loop's memory (tripwire 34). |
 | `MaughamPhone/**` | `MaughamPhone/AREA.md` | AppKit never; WhisperKit is Mac-only. |
 
-## Inbox + transcription (`Maugham/Stores/` — iPhone-companion Mac side)
+## Inbox + transcription
 
-`InboxStore`, `InboxPane` and the transcription worker are described in `Maugham/Stores/AREA.md`.
-MCP's scope over the inbox is **read + promote only** (no add/trash from MCP).
+The phone's inbox on the Mac: `Maugham/Stores/AREA.md`. MCP over the inbox is **read + promote only**.
 
 ## Behavioural claims + rulings (`register/`)
 
@@ -184,6 +185,4 @@ Claims (verified facts, each pinned by a test) and rulings (Denver's product dec
 - "Should this annotation be paragraph- or doc-scoped?" → Both should work and both need a UI surface.
 - "Should I write a migration for this schema change?" → No, unless the user explicitly asks.
 - "Should we ship one feature first or bundle?" → Bundle, default to ambitious.
-- "How do I cut a release?" → see `docs/RELEASING.md`.
-- "Should I bump version in `project.yml`?" → No. The git tag is the source of truth; CI writes the version into the bundle at build time.
 - "Should dev or stable do X?" → see `Packages/MaughamCore/Sources/MaughamCore/BuildVariant.swift` — one enum, all the seams hang off it.

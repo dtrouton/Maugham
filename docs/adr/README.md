@@ -59,6 +59,7 @@ Keep them short. One to two pages is the right scale. If an ADR keeps growing, i
 | [0035](0035-the-subject-not-the-persona.md) | The subject, not the persona: the tree decides what the window shows (supersedes in part [0005](0005-right-pane-mode-swap.md), [0025](0025-persona-shell.md), [0031](0031-the-persona-is-an-input-to-the-run.md)) | Accepted | 2026-11-17 |
 | [0036](0036-to-resolve.md) | To resolve: one right-column face for what has been raised, read without loading and acted on only on the open piece | Accepted | 2026-11-18 |
 | [0037](0037-brief-and-the-pulled-up-thing.md) | Brief, the pulled-up thing and the fold: the right column's three positions, what a piece is held to, and what hangs under it | Accepted | 2026-11-20 |
+| [0038](0038-status-editions-and-translation.md) | Status, editions and translation: Status views, an edition's own centre and To resolve, a piece read in a language, the tree's marks, the desk and the review pane deleted, the promotion door | Accepted | 2026-11-22 |
 
 ## How to write a new ADR
 

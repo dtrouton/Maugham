@@ -66,7 +66,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
-- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`, `fileMayHaveChanged` while `holdResearchNoteOpen`) and `ResearchTextRole.of`, the role-first note-or-card predicate.
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave` (its clock `debounceWait`, injected in tests), `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`, `fileMayHaveChanged` while `holdResearchNoteOpen`) and `ResearchTextRole.of`, the role-first note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -409,11 +409,10 @@ Checks: `TripwireGrepTests.test_noRawMoveOfUserContentOutsideTypedMover`, `Docum
 Checks: `StatementOpenGateTests`, `ManuscriptWriterPostureTests`.
 
 ## Pointers
-- `docs/history/stores.md`: the old guide verbatim, with every rule's why and the defects behind them.
-- ADRs 0006 (trash and undo, with the rulings amendment), 0008, 0009, 0010, 0012, 0015, 0018–0019, 0021, 0030, 0032 (the signed op log: admission, posture, the person key).
+- `docs/history/stores.md`: the old guide, each rule's why and its defects.
+- ADRs 0006 (trash and undo, with the rulings amendment), 0008, 0009, 0010, 0012, 0015, 0018–0019, 0021, 0030, 0032 (the signed op log: admission, posture, the person key), 0038 (the promotion door).
 - `docs/tripwires.md` rows 14, 17, 19, 20, 21, 22, 24, 35, 38, 40, 41, 46, 49, 50, 51, 52, 53, 58.
 - `register/reconciliation/Trash.*`, `register/reconciliation/Inbox.*`.
 - Neighbouring guides: `Maugham/OpLog/AREA.md` (`Document.load`), `Maugham/Views/AREA.md`, `Maugham/Canvas/AREA.md`, `Maugham/Compiler/AREA.md`, `MaughamPhone/AREA.md` (the phone's inbox writer).
-- Cross-document search (⌘⌥F): `Maugham/Views/ProjectSearchView.swift`, `ProjectWindow.applyCloseFind`. `InboxPane` is ⌘⌥B.
-- Not here: editor (`Maugham/Editor/`), the op-log format (`Maugham/OpLog/`), UI (`Maugham/Views/`), MCP handlers (`Maugham/MCP/Tools/`), model types (`Maugham/Models/`, MaughamCore).
+- Not here: the editor, the op-log format, UI, MCP handlers, model types: each has its folder.
 - Tests: `MaughamTests/Stores/`.
