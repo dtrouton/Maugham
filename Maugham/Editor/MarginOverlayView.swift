@@ -386,12 +386,26 @@ extension EditorCoordinator {
     }
 
     /// A storage edit moved the text: every place shifts with it (O(marks),
-    /// no document read).
+    /// no document read). An edit that swallowed a mark's place — a delete
+    /// or a replace across paragraphs — may have taken its paragraph away:
+    /// the places are read again from the document on the next turn, once
+    /// the document holds the edit, and a mark whose paragraph is gone is
+    /// dropped (fix round 2).
     func marginNoteEdit(editedRange: NSRange, changeInLength delta: Int) {
         guard !marginPlaces.isEmpty else { return }
+        let replacedEnd = editedRange.location + editedRange.length - delta
+        let swallowed = marginPlaces.contains { $0.anchor > editedRange.location && $0.anchor < replacedEnd }
         marginPlaces = marginPlaces.map { $0.shifted(editedRange: editedRange, delta: delta) }
         marginGeneration &+= 1
         marginOverlay?.needsDisplay = true
+        if swallowed, !marginReplaceScheduled {
+            marginReplaceScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isDetached else { return }
+                self.marginReplaceScheduled = false
+                self.recomputeMarginPlaces()
+            }
+        }
     }
 
     /// Install the overlay when there is something to mark, and show or

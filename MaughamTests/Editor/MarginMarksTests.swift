@@ -257,11 +257,16 @@ final class MarginMarksTests: XCTestCase {
         kept = ProjectWindow.recordingSelection(
             ResolveShownSelection(scope: .pieces(docIds: ["doc-a"], includesBookLevel: true), selection: [.mine]),
             into: kept)
-        XCTAssertEqual(kept, ["doc-a": [.checks]], "the Book's list chose over other items")
+        XCTAssertNil(kept["doc-a"], "N3: the piece's list is gone, and its filter with it — "
+                     + "the Book's list shows everything, so the ticks do")
         kept = ProjectWindow.recordingSelection(
-            ResolveShownSelection(scope: .piece(docId: "doc-a", includesBookLevel: false), selection: []),
+            ResolveShownSelection(scope: .piece(docId: "doc-a", includesBookLevel: false), selection: [.mine]),
             into: kept)
-        XCTAssertEqual(kept, ["doc-a": []], "the piece's list cleared its filter")
+        kept = ProjectWindow.recordingSelection(
+            ResolveShownSelection(scope: .piece(docId: "doc-b", includesBookLevel: false), selection: []),
+            into: kept)
+        XCTAssertNil(kept["doc-a"], "N3: another piece's list reset the filter, as the pane does")
+        XCTAssertEqual(kept, ["doc-b": []])
     }
 
     // MARK: - VoiceOver and the menu

@@ -114,8 +114,6 @@ struct ResolveRequestOutcome: Equatable {
     var settled = false
     /// What a `.focusFinding` that found no row says, in one quiet line.
     var line: String? = nil
-    /// The group a `.showParagraph` makes the list's caret group.
-    var caret: ResolveGroup.Key? = nil
 }
 
 /// **To resolve** — the right column's one list of what has been raised about
@@ -450,13 +448,8 @@ struct ResolvePane: View {
     /// **The piece whose caret the list follows**: the open piece, wherever
     /// the faces' scope holds it — the piece's own list, or the Book or Part
     /// list it was opened inside (review I1). Nil off the open piece.
-    /// The caret's paragraph as `ResolveCaretReader` reads it, now.
-    private var caretParagraphNow: String? {
-        guard let caret = caretDocument else { return nil }
-        return Self.caretParagraph(scope: scope, openDocId: caret.docId, mayAct: true) {
-            caret.paragraphId(at: caret.cursorLocation)
-        }
-    }
+    /// The caret's place as `ResolveCaretReader` reads it, now.
+    private var caretLocationNow: Int? { caretDocument?.cursorLocation }
 
     private var caretDocument: Document? {
         guard let openDocId, scope.docIds.contains(openDocId), mayAct(on: openDocId) else { return nil }
@@ -1203,9 +1196,12 @@ struct ResolvePane: View {
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
         markedItemId = outcome.marked
-        if let caret = outcome.caret {
-            caretPin = ResolveCaretPin(key: caret, caretParagraph: caretParagraphNow)
-            caretGroup = caret
+        // Every request that scrolls pins its target as the caret group
+        // (one mechanism, fix round 2, N1): the caret reader's write and
+        // scroll stand down until the writer moves the caret.
+        if let target = outcome.scrollTo {
+            caretPin = ResolveCaretPin(key: target, caretLocation: caretLocationNow)
+            caretGroup = target
         }
         if let line = outcome.line {
             filedNotice = FiledNotice.after(

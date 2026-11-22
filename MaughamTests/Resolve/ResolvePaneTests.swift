@@ -537,9 +537,9 @@ final class ResolvePaneTests: XCTestCase {
             .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built,
             sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
             selection: [.checks], choices: [:])
-        XCTAssertEqual(outcome.caret, paragraph, "the paragraph's group is the caret group")
+        XCTAssertEqual(outcome.scrollTo, paragraph, "the paragraph's group is the target, and the caret group")
         XCTAssertEqual(outcome.scrollTo, paragraph)
-        XCTAssertEqual(ResolveFilter.expanded(built, cursor: outcome.caret, dense: true,
+        XCTAssertEqual(ResolveFilter.expanded(built, cursor: outcome.scrollTo, dense: true,
                                               choices: outcome.choices), [paragraph])
         XCTAssertEqual(outcome.selection, [.checks], "the tick's own filter stands")
 
@@ -547,7 +547,6 @@ final class ResolvePaneTests: XCTestCase {
             .showParagraph(docId: "doc-a", paragraphId: "zz99"), groups: built,
             sceneIndex: nil, chips: [.checks, .others], activePassId: nil, dense: true,
             selection: [.checks], choices: [:])
-        XCTAssertNil(nothing.caret)
         XCTAssertNil(nothing.scrollTo)
         XCTAssertEqual(nothing.selection, [.checks])
     }
@@ -558,14 +557,16 @@ final class ResolvePaneTests: XCTestCase {
     func test_aClicksGroupHoldsUntilTheCaretMoves() {
         let clicked = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "bb22")
         let caret = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "aa11")
-        let pin = ResolveCaretPin(key: clicked, caretParagraph: "aa11")
-        let held = ResolveCaretPin.decide(caretParagraph: "aa11", caretKey: caret, pin: pin)
+        let pin = ResolveCaretPin(key: clicked, caretLocation: 3)
+        let held = ResolveCaretPin.decide(caretLocation: 3, caretKey: caret, pin: pin)
         XCTAssertEqual(held.group, clicked)
         XCTAssertEqual(held.pin, pin)
-        let moved = ResolveCaretPin.decide(caretParagraph: "cc33", caretKey: nil, pin: pin)
+        let moved = ResolveCaretPin.decide(caretLocation: 40, caretKey: nil, pin: pin)
         XCTAssertNil(moved.group)
         XCTAssertNil(moved.pin, "the caret moved: the pin is gone")
-        XCTAssertEqual(ResolveCaretPin.decide(caretParagraph: "aa11", caretKey: caret, pin: nil).group, caret)
+        let nudged = ResolveCaretPin.decide(caretLocation: 4, caretKey: caret, pin: pin)
+        XCTAssertEqual(nudged.group, caret, "N2: a move within the same paragraph releases it too")
+        XCTAssertEqual(ResolveCaretPin.decide(caretLocation: 3, caretKey: caret, pin: nil).group, caret)
     }
 
     /// **M7** — in a screenplay the clicked paragraph's group is its
@@ -584,7 +585,7 @@ final class ResolvePaneTests: XCTestCase {
             .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built,
             sceneIndex: sceneIndex, chips: [.others], activePassId: nil, dense: false,
             selection: [], choices: [:])
-        XCTAssertEqual(outcome.caret, scene.key, "the scene's group is the caret group")
+        XCTAssertEqual(outcome.scrollTo, scene.key, "the scene's group is the target")
         XCTAssertEqual(outcome.scrollTo, scene.key)
     }
 

@@ -767,6 +767,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var marginGeneration = 0
     /// How many times the places were resolved (fix round 1, I3's count pin).
     var marginPlacesRecomputeCount = 0
+    /// A re-placing is queued for the next turn (a mark's place was
+    /// swallowed by an edit, fix round 2).
+    var marginReplaceScheduled = false
     /// Every paragraph's display range, in ONE pass over the document
     /// (`Document.displayRanges`, wired by `EditorHost`; fix round 1, I3).
     var marginParagraphRangesProvider: (() -> [String: NSRange])?

@@ -285,7 +285,10 @@ struct MarginMirrorModifier: ViewModifier {
     static func marks(key: MarginKey, document: Document?,
                       diagnostics: DiagnosticsStore?) -> MarginMarks {
         guard let document, key.setting != .off else { return .none }
+        // A note whose paragraph left the text marks nothing (fix round 2).
+        let present = Set(document.sequence)
         let notes = document.annotations(filter: AnnotationFilter(statuses: [.open]))
+            .filter { $0.paragraphId.map(present.contains) ?? true }
         var items = notes.map { ResolveItem.note(ProjectAnnotation(docId: document.docId, annotation: $0)) }
         if key.setting == .everythingFlagged, let diagnostics {
             let paragraphs = document.paragraphs

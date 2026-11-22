@@ -286,6 +286,42 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["Notes"])
     }
 
+    // MARK: - Fix round 2: a delete across paragraphs
+
+    /// A delete from mid ¶1 to mid ¶3 takes ¶2 — and its tick — away: the
+    /// mark it collapsed is placed again from the document, and dropped.
+    func test_aDeleteAcrossParagraphsDropsTheMarkItTookAway() async throws {
+        let s = surface()
+        var ranges = Dictionary(uniqueKeysWithValues: Self.ids.compactMap { id in Self.range(of: id).map { (id, $0) } })
+        s.coordinator.marginParagraphRangesProvider = { ranges }
+        apply(MarginMarks(dots: [], ticks: ["bb22"]), to: s)
+        XCTAssertEqual(s.coordinator.marginPlaces.map(\.paragraphId), ["bb22"], "premise")
+        let from = try XCTUnwrap(Self.range(of: "aa11")).location + 10
+        let to = try XCTUnwrap(Self.range(of: "cc33")).location + 4
+        s.textView.textStorage?.replaceCharacters(in: NSRange(location: from, length: to - from), with: "")
+        // What the document now says: ¶1 and ¶3 are one paragraph; ¶2 is gone.
+        ranges = ["aa11": NSRange(location: 0, length: (s.textView.string as NSString).length)]
+        let dropped = await pumpUntil(deadline: 2) { s.coordinator.marginPlaces.isEmpty }
+        XCTAssertTrue(dropped, "the tick of a paragraph that left the text is gone: \(s.coordinator.marginPlaces)")
+    }
+
+    /// The window's build drops a note whose paragraph left the text.
+    func test_aMarkWhoseParagraphIsGoneIsNotBuilt() async throws {
+        useIdentities()
+        try makeBook()
+        let doc = try await load()
+        let second = try XCTUnwrap(doc.sequence.last)
+        _ = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: second, span: nil,
+                                                body: "tighten", authorName: "Denver")
+        XCTAssertEqual(MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil).dots.count,
+                       1, "premise")
+        doc.setFullText("First paragraph.")
+        XCTAssertFalse(doc.sequence.contains(second), "premise: the paragraph left the text")
+        let after = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        XCTAssertEqual(after.dots, [], "no dot for a paragraph that is gone")
+        await doc.close()
+    }
+
     // MARK: - Fix round 1, I3: one walk per placing, none for an unchanged rebuild
 
     /// Placing any number of marks reads the document's paragraph ranges in

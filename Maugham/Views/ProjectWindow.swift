@@ -2582,15 +2582,16 @@ struct ProjectWindow: View {
         let request: ResolveRequest
     }
 
-    /// **A list's published selection, kept for the margin** (fix round 1,
-    /// M6): only a piece's own list's, under that piece. A Book's, a Part's
-    /// or an edition's list chose over other items, and changes nothing.
+    /// **A list's published selection, kept for the margin** (fix rounds 1
+    /// and 2, M6, N3): only the list on screen counts, as the pane resets its
+    /// filter on every change of scope. A piece's own list keeps its choice
+    /// under that piece alone; any other list's publish (a Book's, a Part's,
+    /// an edition's, another piece's) drops it, so the ticks never hide under
+    /// a filter no list shows.
     static func recordingSelection(_ shown: ResolveShownSelection,
                                    into selections: [String: Set<ResolveSource>]) -> [String: Set<ResolveSource>] {
-        guard case .piece(let docId, _) = shown.scope else { return selections }
-        var next = selections
-        next[docId] = shown.selection
-        return next
+        guard case .piece(let docId, _) = shown.scope else { return [:] }
+        return [docId: shown.selection]
     }
 
     static func strainJump(_ request: ResolveRequest) -> StrainJump {

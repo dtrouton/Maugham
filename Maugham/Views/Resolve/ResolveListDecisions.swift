@@ -20,13 +20,13 @@ struct ResolveCaretReader: View {
     let sceneIndex: [String: Int]?
     let groups: [ResolveGroup]
     @Binding var caretGroup: ResolveGroup.Key?
-    /// A margin click's group, which holds until the caret's paragraph
-    /// moves (fix round 1, I2): the groups arriving after the click's read
-    /// are not a caret move.
+    /// A request's target, which holds as the caret group until the writer
+    /// moves the caret (fix rounds 1 and 2, I2, N1, N2): the groups arriving
+    /// after the request's read are not a caret move.
     @Binding var pin: ResolveCaretPin?
 
     private struct Reading: Equatable {
-        let paragraph: String?
+        let location: Int
         let key: ResolveGroup.Key?
     }
 
@@ -39,26 +39,33 @@ struct ResolveCaretReader: View {
                                             sceneIndex: sceneIndex, groups: groups)
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: Reading(paragraph: paragraph, key: key), initial: true) { _, new in
-                let decided = ResolveCaretPin.decide(caretParagraph: new.paragraph, caretKey: new.key, pin: pin)
+            .onChange(of: Reading(location: document.cursorLocation, key: key), initial: true) { _, new in
+                let decided = ResolveCaretPin.decide(caretLocation: new.location, caretKey: new.key, pin: pin)
                 if pin != decided.pin { pin = decided.pin }
-                caretGroup = decided.group
+                // Per caret move only the pin's question runs; the list hears
+                // of it when the group changes.
+                if caretGroup != decided.group { caretGroup = decided.group }
             }
     }
 }
 
-/// **A margin click's group, held as the caret group** (shell p5 Task 2,
-/// fix round 1, I2): the click lands with the caret where it was, so the
-/// pin remembers that paragraph, and only the caret leaving it lets the
-/// caret's own group back.
+/// **A request's target, held as the caret group** (shell p5 Task 2, fix
+/// rounds 1 and 2): every request that scrolls — a margin click
+/// (`.showParagraph`), a strain mark's jump (`.focusFinding`), a Status
+/// count (`.focus`) — lands with the caret where it was, so the pin
+/// remembers the caret's place; while it stands the caret reader writes
+/// the target and its own scroll stands down, so the request's is the one
+/// scroll. Any caret move by the writer — a click back into the text, in
+/// the same paragraph or not, an arrow, a keystroke — lets the caret's own
+/// group back.
 struct ResolveCaretPin: Equatable {
     let key: ResolveGroup.Key
-    let caretParagraph: String?
+    let caretLocation: Int?
 
-    /// What the caret group is, given the caret's paragraph and its group.
-    static func decide(caretParagraph: String?, caretKey: ResolveGroup.Key?,
+    /// What the caret group is, given the caret's place and its group.
+    static func decide(caretLocation: Int?, caretKey: ResolveGroup.Key?,
                        pin: ResolveCaretPin?) -> (group: ResolveGroup.Key?, pin: ResolveCaretPin?) {
-        if let pin, pin.caretParagraph == caretParagraph { return (pin.key, pin) }
+        if let pin, pin.caretLocation == caretLocation { return (pin.key, pin) }
         return (caretKey, nil)
     }
 }
@@ -342,7 +349,7 @@ extension ResolvePane {
                 ? group.items.first.map { [ResolveFilter.source(of: $0, localName: localName)] } ?? []
                 : []
         }
-        return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key, caret: key)
+        return ResolveRequestOutcome(selection: shown, choices: opened, scrollTo: key)
     }
 
     /// The line a mark's jump says when its finding is no longer listed:

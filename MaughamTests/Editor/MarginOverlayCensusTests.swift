@@ -18,7 +18,7 @@ final class MarginOverlayCensusTests: XCTestCase {
 
     /// Calls that draw words, or hang words on a mark, in code (comments
     /// and strings masked). A label is allowed only from the two fixed
-    /// sources (`allowedLabels`).
+    /// sources (`isAllowedLabel`).
     private static let textDrawing = [
         "draw(at:", "draw(in:", "draw(with:", "drawText", "NSAttributedString", "AttributedString(",
         "Text(", "CATextLayer", "NSTextField", "NSTextView(", "NSString(", ".string(", "drawGlyphs",
@@ -27,7 +27,6 @@ final class MarginOverlayCensusTests: XCTestCase {
         "setAccessibilityHelp", "accessibilityTitle", "setAccessibilityTitle",
         "accessibilityCustomContent", "accessibilityAttributedLabel",
     ]
-    private static let allowedLabels = ["MarginMarks.tickAccessibilityLabel", "MarginMarks.accessibilityLabel(ofDots:"]
 
     private static func drawsText(_ masked: [UInt8]) -> [String] {
         let code = String(decoding: masked, as: UTF8.self)
@@ -43,11 +42,41 @@ final class MarginOverlayCensusTests: XCTestCase {
             }
             return false
         }
-        for line in code.components(separatedBy: "\n")
-        where line.contains("setAccessibilityLabel(") && !allowedLabels.contains(where: line.contains) {
+        // A label's whole argument must be one fixed label, or a choice
+        // between the two (fix round 2, N4): nothing beside them.
+        if labelArguments(code).contains(where: { !isAllowedLabel($0) }) {
             found.append("setAccessibilityLabel(")
         }
+        // An override answers VoiceOver with whatever it returns.
+        if code.range(of: #"func accessibilityLabel\(\s*\)"#, options: .regularExpression) != nil
+            || code.range(of: #"var accessibilityLabel\b"#, options: .regularExpression) != nil {
+            found.append("func accessibilityLabel(")
+        }
         return found
+    }
+
+    /// Every `setAccessibilityLabel(…)`'s argument, whitespace folded.
+    private static func labelArguments(_ code: String) -> [String] {
+        var arguments: [String] = []
+        var from = code.startIndex
+        while let open = code.range(of: "setAccessibilityLabel(", range: from..<code.endIndex) {
+            var depth = 1, index = open.upperBound
+            while index < code.endIndex, depth > 0 {
+                if code[index] == "(" { depth += 1 } else if code[index] == ")" { depth -= 1 }
+                if depth > 0 { index = code.index(after: index) }
+            }
+            arguments.append(code[open.upperBound..<index]
+                .split(whereSeparator: { $0.isWhitespace }).joined(separator: " "))
+            from = index < code.endIndex ? code.index(after: index) : code.endIndex
+        }
+        return arguments
+    }
+
+    private static let fixedLabel = #"(MarginMarks\.tickAccessibilityLabel|MarginMarks\.accessibilityLabel\(ofDots: [A-Za-z_]+\))"#
+
+    private static func isAllowedLabel(_ argument: String) -> Bool {
+        let pattern = "^(\(fixedLabel)|[A-Za-z_.]+ \\? \(fixedLabel) : \(fixedLabel))$"
+        return argument.range(of: pattern, options: .regularExpression) != nil
     }
 
     /// The types the margin draws or describes itself through.
@@ -94,6 +123,20 @@ final class MarginOverlayCensusTests: XCTestCase {
             """)
         XCTAssertEqual(Self.drawsText(tooltip), ["toolTip", "setAccessibilityLabel("],
                        "a tooltip or a label carrying a note's words is caught")
+        // N4: an allowed constant beside anything else, and an override.
+        let mixed = SourceTree.mask("""
+            element.setAccessibilityLabel(isTick ? MarginMarks.tickAccessibilityLabel : finding.body)
+            """)
+        XCTAssertEqual(Self.drawsText(mixed), ["setAccessibilityLabel("],
+                       "a label mixing a fixed one with a note's words is caught")
+        let overridden = SourceTree.mask("""
+            final class MarginMarkElement: NSAccessibilityElement {
+                override func accessibilityLabel() -> String? { body }
+                override func accessibilityValue() -> Any? { body }
+            }
+            """)
+        XCTAssertEqual(Self.drawsText(overridden).sorted(), ["accessibilityValue", "func accessibilityLabel("],
+                       "an override of the label or value is caught")
         let comment = SourceTree.mask("""
             // never NSAttributedString or draw(at:) here
             let label = "Text(\\(name))"
@@ -112,6 +155,12 @@ final class MarginOverlayCensusTests: XCTestCase {
                        ["paragraphId", "span", "annotationId", "name"], "a dot: where, and whose — no words")
         XCTAssertEqual(Self.fields(MarginPlace(mark: .tick, paragraphId: "aa11", anchor: 0, tint: nil)),
                        ["mark", "paragraphId", "anchor", "tint"])
+        let drawn = MarginOverlayView.Drawn(
+            places: [MarginPlace(mark: .tick, paragraphId: "aa11", anchor: 0, tint: nil)],
+            rect: .zero, hitRect: .zero, tintRects: [])
+        XCTAssertEqual(Self.fields(drawn), ["places", "rect", "hitRect", "tintRects"], "N4: a drawn mark")
+        XCTAssertEqual(Self.fields(MarginMarkElement(paragraphId: "aa11", isTick: true, names: [], coordinator: nil)),
+                       ["paragraphId", "coordinator"], "N4: VoiceOver's element")
         struct Planted { let paragraphId: String; let body: String }
         XCTAssertNotEqual(Self.fields(Planted(paragraphId: "aa11", body: "x")), ["paragraphId"],
                           "a planted field is caught")
@@ -153,8 +202,8 @@ final class MarginOverlayCensusTests: XCTestCase {
         XCTAssertTrue(try code("Maugham/Views/EditorHost.swift")
             .contains("marginParagraphRangesProvider: { doc.displayRanges() }"), "the one-pass ranges")
         let pane = try code("Maugham/Views/Resolve/ResolvePane.swift")
-        XCTAssertTrue(pane.contains("caretPin = ResolveCaretPin(key: caret, caretParagraph: caretParagraphNow)")
-                      && pane.contains("caretGroup = caret"), "a click's group is the caret group")
+        XCTAssertTrue(pane.contains("caretPin = ResolveCaretPin(key: target, caretLocation: caretLocationNow)")
+                      && pane.contains("caretGroup = target"), "a request's target is the caret group")
 
         let planted = "content.modifier(EditorControlMirrorModifier(membrane: m))"
         XCTAssertEqual(Self.occurrences(of: ".modifier(MarginMirrorModifier(", in: planted), 0,
