@@ -235,7 +235,7 @@ A new kind would be a MaughamCore schema change for no gain.
 **Produces:**
 - **new** `FocusedValues.readThroughOffer` (published by `ReadThroughModifier` from `ReadThroughOffer.of(...)` with the window's `selectedManuscriptDocId`, its item, `editorPosture`, the share and `editorControl.translationLanguage != nil`).
 - **new** `FocusedReadThroughItem` in View, **where Toggle Review Mode stood**. It is titled "Start Read-through" or "Resume Writing" by the offer, carries `.keyboardShortcut("r", modifiers: [.command, .option, .shift])`, is disabled without an enabled offer, and calls `ReadThrough.post`.
-  - **Collision check (done at `7b542fee`):** the other "r" chords are ⌘R, ⇧⌘R, ⌃⌘R, ⌃⇧⌘R and ⌘⌥R (`MaughamApp.swift:208–215`). ⌘⌥⇧R is Toggle Review Mode's alone, which this task deletes. The implementer adds a census that no second ⌘⌥⇧R exists.
+  - **Collision check (done at `7b542fee`):** the other "r" chords are ⌘R, ⇧⌘R, ⌃⌘R, ⌃⇧⌘R and ⌘⌥R (`MaughamApp.swift:369, 798–810`). ⌘⌥⇧R is Toggle Review Mode's alone, which this task deletes. The implementer adds a census that no second ⌘⌥⇧R exists.
 - **new** `ReadThroughLine` (in `EditorHost`'s top safe-area inset, beside `ReadingLanguageLine`, drawn when `control.translationLanguage == nil && ReadThrough.isOn(doc.docId, in: control.readThroughDocIds)`):
   - It reads "In read-through · typing is off" in `.callout` secondary ink, with a **Resume writing** link button that posts the one event.
   - `ViewThatFits` drops to "In read-through", and the button always stays.
