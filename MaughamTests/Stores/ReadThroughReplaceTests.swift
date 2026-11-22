@@ -53,8 +53,9 @@ final class ReadThroughReplaceTests: XCTestCase {
     private func reload(_ path: String) async throws -> String {
         let doc = try await Document.load(url: project.appendingPathComponent(path),
                                           device: "verify", session: "verify", presenter: nil)
-        defer { Task { await doc.close() } }
-        return doc.displayText
+        let text = doc.displayText
+        await doc.close()   // closed before tearDown removes the folder
+        return text
     }
 
     func test_aSingleReplaceInAPieceInReadThroughIsRefusedAndNamed() async throws {
@@ -87,6 +88,44 @@ final class ReadThroughReplaceTests: XCTestCase {
         let three = try await reload("manuscript/three.md")
         XCTAssertTrue(one.hasPrefix("One dog."), "the rest of the book is replaced: \(one)")
         XCTAssertTrue(three.hasPrefix("Three cats."), "the piece in read-through is left as it was: \(three)")
+    }
+
+    private func match(_ path: String, _ title: String) -> SearchMatch {
+        SearchMatch(
+            documentPath: path, documentTitle: title, documentSource: .manuscript,
+            lineNumber: 1, charRangeInDocument: NSRange(location: 0, length: 3),
+            linePreview: "cat", matchRangeInLine: NSRange(location: 0, length: 3))
+    }
+
+    /// **Find says before the press what read-through leaves** (review M3):
+    /// Replace All's confirm counts only what will be replaced and names the
+    /// piece in read-through apart; that piece's rows offer no Replace.
+    func test_findSaysBeforeThePressWhatReadThroughLeaves() throws {
+        let one = [match("manuscript/one.md", "Chapter One"), match("manuscript/one.md", "Chapter One")]
+        let three = match("manuscript/three.md", "Chapter Three")
+        let results = SearchResults(query: "cat", options: SearchOptions(), matches: one + [three])
+        var asked: [String] = []
+        let gate = ProjectSearchView.ReplaceGate(
+            results, posture: { _ in Posture(.unrestricted) },
+            inReadThrough: { asked.append($0); return $0 == "manuscript/three.md" })
+        XCTAssertEqual(asked.sorted(), ["manuscript/one.md", "manuscript/three.md"], "once per document")
+        XCTAssertTrue(one.allSatisfy(gate.mayReplace))
+        XCTAssertFalse(gate.mayReplace(three), "no per-row Replace in a piece in read-through")
+        XCTAssertTrue(gate.isInReadThrough(three))
+        let split = ProjectSearchView.replaceability(results, mayReplace: gate.mayReplace,
+                                                     inReadThrough: gate.isInReadThrough)
+        XCTAssertEqual(split.replaceable, 2)
+        XCTAssertEqual(split.leftAlone, [], "not a posture refusal")
+        XCTAssertEqual(split.inReadThrough, ["Chapter Three"])
+        XCTAssertEqual(ProjectSearchView.replaceAllMessage(split),
+                       "2 matches will be replaced. Left as it was \u{2014} in read-through: Chapter Three.")
+        // The row says why, before the press; the view asks the store.
+        let view = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ProjectSearchView.swift"))
+            .joined(separator: "\n")
+        XCTAssertTrue(view.contains("} else if showReplace, gate.isInReadThrough(match) {"))
+        XCTAssertTrue(view.contains(".help(Self.readThroughRowHelp)"))
+        XCTAssertTrue(view.contains("inReadThrough: { store.pieceInReadThrough(atPath: $0) != nil })"))
+        XCTAssertTrue(view.contains("inReadThrough: gate.isInReadThrough)"), "the confirm counts it")
     }
 
     /// The session hands the store its pieces, weakly.

@@ -118,13 +118,16 @@ enum FigureGridFoldCause {
     /// The figure is being sent to Research from its grid (plan 7d Task 9,
     /// R7d-7): it folds first, and the send is not undoable (ruling P1).
     case sentToResearch
+    /// The piece goes into read-through: the open edit is committed, and the
+    /// visit — cells typed before the entry — leaves no window step.
+    case readThroughEntry
 
     /// The grid cannot stay: an open formula that will not read is said as a
     /// notice carrying its text, never kept in a grid with nowhere to be.
     var isForced: Bool {
         switch self {
         case .grid, .textTookFocus: false
-        case .navigation, .lineGone, .teardown, .sentToResearch: true
+        case .navigation, .lineGone, .teardown, .sentToResearch, .readThroughEntry: true
         }
     }
     /// The caret goes to the end of the figure line (a line gone leaves it
@@ -133,7 +136,7 @@ enum FigureGridFoldCause {
     /// The text takes the focus, when the grid had it.
     var focusesTheText: Bool {
         switch self {
-        case .grid, .navigation, .lineGone, .sentToResearch: true
+        case .grid, .navigation, .lineGone, .sentToResearch, .readThroughEntry: true
         case .textTookFocus, .teardown: false
         }
     }
@@ -144,7 +147,7 @@ enum FigureGridFoldCause {
     var collapsesTheVisit: Bool {
         switch self {
         case .grid, .textTookFocus, .navigation, .lineGone: true
-        case .teardown, .sentToResearch: false
+        case .teardown, .sentToResearch, .readThroughEntry: false
         }
     }
 }
@@ -802,6 +805,7 @@ extension EditorCoordinator {
             if recorded, cause.collapsesTheVisit, host.visitHasRecorded || controller.writesInFlight > 0,
                let windowUndo = undoManagerOverrideForTesting ?? textView?.undoManager {
                 lastFigureVisitStep = FigureVisitUndo.register(on: windowUndo, host: host, visit: visit)
+                if let step = lastFigureVisitStep { figureVisitSteps.append(step) }
             }
         }
         // The figure is free for another grid, which begins its visit once

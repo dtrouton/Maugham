@@ -62,7 +62,9 @@ struct ProjectSearchView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(Self.replaceAllMessage(
-                store.currentSearch.map { Self.replaceability($0, mayReplace: gate.mayReplace) }))
+                store.currentSearch.map {
+                    Self.replaceability($0, mayReplace: gate.mayReplace, inReadThrough: gate.isInReadThrough)
+                }))
         }
         .alert("Search error",
                isPresented: Binding(
@@ -114,7 +116,10 @@ struct ProjectSearchView: View {
                     // replace (C1, ruling AI): a reviewer whose results are all
                     // manuscript sees none; research notes keep their verbs.
                     if Self.offersReplaceAll(
-                        store.currentSearch.map { Self.replaceability($0, mayReplace: gate.mayReplace) }) {
+                        store.currentSearch.map {
+                            Self.replaceability($0, mayReplace: gate.mayReplace,
+                                                inReadThrough: gate.isInReadThrough)
+                        }) {
                         Button("Replace All") {
                             showingReplaceAllConfirm = true
                         }
@@ -215,6 +220,12 @@ struct ProjectSearchView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Replace this match")
+                } else if showReplace, gate.isInReadThrough(match) {
+                    // Said before the press, never alerted after it.
+                    Image(systemName: "arrow.right.circle")
+                        .foregroundStyle(.tertiary)
+                        .help(Self.readThroughRowHelp)
+                        .accessibilityLabel(Self.readThroughRowHelp)
                 }
             }
         }
@@ -284,8 +295,12 @@ struct ProjectSearchView: View {
         let documentStore = store.documentStore
         return ReplaceGate(
             store.currentSearch,
-            posture: { documentStore?.posture(forPath: $0) })
+            posture: { documentStore?.posture(forPath: $0) },
+            inReadThrough: { store.pieceInReadThrough(atPath: $0) != nil })
     }
+
+    /// Why a match in a piece in read-through offers no Replace.
+    static let readThroughRowHelp = "In read-through \u{2014} Resume Writing to replace in this piece."
 
     /// **What this Mac may replace, one posture question per DOCUMENT** (P3c
     /// plan 2 Task 9) — built once per body pass over a result set, so a
@@ -296,21 +311,35 @@ struct ProjectSearchView: View {
     /// hers. No door behind the host (`posture` answering nil) fails CLOSED.
     struct ReplaceGate {
         private let manuscriptPaths: [String: Bool]
+        /// The manuscript paths whose piece is in read-through on this Mac:
+        /// left as they were, and said so before the press.
+        private let readThroughPaths: Set<String>
 
-        init(_ results: SearchResults?, posture: (String) -> Posture?) {
+        init(_ results: SearchResults?, posture: (String) -> Posture?,
+             inReadThrough: (String) -> Bool = { _ in false }) {
             var answers: [String: Bool] = [:]
+            var reading: Set<String> = []
             for match in results?.matches ?? []
             where match.documentSource == .manuscript && answers[match.documentPath] == nil {
                 answers[match.documentPath] = ProjectSearchView.mayReplace(
                     match, posture: posture(match.documentPath))
+                if inReadThrough(match.documentPath) { reading.insert(match.documentPath) }
             }
             manuscriptPaths = answers
+            readThroughPaths = reading
         }
 
         /// Only manuscript paths are ever answered, so a research match falls
-        /// to its own rule and anything else unanswered fails CLOSED.
+        /// to its own rule and anything else unanswered fails CLOSED. A piece
+        /// in read-through takes no Replace.
         func mayReplace(_ match: SearchMatch) -> Bool {
-            manuscriptPaths[match.documentPath] ?? (match.documentSource == .research)
+            !isInReadThrough(match)
+                && (manuscriptPaths[match.documentPath] ?? (match.documentSource == .research))
+        }
+
+        /// The match is in a manuscript piece in read-through.
+        func isInReadThrough(_ match: SearchMatch) -> Bool {
+            readThroughPaths.contains(match.documentPath)
         }
     }
 
@@ -326,21 +355,27 @@ struct ProjectSearchView: View {
     struct Replaceability: Equatable {
         let replaceable: Int
         let leftAlone: [String]
+        /// Pieces in read-through, left as they were (named apart).
+        var inReadThrough: [String] = []
     }
 
     static func replaceability(
-        _ results: SearchResults, mayReplace: (SearchMatch) -> Bool
+        _ results: SearchResults, mayReplace: (SearchMatch) -> Bool,
+        inReadThrough: (SearchMatch) -> Bool = { _ in false }
     ) -> Replaceability {
         var replaceable = 0
         var leftAlone: [String] = []
+        var reading: [String] = []
         for match in results.matches {
-            if mayReplace(match) {
+            if inReadThrough(match) {
+                if !reading.contains(match.documentTitle) { reading.append(match.documentTitle) }
+            } else if mayReplace(match) {
                 replaceable += 1
             } else if !leftAlone.contains(match.documentTitle) {
                 leftAlone.append(match.documentTitle)
             }
         }
-        return Replaceability(replaceable: replaceable, leftAlone: leftAlone)
+        return Replaceability(replaceable: replaceable, leftAlone: leftAlone, inReadThrough: reading)
     }
 
     static func offersReplaceAll(_ split: Replaceability?) -> Bool {
@@ -352,9 +387,9 @@ struct ProjectSearchView: View {
     static func replaceAllMessage(_ split: Replaceability?) -> String {
         let count = split?.replaceable ?? 0
         let head = "\(count) match\(count == 1 ? "" : "es") will be replaced."
-        guard let split, let left = ProjectStore.leftAloneSentence(split.leftAlone) else {
-            return head
-        }
-        return head + " " + left
+        guard let split else { return head }
+        return ([head, ProjectStore.leftAloneSentence(split.leftAlone),
+                 ProjectStore.readThroughSentence(split.inReadThrough)] as [String?])
+            .compactMap { $0 }.joined(separator: " ")
     }
 }

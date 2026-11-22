@@ -3153,6 +3153,9 @@ struct ProjectWindow: View {
             self.rightColumnPosition = ds.uiState.rightColumnPosition
             self.previousFace = Self.previousFace(restoring: ds.uiState.rightColumnPosition)
             applyNoChrome()
+            // The pieces in read-through, before any editor can mount: the
+            // first keystroke after a reopen meets a refusing view.
+            self.editorControl.readThroughDocIds = session.readThrough.pieceIds
 
             self.lease = lease
             self.store = s

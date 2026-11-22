@@ -170,6 +170,61 @@ final class ReadThroughWriteRouteTests: XCTestCase {
         XCTAssertEqual(m.box.text, "One two!.", "typing lands again")
     }
 
+    /// **An apply for another property never undoes the key's flip** (review
+    /// M1): read-through is reconciled from the mirror only when the mirrored
+    /// set moved, so a settle edge landing before the mirror cannot let a
+    /// keystroke through, nor turn Resume back on.
+    func test_anApplyForAnotherPropertyNeverUndoesTheKeysFlip() throws {
+        let text = "One two."
+        let m = try mount(text, control: control(readThrough: []))
+        ReadThrough.post(.init(docId: Self.pieceA, on: true))
+        m.control.referenceIndexVersion += 1          // the metrics settle, before the mirror
+        m.coordinator.applyControl(m.control)
+        XCTAssertTrue(m.coordinator.isInReadThrough, "the stale set does not switch it off")
+        XCTAssertFalse(m.textView.isEditable)
+        XCTAssertTrue(m.coordinator.isReviewMode, "nor the review render")
+        m.textView.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        assertUntouched(m, text, "a keystroke before the mirror")
+        m.control.readThroughDocIds = [Self.pieceA]   // the mirror lands
+        m.coordinator.applyControl(m.control)
+        XCTAssertTrue(m.coordinator.isInReadThrough)
+        ReadThrough.post(.init(docId: Self.pieceA, on: false))
+        m.control.referenceIndexVersion += 1
+        m.coordinator.applyControl(m.control)
+        XCTAssertFalse(m.coordinator.isInReadThrough, "Resume holds until the mirror agrees")
+        XCTAssertTrue(m.textView.isEditable)
+        m.control.readThroughDocIds = []
+        m.coordinator.applyControl(m.control)
+        XCTAssertFalse(m.coordinator.isInReadThrough)
+    }
+
+    /// **A project reopened with a piece in read-through refuses the first
+    /// keystroke** (review, unpinned point c): the store reads its file at
+    /// once, the window seeds the control from the session before it
+    /// publishes the stores (so before any editor can mount), and the mount
+    /// asks the control.
+    func test_aReopenedPieceInReadThroughRefusesTheFirstKeystroke() throws {
+        let root = TestTemp.root.appendingPathComponent("reopen-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let mac = DeviceSlug.make(from: "reopen-mac")
+        ReadThroughStore(projectRoot: root, device: mac).begin(Self.pieceA, at: Date())
+        let reopened = ReadThroughStore(projectRoot: root, device: mac)   // ⌘Q, relaunch
+        XCTAssertEqual(reopened.pieceIds, [Self.pieceA], "remembered on this Mac")
+        var answered = 0
+        let text = "Words."
+        let m = try mount(text, control: control(readThrough: reopened.pieceIds), refused: { answered += 1 })
+        m.textView.keyDown(with: key(m, "x", code: 7))
+        XCTAssertEqual(answered, 1)
+        assertUntouched(m, text, "the first keystroke after a reopen")
+        // The window's seed comes before the stores are published.
+        let window = SourceScan.codeLines(of: try SourceTree.sourceOfType("ProjectWindow", under: ["Maugham"]))
+        let seed = try XCTUnwrap(window.firstIndex {
+            $0.contains("self.editorControl.readThroughDocIds = session.readThrough.pieceIds") })
+        let publish = try XCTUnwrap(window.firstIndex { $0.contains("self.store = s") })
+        XCTAssertLessThan(seed, publish, "seeded before any editor can mount")
+    }
+
     /// A piece already in read-through refuses from its first frame: the
     /// mount sets the fact before `attach`, and the review render is drawn.
     func test_aMountInReadThroughRefusesFromTheFirstFrame() throws {

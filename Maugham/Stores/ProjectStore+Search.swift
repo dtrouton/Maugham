@@ -140,11 +140,17 @@ extension ProjectStore {
             let promoting = beingPromoted.isEmpty ? nil :
                 "Left as it was \u{2014} being promoted to its own project: "
                     + beingPromoted.joined(separator: ", ") + ". Try again in a moment."
-            let reading = inReadThrough.isEmpty ? nil :
-                "Left as it was \u{2014} in read-through: " + inReadThrough.joined(separator: ", ") + "."
+            let reading = ProjectStore.readThroughSentence(inReadThrough)
             let sentences = [ProjectStore.leftAloneSentence(leftAlone), promoting, reading].compactMap { $0 }
             return sentences.isEmpty ? nil : sentences.joined(separator: " ")
         }
+    }
+
+    /// The one sentence naming the pieces in read-through a Replace All
+    /// leaves as they were — said in its confirm and after it.
+    nonisolated static func readThroughSentence(_ titles: [String]) -> String? {
+        guard !titles.isEmpty else { return nil }
+        return "Left as it was \u{2014} in read-through: " + titles.joined(separator: ", ") + "."
     }
 
     /// The one sentence naming the pieces a replace left alone.
@@ -523,7 +529,7 @@ extension ProjectStore {
 
     /// The title of the manuscript piece at `path` when it is in read-through
     /// on this Mac (`readThroughPieceIds`), else nil.
-    private func pieceInReadThrough(atPath path: String) -> String? {
+    func pieceInReadThrough(atPath path: String) -> String? {
         let pieces = readThroughPieceIds()
         guard !pieces.isEmpty,
               let item = TreeWalk.first(in: manifest.structure, where: { $0.path == path }),

@@ -94,6 +94,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// A read-only recovery view (`EditorSurfaceConfiguration.readOnlyRecovery`),
     /// set at the mount: it stays read-only whatever else flips.
     var readOnlyRecovery = false
+    /// The control's read-through set as `applyControl` last reconciled it;
+    /// nil before the first apply.
+    private var appliedReadThroughDocIds: Set<String>?
     /// The reading surface's own undo manager: nothing registers on it (the
     /// view is not editable) and ⌘Z on it does nothing.
     let readingUndoManager = UndoManager()
@@ -479,6 +482,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureGridFolding: Task<Void, Never>?
     /// The window step the last in-place visit collapsed into, if any (a test's handle).
     var lastFigureVisitStep: FigureVisitUndo?
+    /// Every visit step this editor registered on the window's stack, so the
+    /// entry into read-through drops them by target: a visit is cells typed,
+    /// not a decision. Cleared with the stack.
+    var figureVisitSteps: [FigureVisitUndo] = []
     /// How many times `figureTrailingRoom` asked the cards (tests read it).
     var trailingFigureRoomLookupCount = 0
 
@@ -614,6 +621,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// The most recent Insert ▸ Table or Convert to Table Figure, so a caller (a test) can await it
     /// instead of polling.
     var tableFigureTask: Task<Void, Never>?
+    /// The last margin-card action's work (`performReviewCardAction`), for a
+    /// test to await rather than poll.
+    var reviewActionTask: Task<Void, Never>?
     /// The most recent figure-birth undo or redo's store verb
     /// (`figureBirthUndo`), so a caller (a test) can await it.
     var figureBirthUndoTask: Task<Void, Never>?
@@ -1300,6 +1310,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     func dropTheUndoStack() {
         typingUndoManager?.removeAllActions()
         readingUndoManager.removeAllActions()
+        figureVisitSteps.removeAll()
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
@@ -1557,12 +1568,22 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                 view.unmarkText()
                 view.inputContext?.discardMarkedText()
             }
+            // An expanded grid folds first, its open edit committed, and its
+            // visit leaves no window step: cells typed before the entry are
+            // typing, never a decision ⌘Z may reach in read-through.
+            if mountingView == nil { forceFoldFigureGrid(.readThroughEntry) }
             view.breakUndoCoalescing()
             tableTidy.cancelPending()
             // A fresh mount has no typing of its own yet (detach dropped the
-            // last piece's), so only a live view drops.
-            if mountingView == nil, let storage = view.textStorage {
-                typingUndoManager?.removeAllActions(withTarget: storage)
+            // last piece's), so only a live view drops. Every target that is
+            // the writer's typing goes — the text's storage, a figure's birth
+            // riding a command's line (`FigureBirthUndo`, target the manager),
+            // and the grid visits' steps; op-level entries stay.
+            if mountingView == nil, let um = typingUndoManager {
+                if let storage = view.textStorage { um.removeAllActions(withTarget: storage) }
+                um.removeAllActions(withTarget: um)
+                for step in figureVisitSteps { um.removeAllActions(withTarget: step) }
+                figureVisitSteps.removeAll()
             }
         }
         isInReadThrough = on
@@ -1758,9 +1779,15 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         setLockEditing(c.lockEditing)        // self-guarded
         setShareIsReadOnly(c.shareIsReadOnly) // self-guarded
         setManualReviewMode(c.isManualReviewMode) // self-guarded
-        // Read-through asks about the document this buffer holds.
-        setReadThrough(ReadThrough.isOn(documentId, in: c.readThroughDocIds))   // self-guarded
-        setReviewMode(c.reviewRenders(docId: documentId))   // self-guarded
+        // Read-through asks about the document this buffer holds — only when
+        // the mirrored set MOVED (D2, on the control's value): an apply for
+        // another property, landing before the mirror, never undoes the key's
+        // synchronous flip.
+        if appliedReadThroughDocIds != c.readThroughDocIds {
+            appliedReadThroughDocIds = c.readThroughDocIds
+            setReadThrough(ReadThrough.isOn(documentId, in: c.readThroughDocIds))   // self-guarded
+        }
+        setReviewMode(c.isReviewMode || isInReadThrough)   // self-guarded; `reviewRenders(docId:)` on the fact
         updateReviewCardVerbs(for: c.posture) // self-guarded
         // Reading a translation is a pure membrane flip driven off language
         // presence; the surface buffer swap is EditorHost's (the text binding).

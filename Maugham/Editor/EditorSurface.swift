@@ -833,9 +833,9 @@ final class MaughamTextView: NSTextView {
     ) {
         // **A translation, or a piece in read-through, is read, not typed
         // into** (shell p4 Task 8, fix round (b)): the view is not editable
-        // there, and its reading position is drawn in the quieter secondary ink — the arrows move it, so
-        // keyboard reading is not blind, and it does not look like a caret
-        // that types.
+        // there, and its reading position is drawn in the quieter secondary
+        // ink — the arrows move it, so keyboard reading is not blind, and it
+        // does not look like a caret that types.
         let ink = Self.caretColor(typingIsOff: coordinator?.typingIsOff ?? false, editing: color)
         let font = (typingAttributes[.font] as? NSFont)
             ?? self.font

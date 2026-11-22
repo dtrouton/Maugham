@@ -155,6 +155,42 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         return seen
     }
 
+    // MARK: - Read-through (shell read-through Task 2, review M2)
+
+    /// **Cells typed before read-through are not what ⌘Z reaches in it**: a
+    /// visit folded before the entry, and one still open with an edit typed
+    /// and not committed — the entry folds the open grid (its edit
+    /// committed), registers no step for it, and drops the earlier visit's
+    /// step, so Edit ▸ Undo is off and the cells stay as typed.
+    func test_readThroughLeavesNoGridVisitForCommandZ() async throws {
+        let m = try await mount(rows: 6)
+        let undo = try XCTUnwrap(m.textView.undoManager)
+        let docId = try XCTUnwrap(m.store.manifest.structure.first?.id)
+        m.coordinator.documentId = docId
+        var (_, c) = try await expanded(m)
+        typeCell(m, c, cell(c, 1, 1), "3")
+        await c.settleWrites()
+        try asOneEvent(m) { c.perform(.done) }   // its own event: the step's group is closed
+        await settled(m)
+        XCTAssertEqual(undo.undoActionName, FigureVisitUndo.actionName, "premise: a folded visit's step")
+
+        (_, c) = try await expanded(m)
+        typeCell(m, c, cell(c, 1, 2), "7")
+        c.handle(.click(cell(c, 1, 3), extend: false))
+        type(m, "9")                                    // open, not committed
+        await c.settleWrites()
+        ReadThrough.post(.init(docId: docId, on: true))
+        XCTAssertTrue(m.coordinator.isInReadThrough)
+        XCTAssertNil(m.coordinator.figureGrid, "the entry folds the open grid")
+        await settled(m)
+        let typed = c.host.state.table
+        XCTAssertEqual(typed[cell(c, 1, 3)]?.content, number(9), "its open edit was committed")
+        XCTAssertEqual(typed[cell(c, 1, 1)]?.content, number(3))
+        XCTAssertFalse(undo.canUndo, "no visit step, before or at the entry, is left for ⌘Z: \(undo.undoActionName)")
+        XCTAssertTrue(m.coordinator.figureVisitSteps.isEmpty)
+        XCTAssertEqual(c.host.state.table, typed)
+    }
+
     // MARK: - Review Focus 2
 
     /// **Expand, type in five cells, sort, fold, type a sentence, ⌘Z, ⌘Z**:

@@ -899,35 +899,9 @@ struct EditorHost: View {
                     return (paragraphId: pid,
                             offsetWithinParagraph: location - range.location)
                 },
-                checkboxToggleHandler: { paragraphId, offset, kind in
-                    // Mirror wiki-link click wiring: the flip goes through
-                    // Document.setParagraph, the standard mutation path.
-                    // Tripwire #7: this is NOT applyExternalText.
-                    guard let para = doc.paragraph(id: paragraphId) else { return }
-                    let flipped: String
-                    switch kind {
-                    case .markdown:
-                        flipped = MarkdownCheckboxScanner.flipBracket(
-                            in: para, atUTF16Offset: offset)
-                    case .fountain:
-                        flipped = FountainBoneyardScanner.flipTodoDone(
-                            in: para, atUTF16Offset: offset)
-                    }
-                    guard flipped != para else { return }
-                    // ⌘Z: a checkbox flip is text-is-state (no task op), so
-                    // undo is a guarded flip-back. `InlineToggleUndo` sets the
-                    // undo-coherent flag so the buffer replace this
-                    // setParagraph drives doesn't wipe the fresh registration.
-                    // `mayWrite` is the window's yield-aware posture (#74),
-                    // asked at the press and again inside every undo/redo.
-                    let docId = doc.docId
-                    InlineToggleUndo.perform(
-                        on: doc, paragraphId: paragraphId,
-                        prior: para, flipped: flipped, undoManager: um,
-                        mayWrite: { [weak postureStore = documentStore] in
-                            postureStore?.posture(forDocId: docId)
-                                .allows(.writeText) ?? false
-                        })
+                checkboxToggleHandler: { [documentStore] paragraphId, offset, kind in
+                    Self.toggleCheckbox(on: doc, paragraphId: paragraphId, offset: offset, kind: kind,
+                                        undoManager: um, documentStore: documentStore)
                 },
                 paragraphRangeAtLocation: { location in
                     doc.paragraphRange(at: location)
@@ -1093,12 +1067,8 @@ struct EditorHost: View {
                         // `mayWrite` is the window's yield-aware posture
                         // (#79), asked at the press and again inside the
                         // suggestion's ⌘Z and ⇧⌘Z (`InlineToggleUndo`'s shape).
-                        try await doc.acceptAnnotation(
-                            id: id, undoManager: um,
-                            mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
-                                postureStore?.posture(forDocId: docId)
-                                    .allows(.writeText) ?? false
-                            })
+                        try await Self.acceptFromCard(id, on: doc, undoManager: um,
+                                                      documentStore: documentStore)
                     } catch let error as AnnotationAcceptError
                         where error == .suggestionAnchorLost {
                         // RULING-5's told-why half on the margin-card surface —
@@ -1130,13 +1100,10 @@ struct EditorHost: View {
                 reviewArchiveHandler: { id in
                     try? await doc.archiveAnnotation(id: id, undoManager: um)
                 },
-                reviewReplyHandler: { id, reply in
+                reviewReplyHandler: { [documentStore] id, reply in
                     try? await doc.acceptAnnotation(
                         id: id, userResponse: reply, undoManager: um,
-                        mayWrite: { [weak postureStore = documentStore, docId = doc.docId] in
-                            postureStore?.posture(forDocId: docId)
-                                .allows(.writeText) ?? false
-                        })
+                        mayWrite: Self.mayWriteText(documentStore, docId: doc.docId))
                 },
                 reviewEditHandler: { id, newBody, newSuggested in
                     try? await doc.editReviewerAnnotation(
@@ -1353,6 +1320,44 @@ struct EditorHost: View {
     /// pure for `EditorHostReloadPredicateTests`.
     static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
         item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
+    // MARK: - The decisions' handlers (read-through: typing off, decisions on)
+
+    /// **What a decision asks before it writes**: the window's yield-aware
+    /// posture (#74, #79), asked at the press and again inside every undo and
+    /// redo. Never the editor's membrane or `isEditable`: a decision passes in
+    /// read-through (`ReadThroughDecisionTests` runs through these).
+    static func mayWriteText(_ documentStore: DocumentStore?, docId: String) -> @MainActor () -> Bool {
+        { [weak documentStore] in documentStore?.posture(forDocId: docId).allows(.writeText) ?? false }
+    }
+
+    /// **A checkbox click's flip** (`checkboxToggleHandler`): through
+    /// `Document.setParagraph`, never `applyExternalText` (tripwire 7). ⌘Z is
+    /// a guarded flip-back (`InlineToggleUndo`, which sets the undo-coherent
+    /// flag so the buffer replace keeps the fresh registration).
+    static func toggleCheckbox(on doc: Document, paragraphId: String, offset: Int,
+                               kind: DocumentFormat, undoManager um: UndoManager?,
+                               documentStore: DocumentStore?) {
+        guard let para = doc.paragraph(id: paragraphId) else { return }
+        let flipped: String
+        switch kind {
+        case .markdown:
+            flipped = MarkdownCheckboxScanner.flipBracket(in: para, atUTF16Offset: offset)
+        case .fountain:
+            flipped = FountainBoneyardScanner.flipTodoDone(in: para, atUTF16Offset: offset)
+        }
+        guard flipped != para else { return }
+        InlineToggleUndo.perform(
+            on: doc, paragraphId: paragraphId, prior: para, flipped: flipped, undoManager: um,
+            mayWrite: mayWriteText(documentStore, docId: doc.docId))
+    }
+
+    /// **The margin card's Accept** (`reviewAcceptHandler`), undoable on `um`.
+    static func acceptFromCard(_ id: String, on doc: Document, undoManager um: UndoManager?,
+                               documentStore: DocumentStore?) async throws {
+        try await doc.acceptAnnotation(id: id, undoManager: um,
+                                       mayWrite: mayWriteText(documentStore, docId: doc.docId))
     }
 
     /// **Who answers a keystroke the view refused** (shell read-through Task

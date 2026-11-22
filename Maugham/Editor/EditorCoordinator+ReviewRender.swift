@@ -294,7 +294,7 @@ extension EditorCoordinator {
     /// Run a disposition handler, then refresh marks from the provider so the
     /// card list reconciles (the resolved annotation drops out of the open set).
     private func runReviewAction(_ work: @escaping () async -> Void) {
-        Task { @MainActor [weak self] in
+        reviewActionTask = Task { @MainActor [weak self] in
             await work()
             self?.clearReviewCardSelection()
             self?.refreshReviewMarksFromProvider()

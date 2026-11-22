@@ -78,7 +78,7 @@ enum FigureGridGate {
     }
 
     static func mode(figureMayEdit: Bool, parked: Bool, hostClosed: Bool, shareIsReadOnly: Bool,
-                     isReviewMode: Bool, isLocked: Bool = false, isInReadThrough: Bool = false,
+                     isReviewMode: Bool, isLocked: Bool = false, isInReadThrough: Bool,
                      isReadingTranslation: Bool) -> Mode {
         if isReadingTranslation { return .noExpand }
         if parked { return .readOnly(.parked) }
