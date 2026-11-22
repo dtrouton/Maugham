@@ -274,13 +274,13 @@ final class EditionLanguagesTests: XCTestCase {
     func test_theUnionTakesFilesQueriesAndRolesAndFoldsTheirCase() {
         XCTAssertEqual(
             EditionStatus.editionLanguages(files: ["es"], queries: ["fr"],
-                                           roles: ["pt-br"]),
+                                           roles: ["pt-br"], removed: nil),
             ["es", "fr", "pt-br"])
         XCTAssertEqual(
-            EditionStatus.editionLanguages(files: ["es"], queries: [], roles: ["ES"]),
+            EditionStatus.editionLanguages(files: ["es"], queries: [], roles: ["ES"], removed: nil),
             ["es"], "one edition, one row")
         XCTAssertEqual(
-            EditionStatus.editionLanguages(files: [], queries: [], roles: []),
+            EditionStatus.editionLanguages(files: [], queries: [], roles: [], removed: nil),
             [], "a document with nothing to say about any edition says nothing")
     }
 

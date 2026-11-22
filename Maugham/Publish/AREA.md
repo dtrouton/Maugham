@@ -42,7 +42,7 @@ Every source file in `Maugham/Publish/` appears once, by family.
 - `LanguageSuffixedFile.swift` — resolves `template.es.tex`-style per-language variants of templates, styles and piece style files.
 - `TranslationCoverage.swift` — the blocking coverage gate for a translated compile (paragraphs, and the text cells of the tables the edition uses), plus Fountain element-drift warnings.
 - `FigureUse.swift` — the tables a set of pieces uses and each one's cell-translation coverage: the one reader the gate and `EditionStatus` share.
-- `EditionStatus.swift` — where a book's language editions stand; the one derivation behind `translation_status` and an edition's Status.
+- `EditionStatus.swift`, `BookEditions.swift` — where editions stand (`translation_status`, an edition's Status); the one removed-edition predicate.
 
 ### Compiling and the catalogue
 - `PublishOrchestrator.swift` — the one compile path: refuse, resolve, gate, mint, compile, snapshot, record; `dry_run`; the durable-progress ledger a partial failure reports. Output lands under the project's `Exports/`.

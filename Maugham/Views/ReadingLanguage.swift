@@ -31,6 +31,14 @@ enum ReadingLanguage {
         return languages.first { $0.caseInsensitiveCompare(switched) == .orderedSame }
     }
 
+    /// **What an edition's removal does to the reading language**: a piece
+    /// read in a removed edition's language is read in Source. Pure over the
+    /// window's model.
+    @MainActor
+    static func readsInSourceAfterRemoval(_ current: String?, reading: ReadingLanguageModel) -> Bool {
+        current != nil && !reading.admits(current)
+    }
+
     /// **What a promotion leaves of the reading language** (closing review
     /// M1): a piece promoted away is a reference here — it loads as no
     /// manuscript and reads in nothing — so the language goes; a piece the
@@ -114,13 +122,21 @@ final class ReadingLanguageModel {
     /// round's indicator): taken on that piece's arrival only (fix M7).
     var pending: (docId: String, language: String?)?
 
-    /// Removed editions' languages, lowercased: never offered.
-    var removed: Set<String> = []
+    /// The manifest's removed editions (`BookEditions`): never offered, never
+    /// read in.
+    var removedEditions: [String]?
 
     /// The languages `docId` can be read in, in the switch's order — a
     /// removed edition's never (shell p4 closing round).
     func languages(for docId: String) -> [String] {
-        ReadingLanguage.ordered((languagesByDocId[docId] ?? []).filter { !removed.contains($0.lowercased()) })
+        ReadingLanguage.ordered(Set(BookEditions.listed(languagesByDocId[docId] ?? [], removed: removedEditions)))
+    }
+
+    /// **The door**: whether a piece may be read in `language` now — Source
+    /// (nil) always; a removed edition's language never (closing review
+    /// IM2: a reveal or a choice into it is refused and said).
+    func admits(_ language: String?) -> Bool {
+        BookEditions.lists(language, removed: removedEditions)
     }
 
     func adopt(_ listing: Listing) {

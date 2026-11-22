@@ -439,7 +439,13 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
     /// Whether the edition in `language` is removed (case-insensitive — the
     /// tag match `storedTranslator(for:)` uses).
     public func isEditionRemoved(_ language: String) -> Bool {
-        (removedEditions ?? []).contains { $0.caseInsensitiveCompare(language) == .orderedSame }
+        Self.isEdition(language, removedIn: removedEditions)
+    }
+
+    /// The tag match, over a list held apart from a manifest (a window's
+    /// copy of `removedEditions`).
+    public static func isEdition(_ language: String, removedIn removed: [String]?) -> Bool {
+        (removed ?? []).contains { $0.caseInsensitiveCompare(language) == .orderedSame }
     }
 
     public var targets: ProjectTargets?

@@ -180,7 +180,9 @@ enum ResolveReader {
         }
         return gather(
             scope: scope,
-            annotations: overlaying(annotations, live: live),
+            // A removed edition's questions are hidden with it (BookEditions).
+            annotations: BookEditions.hiding(overlaying(annotations, live: live),
+                                             removed: store.manifest.removedEditions),
             tasks: overlaying(tasks, live: live),
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
             liveFindings: liveFindings,

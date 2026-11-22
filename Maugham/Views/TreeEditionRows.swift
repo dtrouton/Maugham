@@ -153,7 +153,7 @@ struct TreeEditionRows: View {
         let translated = EditionStatus.editionLanguages(
             files: files, queries: [],
             roles: EditionStatus.storedTranslatorLanguages(in: store.manifest),
-            removed: store.manifest.isEditionRemoved)
+            removed: store.manifest.removedEditions)
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
         let source = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscript)

@@ -195,9 +195,10 @@ struct RightColumnControl: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Right column")
-        .onChange(of: DotKey(subject: subject, readIn: readIn), initial: true) { _, new in
+        .onChange(of: DotKey(subject: subject, readIn: readIn, sourceLanguage: sourceLanguage),
+                  initial: true) { _, new in
             unreadDocId = Self.unreadDocId(subject: new.subject, readIn: new.readIn,
-                                           sourceLanguage: sourceLanguage, store: store)
+                                           sourceLanguage: new.sourceLanguage, store: store)
         }
         .task(id: regionTitleKey) {
             regionTitle = regionTitleKey.flatMap { PulledUpView.regionTitle($0.regionId, store: store) }
@@ -209,9 +210,12 @@ struct RightColumnControl: View {
     }
 
     /// What the dot's doc id is resolved on.
-    private struct DotKey: Equatable {
+    struct DotKey: Equatable {
         let subject: WindowSubject
         let readIn: String?
+        /// The book's own language: an edition is the Source by it, so a
+        /// config read after the first render asks again (closing review M6).
+        let sourceLanguage: String
     }
 
     private struct RegionTitleKey: Equatable {

@@ -158,6 +158,12 @@ public enum WriteTranslationTool: MCPTool {
         // 1. Valid language tag — the pipeline's own gate, called here so a
         // malformed tag is refused before the registry is touched.
         try TranslationWritePipeline.validate(language: params.language)
+        // A removed edition takes no writes: it would vanish from the writer's
+        // view (`BookEditions`; closing review). A round already running on
+        // another Mac writes through that Mac's own pipeline, not this tool.
+        try BookEditions.refuseIfRemoved(
+            [params.language],
+            removed: try resolveProject(params.project_id, in: registry).store.manifest.removedEditions)
 
         if DocumentClass.isFigureDocId(params.document_id) {
             return try await writeCells(params, registry: registry)
@@ -526,6 +532,10 @@ public enum TranslationStatusTool: MCPTool {
         "its rows' coverage counts are all zero (not started) with `open_queries` real. " +
         "Once the book has any translation in a language, a document with none of its own " +
         "counts every paragraph `missing`, as the compile's coverage gate does. " +
+        "An edition the writer REMOVED is omitted from `rows` and `figures` alike; its " +
+        "translations are kept, and write_translation, compile, preview_compile and " +
+        "propose_edition_brief refuse its language until the writer adds it again " +
+        "(Add Language). " +
         "`unreadable_documents` (always present, empty when the whole book read cleanly) " +
         "names every document this call could not open, with the reason — its rows are " +
         "missing from `rows` rather than zero, so read it before concluding a chapter is " +

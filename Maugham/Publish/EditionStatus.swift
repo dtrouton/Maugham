@@ -273,9 +273,12 @@ enum EditionStatus {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
         let inScope = Set(scope)
         let manuscript = manuscriptDocumentIds(in: store.manifest).filter(inScope.contains)
-        var layer = manuscript.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let removed = store.manifest.removedEditions
+        var layer = Set(BookEditions.listed(
+            manuscript.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }, removed: removed))
         let tables = (store.manifest.figures ?? []).filter { $0.kind == .table }.map(\.id)
-        let onlyTables = tables.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }
+        let onlyTables = Set(BookEditions.listed(
+            tables.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }, removed: removed))
             .subtracting(layer)
         guard !onlyTables.isEmpty else { return layer }
         let figures = await store.translationFigures()
@@ -446,16 +449,27 @@ enum EditionStatus {
         }
         guard !used.readable.isEmpty else { return FigureReport(rows: [], unreadable: unreadable) }
         let tables = used.readable
+        let removed = store.manifest.removedEditions
         let counted = await Task.detached(priority: .userInitiated) {
-            countRows(tables: tables, languages: languages, layer: layer, projectURL: projectURL)
+            countRows(tables: tables, languages: languages, layer: layer, removed: removed,
+                      projectURL: projectURL)
         }.value
         return FigureReport(rows: counted.rows, unreadable: unreadable + counted.unreadable)
+    }
+
+    /// **The languages a table's rows are reported in** (MCP's `figures`): the
+    /// book's, and any its own file names, a removed edition's never
+    /// (closing review IM2: `rows` and `figures` must agree). Pure.
+    nonisolated static func figureLanguages(languages: Set<String>, onFile: Set<String>,
+                                            removed: [String]?) -> [String] {
+        BookEditions.listed(languages.union(onFile), removed: removed).sorted()
     }
 
     /// `figureRows`' counting half, off the main actor: one trust resolution,
     /// then each table's records read and derived per language.
     nonisolated private static func countRows(
-        tables: [FigureUse.Table], languages: Set<String>, layer: Set<String>, projectURL: URL
+        tables: [FigureUse.Table], languages: Set<String>, layer: Set<String>, removed: [String]?,
+        projectURL: URL
     ) -> FigureReport {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
         let resolved = Result {
@@ -466,7 +480,8 @@ enum EditionStatus {
         for use in tables {
             do {
                 var perLanguage: [FigureRow] = []
-                for language in languages.union(byDoc[use.record.id] ?? []).sorted() {
+                for language in figureLanguages(languages: languages, onFile: byDoc[use.record.id] ?? [],
+                                                removed: removed) {
                     guard layer.contains(language) else {
                         perLanguage.append(FigureRow(
                             figureId: use.record.id, name: use.record.name, language: language,
@@ -534,7 +549,7 @@ enum EditionStatus {
         // document: one with no file of its own is untranslated into it.
         let languages = editionLanguages(
             files: fileLanguages.union(layer), queries: queryLanguages, roles: roleLanguages,
-            removed: store.manifest.isEditionRemoved)
+            removed: store.manifest.removedEditions)
             .filter { language in
                 options.languages.map { wanted in
                     wanted.contains { $0.caseInsensitiveCompare(language) == .orderedSame }
@@ -645,7 +660,7 @@ enum EditionStatus {
                 language: tag, translator: translatorName(for: tag, in: manifest),
                 fresh: 0, stale: 0, missing: 0, openQueries: 0)
         }
-        return byLanguage.values.filter { !manifest.isEditionRemoved($0.language) }
+        return byLanguage.values.filter { BookEditions.lists($0.language, removed: manifest.removedEditions) }
             .sorted { $0.language < $1.language }
     }
 
@@ -691,15 +706,14 @@ enum EditionStatus {
     /// shell p4 closing round): its files and roles stay, and it is listed
     /// again the moment it is added back.
     nonisolated static func editionLanguages(
-        files: Set<String>, queries: Set<String>, roles: [String],
-        removed: (String) -> Bool = { _ in false }
+        files: Set<String>, queries: Set<String>, roles: [String], removed: [String]?
     ) -> [String] {
         var languages = files.union(queries)
         var seen = Set(languages.map { $0.lowercased() })
         for tag in roles where seen.insert(tag.lowercased()).inserted {
             languages.insert(tag)
         }
-        return languages.filter { !removed($0) }.sorted()
+        return BookEditions.listed(languages, removed: removed).sorted()
     }
 
     /// The translator's display name for `language`, read **without minting**.

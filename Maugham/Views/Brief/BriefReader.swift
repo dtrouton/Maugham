@@ -85,7 +85,9 @@ enum BriefReader {
             }
             decisions += reading.decisions(.lessons, .project, origin: .lessons)
             decisions += reading.decisions(.firstReader, .project, origin: .firstReader)
-            for language in editionLanguages(in: store.manifest.statements) {
+            // A removed edition's decisions are hidden with it (BookEditions).
+            for language in BookEditions.listed(editionLanguages(in: store.manifest.statements),
+                                                removed: store.manifest.removedEditions) {
                 decisions += reading.decisions(.editionBrief(language), .project,
                                                origin: .edition(language: language))
             }

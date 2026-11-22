@@ -88,9 +88,15 @@ enum EditionCastVerbs {
 
     // MARK: - The asks
 
-    static func addPrompt(proposing tag: String? = nil) -> EditionCastPrompt {
+    static func addPrompt(proposing tag: String? = nil, manifest: ProjectManifest) -> EditionCastPrompt {
         var prompt = EditionCastPrompt(ask: .addLanguage)
         prompt.proposedTag = tag ?? ""
+        for language in manifest.removedEditions ?? [] {
+            guard let name = EditionStatus.translatorName(for: language, in: manifest) else { continue }
+            prompt.removedCasts[language.lowercased()] = .init(
+                name: name, reader: EditionStatus.readerName(for: language, in: manifest),
+                collator: EditionStatus.collatorName(for: language, in: manifest))
+        }
         return prompt
     }
 
@@ -133,6 +139,9 @@ enum EditionCastVerbs {
         /// The book already has this edition: nothing is written, and the
         /// window goes to that edition's Brief, where its cast is changed.
         case existing(language: String)
+        /// A REMOVED edition came back as it was — its translations and its
+        /// stored cast, nobody renamed (closing review IM1).
+        case restored(language: String)
         /// Nothing was added; the sentence says why.
         case refused(String)
     }
@@ -154,6 +163,9 @@ enum EditionCastVerbs {
                            position: proposed ? .brief : .resolve, alert: warning)
         case .existing(let language):
             return Landing(select: .edition(language: language), position: .brief, alert: nil)
+        case .restored(let language):
+            return Landing(select: .edition(language: language), position: .brief,
+                           alert: EditionCastCopy.restoredLine(language: language))
         case .refused(let sentence):
             return Landing(select: nil, position: nil, alert: sentence)
         }
@@ -165,9 +177,15 @@ enum EditionCastVerbs {
     ///
     /// A REMOVED edition is neither (shell p4 closing round): its stored
     /// translator stays, and adding the language again brings it back.
+    /// **Whether Add brings a removed edition back as it was**: the tag is
+    /// removed and its translator is stored. Pure.
+    nonisolated static func restores(_ tag: String, manifest: ProjectManifest) -> Bool {
+        !BookEditions.lists(tag, removed: manifest.removedEditions) && manifest.storedTranslator(for: tag) != nil
+    }
+
     static func alreadyAnEdition(_ tag: String, editions: [String], manifest: ProjectManifest) -> Bool {
         editions.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
-            || (manifest.storedTranslator(for: tag) != nil && !manifest.isEditionRemoved(tag))
+            || (manifest.storedTranslator(for: tag) != nil && BookEditions.lists(tag, removed: manifest.removedEditions))
     }
 
     /// **Start an edition**: mint its translator, named. Decided over the
@@ -185,6 +203,18 @@ enum EditionCastVerbs {
         guard StatementSurfaceVerbs.offered(under: posture) else {
             return .refused(EditionCastCopy.mayNotCast)
         }
+        // **A removed edition is restored, not re-cast** (closing review IM1):
+        // its stored translator stands, so the sheet's names are not asked
+        // of it — the edition simply shows again, as it was.
+        if restores(language, manifest: store.manifest) {
+            do {
+                try await store.setEdition(language, removed: false)
+            } catch {
+                _castLog.error("could not bring back the \(language, privacy: .public) edition: \(error, privacy: .public)")
+                return .refused(EditionCastCopy.restoreFailed(language: language))
+            }
+            return .restored(language: language)
+        }
         let editions = TreeEditionRows.languages(store: store)
         if alreadyAnEdition(language, editions: editions, manifest: store.manifest) {
             return .existing(language: editions.first {
@@ -194,13 +224,13 @@ enum EditionCastVerbs {
         guard named.translatorNamed else {
             return .refused(named.failure ?? EditionCastCopy.mintFailed(language: language))
         }
-        // A removed edition comes back whole: its translations, rounds, brief
-        // and books never left (`removeEdition`).
+        // A removed edition with no stored translator (never cast) comes back
+        // through the ordinary mint above; its tag is cleared here.
         do {
             try await store.setEdition(language, removed: false)
         } catch {
             _castLog.error("could not bring back the \(language, privacy: .public) edition: \(error, privacy: .public)")
-            return .refused(EditionCastCopy.mintFailed(language: language))
+            return .refused(EditionCastCopy.restoreFailed(language: language))
         }
         return .added(language: language, warning: named.missing.isEmpty ? nil
             : EditionCastCopy.partlyNamed(language: language, missing: named.missing))

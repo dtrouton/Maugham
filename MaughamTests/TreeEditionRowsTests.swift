@@ -153,8 +153,8 @@ final class TreeEditionRowsTests: XCTestCase {
         XCTAssertEqual(bad, .refused(EditionCastCopy.unusableTag("not a tag")))
 
         // A proposed brief's Add opens the sheet on its language.
-        XCTAssertEqual(EditionCastVerbs.addPrompt(proposing: "it").proposedTag, "it")
-        XCTAssertEqual(EditionCastVerbs.addPrompt().proposedTag, "")
+        XCTAssertEqual(EditionCastVerbs.addPrompt(proposing: "it", manifest: store.manifest).proposedTag, "it")
+        XCTAssertEqual(EditionCastVerbs.addPrompt(manifest: store.manifest).proposedTag, "")
         var received: [Notification] = []
         let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer inspecting the exact scoped Notification Add Language posts
             forName: .maughamAddLanguage, object: nil, queue: nil) { received.append($0) }
@@ -176,8 +176,9 @@ final class TreeEditionRowsTests: XCTestCase {
         let documentStore = try await DocumentStore.open(url: store.url)
         documentStores.append(documentStore)
         store.documentStore = documentStore
-        _ = await EditionCastVerbs.addLanguage(answer: EditionCastAnswer(language: "es", name: "Ana"),
-                                               store: store, documentStore: documentStore)
+        _ = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "es", name: "Ana", reader: "Bea", collator: "Cy"),
+            store: store, documentStore: documentStore)
         let docId = try XCTUnwrap(EditionStatus.manuscriptDocumentIds(in: store.manifest).first)
         // What the edition made: a translation file, a round ledger.
         let translation = TranslationStore.directoryURL(in: store.url)
@@ -207,20 +208,33 @@ final class TreeEditionRowsTests: XCTestCase {
         XCTAssertTrue(store.manifest.isEditionRemoved("es"))
         XCTAssertEqual(try kept(), before, "its translations and rounds stay byte for byte")
         XCTAssertEqual(EditionStatus.translatorName(for: "es", in: store.manifest), "Ana", "its cast stays")
+        XCTAssertTrue(EditionCastVerbs.restores("es", manifest: store.manifest))
         XCTAssertFalse(EditionCastVerbs.alreadyAnEdition("es", editions: TreeEditionRows.languages(store: store),
                                                          manifest: store.manifest),
                        "a removed edition is not one Add stops at")
         let reading = ReadingLanguageModel()
         reading.adopt(.init(languagesByDocId: [docId: ["es", "sr"]]))
-        reading.removed = ["es"]
+        reading.removedEditions = store.manifest.removedEditions
         XCTAssertEqual(reading.languages(for: docId), ["sr"], "no piece is read in a removed edition")
+        // The sheet, asked for `es` again, offers the cast it had (IM1).
+        let offered = EditionCastVerbs.addPrompt(manifest: store.manifest).offered(for: "es")
+        XCTAssertEqual(offered, .init(name: "Ana", reader: "Bea", collator: "Cy"),
+                       "a removed edition's own cast, never the presets")
         let again = await EditionCastVerbs.removeEdition(language: "es", store: store,
                                                          documentStore: documentStore, busy: { _ in nil })
         XCTAssertEqual(again, .refused(EditionCastCopy.noSuchEdition(language: "es")))
 
-        let back = await EditionCastVerbs.addLanguage(answer: EditionCastAnswer(language: "es", name: "Ana"),
-                                                      store: store, documentStore: documentStore)
-        XCTAssertEqual(back, .added(language: "es", warning: nil))
+        // **Closing review IM1**: added again with OTHER names, it comes back
+        // as it was — nobody is renamed — and says so.
+        let back = await EditionCastVerbs.addLanguage(
+            answer: EditionCastAnswer(language: "es", name: "Cortázar", reader: "Other", collator: "Else"),
+            store: store, documentStore: documentStore)
+        XCTAssertEqual(back, .restored(language: "es"))
+        XCTAssertEqual(EditionCastVerbs.landing(back, proposed: false).alert,
+                       EditionCastCopy.restoredLine(language: "es"))
+        XCTAssertEqual(EditionStatus.translatorName(for: "es", in: store.manifest), "Ana", "the stored cast survives")
+        XCTAssertEqual(EditionStatus.readerName(for: "es", in: store.manifest), "Bea")
+        XCTAssertEqual(EditionStatus.collatorName(for: "es", in: store.manifest), "Cy")
         XCTAssertEqual(TreeEditionRows.languages(store: store), ["en", "es"], "adding it again brings it back")
         XCTAssertFalse(store.manifest.isEditionRemoved("es"))
         XCTAssertNil(store.manifest.removedEditions, "no tag left behind")
@@ -292,7 +306,7 @@ final class TreeEditionRowsTests: XCTestCase {
             ("Maugham/Views/Publish/EditionCastVerbs.swift",
              "let posture = await documentStore.settledPosture(forDocId: DocumentClass.projectStreamDocId) guard StatementSurfaceVerbs.offered(under: posture) else { return .refused(EditionCastCopy.mayNotRemove) }"),
             ("Maugham/Views/ProjectWindow.swift", "busy: { removalBusy($0) }))"),
-            ("Maugham/Views/ReadingLanguageModifier.swift", "reading.removed = Set(removed.map { $0.lowercased() })"),
+            ("Maugham/Views/ReadingLanguageModifier.swift", "reading.removedEditions = removed"),
         ]
         for (file, token) in doors {
             XCTAssertTrue(try code(file).contains(token), "\(file) lost: \(token)")

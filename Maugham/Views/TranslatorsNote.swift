@@ -74,7 +74,7 @@ enum TranslatorsNote {
             return nil
         }
         return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs,
-                                              removed: manifest.isEditionRemoved)
+                                              removed: manifest.removedEditions)
     }
 
     /// **The homes a sheet about `target` offers** — every edition, then each

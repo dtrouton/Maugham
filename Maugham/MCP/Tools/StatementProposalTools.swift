@@ -93,6 +93,8 @@ public enum ProposeEditionBriefTool: MCPTool {
             throw MCPError.invalidArgument("invalid language tag: \(params.language)")
         }
         let entry = try resolveProject(params.project_id, in: registry)
+        // A removed edition takes no proposal: its way back is Add Language.
+        try BookEditions.refuseIfRemoved([params.language], removed: entry.store.manifest.removedEditions)
         let kind = ProposableStatement.editionBrief(params.language)
         let (proposal, superseded, glossary) = try StatementProposalTools.stage(
             kind: kind, markdown: params.markdown, rationale: params.rationale, in: entry.store)

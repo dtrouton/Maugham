@@ -151,6 +151,25 @@ struct EditionCastPrompt: Equatable, Identifiable {
     /// for every other ask.
     var proposedTag: String = ""
 
+    /// **A removed edition's stored cast, by lowercased tag** (closing review
+    /// IM1): typing a removed language's tag offers the names it had, never
+    /// the presets — adding it again brings it back as it was.
+    struct Cast: Equatable {
+        var name: String
+        var reader: String?
+        var collator: String?
+    }
+    var removedCasts: [String: Cast] = [:]
+
+    /// What the sheet offers for `tag`: the removed edition's own cast, else
+    /// the language's presets. Pure.
+    func offered(for tag: String) -> Cast {
+        if let stored = removedCasts[tag.lowercased()] { return stored }
+        return Cast(name: ProductionRole.defaultTranslatorName(language: tag) ?? "",
+                    reader: ProductionRole.defaultReaderName(language: tag),
+                    collator: ProductionRole.defaultCollatorName(language: tag))
+    }
+
     init(ask: Ask, currentReader: String? = nil, currentCollator: String? = nil) {
         self.ask = ask
         self.currentReader = currentReader
@@ -275,23 +294,19 @@ struct EditionCastSheet: View {
                         // Offer the preset translator for the language now
                         // named — unless the writer has typed a name of their
                         // own, which outranks any preset.
+                        // A removed edition's tag offers its own cast.
+                        let offered = prompt.offered(for: trimmedTag)
                         if name.isEmpty || name == autofilled {
-                            let offered = ProductionRole.defaultTranslatorName(
-                                language: trimmedTag) ?? ""
-                            name = offered
-                            autofilled = offered
+                            name = offered.name
+                            autofilled = offered.name
                         }
                         if reader.isEmpty || reader == autofilledReader {
-                            let offered = ProductionRole.defaultReaderName(
-                                language: trimmedTag) ?? ""
-                            reader = offered
-                            autofilledReader = offered
+                            reader = offered.reader ?? ""
+                            autofilledReader = offered.reader ?? ""
                         }
                         if collator.isEmpty || collator == autofilledCollator {
-                            let offered = ProductionRole.defaultCollatorName(
-                                language: trimmedTag) ?? ""
-                            collator = offered
-                            autofilledCollator = offered
+                            collator = offered.collator ?? ""
+                            autofilledCollator = offered.collator ?? ""
                         }
                     }
             }
@@ -496,6 +511,16 @@ enum EditionCastCopy {
     }
 
     static let removeEditionConfirm = "Remove"
+
+    /// Adding a removed edition's language again (closing review IM1).
+    static func restoredLine(language: String) -> String {
+        "The \(LanguageName.title(language)) edition is back, with its translations and cast."
+    }
+
+    static func restoreFailed(language: String) -> String {
+        "Couldn\u{2019}t bring the \(LanguageName.title(language)) edition back. "
+            + "Check that the project folder is still where it was."
+    }
     static let removeEditionAlertTitle = "Remove Edition"
     static let mayNotRemove =
         "Your part in this book doesn\u{2019}t include removing its editions."

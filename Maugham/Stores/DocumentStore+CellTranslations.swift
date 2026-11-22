@@ -65,6 +65,8 @@ extension DocumentStore {
         let byDoc = TranslationStore.languagesByDocId(in: projectURL)
         var listed = Set(TreeWalk.collect(in: manifest.structure) { $0.type == .document }.map(\.id))
         listed.formUnion((manifest.figures ?? []).filter { $0.kind == .table }.map(\.id))
-        return listed.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) }.sorted()
+        // A removed edition is hidden (`BookEditions`, closing review IM2).
+        return BookEditions.listed(listed.reduce(into: Set<String>()) { $0.formUnion(byDoc[$1] ?? []) },
+                                   removed: manifest.removedEditions).sorted()
     }
 }

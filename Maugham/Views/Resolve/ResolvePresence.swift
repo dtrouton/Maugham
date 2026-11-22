@@ -385,6 +385,9 @@ final class ResolvePresenceReader {
         let open: [String: LiveVersion]
         let structure: [StructureItem]
         let figureOwners: [String: String?]
+        /// The removed editions: a removal re-gathers what is held, hiding
+        /// their questions (no walk — the notes are already held).
+        var removedEditions: [String]? = nil
     }
 
     /// How long a burst of closed-piece events waits before its one walk.
@@ -412,7 +415,8 @@ final class ResolvePresenceReader {
                 localName: ""),
             script: ResolvePane.script(for: scope, structure: structure, openDocId: nil, script: script),
             open: open, structure: structure,
-            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []))
+            figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
+            removedEditions: store.manifest.removedEditions)
     }
 
     private(set) var marks: ResolvePresence.Marks = .none
@@ -513,6 +517,7 @@ final class ResolvePresenceReader {
             dataMoved = true
         }
 
+        if last?.removedEditions != key.removedEditions { dataMoved = true }
         if let last, !dataMoved, last.read == key.read {
             var held = snapshot
             if last.script != key.script {
@@ -715,7 +720,9 @@ final class ResolvePresenceReader {
         let heldTokens = tokens
         return ResolveReader.gather(
             scope: scope,
-            annotations: ResolveReader.overlaying(walk, live: live),
+            // A removed edition's questions mark nothing (BookEditions).
+            annotations: BookEditions.hiding(ResolveReader.overlaying(walk, live: live),
+                                             removed: store.manifest.removedEditions),
             tasks: ResolveReader.overlaying(heldTasks + bookTasks, live: live),
             figureOwners: ProjectStore.figureNoteOwners(store.manifest.figures ?? []),
             liveFindings: liveFindings,

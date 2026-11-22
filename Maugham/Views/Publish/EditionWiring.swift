@@ -39,8 +39,10 @@ struct EditionWiring: ViewModifier {
             .onKeyWindowCommand(.maughamAddLanguage, window: window) { note in
                 guard let documentStore,
                       EditionCastVerbs.mayAddLanguage(documentStore: documentStore) else { return }
+                guard let store else { return }
                 addPrompt = EditionCastVerbs.addPrompt(
-                    proposing: note.userInfo?[MaughamEvent.proposedLanguageKey] as? String)
+                    proposing: note.userInfo?[MaughamEvent.proposedLanguageKey] as? String,
+                    manifest: store.manifest)
             }
             // Remove Edition…: asked first, the language named and what is kept.
             .onKeyWindowCommand(.maughamRemoveEdition, window: window) { note in

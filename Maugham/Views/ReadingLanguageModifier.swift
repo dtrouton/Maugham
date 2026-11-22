@@ -61,6 +61,7 @@ struct ReadingLanguageModifier: ViewModifier {
             // language is taken on its arrival (`reading.pending`).
             .onKeyWindowCommand(.maughamChooseReadingLanguage, window: window) { note in
                 let asked = LanguageSwitch.choice(from: note.userInfo)
+                guard refusesIfRemoved(asked.language) == false else { return }
                 if let docId = asked.docId, docId != openDocId {
                     reading.pending = (docId, asked.language)
                     ResolveNavigation.go(toDocId: docId)
@@ -70,7 +71,8 @@ struct ReadingLanguageModifier: ViewModifier {
             }
             // The setting events — a reveal's, and a choice's own.
             .onKeyWindowCommand(.maughamReadInLanguage, window: window) { note in
-                guard let language = note.userInfo?[TranslationReveal.languageKey] as? String else { return }
+                guard let language = note.userInfo?[TranslationReveal.languageKey] as? String,
+                      refusesIfRemoved(language) == false else { return }
                 editorControl.translationLanguage = language
             }
             .onKeyWindowCommand(.maughamReadInSource, window: window) { _ in
@@ -104,7 +106,8 @@ struct ReadingLanguageModifier: ViewModifier {
             // OPEN is this window's own answer, so the poster posts and the plan is
             // made here — `.now` when the chapter is up, `.afterSelecting` when not.
             .onKeyWindowCommand(.maughamRevealTranslation, window: window) { note in
-                guard let reveal = TranslationReveal.decode(note.userInfo) else { return }
+                guard let reveal = TranslationReveal.decode(note.userInfo),
+                      refusesIfRemoved(reveal.language) == false else { return }
                 switch TranslationReveal.plan(reveal, subject: subject) {
                 case .now:
                     if centreItem != nil { centreItem = nil }
@@ -143,9 +146,8 @@ struct ReadingLanguageModifier: ViewModifier {
             // **An edition removed** (owner's answer 1): its language leaves
             // the switch, and a piece read in it is read in Source.
             .onChange(of: removedEditions, initial: true) { _, removed in
-                reading.removed = Set(removed.map { $0.lowercased() })
-                if let current = editorControl.translationLanguage,
-                   reading.removed.contains(current.lowercased()) {
+                reading.removedEditions = removed
+                if ReadingLanguage.readsInSourceAfterRemoval(editorControl.translationLanguage, reading: reading) {
                     choose(nil)
                 }
             }
@@ -189,7 +191,7 @@ struct ReadingLanguageModifier: ViewModifier {
     /// posts the setting event the key window's coordinator turns its
     /// membrane on by.
     private func choose(_ language: String?) {
-        guard language != editorControl.translationLanguage else { return }
+        guard language != editorControl.translationLanguage, refusesIfRemoved(language) == false else { return }
         editorControl.translationLanguage = language
         if let language {
             MaughamEvent.post(.maughamReadInLanguage, to: .keyWindow,
@@ -197,6 +199,15 @@ struct ReadingLanguageModifier: ViewModifier {
         } else {
             MaughamEvent.post(.maughamReadInSource, to: .keyWindow)
         }
+    }
+
+    /// **The door into a removed edition** (closing review IM2): a choice, a
+    /// setting event or a reveal into its language does nothing but say the
+    /// edition was removed. True when it refused.
+    private func refusesIfRemoved(_ language: String?) -> Bool {
+        guard !reading.admits(language), let language else { return false }
+        MaughamEvent.postNotice(BookEditions.removedLine(language: language), projectURL: projectURL)
+        return true
     }
 
     /// **Perform a reveal, waiting for each thing it needs to exist.** Two waits,
