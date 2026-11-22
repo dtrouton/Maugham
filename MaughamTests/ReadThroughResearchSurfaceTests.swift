@@ -363,6 +363,7 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
         "Maugham/Editor/EditorCoordinator+FigureGrid.swift": 2, // an editor's grid in place, its visit's ⌘Z
         "Maugham/Stores/ProjectStore+Search.swift": 2,      // Replace's research arm: an item, a file
         "Maugham/Stores/ProjectStore+FigureResearch.swift": 1, // the store's retarget (Move into Figures)
+        "Maugham/Views/ProjectSearchView.swift": 1,         // Find's manuscript arm, from its one gate
     ]
 
     /// The ways to ask: a gate's `refusal(.target)`, `refusal(researchPath:)`
@@ -607,6 +608,23 @@ final class ReadThroughResearchSurfaceTests: XCTestCase {
                                        in: mountCentre(f, itemID: f.sharedNote.id, gate: f.gate))
         writing.keyDown(with: key)
         XCTAssertEqual(pulses, 1, "control: a shared note takes the key, no pulse")
+
+        // A note locked by a view-only share (no piece in read-through) is
+        // refused but answers nothing: there is no "Resume writing" to point at.
+        let control = EditorControl()
+        control.shareIsReadOnly = true
+        let shareWindow = TestWindow.mount(AnyView(
+            ResearchCentreFixture.centre(store: f.store, documentStore: f.documentStore,
+                                         itemID: f.sharedNote.id, readThrough: .writing, editorControl: control)
+                .environment(f.preferences)),
+            size: CGSize(width: 700, height: 600), as: SilentTestWindow.self)
+        windows.append(shareWindow)
+        pump(0.3)
+        let shareLocked = try await editor(showing: Self.noteText, in: shareWindow)
+        XCTAssertEqual(shareLocked.coordinator?.lockEditing, true, "premise: the share locks it")
+        shareLocked.keyDown(with: key)
+        XCTAssertEqual(pulses, 1, "a share-locked note pulses no read-through line")
+        XCTAssertEqual(shareLocked.string, Self.noteText, "and lands nothing")
     }
 
     /// **The assistant's research writes are not refused** (ruling M1,

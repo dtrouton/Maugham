@@ -114,6 +114,18 @@ final class ReadThroughReplaceTests: XCTestCase {
     /// **Find says before the press what read-through leaves** (review M3):
     /// Replace All's confirm counts only what will be replaced and names the
     /// piece in read-through apart; that piece's rows offer no Replace.
+    /// The manuscript arm's one map per pass answers as the old per-document
+    /// walk did, and walks nothing while no piece is in read-through (N3).
+    func test_theManuscriptArmMapsPathsToPiecesOncePerPass() async throws {
+        let store = try await makeBook()
+        let gate = store.readThroughGate()
+        let ids = ProjectSearchView.manuscriptPieceIds(store, gate: gate)
+        XCTAssertEqual(ids["manuscript/three.md"], "doc-three")
+        XCTAssertNotNil(ids["manuscript/three.md"].flatMap { gate.refusal(.piece($0)) })
+        XCTAssertNil(ids["manuscript/one.md"].flatMap { gate.refusal(.piece($0)) }, "control: writing")
+        XCTAssertEqual(ProjectSearchView.manuscriptPieceIds(store, gate: .writing), [:], "nothing walked while writing")
+    }
+
     func test_findSaysBeforeThePressWhatReadThroughLeaves() throws {
         let one = [match("manuscript/one.md", "Chapter One"), match("manuscript/one.md", "Chapter One")]
         let three = match("manuscript/three.md", "Chapter Three")
@@ -138,11 +150,16 @@ final class ReadThroughReplaceTests: XCTestCase {
             .joined(separator: "\n")
         XCTAssertTrue(view.contains("} else if showReplace, gate.isInReadThrough(match) {"))
         XCTAssertTrue(view.contains(".help(Self.readThroughRowHelp)"))
-        XCTAssertTrue(view.contains("case .manuscript: return store.pieceInReadThrough(atPath: path) != nil"))
+        // Both arms answer from one gate and one path→id map per pass, never a
+        // gate or a tree walk per document (M6, N3).
         XCTAssertTrue(view.contains(
-            "case .research: return store.researchReadThroughRefusal(atPath: path, gate: gate) != nil"))
-        XCTAssertTrue(view.contains("inReadThrough: { [gate = store.readThroughGate()] path, source in"),
-                      "one gate per pass, never one per document (M6)")
+            "case .manuscript: return pieceIds[path].map { readThrough.refusal(.piece($0)) != nil } ?? false"))
+        XCTAssertTrue(view.contains(
+            "case .research: return store.researchReadThroughRefusal(atPath: path, gate: readThrough) != nil"))
+        XCTAssertTrue(view.contains("let readThrough = store.readThroughGate()"))
+        XCTAssertTrue(view.contains("let pieceIds = Self.manuscriptPieceIds(store, gate: readThrough)"))
+        XCTAssertFalse(view.contains("pieceInReadThrough(atPath:"), "no tree walk per document")
+
         // The research arm asks the gate's own rule, never a second spelling (M8).
         let search = SourceScan.codeLines(of: try SourceTree.read("Maugham/Stores/ProjectStore+Search.swift"))
             .joined(separator: "\n")

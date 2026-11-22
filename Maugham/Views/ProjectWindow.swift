@@ -140,11 +140,14 @@ struct ProjectWindow: View {
         Self.sessionGate(figureWindows: session?.figureWindows, own: ownReadThroughGate)
     }
 
-    /// The session's combined gate (`FigureWindows.readThrough`) with this
-    /// window's own added; its own alone where there is no session yet.
+    /// The session's combined gate (`FigureWindows.readThrough`), which
+    /// already holds this window's own (`ReadThroughModifier` hands it over
+    /// in the same change that builds it) — so a read copies nothing and the
+    /// children it is handed keep their equality fast path; its own alone
+    /// where there is no session, or the session's holds no piece yet.
     static func sessionGate(figureWindows: FigureWindows?, own: ReadThroughGate) -> ReadThroughGate {
         guard let figureWindows, !figureWindows.readThrough.pieces.isEmpty else { return own }
-        return figureWindows.readThrough.addingOwners(of: [own])
+        return figureWindows.readThrough
     }
     /// **What the centre shows while an edition is open** — the compiled
     /// books, the header's pick, and the desk's two Shows — and the rules for

@@ -23,15 +23,12 @@ struct ResearchNoteEditor: View {
     let path: String
     let itemId: String
     let previewVisible: Bool
-    /// **Review's locked posture, threaded from `ResearchSubjectCentre.readOnly`**
-    /// (shell-finish stage 3b Task 6) — forwarded straight into
-    /// `EditorControl.lockEditing`. Research notes have no review render
-    /// (read-through is a manuscript piece's), but `lockEditing` is no longer always
-    /// false: Denver's ruling is that Review adjudicates and does not edit
-    /// research from its own columns, and `EditorEditPolicy.allowsTextMutation`
-    /// already treats `lockEditing` as the hard floor selection/scroll survive
-    /// but typing does not, which is the "reference view" shape this posture
-    /// wants rather than an unmounted editor.
+    /// **The note's piece is in read-through**, threaded from
+    /// `ResearchSubjectCentre.readOnly` (shell read-through Task 4; Review's
+    /// lock before it) — forwarded into `EditorControl.lockEditing`, the hard
+    /// floor selection and scroll survive but typing does not (a reference
+    /// view, not an unmounted editor). A refused key is answered with the
+    /// read-through line's pulse for this reason only (`answersLockedTyping`).
     let lockEditing: Bool
     /// A view-only iCloud share: typing is refused exactly as Review's lock
     /// refuses it (selection, scroll and copy survive).
@@ -146,12 +143,14 @@ struct ResearchNoteEditor: View {
                             onCursorChanged: { position in
                                 researchCursor = position
                             },
-                            // A key typed while the note reads pulses the
-                            // read-through line over it, as the text's does.
+                            // A key typed while the note reads FOR ITS PIECE'S
+                            // READ-THROUGH pulses the line over it, as the
+                            // text's does; a share-locked note answers nothing
+                            // (no line of its own to point at).
                             onTypingRefused: {
                                 MaughamEvent.post(.maughamTypingRefused, to: .keyWindow)
                             },
-                            answersLockedTyping: true),
+                            answersLockedTyping: lockEditing),
                         paragraphProviders: .init(
                             // **Gated on the lock, not just unconditionally
                             // wired** (shell-finish stage 3b Task 6 review

@@ -50,6 +50,8 @@ struct EditorSurfaceConfiguration {
         /// Also answer a typed key refused by the membrane while the view
         /// stays editable (`EditorControl.lockEditing`) — a research note of
         /// a piece in read-through, whose line pulses as the text's does.
+        /// True only for THAT reason: a share or posture lock gives no
+        /// "Resume writing" line to point at. Re-wired on every update.
         var answersLockedTyping: Bool = false
     }
 
@@ -590,6 +592,9 @@ struct EditorSurface: NSViewRepresentable {
         // window would. Force-track the content width here so MaughamTextView's
         // setFrameSize override fires and recenters the column gutters on
         // every layout pass.
+        // Wiring: whether a membrane-refused key is answered follows the
+        // host's current reason (a research note's read-through, not its share).
+        textView.answersLockedTyping = configuration.callbacks.answersLockedTyping
         let targetWidth = scrollView.contentSize.width
         if targetWidth > 0, abs(textView.frame.width - targetWidth) > 0.5 {
             textView.frame.size.width = targetWidth

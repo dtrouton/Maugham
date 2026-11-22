@@ -293,15 +293,35 @@ struct ProjectSearchView: View {
     /// The gate over the current results, asked of the window's drawing door.
     private var replaceGate: ReplaceGate {
         let documentStore = store.documentStore
+        // One gate and one path→id map per pass, never one per document.
+        let readThrough = store.readThroughGate()
+        let pieceIds = Self.manuscriptPieceIds(store, gate: readThrough)
         return ReplaceGate(
             store.currentSearch,
             posture: { documentStore?.posture(forPath: $0) },
-            inReadThrough: { [gate = store.readThroughGate()] path, source in
+            inReadThrough: { path, source in
                 switch source {
-                case .manuscript: return store.pieceInReadThrough(atPath: path) != nil
-                case .research: return store.researchReadThroughRefusal(atPath: path, gate: gate) != nil
+                case .manuscript: return pieceIds[path].map { readThrough.refusal(.piece($0)) != nil } ?? false
+                case .research: return store.researchReadThroughRefusal(atPath: path, gate: readThrough) != nil
                 }
             })
+    }
+
+    /// **Each manuscript path's piece id, mapped once per pass** — and only
+    /// while some piece is in read-through (`gate`), so the common case walks
+    /// nothing: the manuscript arm asks the captured gate by id, never a tree
+    /// walk per document.
+    static func manuscriptPieceIds(_ store: ProjectStore, gate: ReadThroughGate) -> [String: String] {
+        guard !gate.pieces.isEmpty else { return [:] }
+        var ids: [String: String] = [:]
+        func walk(_ items: [StructureItem]) {
+            for item in items {
+                if let path = item.path { ids[path] = item.id }
+                walk(item.children ?? [])
+            }
+        }
+        walk(store.manifest.structure)
+        return ids
     }
 
     /// Why a match in a piece in read-through offers no Replace.
