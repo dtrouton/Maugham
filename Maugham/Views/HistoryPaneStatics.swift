@@ -723,14 +723,27 @@ extension HistoryPane {
         return payload
     }
 
-    /// **Whether a checkpoint row offers *Compare…*** — on a checkpoint whose
-    /// subject is this History's piece, holding a pointer for it, and only
-    /// while that piece is open: the sheet is Rewind's, and Rewind is the
-    /// open piece's (owner ruling 13, 2026-11-22).
-    static func offersCompare(_ checkpoint: Checkpoint, docId: String,
-                              documentIsOpen: Bool) -> Bool {
-        documentIsOpen && checkpoint.activeDoc == docId
-            && checkpoint.docPointers[docId] != nil
+    /// **What a checkpoint row's *Compare…* is** — drawn on a checkpoint whose
+    /// subject is this History's piece and which holds a pointer for it, only
+    /// while that piece is open: the sheet is Rewind's, and Rewind is the open
+    /// piece's (owner ruling 13, 2026-11-22). Where the pointer's op is not in
+    /// the piece's loaded history, Rewind's derive would fall back to now and
+    /// the diff would read "no change", so Compare… is drawn disabled and says
+    /// why (`compareUnavailableHelp`).
+    enum CompareOffer: Equatable {
+        case absent
+        case compare
+        case unavailable
+    }
+
+    static let compareUnavailableHelp =
+        "This checkpoint’s version of the piece is no longer in its history, so it can’t be compared."
+
+    static func compareOffer(_ checkpoint: Checkpoint, docId: String, documentIsOpen: Bool,
+                             holdsOp: (String) -> Bool) -> CompareOffer {
+        guard documentIsOpen, checkpoint.activeDoc == docId,
+              let opId = checkpoint.docPointers[docId] else { return .absent }
+        return holdsOp(opId) ? .compare : .unavailable
     }
 
     /// **Whether a checkpoint row offers *Revert here…*** — only where the

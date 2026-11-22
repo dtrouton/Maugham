@@ -10,19 +10,27 @@ enum ReadThroughVerbs {
     /// the checkpoint. Production passes none.
     enum Step: Equatable { case began, flushed, checkpointed }
 
-    /// The notice when the checkpoint was refused at its door: read-through is
-    /// on, and the version it protects was not saved.
-    static let refusedCheckpointNotice =
-        "The read-through started, but no checkpoint was saved — "
-        + PostureStandingLine.checkpointRefusal
+    /// **The one notice for a Start whose checkpoint did not land**, whatever
+    /// stopped it — the door's refusal, an I/O error, no project: read-through
+    /// is on, the version is not saved, and why. Starting again takes the
+    /// missing checkpoint.
+    static func unsavedCheckpointNotice(why: String) -> String {
+        "Read-through is on, but no checkpoint was saved — \(why) "
+            + "Start the read-through again to save one."
+    }
 
     /// **Start a read-through.** `store.begin` runs at once, so the tree, the
     /// line and the padlock show in the same turn. Then, in the returned task,
     /// the piece's burst is flushed and a labelled project-scope checkpoint is
-    /// taken with the piece as its subject — through `CheckpointFlashDecision
-    /// .labelled`, so it backs up and flashes as ⇧⌘S does (#90). A failed
-    /// checkpoint leaves read-through on; its notice says why. A piece already
-    /// in read-through takes no second checkpoint (nil).
+    /// taken with the piece as its subject (`CheckpointFlashDecision
+    /// .labelledCapture`); it flashes and backs up as ⇧⌘S does (#90), and its
+    /// id is recorded in the store. A checkpoint that does not land leaves
+    /// read-through on and says so (`unsavedCheckpointNotice`).
+    ///
+    /// A piece already in read-through WITH its checkpoint takes no second one
+    /// (nil). One without — a refusal, an error, a ⌘Q before the capture
+    /// landed — takes the missing checkpoint, so Start again recovers. A Start
+    /// while one is capturing is nil too.
     @MainActor @discardableResult
     static func start(
         docId: String, session: String = _checkpointSessionId,
@@ -30,45 +38,60 @@ enum ReadThroughVerbs {
         backups: BackupCoordinator, flash: @escaping () -> Void,
         now: Date = Date(), record: (@MainActor (Step) -> Void)? = nil
     ) -> Task<Void, Never>? {
-        guard !ReadThrough.isOn(docId, in: store.pieceIds) else { return nil }
-        store.begin(docId, at: now)
-        record?(.began)
+        let isOn = ReadThrough.isOn(docId, in: store.pieceIds)
+        guard !(isOn && store.hasCheckpoint(docId)) else { return nil }
+        if !isOn {
+            store.begin(docId, at: now)
+            record?(.began)
+        }
         let projectURL = documentStore.projectURL
         guard let projectStore = documentStore.projectStore else {
             MaughamEvent.postNotice(
-                "The read-through started, but no checkpoint was saved — the project isn’t open.",
-                projectURL: projectURL)
+                unsavedCheckpointNotice(why: "the project isn’t open."), projectURL: projectURL)
             return nil
         }
+        guard store.beginCapturing(docId) else { return nil }
         let structure = projectStore.manifest.structure
         let allDocIds = ProjectWindow.documentIds(in: structure)
         let figureIds = (projectStore.manifest.figures ?? []).map(\.id)
         let title = TreeWalk.find(id: docId, in: structure)?.title ?? docId
         let label = ReadThrough.checkpointLabel(at: now, title: title)
         return Task { @MainActor in
+            defer { store.endCapturing(docId) }
             let document = documentStore.document(forDocId: docId)
             try? await document?.flushBurstNow()
             record?(.flushed)
-            let refusal = Refusal()
-            await CheckpointFlashDecision.labelled(
+            let outcome = await CheckpointFlashDecision.labelledCapture(
                 label, projectURL: projectURL,
                 activeDocId: docId, allDocIds: allDocIds, figureIds: figureIds,
                 device: _checkpointDeviceId, session: session,
                 activeDocument: document,
-                posture: { id in
-                    let posture = await documentStore.settledPosture(forDocId: id)
-                    if id == docId, !posture.allows(.checkpoint) { refusal.refused = true }
-                    return posture
-                },
-                backups: backups,
-                flash: { if !refusal.refused { flash() } })
+                posture: { await documentStore.settledPosture(forDocId: $0) })
             record?(.checkpointed)
-            // `labelled` swallows the door's refusal for ⌘S's muscle memory;
-            // here the writer believes the version is protected, so say it.
-            if refusal.refused {
-                MaughamEvent.postNotice(refusedCheckpointNotice, projectURL: projectURL)
+            switch outcome {
+            case .landed(let checkpoint):
+                store.recordCheckpoint(checkpoint.checkpointId, for: docId)
+                flash()
+            case .refused:
+                // ⌘S flashes over this refusal (muscle memory); here the writer
+                // believes the version is protected, so it is said instead.
+                MaughamEvent.postNotice(
+                    unsavedCheckpointNotice(why: PostureStandingLine.checkpointRefusal),
+                    projectURL: projectURL)
+            case .failed(let error):
+                MaughamEvent.postNotice(
+                    unsavedCheckpointNotice(why: Self.sentence(error.localizedDescription)),
+                    projectURL: projectURL)
             }
+            await CheckpointFlashDecision.backUp(projectURL: projectURL, using: backups)
         }
+    }
+
+    /// An error's description as a sentence: ending in its full stop.
+    static func sentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return "it couldn’t be written." }
+        return ".!?".contains(last) ? trimmed : trimmed + "."
     }
 
     /// **Resume writing**: the piece leaves read-through. Always allowed.
@@ -77,9 +100,6 @@ enum ReadThroughVerbs {
         store.end(docId)
     }
 
-    /// Whether the checkpoint's door refused, carried from the posture
-    /// question to the flash and the notice inside one task.
-    private final class Refusal: @unchecked Sendable { var refused = false }
 }
 
 /// **The window's read-through receiver**: `.maughamSetReadThrough` from every
@@ -108,10 +128,11 @@ struct ReadThroughModifier: ViewModifier {
                     ReadThroughVerbs.resume(docId: request.docId, store: readThrough)
                 }
             }
-            // Never before the manifest has loaded: `keeping` is nil then.
-            .onChange(of: ReadThrough.keeping(for: store?.manifest.structure),
-                      initial: true) { _, keeping in
-                guard let keeping, let readThrough else { return }
+            // Keyed on the structure itself, so the walk runs only when it
+            // changes; never before the manifest has loaded (`keeping` is nil).
+            .onChange(of: store?.manifest.structure, initial: true) { _, structure in
+                guard let keeping = ReadThrough.keeping(for: structure),
+                      let readThrough else { return }
                 readThrough.prune(keeping: keeping)
             }
     }

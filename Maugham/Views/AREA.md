@@ -7,17 +7,17 @@ The SwiftUI views of every window. The one rule from CLAUDE.md: **ask `Posture` 
 Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CLAUDE.md routes here. **→ Compiler** / **→ Canvas**: that guide's Rules govern the file (search for its name or types).
 
 ### The window family
-- `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, the session lease, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
+- `ProjectWindow.swift` — root view: `body`, the window's `@State`, the pure static decisions (`showsStatusFooter`, `publishCentre`, `inspectorRoute`, `canvasCollapse`), `binderColumn`, `detailColumn`, four modifiers: `TopChromeModifier`, `PaletteWallModifier`, `SessionAndNavigationModifier`, `CollectionPieceModifier`.
 - `CentreRoute.swift` — `CentreRoute`, `CentreCover`, `ProjectWindow.centreRoute(…)`: centre as one value (tripwires 6, 27, 30); `CentreItem.swift`, `CentreItemCover.swift`: a statement or History as cover; `CentreKeys.swift`, keys under covers.
 - `CentreColumn.swift` — the centre column: one `switch` over `centreRoute`, the canvas's one mount, `manuscriptEditor` (`EditorHost`, Book's view, one cover), `statusBoard` (the board's one mount) and open-notes counts, the Inbox (tripwires 2, 6, 30).
 - `RightColumn.swift` — resize handle, control over one arm, hidden arm; `RightColumnToggle.swift`, toolbar button; `RightColumnControl.swift`, three positions; `RightColumnContent.swift`, what each shows; `PulledUpView.swift`, pulled-up thing (`PulledUpRegionView.swift`, a region; `PulledUpHistory.swift`, Back); `PulledUpEscape.swift`, its Esc; `RightColumnSubjectLine.swift`, faces' title; `BriefFocus.swift`, ⌘⌥I/⌘⌥N's field, Going for's height.
-- `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close.
-- `Maugham/Views/Publish/PublishCentreModel.swift` — an edition's centre and its compile.
+- `PaletteWallState.swift` — the wall's window state (the right column's stash, the subject it was opened over), its fold and its Close. Open is the subject's `open == .palette`.
+- `Maugham/Views/Publish/PublishCentreModel.swift` — an edition's centre and its compile; each rule a named method.
 - `ProjectActiveSheet.swift`, `FirstReaderHandoff.swift` — the window's one sheet enum; the Describe… hand-off.
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
-- `ReadThrough.swift`, `ReadThroughModifier.swift` — read-through: `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer`, `ReadThroughVerbs`, the receiver and prune.
+- `ReadThrough.swift`, `ReadThroughModifier.swift` — read-through: `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer`, `ReadThroughVerbs`, the receiver.
 - `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
@@ -28,7 +28,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `AdmissionModifier.swift`, `NewPieceModifier.swift` — the window's halves of the admission and new-piece questions (below).
 - `SubjectValidationModifier.swift` — repairs the whole subject (`validatedSubject`) on a structure, research or figure change, and when a figure's stream parks it.
 - `ResearchRevealModifier.swift` — an item arriving beside reveals the right column.
-- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window.
+- `WindowAccessor.swift`, `WindowEscapeArbiter.swift` — the hosting `NSWindow` (cached; never re-nils); one Escape monitor per window, fixed priority, let go when the window closes.
 - `WindowFloorFree.swift` — `WindowFloorFreeLayout`, `.doesNotRaiseTheWindowFloor()`: a pane may not raise the window's minimum height.
 - The window borrows a `ProjectSession` from `ProjectSessionRegistry` (a `.window` lease) and its `claude` services through `AgentRoster`: `Maugham/Stores/AREA.md` ("Project sessions").
 
@@ -47,7 +47,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 
 ### The left column: the tree
 - `BinderPaneToggle.swift` / `CollectionBinderPaneToggle.swift` — the two left-column shells (`ProjectWindow.BinderShell`): find overlay, one tree, Exports footer, the trash's foot.
-- `BinderView.swift` — the novel / short-story tree; `TreeStructureVerbs` (the tree's posture-gated structure verbs); `linkResearchVerb`; `TreeCanvasKeyboard` (Plan's Tab to the canvas and back).
+- `BinderView.swift` — the novel / short-story tree; `TreeStructureVerbs` (the tree's posture-gated structure verbs); `linkResearchVerb`; `TreeCanvasKeyboard`.
 - `SceneNavigatorPane.swift` — a screenplay's tree: the script row and its sluglines.
 - `ScreenplayScriptSource.swift` — the parsed script the left column shows when no editor is mounted to parse it.
 - `CollectionPiecesPane.swift` — a Collection's flat pieces tree; `StartAPieceDoor`.
@@ -55,7 +55,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ProjectRowLabel.swift` — every project row's label.
 - `FigureSection.swift` — the Figures section (shown unless parked with no legacy line) and its cached rows, piece counts and filter; `FigureSectionVerbs` (the row menu over `FigureActions`, the drops, `moveIntoFigures`, `PendingFigureSend`/`TreeAlert`), `FigureSectionWiring` (the tree's own card cache).
 - `FigureActions.swift` — the one helper the menus and inspectors share: Open in Window, Send to Research, Rename, Import/Refresh through the grid, Use in Document; the posture and `windowRefusesWrites` gate the writes.
-- `FigureRow.swift` — a figure's tree row (number, caption or name, tags), a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
+- `FigureRow.swift` — a figure's tree row, a piece row's count button, `LegacyFigureRow` (a line still pointing into Research; selects nothing).
 - `TreeTopRows.swift` — `TreeRowSlot` (row order), the Inbox and Canvas rows, `TreeRowStateMark`.
 - `TreeEditionRows.swift` — the Editions rows, the source language first.
 - `BinderTreeSections.swift` — the Figures, Research, Palette (the wall's door) and Editions sections; `TreeSectionColumn.swift`, the titles' column; `BinderTreeSectionsState`, `BinderTreeSelection`, `BinderTreeVerbs`, `TreeScrollTarget`, `TreeAlert` (one alert; an error waits for a send question), `.binderTreeSections(…)`, `consumingTreeScrollRequests`; `TreeWindowWiring.swift`, its window-mounted half.

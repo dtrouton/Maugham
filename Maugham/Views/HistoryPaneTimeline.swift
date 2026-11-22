@@ -131,12 +131,13 @@ struct HistoryTimeline: View {
                                 },
                                 offersRewind: offersRewind,
                                 offersRevert: offersRevert,
-                                offersCompare: {
+                                compareOffer: {
                                     if case .checkpoint(let cp) = entry {
-                                        return HistoryPane.offersCompare(
-                                            cp, docId: activeDocId, documentIsOpen: pieceIsOpen)
+                                        return HistoryPane.compareOffer(
+                                            cp, docId: activeDocId, documentIsOpen: pieceIsOpen,
+                                            holdsOp: { opsIndex[$0] != nil })
                                     }
-                                    return false
+                                    return .absent
                                 }(),
                                 projectURL: projectURL,
                                 docId: activeDocId)

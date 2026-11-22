@@ -23,10 +23,9 @@ struct HistoryRow: View {
     /// Whether a checkpoint row's *Revert here…* is drawn — only where the
     /// picker would offer at least one document this Mac may write.
     let offersRevert: Bool
-    /// Whether a checkpoint row's *Compare…* is drawn — a checkpoint of this
-    /// History's piece, while that piece is open
-    /// (`HistoryPane.offersCompare(_:docId:documentIsOpen:)`).
-    let offersCompare: Bool
+    /// A checkpoint row's *Compare…*: absent, drawn, or drawn disabled with
+    /// its reason (`HistoryPane.compareOffer(_:docId:documentIsOpen:holdsOp:)`).
+    let compareOffer: HistoryPane.CompareOffer
     /// Names the project scope the per-row Rewind button posts
     /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
     /// modal only on the window on that project.
@@ -72,16 +71,19 @@ struct HistoryRow: View {
             } else {
                 collapsedPreview
             }
-            if case .checkpoint(let cp) = entry, offersRevert || offersCompare {
+            if case .checkpoint(let cp) = entry, offersRevert || compareOffer != .absent {
                 HStack(spacing: 6) {
-                    if offersCompare {
+                    if compareOffer != .absent {
                         Button("Compare…") {
                             if let payload = HistoryPane.comparePayload(docId: docId, checkpoint: cp) {
                                 MaughamEvent.post(
                                     .maughamOpenRewind, to: .project(for: projectURL), payload: payload)
                             }
                         }
-                        .help("Show what has changed in this piece since this checkpoint")
+                        .disabled(compareOffer == .unavailable)
+                        .help(compareOffer == .unavailable
+                              ? HistoryPane.compareUnavailableHelp
+                              : "Show what has changed in this piece since this checkpoint")
                     }
                     if offersRevert {
                         Button("Revert here…", action: onRevert)

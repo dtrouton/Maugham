@@ -11,10 +11,12 @@ private let _readThroughLog = Logger(
 /// the moment it started, held on `ProjectSession` so every window on the
 /// project shares it.
 ///
-/// **Per device, never synced** (tripwires 17, 24): the file is
-/// `.maugham/read-through.<deviceSlug>.json`, and nothing reads another
-/// device's. Another Mac or the phone does not know a piece is in read-through;
-/// the checkpoint taken at the start protects the version everywhere.
+/// **Per device; no other device reads it** (tripwires 17, 24): the file is
+/// `.maugham/read-through.<deviceSlug>.json`. In an iCloud project the file
+/// travels with the folder, but its name carries this device's slug and
+/// nothing reads another device's, so another Mac or the phone does not know a
+/// piece is in read-through. The checkpoint taken at the start protects the
+/// version everywhere.
 ///
 /// **Every change is written at once** — atomic, no debounce — so a ⌘Q right
 /// after Start still remembers. A failed write says so once, as a notice. A
@@ -29,13 +31,24 @@ final class ReadThroughStore {
     /// The ids alone — what `ReadThrough.isOn` and the gate ask.
     var pieceIds: Set<String> { Set(pieces.keys) }
 
+    /// Piece id → the id of the checkpoint its read-through took. A piece in
+    /// read-through with no entry here has no checkpoint yet (a refused or
+    /// failed capture, or a ⌘Q before it landed), and Start takes it.
+    private(set) var checkpoints: [String: String] = [:]
+
+    /// The pieces whose Start is capturing right now, so a second Start in the
+    /// same moment does not take a second checkpoint. Never persisted.
+    @ObservationIgnored private var capturing: Set<String> = []
+
     @ObservationIgnored private let projectRoot: URL
     @ObservationIgnored private let device: DeviceSlug
 
     init(projectRoot: URL, device: DeviceSlug) {
         self.projectRoot = projectRoot
         self.device = device
-        pieces = Self.read(Self.fileURL(projectRoot: projectRoot, device: device))
+        let file = Self.read(Self.fileURL(projectRoot: projectRoot, device: device))
+        pieces = file.pieces
+        checkpoints = (file.checkpoints ?? [:]).filter { file.pieces[$0.key] != nil }
     }
 
     /// `.maugham/read-through.<slug>.json`. `.raw` is interpolated only here
@@ -55,15 +68,37 @@ final class ReadThroughStore {
     /// Takes `pieceId` out of read-through. A piece not in it writes nothing.
     func end(_ pieceId: String) {
         guard pieces.removeValue(forKey: pieceId) != nil else { return }
+        checkpoints.removeValue(forKey: pieceId)
         persist()
     }
+
+    /// Records the checkpoint `pieceId`'s read-through took. Nothing for a
+    /// piece no longer in read-through (Resume landed first).
+    func recordCheckpoint(_ checkpointId: String, for pieceId: String) {
+        guard pieces[pieceId] != nil, checkpoints[pieceId] != checkpointId else { return }
+        checkpoints[pieceId] = checkpointId
+        persist()
+    }
+
+    /// Whether `pieceId`'s read-through has its checkpoint.
+    func hasCheckpoint(_ pieceId: String) -> Bool { checkpoints[pieceId] != nil }
+
+    /// Marks a Start's capture as running; false when one already is.
+    func beginCapturing(_ pieceId: String) -> Bool {
+        capturing.insert(pieceId).inserted
+    }
+
+    func endCapturing(_ pieceId: String) { capturing.remove(pieceId) }
 
     /// Forgets every piece not in `eligible` — a deleted, trashed or promoted
     /// piece has left the structure; a renamed or moved one keeps its id.
     func prune(keeping eligible: Set<String>) {
         let gone = pieces.keys.filter { !eligible.contains($0) }
         guard !gone.isEmpty else { return }
-        for id in gone { pieces.removeValue(forKey: id) }
+        for id in gone {
+            pieces.removeValue(forKey: id)
+            checkpoints.removeValue(forKey: id)
+        }
         persist()
     }
 
@@ -71,19 +106,22 @@ final class ReadThroughStore {
 
     private struct File: Codable {
         let pieces: [String: Date]
+        /// Optional, so a file written before it existed still reads.
+        let checkpoints: [String: String]?
     }
 
-    private static func read(_ url: URL) -> [String: Date] {
-        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+    private static func read(_ url: URL) -> File {
+        let empty = File(pieces: [:], checkpoints: nil)
+        guard FileManager.default.fileExists(atPath: url.path) else { return empty }
         do {
             let data = try Data(contentsOf: url) // adr-0018-ok: read-through sidecar, derived, not manuscript
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(File.self, from: data).pieces
+            return try decoder.decode(File.self, from: data)
         } catch {
             _readThroughLog.error(
                 "read-through file unreadable, read as empty: \(error.localizedDescription, privacy: .public)")
-            return [:]
+            return empty
         }
     }
 
@@ -95,7 +133,8 @@ final class ReadThroughStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.sortedKeys]
-            try encoder.encode(File(pieces: pieces)).write(to: url, options: .atomic)
+            try encoder.encode(File(pieces: pieces, checkpoints: checkpoints))
+                .write(to: url, options: .atomic)
         } catch {
             MaughamEvent.postNotice(
                 "Couldn’t remember the read-through on this Mac — \(error.localizedDescription)",

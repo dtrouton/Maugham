@@ -108,6 +108,41 @@ final class ReadThroughStoreTests: XCTestCase {
                        "the first change rewrites it")
     }
 
+    /// The read-through's checkpoint id is remembered with the piece, across
+    /// a reopen; end and prune forget it with the piece; a piece not in
+    /// read-through records none.
+    func test_theCheckpointIdIsRememberedWithThePiece() throws {
+        let project = try projectDir()
+        let store = ReadThroughStore(projectRoot: project, device: mac)
+        store.recordCheckpoint("cp-0", for: "doc-a")
+        XCTAssertFalse(store.hasCheckpoint("doc-a"), "not in read-through, nothing recorded")
+        store.begin("doc-a", at: started)
+        store.begin("doc-b", at: started)
+        XCTAssertFalse(store.hasCheckpoint("doc-a"))
+        store.recordCheckpoint("cp-a", for: "doc-a")
+        store.recordCheckpoint("cp-b", for: "doc-b")
+
+        let reopened = ReadThroughStore(projectRoot: project, device: mac)
+        XCTAssertEqual(reopened.checkpoints, ["doc-a": "cp-a", "doc-b": "cp-b"])
+        reopened.end("doc-a")
+        reopened.prune(keeping: [])
+        XCTAssertTrue(reopened.checkpoints.isEmpty)
+        XCTAssertTrue(ReadThroughStore(projectRoot: project, device: mac).checkpoints.isEmpty)
+    }
+
+    /// A file written before checkpoints were recorded still reads: its pieces
+    /// are on, with no checkpoint.
+    func test_aFileWithoutCheckpointsStillReads() throws {
+        let project = try projectDir()
+        let url = ReadThroughStore.fileURL(projectRoot: project, device: mac)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"pieces":{"doc-a":"2026-11-22T12:00:00Z"}}"#.utf8).write(to: url)
+        let store = ReadThroughStore(projectRoot: project, device: mac)
+        XCTAssertEqual(store.pieceIds, ["doc-a"])
+        XCTAssertFalse(store.hasCheckpoint("doc-a"))
+    }
+
     /// A missing file is empty.
     func test_aMissingFileIsEmpty() throws {
         XCTAssertTrue(ReadThroughStore(projectRoot: try projectDir(), device: mac).pieceIds.isEmpty)

@@ -102,6 +102,7 @@ final class ReadThroughVerbsTests: XCTestCase {
         XCTAssertEqual(text(atStart), ["Hello.", "Typed just before."],
                        "the checkpoint holds the typing the burst had not yet written")
         XCTAssertTrue(notices.isEmpty, "\(notices)")
+        XCTAssertEqual(store.checkpoints[docId], cp.checkpointId, "the checkpoint is recorded")
         await doc.close()
     }
 
@@ -119,7 +120,7 @@ final class ReadThroughVerbsTests: XCTestCase {
     }
 
     /// A refused checkpoint leaves the piece in read-through, writes nothing,
-    /// does not flash, and says why.
+    /// does not flash, records no checkpoint, and says so in the one notice.
     func test_aRefusedCheckpointLeavesReadThroughOnAndSaysSo() async throws {
         let (documents, store, _) = try await window(.reviewer, open: false)
         let before = await checkpoints().count
@@ -127,10 +128,94 @@ final class ReadThroughVerbsTests: XCTestCase {
         await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
                                      backups: BackupCoordinator(), flash: { flashes += 1 })?.value
         XCTAssertTrue(ReadThrough.isOn(docId, in: store.pieceIds))
+        XCTAssertFalse(store.hasCheckpoint(docId))
         let after = await checkpoints().count
         XCTAssertEqual(after, before, "the door wrote nothing")
         XCTAssertEqual(flashes, 0, "no flash over a version that was not saved")
-        XCTAssertEqual(notices, [ReadThroughVerbs.refusedCheckpointNotice])
+        XCTAssertEqual(notices, [ReadThroughVerbs.unsavedCheckpointNotice(
+            why: PostureStandingLine.checkpointRefusal)])
+    }
+
+    /// The checkpoint file this Mac appends to, occupied by a folder so the
+    /// capture throws as a full or unwritable disk would.
+    private func breakTheCheckpointFile() throws -> URL {
+        let url = CheckpointStore.fileURL(
+            deviceSlug: DeviceSlug.make(from: _checkpointDeviceId), in: fixture.projectURL)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// **An I/O failure says the same thing as a refusal** (review M1): the
+    /// read-through is on, no checkpoint was saved, and why — one notice, not
+    /// the ⌘S one. Then, the disk mended, Start again takes the missing
+    /// checkpoint; a third Start takes none.
+    func test_aFailedCheckpointSaysSo_andStartAgainTakesTheMissingOne() async throws {
+        let (documents, store, document) = try await window(.bookAuthor)
+        let before = await checkpoints().count
+        let broken = try breakTheCheckpointFile()
+        var flashes = 0
+        await ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+                                     backups: BackupCoordinator(), flash: { flashes += 1 },
+                                     now: started)?.value
+        XCTAssertTrue(ReadThrough.isOn(docId, in: store.pieceIds))
+        XCTAssertFalse(store.hasCheckpoint(docId))
+        XCTAssertEqual(flashes, 0)
+        XCTAssertEqual(notices.count, 1, "\(notices)")
+        XCTAssertTrue(notices.first?.hasPrefix(
+            "Read-through is on, but no checkpoint was saved — ") == true, "\(notices)")
+        XCTAssertFalse(notices.first?.contains("Couldn’t save a checkpoint") == true,
+                       "the read-through's notice, not ⌘S's")
+        XCTAssertTrue(notices.first?.hasSuffix("Start the read-through again to save one.") == true)
+
+        try FileManager.default.removeItem(at: broken)
+        let retry = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+                                           backups: BackupCoordinator(), flash: { flashes += 1 },
+                                           now: started.addingTimeInterval(60))
+        XCTAssertNotNil(retry, "Start on a piece in read-through with no checkpoint takes it")
+        await retry?.value
+        let saved = await checkpoints()
+        XCTAssertEqual(saved.count, before + 1)
+        XCTAssertEqual(store.checkpoints[docId], saved.last?.checkpointId)
+        XCTAssertEqual(store.pieces[docId], started, "the read-through keeps its first start")
+        XCTAssertEqual(flashes, 1)
+        XCTAssertNil(ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+                                            backups: BackupCoordinator(), flash: {}),
+                     "with its checkpoint, a further Start takes none")
+        await document?.close()
+    }
+
+    /// **A ⌘Q between `begin` and the capture** leaves the piece on with no
+    /// checkpoint, across the relaunch; Start then takes it.
+    func test_aQuitBeforeTheCaptureIsRecoveredByStartAgain() async throws {
+        let (documents, first, document) = try await window(.bookAuthor)
+        let before = await checkpoints().count
+        first.begin(docId, at: started)
+        let relaunched = ReadThroughStore(projectRoot: fixture.projectURL,
+                                          device: DeviceSlug.make(from: "read-through-test"))
+        XCTAssertTrue(ReadThrough.isOn(docId, in: relaunched.pieceIds))
+        XCTAssertFalse(relaunched.hasCheckpoint(docId))
+        await ReadThroughVerbs.start(docId: docId, store: relaunched, documentStore: documents,
+                                     backups: BackupCoordinator(), flash: {})?.value
+        XCTAssertTrue(relaunched.hasCheckpoint(docId))
+        let saved = await checkpoints()
+        XCTAssertEqual(saved.count, before + 1)
+        await document?.close()
+    }
+
+    /// Two Starts in one moment take one checkpoint.
+    func test_twoStartsAtOnceTakeOneCheckpoint() async throws {
+        let (documents, store, document) = try await window(.bookAuthor)
+        let before = await checkpoints().count
+        let a = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+                                       backups: BackupCoordinator(), flash: {})
+        let b = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
+                                       backups: BackupCoordinator(), flash: {})
+        XCTAssertNotNil(a)
+        XCTAssertNil(b, "the first is still capturing")
+        await a?.value
+        let saved = await checkpoints()
+        XCTAssertEqual(saved.count, before + 1)
+        await document?.close()
     }
 
     /// Resume ends it.
@@ -166,19 +251,36 @@ final class ReadThroughVerbsTests: XCTestCase {
     }
 
     func test_compareIsOfferedOnlyOnTheOpenPiecesCheckpoints() {
+        func offer(_ cp: Checkpoint, open: Bool = true, holds: Bool = true) -> HistoryPane.CompareOffer {
+            HistoryPane.compareOffer(cp, docId: docId, documentIsOpen: open, holdsOp: { _ in holds })
+        }
         let mine = checkpoint(activeDoc: docId, pointers: [docId: "op-7"])
-        XCTAssertTrue(HistoryPane.offersCompare(mine, docId: docId, documentIsOpen: true))
-        XCTAssertFalse(HistoryPane.offersCompare(mine, docId: docId, documentIsOpen: false),
-                       "Rewind is the open piece's")
-        XCTAssertFalse(HistoryPane.offersCompare(
-            checkpoint(activeDoc: "other", pointers: [docId: "op-7"]),
-            docId: docId, documentIsOpen: true), "another piece's checkpoint")
-        XCTAssertFalse(HistoryPane.offersCompare(
-            checkpoint(activeDoc: nil, pointers: [docId: "op-7"]),
-            docId: docId, documentIsOpen: true), "a checkpoint of no piece")
-        XCTAssertFalse(HistoryPane.offersCompare(
-            checkpoint(activeDoc: docId, pointers: [:]),
-            docId: docId, documentIsOpen: true), "no pointer")
+        XCTAssertEqual(offer(mine), .compare)
+        XCTAssertEqual(offer(mine, open: false), .absent, "Rewind is the open piece's")
+        XCTAssertEqual(offer(checkpoint(activeDoc: "other", pointers: [docId: "op-7"])), .absent,
+                       "another piece's checkpoint")
+        XCTAssertEqual(offer(checkpoint(activeDoc: nil, pointers: [docId: "op-7"])), .absent,
+                       "a checkpoint of no piece")
+        XCTAssertEqual(offer(checkpoint(activeDoc: docId, pointers: [:])), .absent, "no pointer")
+    }
+
+    /// **A pointer whose op is not in the loaded history** (review fix 2):
+    /// Rewind's derive would fall back to now and the diff would read "no
+    /// change", so Compare… is drawn disabled with its reason. The lookup is
+    /// the pointer's own op.
+    func test_aCheckpointWhoseOpIsGoneCannotBeCompared() {
+        let cp = checkpoint(activeDoc: docId, pointers: [docId: "op-7"])
+        var asked: [String] = []
+        let offer = HistoryPane.compareOffer(cp, docId: docId, documentIsOpen: true,
+                                             holdsOp: { asked.append($0); return false })
+        XCTAssertEqual(offer, .unavailable)
+        XCTAssertEqual(asked, ["op-7"])
+        XCTAssertFalse(HistoryPane.compareUnavailableHelp.isEmpty)
+        // And the premise: at an op not in the log, the derive is now's.
+        let ops = [Op(opId: "op-1", docId: docId, at: started, device: "m", session: "s",
+                      kind: .typingBurst, changes: [], sequence: nil, provenance: nil)]
+        XCTAssertEqual(Deriver.derive(ops: ops, upTo: .atOp(opId: "op-7", at: started)),
+                       Deriver.derive(ops: ops, upTo: .now))
     }
 
     /// **The store-level round trip**: text typed after the read-through began

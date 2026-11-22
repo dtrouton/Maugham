@@ -55,8 +55,40 @@ extension CheckpointFlashDecision {
         backups: BackupCoordinator,
         flash: () -> Void
     ) async {
-        await run(projectURL: projectURL, onSuccess: flash) {
-            _ = try await CheckpointCapture.run(
+        switch await labelledCapture(
+            label, projectURL: projectURL, activeDocId: activeDocId, allDocIds: allDocIds,
+            figureIds: figureIds, device: device, session: session,
+            activeDocument: activeDocument, posture: posture) {
+        case .landed, .refused:
+            flash()
+        case .failed(let error):
+            MaughamEvent.postNotice(
+                "Couldn’t save a checkpoint — \(error.localizedDescription)",
+                projectURL: projectURL)
+        }
+        await backUp(projectURL: projectURL, using: backups)
+    }
+
+    /// What a labelled capture came to: the checkpoint written, the door's
+    /// refusal (nothing written), or a thrown error.
+    enum LabelledOutcome {
+        case landed(Checkpoint)
+        case refused
+        case failed(Error)
+    }
+
+    /// **The labelled capture alone** — no flash, no notice, no backup — so a
+    /// caller that must say something else (read-through's Start, which names
+    /// the read-through in its notice) decides from the outcome. `labelled` is
+    /// this plus ⇧⌘S's flash, notice and backup.
+    @MainActor
+    static func labelledCapture(
+        _ label: String, projectURL: URL, activeDocId: String, allDocIds: [String],
+        figureIds: [String], device: String, session: String, activeDocument: Document?,
+        posture: @escaping @MainActor (String) async -> Posture
+    ) async -> LabelledOutcome {
+        do {
+            return .landed(try await CheckpointCapture.run(
                 projectURL: projectURL,
                 activeDocId: activeDocId,
                 allDocIds: allDocIds,
@@ -65,9 +97,12 @@ extension CheckpointFlashDecision {
                 session: session,
                 label: label,
                 activeDocument: activeDocument,
-                posture: posture)
+                posture: posture))
+        } catch CheckpointRefusal.notYourText {
+            return .refused
+        } catch {
+            return .failed(error)
         }
-        await backUp(projectURL: projectURL, using: backups)
     }
 
     /// **The backup a checkpoint runs** — ⌘S, ⇧⌘S's Confirm and ⇧⌘S's

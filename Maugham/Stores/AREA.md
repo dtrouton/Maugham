@@ -63,7 +63,7 @@ Every file in `Maugham/Stores/` appears once.
 - `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
 - `StatementProposalStore.swift` — staged brief and visual-language proposals.
 - `TranslationRoundStore.swift` — translation rounds: the ring, and each piece's latest.
-- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered`). Tripwire 52 (starter).
+- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
@@ -106,7 +106,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
 | `.maugham/bible.<deviceSlug>.json` | `BibleStore` (Compiler) | the bible ledger and graduated keys, per device |
-| `.maugham/read-through.<deviceSlug>.json` | `ReadThroughStore` | per device, never synced: the pieces in read-through on this Mac |
+| `.maugham/read-through.<deviceSlug>.json` | `ReadThroughStore` | per device, read by no other device: the pieces in read-through on this Mac |
 
 Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`** (`TrashStore.trashRoot`), not under `.maugham/`.
