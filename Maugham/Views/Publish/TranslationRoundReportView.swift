@@ -519,7 +519,7 @@ struct TranslationRoundReportView: View {
                 // questions are To resolve's Questions (shell plan 2 Task 7),
                 // on the round's piece (review I3).
                 Button(TranslationRoundReport.openQueueTitle) {
-                    TranslationRoundReport.openQueue(docId: round.docId)
+                    TranslationRoundReport.openQueue(docId: round.docId, language: round.language)
                 }
                 .controlSize(.small)
                 .help("Open To resolve on its Questions, where this round\u{2019}s "

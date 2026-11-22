@@ -216,10 +216,10 @@ enum ResolveEditionItems {
         if readingBook { return readingBookLine }
         guard hasRounds else {
             return "No round has run in \(edition) yet. Run one above; what the translator "
-                + "asks and changes will be listed here."
+                + "asks, and what its rounds leave to look at, will be listed here."
         }
         return "Nothing in the \(edition) edition waits on you: every question is answered "
-            + "and every change from the latest rounds is settled."
+            + "and nothing from the latest rounds is left to look at."
     }
 
     static let readingBookLine =

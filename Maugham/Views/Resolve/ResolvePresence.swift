@@ -787,26 +787,21 @@ struct ResolvePresenceWatch: View {
     }
 
     /// What the editions' half is read on: the edition rows, the book's
-    /// pieces, the ledgers' dates and the events heard.
+    /// pieces and the events heard — values the body already holds. No file
+    /// is stat'ed and no tree walked to build it (closing review M2,
+    /// tripwire 4): every ledger write this Mac makes is announced
+    /// (`.maughamTranslationRoundEnded`, `.maughamTranslationRoundChanged`),
+    /// and the pieces are the presence key's own scope, walked once.
     struct EditionMarkKey: Equatable {
         let languages: [String]
         let docIds: [String]
-        let ledgers: [Date?]
         let heard: Int
     }
 
-    private var editionMarkKey: EditionMarkKey {
-        let languages = state.editionRows.filter { !$0.isSource }.map(\.language)
-        return EditionMarkKey(
-            languages: languages,
-            // The Book scope's own pieces — the list's `docIds` (review M2).
-            docIds: ResolveScope.of(.project, readIn: nil, sourceLanguage: PublishConfig.Metadata().language,
-                                    structure: store.manifest.structure,
-                                    projectType: store.manifest.type).docIds,
-            ledgers: languages.map {
-                ResolveEditionKey.modified(TranslationRoundStore.fileURL(language: $0, in: url))
-            },
-            heard: editionHeard)
+    static func editionMarkKey(editionRows: [TreeEditionRows.Row], docIds: [String],
+                               heard: Int) -> EditionMarkKey {
+        EditionMarkKey(languages: editionRows.filter { !$0.isSource }.map(\.language),
+                       docIds: docIds, heard: heard)
     }
 
     private func publish() {
@@ -825,6 +820,10 @@ struct ResolvePresenceWatch: View {
 
     var body: some View {
         let key = key
+        // The Book scope's own pieces — the list's `docIds` (review M2),
+        // from the presence key's one walk.
+        let editionMarkKey = Self.editionMarkKey(editionRows: state.editionRows,
+                                                 docIds: key.read.scope.docIds, heard: editionHeard)
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)

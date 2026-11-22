@@ -488,11 +488,11 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     var figureCaptionLinesCache: [FigureCaptionBar.Line]?
     /// The syntax ranges the caret's figure line is shown at full colour on,
     /// as layout-manager temporaries (`refreshFigureSyntaxUnfade`); empty in
-    /// translation review, which owns every temporary foreground colour.
+    /// reading a translation, which owns every temporary foreground colour.
     var unfadedFigureSyntax: [NSRange] = []
     /// True from a character edit while `unfadedFigureSyntax` is held: the
     /// edit may have moved the temporaries, so their next removal clears the
-    /// whole text's temporary foreground (exact outside translation review,
+    /// whole text's temporary foreground (exact outside reading a translation,
     /// where the un-fade is the only one) — at most once per character edit,
     /// never on a caret move (`figureSyntaxUnfadeWholeClears`). Until then,
     /// characters typed right after a shown run may draw in its `shown`
@@ -728,7 +728,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// `EditorControl.posture`, set only through `updateReviewCardVerbs(for:)`.
     var reviewCardPosture: Posture?
 
-    /// Staleness-badge overlay for translation review (Task 12): margin dots in
+    /// Staleness-badge overlay for reading a translation (Task 12): margin dots in
     /// the LEFT inset — amber (stale) / gray-hollow (missing). Installed lazily
     /// on the text view (like the review overlays) and shown only in translation
     /// review. See `EditorCoordinator+TranslationBadges.swift`.
@@ -830,7 +830,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// and every one of those commands is about the document in the centre
     /// column: without this the intent pane flips into review chrome on ⌘⌥⇧R,
     /// moves its caret when the writer clicks a scene in the navigator, and
-    /// goes read-only when the manuscript enters translation review.
+    /// goes read-only when the manuscript is read in a translation.
     var respondsToWindowCommands: Bool = true
 
     /// Origin project id (`ProjectIdentifier.id(for:)`) stamped onto every
@@ -943,7 +943,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // `ProjectWindow` flips the same flag, so the mirror agrees.
             self.setManualReviewMode(!self.isManualReviewMode)
         }
-        // Translation review (Task 13): flip the read-only membrane
+        // Reading a translation (Task 13): flip the read-only membrane
         // synchronously on the key window's coordinator, exactly as ⌘⌥⇧R does
         // above. Language + surface swap stay EditorHost's; this only governs
         // the membrane so the next keystroke is already blocked (or unblocked).
@@ -1120,7 +1120,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         syncFigureThumbnailOverlay()
         // The resolved labels (plan 3b Task 6), above the thumbnails.
         syncReferenceLabelOverlay()
-        // A re-attach in review or translation review: their overlays (and the
+        // A re-attach in review or reading a translation: their overlays (and the
         // dimming, a layout-manager temporary) come back on this text view —
         // the first attach has none to restore, its posture arrives later.
         if isReviewMode { syncReviewOverlays() }
@@ -1677,7 +1677,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         setManualReviewMode(c.isManualReviewMode) // self-guarded
         setReviewMode(c.isReviewMode)        // self-guarded
         updateReviewCardVerbs(for: c.posture) // self-guarded
-        // Translation review is a pure membrane flip driven off language
+        // Reading a translation is a pure membrane flip driven off language
         // presence; the surface buffer swap is EditorHost's (the text binding).
         setReadingTranslation(c.translationLanguage != nil)   // self-guarded
         if theme != c.theme || typography != c.typography {

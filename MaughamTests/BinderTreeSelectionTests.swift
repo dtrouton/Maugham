@@ -42,6 +42,25 @@ final class BinderTreeSelectionTests: XCTestCase {
     /// The arrow ruling: a key landing on a fold row SELECTS at once, moves
     /// nothing, and waits to settle; a pointer's selection only selects (the
     /// row's button is the click's act).
+    /// **Closing review M6, verified**: Return or Space during a research
+    /// row's inline rename never pulls the row up — every research row the
+    /// tree draws renames through `state.renamingItemId`, the flag the keys'
+    /// guard reads.
+    func test_aResearchRenameInTheTreeHoldsTheRowKeys() throws {
+        let guardLine = "guard !hostIsRenaming, state.renamingItemId == nil,"
+        let keys = SourceScan.codeLines(of: try SourceTree.declaration(
+            named: "struct TreeRowKeysModifier", under: "Maugham")).joined(separator: "\n")
+        XCTAssertTrue(keys.contains(guardLine))
+        for file in ["Maugham/Views/BinderTreeSections.swift", "Maugham/Views/BinderPieceFold.swift"] {
+            let code = SourceScan.codeLines(of: try SourceTree.read(file))
+            for (index, line) in code.enumerated() where line.contains("ResearchTreeNode(") {
+                let call = code[index..<min(index + 4, code.count)].joined(separator: " ")
+                XCTAssertTrue(call.contains("renamingItemId: $state.renamingItemId"),
+                              "\(file): a research row renames through the tree's state")
+            }
+        }
+    }
+
     func test_aKeyLandingOnAPullUpRowSelectsAndWaitsToSettle() {
         for pulled: PulledUp in [.canvasScrap(nodeId: "s1"), .canvasPhoto(path: "canvas_assets/a.png"),
                                  .canvasRegion(id: "r1"), .research("pal-1"), .figure("fig-1")] {

@@ -73,7 +73,8 @@ enum TranslatorsNote {
             if case .editionBrief(let l) = $0.kind { return l.lowercased() }
             return nil
         }
-        return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs)
+        return EditionStatus.editionLanguages(files: files, queries: [], roles: roles + briefs,
+                                              removed: manifest.isEditionRemoved)
     }
 
     /// **The homes a sheet about `target` offers** — every edition, then each

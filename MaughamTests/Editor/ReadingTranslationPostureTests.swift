@@ -456,7 +456,11 @@ final class ReadingTranslationPostureTests: XCTestCase {
         let item = NSMenuItem(title: "Undo Typing", action: #selector(ReadingUndoGuard.undo(_:)), keyEquivalent: "z")
         let guardian = try! XCTUnwrap(ReadingUndoGuard.standing(over: window))
         XCTAssertFalse(guardian.validateMenuItem(item))
-        XCTAssertEqual(item.title, "Undo", "no action named that this window cannot take")
+        XCTAssertEqual(item.title, "Undo \u{2014} Returns in Source",
+                       "no action named that this window cannot take, and why it is off")
+        let redo = NSMenuItem(title: "Redo Typing", action: #selector(ReadingUndoGuard.redo(_:)), keyEquivalent: "Z")
+        XCTAssertFalse(guardian.validateMenuItem(redo))
+        XCTAssertEqual(redo.title, "Redo \u{2014} Returns in Source")
         guardian.undo(nil)   // what ⌘Z reaches: nothing spent
         XCTAssertTrue(um.canUndo)
         XCTAssertEqual(tv.string, "Jedan dva tri")

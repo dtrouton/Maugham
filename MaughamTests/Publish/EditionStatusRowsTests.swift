@@ -1,5 +1,6 @@
 import XCTest
 import MaughamCore
+import AppKit
 @testable import Maugham
 
 /// **An edition's Status, as values** (shell p4 Task 5): the rows, what each
@@ -154,6 +155,79 @@ final class EditionStatusRowsTests: XCTestCase {
         XCTAssertEqual(EditionStatusRows.publishing(nil).wording(wide: true), "In contents")
     }
 
+    /// **"To look at", never "Changes"** (owner's answer 7, 2026-11-22): the
+    /// chip, the column, its cells, their help and VoiceOver, and the empty
+    /// lists all say the one word; the old one is gone from those surfaces.
+    /// The terse/long column rule still fits the centre's floor.
+    func test_whatARoundLeavesIsToLookAtEverywhereTheWriterSeesIt() throws {
+        XCTAssertEqual(TranslationVocabulary.toLookAt, "To look at")
+        XCTAssertEqual(ResolveFilterBar.label(.changes, passes: []), TranslationVocabulary.toLookAt)
+        let row = EditionStatusRows.Row(piece: Self.one, translation: nil, latestRound: nil,
+                                        changesToLookAt: 3, trend: [])
+        let cell = EditionStatusRows.changes(row)
+        XCTAssertEqual(cell.wording(wide: true), "3 to look at")
+        XCTAssertEqual(cell.wording(wide: false), "3")
+        XCTAssertEqual(cell.help, "3 from the last round to look at")
+        var lines = [ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: true),
+                     ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: false)]
+        for hasRounds in [true, false] {
+            lines.append(ResolvePieceInLanguage.clearLine(language: "es", noun: "chapter", hasRounds: hasRounds,
+                                                          readingBook: false, sourceHasSomething: false))
+        }
+        for line in lines + [cell.help, cell.long] {
+            XCTAssertFalse(line.range(of: #"\bchanges?\b"#, options: [.regularExpression, .caseInsensitive]) != nil,
+                           "the old word: \(line)")
+        }
+        // The census: no user-visible string in the column's, the cells' or
+        // the chips' files names the old word.
+        for file in ["Maugham/Views/Publish/EditionStatusView.swift",
+                     "Maugham/Views/Publish/EditionStatusRows.swift",
+                     "Maugham/Views/Resolve/ResolveFilterBar.swift"] {
+            for line in SourceScan.codeLines(of: try SourceTree.read(file)) {
+                for literal in Self.literals(in: line) {
+                    XCTAssertNil(literal.range(of: #"\bChanges\b|\bchanges? (from|to look)"#, options: .regularExpression),
+                                 "\(file): \(literal)")
+                }
+            }
+        }
+        // Widths: the column keeps its widths, so the floor still holds the terse grid.
+        XCTAssertFalse(EditionStatusView.columns(width: ProjectWindow.centreColumnFloor, isSource: false).wide)
+        XCTAssertLessThanOrEqual(EditionStatusView.intrinsicWidth(isSource: false), ProjectWindow.centreColumnFloor)
+        let measured = (TranslationVocabulary.toLookAt as NSString)
+            .size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
+        XCTAssertLessThanOrEqual(measured, EditionStatusView.Columns.long.changes,
+                                 "the worded header fits its long column")
+    }
+
+    /// **The Source edition's Status links to the Book's** (owner's answer
+    /// 11, 2026-11-22): publishing only, plus one quiet line at the top that
+    /// selects the Book and chooses Status through the window's one writer.
+    func test_theSourceEditionsStatusLinksToTheBooksStatus() throws {
+        XCTAssertEqual(EditionStatusView.bookStatusLine,
+                       "Stage, passes, notes and to-dos are in the Book\u{2019}s Status")
+        let view = SourceScan.codeLines(of: try SourceTree.sourceOfType("EditionStatusView", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(view.contains("if isSource { Button(Self.bookStatusLine) { CentreViewSwitch.go(to: .bookStatus) }"),
+                      "drawn over the Source's Status only, going to the Book's")
+        XCTAssertEqual(CentreViewSwitch.choice(for: .bookStatus), .book(.status))
+    }
+
+    private static func literals(in line: String) -> [String] {
+        var found: [String] = []
+        var current: String?
+        var escaped = false
+        for ch in line {
+            if var open = current {
+                if escaped { escaped = false; open.append(ch); current = open; continue }
+                if ch == "\\" { escaped = true; open.append(ch); current = open; continue }
+                if ch == "\"" { found.append(open); current = nil } else { open.append(ch); current = open }
+            } else if ch == "\"" {
+                current = ""
+            }
+        }
+        return found
+    }
+
     /// **VoiceOver hears the whole row** (fix round 1, I5): the title, then
     /// each cell that says something, in its own sentence.
     func test_aRowsLabelIsItsCellsSentences() {
@@ -163,7 +237,7 @@ final class EditionStatusRowsTests: XCTestCase {
         let label = EditionStatusRows.accessibilityLabel(row, unreadable: false, isSource: false)
         XCTAssertTrue(label.hasPrefix("One, 10 fresh"), label)
         for part in ["2 stale", "Round 4", "finished", "3 open questions",
-                     "2 changes from the last round to look at", "Notes per round: 5, 3"] {
+                     "2 from the last round to look at", "Notes per round: 5, 3"] {
             XCTAssertTrue(label.contains(part), "\(part) missing from: \(label)")
         }
         XCTAssertEqual(EditionStatusRows.accessibilityLabel(row, unreadable: false, isSource: true), "One")

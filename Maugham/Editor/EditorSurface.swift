@@ -506,7 +506,7 @@ struct EditorSurface: NSViewRepresentable {
     /// this against the real coordinator).
     ///
     /// Why the membrane flip lives HERE, strictly before the buffer swap: entering
-    /// translation review changes `control.translationLanguage`, which drives TWO
+    /// reading a translation changes `control.translationLanguage`, which drives TWO
     /// independent reactions with no ordering guarantee — (1) the coordinator's
     /// `withObservationTracking` re-arm (`applyControl → setReadingTranslation`),
     /// which applies on a LATER main-actor turn, and (2) SwiftUI's
@@ -555,7 +555,7 @@ struct EditorSurface: NSViewRepresentable {
         // the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). That covers
         // two cases the membrane-changed check alone misses — not just the
         // entry/exit TRANSITION (`translationMembraneChanged`), but also an
-        // IN-MODE translated-content refresh (already in translation review, the
+        // IN-MODE translated-content refresh (already reading a translation, the
         // membrane doesn't flip this pass) where an unrelated accept/revert
         // one-shot flag set in the same pass would otherwise retain a stale undo
         // action across the replace. Gating on `translationLanguage == nil` (the

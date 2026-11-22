@@ -483,6 +483,42 @@ enum EditionCastCopy {
     static let mayNotCast =
         "Your part in this book doesn\u{2019}t include naming its cast."
 
+    // MARK: - Removing an edition (shell p4 closing round)
+
+    /// The ask, naming the language and saying what is kept.
+    static func removeEditionTitle(language: String) -> String {
+        "Remove the \(LanguageName.title(language)) edition?"
+    }
+
+    static func removeEditionMessage(language: String) -> String {
+        let name = LanguageName.title(language)
+        return "Its translations stay in the project and come back if you add \(name) again."
+    }
+
+    static let removeEditionConfirm = "Remove"
+    static let removeEditionAlertTitle = "Remove Edition"
+    static let mayNotRemove =
+        "Your part in this book doesn\u{2019}t include removing its editions."
+    static let sourceIsNotRemovable =
+        "The Source edition is the book itself; it can\u{2019}t be removed."
+
+    static func noSuchEdition(language: String) -> String {
+        "This book has no \(LanguageName.title(language)) edition to remove."
+    }
+
+    static func removeWhileTranslating(language: String) -> String {
+        "A round is translating into \(LanguageName.title(language)). Remove the edition when it ends."
+    }
+
+    static func removeWhileCompiling(language: String) -> String {
+        "The \(LanguageName.title(language)) edition is compiling. Remove it when the compile ends."
+    }
+
+    static func removeFailed(language: String) -> String {
+        "Couldn\u{2019}t remove the \(LanguageName.title(language)) edition. "
+            + "Check that the project folder is still where it was."
+    }
+
     // MARK: - Renaming somebody (cast-management)
 
     static func renameTitle(currentName: String) -> String {

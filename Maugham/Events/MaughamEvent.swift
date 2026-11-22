@@ -259,6 +259,14 @@ enum MaughamEvent {
         post(.maughamAddLanguage, to: .keyWindow, payload: payload)
     }
 
+    /// A translated edition's row menu and File ▸ Remove Edition…: the
+    /// window asks, then hides `language`'s edition (`EditionWiring`).
+    static func postRemoveEdition(_ language: String) {
+        post(.maughamRemoveEdition, to: .keyWindow, payload: [removeEditionLanguageKey: language])
+    }
+
+    static let removeEditionLanguageKey = "language"
+
     /// ⌘⌥I and ⌘⌥N: Brief, with the keys in its line or in Going for's editor
     /// (`BriefField`). The field takes them only where the faces' Brief has
     /// it (`BriefField.isOffered(in:)`).
@@ -284,7 +292,7 @@ enum MaughamEvent {
     }
 
     /// Ask the key window to pull up again what was pulled up before (⌘[,
-    /// View ▸ Pull Up Previous; `PulledUpHistory`).
+    /// View ▸ Back; `PulledUpHistory`).
     static func postPullUpPrevious() {
         post(.maughamPullUpPrevious, to: .keyWindow)
     }

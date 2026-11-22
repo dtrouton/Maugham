@@ -31,6 +31,15 @@ enum ReadingLanguage {
         return languages.first { $0.caseInsensitiveCompare(switched) == .orderedSame }
     }
 
+    /// **What a promotion leaves of the reading language** (closing review
+    /// M1): a piece promoted away is a reference here — it loads as no
+    /// manuscript and reads in nothing — so the language goes; a piece the
+    /// promotion gave back keeps it. Pure.
+    static func kept(_ switched: String?, openItem: StructureItem?) -> String? {
+        guard let switched, let openItem, EditorHost.loadsAsAManuscript(openItem) else { return nil }
+        return switched
+    }
+
     /// **⌃⌘L, Read In Next Language**: Source, then each language in the
     /// switch's order, then Source again. A language the piece no longer has
     /// starts the cycle from Source.
@@ -105,9 +114,13 @@ final class ReadingLanguageModel {
     /// round's indicator): taken on that piece's arrival only (fix M7).
     var pending: (docId: String, language: String?)?
 
-    /// The languages `docId` can be read in, in the switch's order.
+    /// Removed editions' languages, lowercased: never offered.
+    var removed: Set<String> = []
+
+    /// The languages `docId` can be read in, in the switch's order — a
+    /// removed edition's never (shell p4 closing round).
     func languages(for docId: String) -> [String] {
-        ReadingLanguage.ordered(languagesByDocId[docId] ?? [])
+        ReadingLanguage.ordered((languagesByDocId[docId] ?? []).filter { !removed.contains($0.lowercased()) })
     }
 
     func adopt(_ listing: Listing) {

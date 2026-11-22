@@ -82,7 +82,7 @@ final class EditorControl {
     /// EditorHost joins to build the translated buffer — so this is the same
     /// bytes as that joined surface, just chunked per paragraph rather than
     /// pushed as one flat string; not new text-derived control state. `.empty`
-    /// when not in translation review. Threaded ONE-WAY (sources → model →
+    /// when no translation is read. Threaded ONE-WAY (sources → model →
     /// coordinator) on EXPLICIT translation events only — a language change, an
     /// `annotationsVersion` tick while in the posture, or a re-mount — never off
     /// `displayText`. D1-safe for the same reason `translationLanguage` /

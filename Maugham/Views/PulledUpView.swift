@@ -564,7 +564,8 @@ struct PulledUpView: View {
                 device: _checkpointDeviceId,
                 session: _checkpointSessionId,
                 docPaths: ProjectWindow.documentPaths(in: store.manifest.structure),
-                documentStore: documentStore)
+                documentStore: documentStore,
+                pieceNoun: HistoryPane.pieceNoun(docId: docId, store: store))
                 .id(docId)
         case .historyInTheCentre:
             VStack(alignment: .leading) {
@@ -693,10 +694,12 @@ struct BesideHeader: View {
     static let openInCentreLabel = "Open in Centre"
     static let closeLabel = "Close"
     static let backLabel = "Back"
+    /// View ▸ Back (⌘[) — the arrow's own word (owner's answer 16, 2026-11-22).
+    static let backMenuTitle = backLabel
 
-    /// Back's help: what it brings up, by name.
+    /// Back's help: what it brings up, by name, and its key.
     static func backHelp(_ title: String) -> String {
-        title.isEmpty ? "Back to what was pulled up before" : "Back to \(title)"
+        (title.isEmpty ? "Back to what was pulled up before" : "Back to \(title)") + " (\u{2318}[)"
     }
 
     /// The room the title keeps before **Open in Centre** gives up its words

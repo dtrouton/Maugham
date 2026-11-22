@@ -181,7 +181,7 @@ struct ResolveFilterBar: View {
         case .checks: return "Checks"
         case .questions: return "Questions"
         case .others: return "Others"
-        case .changes: return "Changes"
+        case .changes: return TranslationVocabulary.toLookAt
         case .design: return "Design"
         case .compile: return "Compile"
         }

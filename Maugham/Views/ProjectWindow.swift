@@ -342,6 +342,7 @@ struct ProjectWindow: View {
             showInspector: $showInspector,
             centreViewOffer: centreViewOffer,
             chooseCentreView: { chooseCentreView($0) },
+            goToCentre: { goToCentre($0) },
             readingOffer: readingOffer,
             runningRound: runningRound,
             runningRoundIsFull: runningRound.map { line in
@@ -448,10 +449,9 @@ struct ProjectWindow: View {
             store: store, documentStore: documentStore, window: window,
             subject: subjectBinding, showInspector: $showInspector,
             position: $rightColumnPosition, editions: treeState.editionRows,
-            readingLanguage: ReadingLanguage.of(subject: subject,
-                                                switched: editorControl.translationLanguage,
-                                                sourceLanguage: publishCentre.sourceLanguage),
-            select: { selectFromTheTree($0) }))
+            readingLanguage: facesReadingLanguage,
+            select: { selectFromTheTree($0) },
+            busy: { removalBusy($0) }))
         .onKeyWindowCommand(.maughamShowClaudeDesktopHelp, window: window) { _ in
             activeSheet = .claudeDesktop
         }
@@ -573,6 +573,8 @@ struct ProjectWindow: View {
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
             briefFocus: $briefFocus,
+            readingLanguage: facesReadingLanguage,
+            sourceLanguage: publishCentre.sourceLanguage,
             pulledUpMemory: pulledUpMemory,
             subject: subjectBinding,
             centreItem: $centreItem,
@@ -635,7 +637,8 @@ struct ProjectWindow: View {
             documentStore: documentStore,
             editorControl: $editorControl,
             reading: reading,
-            structure: { store?.manifest.structure ?? [] }))
+            structure: { store?.manifest.structure ?? [] },
+            removedEditions: store?.manifest.removedEditions ?? []))
         .modifier(PaletteWallModifier(
             paletteWall: $paletteWall,
             showInspector: $showInspector,
@@ -867,6 +870,8 @@ struct ProjectWindow: View {
         /// the window's one writer of the choice. Hidden where `.none`.
         let centreViewOffer: CentreViewSwitch.Offer
         let chooseCentreView: (CentreViewSwitch.Offer) -> Void
+        /// A link to another altitude's view (`CentreViewSwitch.Destination`).
+        let goToCentre: (CentreViewSwitch.Destination) -> Void
         /// The language switch (`LanguageSwitch`): on a piece with a
         /// translation; hidden elsewhere.
         let readingOffer: LanguageSwitch.Offer?
@@ -942,6 +947,8 @@ struct ProjectWindow: View {
                     if let choice = CentreViewSwitch.choice(
                         from: note.userInfo?[MaughamEvent.centreViewKey] as? String) {
                         chooseCentreView(choice)
+                    } else if let destination = CentreViewSwitch.destination(from: note.userInfo) {
+                        goToCentre(destination)
                     }
                 }
         }
@@ -1003,6 +1010,11 @@ struct ProjectWindow: View {
         @Binding var resolveRequest: ResolveRequest?
         /// ⌘⌥I's and ⌘⌥N's Brief field.
         @Binding var briefFocus: BriefField?
+        /// The language the faces are read in (`ReadingLanguage.of`) and the
+        /// book's own: a filter key over a piece read in a language that asks
+        /// for the source's items reads it in Source first (closing review I2).
+        let readingLanguage: String?
+        let sourceLanguage: String
         /// The window's pulled-up memory: a key's pull-up of what is already
         /// up still shows it over a canvas selection (`ProjectWindow.pullUp`).
         let pulledUpMemory: PulledUpMemory
@@ -1028,6 +1040,17 @@ struct ProjectWindow: View {
             content
                 .onKeyWindowCommand(.maughamSetRightColumn, window: window) { note in
                     guard let asked = ProjectWindow.position(in: note.userInfo) else { return }
+                    // ⌘⌥A, ⌘⌥D and ⌘⌥T over a piece read in a language ask for
+                    // the SOURCE's items: it is read in Source first, visibly,
+                    // and the filter lands on the source's list (closing
+                    // review I2; `ResolvePieceInLanguage.readsSourceFirst`).
+                    if let filter = ProjectWindow.resolveFilter(in: note.userInfo), readingLanguage != nil,
+                       let docId = ResolvePieceInLanguage.readsSourceFirst(filter, scope: ResolveScope.of(
+                        subject.faces, readIn: readingLanguage, sourceLanguage: sourceLanguage,
+                        structure: store?.manifest.structure ?? [],
+                        projectType: store?.manifest.type ?? .novel)) {
+                        ResolvePieceInLanguage.readSource(docId: docId, openDocId: subject.open.itemID)
+                    }
                     ProjectWindow.selectPosition(
                         asked,
                         showInspector: $showInspector,
@@ -1036,8 +1059,9 @@ struct ProjectWindow: View {
                     // to open the Annotations, Diagnostics or Tasks pane opens
                     // To resolve on that pane's filter. Read after the one
                     // selection act, so the column is revealed exactly as for
-                    // any other position key — an edition's list and a piece
-                    // read in a language included (shell p4 Tasks 6 and 9). A
+                    // any other position key — an edition's list included (shell
+                    // p4 Task 6); over a piece read in a language the source's
+                    // keys read it in Source first (above). A
                     // filter whose chip the list lacks is inert there
                     // (`ResolveFilter.selection(for:)`), never left to fire on
                     // a later mount (`positionAsk`).
@@ -1745,6 +1769,17 @@ struct ProjectWindow: View {
     /// View ▸ View as … both land here: the window's value and its
     /// `UIState` key together. A choice the current offer does not list (a
     /// menu post that raced a subject change) does nothing.
+    /// **A link to another altitude's view**: the subject moves, then the
+    /// view is chosen through the one writer — asked of the offer the new
+    /// subject makes (`CentreViewSwitch.subject(for:)`).
+    private func goToCentre(_ destination: CentreViewSwitch.Destination) {
+        let next = CentreViewSwitch.subject(for: destination, current: subject,
+                                            structure: store?.manifest.structure ?? [],
+                                            projectType: store?.manifest.type ?? .novel)
+        if next != subject { subject = next }
+        chooseCentreView(CentreViewSwitch.choice(for: destination))
+    }
+
     private func chooseCentreView(_ choice: CentreViewSwitch.Offer) {
         guard CentreViewSwitch.accepts(choice, under: centreViewOffer) else { return }
         switch choice {
@@ -2477,6 +2512,24 @@ struct ProjectWindow: View {
         nonmutating set { subjectState = newValue }
     }
 
+    /// **What stops removing `language`'s edition now** — the session's
+    /// round, this window's compile (`EditionCastVerbs.removalBusy`).
+    private func removalBusy(_ language: String) -> String? {
+        EditionCastVerbs.removalBusy(
+            language: language,
+            session: TranslationRunSession.read(runState: roster.translator.runState,
+                                                isRunning: roster.translator.isRunning,
+                                                pipeline: roster.pipeline.status),
+            compile: publishCentre.compileRunner.state.phase)
+    }
+
+    /// **The language the faces are read in** (`ReadingLanguage.of`) — the
+    /// one answer ⌘⌥K and the filter keys ask.
+    private var facesReadingLanguage: String? {
+        ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage,
+                           sourceLanguage: publishCentre.sourceLanguage)
+    }
+
     private var subjectBinding: Binding<WindowSubject> {
         Binding(get: { subject }, set: { subject = $0 })
     }
@@ -2898,10 +2951,11 @@ struct ProjectWindow: View {
     /// on every ground, an edition's included (shell p4 Task 6: the desk's
     /// interim loss ended). There a filter whose chip is absent selects
     /// nothing (`ResolveFilter.selection(for:)` is nil) and is spent, never
-    /// left to fire later. Only while the translation review shows (interim
-    /// until Task 9, no list mounted to spend it) the key still selects the
-    /// position and the filter is dropped: a request left set would fire the
-    /// next time the list mounted, minutes later. A Brief field is asked only where `briefShows`
+    /// left to fire later. Where `shows` is not the list, the key still
+    /// selects the position and the filter is dropped: a request left set
+    /// would fire the next time the list mounted, minutes later. (Over a piece
+    /// read in a language the source's keys read it in Source first:
+    /// `ResolvePieceInLanguage.readsSourceFirst`.) A Brief field is asked only where `briefShows`
     /// (`RightColumnContent.of` for `.brief`) draws it, so no request stands
     /// over a Brief that cannot take it. Pure.
     static func positionAsk(in userInfo: [AnyHashable: Any]?,

@@ -192,6 +192,10 @@ struct EditionStatusView: View {
         }
     }
 
+    /// The Source edition's one line to the Book's Status.
+    static let bookStatusLine = "Stage, passes, notes and to-dos are in the Book\u{2019}s Status"
+    static let bookStatusHelp = "Show the Book\u{2019}s Status"
+
     static let minimumTitleColumnWidth: CGFloat = 110
     /// The piece column's width before the long wording takes the slack.
     static let comfortableTitleColumnWidth: CGFloat = 130
@@ -221,6 +225,17 @@ struct EditionStatusView: View {
         let byId = Dictionary(loaded.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let unreadable = Set(loaded.unreadable.map(\.documentId))
         return VStack(alignment: .leading, spacing: 6) {
+            // The Source's Status is publishing only; the rest is the Book's
+            // (owner's answer 11, 2026-11-22): one quiet line that goes there.
+            if isSource {
+                Button(Self.bookStatusLine) { CentreViewSwitch.go(to: .bookStatus) }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help(Self.bookStatusHelp)
+                    .padding(.horizontal, Self.horizontalPadding)
+                    .padding(.top, 6)
+                    .accessibilityIdentifier("editionStatus.bookStatus")
+            }
             ForEach(Array(EditionStatusRows.notices(loaded.unreadable).enumerated()), id: \.offset) { _, notice in
                 PublishNoticeLine(headline: notice.headline, detail: notice.detail)
                     .padding(.horizontal, 10)
@@ -308,7 +323,8 @@ struct EditionStatusView: View {
                 Text(columns.wide ? "Latest round" : "Round").frame(width: columns.round, alignment: .leading)
                 header("Questions", symbol: "questionmark.bubble", "Open questions",
                        wide: columns.wide, width: columns.questions)
-                header("Changes", symbol: "arrow.triangle.swap", "Changes to look at",
+                header(TranslationVocabulary.toLookAt, symbol: "arrow.triangle.swap",
+                       TranslationVocabulary.toLookAtColumnName,
                        wide: columns.wide, width: columns.changes)
                 Text(columns.wide ? "Notes per round" : "Trend").frame(width: columns.trend, alignment: .leading)
             }

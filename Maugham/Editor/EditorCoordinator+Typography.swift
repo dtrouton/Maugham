@@ -537,7 +537,7 @@ extension EditorCoordinator {
     /// (typing moved the ranges) and a whole-document paint (the theme may
     /// have changed) — and on a translation-review flip.
     ///
-    /// Translation review shows none: its dimming is the one temporary
+    /// Reading a translation shows none: its dimming is the one temporary
     /// foreground there and clears over the whole text
     /// (`applyTranslationDimming`), which stays exact. Between a character
     /// edit and its retokenize the tokens describe the old text, so nothing
@@ -579,7 +579,7 @@ extension EditorCoordinator {
 
     /// Forgets the un-fade after something else cleared every temporary
     /// foreground colour (`applyTranslationDimming`), and shows the caret's
-    /// line again outside translation review.
+    /// line again outside reading a translation.
     func figureSyntaxUnfadeWasCleared() {
         unfadedFigureSyntax = []
         unfadedFigureSyntaxIsStale = false

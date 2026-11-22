@@ -34,6 +34,18 @@ struct RightColumnSubjectLine: View {
         }
     }
 
+    /// **Brief's line over a piece read in a language** (closing review M5):
+    /// a piece has one intent for every language, so Brief stays the
+    /// piece's own — and says so, beside a To resolve that is the language's
+    /// list: "Chapter 7 · Source brief". Every other Brief keeps its title.
+    /// Pure.
+    static func briefTitle(_ title: String, scope: BriefScope, readIn: String?) -> String {
+        guard readIn != nil, case .piece = scope else { return title }
+        return "\(title) \u{00B7} \(sourceBriefWord)"
+    }
+
+    static let sourceBriefWord = "Source brief"
+
     private static func named(_ title: String, else fallback: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed

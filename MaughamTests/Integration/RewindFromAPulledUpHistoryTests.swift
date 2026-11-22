@@ -92,6 +92,35 @@ final class RewindFromAPulledUpHistoryTests: XCTestCase {
         XCTAssertNil(RewindModifier.rewindTarget(of: ["scrub_op_id": "x"], isOpen: isOpen))
     }
 
+    /// **Owner's answer 13 (2026-11-22)**: Rewind stays the open piece's, and
+    /// where it is missing because the History pulled up is of a piece that
+    /// is not open, the slot says how to get it — a button that opens the
+    /// piece, its History staying up. Never for the project's or a figure's
+    /// History, and never where this Mac may not write the text.
+    func test_whereRewindIsMissingTheHistorySaysOpenThePieceToRewindIt() throws {
+        XCTAssertEqual(HistoryPane.rewindSlot(bookAuthor, documentIsOpen: true, pieceNoun: "chapter"), .rewind)
+        XCTAssertEqual(HistoryPane.rewindSlot(bookAuthor, documentIsOpen: false, pieceNoun: "chapter"),
+                       .openToRewind("Open this chapter to rewind it"))
+        XCTAssertEqual(HistoryPane.rewindSlot(bookAuthor, documentIsOpen: false, pieceNoun: "story"),
+                       .openToRewind("Open this story to rewind it"), "the project's own word")
+        XCTAssertEqual(HistoryPane.rewindSlot(bookAuthor, documentIsOpen: false, pieceNoun: nil), .none,
+                       "the project's History, a figure's: no piece to open")
+        XCTAssertEqual(HistoryPane.rewindSlot(nil, documentIsOpen: false, pieceNoun: "chapter"), .none,
+                       "no door behind the pane fails closed")
+        let pane = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/HistoryPane.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(pane.contains("if case .openToRewind(let line) = rewindSlot { Button(line) { ResolveNavigation.go(toDocId: activeDocId) }"),
+                      "the line is a button that opens the piece (the ordinary place keeps what is beside)")
+        XCTAssertTrue(pane.contains("var rewindIsOffered: Bool { rewindSlot == .rewind }"))
+        let pulledUp = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/PulledUpView.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(pulledUp.contains("pieceNoun: HistoryPane.pieceNoun(docId: docId, store: store))"))
+        // The ordinary place keeps what is pulled up beside.
+        let beside = WindowSubject(open: .item("doc-b"), faces: .item("doc-b"), beside: .history(docId: "doc-a"))
+        XCTAssertEqual(ManuscriptNavigation.destination(toDocument: "doc-a", current: beside).beside,
+                       .history(docId: "doc-a"))
+    }
+
     /// The project's History (`noDocumentSubject`) offers no Rewind — there is
     /// no piece to rewind — and its checkpoint Revert keeps working through
     /// the picker, which is not this rule's.

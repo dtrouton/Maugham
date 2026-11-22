@@ -234,4 +234,31 @@ extension ProjectStore {
             throw error
         }
     }
+
+    // MARK: - Removing an edition (shell p4 closing round)
+
+    /// **Hide or show the edition in `language`** (owner's answer 1,
+    /// 2026-11-22): the one write of `ProjectManifest.removedEditions`.
+    /// Removing touches nothing else — translations, round ledgers, the
+    /// edition's brief and cast, compiled books all stay — so showing it again
+    /// brings every one of them back. Idempotent; a failed save restores the
+    /// list (`commitProductionRoles`' reason).
+    func setEdition(_ language: String, removed: Bool) async throws {
+        let tag = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !tag.isEmpty else { throw ProjectStoreError.productionRoleLanguageEmpty }
+        guard manifest.isEditionRemoved(tag) != removed else { return }
+        let previous = manifest.removedEditions
+        let previouslyModified = manifest.modified
+        var next = (manifest.removedEditions ?? []).filter { $0.caseInsensitiveCompare(tag) != .orderedSame }
+        if removed { next.append(tag) }
+        manifest.removedEditions = next.isEmpty ? nil : next.sorted()
+        manifest.modified = Date()
+        do {
+            try await saveManifest()
+        } catch {
+            manifest.removedEditions = previous
+            manifest.modified = previouslyModified
+            throw error
+        }
+    }
 }

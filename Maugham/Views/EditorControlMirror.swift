@@ -56,7 +56,7 @@ enum InsertMenuGate {
     /// - the editor holds a manuscript document (`posture` non-nil) whose
     ///   format takes report elements (`format`, not a screenplay);
     /// - its posture `allows(.writeText)`, and the iCloud share is writable;
-    /// - the editor is not in review mode (⌘⌥⇧R) or translation review;
+    /// - the editor is not in review mode (⌘⌥⇧R) or reading a translation;
     /// - no table grid is expanded in the editor (`FigureGridPresence`,
     ///   report plan 7c Task 9): the grid has the keys, and the writer folds
     ///   it before inserting into the text.

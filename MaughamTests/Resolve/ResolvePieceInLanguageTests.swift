@@ -276,7 +276,7 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertFalse(settled.contains("Source"))
         let dotted = ResolvePieceInLanguage.clearLine(language: "sr", noun: "chapter", hasRounds: true,
                                                       readingBook: false, sourceHasSomething: true)
-        XCTAssertTrue(dotted.hasSuffix("read it in Source to see them."), dotted)
+        XCTAssertTrue(dotted.hasSuffix(ResolvePieceInLanguage.sourceHasSomethingLine), dotted)
         // One predicate: the row's dot (`rowMark`) is what the pane asks.
         let pane = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
             .joined(separator: " ")
@@ -288,6 +288,58 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         XCTAssertEqual(ResolvePane.emptyState(scope: .pieceInLanguage(docId: "doc-a", language: "sr"),
                                               hasItems: true, hasVisible: false, offersColdStart: false),
                        .filteredOut)
+    }
+
+    /// **Closing review M4**: Run's VoiceOver label names the piece by the
+    /// project's own word, as the scope line beside it does.
+    func test_runsLabelNamesThePieceByTheProjectsWord() {
+        XCTAssertEqual(ResolvePieceInLanguage.runAccessibilityLabel(language: "sr", noun: "story"),
+                       "Run a round on this story into " + LanguageName.labelled("sr"))
+    }
+
+    // MARK: - The source's keys (closing review I2)
+
+    /// **⌘⌥A, ⌘⌥D and ⌘⌥T over a chapter read in a language read it in
+    /// Source first**: that language's list holds none of what they ask for.
+    /// Every other ground lists them already; ⌘⌥L is the language's own.
+    func test_theSourceKeysReadAChapterReadInALanguageInSourceFirst() throws {
+        let grounds: [(String, ResolveScope, String?)] = [
+            ("a Source chapter", .piece(docId: "doc-a", includesBookLevel: false), nil),
+            ("a chapter read in a language", .pieceInLanguage(docId: "doc-a", language: "es"), "doc-a"),
+            ("an edition", .edition(language: "es", isSource: false, docIds: ["doc-a"]), nil),
+            ("the Book", .pieces(docIds: ["doc-a"], includesBookLevel: true), nil),
+        ]
+        for (ground, scope, readsFirst) in grounds {
+            for key in [ResolveKeyFilter.rounds, .checks, .mine] {
+                XCTAssertEqual(ResolvePieceInLanguage.readsSourceFirst(key, scope: scope), readsFirst,
+                               "\(key) over \(ground)")
+            }
+            XCTAssertNil(ResolvePieceInLanguage.readsSourceFirst(.questions, scope: scope),
+                         "Questions are the language's own, over \(ground)")
+        }
+        // The open piece switches in place; a chapter only faced opens.
+        XCTAssertEqual(ResolvePieceInLanguage.sourceRead(docId: "doc-a", openDocId: "doc-a"), .switchHere)
+        XCTAssertEqual(ResolvePieceInLanguage.sourceRead(docId: "doc-a", openDocId: nil), .open(docId: "doc-a"))
+        XCTAssertEqual(ResolvePieceInLanguage.sourceRead(docId: "doc-a", openDocId: "doc-b"), .open(docId: "doc-a"))
+
+        // The wiring: the key's receiver asks the rule over the scope the
+        // list shows, BEFORE the position and the filter land; the empty
+        // list's line is the same act.
+        let window = SourceScan.codeLines(of: try SourceTree.declaration(
+            named: "struct SessionAndNavigationModifier", under: "Maugham"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        let ask = try XCTUnwrap(window.range(of: "ResolvePieceInLanguage.readsSourceFirst(filter, scope: ResolveScope.of("))
+        let read = try XCTUnwrap(window.range(of: "ResolvePieceInLanguage.readSource(docId: docId, openDocId: subject.open.itemID)"))
+        let select = try XCTUnwrap(window.range(of: "ProjectWindow.selectPosition("))
+        let filter = try XCTUnwrap(window.range(of: "let ask = ProjectWindow.positionAsk("))
+        XCTAssertTrue(ask.lowerBound < read.lowerBound && read.lowerBound < select.lowerBound
+                      && select.lowerBound < filter.lowerBound,
+                      "Source is read before the column and the filter land")
+        XCTAssertTrue(window.contains("subject.faces, readIn: readingLanguage, sourceLanguage: sourceLanguage,"))
+        let pane = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/Resolve/ResolvePane.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(pane.contains("Button(ResolvePieceInLanguage.readSourceTitle) { ResolvePieceInLanguage.readSource(docId: docId, openDocId: openDocId) }"),
+                      "the empty list's line is a button that reads Source")
     }
 
     // MARK: - Run, on this piece
@@ -659,7 +711,8 @@ final class ResolvePieceInLanguageTests: XCTestCase {
         }
         let column = try code("RightColumn")
         XCTAssertTrue(column.contains(
-            "readIn: ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage),"))
+            "ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage, sourceLanguage: publishCentre.sourceLanguage)"))
+        XCTAssertTrue(column.contains("readIn: readingLanguage,"))
         let pane = try code("ResolvePane")
         XCTAssertTrue(pane.contains("ResolveScope.of(subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,"))
         XCTAssertTrue(pane.contains("read = await ResolveEditionItems.readPiece("))

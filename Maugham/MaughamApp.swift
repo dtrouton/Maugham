@@ -233,6 +233,9 @@ struct MaughamApp: App {
                 // Editions `+`'s keyboard path, and the way to a first edition
                 // in any book. Plan 5's menu review may move it.
                 FocusedAddLanguageButton()
+                // File ▸ Remove Edition… (closing round): the selected
+                // translated edition, asked first. Plan 5's menu review too.
+                FocusedRemoveEditionButton()
                 FocusedPromoteButton()
                 Divider()
                 Button("Show Project Statistics") {
@@ -601,7 +604,7 @@ extension FocusedValues {
 
 /// Whether the focused window has something pulled up before that still
 /// resolves (`PulledUpHistory.offersBack`). Published by
-/// `PulledUpHistoryWiring`; read only by View ▸ Pull Up Previous.
+/// `PulledUpHistoryWiring`; read only by View ▸ Back.
 struct FocusedPulledUpBackKey: FocusedValueKey { typealias Value = Bool }
 extension FocusedValues {
     var pulledUpBackIsOffered: Bool? {
@@ -878,11 +881,11 @@ private struct FocusedLockToggle: View {
 /// View → "Open the Piece's Fold" (⌘⌥E): what a piece is pinned to is its
 /// fold in the tree. DISABLED (the menu bar's convention) where the focused
 /// window has no piece in its faces or its centre.
-/// View ▸ Pull Up Previous (⌘[): disabled with nothing to go back to.
+/// View ▸ Back (⌘[): disabled with nothing to go back to.
 private struct FocusedPullUpPreviousButton: View {
     @FocusedValue(\.pulledUpBackIsOffered) private var offered
     var body: some View {
-        Button("Pull Up Previous") { MaughamEvent.postPullUpPrevious() }
+        Button(BesideHeader.backMenuTitle) { MaughamEvent.postPullUpPrevious() }
             .keyboardShortcut("[", modifiers: .command)
             .disabled(offered != true)
     }
@@ -895,6 +898,18 @@ private struct FocusedAddLanguageButton: View {
     var body: some View {
         Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }
             .disabled(mayAdd != true)
+    }
+}
+
+/// File ▸ Remove Edition…: enabled where the focused window has a translated
+/// edition selected and may add one (`EditionWiring.editionToRemove`).
+private struct FocusedRemoveEditionButton: View {
+    @FocusedValue(\.removableEdition) private var language
+    var body: some View {
+        Button(EditionCastVerbs.removeEditionTitle) {
+            if let language { MaughamEvent.postRemoveEdition(language) }
+        }
+        .disabled(language == nil)
     }
 }
 

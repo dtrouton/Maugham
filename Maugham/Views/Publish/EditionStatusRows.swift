@@ -118,8 +118,8 @@ enum EditionStatusRows {
     static func changes(_ row: Row) -> Cell {
         let count = row.changesToLookAt
         guard count > 0 else { return .empty }
-        return Cell(text: "\(count)", long: "\(count) to look at",
-                    help: "\(count) \(count == 1 ? "change" : "changes") from the last round to look at")
+        return Cell(text: "\(count)", long: "\(count) \(TranslationVocabulary.toLookAt.lowercased())",
+                    help: "\(count) from the last round \(TranslationVocabulary.toLookAt.lowercased())")
     }
 
     /// The last three rounds' note counts, oldest first.
@@ -192,4 +192,16 @@ enum EditionStatusRows {
     static func notices(_ unreadable: [EditionStatus.UnreadableDocument]) -> [(headline: String, detail: String)] {
         unreadable.map { (EditionStatusRows.couldNotRead($0.title), $0.reason) }
     }
+}
+
+/// **The one word for what a translation round leaves the writer to settle**
+/// (owner's answer 7, 2026-11-22): the translator's changes AND the
+/// paragraphs that departed from the source untouched — so not "Changes".
+/// To resolve's chip, the edition Status column, its cells, their help and
+/// VoiceOver say this, and only this
+/// (`EditionStatusRowsTests.test_whatARoundLeavesIsToLookAtEverywhereTheWriterSeesIt`).
+enum TranslationVocabulary {
+    static let toLookAt = "To look at"
+    /// The Status column's name in its help and VoiceOver.
+    static let toLookAtColumnName = "To look at from the last round"
 }

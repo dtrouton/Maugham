@@ -32,6 +32,9 @@ struct ReadingLanguageModifier: ViewModifier {
     let reading: ReadingLanguageModel
     /// The book's structure, for which piece a find match is in.
     var structure: () -> [StructureItem] = { [] }
+    /// The editions the writer removed (`ProjectManifest.removedEditions`):
+    /// no piece is read in one (shell p4 closing round).
+    var removedEditions: [String] = []
 
     /// A reveal whose chapter had to be opened first, held until `openDocId`
     /// catches up. Nil at every other moment.
@@ -54,8 +57,16 @@ struct ReadingLanguageModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             // The writer's choice: keep the place, then read.
+            // A choice for a piece that is not the one open opens it, and the
+            // language is taken on its arrival (`reading.pending`).
             .onKeyWindowCommand(.maughamChooseReadingLanguage, window: window) { note in
-                choose(note.userInfo?[TranslationReveal.languageKey] as? String)
+                let asked = LanguageSwitch.choice(from: note.userInfo)
+                if let docId = asked.docId, docId != openDocId {
+                    reading.pending = (docId, asked.language)
+                    ResolveNavigation.go(toDocId: docId)
+                } else {
+                    choose(asked.language)
+                }
             }
             // The setting events — a reveal's, and a choice's own.
             .onKeyWindowCommand(.maughamReadInLanguage, window: window) { note in
@@ -128,6 +139,24 @@ struct ReadingLanguageModifier: ViewModifier {
                 pendingReveal = nil
                 guard let reveal = pending, reveal.docId == newValue else { return }
                 startReveal(reveal, waitingForDocument: true)
+            }
+            // **An edition removed** (owner's answer 1): its language leaves
+            // the switch, and a piece read in it is read in Source.
+            .onChange(of: removedEditions, initial: true) { _, removed in
+                reading.removed = Set(removed.map { $0.lowercased() })
+                if let current = editorControl.translationLanguage,
+                   reading.removed.contains(current.lowercased()) {
+                    choose(nil)
+                }
+            }
+            // **A promotion's end** (closing review M1): the piece promoted
+            // away keeps its id but is a reference now — it reads in nothing.
+            .onChange(of: documentStore?.promotionReturns) { _, _ in
+                let item = TreeWalk.find(id: openDocId, in: structure())
+                if ReadingLanguage.kept(editorControl.translationLanguage, openItem: item)
+                    != editorControl.translationLanguage {
+                    choose(nil)
+                }
             }
             // Which languages each piece has: one listing per translation
             // change, off the main actor — a change of piece is a lookup. A

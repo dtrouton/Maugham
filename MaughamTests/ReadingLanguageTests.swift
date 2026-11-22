@@ -106,6 +106,33 @@ final class ReadingLanguageTests: XCTestCase {
         XCTAssertEqual(LanguageSwitch.title(of: "sr"), LanguageName.title("sr"))
     }
 
+    /// **Closing review M1**: a promoted piece is a reference — it reads in
+    /// nothing, so it offers no switch, and a promotion's end drops the
+    /// language its id was read in.
+    func test_aPromotedPieceOffersNoSwitchAndDropsItsLanguage() throws {
+        let reference = StructureItem(id: "ref-1", title: "Gone", type: .document, path: "gone.md",
+                                      pieceKind: .reference)
+        let loose = StructureItem(id: "loose-1", title: "Here", type: .document, path: "here.md",
+                                  pieceKind: .loose)
+        let structure = [reference, loose]
+        func offer(_ id: String, current: String? = nil) -> LanguageSwitch.Offer? {
+            LanguageSwitch.offer(subject: WindowSubject(open: .item(id), faces: .item(id)),
+                                 structure: structure, languages: ["es"], current: current,
+                                 showsSourceUnder: true)
+        }
+        XCTAssertNil(offer("ref-1"), "a reference piece offers no switch")
+        XCTAssertNil(offer("ref-1", current: "es"), "not even while a language is set over it")
+        XCTAssertNotNil(offer("loose-1"))
+        XCTAssertNil(ReadingLanguage.kept("es", openItem: reference), "promoted away: the language goes")
+        XCTAssertEqual(ReadingLanguage.kept("es", openItem: loose), "es", "given back: it stays")
+        XCTAssertNil(ReadingLanguage.kept("es", openItem: nil))
+        XCTAssertNil(ReadingLanguage.kept(nil, openItem: loose))
+        let modifier = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ReadingLanguageModifier.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(modifier.contains(".onChange(of: documentStore?.promotionReturns) { _, _ in"))
+        XCTAssertTrue(modifier.contains("if ReadingLanguage.kept(editorControl.translationLanguage, openItem: item) != editorControl.translationLanguage { choose(nil) }"))
+    }
+
     // MARK: - The three routes
 
     /// **Toolbar, menu and key all post the one choice**, which the window

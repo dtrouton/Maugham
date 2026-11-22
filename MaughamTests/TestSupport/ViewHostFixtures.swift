@@ -75,14 +75,16 @@ enum RightColumnControlFixture {
         store: ProjectStore, position: Binding<RightColumnPosition>,
         subject: WindowSubject, diagnostics: DiagnosticsStore? = nil,
         width: CGFloat, closedCanvasWrites: Int = 0,
-        canvasModel: CanvasModel
+        canvasModel: CanvasModel, readIn: String? = nil, sourceLanguage: String = "en"
     ) -> RightColumnControl {
         RightColumnControl(
             store: store, position: position, subject: subject,
             diagnostics: diagnostics,
             width: width,
             closedCanvasWrites: closedCanvasWrites,
-            canvasModel: canvasModel)
+            canvasModel: canvasModel,
+            readIn: readIn,
+            sourceLanguage: sourceLanguage)
     }
 }
 

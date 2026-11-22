@@ -19,7 +19,7 @@ import MaughamCore
 /// figure triggers through `DocumentStore.figureCardCaches` — an open host
 /// appending an op (`figureHostAppended`), the presenter's figure pass
 /// (`applyPendingFigureChanges`, which a registry adoption also feeds) and a
-/// trust change — and, in translation review, the review language changing
+/// trust change — and, while a translation is read, the review language changing
 /// or a cell translation landing (`setReviewLanguage`, `translationsChanged`;
 /// report plan 9e-1 Task 7). Every trigger in one main-actor turn makes ONE fill, and a
 /// trigger during a fill makes one more after it. A fill reads through
@@ -95,7 +95,7 @@ final class FigureCardCache {
     /// card each had (`readopt(figureId:)`); at most `departedLimit`.
     private var departed: [(record: FigureRecord, model: FigureCardModel?)] = []
     static let departedLimit = 8
-    /// The window's translation review language, nil for the source
+    /// The window's reading language, nil for the source
     /// (`setReviewLanguage`); each fill reads its labels.
     private(set) var reviewLanguage: String?
     private var hasFilled = false
@@ -137,7 +137,7 @@ final class FigureCardCache {
         filling = Task { [weak self] in await self?.drain(generation) }
     }
 
-    /// **The window entered, left or switched translation review** (report
+    /// **The window entered, left or switched the language it reads in** (report
     /// plan 9e-1 Task 7): the cards refill in that language, showing each
     /// text cell's fresh translation. A label never changes a card's height
     /// (rows are one line each), so no figure line's room moves. Nothing

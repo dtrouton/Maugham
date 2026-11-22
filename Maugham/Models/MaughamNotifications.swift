@@ -97,7 +97,7 @@ extension Notification.Name {
     /// a data event, so its scope is `.project(for: projectURL)` (mirrors
     /// `maughamMCPNoteAdded`, delivered to live windows on the project only).
     /// `userInfo["document_id"]` and `userInfo["language"]` name the affected
-    /// (doc, language). A window already inside translation review for that
+    /// (doc, language). A window already reading a translation for that
     /// pair re-derives its read-only surface so a retranslation lands live
     /// rather than staying frozen until the writer exits and re-enters. Scope:
     /// .project(id:).
@@ -118,7 +118,7 @@ extension Notification.Name {
     /// `.project(for: projectURL)`.
     public static let maughamTranslationRoundChanged = Notification.Name("maugham.translation.round.changed")
     /// Posted by the round report and the Translation pane to take the writer
-    /// to one paragraph of one edition in translation review. Scope: .keyWindow.
+    /// to one paragraph of one edition, read in its language. Scope: .keyWindow.
     /// `userInfo["document_id"]`, `["language"]`, `["paragraph_id"]`.
     public static let maughamRevealTranslation = Notification.Name("maugham.revealTranslation")
     public static let maughamToggleFullScreen = Notification.Name("maugham.toggleFullScreen")
@@ -247,7 +247,7 @@ extension Notification.Name {
     /// faces' piece's History is pulled up beside the centre
     /// (`MaughamEvent.postPullUp`). Scope: .keyWindow.
     public static let maughamPullUp = Notification.Name("maugham.pull.up")
-    /// Posted by ⌘[ (View ▸ Pull Up Previous, appraisal wave): what was
+    /// Posted by ⌘[ (View ▸ Back, appraisal wave): what was
     /// pulled up before goes up again (`MaughamEvent.postPullUpPrevious`,
     /// `PulledUpHistory`). Scope: .keyWindow.
     public static let maughamPullUpPrevious = Notification.Name("maugham.pull.up.previous")
@@ -263,6 +263,11 @@ extension Notification.Name {
     /// brief's Add (shell p4 Task 7): present the Add Language sheet
     /// (`MaughamEvent.postAddLanguage`). Scope: .keyWindow.
     public static let maughamAddLanguage = Notification.Name("maugham.add.language")
+    /// Posted by a translated edition's row menu and File ▸ Remove Edition…
+    /// (shell p4 closing round): ask, then hide the edition named by
+    /// `userInfo["language"]` (`MaughamEvent.postRemoveEdition`). Scope:
+    /// .keyWindow.
+    public static let maughamRemoveEdition = Notification.Name("maugham.remove.edition")
     /// Posted by ⌘⌥B (shell p1 Task 6): open the Inbox in the centre — the
     /// same click on the Inbox row the tree makes, through `ClickRule`. The
     /// Inbox stopped being a right-column pane when it became a row.

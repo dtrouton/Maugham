@@ -12,7 +12,7 @@ extension EditorCoordinator {
     /// Receive the ordered per-paragraph translation freshness + the rendered
     /// translated surface, pushed ONE-WAY from EditorHost via `EditorControl`
     /// (same discipline as `translationLanguage` — explicit events only, never
-    /// per keystroke; the surface is read-only in translation review). Resolves
+    /// per keystroke; the surface is read-only while a translation is read). Resolves
     /// each paragraph to its UTF-16 range in the rendered surface
     /// (`TranslationBadgeLayout`), applies the missing-paragraph dimming, and
     /// installs/reconciles the margin-dot overlay. No-op-guarded on the model the
@@ -248,7 +248,7 @@ extension EditorCoordinator {
 /// walk reaches the window, `MaughamTextView.responds(to:)`), nor do the tree
 /// or a button; so this responder sits between the window's content view and
 /// the window, and every walk that would reach the window's stack meets it
-/// first: Undo and Redo are disabled, titled plainly. A responder with its
+/// first: Undo and Redo are disabled, titled with when they return. A responder with its
 /// own manager — a statement's second editor, a text field's field editor —
 /// answers before it, as ever. The stack is kept, and is reachable again the
 /// moment the source is back. One guard per window, held while any of its
@@ -256,8 +256,10 @@ extension EditorCoordinator {
 final class ReadingUndoGuard: NSResponder, NSMenuItemValidation {
     private var owners: Set<ObjectIdentifier> = []
 
-    static let undoTitle = "Undo"
-    static let redoTitle = "Redo"
+    /// Titled so the writer knows why it is off, and when it comes back
+    /// (plan 4 closing round, writer's seat b).
+    static let undoTitle = "Undo \u{2014} Returns in Source"
+    static let redoTitle = "Redo \u{2014} Returns in Source"
 
     @objc func undo(_ sender: Any?) {}
     @objc func redo(_ sender: Any?) {}

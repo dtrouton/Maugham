@@ -159,7 +159,7 @@ struct EditorHost: View {
     }
     @State private var loadOutcome: LoadOutcome? = nil
 
-    /// The derived translated surface shown in read-only translation review
+    /// The derived translated surface shown in a read-only translation
     /// (Task 11), or nil when the editor shows the source manuscript. This is
     /// DELIBERATE one-way threaded state (tripwire 6): it is recomputed ONLY on
     /// explicit events — `control.translationLanguage` changing, or an
@@ -245,12 +245,12 @@ struct EditorHost: View {
                     // (tripwires 2/3/6/7) — it stays inline here, NOT packaged into
                     // the configuration.
                     text: Binding(
-                        // In translation review the surface shows the derived
+                        // While a translation is read the surface shows the derived
                         // translated buffer, not the source manuscript.
                         get: { translatedSurfaceText ?? doc.displayText },
                         set: { newText in
                             // Defense in depth: the coordinator membrane already
-                            // blocks every mutation in translation review, so no
+                            // blocks every mutation while a translation is read, so no
                             // set should reach here — but if one did, it must
                             // NEVER write the translated buffer back onto the
                             // source op log.
@@ -297,7 +297,7 @@ struct EditorHost: View {
                     control.reviewAnnotations = control.isReviewMode
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
-                    // While in translation review, a source-side edit (which
+                    // While a translation is read, a source-side edit (which
                     // flips paragraphs stale) must re-derive the surface. Note
                     // this fires on annotation-set changes only; a fresh
                     // translation WRITE (write_translation) does not bump
@@ -342,7 +342,7 @@ struct EditorHost: View {
                         ? doc.annotations(filter: AnnotationFilter(statuses: [.open]))
                         : []
                 }
-                // Dedicated one-way recompute: entering translation review
+                // Dedicated one-way recompute: reading a translation
                 // (language becomes non-nil) derives the surface once; exiting
                 // (nil) drops it so `text` reverts to `doc.displayText` and the
                 // existing applyExternalText site swaps the source buffer back in.

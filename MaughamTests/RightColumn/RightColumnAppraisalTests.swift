@@ -97,8 +97,10 @@ final class RightColumnAppraisalTests: XCTestCase {
         // language's included) and Brief, from the faces — never over the
         // pulled-up position.
         let lines = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/RightColumn.swift"))
-        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine" }.count, 2,
-                       "To resolve and Brief each lead with the line")
+        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine" }.count, 1,
+                       "To resolve leads with the line")
+        XCTAssertEqual(lines.filter { $0.trimmingCharacters(in: .whitespaces) == "subjectLine(brief: scope)" }.count, 1,
+                       "and Brief with its own (closing review M5)")
         XCTAssertTrue(lines.contains { $0.contains("of: subject.faces,") })
     }
 
@@ -106,6 +108,24 @@ final class RightColumnAppraisalTests: XCTestCase {
 
     /// Every key the empty state names is the View menu's pull-up key — read
     /// back out of `MaughamApp.swift`, so a key moved in the menu reds this.
+    /// **Closing review M5**: over a piece read in a language, Brief stays
+    /// the piece's one brief and its line says so; nowhere else does the
+    /// line change.
+    func test_briefsLineSaysItIsTheSourceBriefWhileReadingInALanguage() throws {
+        XCTAssertEqual(RightColumnSubjectLine.briefTitle("Chapter 7", scope: .piece(docId: "c7"), readIn: "es"),
+                       "Chapter 7 \u{00B7} Source brief")
+        XCTAssertEqual(RightColumnSubjectLine.briefTitle("Chapter 7", scope: .piece(docId: "c7"), readIn: nil),
+                       "Chapter 7")
+        for scope in [BriefScope.book, .edition(language: "es"), .part(groupId: "p", docIds: []),
+                      .elsewhere(docId: "c7"), .outside] {
+            XCTAssertEqual(RightColumnSubjectLine.briefTitle("T", scope: scope, readIn: "es"), "T", "\(scope)")
+        }
+        let column = SourceScan.codeLines(of: try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(column.contains("case .brief(let scope): subjectLine(brief: scope)"))
+        XCTAssertTrue(column.contains("RightColumnSubjectLine.briefTitle(title, scope: $0, readIn: readingLanguage)"))
+    }
+
     func test_nothingPulledUpSaysHowToPullSomethingUp() throws {
         let hint = PulledUpView.nothingPulledUpHint
         XCTAssertTrue(hint.contains("fold"), "the fold is the way in")

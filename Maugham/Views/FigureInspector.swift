@@ -106,7 +106,7 @@ enum FigureUseTravel {
     /// place when one is open (its live text, the text the index read), else
     /// the op log's derived state (tripwire 20).
     ///
-    /// `language` reveals the line in that edition's translation review (the
+    /// `language` reveals the line read in that edition's language (the
     /// inspector's Translations lines, report plan 9e-1 Task 8); nil, the
     /// source.
     @MainActor
@@ -493,7 +493,7 @@ struct FigureInspector: View {
     }
 
     /// A line per language: "es  12 of 14 cells", and Review, which opens
-    /// the table's first line in that edition's translation review.
+    /// the table's first line read in that edition's language.
     private func translationsSection(_ row: FigureListing.Row) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Translations").font(.headline)
@@ -505,7 +505,7 @@ struct FigureInspector: View {
                     if let use = row.usedIn.first {
                         Button("Review") { review(use, in: line.language) }
                             .buttonStyle(.link)
-                            .help("Show this table's line in the \(line.language) translation review")
+                            .help("Show this table's line read in \(LanguageName.title(line.language))")
                     }
                 }
             }

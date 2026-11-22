@@ -358,7 +358,7 @@ final class ResolveEditionTests: XCTestCase {
         let settled = ResolveEditionItems.clearLine(language: "es", isSource: false, hasRounds: true)
         let design = ResolveEditionItems.clearLine(language: "en", isSource: true, hasRounds: false)
         XCTAssertTrue(never.contains("No round has run"), never)
-        XCTAssertTrue(settled.contains("every change from the latest rounds is settled"), settled)
+        XCTAssertTrue(settled.contains("nothing from the latest rounds is left to look at"), settled)
         XCTAssertTrue(design.contains("design"), design)
         XCTAssertEqual(ResolvePane.emptyState(scope: es, hasItems: false, hasVisible: false,
                                               offersColdStart: false, editionClear: never),

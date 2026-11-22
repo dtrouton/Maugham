@@ -664,6 +664,38 @@ extension HistoryPane {
         documentIsOpen && offersRewind(posture)
     }
 
+    /// **What stands where Rewind… would** (owner's answer 13, 2026-11-22):
+    /// Rewind stays the open piece's; over a pulled-up History of a piece
+    /// that is NOT open, where this Mac may write its text, the slot says how
+    /// to get it — "Open this chapter to rewind it", a button that opens the
+    /// piece and keeps its History up. `pieceNoun` is nil where the History
+    /// is not a manuscript piece's (the project's, a figure's): nothing
+    /// stands. Pure.
+    enum RewindSlot: Equatable {
+        case rewind
+        case openToRewind(String)
+        case none
+    }
+
+    static func rewindSlot(_ posture: Posture?, documentIsOpen: Bool, pieceNoun: String?) -> RewindSlot {
+        if offersRewind(posture, documentIsOpen: documentIsOpen) { return .rewind }
+        guard !documentIsOpen, let pieceNoun, offersRewind(posture) else { return .none }
+        return .openToRewind(openToRewindLine(noun: pieceNoun))
+    }
+
+    static func openToRewindLine(noun: String) -> String {
+        "Open this \(noun) to rewind it"
+    }
+
+    /// The piece's word, where `docId` is a manuscript piece the editor can
+    /// open; nil otherwise.
+    @MainActor
+    static func pieceNoun(docId: String, store: ProjectStore) -> String? {
+        guard let item = TreeWalk.find(id: docId, in: store.manifest.structure),
+              EditorHost.loadsAsAManuscript(item) else { return nil }
+        return FiledUnder.pieceNoun(item, projectType: store.manifest.type)
+    }
+
     /// **What every rewind post carries** — its own piece, as `jump` does,
     /// and for a row the moment to open at. The one builder: the receiver
     /// presents for the piece named here, never for the window's faces

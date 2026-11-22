@@ -65,6 +65,14 @@ struct TreeEditionRows: View {
                     // header's `+` does (shell p4 Task 7).
                     .contextMenu {
                         if row.isSource && mayAddLanguage { addLanguageItem }
+                        // A translated edition can be removed (closing round):
+                        // hidden, its translations kept; asked first.
+                        if Self.offersRemove(row, mayAddLanguage: mayAddLanguage) {
+                            Button(EditionCastVerbs.removeEditionTitle) {
+                                MaughamEvent.postRemoveEdition(row.language)
+                            }
+                            .help(EditionCastVerbs.removeEditionHelp)
+                        }
                     }
                     .tag(TreeRowTag.subject(.edition(language: row.language)))
                     .id(BinderSubject.edition(language: row.language))
@@ -99,6 +107,13 @@ struct TreeEditionRows: View {
                 }
             }
         }
+    }
+
+    /// **Whether a row's menu offers Remove Edition…**: a translated edition,
+    /// where this Mac may add one (the same door, asked again at the act).
+    /// Never the Source. Pure.
+    static func offersRemove(_ row: Row, mayAddLanguage: Bool) -> Bool {
+        mayAddLanguage && !row.isSource
     }
 
     /// The `+` button's trailing inset, so its glyph ends where Research's
@@ -137,7 +152,8 @@ struct TreeEditionRows: View {
         }
         let translated = EditionStatus.editionLanguages(
             files: files, queries: [],
-            roles: EditionStatus.storedTranslatorLanguages(in: store.manifest))
+            roles: EditionStatus.storedTranslatorLanguages(in: store.manifest),
+            removed: store.manifest.isEditionRemoved)
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
         let source = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscript)

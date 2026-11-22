@@ -30,6 +30,10 @@ struct RightColumnControl: View {
     /// region's title — never `store.liveCanvas`, the newest window's
     /// (review M1). Read only while a region is pulled up.
     var canvasModel: CanvasModel? = nil
+    /// The language the faces are read in (`ReadingLanguage.of`) and the
+    /// book's own — what To resolve's scope is asked over, so the dot is.
+    var readIn: String? = nil
+    var sourceLanguage: String = PublishConfig.Metadata().language
 
     @State private var visualLanguageProposed = false
     /// Edition briefs a proposal waits for (fix round I4).
@@ -37,7 +41,8 @@ struct RightColumnControl: View {
     /// This control's hosting window, for the proposal event's liveness guard
     /// (`MaughamEvent.isLive`).
     @State private var window: NSWindow?
-    /// `unreadDocId(subject:store:)`, resolved once per subject change, never
+    /// `unreadDocId(subject:readIn:sourceLanguage:store:)`, resolved once per
+    /// subject or reading-language change, never
     /// per render: at the Book `ResolveScope.of` walks the tree (tripwire 4).
     @State private var unreadDocId: String?
     /// A pulled-up region's title, read in a `.task` keyed on the canvas's
@@ -108,14 +113,16 @@ struct RightColumnControl: View {
     }
 
     /// The faces' piece the unread dot is about (`ResolvePane.unreadDocId`):
-    /// the doc id To resolve clears, so a dot never stands where the list
-    /// could not clear it.
+    /// the doc id To resolve clears, asked over the SAME scope the pane shows
+    /// — the faces read in `readIn` (`ReadingLanguage.of`, the pane's own
+    /// answer) — so a dot never stands where the list could not clear it. A
+    /// piece read in a language lists no checks, so it carries no checks dot
+    /// (plan 4 closing review, I1).
     @MainActor
-    static func unreadDocId(subject: WindowSubject, store: ProjectStore) -> String? {
-        // Only a piece has an unread dot; which edition is the Source is
-        // never asked.
+    static func unreadDocId(subject: WindowSubject, readIn: String?, sourceLanguage: String,
+                            store: ProjectStore) -> String? {
         ResolvePane.unreadDocId(scope: ResolveScope.of(
-            subject.faces, readIn: nil, sourceLanguage: PublishConfig.Metadata().language,
+            subject.faces, readIn: readIn, sourceLanguage: sourceLanguage,
             structure: store.manifest.structure, projectType: store.manifest.type))
     }
 
@@ -188,8 +195,9 @@ struct RightColumnControl: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Right column")
-        .onChange(of: subject, initial: true) { _, new in
-            unreadDocId = Self.unreadDocId(subject: new, store: store)
+        .onChange(of: DotKey(subject: subject, readIn: readIn), initial: true) { _, new in
+            unreadDocId = Self.unreadDocId(subject: new.subject, readIn: new.readIn,
+                                           sourceLanguage: sourceLanguage, store: store)
         }
         .task(id: regionTitleKey) {
             regionTitle = regionTitleKey.flatMap { PulledUpView.regionTitle($0.regionId, store: store) }
@@ -198,6 +206,12 @@ struct RightColumnControl: View {
         .modifier(VisualLanguageProposalModifier(
             projectURL: store.url, window: window, proposed: $visualLanguageProposed,
             editionBriefs: $editionBriefsProposed))
+    }
+
+    /// What the dot's doc id is resolved on.
+    private struct DotKey: Equatable {
+        let subject: WindowSubject
+        let readIn: String?
     }
 
     private struct RegionTitleKey: Equatable {

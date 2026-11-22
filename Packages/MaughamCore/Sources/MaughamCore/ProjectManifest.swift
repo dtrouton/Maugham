@@ -424,6 +424,24 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         }
     }
 
+    /// **Editions the writer removed** (shell p4 closing round; owner's
+    /// answer 1, 2026-11-22): lowercased language tags whose edition is
+    /// HIDDEN — its translations, round ledgers, briefs, cast and compiled
+    /// books all stay on disk, and adding the language again clears its tag
+    /// and brings every one of them back. Nil (absent) is "none removed".
+    ///
+    /// **Additive and absent-tolerant, no schema bump** — unlike the sections
+    /// above, an older build that drops the key on its next save loses no
+    /// writer's work: the edition simply shows again. Read
+    /// `isEditionRemoved(_:)`, never this array.
+    public var removedEditions: [String]?
+
+    /// Whether the edition in `language` is removed (case-insensitive — the
+    /// tag match `storedTranslator(for:)` uses).
+    public func isEditionRemoved(_ language: String) -> Bool {
+        (removedEditions ?? []).contains { $0.caseInsensitiveCompare(language) == .orderedSame }
+    }
+
     public var targets: ProjectTargets?
 
     /// Per-project typography override. When non-nil, takes precedence over
@@ -616,6 +634,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         coachVacated: Bool = false,
         firstReaderName: String? = nil,
         productionRoles: [ProductionRole] = [],
+        removedEditions: [String]? = nil,
         targets: ProjectTargets? = nil,
         typography: TypographySettings? = nil,
         showElementGutter: Bool? = nil,
@@ -637,6 +656,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.coachVacated = coachVacated
         self.firstReaderName = firstReaderName
         self.productionRoles = productionRoles
+        self.removedEditions = removedEditions
         self.targets = targets
         self.typography = typography
         self.showElementGutter = showElementGutter
@@ -674,6 +694,7 @@ public struct ProjectManifest: Codable, Equatable, Sendable {
         self.firstReaderName = try c.decodeIfPresent(String.self, forKey: .firstReaderName)
         self.productionRoles = try c.decodeIfPresent(
             [ProductionRole].self, forKey: .productionRoles) ?? []
+        self.removedEditions = try c.decodeIfPresent([String].self, forKey: .removedEditions)
         self.targets = try c.decodeIfPresent(ProjectTargets.self, forKey: .targets)
         self.typography = try c.decodeIfPresent(TypographySettings.self, forKey: .typography)
         self.showElementGutter = try c.decodeIfPresent(Bool.self, forKey: .showElementGutter)

@@ -24,12 +24,16 @@ enum LanguageSwitch {
     /// **Where the switch shows**: a manuscript piece open in the centre that
     /// has at least one translation — or is read in a language now, so the
     /// way back to Source never hides. Hidden (nil) everywhere else: the
-    /// Book, an edition, research, the canvas.
+    /// Book, an edition, research, the canvas, a piece that belongs to
+    /// another project.
     static func offer(subject: WindowSubject, structure: [StructureItem], languages: [String],
                       current: String?, showsSourceUnder: Bool,
                       unreadable: String? = nil) -> Offer? {
+        // A manuscript piece only: a promoted (reference) piece reads in
+        // nothing here (closing review M1).
         guard case .item(let id) = subject.open,
-              TreeWalk.find(id: id, in: structure)?.type == .document else { return nil }
+              let item = TreeWalk.find(id: id, in: structure),
+              EditorHost.loadsAsAManuscript(item) else { return nil }
         var listed = languages
         if let current, !listed.contains(where: { $0.caseInsensitiveCompare(current) == .orderedSame }) {
             listed.append(current)
@@ -55,15 +59,33 @@ enum LanguageSwitch {
     static let nextKey: KeyEquivalent = "l"
     static let sourceUnderTitle = "Show Source Under Translation"
 
-    /// The choice event's payload: the language, or nothing for Source.
-    static func payload(for language: String?) -> [String: Any] {
-        language.map { [TranslationReveal.languageKey: $0] } ?? [:]
+    /// The choice event's payload: the language, or nothing for Source; and
+    /// the piece it is for, when that is not the one open (`choose(_:inPiece:)`).
+    static func payload(for language: String?, inPiece docId: String? = nil) -> [String: Any] {
+        var payload: [String: Any] = language.map { [TranslationReveal.languageKey: $0] } ?? [:]
+        if let docId { payload[TranslationReveal.docIdKey] = docId }
+        return payload
+    }
+
+    /// What a choice event asks: the language (nil, Source) and the piece it
+    /// is for (nil, the open one). `payload`'s pair.
+    static func choice(from userInfo: [AnyHashable: Any]?) -> (language: String?, docId: String?) {
+        (userInfo?[TranslationReveal.languageKey] as? String, userInfo?[TranslationReveal.docIdKey] as? String)
     }
 
     /// Every route's one act.
     static func choose(_ language: String?) {
         MaughamEvent.post(.maughamChooseReadingLanguage, to: .keyWindow,
                           payload: payload(for: language))
+    }
+
+    /// **Read `docId` in `language`**, opening it first when it is not the
+    /// piece open: the window takes the language on the piece's arrival
+    /// (`ReadingLanguageModel.pending`), as the running round's indicator
+    /// does. The round report's Open the queue (closing round, c).
+    static func choose(_ language: String?, inPiece docId: String) {
+        MaughamEvent.post(.maughamChooseReadingLanguage, to: .keyWindow,
+                          payload: payload(for: language, inPiece: docId))
     }
 
     static func toggleSourceUnder() {

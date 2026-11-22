@@ -250,7 +250,11 @@ struct RightColumn: View {
                 diagnostics: roster.compiler.diagnostics,
                 width: CGFloat(width) - Self.resizeHandleWidth,
                 closedCanvasWrites: figureTree?.closedCanvasWrites ?? 0,
-                canvasModel: canvasModel)
+                canvasModel: canvasModel,
+                // The pane's own scope, so the dot is asked where the list is
+                // (closing review I1).
+                readIn: readingLanguage,
+                sourceLanguage: publishCentre.sourceLanguage)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -280,6 +284,13 @@ struct RightColumn: View {
         shown ? "Hide Right Column" : "Show Right Column"
     }
 
+    /// **The language the faces are read in** (`ReadingLanguage.of`) — one
+    /// answer for To resolve's list, its control's dot and Brief's line.
+    private var readingLanguage: String? {
+        ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage,
+                           sourceLanguage: publishCentre.sourceLanguage)
+    }
+
     /// What the column shows now — the table's one answer.
     private var shown: RightColumnContent {
         RightColumnContent.of(position: position, subject: subject,
@@ -296,7 +307,7 @@ struct RightColumn: View {
             subjectLine
             resolvePane
         case .brief(let scope):
-            subjectLine
+            subjectLine(brief: scope)
             BriefPane(
                 store: store, documentStore: documentStore, scope: scope,
                 diagnostics: roster.compiler.diagnostics, bible: bible, world: declaredWorld,
@@ -331,11 +342,18 @@ struct RightColumn: View {
     /// already render from (`RightColumnSubjectLine.title`). Nothing where
     /// the faces name nothing (the canvas, the Inbox, research).
     @ViewBuilder
-    private var subjectLine: some View {
+    private var subjectLine: some View { subjectLine(brief: nil) }
+
+    /// Brief's: over a piece read in a language it says the Brief is the
+    /// Source's (`RightColumnSubjectLine.briefTitle`, closing review M5).
+    @ViewBuilder
+    private func subjectLine(brief: BriefScope?) -> some View {
         if let title = RightColumnSubjectLine.title(
             of: subject.faces, structure: store.manifest.structure,
             bookTitle: store.manifest.title, figures: store.manifest.figures ?? []) {
-            RightColumnSubjectLine(title: title)
+            RightColumnSubjectLine(title: brief.map {
+                RightColumnSubjectLine.briefTitle(title, scope: $0, readIn: readingLanguage)
+            } ?? title)
         }
     }
 
@@ -397,8 +415,7 @@ struct RightColumn: View {
             // The language the faces are read in — one answer, the one ⌘⌥K
             // reads (`EditionWiring(readingLanguage:)`): a piece read in a
             // language lists that language's (shell p4 Task 9).
-            readIn: ReadingLanguage.of(subject: subject, switched: editorControl.translationLanguage,
-                                       sourceLanguage: publishCentre.sourceLanguage),
+            readIn: readingLanguage,
             // The translated surface the editor shows, the caret's
             // paragraph's spot-checks and cells (shell p4 Task 9).
             editorControl: editorControl,

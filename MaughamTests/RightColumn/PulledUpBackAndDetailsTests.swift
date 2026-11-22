@@ -240,9 +240,16 @@ final class PulledUpBackAndDetailsTests: XCTestCase {
         XCTAssertEqual(CentreDetailsSection<EmptyView>.line(""), "Details of what the centre shows")
     }
 
-    /// Back's help names what it brings up.
-    func test_backSaysWhatItBringsUp() {
-        XCTAssertEqual(BesideHeader.backHelp("Notes on Rome"), "Back to Notes on Rome")
-        XCTAssertEqual(BesideHeader.backHelp(""), "Back to what was pulled up before")
+    /// Back's help names what it brings up, and its key; ⌘[ is titled
+    /// "Back" in the View menu (owner's answer 16, 2026-11-22), the arrow's
+    /// own word — one spelling for the menu, the help and VoiceOver.
+    func test_backSaysWhatItBringsUp() throws {
+        XCTAssertEqual(BesideHeader.backHelp("Notes on Rome"), "Back to Notes on Rome (\u{2318}[)")
+        XCTAssertEqual(BesideHeader.backHelp(""), "Back to what was pulled up before (\u{2318}[)")
+        XCTAssertEqual(BesideHeader.backMenuTitle, "Back")
+        XCTAssertEqual(BesideHeader.backLabel, BesideHeader.backMenuTitle)
+        let app = SourceScan.codeLines(of: try SourceTree.read("Maugham/MaughamApp.swift")).joined(separator: "\n")
+        XCTAssertTrue(app.contains("Button(BesideHeader.backMenuTitle) { MaughamEvent.postPullUpPrevious() }"))
+        XCTAssertFalse(app.contains("Pull Up Previous"), "the old title is gone")
     }
 }

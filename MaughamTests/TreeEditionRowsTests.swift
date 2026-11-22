@@ -166,6 +166,139 @@ final class TreeEditionRowsTests: XCTestCase {
                        EventScope.keyWindow.kindString)
     }
 
+    /// **Remove Edition** (owner's answer 1, 2026-11-22): the exact inverse
+    /// of Add for the edition's EXISTENCE — it leaves the tree, the switch and
+    /// Add's "existing" check — while every file it ever made stays byte for
+    /// byte, and its cast stays named; adding the language again brings it
+    /// all back. The Source is never removable; a running round refuses.
+    func test_removeEditionHidesItKeepsEverythingAndAddBringsItBack() async throws {
+        let store = try await novel()
+        let documentStore = try await DocumentStore.open(url: store.url)
+        documentStores.append(documentStore)
+        store.documentStore = documentStore
+        _ = await EditionCastVerbs.addLanguage(answer: EditionCastAnswer(language: "es", name: "Ana"),
+                                               store: store, documentStore: documentStore)
+        let docId = try XCTUnwrap(EditionStatus.manuscriptDocumentIds(in: store.manifest).first)
+        // What the edition made: a translation file, a round ledger.
+        let translation = TranslationStore.directoryURL(in: store.url)
+            .appendingPathComponent("\(docId).es.dev1.jsonl")
+        let ledger = TranslationRoundStore.fileURL(language: "es", in: store.url)
+        for url in [translation, ledger] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data("kept \(url.lastPathComponent)".utf8).write(to: url)
+        }
+        func kept() throws -> [Data] { try [translation, ledger].map { try Data(contentsOf: $0) } }
+        let before = try kept()
+        XCTAssertEqual(TreeEditionRows.languages(store: store), ["en", "es"])
+
+        let source = await EditionCastVerbs.removeEdition(language: "en", store: store,
+                                                          documentStore: documentStore, busy: { _ in nil })
+        XCTAssertEqual(source, .refused(EditionCastCopy.sourceIsNotRemovable), "the Source is the book")
+        let running = await EditionCastVerbs.removeEdition(language: "es", store: store,
+                                                           documentStore: documentStore, busy: { _ in "busy" })
+        XCTAssertEqual(running, .refused("busy"), "a round or compile running for it refuses")
+        XCTAssertEqual(TreeEditionRows.languages(store: store), ["en", "es"], "and nothing moved")
+
+        let removed = await EditionCastVerbs.removeEdition(language: "ES", store: store,
+                                                           documentStore: documentStore, busy: { _ in nil })
+        XCTAssertEqual(removed, .removed(language: "es"))
+        XCTAssertEqual(TreeEditionRows.languages(store: store), ["en"], "hidden, though its files remain")
+        XCTAssertTrue(store.manifest.isEditionRemoved("es"))
+        XCTAssertEqual(try kept(), before, "its translations and rounds stay byte for byte")
+        XCTAssertEqual(EditionStatus.translatorName(for: "es", in: store.manifest), "Ana", "its cast stays")
+        XCTAssertFalse(EditionCastVerbs.alreadyAnEdition("es", editions: TreeEditionRows.languages(store: store),
+                                                         manifest: store.manifest),
+                       "a removed edition is not one Add stops at")
+        let reading = ReadingLanguageModel()
+        reading.adopt(.init(languagesByDocId: [docId: ["es", "sr"]]))
+        reading.removed = ["es"]
+        XCTAssertEqual(reading.languages(for: docId), ["sr"], "no piece is read in a removed edition")
+        let again = await EditionCastVerbs.removeEdition(language: "es", store: store,
+                                                         documentStore: documentStore, busy: { _ in nil })
+        XCTAssertEqual(again, .refused(EditionCastCopy.noSuchEdition(language: "es")))
+
+        let back = await EditionCastVerbs.addLanguage(answer: EditionCastAnswer(language: "es", name: "Ana"),
+                                                      store: store, documentStore: documentStore)
+        XCTAssertEqual(back, .added(language: "es", warning: nil))
+        XCTAssertEqual(TreeEditionRows.languages(store: store), ["en", "es"], "adding it again brings it back")
+        XCTAssertFalse(store.manifest.isEditionRemoved("es"))
+        XCTAssertNil(store.manifest.removedEditions, "no tag left behind")
+        XCTAssertEqual(try kept(), before, "with everything it had")
+    }
+
+    /// **Remove Edition's rules and doors**, pure and censused (the desk
+    /// capability census's neighbour): what stops it, which edition the menu
+    /// item is about, where a window lands when its edition leaves the list,
+    /// and each door it is reached by.
+    func test_removeEditionsRulesAndDoors() throws {
+        let busyRound = EditionCastVerbs.removalBusy(language: "es", session: .busy(language: "ES"), compile: .idle)
+        XCTAssertEqual(busyRound, EditionCastCopy.removeWhileTranslating(language: "es"))
+        XCTAssertNotNil(EditionCastVerbs.removalBusy(language: "es", session: .busy(language: nil), compile: .idle),
+                        "a round whose language is not known yet refuses too")
+        XCTAssertNil(EditionCastVerbs.removalBusy(language: "es", session: .busy(language: "sr"), compile: .idle))
+        XCTAssertEqual(EditionCastVerbs.removalBusy(
+            language: "es", session: .free,
+            compile: .running(format: .pdf, languages: ["en", "es"], imprint: nil)),
+                       EditionCastCopy.removeWhileCompiling(language: "es"))
+        XCTAssertNil(EditionCastVerbs.removalBusy(
+            language: "es", session: .free, compile: .running(format: .pdf, languages: ["en"], imprint: nil)))
+        XCTAssertNil(EditionCastVerbs.removalBusy(language: "es", session: .free, compile: .idle))
+
+        XCTAssertEqual(EditionCastVerbs.removable("ES", editions: ["en", "es"]), "es")
+        XCTAssertNil(EditionCastVerbs.removable("en", editions: ["en", "es"]), "never the Source")
+        XCTAssertNil(EditionCastVerbs.removable("sr", editions: ["en", "es"]))
+
+        let rows = [TreeEditionRows.Row(language: "en", title: "English", isSource: true),
+                    TreeEditionRows.Row(language: "es", title: "Spanish", isSource: false)]
+        XCTAssertTrue(TreeEditionRows.offersRemove(rows[1], mayAddLanguage: true))
+        XCTAssertFalse(TreeEditionRows.offersRemove(rows[0], mayAddLanguage: true), "the Source's menu has none")
+        XCTAssertFalse(TreeEditionRows.offersRemove(rows[1], mayAddLanguage: false), "hidden where it may not")
+        let onSpanish = WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es"))
+        XCTAssertEqual(EditionWiring.editionToRemove(subject: onSpanish, editions: rows), "es")
+        XCTAssertNil(EditionWiring.editionToRemove(
+            subject: WindowSubject(open: .edition(language: "en"), faces: .edition(language: "en")), editions: rows))
+        XCTAssertNil(EditionWiring.editionToRemove(subject: .book, editions: rows))
+
+        // Where a window lands when its edition leaves the list: the Book.
+        let landed = try XCTUnwrap(EditionWiring.landing(subject: onSpanish, before: rows, after: [rows[0]]))
+        XCTAssertEqual(landed.open, .project)
+        XCTAssertEqual(landed.faces, .project)
+        var facesOnly = WindowSubject(open: .item("c1"), faces: .item("c1"))
+        facesOnly.faces = .edition(language: "es")
+        XCTAssertEqual(EditionWiring.landing(subject: facesOnly, before: rows, after: [rows[0]])?.faces, .project)
+        XCTAssertNil(EditionWiring.landing(subject: onSpanish, before: [], after: rows), "the first read moves nothing")
+        XCTAssertNil(EditionWiring.landing(subject: .book, before: rows, after: [rows[0]]))
+
+        XCTAssertEqual(EditionCastCopy.removeEditionTitle(language: "es"),
+                       "Remove the \(LanguageName.title("es")) edition?")
+        XCTAssertEqual(EditionCastCopy.removeEditionMessage(language: "es"),
+                       "Its translations stay in the project and come back if you add \(LanguageName.title("es")) again.")
+
+        func code(_ file: String) throws -> String {
+            SourceScan.codeLines(of: try SourceTree.read(file))
+                .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        }
+        let doors: [(String, String)] = [
+            ("Maugham/Views/TreeEditionRows.swift",
+             "if Self.offersRemove(row, mayAddLanguage: mayAddLanguage) { Button(EditionCastVerbs.removeEditionTitle) { MaughamEvent.postRemoveEdition(row.language) }"),
+            ("Maugham/MaughamApp.swift", "FocusedRemoveEditionButton()"),
+            ("Maugham/MaughamApp.swift", "if let language { MaughamEvent.postRemoveEdition(language) } } .disabled(language == nil)"),
+            ("Maugham/Views/Publish/EditionWiring.swift", "guard let documentStore, EditionCastVerbs.mayAddLanguage(documentStore: documentStore),"),
+            ("Maugham/Views/Publish/EditionWiring.swift", ".alert(EditionCastCopy.removeEditionTitle(language: removing ?? \"\"), isPresented: Binding("),
+            ("Maugham/Views/Publish/EditionWiring.swift", "if case .refused(let sentence) = await EditionCastVerbs.removeEdition("),
+            ("Maugham/Views/Publish/EditionWiring.swift",
+             "if let landed = Self.landing(subject: subject, before: old, after: new) { subject = landed }"),
+            ("Maugham/Views/Publish/EditionCastVerbs.swift",
+             "let posture = await documentStore.settledPosture(forDocId: DocumentClass.projectStreamDocId) guard StatementSurfaceVerbs.offered(under: posture) else { return .refused(EditionCastCopy.mayNotRemove) }"),
+            ("Maugham/Views/ProjectWindow.swift", "busy: { removalBusy($0) }))"),
+            ("Maugham/Views/ReadingLanguageModifier.swift", "reading.removed = Set(removed.map { $0.lowercased() })"),
+        ]
+        for (file, token) in doors {
+            XCTAssertTrue(try code(file).contains(token), "\(file) lost: \(token)")
+        }
+    }
+
     /// **Where Add Language lands** (fix round): a new edition selected on
     /// To resolve (Run Whole Book is next), or on its Brief when a proposed
     /// brief brought the writer (it waits there); an edition the book has,

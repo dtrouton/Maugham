@@ -533,7 +533,8 @@ enum EditionStatus {
         // A language with a layer anywhere in the book reaches every
         // document: one with no file of its own is untranslated into it.
         let languages = editionLanguages(
-            files: fileLanguages.union(layer), queries: queryLanguages, roles: roleLanguages)
+            files: fileLanguages.union(layer), queries: queryLanguages, roles: roleLanguages,
+            removed: store.manifest.isEditionRemoved)
             .filter { language in
                 options.languages.map { wanted in
                     wanted.contains { $0.caseInsensitiveCompare(language) == .orderedSame }
@@ -644,7 +645,8 @@ enum EditionStatus {
                 language: tag, translator: translatorName(for: tag, in: manifest),
                 fresh: 0, stale: 0, missing: 0, openQueries: 0)
         }
-        return byLanguage.values.sorted { $0.language < $1.language }
+        return byLanguage.values.filter { !manifest.isEditionRemoved($0.language) }
+            .sorted { $0.language < $1.language }
     }
 
     /// Every language this book has a stored translator for — the union's third
@@ -684,15 +686,20 @@ enum EditionStatus {
     /// person's language, so a manifest that spells the tag one way and a
     /// translation file that spells it the other must not draw the writer two
     /// rows for one edition.
+    ///
+    /// **A removed edition is hidden** (`ProjectManifest.removedEditions`,
+    /// shell p4 closing round): its files and roles stay, and it is listed
+    /// again the moment it is added back.
     nonisolated static func editionLanguages(
-        files: Set<String>, queries: Set<String>, roles: [String]
+        files: Set<String>, queries: Set<String>, roles: [String],
+        removed: (String) -> Bool = { _ in false }
     ) -> [String] {
         var languages = files.union(queries)
         var seen = Set(languages.map { $0.lowercased() })
         for tag in roles where seen.insert(tag.lowercased()).inserted {
             languages.insert(tag)
         }
-        return languages.sorted()
+        return languages.filter { !removed($0) }.sorted()
     }
 
     /// The translator's display name for `language`, read **without minting**.

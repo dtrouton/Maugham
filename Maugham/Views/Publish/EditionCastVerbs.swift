@@ -162,9 +162,12 @@ enum EditionCastVerbs {
     /// Whether `tag` already has an edition: a language the tree lists, or a
     /// translator the manifest stores. Both, because a miss is not a
     /// duplicate row, it is a rename the writer did not mean (issue #43, F-G).
+    ///
+    /// A REMOVED edition is neither (shell p4 closing round): its stored
+    /// translator stays, and adding the language again brings it back.
     static func alreadyAnEdition(_ tag: String, editions: [String], manifest: ProjectManifest) -> Bool {
         editions.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
-            || manifest.storedTranslator(for: tag) != nil
+            || (manifest.storedTranslator(for: tag) != nil && !manifest.isEditionRemoved(tag))
     }
 
     /// **Start an edition**: mint its translator, named. Decided over the
@@ -191,8 +194,84 @@ enum EditionCastVerbs {
         guard named.translatorNamed else {
             return .refused(named.failure ?? EditionCastCopy.mintFailed(language: language))
         }
+        // A removed edition comes back whole: its translations, rounds, brief
+        // and books never left (`removeEdition`).
+        do {
+            try await store.setEdition(language, removed: false)
+        } catch {
+            _castLog.error("could not bring back the \(language, privacy: .public) edition: \(error, privacy: .public)")
+            return .refused(EditionCastCopy.mintFailed(language: language))
+        }
         return .added(language: language, warning: named.missing.isEmpty ? nil
             : EditionCastCopy.partlyNamed(language: language, missing: named.missing))
+    }
+
+    // MARK: - Removing an edition (shell p4 closing round)
+
+    static let removeEditionTitle = "Remove Edition\u{2026}"
+    static let removeEditionHelp =
+        "Hide this edition. Its translations stay in the project and come back if you add the language again."
+
+    /// What Remove Edition did.
+    enum Removed: Equatable {
+        case removed(language: String)
+        /// Nothing was hidden; the sentence says why.
+        case refused(String)
+    }
+
+    /// **Which edition the act is about, if it may be removed at all**: a
+    /// translated edition the book lists now — never the Source. Pure, over
+    /// the store's CURRENT editions (`TreeEditionRows.languages`, Source
+    /// first).
+    nonisolated static func removable(_ language: String, editions: [String]) -> String? {
+        guard let match = editions.dropFirst().first(where: {
+            $0.caseInsensitiveCompare(language) == .orderedSame }) else { return nil }
+        return match
+    }
+
+    /// **What stops a removal now**: a round translating into the language
+    /// (or a round whose language is not yet known), or a compile rendering
+    /// it, in this window's runner. Nil when nothing does. Pure.
+    nonisolated static func removalBusy(language: String, session: TranslationRunSession,
+                                        compile: CompileRunState.Phase) -> String? {
+        if case .busy(let running) = session,
+           running.map({ $0.caseInsensitiveCompare(language) == .orderedSame }) ?? true {
+            return EditionCastCopy.removeWhileTranslating(language: language)
+        }
+        if case .running(_, let languages, _) = compile,
+           languages.contains(where: { $0.caseInsensitiveCompare(language) == .orderedSame }) {
+            return EditionCastCopy.removeWhileCompiling(language: language)
+        }
+        return nil
+    }
+
+    /// **Hide an edition** (owner's answer 1, 2026-11-22): the exact inverse
+    /// of Add Language for the edition's EXISTENCE — the edition leaves the
+    /// tree, the switch, the marks and the compile list — and nothing else
+    /// moves: translation text, round ledgers, the edition's brief and cast,
+    /// compiled books all stay, and adding the language again brings them
+    /// back. Decided over the store's current editions and the SETTLED
+    /// posture (Add Language's door), refused while `busy` says so.
+    static func removeEdition(language: String, store: ProjectStore, documentStore: DocumentStore,
+                              busy: (String) -> String?) async -> Removed {
+        let posture = await documentStore.settledPosture(forDocId: DocumentClass.projectStreamDocId)
+        guard StatementSurfaceVerbs.offered(under: posture) else {
+            return .refused(EditionCastCopy.mayNotRemove)
+        }
+        let editions = TreeEditionRows.languages(store: store)
+        guard let tag = removable(language, editions: editions) else {
+            return .refused(editions.first.map {
+                $0.caseInsensitiveCompare(language) == .orderedSame } == true
+                ? EditionCastCopy.sourceIsNotRemovable : EditionCastCopy.noSuchEdition(language: language))
+        }
+        if let reason = busy(tag) { return .refused(reason) }
+        do {
+            try await store.setEdition(tag, removed: true)
+        } catch {
+            _castLog.error("could not remove the \(tag, privacy: .public) edition: \(error, privacy: .public)")
+            return .refused(EditionCastCopy.removeFailed(language: tag))
+        }
+        return .removed(language: tag)
     }
 
     /// **A rename's Confirm** — an edition's cast or the designer. Asks the

@@ -340,27 +340,40 @@ final class RightColumnMountingTests: XCTestCase {
         // a piece scope, else none — so it never stands where the list could
         // not clear it.
         let f = try await fixture("UnreadDot")
+        func dotId(_ subject: WindowSubject, readIn: String? = nil) -> String? {
+            RightColumnControl.unreadDocId(subject: subject, readIn: readIn, sourceLanguage: "en",
+                                           store: f.store)
+        }
         let piece = WindowSubject(open: .item(f.documentItemId), faces: .item(f.documentItemId))
-        XCTAssertEqual(RightColumnControl.unreadDocId(subject: piece, store: f.store),
-                       f.documentItemId)
-        XCTAssertNil(RightColumnControl.unreadDocId(subject: .book, store: f.store),
-                     "the Book's list clears no one piece's checks")
+        XCTAssertEqual(dotId(piece), f.documentItemId)
+        XCTAssertNil(dotId(.book), "the Book's list clears no one piece's checks")
         var facesOnly = WindowSubject(open: .canvas, faces: .canvas)
         facesOnly.faces = .item(f.documentItemId)
-        XCTAssertEqual(RightColumnControl.unreadDocId(subject: facesOnly, store: f.store),
-                       f.documentItemId, "the faces' piece, whether or not it is open")
-        let scope = ResolveScope.of(piece.faces, readIn: nil, sourceLanguage: "en", structure: f.store.manifest.structure,
-                                    projectType: f.store.manifest.type)
-        XCTAssertEqual(RightColumnControl.unreadDocId(subject: piece, store: f.store),
-                       ResolvePane.unreadDocId(scope: scope),
-                       "the control's dot and the list's clear ask one function")
+        XCTAssertEqual(dotId(facesOnly), f.documentItemId, "the faces' piece, whether or not it is open")
+        // **Closing review I1**: read in a language, the list is that
+        // language's — no checks in it, nothing it could clear — so no dot.
+        XCTAssertNil(dotId(piece, readIn: "es"),
+                     "a piece read in a language carries no checks dot: its list holds no checks")
+        for readIn in [nil, "es"] as [String?] {
+            let scope = ResolveScope.of(piece.faces, readIn: readIn, sourceLanguage: "en",
+                                        structure: f.store.manifest.structure,
+                                        projectType: f.store.manifest.type)
+            XCTAssertEqual(dotId(piece, readIn: readIn), ResolvePane.unreadDocId(scope: scope),
+                           "the control's dot and the list's clear ask one function over one scope")
+        }
 
-        // The wiring: the control reads the store's unread count for that id.
+        // The wiring: the control reads the store's unread count for that id,
+        // asked over the reading language the pane is given.
         let control = try SourceTree.sourceOfType("RightColumnControl", under: ["Maugham"])
         let flat = Self.flat(control)
         XCTAssertTrue(flat.contains("diagnostics.unreadCount(docId: unreadDocId)"), flat)
-        XCTAssertTrue(flat.contains("unreadDocId = Self.unreadDocId(subject: new, store: store)"),
-                      "resolved once per subject change, never per render")
+        XCTAssertTrue(flat.contains("unreadDocId = Self.unreadDocId(subject: new.subject, readIn: new.readIn,"),
+                      "resolved once per subject or language change, never per render")
+        let column = Self.flat(try SourceTree.sourceOfType("RightColumn", under: ["Maugham"]))
+        XCTAssertTrue(column.contains("readIn: readingLanguage, sourceLanguage: publishCentre.sourceLanguage)"),
+                      "the control is handed the pane's own reading language")
+        XCTAssertEqual(column.components(separatedBy: "ReadingLanguage.of(").count - 1, 1,
+                       "one answer for the column's reading language")
     }
 
     func test_theProposalDotLandsOnBrief() throws {

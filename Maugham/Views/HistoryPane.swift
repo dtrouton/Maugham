@@ -100,6 +100,10 @@ struct HistoryPane: View {
     let session: String
     let docPaths: [String: String]
     let documentStore: DocumentStore?
+    /// The project's word for the piece this History is of ("chapter",
+    /// "story"), or nil where it is no manuscript piece's — what the
+    /// open-to-rewind line says (`rewindSlot`).
+    var pieceNoun: String? = nil
 
     @State private var filter: HistoryFilter = .all
     @State private var checkpoints: [Checkpoint] = []
@@ -327,6 +331,16 @@ struct HistoryPane: View {
                 selection: $filter)
                 .layoutPriority(1)
             Spacer(minLength: 4)
+            if case .openToRewind(let line) = rewindSlot {
+                // Rewind is the open piece's: from a History pulled up for
+                // another, the way there — it opens, its History stays up.
+                Button(line) { ResolveNavigation.go(toDocId: activeDocId) }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .help(line)
+                    .accessibilityIdentifier("history.openToRewind")
+            }
             if rewindIsOffered {
                 Button {
                     MaughamEvent.post(
@@ -347,10 +361,14 @@ struct HistoryPane: View {
     /// Whether Rewind is drawn here — the text may be written and this
     /// History's piece is the one open (final wave, C1). Asked once per body
     /// pass by the toolbar and by the timeline's rows.
-    var rewindIsOffered: Bool {
-        HistoryPane.offersRewind(
+    var rewindIsOffered: Bool { rewindSlot == .rewind }
+
+    /// Rewind…, or the line that opens the piece to rewind it, or nothing.
+    var rewindSlot: HistoryPane.RewindSlot {
+        HistoryPane.rewindSlot(
             documentStore?.posture(forDocId: activeDocId),
-            documentIsOpen: documentStore?.document(forDocId: activeDocId) != nil)
+            documentIsOpen: documentStore?.document(forDocId: activeDocId) != nil,
+            pieceNoun: pieceNoun)
     }
 
     /// The holders this document is currently holding lines under, as one

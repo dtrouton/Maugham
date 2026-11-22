@@ -75,6 +75,24 @@ final class ResolvePresenceTests: XCTestCase {
 
     // MARK: - Pieces
 
+    /// **Closing review M2**: the editions' mark is keyed on values the body
+    /// already holds — no ledger stat, no second walk of the book per body
+    /// pass (tripwire 4).
+    func test_theEditionMarkKeyStatsNoFileAndWalksNothing() throws {
+        let rows = [TreeEditionRows.Row(language: "en", title: "English", isSource: true),
+                    TreeEditionRows.Row(language: "es", title: "Spanish", isSource: false)]
+        let key = ResolvePresenceWatch.editionMarkKey(editionRows: rows, docIds: ["a", "b"], heard: 3)
+        XCTAssertEqual(key, .init(languages: ["es"], docIds: ["a", "b"], heard: 3), "the Source has no ledger")
+        XCTAssertNotEqual(key, ResolvePresenceWatch.editionMarkKey(editionRows: rows, docIds: ["a", "b"], heard: 4),
+                          "an announced ledger write reads again")
+        let wiring = SourceScan.codeLines(of: try SourceTree.sourceOfType("ResolvePresenceWatch", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertFalse(wiring.contains("ResolveEditionKey.modified("), "no ledger is stat'ed on the body path")
+        XCTAssertFalse(wiring.contains("TranslationRoundStore.fileURL("))
+        XCTAssertTrue(wiring.contains("docIds: key.read.scope.docIds, heard: editionHeard)"),
+                      "the pieces are the presence key's own scope")
+    }
+
     func test_aChapterWithAnOpenNoteIsMarked() {
         let m = marks(read(notes: [note("n-a", on: "doc-a"), note("n-b", on: "doc-b", status: .accepted)]))
         XCTAssertEqual(m.pieces, ["doc-a"], "an open note marks its chapter; a settled one does not")

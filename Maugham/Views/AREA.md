@@ -157,7 +157,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `Maugham/Views/Publish/PublishPreviewCentre.swift` — `PublishCentre`, `PublishCentreNotice`, an edition's book and Compile… bar, the notice cover, `PublishPreviewModifier`.
 - `Maugham/Views/Publish/EditionStatusView.swift`, `Maugham/Views/Publish/EditionStatusRows.swift` — an edition's Status.
 - `TranslationRunState.swift`, `TranslationRunStart.swift`, `DesignRoundState.swift`, `CompileRunState.swift` — runs, design, compile as values. **→ Compiler**
-- `EditionCastSheet.swift`, `EditionCastVerbs.swift`, `EditionWiring.swift` (Add Language, ⌘⌥K), `PublishImprint.swift`.
+- `EditionCastSheet.swift`, `EditionCastVerbs.swift`, `EditionWiring.swift` (Add/Remove Edition, ⌘⌥K), `PublishImprint.swift`.
 - `Maugham/Views/Publish/CompileSheet.swift`, `Maugham/Views/Publish/CompileRunner.swift` — Compile… and the window's runner.
 - `Maugham/Views/Publish/DesignGateView.swift` / `Maugham/Views/Publish/DesignGateVerbs.swift` — the design gate and its four verbs. **→ Compiler**
 - `Maugham/Views/Publish/TranslationRoundReport.swift`, `Maugham/Views/Publish/TranslationRoundReportView.swift`, `Maugham/Views/Publish/TranslationRoundReportHost.swift`, `Maugham/Views/Publish/TranslationRoundActions.swift`, `Maugham/Views/Publish/DepartureRow.swift`, `Maugham/Views/Publish/RoundRuleSheet.swift` — the round report: pure rows and copy, view, host, verbs, departure row, *Make it a rule*.

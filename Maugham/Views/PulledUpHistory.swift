@@ -144,7 +144,7 @@ final class PulledUpMemory {
 /// **The pulled-up history, wired once on the window** — mounted on
 /// `ProjectWindow.body`, so it records whether or not the right column is
 /// drawn: the observer of `beside` (the history's one writer), ⌘['s receiver
-/// (View ▸ Pull Up Previous), the focused value that enables it, and the
+/// (View ▸ Back), the focused value that enables it, and the
 /// leaf that watches the canvas's selection and asks what Back brings
 /// (`PulledUpWatch`).
 struct PulledUpHistoryWiring: ViewModifier {

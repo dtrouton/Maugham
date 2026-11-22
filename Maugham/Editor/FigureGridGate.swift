@@ -27,7 +27,7 @@ enum FigureGridGate {
         /// The grid opens to be read — selected and scrolled, its bars
         /// disabled, typing answered with the reason's sentence.
         case readOnly(Reason)
-        /// The card stays a card (translation review shows a derived
+        /// The card stays a card (reading a translation shows a derived
         /// surface; there is no figure line of the writer's to open).
         case noExpand
 

@@ -352,12 +352,25 @@ struct ResolvePane: View {
                 hasRounds: editionRead.hasRounds,
                 readingBook: Self.readsQuestionsFromPresence(docId: docId, presence: presenceReading,
                                                              documentStore: documentStore),
-                sourceHasSomething: presenceMarks.map {
-                    ResolvePresence.rowMark(.item(docId), in: $0) == .something
-                } ?? false)
+                sourceHasSomething: sourceHasSomething(docId))
         case .piece, .pieces, .figure, .elsewhere, .outside:
             return nil
         }
+    }
+
+    /// Whether a piece's SOURCE has something open — the tree's dot on its
+    /// row, the one predicate the empty list and its button ask.
+    private func sourceHasSomething(_ docId: String) -> Bool {
+        presenceMarks.map { ResolvePresence.rowMark(.item(docId), in: $0) == .something } ?? false
+    }
+
+    /// **The piece whose source items the empty list offers to show** (plan
+    /// 4 closing review, I2): a piece read in a language whose source has
+    /// something open, once its read has landed. Nil anywhere else.
+    private var sourceToShow: String? {
+        guard editionReadIsCurrent, case .pieceInLanguage(let docId, _) = scope,
+              sourceHasSomething(docId) else { return nil }
+        return docId
     }
 
     /// **Whether a piece read in a language may still be missing a
@@ -775,6 +788,18 @@ struct ResolvePane: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).padding(.vertical, 10)
+            // The source's items are one switch away: the line's own button
+            // reads the piece in Source and shows them (closing review I2).
+            if case .editionClear? = empty, let docId = sourceToShow {
+                Button(ResolvePieceInLanguage.readSourceTitle) {
+                    ResolvePieceInLanguage.readSource(docId: docId, openDocId: openDocId)
+                }
+                .buttonStyle(.link)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.bottom, 10)
+                .accessibilityIdentifier("resolve.readSource")
+            }
         case .outside?, .elsewhere?, nil:
             EmptyView()
         }

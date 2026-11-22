@@ -257,6 +257,14 @@ enum ResolvePieceInLanguage {
 
     /// In place of Run on a piece that is not open: its click opens it,
     /// read in the language.
+    /// **The way from a piece read in a language to its page in that
+    /// edition's book** (closing round, writer's seat a).
+    static func seeInBookTitle(noun: String, language: String) -> String {
+        "See this \(noun) in the \(LanguageName.title(language)) book"
+    }
+
+    static let seeInBookHelp = "Open this edition\u{2019}s compiled book at this piece\u{2019}s first page"
+
     static func openToRunLine(noun: String) -> String {
         "Open this \(noun) to run a round on it"
     }
@@ -297,8 +305,8 @@ enum ResolvePieceInLanguage {
         TranslationRunState.runHelp(language: language, target: .ready(docId: "", title: title))
     }
 
-    static func runAccessibilityLabel(language: String) -> String {
-        "Run a round on this chapter into " + LanguageName.labelled(language)
+    static func runAccessibilityLabel(language: String, noun: String) -> String {
+        "Run a round on this \(noun) into " + LanguageName.labelled(language)
     }
 
     /// The line under Run: what it runs, and what it will cost before the
@@ -351,13 +359,58 @@ enum ResolvePieceInLanguage {
         let name = LanguageName.title(language)
         var line = hasRounds
             ? "Nothing in this \(noun)\u{2019}s \(name) waits on you: every question is answered "
-                + "and every change from its latest round is settled."
-            : "No round has run on this \(noun) in \(name) yet. What the translator asks and "
-                + "changes will be listed here."
+                + "and nothing from its latest round is left to look at."
+            : "No round has run on this \(noun) in \(name) yet. What the translator asks, and "
+                + "what its rounds leave to look at, will be listed here."
         if sourceHasSomething {
-            line += " Its source has notes or to-dos open: read it in Source to see them."
+            line += " " + sourceHasSomethingLine
         }
         return line
+    }
+
+    /// The source's own items, said under the language's empty list; the
+    /// button under it reads the piece in Source (`readSource`).
+    static let sourceHasSomethingLine = "Its source has notes or to-dos open."
+    static let readSourceTitle = "Read in Source to See Them"
+
+    // MARK: The source's items, from a piece read in a language
+
+    /// **Which key asks for the SOURCE's items** (plan 4 closing review, I2):
+    /// ⌘⌥A (the passes' notes), ⌘⌥D (checks) and ⌘⌥T (to-dos) over a piece
+    /// read in a language ask for what that language's list never holds. They
+    /// read the piece in Source first, visibly, then land their filter; the
+    /// piece's id is returned. ⌘⌥L (Questions) is the language's own, and
+    /// every other ground — a Source piece, an edition, a Part, the Book —
+    /// lists what the key asks for already: nil. Pure.
+    static func readsSourceFirst(_ key: ResolveKeyFilter, scope: ResolveScope) -> String? {
+        guard case .pieceInLanguage(let docId, _) = scope else { return nil }
+        switch key {
+        case .rounds, .checks, .mine: return docId
+        case .questions: return nil
+        }
+    }
+
+    /// **How the piece comes to be read in Source**: the open piece is
+    /// switched in place (the writer's own choice, the place kept); a piece
+    /// only faced — an edition open, a chapter clicked — opens in the centre,
+    /// which reads it in Source. Pure.
+    enum SourceRead: Equatable {
+        case switchHere
+        case open(docId: String)
+    }
+
+    static func sourceRead(docId: String, openDocId: String?) -> SourceRead {
+        docId == openDocId ? .switchHere : .open(docId: docId)
+    }
+
+    /// Read `docId` in Source — `sourceRead`'s answer, through the routes the
+    /// writer's own choices take (`LanguageSwitch.choose`, the ordinary place).
+    @MainActor
+    static func readSource(docId: String, openDocId: String?) {
+        switch sourceRead(docId: docId, openDocId: openDocId) {
+        case .switchHere: LanguageSwitch.choose(nil)
+        case .open(let docId): ResolveNavigation.go(toDocId: docId)
+        }
     }
 
     // MARK: Left over from deleted paragraphs
@@ -593,6 +646,16 @@ struct PieceInLanguageHeadView: View {
             Text(ResolvePieceInLanguage.headerLine(language: language))
                 .font(.caption.smallCaps())
                 .foregroundStyle(.secondary)
+            // Its page in this edition's book (closing round, writer's seat
+            // a): the edition's book at the chapter, which says so itself when
+            // there is no book yet or it cannot find the chapter.
+            Button(ResolvePieceInLanguage.seeInBookTitle(noun: noun, language: language)) {
+                CentreViewSwitch.go(to: .editionBook(language: language, docId: docId))
+            }
+            .buttonStyle(.link)
+            .font(.caption)
+            .help(ResolvePieceInLanguage.seeInBookHelp)
+            .accessibilityIdentifier("resolve.pieceInLanguage.seeInBook")
             letter
             runSection
             if let translation { translationSection(translation) }
@@ -776,7 +839,7 @@ struct PieceInLanguageHeadView: View {
                     .controlSize(.small)
                     .fixedSize()
                     .disabled(!run.canRun)
-                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language))
+                    .accessibilityLabel(ResolvePieceInLanguage.runAccessibilityLabel(language: language, noun: noun))
                     .help(run.refusal ?? ResolvePieceInLanguage.runHelp(
                         language: language,
                         title: TreeWalk.find(id: docId, in: store.manifest.structure)?.title ?? ""))

@@ -103,6 +103,77 @@ enum CentreViewSwitch {
     static func accepts(_ choice: Offer, under offer: Offer) -> Bool {
         choices(for: offer).contains(choice)
     }
+
+    // MARK: - Going to a view from elsewhere (plan 4 closing round)
+
+    /// **A link to another altitude's view**: the Book's Status (from the
+    /// Source edition's Status, owner's answer 11), or an edition's book at a
+    /// chapter (from that chapter read in the edition's language, writer's
+    /// seat a). The subject moves first, then the view is chosen through the
+    /// window's one writer (`chooseCentreView`).
+    enum Destination: Equatable {
+        case bookStatus
+        case editionBook(language: String, docId: String)
+    }
+
+    /// The subject a destination opens: the Book, through the click rule;
+    /// or the edition open with the chapter on the faces — so the edition's
+    /// book goes to the chapter's page (`CentreColumn.pieceInBook`). Pure.
+    static func subject(for destination: Destination, current: WindowSubject,
+                        structure: [StructureItem], projectType: ProjectType) -> WindowSubject {
+        switch destination {
+        case .bookStatus:
+            return ClickRule.resolve(.project, gesture: .click, current: current,
+                                     structure: structure, projectType: projectType)
+        case .editionBook(let language, let docId):
+            let edition = ClickRule.resolve(.edition(language: language), gesture: .click,
+                                            current: current, structure: structure,
+                                            projectType: projectType)
+            // A click on a piece while an edition is the centre moves the
+            // faces, never `open`.
+            return ClickRule.resolve(.item(docId), gesture: .click, current: edition,
+                                     structure: structure, projectType: projectType)
+        }
+    }
+
+    /// The view a destination chooses.
+    static func choice(for destination: Destination) -> Offer {
+        switch destination {
+        case .bookStatus: return .book(.status)
+        case .editionBook: return .edition(.book)
+        }
+    }
+
+    /// The post's payload and its pair (`destination(from:)`).
+    static func payload(for destination: Destination) -> [String: Any] {
+        switch destination {
+        case .bookStatus:
+            return [destinationKey: "book.status"]
+        case .editionBook(let language, let docId):
+            return [destinationKey: "edition.book", TranslationReveal.languageKey: language,
+                    TranslationReveal.docIdKey: docId]
+        }
+    }
+
+    static func destination(from userInfo: [AnyHashable: Any]?) -> Destination? {
+        switch userInfo?[destinationKey] as? String {
+        case "book.status"?:
+            return .bookStatus
+        case "edition.book"?:
+            guard let language = userInfo?[TranslationReveal.languageKey] as? String,
+                  let docId = userInfo?[TranslationReveal.docIdKey] as? String else { return nil }
+            return .editionBook(language: language, docId: docId)
+        default:
+            return nil
+        }
+    }
+
+    static let destinationKey = "centre_destination"
+
+    /// Go there, in the key window (`.maughamChooseCentreView`'s receiver).
+    static func go(to destination: Destination) {
+        MaughamEvent.post(.maughamChooseCentreView, to: .keyWindow, payload: payload(for: destination))
+    }
 }
 
 /// **The toolbar's segmented switch** — icons, each named in `.help`

@@ -323,14 +323,16 @@ enum TranslationRoundReport {
     static let answerAsRulingTitle = "Answer as ruling\u{2026}"
     static let openQueueTitle = "Open the queue"
 
-    /// **Open the queue** (review I3): the report is drawn over an edition,
-    /// whose faces To resolve has no list for. So the round's piece takes the
-    /// centre and the faces (the ordinary place, `ManuscriptNavigation`), and
-    /// then To resolve is asked for its Questions — a request that waits for
-    /// the piece's read (`ResolvePane.applyPendingRequest`).
+    /// **Open the queue** (review I3; closing round c): the round's questions
+    /// are its LANGUAGE's — To resolve lists them over the piece read in that
+    /// language (`ResolveScope.pieceInLanguage`). So the round's piece takes
+    /// the centre and the faces read in the round's language
+    /// (`LanguageSwitch.choose(_:inPiece:)`), and then To resolve is asked
+    /// for its Questions — a request that waits for that list's read
+    /// (`ResolvePane.applyPendingRequest`).
     @MainActor
-    static func openQueue(docId: String) {
-        ResolveNavigation.go(toDocId: docId)
+    static func openQueue(docId: String, language: String) {
+        LanguageSwitch.choose(language, inPiece: docId)
         MaughamEvent.postResolve(.questions)
     }
     static let closeTitle = "Back to the book"

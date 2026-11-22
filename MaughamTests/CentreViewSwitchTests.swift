@@ -77,6 +77,49 @@ final class CentreViewSwitchTests: XCTestCase {
     /// **The Book's header is its title alone**: the picker moved to the
     /// toolbar, and a second switch in a header would be two controls that
     /// can disagree about one value.
+    /// **A link to another altitude's view** (closing round): the Source
+    /// edition's line to the Book's Status, and a chapter read in a language
+    /// to its page in that edition's book. The subject moves, then the view
+    /// is chosen — and the offer the new subject makes accepts it.
+    func test_aLinkMovesTheSubjectThenChoosesTheView() throws {
+        let reading = WindowSubject(open: .item(SubjectSamples.pieceID), faces: .item(SubjectSamples.pieceID))
+        let toBook = CentreViewSwitch.subject(for: .bookStatus, current: reading, structure: structure,
+                                              projectType: .novel)
+        XCTAssertEqual(toBook.open, .project)
+        XCTAssertEqual(toBook.faces, .project)
+        XCTAssertTrue(CentreViewSwitch.accepts(CentreViewSwitch.choice(for: .bookStatus), under: CentreViewSwitch.offer(
+            subject: toBook, bookView: .outline, editionView: .book, structure: structure)))
+
+        let atPage = CentreViewSwitch.Destination.editionBook(language: "es", docId: SubjectSamples.pieceID)
+        let toEdition = CentreViewSwitch.subject(for: atPage, current: reading, structure: structure,
+                                                 projectType: .novel)
+        XCTAssertEqual(toEdition.open, .edition(language: "es"), "the edition takes the centre")
+        XCTAssertEqual(toEdition.faces, .item(SubjectSamples.pieceID), "the chapter stays on the faces")
+        XCTAssertEqual(CentreColumn.pieceInBook(faces: toEdition.faces, structure: structure)?.id,
+                       SubjectSamples.pieceID, "so the edition's book goes to the chapter's page")
+        XCTAssertTrue(CentreViewSwitch.accepts(CentreViewSwitch.choice(for: atPage), under: CentreViewSwitch.offer(
+            subject: toEdition, bookView: .outline, editionView: .status, structure: structure)))
+
+        for destination in [CentreViewSwitch.Destination.bookStatus, atPage] {
+            XCTAssertEqual(CentreViewSwitch.destination(from: CentreViewSwitch.payload(for: destination)),
+                           destination, "the payload round-trips")
+        }
+        XCTAssertNil(CentreViewSwitch.destination(from: [MaughamEvent.centreViewKey: "book.status"]),
+                     "a menu choice is not a destination")
+
+        let window = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(window.contains("} else if let destination = CentreViewSwitch.destination(from: note.userInfo) { goToCentre(destination) }"))
+        XCTAssertTrue(window.contains("if next != subject { subject = next } chooseCentreView(CentreViewSwitch.choice(for: destination))"),
+                      "the subject first, then the one writer of the view")
+        let head = SourceScan.codeLines(of: try SourceTree.sourceOfType("PieceInLanguageHeadView", under: ["Maugham"]))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(head.contains("CentreViewSwitch.go(to: .editionBook(language: language, docId: docId))"),
+                      "a chapter read in a language links to its page in that edition's book")
+        XCTAssertEqual(ResolvePieceInLanguage.seeInBookTitle(noun: "chapter", language: "es"),
+                       "See this chapter in the \(LanguageName.title("es")) book")
+    }
+
     func test_theAltitudeHeaderHasNoPicker() throws {
         let code = try SourceScan.codeLines(of: String(
             contentsOf: Self.source("Views/ProjectAltitudePane.swift"), encoding: .utf8))

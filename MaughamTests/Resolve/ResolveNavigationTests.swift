@@ -126,13 +126,13 @@ final class ResolveNavigationTests: XCTestCase {
                                                   structure: structure), "a figure's faces hold no piece")
     }
 
-    /// **Review I3.** "Open the queue" on a translation round report (drawn
-    /// over an edition, which To resolve has no list for) opens the round's
-    /// piece — open = faces = piece — and then asks for Questions, in that
-    /// order, so the request waits for the piece's list.
-    func test_openTheQueueOpensTheRoundsPieceThenAsksForQuestions() throws {
+    /// **Review I3; closing round c.** "Open the queue" on a translation
+    /// round report opens the round's piece READ IN THE ROUND'S LANGUAGE —
+    /// the list whose Questions are that round's — and then asks for
+    /// Questions, in that order, so the request waits for that list.
+    func test_openTheQueueOpensTheRoundsPieceInItsLanguageThenAsksForQuestions() throws {
         var posts: [(Notification.Name, [AnyHashable: Any])] = []
-        let names: [Notification.Name] = [.maughamNavigateToParagraph, .maughamSetRightColumn]
+        let names: [Notification.Name] = [.maughamChooseReadingLanguage, .maughamSetRightColumn]
         let tokens = names.map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in // adr-0021-ok: a test's synchronous recorder of the posts' order
                 posts.append((note.name, note.userInfo ?? [:]))
@@ -140,25 +140,29 @@ final class ResolveNavigationTests: XCTestCase {
         }
         defer { tokens.forEach(NotificationCenter.default.removeObserver) }
 
-        TranslationRoundReport.openQueue(docId: "doc-b")
+        TranslationRoundReport.openQueue(docId: "doc-b", language: "es")
 
-        XCTAssertEqual(posts.map(\.0), names, "the piece first, then To resolve")
-        let place = try XCTUnwrap(posts.first?.1)
-        let edition = WindowSubject(open: .edition(language: "es"), faces: .edition(language: "es"))
-        XCTAssertEqual(ResolveScope.of(edition.faces, readIn: nil, sourceLanguage: "en", structure: structure,
-                                       projectType: .novel).editionLanguage, "es",
-                       "premise: the edition's faces are the edition's own list, not the piece's")
-        let next = receive(place.reduce(into: [String: Any]()) { $0[String(describing: $1.key)] = $1.value },
-                           current: edition, control: EditorControl())
-        XCTAssertEqual(next.open, .item("doc-b"))
-        XCTAssertEqual(next.faces, .item("doc-b"), "the round's piece is on the faces: its list")
+        XCTAssertEqual(posts.map(\.0), names, "the piece in its language first, then To resolve")
+        let asked = LanguageSwitch.choice(from: try XCTUnwrap(posts.first?.1))
+        XCTAssertEqual(asked.docId, "doc-b", "the round's piece")
+        XCTAssertEqual(asked.language, "es", "read in the round's language")
         XCTAssertEqual(posts.last?.1[MaughamEvent.resolveFilterKey] as? String, ResolveKeyFilter.questions.rawValue)
+        // Over that piece read in that language, To resolve is the language's
+        // list — where the round's questions are.
+        XCTAssertEqual(ResolveScope.of(.item("doc-b"), readIn: "es", sourceLanguage: "en", structure: structure,
+                                       projectType: .novel), .pieceInLanguage(docId: "doc-b", language: "es"))
 
         let view = SourceScan.codeLines(of: try SourceTree.read(
             "Maugham/Views/Publish/TranslationRoundReportView.swift")).joined(separator: "\n")
-        XCTAssertTrue(view.contains("TranslationRoundReport.openQueue(docId: round.docId)"),
+        XCTAssertTrue(view.contains("TranslationRoundReport.openQueue(docId: round.docId, language: round.language)"),
                       "the report's button is this door")
         XCTAssertFalse(view.contains("postResolve("), "and asks for no filter of its own")
+        // The window's half: a choice for a piece not open opens it and takes
+        // the language on its arrival.
+        let modifier = SourceScan.codeLines(of: try SourceTree.read("Maugham/Views/ReadingLanguageModifier.swift"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        XCTAssertTrue(modifier.contains(
+            "if let docId = asked.docId, docId != openDocId { reading.pending = (docId, asked.language) ResolveNavigation.go(toDocId: docId) } else { choose(asked.language) }"))
     }
 
     func test_aRowPayloadAlwaysNamesItsDocument() {
