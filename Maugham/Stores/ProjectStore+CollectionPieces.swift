@@ -69,6 +69,15 @@ public struct PiecePromotion: Sendable {
     }
 }
 
+/// **A promotion refused because another is running** (fix round 1, M1).
+public struct PromotionAlreadyRunning: LocalizedError, Equatable {
+    public let title: String?
+    public var errorDescription: String? {
+        let which = title.map { "\u{201C}\($0)\u{201D} is" } ?? "Another piece is"
+        return "\(which) being promoted right now \u{2014} try again when it has finished."
+    }
+}
+
 /// **A promotion that failed once something had moved** (shell p4 Task 11):
 /// the cause, and where the writer's files are now — the one sentence the
 /// window's alert shows. A refusal before anything moves (a parked figure,
@@ -92,6 +101,10 @@ public struct PiecePromotionFailed: LocalizedError {
     public let title: String
     public let cause: Error
     public let filesAre: Where
+    /// The piece's own figures already sent to the Collection's Trash when
+    /// the failure came (step 7b ran; step 8 failed), by name — restorable
+    /// there, and whole in the new project (fix round 1, M5).
+    public var figuresInTrash: [String] = []
 
     public var errorDescription: String? {
         let why = cause.localizedDescription
@@ -99,9 +112,11 @@ public struct PiecePromotionFailed: LocalizedError {
         case .putBack:
             return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Everything was put back where it was."
         case .keptIn(let folder):
-            return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Some of its files couldn\u{2019}t be put back; they are in \(folder.path)."
+            return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Some of its files couldn\u{2019}t be put back; they are in a hidden folder beside the Collection, \(folder.path). Reveal in Finder shows it."
         case .atTheDestination(let url):
-            return "\u{201C}\(title)\u{201D} is now a project at \(url.path), but the Collection couldn\u{2019}t be changed to point at it: \(why) The Collection still lists it as its own piece."
+            let figures = figuresInTrash.isEmpty ? "" :
+                " Its figures \(figuresInTrash.joined(separator: ", ")) are in the Collection\u{2019}s Trash, and in the new project."
+            return "\u{201C}\(title)\u{201D} is now a project at \(url.path), but the Collection couldn\u{2019}t be changed to point at it: \(why) The Collection still lists it as its own piece.\(figures)"
         case .atNeitherPath(let url):
             return "\u{201C}\(title)\u{201D} couldn\u{2019}t be promoted: \(why) Its files are at neither the Collection nor \(url.path); see the log."
         }
@@ -324,6 +339,18 @@ extension ProjectStore {
             throw ProjectStoreError.fileSystemError(
                 "Piece not found or not a loose piece: \(pieceId)")
         }
+        // **One promotion at a time** (fix round 1, M1). The save panel is
+        // not modal and nothing else serialises the verb, so a second
+        // promotion — of this piece or another — could start while one is
+        // staging: of the same piece it found the file moved, rolled back
+        // nothing and (before holds carried a token) gave back the first
+        // one's hold; of another it would read the manifest, the figures
+        // and the Trash mid-change. Taken before the first suspension.
+        if let running = promotionInFlight {
+            throw PromotionAlreadyRunning(title: TreeWalk.find(id: running, in: manifest.structure)?.title)
+        }
+        promotionInFlight = pieceId
+        defer { promotionInFlight = nil }
         let piece = manifest.structure[pieceIdx]
         let pieceFolderRel = (piecePath as NSString).deletingLastPathComponent
         let pieceFolderURL = try resolvedProjectPathToChange(pieceFolderRel)
@@ -374,11 +401,12 @@ extension ProjectStore {
         // moved figures' open hosts close too, now their state has been read
         // for the carry; every other figure, and the presenter, stay.
         let docStore = documentStore
+        var hold: PromotionHold?
         if let docStore {
-            await docStore.withdrawForPromotion(path: piecePath)
+            hold = await docStore.withdrawForPromotion(path: piecePath)
             for record in figurePlan.moved { await docStore.closeFigure(figureId: record.id) }
         }
-        defer { docStore?.returnFromPromotion(path: piecePath) }
+        defer { if let hold { docStore?.returnFromPromotion(hold) } }
         // The Intent pane can be showing this piece's intent in the right column
         // while the promotion runs, and a statement is deliberately in no
         // `DocumentStore` registry (spec §8), so the close above cannot reach it.
@@ -556,7 +584,8 @@ extension ProjectStore {
                         "Promotion failed after the piece's figures left the Collection; these are in its Trash and in \(destination.path, privacy: .public): \(trashedFigures.joined(separator: ", "), privacy: .public)")
                 }
                 // What the writer is told: the cause, and where the files are.
-                throw PiecePromotionFailed(title: piece.title, cause: error, filesAre: filesAre)
+                throw PiecePromotionFailed(title: piece.title, cause: error, filesAre: filesAre,
+                                       figuresInTrash: trashedFigures)
             }
         }
     }

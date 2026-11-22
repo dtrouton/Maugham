@@ -146,10 +146,19 @@ public enum ListTasksTool: MCPTool {
         }
         let docURL = try ProjectStore.resolvedProjectPath(path, under: projectEntry.url)
         // Anything arriving through MCP is the assistant's (constraint 6).
-        let doc = try await Document.load(
-            url: docURL, actor: .assistant,
-            session: "mcp-\(UUID().uuidString.prefix(8))",
-            presenter: nil)
+        // A reader skips a piece a promotion is moving: no tasks to list
+        // from a file mid-move (shell p4 Task 11 fix round 1, I1).
+        let doc: Document
+        do {
+            doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
+                url: docURL, actor: .assistant,
+                session: "mcp-\(UUID().uuidString.prefix(8))",
+                presenter: nil,
+                through: projectEntry.store.documentStore)
+        } catch is ManuscriptBeingPromoted {
+            return []
+        }
         let result = doc.tasks(filter: filter)
         Task { await doc.close() }
         return result

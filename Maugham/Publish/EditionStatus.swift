@@ -514,11 +514,17 @@ enum EditionStatus {
         if let handed = options.openQuestions {
             openQuestions = handed.byDoc[documentId] ?? []
         } else {
-            openQuestions = try await withAnnotationDocument(
-                store: store, projectURL: projectURL, documentId: documentId
-            ) { document in
-                document.annotations(filter: AnnotationFilter(
-                    kinds: [.query, .craftNote], statuses: [.open]))
+            do {
+                openQuestions = try await withAnnotationDocument(
+                    store: store, projectURL: projectURL, documentId: documentId
+                ) { document in
+                    document.annotations(filter: AnnotationFilter(
+                        kinds: [.query, .craftNote], statuses: [.open]))
+                }
+            } catch is ManuscriptBeingPromoted {
+                // A reader skips a piece a promotion is moving (shell p4
+                // Task 11 fix round 1, I1): no questions read from it now.
+                openQuestions = []
             }
         }
         // The tag does the discriminating: an untagged craft note has a nil

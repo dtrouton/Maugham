@@ -57,11 +57,15 @@ public enum TestOpenDocumentTool: MCPTool {
         }
         let doc: Document
         do {
-            doc = try await Document.load(
+            doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
                 url: try ProjectStore.resolvedProjectPath(path, under: entry.url),
                 actor: .author,
                 session: sessionId,
-                presenter: ds.presenter)
+                presenter: ds.presenter,
+                through: ds)
+        } catch let promoting as ManuscriptBeingPromoted {
+            throw promoting
         } catch let waiting as DocumentLoadError {
             // Typed, so `tools/call` answers `waiting_for_piece` rather than an
             // invalid argument (fix round 1, M4).

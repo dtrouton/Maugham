@@ -614,11 +614,13 @@ struct EditorHost: View {
         guard let item = currentItem, let path = item.path else { return }
         let generation = loads.claim()
         do {
-            let doc = try await Document.load(
+            let doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
                 url: try store.resolvedProjectPath(path),
                 actor: .author, session: Self.sessionId,
                 presenter: documentStore.presenter,
-                recovery: .readOnlyPartial)
+                recovery: .readOnlyPartial,
+                through: documentStore)
             guard loads.isCurrent(generation) else {
                 await doc.close()
                 return
@@ -1328,6 +1330,15 @@ struct EditorHost: View {
         return TreeWalk.find(id: id, in: store.manifest.structure)
     }
 
+    /// **Whether `item` is a manuscript this host loads**: a document with a
+    /// path, and never a Collection's reference piece — whose path is its
+    /// `.maugham-link.json`, and which a promotion turns the open piece into
+    /// while this host is still mounted on it (shell p4 Task 11). Static +
+    /// pure for `EditorHostReloadPredicateTests`.
+    static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
+        item.type == .document && item.path != nil && item.pieceKind != .reference
+    }
+
     /// Whether the bound document must be (re)loaded for the given item.
     /// True when nothing (or a different item) is loaded — the original
     /// selection-change case — AND when the SAME item's on-disk path changed
@@ -1341,15 +1352,6 @@ struct EditorHost: View {
     /// with the same id nothing else here asks for a reload — the husk would be
     /// bound and every keystroke dropped. Static + pure for
     /// `EditorHostReloadPredicateTests`.
-    /// **Whether `item` is a manuscript this host loads**: a document with a
-    /// path, and never a Collection's reference piece — whose path is its
-    /// `.maugham-link.json`, and which a promotion turns the open piece into
-    /// while this host is still mounted on it (shell p4 Task 11). Static +
-    /// pure for `EditorHostReloadPredicateTests`.
-    static func loadsAsAManuscript(_ item: StructureItem) -> Bool {
-        item.type == .document && item.path != nil && item.pieceKind != .reference
-    }
-
     static func needsReload(
         itemId: String, path: String,
         loadedItemId: String?, loadedPath: String?,
@@ -1516,11 +1518,17 @@ struct EditorHost: View {
             else { return }
         }
         do {
-            let doc = try await Document.load(
+            // Through the promotion door (fix round 1, I1): a path a
+            // promotion took while this load was reading, or one a finished
+            // promotion turned into a reference's, is closed and refused
+            // there (caught below: `promotionReturns` loads again).
+            let doc = try await DocumentStore.loadManuscript(
+                path: path, title: item.title,
                 url: try store.resolvedProjectPath(path),
                 actor: .author,
                 session: Self.sessionId,
-                presenter: documentStore.presenter)
+                presenter: documentStore.presenter,
+                through: documentStore)
             // Superseded while we were in file I/O — the writer clicked on, or
             // this view went away. Never register it and never write the
             // markers; close it, or it deallocates with a pending buffer and
@@ -1529,11 +1537,14 @@ struct EditorHost: View {
                 await doc.close()
                 return
             }
-            // A promotion took the path while this load was reading it: the
-            // `Document` is never registered over a file being staged away.
-            // Closed, and the promotion's return (`promotionReturns`) loads
-            // again.
-            guard !documentStore.isWithdrawnForPromotion(path: path) else {
+            // A promotion took the path while this load was reading it, or a
+            // promotion came and went across the whole load: the `Document`
+            // is registered only if the item is still this loose piece at
+            // this path (fix round 1, M2) — never over a file being staged
+            // away, never at a reference's old path.
+            guard !documentStore.isWithdrawnForPromotion(path: path),
+                  let still = currentItem, Self.loadsAsAManuscript(still),
+                  still.id == item.id, still.path == path else {
                 await doc.close()
                 return
             }
@@ -1634,6 +1645,11 @@ struct EditorHost: View {
             // Metrics for the freshly-loaded doc are delivered by the new
             // EditorSurface's coordinator `attach` (immediate, non-debounced) —
             // no EditorHost-side mirror call.
+        } catch is ManuscriptBeingPromoted {
+            // The door refused a held path (or closed a load a promotion
+            // overtook): not a failure, and nothing to mark — the promotion's
+            // return (`promotionReturns`) loads again.
+            return
         } catch {
             // A superseded failure must not overwrite the markers either: doing
             // so unbinds a document that loaded perfectly well and leaves the

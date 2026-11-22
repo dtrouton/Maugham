@@ -537,6 +537,7 @@ Plans 1–3's hand checks stand. This plan adds:
 2. **Should a chapter read in a language stay in that language when you move to the next chapter?** Recommendation: yes, when the next chapter has that translation, else Source; reading an edition chapter by chapter is the use. The alternative is always back to Source (today's behaviour). This changes `ReadingLanguage.carried` in Task 8.
 3. **A click on a chapter in an edition's Status: open it read in that edition's language, or in the source?** Recommendation: in the edition's language (you were looking at that edition). Your 2026-11-16 rule makes the Status an overview you navigate from, so it opens the chapter either way; the question is only the language. This changes one line in Tasks 5 and 8.
 
+4. **(Task 11 review, pre-existing; taken to you as its own piece of work, not built here)** A promoted piece's op log never travels: its history, checkpoints, annotations (open notes and Claude's), to-dos and translations stay in the Collection under the old id, and the new project starts from the `.md` alone — a peer's ops that synced while the piece was closed are not in it.
 
 ## Denver's answers (2026-11-21)
 

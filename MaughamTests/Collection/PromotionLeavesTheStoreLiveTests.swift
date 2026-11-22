@@ -304,30 +304,193 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
         try await assertTheWindowIsLive(w)
     }
 
+    /// What the alert says where the files are (fix round 1, M4, M5): a
+    /// kept folder is named as hidden with Reveal in Finder; a failure after
+    /// the piece's figures went to the Trash names them.
+    func test_theFailureSentencesSayWhereEverythingIs() {
+        struct Cause: LocalizedError { var errorDescription: String? { "The disk is full." } }
+        let kept = PiecePromotionFailed(
+            title: "Story A", cause: Cause(),
+            filesAre: .keptIn(URL(fileURLWithPath: "/b/.maugham-staging-1")))
+        XCTAssertEqual(kept.localizedDescription,
+                       "\u{201C}Story A\u{201D} couldn\u{2019}t be promoted: The disk is full. Some of its files couldn\u{2019}t be put back; they are in a hidden folder beside the Collection, /b/.maugham-staging-1. Reveal in Finder shows it.")
+        let there = PiecePromotionFailed(
+            title: "Story A", cause: Cause(),
+            filesAre: .atTheDestination(URL(fileURLWithPath: "/b/Story A")),
+            figuresInTrash: ["own", "map"])
+        XCTAssertTrue(there.localizedDescription.hasSuffix(
+            "Its figures own, map are in the Collection\u{2019}s Trash, and in the new project."),
+            there.localizedDescription)
+    }
+
     // MARK: - A load of the held piece, and the carried notes
 
-    /// A load of the piece while the promotion holds it waits — no timer —
-    /// and goes on once the path is given back.
+    /// **The hold's wait, tested directly** (fix round 1, I2). The earlier
+    /// test started its waiter inside `afterStaging:`, and nothing between
+    /// there and the promotion's `defer` suspends, so the waiter only ran
+    /// once the hold was gone and passed with the wait removed. Here: hold,
+    /// start a waiter, yield — it is still waiting — give back, and it goes on.
     func test_aLoadOfTheHeldPieceWaitsForTheReturn() async throws {
         let w = try await openWindow()
         let aPath = try XCTUnwrap(w.a.path)
-        var waiter: Task<Bool, Never>?
+        let hold = await w.store.withdrawForPromotion(path: aPath)
+        var woke = false
+        let waiter = Task { @MainActor in
+            await w.store.waitWhileWithdrawnForPromotion(path: aPath)
+            woke = true
+        }
+        // Until the waiter has either reached the hold (one load waiting on
+        // it) or gone past it (woke): a state, never a clock.
+        while !woke && w.store.loadsWaitingForPromotion(path: aPath) == 0 { await Task.yield() }
+        XCTAssertFalse(woke, "a load of the held piece went on while it was held")
+        XCTAssertEqual(w.store.loadsWaitingForPromotion(path: aPath), 1)
 
-        _ = try? await w.projectStore.promotePieceToProject(
-            pieceId: w.a.id, destination: root.appendingPathComponent("Promoted A"),
-            afterStaging: {
-                waiter = Task { @MainActor in
-                    await w.store.waitWhileWithdrawnForPromotion(path: aPath)
-                    // What the load sees when it wakes.
-                    return w.store.isWithdrawnForPromotion(path: aPath)
-                }
-                self.occupyStagedManifestPath()
-            })
+        w.store.returnFromPromotion(hold)
+        await waiter.value
+        XCTAssertTrue(woke, "the return did not let the waiting load go on")
+        await w.bDoc.close()
+    }
 
-        let stillHeldWhenItWoke = await (try XCTUnwrap(waiter)).value
-        XCTAssertFalse(stillHeldWhenItWoke, "the load went on while the promotion still held the piece")
-        // Nothing holds the path now: a fresh wait returns at once.
-        await w.store.waitWhileWithdrawnForPromotion(path: aPath)
+    /// **A hold is its promotion's** (fix round 1, M1): a second hold on the
+    /// same path gives back nothing of the first's.
+    func test_onlyTheHoldThatTookThePathGivesItBack() async throws {
+        let w = try await openWindow()
+        let aPath = try XCTUnwrap(w.a.path)
+        let first = await w.store.withdrawForPromotion(path: aPath)
+        let second = await w.store.withdrawForPromotion(path: aPath)
+        w.store.returnFromPromotion(second)
+        XCTAssertTrue(w.store.isWithdrawnForPromotion(path: aPath),
+                      "another promotion's return gave back the first one's hold")
+        w.store.returnFromPromotion(first)
+        XCTAssertFalse(w.store.isWithdrawnForPromotion(path: aPath))
+        await w.bDoc.close()
+    }
+
+    /// **One promotion at a time** (fix round 1, M1): while one is running,
+    /// another — of this piece or any other — is refused before it touches
+    /// anything, naming the one running.
+    func test_aSecondPromotionWhileOneIsRunningIsRefused() async throws {
+        let w = try await openWindow()
+        w.projectStore.promotionInFlight = w.c.id
+        defer { w.projectStore.promotionInFlight = nil }
+        do {
+            _ = try await w.projectStore.promotePieceToProject(
+                pieceId: w.a.id, destination: root.appendingPathComponent("Promoted A"))
+            XCTFail("a promotion started while another was running")
+        } catch let running as PromotionAlreadyRunning {
+            XCTAssertEqual(running.localizedDescription,
+                           "\u{201C}Story C\u{201D} is being promoted right now \u{2014} try again when it has finished.")
+        }
+        XCTAssertFalse(w.aDoc.isClosed, "the refused promotion closed the piece")
+        XCTAssertFalse(w.store.isWithdrawnForPromotion(path: try XCTUnwrap(w.a.path)))
+        XCTAssertEqual(stagingTrees(), [])
+        await w.aDoc.close()
+        await w.bDoc.close()
+    }
+
+    // MARK: - Every loader meets the door (fix round 1, I1)
+
+    /// Replace All across the Collection while A is held: B and C change, A
+    /// is left as it was and named, nothing is appended to A's op log; Find
+    /// meanwhile skips A.
+    func test_replaceAllDuringAPromotionChangesEveryPieceButTheHeldOne() async throws {
+        let w = try await openWindow()
+        let aPath = try XCTUnwrap(w.a.path)
+        w.bDoc.setFullText("Story B, the tide.\n")
+        try await w.bDoc.flushBurstNow()
+        let cDoc = try await open(w.c, in: w.store, collection: w.collection)
+        cDoc.setFullText("Story C, the tide.\n")
+        try await cDoc.flushBurstNow()
+        w.store.unregister(path: try XCTUnwrap(w.c.path))
+        await cDoc.close()
+        let found = await ProjectSearchEngine().search(query: "tide", options: SearchOptions(), in: w.projectStore)
+        XCTAssertEqual(Set(found.matches.map(\.documentTitle)), ["Story A", "Story B", "Story C"],
+                       "premise: the search found every piece before the promotion")
+
+        let hold = await w.store.withdrawForPromotion(path: aPath)
+        let during = await ProjectSearchEngine().search(query: "tide", options: SearchOptions(), in: w.projectStore)
+        XCTAssertEqual(Set(during.matches.map(\.documentTitle)), ["Story B", "Story C"],
+                       "Find listed a piece a promotion is moving")
+
+        let outcome = try await w.projectStore.replaceAll(in: found, with: "ebb")
+        XCTAssertEqual(outcome.beingPromoted, ["Story A"])
+        XCTAssertEqual(outcome.leftAlone, [])
+        XCTAssertEqual(outcome.notice,
+                       "Left as it was \u{2014} being promoted to its own project: Story A. Try again in a moment.")
+        try await w.bDoc.flushBurstNow()
+        XCTAssertTrue(try opLogHolds("Story B, the ebb.", docId: w.bDoc.docId, in: w.collection))
+        XCTAssertTrue(try opLogHolds("Story C, the ebb.", docId: cDoc.docId, in: w.collection))
+        XCTAssertFalse(try opLogHolds("ebb", docId: w.aDoc.docId, in: w.collection),
+                       "Replace All wrote to the op log of a piece a promotion is moving")
+        XCTAssertNil(w.store.document(for: aPath), "nothing registered the held piece")
+
+        w.store.returnFromPromotion(hold)
+        await w.bDoc.close()
+    }
+
+    /// An MCP annotation write on the held piece is refused cleanly
+    /// (`being_promoted`), and appends nothing; a task read skips it.
+    func test_anMCPAnnotationOnTheHeldPieceIsRefused() async throws {
+        let w = try await openWindow()
+        let aPath = try XCTUnwrap(w.a.path)
+        let hold = await w.store.withdrawForPromotion(path: aPath)
+        var ran = false
+        do {
+            try await withAnnotationDocument(store: w.projectStore, projectURL: w.collection,
+                                             documentId: w.a.id) { _ in ran = true }
+            XCTFail("an annotation reached a piece a promotion is moving")
+        } catch let promoting as ManuscriptBeingPromoted {
+            XCTAssertEqual(promoting.localizedDescription,
+                           "\u{201C}Story A\u{201D} is being promoted to its own project \u{2014} try again in a moment.")
+            XCTAssertEqual(MCPToolsCallHandler.toolErrorPayload(for: promoting).error, "being_promoted")
+        }
+        XCTAssertFalse(ran)
+        w.store.returnFromPromotion(hold)
+        await w.bDoc.close()
+    }
+
+    /// The presence walk reads op logs, never a load: it runs over a held
+    /// piece without error and touches nothing at its path.
+    func test_thePresenceWalkRunsOverAHeldPieceWithoutError() async throws {
+        let w = try await openWindow()
+        let aPath = try XCTUnwrap(w.a.path)
+        try await w.aDoc.flushBurstNow()
+        let hold = await w.store.withdrawForPromotion(path: aPath)
+        let reader = ResolvePresenceReader()
+        for _ in 0..<4 {
+            let key = ResolvePresenceReader.key(store: w.projectStore, documentStore: w.store,
+                                                diagnostics: nil, annotationsToken: 0, script: nil)
+            reader.update(key, store: w.projectStore, documentStore: w.store, diagnostics: nil)
+            while let request = reader.pendingRequest {
+                await reader.run(request, store: w.projectStore, documentStore: w.store, diagnostics: nil)
+            }
+        }
+        XCTAssertNil(w.store.document(for: aPath), "the walk opened the held piece")
+        w.store.returnFromPromotion(hold)
+        await w.bDoc.close()
+    }
+
+    /// **A load that outlived a successful promotion is not handed out**
+    /// (fix round 1, M2): the door's after-load question, asked of the
+    /// store as a promotion leaves it — the path now names a reference's
+    /// link, so a load that began before the return is closed and refused.
+    func test_aLoadOverTakenByASuccessfulPromotionIsNotHandedOut() async throws {
+        let w = try await openWindow()
+        let aPath = try XCTUnwrap(w.a.path)
+        XCTAssertTrue(w.store.pathNamesAManuscript(aPath), "premise")
+        _ = try await w.projectStore.promotePieceToProject(
+            pieceId: w.a.id, destination: root.appendingPathComponent("Promoted A"))
+        XCTAssertFalse(w.store.pathNamesAManuscript(aPath),
+                       "the old path still names a manuscript after the piece became a reference")
+        // And the door refuses a fresh load of it too.
+        do {
+            _ = try await DocumentStore.loadManuscript(
+                path: aPath, url: w.collection.appendingPathComponent(aPath),
+                actor: .author, session: "late", presenter: nil, through: w.store)
+        } catch {
+            // A missing file may throw on its own; what matters is nothing registered.
+        }
+        XCTAssertNil(w.store.document(for: aPath))
         await w.bDoc.close()
     }
 
@@ -361,7 +524,11 @@ final class PromotionLeavesTheStoreLiveTests: XCTestCase {
                       "an editor the promotion closed under is never told to load again")
         XCTAssertTrue(source.contains("await documentStore.waitWhileWithdrawnForPromotion(path: path)"),
                       "a load of the held piece does not wait for the promotion")
-        XCTAssertTrue(source.contains("guard !documentStore.isWithdrawnForPromotion(path: path) else {"),
+        XCTAssertTrue(source.contains("guard !documentStore.isWithdrawnForPromotion(path: path),"),
                       "a load that finished mid-promotion registers over a staged-away file")
+        XCTAssertTrue(source.contains("let still = currentItem, Self.loadsAsAManuscript(still),"),
+                      "a load that outlived a promotion registers at a reference's old path")
+        XCTAssertTrue(source.contains("} catch is ManuscriptBeingPromoted {"),
+                      "the door's refusal is shown as a failed load")
     }
 }

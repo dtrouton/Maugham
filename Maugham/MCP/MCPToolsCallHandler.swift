@@ -125,6 +125,13 @@ public enum MCPToolsCallHandler {
                 error: "mcp_disabled",
                 message: MCPError.mcpDisabled.message,
                 hint: "Enable MCP in Maugham → Settings.")
+        case let promoting as ManuscriptBeingPromoted:
+            // A piece being promoted to its own project (shell p4 Task 11 fix
+            // round 1, I1): nothing is wrong and nothing was written.
+            return .init(
+                error: "being_promoted",
+                message: promoting.errorDescription ?? "This piece is being promoted.",
+                hint: "Try again once the promotion has finished; afterwards the piece is its own project.")
         case let waiting as DocumentLoadError:
             // **The waiting state is not an internal error** (P3a Task 8, fix
             // round 1's I1). Every annotation and task tool transient-loads a

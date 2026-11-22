@@ -65,11 +65,16 @@ func withAnnotationDocument<T>(
     // annotation ops `body` appends land in the assistant's own file, chained
     // and sealed under the assistant's key rather than unsigned under a
     // sentinel no key answers to.
-    let doc = try await Document.load(
+    // Through the promotion door: a piece being promoted to its own project
+    // is refused (`ManuscriptBeingPromoted`, answered `being_promoted`), never
+    // appended to an op log the promotion leaves behind (fix round 1, I1).
+    let doc = try await DocumentStore.loadManuscript(
+        path: path, title: item.title,
         url: docURL,
         actor: .assistant,
         session: "mcp-\(UUID().uuidString.prefix(8))",
-        presenter: nil)
+        presenter: nil,
+        through: store.documentStore)
     let result = try await body(doc)
     // close() flushes the pending typing-burst + autosave (both no-ops here
     // since this Document never received user edits). Fire-and-forget after

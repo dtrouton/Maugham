@@ -128,6 +128,18 @@ extension ProjectStore {
     /// because this Mac may not write their text (ruling AI), by title.
     public struct ReplaceAllOutcome: Equatable, Sendable {
         public let leftAlone: [String]
+        /// Pieces a promotion was moving to their own project, left as they
+        /// were (fix round 1, I1).
+        public var beingPromoted: [String] = []
+
+        /// What the window says after a Replace All, or nil.
+        public var notice: String? {
+            let promoting = beingPromoted.isEmpty ? nil :
+                "Left as it was \u{2014} being promoted to its own project: "
+                    + beingPromoted.joined(separator: ", ") + ". Try again in a moment."
+            let sentences = [ProjectStore.leftAloneSentence(leftAlone), promoting].compactMap { $0 }
+            return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        }
     }
 
     /// The one sentence naming the pieces a replace left alone.
@@ -445,6 +457,7 @@ extension ProjectStore {
     ) async throws -> ReplaceAllOutcome {
         let grouped = Dictionary(grouping: results.matches, by: \.documentPath)
         var leftAlone: [String] = []
+        var beingPromoted: [String] = []
         // Once for the whole replace: the editor's queued note edits land
         // before any research file below is read.
         if results.matches.contains(where: { $0.documentSource == .research }) {
@@ -463,6 +476,10 @@ extension ProjectStore {
                         replacement: replacement, clicked: nil)
                 } catch let refused as ManuscriptReplaceRefused {
                     leftAlone.append(contentsOf: refused.titles)
+                } catch is ManuscriptBeingPromoted {
+                    // Moving to its own project now: left as it was, and said
+                    // in its own words (fix round 1, I1).
+                    beingPromoted.append(matches[0].documentTitle)
                 }
 
             case .research:
@@ -485,7 +502,7 @@ extension ProjectStore {
                 try await writeReplacedResearchText(updated, to: target, path: path, url: url)
             }
         }
-        return ReplaceAllOutcome(leftAlone: leftAlone)
+        return ReplaceAllOutcome(leftAlone: leftAlone, beingPromoted: beingPromoted)
     }
 
     /// Apply a query→replacement edit to a manuscript document through the op
@@ -576,11 +593,15 @@ extension ProjectStore {
             held = WritableManuscript(doc: openDoc, isTransient: false)
         } else {
             do {
-                let doc = try await Document.load(
+                // Through the promotion door: a piece being promoted throws
+                // `ManuscriptBeingPromoted`, which the verb says (fix round 1, I1).
+                let doc = try await DocumentStore.loadManuscript(
+                    path: path, title: title,
                     url: docURL,
                     actor: .author,
                     session: "\(session)-\(UUID().uuidString.prefix(8))",
-                    presenter: documentStore?.presenter)
+                    presenter: documentStore?.presenter,
+                    through: documentStore)
                 held = WritableManuscript(doc: doc, isTransient: true)
             } catch DocumentLoadError.waitingForPiece {
                 // A piece this device may not write whose history has not

@@ -416,9 +416,8 @@ extension ProjectStore {
         // form, and the resolver's case-insensitive title match handles
         // those naturally on the next render.
         if oldTitle != newTitle, item.type == .document {
-            let left = await propagateWikiLinkRename(
+            return await propagateWikiLinkRename(
                 excludeId: id, oldTitle: oldTitle, newTitle: newTitle)
-            return RenameOutcome(linksLeftIn: left)
         }
         return RenameOutcome(linksLeftIn: [])
     }
@@ -428,14 +427,25 @@ extension ProjectStore {
         /// Titles of the pieces (and statements) whose `[[old title]]` links
         /// were left, because this Mac may not write their text.
         public let linksLeftIn: [String]
+        /// Titles of the pieces a promotion was moving to their own project
+        /// just then, whose links were left (shell p4 Task 11 fix round 1, I1).
+        public var linksLeftWhilePromoting: [String] = []
 
         /// The sentence the tree says, or nil when every link was rewritten.
         public var sentence: String? {
-            guard !linksLeftIn.isEmpty else { return nil }
-            return "Links to the old title were left in "
-                + linksLeftIn.joined(separator: ", ")
-                + " — this Mac may not change their text, so those links no "
-                + "longer point anywhere until someone who may fixes them."
+            var sentences: [String] = []
+            if !linksLeftIn.isEmpty {
+                sentences.append("Links to the old title were left in "
+                    + linksLeftIn.joined(separator: ", ")
+                    + " — this Mac may not change their text, so those links no "
+                    + "longer point anywhere until someone who may fixes them.")
+            }
+            if !linksLeftWhilePromoting.isEmpty {
+                sentences.append("Links to the old title were left in "
+                    + linksLeftWhilePromoting.joined(separator: ", ")
+                    + " — it was being promoted to its own project just then.")
+            }
+            return sentences.isEmpty ? nil : sentences.joined(separator: " ")
         }
     }
 
@@ -477,8 +487,9 @@ extension ProjectStore {
     @discardableResult
     func propagateWikiLinkRename(
         excludeId: String, oldTitle: String, newTitle: String
-    ) async -> [String] {
+    ) async -> RenameOutcome {
         var linksLeftIn: [String] = []
+        var linksLeftWhilePromoting: [String] = []
         // One rename moves more than one title. The document's own is the
         // obvious one; the other is the COMPOSED title of every statement
         // scoped to it — `ArtifactIndex.statementTitle` names a statement after
@@ -583,11 +594,18 @@ extension ProjectStore {
                     // Propagating a rename through the writer's own links is
                     // an automation of their hand, not an act of its own —
                     // `.author`, like search-and-replace (constraint 6).
-                    resolved = try await Document.load(
+                    resolved = try await DocumentStore.loadManuscript(
+                        path: path, title: doc.title,
                         url: docURL,
                         actor: .author,
                         session: "wiki-rename-\(UUID().uuidString.prefix(8))",
-                        presenter: documentStore?.presenter)
+                        presenter: documentStore?.presenter,
+                        through: documentStore)
+                } catch is ManuscriptBeingPromoted {
+                    // Moving to its own project now: its links are left, and
+                    // the rename says why (shell p4 Task 11 fix round 1, I1).
+                    linksLeftWhilePromoting.append(doc.title)
+                    continue
                 } catch DocumentLoadError.waitingForPiece {
                     // A piece this Mac may not open yet (its ops have not
                     // arrived — since Option A, the root's own Mac waits for a
@@ -789,7 +807,8 @@ extension ProjectStore {
                     "Wiki-rename: research note \(path, privacy: .public) skipped: \(error.localizedDescription, privacy: .public)")
             }
         }
-        return linksLeftIn
+        return RenameOutcome(linksLeftIn: linksLeftIn,
+                             linksLeftWhilePromoting: linksLeftWhilePromoting)
     }
 
     /// Whether a statement's file holds any bytes at all — a `stat`, never a
@@ -932,11 +951,13 @@ extension ProjectStore {
         for document in documents {
             guard let path = document.path else { continue }
             do {
-                let loaded = try await Document.load(
+                let loaded = try await DocumentStore.loadManuscript(
+                    path: path, title: document.title,
                     url: try resolvedProjectPath(path),
                     actor: .author,
                     session: "created-\(UUID().uuidString.prefix(8))",
-                    presenter: documentStore?.presenter)
+                    presenter: documentStore?.presenter,
+                    through: documentStore)
                 // The bootstrap writes an anchored `.md` for the op log to
                 // join on; the render the book keeps on disk is the clean one
                 // (ADR 0019), written here exactly as a restore writes its

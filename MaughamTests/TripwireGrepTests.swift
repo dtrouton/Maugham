@@ -2783,6 +2783,74 @@ final class TripwireGrepTests: XCTestCase {
         ])
     }
 
+    // MARK: - Every manuscript load passes the promotion door (shell p4 Task 11 fix round 1)
+
+    /// The production `Document.load(` call sites allowed outside the door,
+    /// by file and count: the door's own two (strict and recovery), and the
+    /// three statement loads — a statement's path is never a piece's, and its
+    /// own gate (`lockStatementOpen`) is what a promotion takes for it.
+    static let rawDocumentLoadSites: [String: Int] = [
+        "DocumentStore.swift": 2,
+        "ProjectStore+Statements.swift": 1,
+        "ProjectStore+StatementAdoption.swift": 1,
+        "StatementEditorHost.swift": 1,
+    ]
+
+    /// **No load reaches a manuscript without the promotion door**
+    /// (`DocumentStore.loadManuscript`). The hold first protected
+    /// `EditorHost` alone, and Replace All, the relabel, the rename sweep and
+    /// every MCP read went on loading the held path — the half-rule shape. A
+    /// new `Document.load(` anywhere else in `Maugham/` fails here: route it
+    /// through the door, or, if it is not a manuscript's path, name it above
+    /// with the reason.
+    func test_everyManuscriptLoadPassesThePromotionDoor() throws {
+        let found = try Self.rawDocumentLoadCounts(under: sourceDir)
+        XCTAssertEqual(found, Self.rawDocumentLoadSites,
+            "A production `Document.load(` outside the promotion door. A load of a "
+            + "piece's path goes through `DocumentStore.loadManuscript(path:…through:)`, "
+            + "which refuses a path a promotion holds (`ManuscriptBeingPromoted`).")
+    }
+
+    /// Self-check: counts a planted raw load (two lines, as production writes
+    /// them), leaves `FigureDocument.load(`, the door's own spelling and a
+    /// comment alone.
+    func test_theManuscriptLoadDoorCensusFiresOnAPlantedLoad() throws {
+        let fm = FileManager.default
+        let tmp = TestTemp.root
+            .appendingPathComponent("tripwire-load-door-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try """
+        let doc = try await Document.load(
+            url: url, actor: .author, session: "s", presenter: nil)
+        """.write(to: tmp.appendingPathComponent("Planted.swift"), atomically: true, encoding: .utf8)
+        try """
+        // Document.load( named in prose is not a load.
+        let figure = try await FigureDocument.load(url: url)
+        let doc = try await DocumentStore.loadManuscript(
+            path: p, url: url, actor: .author, session: "s", presenter: nil, through: store)
+        """.write(to: tmp.appendingPathComponent("Control.swift"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.rawDocumentLoadCounts(under: tmp), ["Planted.swift": 1])
+    }
+
+    /// Per file, the code lines holding a raw `Document.load(` (not
+    /// `FigureDocument.load(`); comment lines skipped.
+    static func rawDocumentLoadCounts(under dir: URL) throws -> [String: Int] {
+        guard let walker = SourceTreeCache.enumerator(at: dir) else { return [:] }
+        var counts: [String: Int] = [:]
+        for case let url as URL in walker where url.pathExtension == "swift" {
+            for line in try SourceTreeCache.text(url).components(separatedBy: "\n") {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"),
+                      let hit = code.range(of: "Document.load(") else { continue }
+                let before = code[code.startIndex..<hit.lowerBound]
+                if before.hasSuffix("Figure") || before.last?.isLetter == true { continue }
+                counts[url.lastPathComponent, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
     // MARK: - No test writes the general pasteboard (shell p4 Task 11)
 
     /// **`NSPasteboard.general` is every process's.** The writer's own ⌘C, or

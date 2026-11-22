@@ -1236,13 +1236,28 @@ struct ProjectWindow: View {
         /// What a promotion has to say: what of the book's figures did not
         /// carry whole, or why it failed. Nil when there is nothing to say.
         @State private var promotionOutcome: String?
+        /// The hidden folder a failed promotion kept what it could not put
+        /// back in (`PiecePromotionFailed.Where.keptIn`), for the alert's
+        /// Reveal in Finder — Finder hides a dot-folder (fix round 1, M4).
+        @State private var promotionKeptIn: URL?
 
         func body(content: Content) -> some View {
             content
                 .alert("Promote to Project",
                        isPresented: Binding(get: { promotionOutcome != nil },
                                             set: { if !$0 { promotionOutcome = nil } })) {
-                    Button("OK", role: .cancel) { promotionOutcome = nil }
+                    if let folder = promotionKeptIn {
+                        Button("Reveal in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                            promotionKeptIn = nil
+                        }
+                        Button("Copy Path") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(folder.path, forType: .string)
+                            promotionKeptIn = nil
+                        }
+                    }
+                    Button("OK", role: .cancel) { promotionOutcome = nil; promotionKeptIn = nil }
                 } message: {
                     Text(promotionOutcome ?? "")
                 }
@@ -1316,6 +1331,10 @@ struct ProjectWindow: View {
                                 promotionOutcome = promotion.figureNotice
                             } catch {
                                 _projectWindowLog.error("Promote failed: \(error, privacy: .public)")
+                                if let failed = error as? PiecePromotionFailed,
+                                   case .keptIn(let folder) = failed.filesAre {
+                                    promotionKeptIn = folder
+                                }
                                 promotionOutcome = error.localizedDescription
                             }
                         }

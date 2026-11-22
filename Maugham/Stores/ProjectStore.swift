@@ -329,6 +329,10 @@ public final class ProjectStore {
     /// nothing — a timer's text stays pending, any other is kept aside or
     /// not made, and said (`ResearchNoteDoor.write`).
     @ObservationIgnored internal var researchItemsInFlightCounts: [String: Int] = [:]
+    /// The piece a promotion is moving now, if any (`promotePieceToProject`):
+    /// one promotion at a time per Collection (shell p4 Task 11 fix round 1,
+    /// M1).
+    @ObservationIgnored internal var promotionInFlight: String?
 
     /// Per-project cache fronting `DerivedManuscript` for CLOSED docs (F5).
     /// Owned here — not on `DocumentStore` — because every adopter (search,

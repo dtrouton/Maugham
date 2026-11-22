@@ -124,7 +124,7 @@ public final class DocumentStore {
 
     /// The manuscript paths a promotion holds (`withdrawForPromotion`), each
     /// with the loads waiting for it to be given back.
-    @ObservationIgnored private var withdrawnForPromotion: [String: [CheckedContinuation<Void, Never>]] = [:]
+    @ObservationIgnored private var withdrawnForPromotion: [String: PromotionHoldState] = [:]
     /// Moves each time a promotion gives its piece's path back
     /// (`returnFromPromotion`). Observed: `EditorHost` loads again on it, so
     /// an editor the promotion closed under is never left on the husk.
@@ -1886,24 +1886,41 @@ public final class DocumentStore {
     /// its path is held until `returnFromPromotion`, and nothing else is
     /// touched: the presenter stays installed throughout (its staging-move
     /// callbacks find no open `Document` at the moved path and nothing to do).
-    func withdrawForPromotion(path: String) async {
-        if withdrawnForPromotion[path] == nil { withdrawnForPromotion[path] = [] }
+    @discardableResult
+    func withdrawForPromotion(path: String) async -> PromotionHold {
+        let hold = PromotionHold(path: path)
+        // A hold already standing on this path is another promotion's: never
+        // replaced, so that promotion's return stays its own (fix round 1,
+        // M1). The entry point refuses a second promotion before it gets here.
+        if withdrawnForPromotion[path] == nil {
+            withdrawnForPromotion[path] = PromotionHoldState(token: hold.token)
+        }
         await closeFlushAndUnregister(affectedPaths: [path])
+        return hold
     }
 
     /// The promotion is over, success or failure: the path is given back,
     /// every load that waited on it goes on, and `promotionReturns` moves so
     /// an editor left on the closed `Document` loads again — the piece the
-    /// rollback put back, or nothing, if the piece is now a reference.
-    func returnFromPromotion(path: String) {
-        guard let waiting = withdrawnForPromotion.removeValue(forKey: path) else { return }
+    /// rollback put back, or nothing, if the piece is now a reference. **Only
+    /// by the hold that took it**: a return carrying another promotion's
+    /// token gives back nothing (fix round 1, M1).
+    func returnFromPromotion(_ hold: PromotionHold) {
+        guard let state = withdrawnForPromotion[hold.path], state.token == hold.token else { return }
+        withdrawnForPromotion[hold.path] = nil
         promotionReturns &+= 1
-        for load in waiting { load.resume() }
+        for load in state.waiting { load.resume() }
     }
 
     /// Whether a promotion holds `path` now.
     func isWithdrawnForPromotion(path: String) -> Bool {
         withdrawnForPromotion[path] != nil
+    }
+
+    /// How many loads wait on `path`'s hold now — what a test reads to know
+    /// a waiter has reached the wait, without a clock.
+    func loadsWaitingForPromotion(path: String) -> Int {
+        withdrawnForPromotion[path]?.waiting.count ?? 0
     }
 
     /// **A load of `path` waits while a promotion holds it** — the statement
@@ -1914,8 +1931,56 @@ public final class DocumentStore {
     func waitWhileWithdrawnForPromotion(path: String) async {
         guard withdrawnForPromotion[path] != nil else { return }
         await withCheckedContinuation { (load: CheckedContinuation<Void, Never>) in
-            withdrawnForPromotion[path, default: []].append(load)
+            withdrawnForPromotion[path]?.waiting.append(load)
         }
+    }
+
+    /// Whether `path` still names a manuscript this store's book holds — a
+    /// loose document, never a reference's link file (a promotion that
+    /// succeeded turned the piece into one).
+    func pathNamesAManuscript(_ path: String) -> Bool {
+        guard let projectStore else { return true }
+        return TreeWalk.first(in: projectStore.manifest.structure, where: {
+            $0.path == path && $0.type == .document && $0.pieceKind != .reference
+        }) != nil
+    }
+
+    /// **The door every manuscript load by path passes** (shell p4 Task 11
+    /// fix round 1, I1). The hold above protected `EditorHost` alone; Replace
+    /// and Replace All, a figure's relabel, the wiki-link rename sweep, a
+    /// piece's first render and every MCP read transient-loaded the held path
+    /// — appending to an op log the promotion leaves behind and rendering a
+    /// stray `.md` beside the link file, or blocking the rollback's move-back.
+    /// Here a held path is refused (`ManuscriptBeingPromoted`: a writer says
+    /// it, a reader skips it), and a load that was already reading when the
+    /// promotion took the path — or that outlived a promotion which turned the
+    /// path into a reference's — is closed and refused rather than handed
+    /// out. `TripwireGrepTests.test_everyManuscriptLoadPassesThePromotionDoor`
+    /// counts every other `Document.load(` in production.
+    static func loadManuscript(
+        path: String, title: String? = nil, url: URL, actor: DeviceActor, session: String,
+        presenter: NSFilePresenter?, recovery: DocumentRecoveryMode? = nil,
+        through store: DocumentStore?
+    ) async throws -> Document {
+        if let store, store.isWithdrawnForPromotion(path: path) {
+            throw ManuscriptBeingPromoted(title: title)
+        }
+        let returnsBefore = store?.promotionReturns
+        let doc: Document
+        if let recovery {
+            doc = try await Document.load(url: url, actor: actor, session: session,
+                                          presenter: presenter, recovery: recovery)
+        } else {
+            doc = try await Document.load(url: url, actor: actor, session: session,
+                                          presenter: presenter)
+        }
+        guard let store else { return doc }
+        if store.isWithdrawnForPromotion(path: path)
+            || (store.promotionReturns != returnsBefore && !store.pathNamesAManuscript(path)) {
+            await doc.close()
+            throw ManuscriptBeingPromoted(title: title)
+        }
+        return doc
     }
 
     /// Coordinated atomic write of `text` to `fileURL`. Used by the research
@@ -2474,6 +2539,31 @@ public final class DocumentStore {
     /// (`TrustReReadsStatementsTests`' census).
     func everyOpenDocument() -> [Document] {
         allOpenDocuments() + (projectStore?.liveStatementDocuments ?? [])
+    }
+}
+
+/// One promotion's hold on its piece's path (`withdrawForPromotion`): only
+/// the hold that took a path gives it back (`returnFromPromotion`).
+struct PromotionHold: Equatable {
+    let path: String
+    let token = UUID()
+}
+
+/// A held path's hold and the loads waiting for it.
+struct PromotionHoldState {
+    let token: UUID
+    var waiting: [CheckedContinuation<Void, Never>] = []
+}
+
+/// **A manuscript a promotion is moving** (`DocumentStore.loadManuscript`):
+/// a writer refuses and says this; a reader skips the piece.
+public struct ManuscriptBeingPromoted: LocalizedError, Equatable {
+    public let title: String?
+    public var errorDescription: String? {
+        if let title {
+            return "\u{201C}\(title)\u{201D} is being promoted to its own project \u{2014} try again in a moment."
+        }
+        return "This piece is being promoted to its own project \u{2014} try again in a moment."
     }
 }
 
