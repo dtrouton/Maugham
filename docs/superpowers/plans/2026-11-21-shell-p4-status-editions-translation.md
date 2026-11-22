@@ -577,3 +577,4 @@ Plans 1–3's hand checks stand. This plan adds:
 7. **Promotion (question 4):** the piece's history survives in the original (the Collection keeps it); the promoted project should also carry the history, notes and translations — a copy, not a move, of the op log, annotations and translations. Its own piece of work, planned after plan 4.
 
 Everything still owed to Denver from this plan is one numbered list in ADR 0038 ("Owed to the owner").
+8. **The 2026-11-22 list of sixteen** (ADR 0038, "Owed to the owner", has each item and recommendation): 1–7 as recommended — 1, add Remove Edition (hide the edition, keep its translations on disk, confirm first) and 7, rename "Changes" to "To look at" are **owed work, not yet built**; 2–6 as built; 8, 9, 10, 12 and 14 fine. Still open: 11 (the Source edition's Status), 13 (Rewind only on the open piece), 15 (Lock and manuscript text), 16 (small wording items).

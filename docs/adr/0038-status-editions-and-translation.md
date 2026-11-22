@@ -184,44 +184,57 @@ Off the open piece (an edition faced, a chapter clicked) the rows read and do no
 Each was taken in the build ledger by the controller (or an implementer, where it says) and is the agent's, not the owner's, unless marked answered.
 
 1. **A piece that would not read draws a hollow ring labelled "Could not be read"** (RULING-54's honesty rule; cost if wrong: one more glyph in the tree). *Unanswered.*
-2. **The dot is accent, at the row's trailing edge**, not the plan's secondary grey beside the stage dot (the draft stage dot is already grey). Implementer's call. *Unanswered* (hand check 1).
+2. **The dot is accent, at the row's trailing edge**, not the plan's secondary grey beside the stage dot (the draft stage dot is already grey). Implementer's call. *Answered, 2026-11-22:* the colour and the three dots for one marked chapter (chapter, Part, Book) are fine (owed item 8, 9).
 3. **Filing settles a change**: Keep mine and Make it a rule leave the list like Fine; the change stays in the report. *Unanswered.*
 4. **Compile: only problems that stopped a book are listed and mark the editions**; warnings stay behind Show Problems, so list and mark agree. *Unanswered.*
 5. **A question clicked in an edition's list opens its paragraph in the edition's language.** Follows the owner's answer 3 of 2026-11-21. *Answered in substance.*
 6. **Run Whole Book's cost is shown on the head's scope line, measured only while idle, with no confirm dialog.** *Unanswered.*
-7. **Reading must not cost Undo**: type, switch to a language, switch back, ⌘Z works. Its consequence: no undo at all while reading. *Unanswered.*
-8. **The arrow rule**: an arrow selects at once; it pulls up after a ~300 ms settle and only if the right column is showing; Return or Space pulls up now and reveals; Back records settled pulls only. *Answered* (owner's hand check, 2026-11-22: "look good").
-9. **A palette card both pinned and inside a region lists under Palette** (the shelf's first claim); the misleading code comment was fixed. *Unanswered.*
-10. **The insertion line is built** by sampling the pointer against the row's frame while targeted. *Answered* (owner's hand check, 2026-11-22).
+7. **Reading must not cost Undo**: type, switch to a language, switch back, ⌘Z works. Its consequence: no undo at all while reading. *The consequence answered, 2026-11-22* (owed item 2, as built); the ruling itself not separately confirmed.
+8. **The arrow rule**: an arrow selects at once; it pulls up after a ~300 ms settle and only if the right column is showing; Return or Space pulls up now and reveals; Back records settled pulls only. *Hand-checked by the owner, 2026-11-22* ("look good"); the ruling itself not separately confirmed.
+9. **A palette card both pinned and inside a region lists under Palette** (the shelf's first claim); the misleading code comment was fixed. *Answered, 2026-11-22:* leave (owed item 5).
+10. **The insertion line is built** by sampling the pointer against the row's frame while targeted. *Hand-checked by the owner, 2026-11-22* (it follows the pointer in a real drag); the ruling itself not separately confirmed.
 11. **One promotion at a time per Collection**, refused at entry. *Unanswered.*
 12. **A ledger written before `latestByPiece` falls back to the ring's finished rounds.** Implementer's call. *Unanswered.*
-13. **A failed or refused compile with problems covers the centre with them**; a warnings-only book does not. Implementer's call, from hand check 4's wording. *Unanswered.*
+13. **A failed or refused compile with problems covers the centre with them**; a warnings-only book does not. Implementer's call, from hand check 4's wording. *Answered, 2026-11-22:* as built (owed item 3).
 14. **Adding a language the book already has selects that edition** and shows its Brief, rather than an alert. *Unanswered.*
 15. **The Book row rolls up everything inside it.** *Answered* (the owner's instruction, relayed during Task 3).
 16. **The plan's own calls** (the plan's "Calls made in this plan", 1–13): the design proposal in every edition; changes and glossary proposals carry the round's lifetime; source under each paragraph on by default; the view switch in the toolbar; the fold's tree-local tag; the promotion closes only what it moves; the flake verdicts; ⌘⌥L and ⌘⌥K; Earlier letters; the running-round indicator; a finished round is ended and not cancelled; the Source's Status shows publishing only; stale and left-over paragraphs as head lines. *Unanswered* (the owner answered the plan's four questions, below, not the calls).
+17. **The canvas's details cover a pulled-up thing only while the canvas selection is newer than the pull-up** (the C1 fix at this plan's base, which Task 1's fixtures pin). *Unanswered.*
 
 **The owner's answers (2026-11-21):** the designer's Run at the head of the Source edition's To resolve; a chapter read in a language stays in it on the next chapter when it has the translation; a click on a chapter in an edition's Status opens it in the edition's language; drop-target feedback and the Canvas row's drop join the fold's task; Brief's how-to lines go ([ADR 0037](0037-brief-and-the-pulled-up-thing.md) decision 22).
 
 ## Owed to the owner
 
-The controller gave the owner a sixteen-item list on 2026-11-22. That list's text is not in the repository; this is it reconstructed from the build ledger's "FOR DENVER" lines, the plan's calls and the earlier plans' owed decisions, with the owner's answers so far.
+The list the controller gave the owner on 2026-11-22, with the controller's recommendation ("as built" means leave it), and the owner's answers the same day.
 
-1. **The hand checks** in the plan ("Hand checks owed to the owner", 1–20, the smoke last). *Partly answered, 2026-11-22:* the single click on a fold card, the insertion line and arrowing with nothing pulled up "look good".
-2. **Promotion carries nothing of the piece's history.** *Answered, 2026-11-22:* the history survives in the original (the Collection keeps it); the promoted project should also carry the history, notes and translations: a copy, not a move, of the op log, annotations and translations, planned as its own work after plan 4.
-3. **"Changes" or "To look at"?** The chip and the Status column also count departures the translator never touched.
-4. **Remove Edition.** There is no way to remove an edition; a mistyped language tag is permanent.
-5. **A change made only in a language dots the edition's row, not the chapter's.**
-6. **No undo while reading a translation** in that window, including undoing a note resolved in the right column (ruling 7).
-7. **A palette card pinned and inside a region lists under Palette** (ruling 9).
-8. **Publishing's edges:** problems cover the centre on a failed compile (ruling 13); a compile in any language resets the publication pick in every edition; a richer Source Status.
-9. **The tree's dot:** accent at the trailing edge (ruling 2); it shares the unread dot's colour; Parts and the Book roll up.
-10. **The hollow ring** for a piece that would not read (ruling 1).
-11. **Filing settles a change** (ruling 3).
-12. **Only stopping compile problems are listed** (ruling 4).
-13. **Brief's foot:** its size, History without its clock glyph, and the links' count leaving the line at the narrowest width.
-14. **Run Whole Book's cost on one line, no confirm** (ruling 6).
-15. **One promotion at a time** (ruling 11).
-16. **The earlier plans' open decisions:** the two "is running" lines' wording and Lock not locking the manuscript text ([ADR 0035](0035-the-subject-not-the-persona.md) decisions 7 and 14); a Check Writing button in To resolve's head ([ADR 0036](0036-to-resolve.md) decision 7); the choices "for the owner to overrule" in [ADR 0037](0037-brief-and-the-pulled-up-thing.md) decisions 18–22; and this plan's calls (ruling 16).
+**Behaviour**
+
+1. **Remove Edition.** There is no way to remove an edition, so a mistyped language tag is permanent. Recommended: add it; hide the edition and keep its translations on disk; confirm first. *Answered: agreed as recommended.* **Owed work, not yet built.**
+2. **Undo while reading a translation.** Undo and Redo are disabled window-wide while the window shows a translation, including undoing a right-column act (resolving a note); history returns in Source. Recommended: as built. *Answered: as built.*
+3. **A failed compile's problems cover the centre at once**, without pressing Show Problems. Recommended: as built. *Answered: as built.*
+4. **Cast changes need edit permission on the edition's brief** (Add Language, renames); a reviewer sees none of them, where the desk never hid them. Recommended: as built. *Answered: as built.*
+5. **A palette card both pinned to a chapter and inside one of its regions lists once, under Palette** (linked research cards already behave so). Recommended: leave. *Answered: leave.*
+6. **A change that exists only in the Spanish dots the Spanish edition's row, not the chapter's.** Recommended: as built (a chapter's dot then always means the source needs you). *Answered: as built.*
+
+**Wording and look**
+
+7. **"Changes" or "To look at"** for the chip and the Status column (it also counts paragraphs that departed from the source without the translator touching them). Recommended: "To look at". *Answered: "To look at".* **Owed work, not yet renamed.**
+8. **The tree dot's colour**, the same accent as the right column's "unread" dot. *Answered: fine.*
+9. **Three dots for one marked chapter** (chapter, Part, Book). *Answered: fine.*
+10. **Brief's foot** is one text size smaller than the rest of Brief, and History lost its clock icon. *Answered: fine.*
+11. **The Source edition's Status** shows only publishing; it could carry word counts and stage. *Open.*
+
+**Still open from plans 1–3**
+
+12. **Permissions narrowed**: tags, targets, links and Publishing now need restructure permission; a reviewer could edit them before (Publishing matters most). *Answered: fine as built.*
+13. **Rewind works only on the open piece.** *Open.*
+14. **Opening an intent or History in the centre clears the chapter's typing Undo.** *Answered: fine.*
+15. **Lock: should it also lock manuscript text?** Today it covers research and figures only ([ADR 0035](0035-the-subject-not-the-persona.md) decision 14). *Open.*
+16. **Small wording items**: "Details of …", "Pull Up Previous", the "… is running" line, a short story's piece called "chapter". *Open.*
+
+**Answered outside the list.** On 2026-11-22: (a) the hand checks of the `9896e3cf` build "look good" (a single click on a fold card stays up; the insertion line follows the pointer in a real drag; arrowing with nothing pulled up leaves the column alone); the plan's other hand checks (1–20, the smoke last) are still owed. (b) **Promotion:** "the history should survive in the original; it would be nice for the promoted version to also have the history, notes and translations" — a copy, not a move, of the op log, annotations and translations, its own piece of work planned after plan 4. On 2026-11-21: the plan's questions 1–4 as recommended, and Brief's how-to lines dropped ([ADR 0037](0037-brief-and-the-pulled-up-thing.md) decision 22).
+
+**Rulings above the owner has not yet confirmed:** 1, 3, 4, 6, 11, 12, 14, 16, 17; 7, 8 and 10 only through their consequences or a hand check.
 
 ## Known limits
 
