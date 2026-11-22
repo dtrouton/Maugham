@@ -344,6 +344,9 @@ final class CompilerOrchestrator {
     }
 
     private var streaming: StreamingRun?
+    /// **The lane of the round in flight**, nil for a check or before the
+    /// run is briefed — what the toolbar names an editor's round by.
+    var runningRoundPassId: String? { streaming?.passId }
 
     var isRunning: Bool {
         if isPreparingRun { return true }

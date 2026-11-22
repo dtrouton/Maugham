@@ -263,74 +263,100 @@ final class ReadingTranslationPostureTests: XCTestCase {
         await doc.close()
     }
 
-    // MARK: - Undo-coherent flag coupling (Important)
+    // MARK: - The window's undo across a translation (shell p4 Task 8 fix I5)
 
-    /// A translation entry/exit swap must NEVER preserve the undo stack, even when
-    /// an accept/revert set the one-shot undo-coherent flag in the SAME pass:
-    /// carrying the source's native undo actions across the translated-buffer swap
-    /// re-opens the ⌘Z EXC_BAD_ACCESS class (EditorUndoStackClearTests). When the
-    /// translation membrane flips this pass, `reconcileTextBuffer` forces a
-    /// non-undo-coherent replace regardless of the flag.
+    /// **Reading a translation never touches the window's stack, and ⌘Z there
+    /// cannot reach it** (controller's ruling I5, replacing Task 11's "the
+    /// entry swap clears the stack"): the view's undo manager is a throwaway
+    /// while the buffer holds a translation, and the swap's clear is that
+    /// throwaway's. The D1 crash class stays closed — the native typing
+    /// actions on the window's stack are never popped against a surface they
+    /// do not describe — and is closed again on the way out
+    /// (`test_leavingToAChangedSourceDropsTheStack`).
     @MainActor
-    func test_reconcile_translationSwap_forcesUndoStackClear_evenWithCoherentFlag() {
+    func test_enteringAndRefreshingATranslationKeepTheWindowsStackOutOfReach() {
         let harness = EditorIntegrationHarness(initialText: "Source one")
         let coordinator = harness.coordinator
         let um = UndoManager()
         coordinator.undoManagerOverrideForTesting = um
-        um.registerUndo(withTarget: self) { _ in }   // stale native typing action
-        XCTAssertTrue(um.canUndo)
-
-        // Entering translation review (membrane flips) with the one-shot
-        // undo-coherent flag set: the translation swap must win and clear the stack.
-        EditorSurface.reconcileTextBuffer(
-            textView: harness.textView,
-            coordinator: coordinator,
-            translationLanguage: "fr",
-            text: "Traduction un",
-            undoCoherentApply: true)
-
-        XCTAssertTrue(coordinator.isReadingTranslation)
-        XCTAssertFalse(um.canUndo,
-            "a translation-entry swap must drop the stale native undo stack even "
-            + "when the one-shot undo-coherent flag is set")
-    }
-
-    /// In-mode refresh (Task 12 carry-over): ALREADY in translation review — the
-    /// membrane does NOT flip this pass — but the translated CONTENT changes AND
-    /// an unrelated accept/revert set the one-shot undo-coherent flag in the same
-    /// pass. The membrane-changed check alone would (wrongly) preserve the stale
-    /// stack across this in-mode buffer replace; gating on `translationLanguage ==
-    /// nil` forces the clear. Strip the `translationLanguage == nil` term and this
-    /// fails (the stale action survives the replace — the ⌘Z crash class).
-    @MainActor
-    func test_reconcile_inModeTranslatedRefresh_clearsUndoStack_evenWithCoherentFlag() {
-        let harness = EditorIntegrationHarness(initialText: "Source one")
-        let coordinator = harness.coordinator
-        let um = UndoManager()
-        coordinator.undoManagerOverrideForTesting = um
-
-        // Enter translation review (membrane flips ON); buffer shows translated
-        // text. No flag here — this is just establishing the in-mode state.
+        um.registerUndo(withTarget: self) { _ in }   // the writer's history
         EditorSurface.reconcileTextBuffer(
             textView: harness.textView, coordinator: coordinator,
-            translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
+            translationLanguage: "fr", text: "Traduction un", undoCoherentApply: true)
         XCTAssertTrue(coordinator.isReadingTranslation)
-
-        // A stale native action lands (or an accept/revert one-shot registration).
-        um.registerUndo(withTarget: self) { _ in }
-        XCTAssertTrue(um.canUndo)
-
-        // Still IN translation review (language unchanged → membrane does NOT
-        // flip), the translated content changes, and the undo-coherent flag is
-        // set in this same pass. The swap must STILL clear the stack.
+        XCTAssertTrue(um.canUndo, "the writer's history survives the swap in")
+        XCTAssertTrue(harness.textView.undoManager === coordinator.readingUndoManager,
+                      "⌘Z over the translation reaches the throwaway, never the writer's history")
         EditorSurface.reconcileTextBuffer(
             textView: harness.textView, coordinator: coordinator,
             translationLanguage: "fr", text: "Traduction deux", undoCoherentApply: true)
+        XCTAssertTrue(um.canUndo, "an in-mode refresh keeps it too")
+        XCTAssertFalse(coordinator.readingUndoManager.canUndo)
+    }
 
-        XCTAssertTrue(coordinator.isReadingTranslation)
-        XCTAssertFalse(um.canUndo,
-            "an in-mode translated-content refresh must clear the undo stack even "
-            + "when the one-shot undo-coherent flag is set in the same pass")
+    /// Leaving to the very source the stack was built on keeps it; leaving to a
+    /// source that changed meanwhile (a merge, an op undone) drops it — its
+    /// typing ranges are stale (ADR 0023 D1).
+    @MainActor
+    func test_leavingToTheSameSourceKeepsTheStack() {
+        let harness = EditorIntegrationHarness(initialText: "Source one")
+        let coordinator = harness.coordinator
+        let um = UndoManager()
+        coordinator.undoManagerOverrideForTesting = um
+        um.registerUndo(withTarget: self) { _ in }
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: nil, text: "Source one", undoCoherentApply: false)
+        XCTAssertFalse(coordinator.isReadingTranslation)
+        XCTAssertTrue(um.canUndo)
+        XCTAssertFalse(harness.textView.undoManager === coordinator.readingUndoManager)
+    }
+
+    @MainActor
+    func test_leavingToAChangedSourceDropsTheStack() {
+        let harness = EditorIntegrationHarness(initialText: "Source one")
+        let coordinator = harness.coordinator
+        let um = UndoManager()
+        coordinator.undoManagerOverrideForTesting = um
+        um.registerUndo(withTarget: self) { _ in }
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
+        EditorSurface.reconcileTextBuffer(
+            textView: harness.textView, coordinator: coordinator,
+            translationLanguage: nil, text: "Source one, merged", undoCoherentApply: false)
+        XCTAssertFalse(um.canUndo, "a changed source makes the typing ranges stale (D1)")
+    }
+
+    /// **Type, read in a language, come back, ⌘Z: the typing is undone** — the
+    /// writer's own words through the real window undo manager (fix I5).
+    @MainActor
+    func test_typeSwitchLanguageSwitchBackAndUndoRestores() {
+        let harness = EditorIntegrationHarness(initialText: "One two")
+        let tv = harness.textView
+        let coordinator = harness.coordinator
+        let um = tv.undoManager!
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 7, length: 0))
+        tv.insertText(" three", replacementRange: NSRange(location: NSNotFound, length: 0))
+        um.endUndoGrouping()
+        XCTAssertEqual(tv.string, "One two three")
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: coordinator,
+                                          translationLanguage: "sr", text: "Jedan dva tri",
+                                          undoCoherentApply: false)
+        // ⌘Z over the translation spends nothing.
+        tv.undoManager?.undo()
+        XCTAssertEqual(tv.string, "Jedan dva tri")
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: coordinator,
+                                          translationLanguage: nil, text: "One two three",
+                                          undoCoherentApply: false)
+        XCTAssertTrue(um.canUndo, "the writer's typing is still there to undo")
+        tv.undoManager?.undo()
+        XCTAssertEqual(tv.string, "One two", "and ⌘Z takes it back")
     }
 
     /// Control half: when the membrane does NOT change this pass (an ordinary

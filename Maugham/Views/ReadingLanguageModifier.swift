@@ -30,6 +30,8 @@ struct ReadingLanguageModifier: ViewModifier {
     let documentStore: DocumentStore?
     @Binding var editorControl: EditorControl
     let reading: ReadingLanguageModel
+    /// The book's structure, for which piece a find match is in.
+    var structure: () -> [StructureItem] = { [] }
 
     /// A reveal whose chapter had to be opened first, held until `openDocId`
     /// catches up. Nil at every other moment.
@@ -63,11 +65,29 @@ struct ReadingLanguageModifier: ViewModifier {
             .onKeyWindowCommand(.maughamReadInSource, window: window) { _ in
                 editorControl.translationLanguage = nil
             }
+            // The setting's one home is the project's `UIState`, which every
+            // window on the book shares (fix M6); the control mirrors it.
             .onKeyWindowCommand(.maughamToggleSourceUnder, window: window) { _ in
-                let on = !reading.showsSourceUnder
-                reading.showsSourceUnder = on
-                editorControl.showsSourceUnder = on
+                let on = !(documentStore?.uiState.showsSourceUnderTranslation ?? true)
                 documentStore?.updateUIState { $0.showsSourceUnderTranslation = on }
+            }
+            .onChange(of: documentStore?.uiState.showsSourceUnderTranslation, initial: true) { _, on in
+                let shows = on ?? true
+                if editorControl.showsSourceUnder != shows { editorControl.showsSourceUnder = shows }
+            }
+            // **A find match is a range of the SOURCE** (fix I2): its piece is
+            // read in Source, now if it is open, else on its arrival — never
+            // a selection at source offsets in a translated surface.
+            .onKeyWindowCommand(.maughamFindMatchSelected, window: window) { note in
+                guard let match = note.userInfo?["match"] as? SearchMatch,
+                      let docId = ReadingLanguage.findMatchPiece(match, structure: structure())
+                else { return }
+                if docId == openDocId {
+                    reading.pending = nil
+                    choose(nil)
+                } else {
+                    reading.pending = (docId, nil)
+                }
             }
             // **A report row as a way back into the manuscript.** Which chapter is
             // OPEN is this window's own answer, so the poster posts and the plan is
@@ -92,10 +112,12 @@ struct ReadingLanguageModifier: ViewModifier {
             // first moment the window looks at the chapter it named; its own
             // language then wins over the carried one.
             .onChange(of: openDocId) { _, newValue in
-                let carried = ReadingLanguage.carried(
-                    reading.pending ?? editorControl.translationLanguage,
-                    toPieceWith: reading.languages(for: newValue))
+                // A language asked for on the way is taken on ITS piece's
+                // arrival only (fix M7); any other arrival drops it.
+                let asked = reading.pending.map { $0.docId == newValue ? $0.language : nil }
+                    ?? editorControl.translationLanguage
                 reading.pending = nil
+                let carried = ReadingLanguage.carried(asked, toPieceWith: reading.languages(for: newValue))
                 if editorControl.translationLanguage != carried {
                     editorControl.translationLanguage = carried
                 }
@@ -108,11 +130,13 @@ struct ReadingLanguageModifier: ViewModifier {
                 startReveal(reveal, waitingForDocument: true)
             }
             // Which languages each piece has: one listing per translation
-            // change, off the main actor — a change of piece is a lookup.
+            // change, off the main actor — a change of piece is a lookup. A
+            // folder that is there but cannot be read says so (RULING-54; fix
+            // (e)), rather than looking like a book with no translations.
             .task(id: translationsRevision) {
                 let url = projectURL
                 let listing = await Task.detached(priority: .userInitiated) {
-                    TranslationStore.languagesByDocId(in: url)
+                    ReadingLanguageModel.list(in: url)
                 }.value
                 guard !Task.isCancelled else { return }
                 reading.adopt(listing)
@@ -123,36 +147,27 @@ struct ReadingLanguageModifier: ViewModifier {
             .onProjectEvent(.maughamTranslationRoundChanged, url: projectURL, window: window) { _ in
                 translationsRevision += 1
             }
-            // The remembered setting, once the project's UI state is in hand.
-            .task(id: documentStore.map(ObjectIdentifier.init)) {
-                guard let documentStore else { return }
-                let on = documentStore.uiState.showsSourceUnderTranslation
-                reading.showsSourceUnder = on
-                if editorControl.showsSourceUnder != on { editorControl.showsSourceUnder = on }
-            }
             // A reveal's waits outlive the press by up to six seconds. A window
             // closing mid-wait must end them rather than let them poll a store
             // nobody is looking at any more.
             .onDisappear { revealTask?.cancel() }
     }
 
-    /// **The writer's choice of language, keeping their place**: the caret's
-    /// paragraph is read from the source caret (which a translated surface
-    /// keeps in step, `EditorHost.sourceCaret`) BEFORE the swap, and the swap
-    /// is a reveal of that paragraph in the chosen language — so the editor
-    /// lands on the same paragraph whichever way it went. With no paragraph to
-    /// keep, the language is simply set.
+    /// **The writer's choice of language.** The place is kept by the editor
+    /// itself, across the swap (`EditorSurface.reconcileTextBuffer` reads the
+    /// paragraph the writer is LOOKING at and restores it, same distance in,
+    /// same height — fix round (c)); the window only sets the language and
+    /// posts the setting event the key window's coordinator turns its
+    /// membrane on by.
     private func choose(_ language: String?) {
         guard language != editorControl.translationLanguage else { return }
-        let docId = openDocId
-        guard let paragraph = documentStore?.document(forDocId: docId)
-            .flatMap({ $0.paragraphId(at: $0.cursorLocation) }) else {
-            editorControl.translationLanguage = language
-            return
+        editorControl.translationLanguage = language
+        if let language {
+            MaughamEvent.post(.maughamReadInLanguage, to: .keyWindow,
+                              payload: [TranslationReveal.languageKey: language])
+        } else {
+            MaughamEvent.post(.maughamReadInSource, to: .keyWindow)
         }
-        if centreItem != nil { centreItem = nil }
-        startReveal(TranslationReveal(docId: docId, language: language, paragraphId: paragraph),
-                    waitingForDocument: false)
     }
 
     /// **Perform a reveal, waiting for each thing it needs to exist.** Two waits,

@@ -58,7 +58,42 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// stored property, no observers (tripwire 2), threaded ONE-WAY from
     /// ProjectWindow → EditorHost → EditorSurface; nothing reads it back. Use
     /// `setReadingTranslation(_:)` to flip it so the membrane sees it immediately.
-    private(set) var isReadingTranslation = false
+    ///
+    /// **Two facts, either refuses** (shell p4 Task 8 fix I1): a translation
+    /// is ASKED FOR (`translationRequested`, the control's language), or the
+    /// BUFFER still holds one (`bufferHoldsTranslation`). Leaving a
+    /// translation clears the first at once and the second only once the
+    /// source has landed in the text view, so a keystroke in between meets a
+    /// refusing membrane, a non-editable view and a binding that will not
+    /// write — never a manuscript write of the translated surface.
+    var isReadingTranslation: Bool { translationRequested || bufferHoldsTranslation }
+    /// The control's language is set (`setReadingTranslation`).
+    private(set) var translationRequested = false
+    /// **The text view holds a translated surface** (shell p4 Task 8 fix I1):
+    /// set before a translated buffer is swapped in, cleared only after the
+    /// source has landed (`EditorSurface.reconcileTextBuffer`, and the mount).
+    /// While set the view is not editable (AppKit refuses every route —
+    /// typing, paste, drops, Services, Writing Tools, spelling, text
+    /// replacement, input methods, find-bar Replace), the binding is never
+    /// written (`textDidChange`), and the view's undo manager is a throwaway
+    /// (`undoManager(for:)`, fix I5) so ⌘Z cannot spend the writer's history
+    /// on a surface it cannot change.
+    private(set) var bufferHoldsTranslation = false
+    /// The source text the buffer held when a translation came in: leaving
+    /// to the same text keeps the window's undo stack (fix I5); leaving to a
+    /// changed text drops it (ADR 0023 D1 — its ranges are stale).
+    private var sourceTextBeforeTranslation: String?
+    /// The view's editability before a translation came in (a read-only
+    /// recovery view stays read-only after one).
+    private var editableBeforeTranslation = true
+    /// The reading surface's own undo manager: nothing registers on it (the
+    /// view is not editable) and ⌘Z on it does nothing.
+    let readingUndoManager = UndoManager()
+    /// **The ranges that describe the text the view holds NOW** (fix round
+    /// (c)): set where the buffer is swapped, so a place read off the outgoing
+    /// surface is read against that surface, whatever the control's model
+    /// has moved on to. Empty over the source.
+    var bufferBadges: [TranslationBadgeLayout.BadgeRange] = []
 
     /// Weak handle to the floating selection toolbar overlay so the
     /// selection-change callback can position/show/hide it. Lives in the scroll
@@ -603,6 +638,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
     var paragraphRangeProvider: ((String) -> NSRange?)?
+    /// A source location in the text the editor shows (fix I2).
+    var surfaceLocationForSource: ((Int) -> Int)?
 
     /// Resolves a doc-wide UTF-16 location to the containing paragraph_id
     /// and the offset (in the same UTF-16 space) within that paragraph's
@@ -844,9 +881,17 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
                   let match = note.userInfo?["match"] as? SearchMatch,
                   let textView = self.textView else { return }
 
-            // Defer to allow the document load to complete first.
+            // Defer to allow the document load to complete first. A match is
+            // a range of the SOURCE (fix I2): the window reads Source first
+            // (`ProjectWindow`'s receiver), and the match is selected once the
+            // source is what the view holds — never at source offsets in a
+            // translated surface.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)
+                for _ in 0..<60 where self.isReadingTranslation {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                guard !self.isReadingTranslation else { return }
                 self.selectFindMatch(match.charRangeInDocument, in: textView)
             }
         }
@@ -1263,7 +1308,12 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // own action and already cleared the stale ones; wiping here would
         // kill that registration).
         if !preserveUndoStack {
-            (undoManagerOverrideForTesting ?? textView.undoManager)?
+            // Over a translation the clear is the reading surface's own
+            // (fix I5): the window's stack is kept, unreachable, until the
+            // source lands (`sourceLanded` decides then).
+            (bufferHoldsTranslation
+                ? readingUndoManager
+                : (undoManagerOverrideForTesting ?? textView.undoManager))?
                 .removeAllActions()
         }
         isApplyingExternalUpdate = true
@@ -1283,7 +1333,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             length: 0
         )
         textView.setSelectedRange(clamped)
+        // The surface's own ranges before anything is painted or counted over
+        // it (fix M10): the control's model arrives through observation a
+        // turn later, so a swapped surface would draw a frame in full ink.
+        bufferBadges = bufferHoldsTranslation
+            ? TranslationBadgeLayout.ranges(entries: control?.translationBadges.entries ?? []) : []
+        if bufferHoldsTranslation, let control { setTranslationBadges(control.translationBadges) }
         retokenizeAndStyle()
+        if bufferHoldsTranslation { applyTranslationDimming() }
         // The clamp is not a move the caret-left fold should see later.
         figureGrid?.textSelection = textView.selectedRange()
     }
@@ -1392,14 +1449,71 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// replace regardless of any one-shot undo-coherent flag).
     @discardableResult
     func setReadingTranslation(_ enabled: Bool) -> Bool {
-        guard isReadingTranslation != enabled else { return false }
-        isReadingTranslation = enabled
+        guard translationRequested != enabled else { return false }
+        translationRequested = enabled
+        readingPostureChanged()
+        return true
+    }
+
+    /// **The buffer now holds (or no longer holds) a translated surface** —
+    /// see `bufferHoldsTranslation`. Self-guarded. Set it BEFORE the
+    /// translated text goes in and clear it AFTER the source has landed.
+    /// Returns whether it flipped.
+    @discardableResult
+    func setBufferHoldsTranslation(_ holds: Bool) -> Bool {
+        guard bufferHoldsTranslation != holds else { return false }
+        if holds {
+            // A surface mounted already holding the translation is described
+            // by the control's model; a swap about to bring one in overwrites
+            // this as it applies.
+            bufferBadges = TranslationBadgeLayout.ranges(entries: control?.translationBadges.entries ?? [])
+            sourceTextBeforeTranslation = textView?.string
+            editableBeforeTranslation = textView?.isEditable ?? true
+            bufferHoldsTranslation = true
+            textView?.isEditable = false
+        } else {
+            bufferHoldsTranslation = false
+            bufferBadges = []
+            textView?.isEditable = editableBeforeTranslation
+        }
+        readingPostureChanged()
+        return true
+    }
+
+    /// **The source has landed in the view** (`reconcileTextBuffer`): the
+    /// buffer no longer holds a translation, and the window's undo stack is
+    /// kept when the source is the very text it was built on — otherwise its
+    /// typing ranges are stale and it goes (ADR 0023 D1).
+    func sourceLanded(_ text: String) {
+        let before = sourceTextBeforeTranslation
+        guard setBufferHoldsTranslation(false) else { return }
+        sourceTextBeforeTranslation = nil
+        if before != text {
+            (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
+        }
+    }
+
+    /// What a change in the reading posture redraws: the completion list, the
+    /// figure grids' access, the caret line's figure syntax (the dimming owns
+    /// the temporary foreground while reading), the review marks (none drawn
+    /// over a translation, fix I3), the inks and badges, and the caret.
+    private func readingPostureChanged() {
         closeCompletionIfTheMembraneRefuses()
         refreshFigureGridAccess()
-        // Translation review shows no caret line's syntax (its dimming owns
-        // the temporary foreground); leaving it shows the caret's line again.
         refreshFigureSyntaxUnfade(force: true)
-        return true
+        recomputeReviewMarks()
+        refreshReviewOverlays()
+        applyTranslationDimming()
+        syncTranslationBadgeOverlay()
+        if let textView { updateSelectionToolbar(in: textView) }
+        textView?.needsDisplay = true
+    }
+
+    /// **The text view's undo manager** (fix I5): a throwaway while the buffer
+    /// holds a translation, so ⌘Z neither spends nor reaches the writer's
+    /// history there; the window's otherwise, as AppKit would choose.
+    func undoManager(for view: NSTextView) -> UndoManager? {
+        bufferHoldsTranslation ? readingUndoManager : view.window?.undoManager
     }
 
     func setReviewMode(_ enabled: Bool) {
@@ -1732,8 +1846,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        // A buffer holding a translated surface never reaches the binding,
+        // whatever changed it (fix I1): the binding writes MANUSCRIPT text.
         guard let textView = notification.object as? NSTextView,
-              !isApplyingExternalUpdate else { return }
+              !isApplyingExternalUpdate, !bufferHoldsTranslation else { return }
         if !isApplyingTabCycle {
             lastCycleTarget = nil
             lastCycleTargetLineRange = nil

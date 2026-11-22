@@ -43,6 +43,15 @@ extension EditorCoordinator {
     /// **A project-find match selected** (`.maughamFindMatchSelected`, after
     /// its load delay): the match selected and shown; an expanded grid folds
     /// first, as any navigation does. The find list keeps the keys.
+    /// **A source location in the text the view shows** — the one rule every
+    /// source-coordinate navigation takes (fix I2): itself on the source; on
+    /// a translation, mapped (`EditorHost.surfaceCaret`), else the start.
+    static func surfaceLocation(_ location: Int, isReadingTranslation: Bool,
+                                map: ((Int) -> Int)?) -> Int {
+        guard isReadingTranslation else { return location }
+        return map?(location) ?? 0
+    }
+
     func selectFindMatch(_ range: NSRange, in textView: NSTextView) {
         guard let storage = textView.textStorage, NSMaxRange(range) <= storage.length else { return }
         forceFoldFigureGrid(.navigation)
@@ -51,8 +60,13 @@ extension EditorCoordinator {
     }
 
     @discardableResult
-    func navigateToLine(at location: Int, in textView: NSTextView) -> NSRange {
+    func navigateToLine(at sourceLocation: Int, in textView: NSTextView) -> NSRange {
         forceFoldFigureGrid(.navigation)   // the jump wins over an expanded grid
+        // A line's location is the SOURCE's (the Scenes rows, a `.line`
+        // place): over a translation it lands where the surface shows that
+        // paragraph (fix I2).
+        let location = Self.surfaceLocation(sourceLocation, isReadingTranslation: isReadingTranslation,
+                                            map: surfaceLocationForSource)
         let storage = textView.textStorage
         let length = (storage?.string as NSString?)?.length ?? 0
         let clamped = max(0, min(location, length))
@@ -127,7 +141,10 @@ extension EditorCoordinator {
         case .paragraph(let id, let offset):
             landed = landOnParagraph(id, offset: offset, in: textView)
         case .line(let location):
-            guard location >= 0, location <= (textView.string as NSString).length else { return }
+            // A source location: past the end only of the source, which a
+            // translated surface cannot say (`navigateToLine` maps and clamps).
+            guard location >= 0,
+                  isReadingTranslation || location <= (textView.string as NSString).length else { return }
             landed = navigateToLine(at: location, in: textView)
         }
         guard let landed, textView.window == nil else { return }
@@ -183,6 +200,9 @@ extension EditorCoordinator {
             toolbar.isHidden = true
             return
         }
+        // Over a translation only what is true there (fix I3): a Comment,
+        // Suggest or Query anchors to a SOURCE span the selection is not.
+        toolbar.show(SelectionToolbarView.kinds(isReadingTranslation: isReadingTranslation))
         // Convert the selection rect from text-view coords into the overlay
         // parent's coords. `convert(_:to:)` walks the view tree and accounts
         // for the scroll view's clip/scroll offset automatically, so as the

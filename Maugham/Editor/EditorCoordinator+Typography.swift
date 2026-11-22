@@ -151,14 +151,26 @@ extension EditorCoordinator {
         // every key. Whole-doc callers post immediately. See CLAUDE.md tripwire 4
         // and `scriptUpdateNotifyTask`.
         if let script = lastParsedScript {
-            postScriptDidUpdate(script, debounced: windowedTyping)
+            if isReadingTranslation {
+                // A translated surface is not the script (fix M3): its parse
+                // holds each scene twice, at surface offsets. The navigator
+                // keeps the source's scenes, which navigation maps across.
+                scriptUpdateNotifyTask?.cancel()
+                scriptUpdateNotifyTask = nil
+            } else {
+                postScriptDidUpdate(script, debounced: windowedTyping)
+            }
         }
         // Deliver precomputed metrics on the SAME timing as the script post:
         // coalesced to the trailing edge while typing, immediate for whole-doc
         // callers. The page count rides `lastParsedScript` (no extra parse); the
         // word count is one whitespace split of the already-nativized `text`.
         // This supersedes EditorHost's `metricsMirrorTask`. See spec §7.
-        deliverMetrics(text: text, debounced: windowedTyping)
+        if isReadingTranslation {
+            deliverReadingMetrics()
+        } else {
+            deliverMetrics(text: text, debounced: windowedTyping)
+        }
         // Sync typing attributes so the caret on empty lines matches the
         // body font/paragraph style instead of the system default. Cheap and
         // non-visual-churn, so it stays live on both paths.
@@ -452,6 +464,16 @@ extension EditorCoordinator {
             self.metricsNotifyTask = nil
             self.onMetricsChanged?(self.computeMetrics(text: text))
         }
+    }
+
+    /// **The counts of a piece read in a language** (fix M3): the
+    /// translation's own words, never its source lines under it.
+    func deliverReadingMetrics() {
+        metricsNotifyTask?.cancel()
+        metricsNotifyTask = nil
+        guard let onMetricsChanged, let textView else { return }
+        onMetricsChanged(mode.metrics(TranslationBadgeLayout.translationOnly(
+            textView.string, ranges: bufferBadges)))
     }
 
     func scrollSelectionToVerticalCenter(in textView: NSTextView) {

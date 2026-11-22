@@ -344,6 +344,12 @@ struct ProjectWindow: View {
             chooseCentreView: { chooseCentreView($0) },
             readingOffer: readingOffer,
             runningRound: runningRound,
+            runningRoundIsFull: runningRound.map { line in
+                RunningRound.drawsFull(
+                    line, windowWidth: containerWidth.map { CGFloat($0) },
+                    languageSwitchTitle: readingOffer.map { LanguageSwitch.title(of: $0.current) },
+                    viewSwitch: centreViewOffer != .none, textWidth: RunningRound.measured)
+            } ?? true,
             openRunningRound: { RunningRound.open($0, openDocId: TranslationReveal.openDocId(subject),
                                                   reading: reading) }))
         .background(WindowAccessor(window: $window))
@@ -629,7 +635,8 @@ struct ProjectWindow: View {
             centreItem: $centreItem,
             documentStore: documentStore,
             editorControl: $editorControl,
-            reading: reading))
+            reading: reading,
+            structure: { store?.manifest.structure ?? [] }))
         .modifier(PaletteWallModifier(
             paletteWall: $paletteWall,
             showInspector: $showInspector,
@@ -864,6 +871,8 @@ struct ProjectWindow: View {
         let readingOffer: LanguageSwitch.Offer?
         /// The running round (`RunningRound`), hidden while nothing runs.
         let runningRound: RunningRound.Line?
+        /// Whether it draws its sentence or its short form (the width budget).
+        let runningRoundIsFull: Bool
         let openRunningRound: (RunningRound.Line) -> Void
 
         private var toolbarVisibility: Visibility {
@@ -888,7 +897,7 @@ struct ProjectWindow: View {
                     // (the trailing group is anchored at the right edge).
                     if let runningRound {
                         ToolbarItem(placement: .primaryAction) {
-                            RunningRoundIndicator(line: runningRound,
+                            RunningRoundIndicator(line: runningRound, full: runningRoundIsFull,
                                                   open: { openRunningRound(runningRound) })
                         }
                     }
@@ -1693,15 +1702,19 @@ struct ProjectWindow: View {
             subject: subject, structure: store.manifest.structure,
             languages: reading.languages(for: TranslationReveal.openDocId(subject)),
             current: editorControl.translationLanguage,
-            showsSourceUnder: reading.showsSourceUnder)
+            showsSourceUnder: editorControl.showsSourceUnder,
+            unreadable: reading.unreadable)
     }
 
     /// **The round running on this project, if any** (`RunningRound.line`),
     /// from the session's one roster — so every window on the project shows it.
     private var runningRound: RunningRound.Line? {
         guard let store else { return nil }
+        let pass = compiler.runningRoundPassId.flatMap { id in
+            store.manifest.effectiveReviewPasses.first { $0.id == id } }
         return RunningRound.line(
             pipeline: roster.pipeline.status, compiler: compiler.runState,
+            roundEditor: pass.flatMap { $0.editorName ?? $0.name },
             titleOf: { TreeWalk.find(id: $0, in: store.manifest.structure)?.title })
     }
 

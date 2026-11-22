@@ -59,6 +59,13 @@ final class EditorControl {
     /// never reads it — the surface's ranges carry the source.
     var showsSourceUnder: Bool = true
 
+    /// **Moves on each translation write heard for the open piece** (shell p4
+    /// Task 8 fix I4): EditorHost's trailing-edge refresh of a translated
+    /// surface is keyed on it with the document's `annotationsVersion`.
+    /// Written by EditorHost alone; the coordinator never reads it. D1-safe:
+    /// a translation write, never a keystroke.
+    var translationRevision: Int = 0
+
     // Appearance.
     var theme: Theme = .light
     var typography: TypographySettings = .defaults

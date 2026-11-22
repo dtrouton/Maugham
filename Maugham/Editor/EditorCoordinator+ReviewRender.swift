@@ -50,6 +50,13 @@ extension EditorCoordinator {
     /// but still anchored at the paragraph start. Cached in `resolvedReviewMarks`;
     /// the overlay draws read the cache, never recompute (tripwire 4).
     func recomputeReviewMarks() {
+        // Over a translation no mark is painted (fix I3): every anchor is a
+        // SOURCE position, and the surface is not the source.
+        guard !isReadingTranslation else {
+            resolvedReviewMarks = []
+            if selectedReviewCardId != nil { clearReviewCardSelection() }
+            return
+        }
         let localName = reviewLocalAuthorName?() ?? ""
         var marks: [ResolvedReviewMark] = []
         for ann in reviewAnnotations {

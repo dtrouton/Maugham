@@ -65,7 +65,11 @@ struct TranslationRunStart: Equatable {
     /// this says which round holds it, where the press used to do nothing.
     @MainActor
     static func refusedIfBusy(_ started: Bool, pipeline: TranslationPipeline) -> String? {
-        started ? nil : TranslationRunState.busyReason(language: pipeline.status.language)
+        guard !started else { return nil }
+        // The pipeline refuses for two reasons; each says its own (fix M8).
+        return pipeline.isRunning
+            ? TranslationRunState.busyReason(language: pipeline.status.language)
+            : noTranslatorWired
     }
 
     /// The sheet a whole-book run stands behind, with the queue it was

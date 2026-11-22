@@ -202,10 +202,119 @@ final class TranslationSourceUnderTests: XCTestCase {
         XCTAssertFalse(coordinator.isReadingTranslation)
     }
 
-    /// **No caret pretends to type** over a translation; the source keeps its.
-    func test_theCaretIsNotDrawnOverATranslation() {
-        XCTAssertFalse(MaughamTextView.drawsCaret(isReadingTranslation: true))
-        XCTAssertTrue(MaughamTextView.drawsCaret(isReadingTranslation: false))
+    /// **A reading position, not a typing caret** (fix round (b)): over a
+    /// translation the insertion point is drawn — the view is not editable,
+    /// which would otherwise draw none — in the quieter secondary ink.
+    func test_aReadingPositionIsDrawnInQuietInkOverATranslation() {
+        XCTAssertEqual(MaughamTextView.caretColor(isReadingTranslation: true, editing: .systemRed),
+                       .secondaryLabelColor)
+        XCTAssertEqual(MaughamTextView.caretColor(isReadingTranslation: false, editing: .systemRed),
+                       .systemRed)
+        XCTAssertTrue(MaughamTextView.drawsReadingPosition(isReadingTranslation: true,
+                                                           isFirstResponder: true, selectionIsEmpty: true))
+        XCTAssertFalse(MaughamTextView.drawsReadingPosition(isReadingTranslation: false,
+                                                            isFirstResponder: true, selectionIsEmpty: true))
+        XCTAssertFalse(MaughamTextView.drawsReadingPosition(isReadingTranslation: true,
+                                                            isFirstResponder: false, selectionIsEmpty: true))
+    }
+
+    // MARK: - Copy (fix round (a))
+
+    /// **Copy takes the translation, never the grey lines** — current, stale
+    /// and missing paragraphs alike; a table (no source drawn) whole; and a
+    /// selection made inside one source line copies that source.
+    func test_copyTakesTheTranslationNeverTheSourceLines() {
+        let paragraphs = ["a": "One", "b": "Two", "c": "Three", "t": "| a | b |\n|---|---|\n| 1 | 2 |"]
+        let records = [
+            TranslationRecord(paragraphId: "a", language: "sr", text: "Jedan",
+                              sourceHash: TranslationHash.hash("One")),
+            TranslationRecord(paragraphId: "b", language: "sr", text: "Dva", sourceHash: "STALE"),
+            TranslationRecord(paragraphId: "t", language: "sr", text: "| a | b |\n|---|---|\n| jedan | dva |",
+                              sourceHash: TranslationHash.hash(paragraphs["t"]!)),
+        ]
+        let derived = TranslationDeriver.derive(records: records, sequence: ["a", "b", "c", "t"],
+                                                paragraphs: paragraphs, language: "sr").entries
+        let entries = EditorHost.reviewBadgeEntries(from: derived, showsSourceUnder: true)
+        let surface = TranslationBadgeLayout.surface(entries: entries)
+        let ranges = TranslationBadgeLayout.ranges(entries: entries)
+        let all = NSRange(location: 0, length: (surface as NSString).length)
+        XCTAssertEqual(TranslationBadgeLayout.copyable(surface, selection: all, ranges: ranges),
+                       "Jedan\n\nDva\n\nThree\n\n| a | b |\n|---|---|\n| jedan | dva |",
+                       "fresh, stale, missing (its source, once) and a table, without one grey line")
+        let inSource = (surface as NSString).range(of: "Two")
+        XCTAssertEqual(TranslationBadgeLayout.copyable(surface, selection: inSource, ranges: ranges), "Two",
+                       "a selection wholly inside a grey line copies the source asked for")
+        XCTAssertEqual(TranslationBadgeLayout.translationOnly(surface, ranges: ranges),
+                       TranslationBadgeLayout.copyable(surface, selection: all, ranges: ranges),
+                       "a reading window counts what copy would take")
+    }
+
+    // MARK: - Stale text (fix round (d))
+
+    /// A stale translation is inked as stale — never as current text — and
+    /// VoiceOver says "out of date" / "not translated yet" on those paragraphs.
+    @MainActor
+    func test_aStaleTranslationIsInkedAndSpokenAsOutOfDate() {
+        let entries = EditorHost.reviewBadgeEntries(from: derived(stale: true), showsSourceUnder: true)
+        let surface = TranslationBadgeLayout.surface(entries: entries)
+        let ranges = TranslationBadgeLayout.ranges(entries: entries)
+        let inks = TranslationBadgeLayout.inks(ranges, length: (surface as NSString).length)
+        XCTAssertEqual(inks.filter { $0.kind == .stale }.map { slice(surface, $0.range) }, ["Dva"])
+        XCTAssertNotEqual(EditorCoordinator.color(of: .stale), NSColor.labelColor)
+        let spoken = TranslationBadgeOverlayView.accessibilityLabels(ranges.filter { $0.status != .fresh },
+                                                                      text: surface)
+        XCTAssertEqual(spoken.count, 2)
+        XCTAssertTrue(spoken[0].hasPrefix("Out of date") && spoken[0].contains("Dva"), spoken[0])
+        XCTAssertTrue(spoken[1].hasPrefix("Not translated yet") && spoken[1].contains("Three"), spoken[1])
+        XCTAssertNil(TranslationBadgeLayout.accessibilityNote(.fresh))
+    }
+
+    // MARK: - The reader's place (fix round (c))
+
+    @MainActor
+    func test_thePlaceLandsTheSameDistanceInWithinTheParagraph() {
+        let place = EditorCoordinator.ReadingPlace(paragraphId: "b", into: 5, length: 3, fromTop: 40)
+        XCTAssertEqual(EditorCoordinator.landing(place, in: NSRange(location: 100, length: 20)),
+                       NSRange(location: 105, length: 3))
+        XCTAssertEqual(EditorCoordinator.landing(place, in: NSRange(location: 100, length: 6)),
+                       NSRange(location: 105, length: 1), "the selection stays within the paragraph")
+        XCTAssertEqual(EditorCoordinator.landing(place, in: NSRange(location: 100, length: 2)),
+                       NSRange(location: 102, length: 0), "a shorter paragraph clamps to its end")
+    }
+
+    /// **Choosing a language keeps the paragraph** — the swap itself carries
+    /// the caret from paragraph b of the source into b's translation and back.
+    @MainActor
+    func test_aSwapKeepsTheParagraphBothWays() {
+        let harness = EditorIntegrationHarness(initialText: "One\n\nTwo\n\nThree")
+        let coordinator = harness.coordinator
+        let sourceRanges = ["a": NSRange(location: 0, length: 3), "b": NSRange(location: 5, length: 3),
+                            "c": NSRange(location: 10, length: 5)]
+        coordinator.paragraphLocator = { location in
+            let hit = sourceRanges.first { NSLocationInRange(location, $0.value) || NSMaxRange($0.value) == location }
+            return hit.map { ($0.key, location - $0.value.location) }
+        }
+        coordinator.paragraphRangeProvider = { sourceRanges[$0] }
+        let control = EditorControl()
+        coordinator.observeControl(control)
+        let entries = EditorHost.reviewBadgeEntries(from: derived(), showsSourceUnder: true)
+        control.translationLanguage = "sr"
+        control.translationBadges = .init(entries: entries)
+        harness.setCursor(to: 6)                                   // "T|wo"
+        EditorSurface.reconcileTextBuffer(textView: harness.textView, coordinator: coordinator,
+                                          translationLanguage: "sr",
+                                          text: TranslationBadgeLayout.surface(entries: entries),
+                                          undoCoherentApply: false)
+        let dva = TranslationBadgeLayout.ranges(entries: entries)[1].range
+        XCTAssertEqual(harness.textView.selectedRange(), NSRange(location: dva.location + 1, length: 0),
+                       "into b's translation, one in")
+        control.translationLanguage = nil
+        control.translationBadges = .empty
+        EditorSurface.reconcileTextBuffer(textView: harness.textView, coordinator: coordinator,
+                                          translationLanguage: nil, text: "One\n\nTwo\n\nThree",
+                                          undoCoherentApply: false)
+        XCTAssertEqual(harness.textView.selectedRange(), NSRange(location: 6, length: 0),
+                       "and back to the same place in b")
     }
 
     /// The line over the text: what it is, that it is read-only, what to do

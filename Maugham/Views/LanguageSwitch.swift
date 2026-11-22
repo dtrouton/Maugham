@@ -16,6 +16,9 @@ enum LanguageSwitch {
         let languages: [String]
         let current: String?
         let showsSourceUnder: Bool
+        /// The translations folder could not be read: said in the switch's
+        /// place, never a switch that silently is not there (fix (e)).
+        var unreadable: String? = nil
     }
 
     /// **Where the switch shows**: a manuscript piece open in the centre that
@@ -23,16 +26,20 @@ enum LanguageSwitch {
     /// way back to Source never hides. Hidden (nil) everywhere else: the
     /// Book, an edition, research, the canvas.
     static func offer(subject: WindowSubject, structure: [StructureItem], languages: [String],
-                      current: String?, showsSourceUnder: Bool) -> Offer? {
+                      current: String?, showsSourceUnder: Bool,
+                      unreadable: String? = nil) -> Offer? {
         guard case .item(let id) = subject.open,
               TreeWalk.find(id: id, in: structure)?.type == .document else { return nil }
         var listed = languages
         if let current, !listed.contains(where: { $0.caseInsensitiveCompare(current) == .orderedSame }) {
             listed.append(current)
         }
-        guard !listed.isEmpty else { return nil }
-        return Offer(languages: listed, current: current, showsSourceUnder: showsSourceUnder)
+        guard !listed.isEmpty || unreadable != nil else { return nil }
+        return Offer(languages: listed, current: current, showsSourceUnder: showsSourceUnder,
+                     unreadable: unreadable)
     }
+
+    static let unreadableSymbol = "exclamationmark.triangle"
 
     /// The switch's title, and each choice's: the language's name, or Source.
     static func title(of language: String?) -> String {
@@ -70,6 +77,9 @@ struct LanguageSwitchControl: View {
 
     var body: some View {
         Menu {
+            if let unreadable = offer.unreadable {
+                Text(unreadable)
+            }
             Picker(LanguageSwitch.readInMenuTitle, selection: Binding(
                 get: { offer.current },
                 set: { LanguageSwitch.choose($0) })) {
@@ -84,12 +94,16 @@ struct LanguageSwitchControl: View {
                 get: { offer.showsSourceUnder },
                 set: { _ in LanguageSwitch.toggleSourceUnder() }))
         } label: {
-            Label(LanguageSwitch.title(of: offer.current), systemImage: LanguageSwitch.symbol)
+            Label(LanguageSwitch.title(of: offer.current),
+                  systemImage: offer.unreadable == nil ? LanguageSwitch.symbol : LanguageSwitch.unreadableSymbol)
                 .labelStyle(.titleAndIcon)
         }
         .fixedSize()
-        .help(LanguageSwitch.help)
-        .accessibilityLabel("Reading in \(LanguageSwitch.title(of: offer.current))")
+        // Never the item the toolbar drops first: it names what you read.
+        .layoutPriority(1)
+        .help(offer.unreadable ?? LanguageSwitch.help)
+        .accessibilityLabel("Reading in \(LanguageSwitch.title(of: offer.current))"
+                            + (offer.unreadable.map { ". " + $0 } ?? ""))
     }
 }
 

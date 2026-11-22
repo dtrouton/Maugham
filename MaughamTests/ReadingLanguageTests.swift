@@ -175,6 +175,59 @@ final class ReadingLanguageTests: XCTestCase {
         XCTAssertTrue(EditorControl().showsSourceUnder)
     }
 
+    // MARK: - Fix round 1
+
+    /// **A find match is read in Source** (fix I2): its piece is the one the
+    /// window reads in Source, now or on arrival.
+    func test_aFindMatchIsReadInSource() throws {
+        let match = SearchMatch(documentPath: "manuscript/chapter-one.md", documentTitle: "Chapter One",
+                                documentSource: .manuscript, lineNumber: 1,
+                                charRangeInDocument: NSRange(location: 0, length: 3),
+                                linePreview: "One", matchRangeInLine: NSRange(location: 0, length: 3))
+        XCTAssertEqual(ReadingLanguage.findMatchPiece(match, structure: structure), piece)
+        let lines = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("ReadingLanguageModifier", under: ["Maugham"]))
+        let start = try XCTUnwrap(lines.firstIndex { $0.contains(".onKeyWindowCommand(.maughamFindMatchSelected") })
+        let body = lines[start..<min(start + 12, lines.endIndex)]
+        XCTAssertTrue(body.contains { $0.contains("choose(nil)") })
+        XCTAssertTrue(body.contains { $0.contains("reading.pending = (docId, nil)") })
+    }
+
+    /// **A language asked for on the way is taken on its own piece only**
+    /// (fix M7), and the source-under setting has one home (fix M6).
+    func test_aPendingLanguageIsTakenOnItsOwnPieceAndTheSettingHasOneHome() throws {
+        let lines = SourceScan.codeLines(
+            of: try SourceTree.sourceOfType("ReadingLanguageModifier", under: ["Maugham"]))
+        XCTAssertTrue(lines.contains { $0.contains("reading.pending.map { $0.docId == newValue ? $0.language : nil }") })
+        XCTAssertTrue(lines.contains { $0.contains("documentStore?.updateUIState { $0.showsSourceUnderTranslation = on }") })
+        XCTAssertTrue(lines.contains { $0.contains(".onChange(of: documentStore?.uiState.showsSourceUnderTranslation, initial: true)") })
+        XCTAssertFalse(lines.contains { $0.contains("editorControl.showsSourceUnder = on") },
+                       "the toggle writes the project's setting; the control only mirrors it")
+    }
+
+    /// **An unreadable translations folder says so** (fix (e), RULING-54):
+    /// absent is a book with no translations; there-but-unreadable keeps the
+    /// switch, with the sentence in its menu.
+    func test_anUnreadableTranslationsFolderSaysSo() throws {
+        let project = TestTemp.root.appendingPathComponent("unreadable-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        XCTAssertEqual(ReadingLanguageModel.list(in: project), .init(), "absent: nothing, quietly")
+        let dir = TranslationStore.directoryURL(in: project)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        let listing = ReadingLanguageModel.list(in: project)
+        let sentence = try XCTUnwrap(listing.unreadable)
+        XCTAssertTrue(sentence.contains(dir.lastPathComponent), sentence)
+        let offer = LanguageSwitch.offer(subject: SubjectSamples.opened(.item(piece)), structure: structure,
+                                         languages: [], current: nil, showsSourceUnder: true,
+                                         unreadable: sentence)
+        XCTAssertEqual(offer?.unreadable, sentence, "the switch stays, and says why")
+        XCTAssertNil(LanguageSwitch.offer(subject: SubjectSamples.opened(.item(piece)), structure: structure,
+                                          languages: [], current: nil, showsSourceUnder: true),
+                     "control: readable and empty hides it")
+    }
+
     // MARK: - One spelling of a language's name
 
     func test_aLanguageHasOneSpelling() {

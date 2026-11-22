@@ -184,13 +184,16 @@ enum TranslationBadgeLayout {
     }
 
     /// **What the coordinator inks, clamped to the buffer**: each missing
-    /// paragraph's text (tertiary — the source showing through) and each source
-    /// line under a translation (secondary). Clamped because a torn push can
+    /// paragraph's text (the source showing through), each source line under
+    /// a translation, and each STALE translation (fix round (d): out-of-date
+    /// text is never drawn as if current). Clamped because a torn push can
     /// leave a range past the buffer for a moment. Pure, so which characters
     /// go quiet is assertable without a layout manager.
     struct Ink: Equatable {
+        enum Kind: Equatable { case missing, source, stale }
         let range: NSRange
-        let isSource: Bool
+        let kind: Kind
+        var isSource: Bool { kind == .source }
     }
 
     static func inks(_ badges: [BadgeRange], length: Int) -> [Ink] {
@@ -201,13 +204,79 @@ enum TranslationBadgeLayout {
         }
         var out: [Ink] = []
         for badge in badges {
-            if badge.status == .missing, let r = clamped(badge.range) {
-                out.append(Ink(range: r, isSource: false))
+            switch badge.status {
+            case .missing:
+                if let r = clamped(badge.range) { out.append(Ink(range: r, kind: .missing)) }
+            case .stale:
+                if let r = clamped(badge.range) { out.append(Ink(range: r, kind: .stale)) }
+            case .fresh:
+                break
             }
             if let source = badge.sourceRange, let r = clamped(source) {
-                out.append(Ink(range: r, isSource: true))
+                out.append(Ink(range: r, kind: .source))
             }
         }
         return out
+    }
+
+    /// **What VoiceOver says of a paragraph that is not current** (fix round
+    /// (d)) — nil for a current one.
+    static func accessibilityNote(_ status: TranslationStatus) -> String? {
+        switch status {
+        case .fresh: return nil
+        case .stale: return "Out of date: the source changed after this paragraph was translated"
+        case .missing: return "Not translated yet: the source is shown"
+        }
+    }
+
+    // MARK: - The translation alone
+
+    /// Each source line with the separator before it — what the translation
+    /// alone is without. Sorted, as the ranges are.
+    static func sourceSpans(_ ranges: [BadgeRange]) -> [NSRange] {
+        ranges.compactMap { badge in
+            badge.sourceRange.map {
+                NSRange(location: NSMaxRange(badge.range), length: NSMaxRange($0) - NSMaxRange(badge.range))
+            }
+        }
+    }
+
+    /// `text` within `selection`, less every source span — clamped to the
+    /// text, so a torn push copies what is there.
+    private static func removingSourceSpans(_ text: NSString, _ selection: NSRange,
+                                            _ ranges: [BadgeRange]) -> String {
+        let length = text.length
+        let start = min(max(0, selection.location), length)
+        let end = min(NSMaxRange(selection), length)
+        var out = ""
+        var cursor = start
+        for span in sourceSpans(ranges) where NSMaxRange(span) > cursor && span.location < end {
+            if span.location > cursor {
+                out += text.substring(with: NSRange(location: cursor, length: span.location - cursor))
+            }
+            cursor = max(cursor, NSMaxRange(span))
+        }
+        if end > cursor { out += text.substring(with: NSRange(location: cursor, length: end - cursor)) }
+        return out
+    }
+
+    /// **What copy puts on the pasteboard from a translated surface** (shell
+    /// p4 Task 8, fix round (a)): the translation, never the grey source
+    /// lines under it — except a selection made wholly inside one source line,
+    /// where the writer asked for the source.
+    static func copyable(_ text: String, selection: NSRange, ranges: [BadgeRange]) -> String {
+        let ns = text as NSString
+        if selection.length > 0, ranges.contains(where: { badge in
+            badge.sourceRange.map { NSIntersectionRange($0, selection) == selection } ?? false
+        }) {
+            return ns.substring(with: selection)
+        }
+        return removingSourceSpans(ns, selection, ranges)
+    }
+
+    /// The whole surface's translation alone — what a reading window counts.
+    static func translationOnly(_ text: String, ranges: [BadgeRange]) -> String {
+        let ns = text as NSString
+        return removingSourceSpans(ns, NSRange(location: 0, length: ns.length), ranges)
     }
 }

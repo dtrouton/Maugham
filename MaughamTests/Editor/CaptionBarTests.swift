@@ -246,7 +246,7 @@ final class CaptionBarTests: XCTestCase {
         coordinator.setReadingTranslation(true)
         XCTAssertTrue(temporaryRuns(harness).isEmpty, "entering, the un-fade goes")
         let missing = ns.range(of: "Missing paragraph.")
-        coordinator.resolvedTranslationBadges = [.init(paragraphId: "a", range: missing, status: .missing)]
+        coordinator.bufferBadges = [.init(paragraphId: "a", range: missing, status: .missing)]
         coordinator.applyTranslationDimming()
         harness.setCursor(to: 5)   // a caret move in review adds nothing
         XCTAssertEqual(temporaryRuns(harness), [missing], "only the dimming")

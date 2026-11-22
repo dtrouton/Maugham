@@ -71,7 +71,7 @@ final class TranslationBadgeOverlayView: NSView {
               let coordinator,
               coordinator.isReadingTranslation else { return }
 
-        let badges = coordinator.resolvedTranslationBadges
+        let badges = coordinator.bufferBadges
         guard !badges.isEmpty else { return }
 
         let inset = textView.textContainerInset
@@ -110,6 +110,47 @@ final class TranslationBadgeOverlayView: NSView {
             case .missing: drawHollowDot(in: dotRect, color: .tertiaryLabelColor)
             case .fresh:   break   // unreachable (guarded above)
             }
+        }
+    }
+
+    // MARK: - VoiceOver (shell p4 Task 8 fix round (d))
+
+    /// **What VoiceOver hears beside each paragraph that is not current**:
+    /// the note ("Out of date: …" / "Not translated yet: …") and the
+    /// paragraph's opening words, in order. Pure over the badges and the text.
+    static func accessibilityLabels(_ badges: [TranslationBadgeLayout.BadgeRange],
+                                    text: String) -> [String] {
+        let ns = text as NSString
+        return badges.compactMap { badge in
+            guard let note = TranslationBadgeLayout.accessibilityNote(badge.status) else { return nil }
+            let loc = min(badge.range.location, ns.length)
+            let len = min(badge.range.length, ns.length - loc, 60)
+            let opening = ns.substring(with: NSRange(location: loc, length: max(0, len)))
+            return opening.isEmpty ? note : "\(note). \(opening)\(badge.range.length > 60 ? "\u{2026}" : "")"
+        }
+    }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    /// One static-text element per paragraph that is not current, framed on
+    /// its first line, so VoiceOver reads "out of date" / "not translated
+    /// yet" where it is, not only in the line over the text.
+    override func accessibilityChildren() -> [Any]? {
+        guard let textView = associatedTextView, let coordinator, coordinator.isReadingTranslation,
+              let layoutManager = textView.layoutManager else { return [] }
+        let badges = coordinator.bufferBadges.filter { $0.status != .fresh }
+        let labels = Self.accessibilityLabels(badges, text: textView.string)
+        let length = textView.textStorage?.length ?? 0
+        return zip(badges, labels).compactMap { badge, label -> NSAccessibilityElement? in
+            guard length > 0 else { return nil }
+            let glyph = layoutManager.glyphIndexForCharacter(at: min(badge.range.location, length - 1))
+            var rect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            rect.origin.y += textView.textContainerInset.height
+            rect.origin.x += textView.textContainerInset.width
+            let screen = textView.window?.convertToScreen(textView.convert(rect, to: nil)) ?? rect
+            let element = NSAccessibilityElement.element(
+                withRole: .staticText, frame: screen, label: label, parent: self) as? NSAccessibilityElement
+            return element
         }
     }
 

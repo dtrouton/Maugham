@@ -42,6 +42,14 @@ enum ReadingLanguage {
         return i + 1 < languages.count ? languages[i + 1] : nil
     }
 
+    /// **The piece a find match is in**, when it is a manuscript piece — the
+    /// piece read in Source when the match is chosen (fix I2: a match is a
+    /// range of the source text).
+    static func findMatchPiece(_ match: SearchMatch, structure: [StructureItem]) -> String? {
+        guard case .manuscript = match.documentSource else { return nil }
+        return TreeWalk.first(in: structure) { $0.path == match.documentPath }?.id
+    }
+
     /// The languages a piece is offered in, in the order the switch lists
     /// them: by name, then by tag.
     static func ordered(_ languages: Set<String>) -> [String] {
@@ -73,30 +81,60 @@ enum LanguageName {
 
 /// **The window's reading state that is not the language** (shell p4 Task
 /// 8): which languages each piece has (read once per translation change, off
-/// the main actor, so a chapter change is a dictionary lookup), whether the
-/// source is drawn under each paragraph, and a language waiting for the piece
-/// a click is opening. Owned by `ProjectWindow`; written by
-/// `ReadingLanguageModifier` alone.
+/// the main actor, so a chapter change is a dictionary lookup), whether that
+/// read failed, and a language waiting for the piece a click is opening.
+/// Owned by `ProjectWindow`; written by `ReadingLanguageModifier` alone. The
+/// source-under setting is not here: its home is `UIState`, mirrored to
+/// `EditorControl.showsSourceUnder` (fix M6).
 @MainActor @Observable
 final class ReadingLanguageModel {
+    /// What a listing of the translations folder found.
+    struct Listing: Equatable, Sendable {
+        var languagesByDocId: [String: Set<String>] = [:]
+        /// Why the folder could not be read; nil when it was, or is absent.
+        var unreadable: String?
+    }
+
     /// Every piece's languages, from one listing of the translations folder.
     private(set) var languagesByDocId: [String: Set<String>] = [:]
+    /// The folder is there and could not be read: the switch says so.
+    private(set) var unreadable: String?
     /// Whether that listing has come back since the window opened.
     private(set) var hasRead = false
-    /// The writer's View ▸ Show Source Under Translation, mirrored from
-    /// `UIState.showsSourceUnderTranslation`.
-    var showsSourceUnder = true
-    /// A language a click asked for on a piece it is opening (the running
-    /// round's indicator): taken by the next open-piece change.
-    var pending: String?
+    /// A language a click asked for on the piece it is opening (the running
+    /// round's indicator): taken on that piece's arrival only (fix M7).
+    var pending: (docId: String, language: String?)?
 
     /// The languages `docId` can be read in, in the switch's order.
     func languages(for docId: String) -> [String] {
         ReadingLanguage.ordered(languagesByDocId[docId] ?? [])
     }
 
-    func adopt(_ listing: [String: Set<String>]) {
-        if languagesByDocId != listing { languagesByDocId = listing }
+    func adopt(_ listing: Listing) {
+        if languagesByDocId != listing.languagesByDocId { languagesByDocId = listing.languagesByDocId }
+        if unreadable != listing.unreadable { unreadable = listing.unreadable }
         hasRead = true
+    }
+
+    /// **The listing, telling absent from unreadable** (RULING-54). An absent
+    /// folder is a book with no translations; one that is there but will not
+    /// list is a failure the writer is told about, by the folder's name.
+    nonisolated static func list(in projectURL: URL) -> Listing {
+        let dir = TranslationStore.directoryURL(in: projectURL)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory) else {
+            return Listing()
+        }
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        } catch {
+            return Listing(unreadable: unreadableSentence(folder: dir.lastPathComponent, error: error))
+        }
+        return Listing(languagesByDocId: TranslationStore.languagesByDocId(in: projectURL))
+    }
+
+    nonisolated static func unreadableSentence(folder: String, error: Error) -> String {
+        "The translations couldn\u{2019}t be read (\u{201C}\(folder)\u{201D}: "
+            + ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription) + ")."
     }
 }

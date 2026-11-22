@@ -240,7 +240,7 @@ final class ReferenceLabelOverlayTests: XCTestCase {
         let key = ns.range(of: "@ghost").location
         let missing = ns.range(of: "Missing paragraph.")
         coordinator.setReadingTranslation(true)
-        coordinator.resolvedTranslationBadges = [
+        coordinator.bufferBadges = [
             .init(paragraphId: "a", range: missing, status: .missing),
         ]
         coordinator.applyTranslationDimming()

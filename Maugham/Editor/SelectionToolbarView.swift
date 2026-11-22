@@ -90,6 +90,31 @@ final class SelectionToolbarView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
+    /// **What the toolbar offers** (shell p4 Task 8 fix I3): every kind on the
+    /// manuscript; over a translation only the Translator's note, which names
+    /// the paragraph through the source caret — a Comment, Suggest or Query
+    /// would anchor to source text the selection is not.
+    static func kinds(isReadingTranslation: Bool) -> [Kind] {
+        isReadingTranslation ? [.translatorsNote] : Kind.allCases
+    }
+
+    /// Shows exactly `kinds`, resized to them. No-op when unchanged.
+    func show(_ kinds: [Kind]) {
+        var changed = false
+        for case let button as NSButton in stack.arrangedSubviews {
+            let hidden = !kinds.contains(Kind.allCases[button.tag])
+            if button.isHidden != hidden { button.isHidden = hidden; changed = true }
+        }
+        guard changed else { return }
+        stack.layoutSubtreeIfNeeded()
+        setFrameSize(stack.fittingSize)
+    }
+
+    /// The kinds drawn now.
+    var shownKinds: [Kind] {
+        stack.arrangedSubviews.compactMap { ($0 as? NSButton).flatMap { $0.isHidden ? nil : Kind.allCases[$0.tag] } }
+    }
+
     /// Re-resolve the layer's dynamic colours against the current effective
     /// appearance. Layer CGColors carry no appearance binding, so they must be
     /// re-set here (on first display and on every light/dark switch).

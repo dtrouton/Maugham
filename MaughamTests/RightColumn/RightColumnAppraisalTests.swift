@@ -250,7 +250,7 @@ final class RightColumnToggleTests: XCTestCase {
         XCTAssertTrue(window.contains(
             ".toolbar { ToolbarItem(placement: .navigation) { LockToggle(isLocked: $isLocked) } "
             + "if let runningRound { ToolbarItem(placement: .primaryAction) { "
-            + "RunningRoundIndicator(line: runningRound, open: { openRunningRound(runningRound) }) } } "
+            + "RunningRoundIndicator(line: runningRound, full: runningRoundIsFull, open: { openRunningRound(runningRound) }) } } "
             + "if let readingOffer { ToolbarItem(placement: .primaryAction) { "
             + "LanguageSwitchControl(offer: readingOffer) } } "
             + "if centreViewOffer != .none { ToolbarItem(placement: .primaryAction) { "

@@ -79,6 +79,11 @@ struct EditorSurfaceConfiguration {
         /// Wired through to the coordinator's paragraphRangeProvider so that
         /// `.maughamNavigateToParagraph` notifications (fired by clicking an
         /// annotation row) scroll the textView to the right paragraph.
+        /// A SOURCE location as a location in the text the editor shows — the
+        /// identity on the source, the same paragraph's place on a translation
+        /// (shell p4 Task 8 fix I2, `EditorHost.surfaceCaret`). Wired by
+        /// `EditorHost`; nil elsewhere.
+        var surfaceLocationForSource: ((Int) -> Int)? = nil
         var paragraphRangeProvider: ((String) -> NSRange?)? = nil
         /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
         /// that paragraph. Used by the markdown-checkbox click path.
@@ -192,6 +197,12 @@ struct EditorSurfaceConfiguration {
     }
 
     var presentation: Presentation
+    /// **The `text` this surface is handed is a translated surface** (shell p4
+    /// Task 8 fix I1), not the manuscript — the host's own answer, from the
+    /// same state its binding's `get` reads, so the membrane follows what the
+    /// buffer holds rather than the control. False for every surface but a
+    /// manuscript read in a language.
+    var servesTranslatedSurface: Bool = false
     /// Control-plane model (ADR 0017). The coordinator observes this directly;
     /// it is the channel for posture/appearance/annotation changes, replacing
     /// the per-prop pushes in updateNSView. Threaded ONE-WAY from the owning
@@ -279,6 +290,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.wikiLinkResolverForClick = pp.wikiLinkClickResolver
         coordinator.imagePasteHandler = pp.imagePasteHandler
         coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
+        coordinator.surfaceLocationForSource = pp.surfaceLocationForSource
         coordinator.paragraphLocator = pp.paragraphLocator
         coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
@@ -423,6 +435,10 @@ struct EditorSurface: NSViewRepresentable {
         context.coordinator.completionList = completionList
 
         context.coordinator.attach(to: textView)
+        // A document mounted already read in a language (the language carried
+        // to it): its buffer holds the translation from the first frame, so
+        // the refusal holds from the first frame too (fix I1).
+        context.coordinator.setBufferHoldsTranslation(configuration.servesTranslatedSurface)
         // Hand the control-plane model to the coordinator. It observes the model
         // from here on; the per-prop pushes below remain during the parallel
         // migration (ADR 0017) and are removed in later tasks.
@@ -503,12 +519,27 @@ struct EditorSurface: NSViewRepresentable {
         coordinator: EditorCoordinator,
         translationLanguage: String?,
         text: String,
-        undoCoherentApply: Bool
+        undoCoherentApply: Bool,
+        textIsTranslation: Bool? = nil
     ) {
         // Membrane BEFORE swap — see the doc-comment above.
         let translationMembraneChanged =
             coordinator.setReadingTranslation(translationLanguage != nil)
-        guard textView.string != text else { return }
+        // **What the buffer holds decides, not the control** (fix I1): a
+        // translated surface is refused before it goes in, and the refusal
+        // lifts only once the source has landed (`sourceLanded`) — never on
+        // the pass where the language has cleared but the binding still
+        // serves the translation.
+        let servesTranslation = textIsTranslation ?? (translationLanguage != nil)
+        // The reader's place, read off the text the view holds NOW — before
+        // the flag below changes what describes it (fix round (c)).
+        let involvesTranslation = servesTranslation || coordinator.bufferHoldsTranslation
+        let place = involvesTranslation && textView.string != text ? coordinator.readingPlace() : nil
+        if servesTranslation { coordinator.setBufferHoldsTranslation(true) }
+        guard textView.string != text else {
+            if !servesTranslation { coordinator.sourceLanded(text) }
+            return
+        }
         // The undo stack may be preserved ONLY for an ordinary in-place
         // accept/revert replace on the SOURCE manuscript. Any translation-review
         // buffer replace must drop it: the translated buffer is a different text,
@@ -521,9 +552,14 @@ struct EditorSurface: NSViewRepresentable {
         // one-shot flag set in the same pass would otherwise retain a stale undo
         // action across the replace. Gating on `translationLanguage == nil` (the
         // editor is showing the source manuscript) forces the clear in both.
-        let preserveUndoStack =
-            undoCoherentApply && translationLanguage == nil && !translationMembraneChanged
+        let preserveUndoStack = undoCoherentApply && translationLanguage == nil
+            && !translationMembraneChanged && !coordinator.bufferHoldsTranslation
         coordinator.applyExternalText(text, preserveUndoStack: preserveUndoStack)
+        if !servesTranslation { coordinator.sourceLanded(text) }
+        // The same paragraph, the same distance in, at the same height —
+        // across a change of language, the source-under setting, or a
+        // refresh of the surface (fix round (c), I4).
+        if let place { coordinator.restore(place) }
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -550,7 +586,8 @@ struct EditorSurface: NSViewRepresentable {
             coordinator: context.coordinator,
             translationLanguage: configuration.control.translationLanguage,
             text: text,
-            undoCoherentApply: undoCoherentApply)
+            undoCoherentApply: undoCoherentApply,
+            textIsTranslation: configuration.servesTranslatedSurface)
         let p = configuration.presentation
         let pp = configuration.paragraphProviders
         let rp = configuration.reviewProviders
@@ -571,6 +608,7 @@ struct EditorSurface: NSViewRepresentable {
         }
         context.coordinator.imagePasteHandler = pp.imagePasteHandler
         context.coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
+        context.coordinator.surfaceLocationForSource = pp.surfaceLocationForSource
         context.coordinator.paragraphLocator = pp.paragraphLocator
         context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
@@ -778,21 +816,56 @@ final class MaughamTextView: NSTextView {
     override func drawInsertionPoint(
         in rect: NSRect, color: NSColor, turnedOn flag: Bool
     ) {
-        // **A translation is read, not typed into** (shell p4 Task 8): no
-        // caret blinks over it, as none blinks in a read-only text view. The
-        // selection still moves — a click or the arrows still say which
-        // paragraph you are in — and selected text still shows and copies.
-        let on = flag && Self.drawsCaret(isReadingTranslation: coordinator?.isReadingTranslation ?? false)
+        // **A translation is read, not typed into** (shell p4 Task 8, fix
+        // round (b)): the view is not editable there, and its reading position
+        // is drawn in the quieter secondary ink — the arrows move it, so
+        // keyboard reading is not blind, and it does not look like a caret
+        // that types.
+        let reading = coordinator?.bufferHoldsTranslation ?? false
+        let ink = Self.caretColor(isReadingTranslation: reading, editing: color)
         let font = (typingAttributes[.font] as? NSFont)
             ?? self.font
             ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         super.drawInsertionPoint(
             in: Self.clampedCaretRect(rect, toLineHeight: Self.caretLineHeight(for: font)),
-            color: color, turnedOn: on)
+            color: ink, turnedOn: flag)
     }
 
-    /// Whether the caret is drawn: never over a translation.
-    static func drawsCaret(isReadingTranslation: Bool) -> Bool { !isReadingTranslation }
+    /// **Copy from a translation copies the translation** (fix round (a)):
+    /// pasteboard only — the text, its storage and the binding are untouched.
+    override func writeSelection(to pboard: NSPasteboard,
+                                 types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard let coordinator, coordinator.bufferHoldsTranslation else {
+            return super.writeSelection(to: pboard, types: types)
+        }
+        let copied = selectedRanges.map(\.rangeValue).filter { $0.length > 0 }.map {
+            TranslationBadgeLayout.copyable(string, selection: $0,
+                                            ranges: coordinator.bufferBadges)
+        }
+        guard !copied.isEmpty else { return false }
+        pboard.declareTypes([.string], owner: nil)
+        return pboard.setString(copied.joined(separator: "\n"), forType: .string)
+    }
+
+    /// The caret's ink: the editing colour, or the secondary ink of a reading
+    /// position over a translation.
+    static func caretColor(isReadingTranslation: Bool, editing: NSColor) -> NSColor {
+        isReadingTranslation ? .secondaryLabelColor : editing
+    }
+
+    /// A non-editable view draws no insertion point; over a translation it
+    /// draws the reading position (fix round (b)).
+    override var shouldDrawInsertionPoint: Bool {
+        super.shouldDrawInsertionPoint || Self.drawsReadingPosition(
+            isReadingTranslation: coordinator?.bufferHoldsTranslation ?? false,
+            isFirstResponder: window?.firstResponder === self,
+            selectionIsEmpty: selectedRange().length == 0)
+    }
+
+    static func drawsReadingPosition(isReadingTranslation: Bool, isFirstResponder: Bool,
+                                     selectionIsEmpty: Bool) -> Bool {
+        isReadingTranslation && isFirstResponder && selectionIsEmpty
+    }
 
     /// Losing the focus closes the completion list (plan 3b Task 2): its keys
     /// arrive through this view's `doCommandBy`, so it has no use without it.

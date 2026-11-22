@@ -20,13 +20,49 @@ final class RunningRoundIndicatorTests: XCTestCase {
         let serbian = LanguageName.title("sr")
         XCTAssertEqual(line(.running(docId: "c3", language: "sr", leg: .reread, book: nil)),
                        .init(text: "Translating \u{00b7} \(serbian) \u{00b7} \u{201C}Chapter Three\u{201D}, re-reading",
-                             docId: "c3", language: "sr"))
+                             docId: "c3", language: "sr", compact: serbian))
         XCTAssertEqual(line(.running(docId: "c3", language: "sr", leg: .translate,
                                      book: .init(position: 3, count: 12)))?.text,
                        "Translating \u{00b7} \(serbian) \u{00b7} \u{201C}Chapter Three\u{201D} (3 of 12), translating")
         XCTAssertEqual(line(.idle, .running(docId: "c3", kind: .round, checking: .init(new: 1, revised: 0))),
                        .init(text: "Editor\u{2019}s round \u{00b7} \u{201C}Chapter Three\u{201D}, reading",
-                             docId: "c3", language: nil))
+                             docId: "c3", language: nil, compact: "Round"))
+    }
+
+    /// **An editor's round by its pass's editor** when the round in flight
+    /// says which pass (fix round (g)).
+    func test_anEditorsRoundIsNamedByItsPass() {
+        let named = RunningRound.line(pipeline: .idle,
+                                      compiler: .running(docId: "c3", kind: .round, checking: .init(new: 1, revised: 0)),
+                                      roundEditor: "Perkins", titleOf: { self.titles[$0] })
+        XCTAssertEqual(named?.text, "Perkins\u{2019}s round \u{00b7} \u{201C}Chapter Three\u{201D}, reading")
+        XCTAssertEqual(named?.compact, "Perkins")
+        let lines = SourceScan.codeLines(of: try! SourceTree.read("Maugham/Views/ProjectWindow.swift"))
+        XCTAssertTrue(lines.contains { $0.contains("compiler.runningRoundPassId.flatMap") },
+                      "the window asks the round in flight for its lane")
+    }
+
+    /// **The width budget** (fix round (f)): the full sentence only where it
+    /// fits beside the trailing group's other items; else the short form, so
+    /// the language switch and the rest never overflow. Measured from
+    /// intrinsic sizes, here a fixed 7 pt per character.
+    func test_aTightToolbarDrawsTheShortForm() {
+        let line = RunningRound.Line(text: String(repeating: "x", count: 40), docId: "c3",
+                                     language: "sr", compact: "Serbian 3/12")
+        let width: (String) -> CGFloat = { CGFloat($0.count) * 7 }
+        // others: 72 + ("Serbian" 49 + 52) + 110 = 283; full: 280 + 22 = 302; reserve 560.
+        XCTAssertTrue(RunningRound.drawsFull(line, windowWidth: 1145, languageSwitchTitle: "Serbian",
+                                             viewSwitch: true, textWidth: width))
+        XCTAssertFalse(RunningRound.drawsFull(line, windowWidth: 1144, languageSwitchTitle: "Serbian",
+                                              viewSwitch: true, textWidth: width))
+        XCTAssertTrue(RunningRound.drawsFull(line, windowWidth: 1044, languageSwitchTitle: nil,
+                                             viewSwitch: true, textWidth: width),
+                      "with no language switch there is more room")
+        XCTAssertFalse(RunningRound.drawsFull(line, windowWidth: nil, languageSwitchTitle: nil,
+                                              viewSwitch: false, textWidth: width),
+                       "before the window is measured: the short form")
+        let window = try! SourceTree.read("Maugham/Views/ProjectWindow.swift")
+        XCTAssertTrue(window.contains("RunningRoundIndicator(line: runningRound, full: runningRoundIsFull,"))
     }
 
     func test_nothingRunningShowsNothing() {
@@ -64,7 +100,8 @@ final class RunningRoundIndicatorTests: XCTestCase {
         let pipeline = TranslationPipeline()
         XCTAssertNil(TranslationRunStart.refusedIfBusy(true, pipeline: pipeline))
         XCTAssertEqual(TranslationRunStart.refusedIfBusy(false, pipeline: pipeline),
-                       TranslationRunState.busyReason(language: nil))
+                       TranslationRunStart.noTranslatorWired,
+                       "an idle pipeline that refused was not wired — not busy (fix M8)")
         XCTAssertFalse(pipeline.runBook(documentIds: ["c3"], language: "sr"),
                        "control: an unwired pipeline refuses, as a running one does")
     }

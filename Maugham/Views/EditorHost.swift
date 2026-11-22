@@ -303,9 +303,9 @@ struct EditorHost: View {
                     // translation WRITE (write_translation) does not bump
                     // annotationsVersion — that refresh arrives via the
                     // maughamTranslationDidUpdate observer below.
-                    if control.translationLanguage != nil {
-                        recomputeTranslatedSurface(doc: doc)
-                    }
+                    // A source-side edit re-derives a translated surface on
+                    // the trailing edge of the refresh below (fix I4), never
+                    // here, synchronously, per burst.
                 }
                 // A retranslation landed via write_translation for THIS doc:
                 // re-derive so the read-only surface + badges refresh live
@@ -322,7 +322,20 @@ struct EditorHost: View {
                     guard control.translationLanguage != nil,
                           note.userInfo?["document_id"] as? String == doc.docId
                     else { return }
-                    recomputeTranslatedSurface(doc: doc)
+                    control.translationRevision += 1
+                }
+                // **A translated surface refreshes on a trailing edge, off the
+                // main actor** (fix I4): a burst of source edits or of
+                // translation writes coalesces to one read, the read and the
+                // derive run detached, and an unchanged surface swaps nothing.
+                // The explicit events (a language, the source-under setting,
+                // a bind) stay immediate.
+                .task(id: TranslatedSurfaceRefresh(annotations: doc.annotationsVersion,
+                                                   translations: control.translationRevision)) {
+                    guard control.translationLanguage != nil else { return }
+                    try? await Task.sleep(for: .milliseconds(Self.surfaceRefreshDelayMs))
+                    guard !Task.isCancelled else { return }
+                    await refreshTranslatedSurface(doc: doc)
                 }
                 .onChange(of: control.isReviewMode) { _, nowReview in
                     control.reviewAnnotations = nowReview
@@ -805,6 +818,8 @@ struct EditorHost: View {
                 sentenceFocus: userPreferences.sentenceFocus,
                 paragraphFocus: userPreferences.paragraphFocus,
                 showElementGutter: store.manifest.showElementGutter ?? true),
+            // What the binding's `get` serves (fix I1): the membrane follows it.
+            servesTranslatedSurface: translatedSurfaceText != nil,
             control: control,
             // Recovery spec §4: a read-only partial open refuses typing at the
             // AppKit level (Task 4) and answers the attempt by emphasising the
@@ -848,6 +863,11 @@ struct EditorHost: View {
                 scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
                 // Where a pending place may land (`EditorControl.pendingPlace`).
                 documentId: doc.docId,
+                // A source location, where the surface shows it (fix I2): the
+                // Scenes rows' and a `.line` place's lines are the source's.
+                surfaceLocationForSource: { location in
+                    Self.surfaceCaret(location, control: control, doc: doc)
+                },
                 paragraphRangeProvider: { paragraphId in
                     // Reading a translation, a paragraph is where it stands
                     // in the translated surface — its translation, not its
@@ -1136,37 +1156,90 @@ struct EditorHost: View {
             control.translationBadges = .empty
             return
         }
-        let records: [TranslationRecord]
-        do {
-            records = try TranslationStore.loadMerged(
-                forDocId: doc.docId, language: language, in: store.url)
-        } catch {
+        let derivedSurface = Self.derivedSurface(
+            records: Result { try TranslationStore.loadMerged(
+                forDocId: doc.docId, language: language, in: store.url) },
+            sequence: doc.sequence, paragraphs: doc.paragraphs, language: language,
+            showsSourceUnder: control.showsSourceUnder, isScreenplay: isScreenplay)
+        adopt(derivedSurface)
+    }
+
+    /// The trailing-edge refresh's delay (fix I4): longer than a typing
+    /// burst's flush interval, so a writer typing in another window costs a
+    /// reading window one refresh per pause, not one per burst.
+    static let surfaceRefreshDelayMs = 400
+
+    /// **The refresh, off the main actor** (fix I4): the source is snapshotted
+    /// here, the translation read and the surface derived detached, and the
+    /// result adopted only if nothing it was asked for has moved since.
+    private func refreshTranslatedSurface(doc: Document) async {
+        guard let language = control.translationLanguage else { return }
+        let shows = control.showsSourceUnder
+        let screenplay = isScreenplay
+        let sequence = doc.sequence, paragraphs = doc.paragraphs
+        let docId = doc.docId, url = store.url
+        let derived = await Task.detached(priority: .userInitiated) {
+            Self.derivedSurface(
+                records: Result { try TranslationStore.loadMerged(forDocId: docId, language: language, in: url) },
+                sequence: sequence, paragraphs: paragraphs, language: language,
+                showsSourceUnder: shows, isScreenplay: screenplay)
+        }.value
+        guard !Task.isCancelled, document === doc, control.translationLanguage == language,
+              control.showsSourceUnder == shows else { return }
+        adopt(derived)
+    }
+
+    /// Takes a derived surface: an unchanged one touches nothing, so no swap
+    /// and no restyle follow (fix I4).
+    private func adopt(_ derived: DerivedSurface) {
+        if translatedSurfaceText != derived.text { translatedSurfaceText = derived.text }
+        if control.translationBadges != derived.model { control.translationBadges = derived.model }
+    }
+
+    private var isScreenplay: Bool {
+        currentItem?.path.map { DocumentFormat.ofManuscript(path: $0).isScreenplay } ?? false
+    }
+
+    /// A translated surface and its badge model.
+    struct DerivedSurface: Equatable, @unchecked Sendable {
+        let text: String
+        let model: EditorControl.TranslationBadgeModel
+    }
+
+    /// **The read-only translated surface, derived** — pure over the records
+    /// read (or why they could not be), the source's order and text, the
+    /// language and the two display choices. Callable off the main actor.
+    nonisolated static func derivedSurface(
+        records: Result<[TranslationRecord], Error>, sequence: [String],
+        paragraphs: [String: String], language: String,
+        showsSourceUnder: Bool, isScreenplay: Bool
+    ) -> DerivedSurface {
+        let loaded: [TranslationRecord]
+        switch records {
+        case .success(let read): loaded = read
+        case .failure(let error):
             // **The pane says why instead of showing the source** (P2a D0). A
             // skipped actor file would render this document's paragraphs as
             // `missing` and fall back to source text — a read-only surface
             // that LOOKS like an untranslated manuscript, over a translation
             // that is sitting on disk intact. The refusal's own sentence names
             // the file, and the badges go empty so nothing claims coverage.
-            translatedSurfaceText = Self.translationSurfaceRefusal(error)
-            control.translationBadges = .empty
-            return
+            return DerivedSurface(text: translationSurfaceRefusal(error), model: .empty)
         }
         let derived = TranslationDeriver.derive(
-            records: records, sequence: doc.sequence,
-            paragraphs: doc.paragraphs, language: language)
+            records: loaded, sequence: sequence,
+            paragraphs: paragraphs, language: language)
         // The badge overlay measures ¶ ranges by accumulating each entry's OWN
         // text (TranslationBadgeLayout.ranges) rather than re-splitting a
         // joined string, so hand it the same per-block text the buffer swap
         // joins — same bytes as `translatedSurfaceText` below, just chunked
         // per paragraph (Task 12 fix round 1).
         //
-        let badgeEntries = Self.reviewBadgeEntries(
-            from: derived.entries, showsSourceUnder: control.showsSourceUnder,
-            isScreenplay: currentItem?.path.map {
-                DocumentFormat.ofManuscript(path: $0).isScreenplay } ?? false)
-        translatedSurfaceText = TranslationBadgeLayout.surface(entries: badgeEntries)
-        control.translationBadges = EditorControl.TranslationBadgeModel(
-            entries: badgeEntries, orphans: derived.orphans)
+        let badgeEntries = reviewBadgeEntries(
+            from: derived.entries, showsSourceUnder: showsSourceUnder, isScreenplay: isScreenplay)
+        return DerivedSurface(text: TranslationBadgeLayout.surface(entries: badgeEntries),
+                              model: EditorControl.TranslationBadgeModel(
+                                entries: badgeEntries, orphans: derived.orphans))
     }
 
     /// Every OTHER open document's live text, with its manuscript path — what
@@ -1187,6 +1260,12 @@ struct EditorHost: View {
     @MainActor static func sourceCaret(_ surfaceOffset: Int, control: EditorControl,
                                        doc: Document) -> Int {
         guard control.translationLanguage != nil else { return surfaceOffset }
+        // The surface caret that IS the source caret's image (a restore, a
+        // remount) leaves the source caret exact (fix M1): mapping it back
+        // would clamp it to the translation's length.
+        if surfaceCaret(doc.cursorLocation, control: control, doc: doc) == surfaceOffset {
+            return doc.cursorLocation
+        }
         return TranslationBadgeLayout.sourceLocation(
             forSurfaceLocation: surfaceOffset,
             ranges: TranslationBadgeLayout.ranges(entries: control.translationBadges.entries),
@@ -1221,7 +1300,7 @@ struct EditorHost: View {
     /// What the read-only translation surface shows when the read refuses
     /// (P2a D0). Pure + static so `EditorHostTranslationSurfaceTests` can pin
     /// that the file's own name reaches the writer without an AppKit surface.
-    static func translationSurfaceRefusal(_ error: Error) -> String {
+    nonisolated static func translationSurfaceRefusal(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
@@ -1246,7 +1325,7 @@ struct EditorHost: View {
     ///
     /// Pure + static so `EditorHostTranslationSurfaceTests` and
     /// `TranslationSourceUnderTests` pin it without an AppKit surface.
-    static func reviewBadgeEntries(
+    nonisolated static func reviewBadgeEntries(
         from entries: [TranslatedDocument.Entry],
         showsSourceUnder: Bool = false,
         isScreenplay: Bool = false
@@ -1273,7 +1352,7 @@ struct EditorHost: View {
     /// translation says (a verbatim paragraph), and under a figure or a table:
     /// a second figure line would draw a second picture, and a second table a
     /// second grid, for a caption or a cell the Publish pages carry anyway.
-    static func sourceUnder(_ entry: TranslatedDocument.Entry, shownAs text: String,
+    nonisolated static func sourceUnder(_ entry: TranslatedDocument.Entry, shownAs text: String,
                             isScreenplay: Bool) -> String? {
         guard entry.translatedText != nil else { return nil }
         let source = RenderFilter.stripTaskAnchorsInline(entry.sourceText)
@@ -1659,4 +1738,12 @@ struct EditorHost: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+}
+
+/// What a translated surface's trailing-edge refresh is keyed on (shell p4
+/// Task 8 fix I4): the open document's annotation edge (a source burst's
+/// flush moves it) and the translation writes heard for it.
+struct TranslatedSurfaceRefresh: Hashable {
+    let annotations: Int
+    let translations: Int
 }
