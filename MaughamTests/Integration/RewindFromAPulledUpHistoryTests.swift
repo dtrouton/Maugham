@@ -149,13 +149,16 @@ final class RewindFromAPulledUpHistoryTests: XCTestCase {
                     let window = lines[max(0, i - 2)...min(lines.count - 1, i + 3)].joined()
                     if window.contains("post(") || window.contains("MaughamEvent.post") {
                         posters.append(url.lastPathComponent)
-                        XCTAssertTrue(window.contains("rewindPayload("),
+                        // `comparePayload` is `rewindPayload`'s keys plus
+                        // the checkpoint's moment (`ReadThroughVerbsTests`).
+                        XCTAssertTrue(window.contains("rewindPayload(")
+                                      || window.contains("comparePayload("),
                                       "\(url.lastPathComponent):\(i + 1) posts a rewind without its piece")
                     }
                 }
             }
         }
-        XCTAssertEqual(posters.sorted(), ["HistoryPane.swift", "HistoryRow.swift"],
-                       "the rewind posts are the toolbar's and the row's")
+        XCTAssertEqual(posters.sorted(), ["HistoryPane.swift", "HistoryRow.swift", "HistoryRow.swift"],
+                       "the rewind posts are the toolbar's, the row's Rewind and the row's Compare…")
     }
 }

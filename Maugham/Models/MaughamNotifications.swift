@@ -273,6 +273,10 @@ extension Notification.Name {
     /// Inbox stopped being a right-column pane when it became a row.
     /// Scope: .keyWindow.
     public static let maughamOpenInbox = Notification.Name("maugham.open.inbox")
+    /// Posted by every read-through route (`ReadThrough.post`): start or
+    /// resume `userInfo["doc_id"]`'s read-through as `userInfo["on"]` says
+    /// (`ReadThroughModifier`). Scope: .keyWindow.
+    public static let maughamSetReadThrough = Notification.Name("maugham.set.read.through")
     public static let maughamMCPNoteAdded = Notification.Name("maugham.mcp.note.added")
     public static let maughamAddLoosePiece = Notification.Name("maugham.add.loose.piece")
     public static let maughamAddScreenplayPiece = Notification.Name("maugham.add.screenplay.piece")

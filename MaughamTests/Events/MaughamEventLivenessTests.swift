@@ -201,6 +201,41 @@ final class MaughamEventLivenessTests: XCTestCase {
         _ = coordinator
     }
 
+    // MARK: - Read-through's request (shell read-through Task 1)
+
+    /// `.maughamSetReadThrough` is a key-window command: a closed window, and
+    /// a live window that is not key, receive nothing; only the key window
+    /// acts on it (`ReadThroughModifier`).
+    func test_readThroughRequest_reachesOnlyALiveKeyWindow() {
+        let w = makeWindow()
+        var delivered = 0
+        let token = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { .forWindow(w, kind: .keyWindow) },
+            handler: { _ in delivered += 1 })
+        defer { NotificationCenter.default.removeObserver(token) }
+        w.close()
+        ReadThrough.post(.init(docId: "doc-abc", on: true))
+        XCTAssertEqual(delivered, 0, "a closed window must not start a read-through")
+
+        var keyDelivered = 0, notKeyDelivered = 0
+        let key = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: true) },
+            handler: { _ in keyDelivered += 1 })
+        let notKey = MaughamEvent.observe(
+            .maughamSetReadThrough,
+            context: { EventReceiverContext(kind: .keyWindow, isWindowLive: true, isWindowKey: false) },
+            handler: { _ in notKeyDelivered += 1 })
+        defer {
+            NotificationCenter.default.removeObserver(key)
+            NotificationCenter.default.removeObserver(notKey)
+        }
+        ReadThrough.post(.init(docId: "doc-abc", on: false))
+        XCTAssertEqual(keyDelivered, 1)
+        XCTAssertEqual(notKeyDelivered, 0, "a window behind the key one acts on nothing")
+    }
+
     // MARK: - Teardown discipline (Task 8, ADR 0021)
     // Pins the two headless-testable teardown obligations traced in
     // docs/superpowers/notes/2026-07-02-window-teardown-audit.md.

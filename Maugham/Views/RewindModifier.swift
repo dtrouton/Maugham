@@ -17,6 +17,7 @@ struct RewindModifier: ViewModifier {
     /// The piece the sheet is open for — the post's (`rewindTarget`).
     @State private var rewindDocId: String?
     @State private var rewindInitialCursor: RewindCursor = .now
+    @State private var rewindInitialPreview: RewindWindow.PreviewMode = .doc
     /// The post-restore report (RULING-28's after half) — rendered from
     /// `RewindImpact.toast(for:)`, auto-dismissing; carries Revert when the
     /// restore resolved a vanished moment to the nearest surviving one
@@ -91,6 +92,7 @@ struct RewindModifier: ViewModifier {
                 } else {
                     rewindInitialCursor = .now
                 }
+                rewindInitialPreview = Self.initialPreview(of: note.userInfo)
                 showingRewindModal = true
             }
             .sheet(isPresented: $showingRewindModal) {
@@ -111,6 +113,13 @@ struct RewindModifier: ViewModifier {
               docId != BinderSubject.noDocumentSubject,
               isOpen(docId) else { return nil }
         return docId
+    }
+
+    /// The preview a rewind post asks the sheet to open on — Diff for
+    /// History's Compare…, Doc for everything else.
+    static func initialPreview(of userInfo: [AnyHashable: Any]?) -> RewindWindow.PreviewMode {
+        (userInfo?[RewindWindow.initialPreviewKey] as? String)
+            .flatMap(RewindWindow.PreviewMode.init(rawValue:)) ?? .doc
     }
 
     /// Said when Restore is pressed for a piece that closed under the sheet.
@@ -136,6 +145,7 @@ struct RewindModifier: ViewModifier {
                 documentStore: documentStore,
                 docTitle: title,
                 initialCursor: rewindInitialCursor,
+                initialPreview: rewindInitialPreview,
                 scope: .thisDoc,
                 onComplete: { action in
                     showingRewindModal = false

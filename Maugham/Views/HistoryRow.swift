@@ -23,6 +23,10 @@ struct HistoryRow: View {
     /// Whether a checkpoint row's *Revert here…* is drawn — only where the
     /// picker would offer at least one document this Mac may write.
     let offersRevert: Bool
+    /// Whether a checkpoint row's *Compare…* is drawn — a checkpoint of this
+    /// History's piece, while that piece is open
+    /// (`HistoryPane.offersCompare(_:docId:documentIsOpen:)`).
+    let offersCompare: Bool
     /// Names the project scope the per-row Rewind button posts
     /// `.maughamOpenRewind` to (ADR 0021), so multi-window setups dispatch the
     /// modal only on the window on that project.
@@ -68,11 +72,24 @@ struct HistoryRow: View {
             } else {
                 collapsedPreview
             }
-            if case .checkpoint = entry, offersRevert {
-                Button("Revert here…", action: onRevert)
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                    .simultaneousGesture(TapGesture().onEnded { })
+            if case .checkpoint(let cp) = entry, offersRevert || offersCompare {
+                HStack(spacing: 6) {
+                    if offersCompare {
+                        Button("Compare…") {
+                            if let payload = HistoryPane.comparePayload(docId: docId, checkpoint: cp) {
+                                MaughamEvent.post(
+                                    .maughamOpenRewind, to: .project(for: projectURL), payload: payload)
+                            }
+                        }
+                        .help("Show what has changed in this piece since this checkpoint")
+                    }
+                    if offersRevert {
+                        Button("Revert here…", action: onRevert)
+                    }
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .simultaneousGesture(TapGesture().onEnded { })
             } else if case .op(let op) = entry, mutatesManuscript(op.kind),
                       offersRewind, let before = rewindTarget {
                 Button {

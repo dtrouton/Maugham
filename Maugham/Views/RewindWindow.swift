@@ -20,6 +20,8 @@ struct RewindWindow: View {
     /// The initial scrubber position. `.now` for the header button;
     /// `.atOp(...)` for the per-row deep-link.
     let initialCursor: RewindCursor
+    /// The preview the sheet opens on: Doc, or Diff for History's Compare….
+    var initialPreview: PreviewMode = .doc
     let scope: RewindScope
     let onComplete: (RewindAction) -> Void
 
@@ -41,7 +43,11 @@ struct RewindWindow: View {
     @State private var showingSnapshotPrompt: Bool = false
     @State private var showingRestoreConfirm: Bool = false
 
-    enum PreviewMode: Equatable { case doc, diff }
+    enum PreviewMode: String, Equatable { case doc, diff }
+
+    /// The rewind post's key naming the preview to open on
+    /// (`PreviewMode.rawValue`); absent opens on Doc.
+    static let initialPreviewKey = "initial_preview"
 
     private static let headerDateFmt: DateFormatter = {
         let f = DateFormatter()
@@ -343,6 +349,7 @@ struct RewindWindow: View {
         // preview / diff collapse to nothing.
         nowState = Deriver.deriveWithSequenceFallback(ops: ops)
         cursor = initialCursor
+        previewMode = initialPreview
         updateDerivedStateNow()
     }
 

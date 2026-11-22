@@ -590,6 +590,12 @@ struct ProjectWindow: View {
             activeDocId: activeDocId,
             showingCheckpointLabelSheet: $showingCheckpointLabelSheet,
             onSaveFlash: { showSaveFlash() }))
+        // Load-bearing line: without it no route starts or resumes a
+        // read-through, and a deleted piece is never forgotten.
+        .modifier(ReadThroughModifier(
+            readThrough: session?.readThrough, store: store,
+            documentStore: documentStore, window: window,
+            onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
                                        centreItem: $centreItem,

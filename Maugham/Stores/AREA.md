@@ -36,7 +36,7 @@ Every file in `Maugham/Stores/` appears once.
 - `ProjectStore+Tasks.swift` — the `__project__` task stream and `appendProjectTaskOp`; cross-project task aggregation.
 - `ProjectStore+Figures.swift` — `createFigure` and `createImageFigure`: the new figure's posture first, then its `fig-` stream, then the de-duplicated record through `saveManifest`. `renameFigure` refuses a parked figure, asks every door first, then relabels the text; `removeFigure` always trashes the record (with its file, a fresh render, or alone), and restoring it re-registers the figure. Tripwire 52.
 - `ProjectStore+FigureTranslations.swift` — a rename's fresh translation records: read and door-checked first, relabelled after the text, all or nothing.
-- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` makes one from a Research table, picture or PDF, recording its source, and a parked figure's copy goes to `bringBack`; `sendToResearch` parks one; `retargetFigureLine` repoints a legacy line at its new figure (*Move into Figures*); `pinSourceRead` reads a pin's source.
+- `ProjectStore+FigureResearch.swift` — figures to and from Research: `useInDocument` (a parked figure's copy goes to `bringBack`), `sendToResearch`, `retargetFigureLine` (*Move into Figures*), `pinSourceRead`.
 - `ProjectStore+Annotations.swift` — the project-wide annotation walk and open-note counts; an unreadable closed doc is skipped and its id returned in `unreadableDocIds` (RULING-54). Tripwire 49.
 - `ProjectStore+Palette.swift` — palette cards, `paletteCoordinatedWrite(_:to:itemId:by:typed:)`, `healPaletteRolesEagerly`, role healing.
 - `ProjectStore+CanvasAssets.swift` — the canvas's asset well (`ingestCanvasAsset(image:)`/`(fileURL:)`).
@@ -54,6 +54,7 @@ Every file in `Maugham/Stores/` appears once.
 - `SessionLog.swift` — the session event log type (.maugham/sessions.json).
 - `SessionTracker.swift` — the active writing session in memory (`shiftBaseline(by:)`, idle threshold).
 - `UIState.swift` — per-project UI state (.maugham/ui-state.json), `AuthorReaderChoice`.
+- `ReadThroughStore.swift` — the pieces in read-through on this Mac. Tripwires 17, 24.
 - `TrashStore.swift` — `<project>/.trash/` entries, `TrashSubject`, `sweep()`, `permanentlyDelete`.
 - `LetGoRecord.swift` — per-device ids of pieces let go from Trash. Tripwires 17, 24.
 - `SentCopyStore.swift` — a Word export's sent copies; `drafts(book:)` derives the drafts from the folder's listing alone. Tripwires 17, 24.
@@ -62,11 +63,11 @@ Every file in `Maugham/Stores/` appears once.
 - `DesignProposalStore.swift` — staged design proposals under `.maugham/design/`.
 - `StatementProposalStore.swift` — staged brief and visual-language proposals.
 - `TranslationRoundStore.swift` — translation rounds: the ring, and each piece's latest.
-- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered` before anything is written). Tripwire 52 (starter).
+- `ProjectFactory.swift` — new projects on disk (Novel/Screenplay/Short Story seeds, and a Report in either prose shape, writing only `profile`; a profile on any other kind throws `profileNotOffered`). Tripwire 52 (starter).
 - `SampleProjectBuilder.swift` — materializes a bundled sample project.
 - `ProjectSearchEngine.swift` — the walk behind project search.
 - `ResearchKindInference.swift` — file extension → `ResearchItem.AssetKind` (a CSV or TSV is a table).
-- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave` (its clock `debounceWait`, injected in tests), `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`, `fileMayHaveChanged` while `holdResearchNoteOpen`) and `ResearchTextRole.of`, the role-first note-or-card predicate.
+- `ResearchNoteDoor.swift` — the note door (`saveResearchNote`, `scheduleNoteSave`, `researchNoteWasRead`, `researchNoteReloadCount`, `researchNoteItem(atPath:)`, `fileMayHaveChanged` while `holdResearchNoteOpen`) and `ResearchTextRole.of`, the role-first note-or-card predicate.
 - `WikiLinkProject.swift` — the title-resolving protocol; `WikiLinkRewriter.swift` — rewrites `[[Title]]` in a body.
 - `PersonKeyAccess.swift` — the one production construction of a `PersonKeyStore`. Tripwire 53.
 - `ICloudShareMetadataReader.swift` — Mac alias for Core's `FileURLShareMetadataReader`.
@@ -105,6 +106,7 @@ Everything derived lives under `.maugham/` (two exceptions below), and each path
 | `.maugham/publish/`, `.maugham/publications*` | Publish area | templates, config, build; the publication log and snapshots |
 | `.maugham/diagnostics/`, `.maugham/derived/` | Compiler area (`DiagnosticsStore`, `DeclaredWorldStore`) | compiler output |
 | `.maugham/bible.<deviceSlug>.json` | `BibleStore` (Compiler) | the bible ledger and graduated keys, per device |
+| `.maugham/read-through.<deviceSlug>.json` | `ReadThroughStore` | per device, never synced: the pieces in read-through on this Mac |
 
 Two things deliberately live elsewhere:
 - **The Trash is `<project>/.trash/`** (`TrashStore.trashRoot`), not under `.maugham/`.

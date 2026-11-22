@@ -709,6 +709,30 @@ extension HistoryPane {
         return payload
     }
 
+    /// **What a checkpoint row's *Compare…* posts** — `rewindPayload`'s keys,
+    /// the scrubber at the piece's own pointer in the checkpoint (the last
+    /// content op before its breadcrumb, which `.atOp` derives inclusively),
+    /// and the sheet opening on Diff. So the diff is exactly "since then".
+    /// nil where the checkpoint holds no pointer for the piece.
+    static func comparePayload(docId: String, checkpoint: Checkpoint) -> [String: Any]? {
+        guard let opId = checkpoint.docPointers[docId] else { return nil }
+        var payload = rewindPayload(docId: docId, before: nil)
+        payload["scrub_op_id"] = opId
+        payload["scrub_op_at"] = checkpoint.at
+        payload[RewindWindow.initialPreviewKey] = RewindWindow.PreviewMode.diff.rawValue
+        return payload
+    }
+
+    /// **Whether a checkpoint row offers *Compare…*** — on a checkpoint whose
+    /// subject is this History's piece, holding a pointer for it, and only
+    /// while that piece is open: the sheet is Rewind's, and Rewind is the
+    /// open piece's (owner ruling 13, 2026-11-22).
+    static func offersCompare(_ checkpoint: Checkpoint, docId: String,
+                              documentIsOpen: Bool) -> Bool {
+        documentIsOpen && checkpoint.activeDoc == docId
+            && checkpoint.docPointers[docId] != nil
+    }
+
     /// **Whether a checkpoint row offers *Revert here…*** — only where the
     /// picker it opens would list at least one document this Mac may write
     /// (`PartialRestorePicker.offeredDocIds`), asked through the picker's own

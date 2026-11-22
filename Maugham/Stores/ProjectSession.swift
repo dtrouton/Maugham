@@ -35,18 +35,23 @@ final class ProjectSession {
     let documentStore: DocumentStore
     let bible: BibleStore
     let declaredWorld: DeclaredWorldStore
+    /// The pieces in read-through on this Mac, shared by every window on the
+    /// project and never synced (`ReadThroughStore`).
+    let readThrough: ReadThroughStore
     let roster: AgentRoster
     /// The figure windows open on this project (report plan 7d): each closes
     /// when the last project window detaches, holding no borrow of its own.
     let figureWindows = FigureWindows()
 
     private init(url: URL, projectStore: ProjectStore, documentStore: DocumentStore,
-                 bible: BibleStore, declaredWorld: DeclaredWorldStore, roster: AgentRoster) {
+                 bible: BibleStore, declaredWorld: DeclaredWorldStore,
+                 readThrough: ReadThroughStore, roster: AgentRoster) {
         self.url = url
         self.projectStore = projectStore
         self.documentStore = documentStore
         self.bible = bible
         self.declaredWorld = declaredWorld
+        self.readThrough = readThrough
         self.roster = roster
     }
 
@@ -80,9 +85,10 @@ final class ProjectSession {
         let device = DeviceIdentity.author.slug
         let bibleStore = BibleStore(projectRoot: url, device: device)
         let worldStore = DeclaredWorldStore(projectRoot: url, device: device)
+        let readThrough = ReadThroughStore(projectRoot: url, device: device)
         return ProjectSession(url: url, projectStore: s, documentStore: ds,
                               bible: bibleStore, declaredWorld: worldStore,
-                              roster: AgentRoster())
+                              readThrough: readThrough, roster: AgentRoster())
     }
 
     // MARK: - The window's attachment

@@ -84,9 +84,10 @@ struct HistoryTimeline: View {
                 // What this Mac may do FROM history, asked once per body
                 // pass (P3c whole-branch fix wave, C1): a reviewer reads
                 // every row and is offered no rewind and no revert.
+                let pieceIsOpen = documentStore?.document(forDocId: activeDocId) != nil
                 let offersRewind = HistoryPane.offersRewind(
                     documentStore?.posture(forDocId: activeDocId),
-                    documentIsOpen: documentStore?.document(forDocId: activeDocId) != nil)
+                    documentIsOpen: pieceIsOpen)
                 let offersRevert = HistoryPane.offersRevert(
                     for: rows, docIds: allDocIds,
                     mayWrite: PartialRestorePicker.mayWrite(through: documentStore))
@@ -130,6 +131,13 @@ struct HistoryTimeline: View {
                                 },
                                 offersRewind: offersRewind,
                                 offersRevert: offersRevert,
+                                offersCompare: {
+                                    if case .checkpoint(let cp) = entry {
+                                        return HistoryPane.offersCompare(
+                                            cp, docId: activeDocId, documentIsOpen: pieceIsOpen)
+                                    }
+                                    return false
+                                }(),
                                 projectURL: projectURL,
                                 docId: activeDocId)
                             Divider()
