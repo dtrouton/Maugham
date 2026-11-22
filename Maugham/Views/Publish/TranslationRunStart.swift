@@ -53,7 +53,7 @@ struct TranslationRunStart: Equatable {
                 return
             }
             busy = refusedIfBusy(pipeline.runBook(documentIds: documents, language: language),
-                                 pipeline: pipeline)
+                                 pipeline: pipeline, queueIsEmpty: documents.isEmpty)
         }
         return TranslationRunStart(notice: busy ?? notice, castPrompt: castPrompt)
     }
@@ -64,12 +64,14 @@ struct TranslationRunStart: Equatable {
     /// after this window last looked — is under way. The pipeline refuses;
     /// this says which round holds it, where the press used to do nothing.
     @MainActor
-    static func refusedIfBusy(_ started: Bool, pipeline: TranslationPipeline) -> String? {
+    static func refusedIfBusy(_ started: Bool, pipeline: TranslationPipeline,
+                              queueIsEmpty: Bool = false) -> String? {
         guard !started else { return nil }
-        // The pipeline refuses for two reasons; each says its own (fix M8).
-        return pipeline.isRunning
-            ? TranslationRunState.busyReason(language: pipeline.status.language)
-            : noTranslatorWired
+        // The pipeline refuses for three reasons; each says its own (fix M8,
+        // fix 2): a round holds it, nothing was asked of it, or it is not wired.
+        if pipeline.isRunning { return TranslationRunState.busyReason(language: pipeline.status.language) }
+        if queueIsEmpty { return TranslationRunState.nothingInTheBook }
+        return noTranslatorWired
     }
 
     /// The sheet a whole-book run stands behind, with the queue it was

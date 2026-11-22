@@ -102,6 +102,8 @@ final class RunningRoundIndicatorTests: XCTestCase {
         XCTAssertEqual(TranslationRunStart.refusedIfBusy(false, pipeline: pipeline),
                        TranslationRunStart.noTranslatorWired,
                        "an idle pipeline that refused was not wired — not busy (fix M8)")
+        XCTAssertEqual(TranslationRunStart.refusedIfBusy(false, pipeline: pipeline, queueIsEmpty: true),
+                       TranslationRunState.nothingInTheBook, "nothing asked of it is not 'not wired'")
         XCTAssertFalse(pipeline.runBook(documentIds: ["c3"], language: "sr"),
                        "control: an unwired pipeline refuses, as a running one does")
     }

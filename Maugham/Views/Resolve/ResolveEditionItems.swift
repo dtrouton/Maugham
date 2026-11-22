@@ -991,7 +991,8 @@ struct EditionHeadVerbs {
             },
             runBookNamed: { language, documentIds in
                 TranslationRunStart.refusedIfBusy(
-                    pipeline.runBook(documentIds: documentIds, language: language), pipeline: pipeline)
+                    pipeline.runBook(documentIds: documentIds, language: language), pipeline: pipeline,
+                    queueIsEmpty: documentIds.isEmpty)
             },
             cancelRound: {
                 roster.pipeline.cancel()

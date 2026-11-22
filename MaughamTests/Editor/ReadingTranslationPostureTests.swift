@@ -321,7 +321,15 @@ final class ReadingTranslationPostureTests: XCTestCase {
         let coordinator = harness.coordinator
         let um = UndoManager()
         coordinator.undoManagerOverrideForTesting = um
-        um.registerUndo(withTarget: self) { _ in }
+        // Typing registers with the text storage as its target (fix 2, N5:
+        // only the typing goes; op-level entries are kept — see
+        // `test_aChangedSourceDropsTheTypingAndKeepsOpLevelEntries`).
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        um.registerUndo(withTarget: harness.textView.textStorage!,
+                        selector: #selector(NSMutableAttributedString.setAttributedString(_:)),
+                        object: NSAttributedString(string: "Source one"))
+        um.endUndoGrouping()
         EditorSurface.reconcileTextBuffer(
             textView: harness.textView, coordinator: coordinator,
             translationLanguage: "fr", text: "Traduction un", undoCoherentApply: false)
@@ -384,5 +392,139 @@ final class ReadingTranslationPostureTests: XCTestCase {
         XCTAssertTrue(um.canUndo,
             "a non-translation undo-coherent replace must keep the accept-undo "
             + "registration")
+    }
+
+    // MARK: - The window's real stack (shell p4 Task 8 fix 2) — NO override
+
+    /// Type, read in a language, the piece is left while reading (detach):
+    /// the WINDOW's stack goes, not the reading throwaway (N1). No
+    /// `undoManagerOverrideForTesting`: the override hid this.
+    @MainActor
+    func test_leavingAPieceWhileReadingDropsTheWindowsTypingUndo() {
+        let harness = EditorIntegrationHarness(initialText: "One two")
+        let tv = harness.textView
+        let window = try! XCTUnwrap(tv.window)
+        let um = try! XCTUnwrap(window.undoManager)
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 7, length: 0))
+        tv.insertText(" three", replacementRange: NSRange(location: NSNotFound, length: 0))
+        um.endUndoGrouping()
+        XCTAssertTrue(um.canUndo)
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: "sr", text: "Jedan dva tri",
+                                          undoCoherentApply: false)
+        XCTAssertTrue(um.canUndo, "kept while reading (I5)")
+        harness.coordinator.detach()
+        XCTAssertFalse(um.canUndo, "the left piece's typing never stays poppable against a dismantled view")
+        XCTAssertNil(ReadingUndoGuard.standing(over: window), "and the window's Undo is free again")
+    }
+
+    /// **Edit ▸ Undo is barred over a translation from every responder** (N3):
+    /// the walk from the text view, and from any other view in the window,
+    /// meets the guard before the window's stack, which is disabled and
+    /// titled plainly; the writer's typing is still there when the source is
+    /// back.
+    @MainActor
+    func test_overATranslationUndoIsBarredFromEveryResponderAndTheTypingWaits() {
+        let harness = EditorIntegrationHarness(initialText: "One two")
+        let tv = harness.textView
+        let window = try! XCTUnwrap(tv.window)
+        let um = try! XCTUnwrap(window.undoManager)
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 7, length: 0))
+        tv.insertText(" three", replacementRange: NSRange(location: NSNotFound, length: 0))
+        um.endUndoGrouping()
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: "sr", text: "Jedan dva tri",
+                                          undoCoherentApply: false)
+        func undoTarget(from responder: NSResponder) -> NSResponder? {
+            var next: NSResponder? = responder
+            while let r = next {
+                if r.responds(to: #selector(ReadingUndoGuard.undo(_:))) { return r }
+                next = r.nextResponder
+            }
+            return nil
+        }
+        let other = NSView(frame: .zero)
+        window.contentView?.addSubview(other)
+        for start in [tv as NSResponder, other] {
+            let target = undoTarget(from: start)
+            XCTAssertTrue(target is ReadingUndoGuard, "\(start): \(String(describing: target))")
+        }
+        let item = NSMenuItem(title: "Undo Typing", action: #selector(ReadingUndoGuard.undo(_:)), keyEquivalent: "z")
+        let guardian = try! XCTUnwrap(ReadingUndoGuard.standing(over: window))
+        XCTAssertFalse(guardian.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Undo", "no action named that this window cannot take")
+        guardian.undo(nil)   // what ⌘Z reaches: nothing spent
+        XCTAssertTrue(um.canUndo)
+        XCTAssertEqual(tv.string, "Jedan dva tri")
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: nil, text: "One two three",
+                                          undoCoherentApply: false)
+        XCTAssertNil(ReadingUndoGuard.standing(over: window))
+        um.undo()
+        XCTAssertEqual(tv.string, "One two", "the typing waited, and ⌘Z takes it back")
+    }
+
+    /// **The typing in flight ends at the swap** (N4): typing after the source
+    /// comes back is its own step, never coalesced into the action the swap
+    /// interrupted.
+    @MainActor
+    func test_typingAfterARoundTripIsItsOwnUndoStep() {
+        let harness = EditorIntegrationHarness(initialText: "One two")
+        let tv = harness.textView
+        let um = try! XCTUnwrap(tv.window?.undoManager)
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 7, length: 0))
+        tv.insertText(" three", replacementRange: NSRange(location: NSNotFound, length: 0))
+        // The typing action is left OPEN, as real typing leaves it.
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: "sr", text: "Jedan dva tri",
+                                          undoCoherentApply: false)
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: nil, text: "One two three",
+                                          undoCoherentApply: false)
+        um.endUndoGrouping()
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 13, length: 0))
+        tv.insertText(" four", replacementRange: NSRange(location: NSNotFound, length: 0))
+        um.endUndoGrouping()
+        um.undo()
+        XCTAssertEqual(tv.string, "One two three", "the step after the round trip goes alone")
+        um.undo()
+        XCTAssertEqual(tv.string, "One two")
+    }
+
+    /// **A changed source drops the typing and keeps the op-level entries**
+    /// (N5): a note resolved or filed while reading re-checks the world when
+    /// it fires, and stays.
+    @MainActor
+    func test_aChangedSourceDropsTheTypingAndKeepsOpLevelEntries() {
+        let harness = EditorIntegrationHarness(initialText: "One two")
+        let tv = harness.textView
+        let um = try! XCTUnwrap(tv.window?.undoManager)
+        um.groupsByEvent = false
+        um.beginUndoGrouping()
+        tv.setSelectedRange(NSRange(location: 7, length: 0))
+        tv.insertText(" three", replacementRange: NSRange(location: NSNotFound, length: 0))
+        um.endUndoGrouping()
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: "sr", text: "Jedan dva tri",
+                                          undoCoherentApply: false)
+        final class Note { var reopened = false }
+        let note = Note()
+        um.beginUndoGrouping()
+        um.registerUndo(withTarget: note) { $0.reopened = true }   // an op-level entry, filed while reading
+        um.endUndoGrouping()
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: harness.coordinator,
+                                          translationLanguage: nil, text: "One two three, merged",
+                                          undoCoherentApply: false)
+        XCTAssertTrue(um.canUndo, "the op-level entry is kept")
+        um.undo()
+        XCTAssertTrue(note.reopened)
+        XCTAssertEqual(tv.string, "One two three, merged", "and no typing was replayed over the merged text")
     }
 }

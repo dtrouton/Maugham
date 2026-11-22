@@ -79,11 +79,6 @@ struct EditorSurfaceConfiguration {
         /// Wired through to the coordinator's paragraphRangeProvider so that
         /// `.maughamNavigateToParagraph` notifications (fired by clicking an
         /// annotation row) scroll the textView to the right paragraph.
-        /// A SOURCE location as a location in the text the editor shows — the
-        /// identity on the source, the same paragraph's place on a translation
-        /// (shell p4 Task 8 fix I2, `EditorHost.surfaceCaret`). Wired by
-        /// `EditorHost`; nil elsewhere.
-        var surfaceLocationForSource: ((Int) -> Int)? = nil
         var paragraphRangeProvider: ((String) -> NSRange?)? = nil
         /// Resolves a doc-wide UTF-16 location to (paragraphId, offset) within
         /// that paragraph. Used by the markdown-checkbox click path.
@@ -290,7 +285,6 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.wikiLinkResolverForClick = pp.wikiLinkClickResolver
         coordinator.imagePasteHandler = pp.imagePasteHandler
         coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
-        coordinator.surfaceLocationForSource = pp.surfaceLocationForSource
         coordinator.paragraphLocator = pp.paragraphLocator
         coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
@@ -434,11 +428,14 @@ struct EditorSurface: NSViewRepresentable {
         scrollView.addSubview(completionList)
         context.coordinator.completionList = completionList
 
-        context.coordinator.attach(to: textView)
         // A document mounted already read in a language (the language carried
         // to it): its buffer holds the translation from the first frame, so
-        // the refusal holds from the first frame too (fix I1).
-        context.coordinator.setBufferHoldsTranslation(configuration.servesTranslatedSurface)
+        // the refusal holds from the first frame too (fix I1) — and the fact
+        // is set BEFORE `attach`, whose first parse must already know it
+        // (fix 2, N2: no translated script, translation-only counts).
+        Self.mount(context.coordinator, on: textView,
+                   servesTranslation: configuration.servesTranslatedSurface,
+                   control: configuration.control)
         // Hand the control-plane model to the coordinator. It observes the model
         // from here on; the per-prop pushes below remain during the parallel
         // migration (ADR 0017) and are removed in later tasks.
@@ -472,6 +469,17 @@ struct EditorSurface: NSViewRepresentable {
         // resolves the real set synchronously (Bug A), independent of the model.
 
         return scrollView
+    }
+
+    /// **The mount's order** (fix 2, N2): the buffer's fact first, then
+    /// `attach`, whose first parse, metrics and caret restore read it.
+    @MainActor
+    static func mount(_ coordinator: EditorCoordinator, on textView: NSTextView,
+                      servesTranslation: Bool, control: EditorControl) {
+        if servesTranslation {
+            coordinator.setBufferHoldsTranslation(true, in: textView, control: control)
+        }
+        coordinator.attach(to: textView)
     }
 
     /// Teardown hook — SwiftUI calls this when the representable leaves the view
@@ -608,7 +616,6 @@ struct EditorSurface: NSViewRepresentable {
         }
         context.coordinator.imagePasteHandler = pp.imagePasteHandler
         context.coordinator.paragraphRangeProvider = pp.paragraphRangeProvider
-        context.coordinator.surfaceLocationForSource = pp.surfaceLocationForSource
         context.coordinator.paragraphLocator = pp.paragraphLocator
         context.coordinator.checkboxToggleHandler = pp.checkboxToggleHandler
         context.coordinator.paragraphRangeAtLocation = pp.paragraphRangeAtLocation
@@ -845,6 +852,15 @@ final class MaughamTextView: NSTextView {
         guard !copied.isEmpty else { return false }
         pboard.declareTypes([.string], owner: nil)
         return pboard.setString(copied.joined(separator: "\n"), forType: .string)
+    }
+
+    /// The singular writer takes the same road (fix 2, N7): no pasteboard
+    /// route takes the grey source lines.
+    override func writeSelection(to pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard coordinator?.bufferHoldsTranslation == true else {
+            return super.writeSelection(to: pboard, type: type)
+        }
+        return writeSelection(to: pboard, types: [type])
     }
 
     /// The caret's ink: the editing colour, or the secondary ink of a reading
@@ -1089,6 +1105,11 @@ final class MaughamTextView: NSTextView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A view mounted already holding a translation reaches its window
+        // here: Edit ▸ Undo is barred over it from every responder (fix 2, N3).
+        if let coordinator, coordinator.bufferHoldsTranslation {
+            ReadingUndoGuard.install(over: window, for: coordinator)
+        }
         // SwiftUI may set the scroll-view geometry only after the text view
         // has already been mounted, so the initial setFrameSize sees a
         // pre-layout width. Recompute once we're attached to a window.

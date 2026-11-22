@@ -466,6 +466,14 @@ extension EditorCoordinator {
         }
     }
 
+    /// **The source has landed** (fix 2, N2): its script and its counts,
+    /// which the swap that brought it in did not post (the buffer still held
+    /// the translation then).
+    func sourceDidLand() {
+        if let script = lastParsedScript { postScriptDidUpdate(script, debounced: false) }
+        if let textView { deliverMetrics(text: textView.string, debounced: false) }
+    }
+
     /// **The counts of a piece read in a language** (fix M3): the
     /// translation's own words, never its source lines under it.
     func deliverReadingMetrics() {

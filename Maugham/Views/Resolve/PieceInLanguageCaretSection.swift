@@ -11,7 +11,7 @@ import MaughamCore
 ///
 /// Mounted by `PieceInLanguageHeadView` on the open piece only. It reads
 /// `Document.cursorLocation` itself — a source caret, which the translated
-/// surface keeps on the paragraph it shows (`EditorHost.sourceCaret`, shell
+/// surface keeps on the paragraph it shows (`EditorCoordinator.sourceLocation(forSurface:)`, shell
 /// p4 Task 8) — so a caret move re-renders this section and nothing else.
 @MainActor
 struct PieceInLanguageCaretSection: View {

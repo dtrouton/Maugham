@@ -638,8 +638,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Set by EditorSurface.updateNSView so the coordinator can resolve
     /// ranges against the live Document's `displayRange(forParagraphId:)`.
     var paragraphRangeProvider: ((String) -> NSRange?)?
-    /// A source location in the text the editor shows (fix I2).
-    var surfaceLocationForSource: ((Int) -> Int)?
+    /// The last source caret told to the host: a surface caret that is its
+    /// own image keeps it exact (fix M1) — never clamped to a translation's
+    /// length.
+    var lastToldSourceCaret: Int?
 
     /// Resolves a doc-wide UTF-16 location to the containing paragraph_id
     /// and the offset (in the same UTF-16 space) within that paragraph's
@@ -1126,7 +1128,10 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             applyTranslationDimming()
             syncTranslationBadgeOverlay()
         }
-        if let location = initialCursorLocation {
+        if let source = initialCursorLocation {
+            // A SOURCE caret, shown where the text held has it (fix 2, N6).
+            lastToldSourceCaret = source
+            let location = surfaceLocation(forSource: source)
             let length = (textView.string as NSString).length
             let clamped = max(0, min(location, length))
             let range = NSRange(location: clamped, length: 0)
@@ -1244,6 +1249,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // undo is not a thing: text edits are per-doc, and op-log-level
         // accept actions target the by-then-husked Document anyway.
         dropTheUndoStack()
+        ReadingUndoGuard.remove(from: textView?.window, for: self)
         if let tv = textView, tv.delegate === self {
             tv.delegate = nil
         }
@@ -1259,8 +1265,14 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Task 5 fix 3, `CentreKeysView`), the only state that keeps a hidden
     /// piece bound with its typing on the window's stack. ADR 0023: no
     /// cross-subject undo.
+    ///
+    /// **Both stacks go** (fix 2, N1): the manager its typing registered on
+    /// (`typingUndoManager` — the window's for the primary editor, named
+    /// explicitly, never the view's answer, which over a translation is the
+    /// throwaway) and the reading throwaway.
     func dropTheUndoStack() {
-        (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
+        typingUndoManager?.removeAllActions()
+        readingUndoManager.removeAllActions()
     }
 
     /// The non-View `MaughamEvent.observe` liveness contract (ADR 0021): the
@@ -1460,24 +1472,48 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// translated text goes in and clear it AFTER the source has landed.
     /// Returns whether it flipped.
     @discardableResult
-    func setBufferHoldsTranslation(_ holds: Bool) -> Bool {
+    func setBufferHoldsTranslation(_ holds: Bool, in mountingView: NSTextView? = nil,
+                                   control mountingControl: EditorControl? = nil) -> Bool {
         guard bufferHoldsTranslation != holds else { return false }
+        // At a mount the fact is set BEFORE `attach` (fix 2, N2), so the view
+        // and the control are handed in; everywhere else they are this
+        // coordinator's own.
+        let view = mountingView ?? textView
         if holds {
             // A surface mounted already holding the translation is described
             // by the control's model; a swap about to bring one in overwrites
             // this as it applies.
-            bufferBadges = TranslationBadgeLayout.ranges(entries: control?.translationBadges.entries ?? [])
-            sourceTextBeforeTranslation = textView?.string
-            editableBeforeTranslation = textView?.isEditable ?? true
+            bufferBadges = TranslationBadgeLayout.ranges(
+                entries: (mountingControl ?? control)?.translationBadges.entries ?? [])
+            sourceTextBeforeTranslation = mountingView == nil ? view?.string : nil
+            editableBeforeTranslation = view?.isEditable ?? true
+            // The typing in flight ends here (fix 2, N4): nothing typed after
+            // the source comes back may coalesce into an action whose ranges
+            // the translated surface invalidated.
+            view?.breakUndoCoalescing()
             bufferHoldsTranslation = true
-            textView?.isEditable = false
+            view?.isEditable = false
+            ReadingUndoGuard.install(over: view?.window, for: self)
         } else {
             bufferHoldsTranslation = false
             bufferBadges = []
-            textView?.isEditable = editableBeforeTranslation
+            view?.isEditable = editableBeforeTranslation
+            ReadingUndoGuard.remove(from: view?.window, for: self)
         }
         readingPostureChanged()
         return true
+    }
+
+    /// **The manager this editor's typing registers on** (fix 2, N1): a
+    /// second editor's own; the primary editor's is the WINDOW's — named
+    /// explicitly, because over a translation the view's `undoManager`
+    /// answers the reading throwaway (`undoManager(for:)`), and clearing that
+    /// would leave the writer's typing on the window's stack against a view
+    /// about to go.
+    var typingUndoManager: UndoManager? {
+        if let override = undoManagerOverrideForTesting { return override }
+        if let view = textView as? MaughamTextView, view.usesPrivateUndoManager { return view.undoManager }
+        return textView?.window?.undoManager ?? textView?.undoManager
     }
 
     /// **The source has landed in the view** (`reconcileTextBuffer`): the
@@ -1488,9 +1524,18 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         let before = sourceTextBeforeTranslation
         guard setBufferHoldsTranslation(false) else { return }
         sourceTextBeforeTranslation = nil
-        if before != text {
-            (undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()
+        if before != text, let storage = textView?.textStorage {
+            // Only the TYPING goes (fix 2, N5): its ranges are the old
+            // source's (ADR 0023 D1). Typing registers with the text storage
+            // as its target (`EditorTypingUndoManager`); an op-level entry — a
+            // note resolved, a Translator's note filed while reading —
+            // re-checks the world when it fires, and is kept.
+            typingUndoManager?.removeAllActions(withTarget: storage)
         }
+        // The source's own script and counts (fix 2, N2): the swap that
+        // brought it in ran while the buffer still held the translation, so
+        // it posted neither.
+        sourceDidLand()
     }
 
     /// What a change in the reading posture redraws: the completion list, the
@@ -1498,6 +1543,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// the temporary foreground while reading), the review marks (none drawn
     /// over a translation, fix I3), the inks and badges, and the caret.
     private func readingPostureChanged() {
+        if bufferHoldsTranslation { ReadingUndoGuard.install(over: textView?.window, for: self) }
         closeCompletionIfTheMembraneRefuses()
         refreshFigureGridAccess()
         refreshFigureSyntaxUnfade(force: true)
@@ -2061,7 +2107,13 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // The caption bar: the caret's figure line shows its syntax, on
         // temporaries over at most two lines — no storage edit, no re-layout.
         refreshFigureSyntaxUnfade()
-        onCursorChanged?(textView.selectedRange().location)
+        // The host hears the SOURCE caret (fix 2, N6): over a translation the
+        // surface's caret is told as the same paragraph's place, read against
+        // the ranges of the text the view holds.
+        if let told = sourceLocation(forSurface: textView.selectedRange().location) {
+            lastToldSourceCaret = told
+            onCursorChanged?(told)
+        }
         onElementChanged?(currentElementAbbreviation(in: textView))
         // One-way drive of the floating selection toolbar (review posture only).
         // No write-back into SwiftUI state.

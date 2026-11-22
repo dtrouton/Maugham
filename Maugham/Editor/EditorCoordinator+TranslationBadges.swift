@@ -199,11 +199,104 @@ extension EditorCoordinator {
         return NSRange(location: range.location + into, length: max(0, length))
     }
 
-    /// The paragraph's range in the text the view holds now.
-    private func paragraphRangeNow(_ paragraphId: String) -> NSRange? {
+    /// The paragraph's range in the text the view holds now: from the
+    /// buffer's own ranges over a translation (fix 2, N6), else the source's
+    /// (`paragraphRangeProvider`, which answers the source only).
+    func paragraphRangeNow(_ paragraphId: String) -> NSRange? {
         if bufferHoldsTranslation {
             return bufferBadges.first { $0.paragraphId == paragraphId }?.range
         }
         return paragraphRangeProvider?(paragraphId)
+    }
+
+    // MARK: - Source and surface coordinates (fix I2; fix 2, N6)
+
+    /// **A SOURCE location in the text the view holds** — the one rule every
+    /// source-coordinate navigation takes (a Scenes row, a `.line` place, the
+    /// restored caret): itself over the source; over a translation the same
+    /// paragraph's place in its translation, the same distance in (clamped),
+    /// read against the buffer's own ranges; the start when the surface does
+    /// not hold the paragraph.
+    func surfaceLocation(forSource location: Int) -> Int {
+        guard bufferHoldsTranslation else { return location }
+        guard let found = paragraphLocator?(location),
+              let badge = bufferBadges.first(where: { $0.paragraphId == found.paragraphId })
+        else { return 0 }
+        return badge.range.location + max(0, min(found.offsetWithinParagraph, badge.range.length))
+    }
+
+    /// **A location of the text held, as a SOURCE location** — what the host
+    /// is told the caret is (`onCursorChanged`): itself over the source; over
+    /// a translation the same paragraph's source place
+    /// (`TranslationBadgeLayout.sourceLocation`), the last told one exactly
+    /// when the surface caret is its own image (fix M1). Nil — tell nothing —
+    /// when the surface names no paragraph the source has.
+    func sourceLocation(forSurface location: Int) -> Int? {
+        guard bufferHoldsTranslation else { return location }
+        if let told = lastToldSourceCaret, surfaceLocation(forSource: told) == location { return told }
+        return TranslationBadgeLayout.sourceLocation(
+            forSurfaceLocation: location, ranges: bufferBadges,
+            sourceRangeOf: { self.paragraphRangeProvider?($0) })
+    }
+}
+
+/// **Edit ▸ Undo is barred while the buffer holds a translation, from every
+/// responder** (shell p4 Task 8 fix 2, N3). The window's stack holds the
+/// writer's typing against the SOURCE; popped against a non-editable view
+/// showing a translation it applies nothing and is consumed — the writer's
+/// history lost in silence. The primary editor does not answer `undo:` (the
+/// walk reaches the window, `MaughamTextView.responds(to:)`), nor do the tree
+/// or a button; so this responder sits between the window's content view and
+/// the window, and every walk that would reach the window's stack meets it
+/// first: Undo and Redo are disabled, titled plainly. A responder with its
+/// own manager — a statement's second editor, a text field's field editor —
+/// answers before it, as ever. The stack is kept, and is reachable again the
+/// moment the source is back. One guard per window, held while any of its
+/// editors reads a translation.
+final class ReadingUndoGuard: NSResponder, NSMenuItemValidation {
+    private var owners: Set<ObjectIdentifier> = []
+
+    static let undoTitle = "Undo"
+    static let redoTitle = "Redo"
+
+    @objc func undo(_ sender: Any?) {}
+    @objc func redo(_ sender: Any?) {}
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { item.title = Self.undoTitle; return false }
+        if item.action == #selector(redo(_:)) { item.title = Self.redoTitle; return false }
+        return false
+    }
+
+    /// The guard over `window`, if one stands.
+    static func standing(over window: NSWindow?) -> ReadingUndoGuard? {
+        window?.contentView?.nextResponder as? ReadingUndoGuard
+    }
+
+    /// `nextResponder` does not retain: the window holds its guard.
+    private static var heldKey: UInt8 = 0
+
+    @MainActor
+    static func install(over window: NSWindow?, for owner: AnyObject) {
+        guard let window, let content = window.contentView else { return }
+        if let existing = content.nextResponder as? ReadingUndoGuard {
+            existing.owners.insert(ObjectIdentifier(owner))
+            return
+        }
+        let guardian = ReadingUndoGuard()
+        guardian.nextResponder = content.nextResponder
+        guardian.owners = [ObjectIdentifier(owner)]
+        objc_setAssociatedObject(window, &heldKey, guardian, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        content.nextResponder = guardian
+    }
+
+    @MainActor
+    static func remove(from window: NSWindow?, for owner: AnyObject) {
+        guard let window, let content = window.contentView,
+              let guardian = content.nextResponder as? ReadingUndoGuard else { return }
+        guardian.owners.remove(ObjectIdentifier(owner))
+        guard guardian.owners.isEmpty else { return }
+        content.nextResponder = guardian.nextResponder
+        objc_setAssociatedObject(window, &heldKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 }

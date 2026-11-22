@@ -123,6 +123,10 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         XCTAssertFalse(keys.contains("func undo("), "the guard answers no ⌘Z of its own")
         XCTAssertFalse(keys.contains("removeAllActions"), "no second spelling of the drop")
         let detach = try SourceTree.declaration(named: "func dropTheUndoStack(", under: "Maugham")
-        XCTAssertTrue(detach.contains("(undoManagerOverrideForTesting ?? textView?.undoManager)?.removeAllActions()"))
+        // The window's own stack, named explicitly (shell p4 Task 8 fix 2,
+        // N1): over a translation the view's manager is the reading
+        // throwaway, and clearing that alone left the typing behind.
+        XCTAssertTrue(detach.contains("typingUndoManager?.removeAllActions()"))
+        XCTAssertTrue(detach.contains("readingUndoManager.removeAllActions()"))
     }
 }

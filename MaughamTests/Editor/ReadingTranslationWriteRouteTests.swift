@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 import MaughamCore
 @testable import Maugham
 
@@ -18,9 +19,27 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
     private let source = "Source one\n\nSource two"
     private let translated = "Prevod jedan\nSource one\n\nPrevod dva\nSource two"
 
-    /// A harness whose buffer holds the translated surface.
-    private func reading() -> EditorIntegrationHarness {
-        let harness = EditorIntegrationHarness(initialText: source)
+    /// The entries that join into `translated`, and the source's ranges.
+    private let entries = [
+        TranslationBadgeLayout.Entry(paragraphId: "a", text: "Prevod jedan", source: "Source one", status: .fresh),
+        TranslationBadgeLayout.Entry(paragraphId: "b", text: "Prevod dva", source: "Source two", status: .fresh),
+    ]
+    private let sourceRanges = ["a": NSRange(location: 0, length: 10), "b": NSRange(location: 12, length: 10)]
+
+    /// A harness whose buffer holds the translated surface, with the control's
+    /// model and the source's paragraph providers wired as EditorHost wires them.
+    private func reading(_ harness: EditorIntegrationHarness? = nil) -> EditorIntegrationHarness {
+        let harness = harness ?? EditorIntegrationHarness(initialText: source)
+        let control = EditorControl()
+        control.translationBadges = .init(entries: entries)
+        harness.coordinator.observeControl(control)
+        let ranges = sourceRanges
+        harness.coordinator.paragraphRangeProvider = { ranges[$0] }
+        harness.coordinator.paragraphLocator = { location in
+            ranges.first { location >= $0.value.location && location <= NSMaxRange($0.value) }
+                .map { ($0.key, location - $0.value.location) }
+        }
+        XCTAssertEqual(TranslationBadgeLayout.surface(entries: entries), translated)
         EditorSurface.reconcileTextBuffer(
             textView: harness.textView, coordinator: harness.coordinator,
             translationLanguage: "sr", text: translated, undoCoherentApply: false)
@@ -178,10 +197,10 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
         harness.typeCharacter("x")
         XCTAssertEqual(harness.textView.string, translated)
         let lines = SourceScan.codeLines(of: try SourceTree.read("Maugham/Editor/EditorSurface.swift"))
-        let attach = try XCTUnwrap(lines.firstIndex { $0.contains("context.coordinator.attach(to: textView)") })
-        XCTAssertTrue(lines[attach + 1].contains(
-            "context.coordinator.setBufferHoldsTranslation(configuration.servesTranslatedSurface)"),
-            "the mount sets the fact in the attach's own turn")
+        XCTAssertTrue(lines.contains { $0.contains("Self.mount(context.coordinator, on: textView,") },
+                      "makeNSView mounts through the one ordered function")
+        XCTAssertFalse(lines.contains { $0.contains("context.coordinator.attach(to: textView)") },
+                       "no attach of its own, out of that order")
     }
 
     /// The binding's own guard stays, and the host tells the surface what it serves.
@@ -230,15 +249,25 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
     }
 
     /// **A source location lands where the surface shows its paragraph**: a
-    /// Scenes row, a `.line` place.
+    /// Scenes row, a `.line` place — and the caret the host is told is the
+    /// source's again, read against the ranges of the text the view HOLDS
+    /// (fix 2, N6), not the control's model of a surface still to come.
     func test_aSourceLineLandsInItsParagraphOfTheSurface() {
-        XCTAssertEqual(EditorCoordinator.surfaceLocation(12, isReadingTranslation: false, map: { _ in 99 }), 12)
-        XCTAssertEqual(EditorCoordinator.surfaceLocation(12, isReadingTranslation: true, map: { _ in 99 }), 99)
-        XCTAssertEqual(EditorCoordinator.surfaceLocation(12, isReadingTranslation: true, map: nil), 0)
         let harness = reading()
-        harness.coordinator.surfaceLocationForSource = { $0 == 12 ? 25 : 0 }
-        let landed = harness.coordinator.navigateToLine(at: 12, in: harness.textView)
-        XCTAssertEqual(landed.location, 25)
+        let coordinator = harness.coordinator
+        // b's translation starts at 25 ("Prevod jedan\nSource one\n\n").
+        XCTAssertEqual(coordinator.surfaceLocation(forSource: 14), 27, "two into b's source → two into Dva")
+        let landed = coordinator.navigateToLine(at: 14, in: harness.textView)
+        XCTAssertEqual(landed.location, 27)
+        XCTAssertEqual(coordinator.sourceLocation(forSurface: 27), 14, "and told back exactly")
+        XCTAssertEqual(coordinator.surfaceLocation(forSource: 99), 0, "a paragraph the surface lacks: the start")
+        // The control moves on to a model whose surface has not landed: the
+        // mapping still reads the text held.
+        let observed = EditorControl()
+        observed.translationBadges = .init(entries: [entries[1]])
+        coordinator.setTranslationBadges(observed.translationBadges)
+        XCTAssertEqual(coordinator.surfaceLocation(forSource: 14), 27)
+        XCTAssertEqual(coordinator.sourceLocation(forSurface: 27), 14)
     }
 
     /// **Every place that sets a selection or scrolls, and the rule it takes**
@@ -290,5 +319,80 @@ final class ReadingTranslationWriteRouteTests: XCTestCase {
             if n > 0 { found[file] = n }
         }
         XCTAssertEqual(found, classified)
+    }
+
+    // MARK: - A screenplay mounted already reading (fix 2, N2)
+
+    /// **The first parse of a chapter that opens in a language knows it**: no
+    /// translated script reaches the Scenes navigator (each scene twice, at
+    /// surface offsets), the counts are the translation's, and leaving posts
+    /// the source's script and counts.
+    func test_aScreenplayMountedReadingPostsNoTranslatedScriptAndExitPostsTheSource() {
+        let sourceText = "INT. HOUSE - DAY\n\nJOHN\nHello there."
+        let mounted = [
+            TranslationBadgeLayout.Entry(paragraphId: "s1", text: ".INT. KUĆA - DAN", source: "INT. HOUSE - DAY",
+                                         status: .fresh,
+                                         sourceSeparator: TranslationBadgeLayout.screenplaySourceSeparator),
+            TranslationBadgeLayout.Entry(paragraphId: "s2", text: "JOHN\nZdravo.", source: "JOHN\nHello there.",
+                                         status: .fresh,
+                                         sourceSeparator: TranslationBadgeLayout.screenplaySourceSeparator),
+        ]
+        let surface = TranslationBadgeLayout.surface(entries: mounted)
+        final class Box { var value: String; init(_ v: String) { value = v } }
+        let box = Box(sourceText)
+        let coordinator = EditorCoordinator(
+            text: Binding(get: { box.value }, set: { box.value = $0 }), mode: ScreenplayMode(),
+            theme: .light, typography: .screenplayDefaults,
+            typewriterScroll: false, sentenceFocus: false, paragraphFocus: false)
+        coordinator.scriptOriginProjectId = "proj-mount"
+        var words: [Int] = []
+        coordinator.onMetricsChanged = { words.append($0.wordCount) }
+        var scripts: [FountainScript] = []
+        let token = NotificationCenter.default.addObserver( // adr-0021-ok: capture-only observer counting the scoped script posts
+            forName: .maughamScriptDidUpdate, object: nil, queue: nil) { note in
+            if let script = note.object as? FountainScript { scripts.append(script) }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+        tv.string = surface
+        tv.delegate = coordinator
+        let control = EditorControl()
+        control.translationLanguage = "sr"
+        control.translationBadges = .init(entries: mounted)
+        EditorSurface.mount(coordinator, on: tv, servesTranslation: true, control: control)
+        XCTAssertTrue(scripts.isEmpty, "no translated script reaches the navigator")
+        XCTAssertEqual(words.last, 6, "the translation's words — .INT. KUĆA - DAN · JOHN Zdravo. — never its source lines")
+        XCTAssertFalse(tv.isEditable)
+        // Leaving: the source lands, and its script and counts are posted.
+        EditorSurface.reconcileTextBuffer(textView: tv, coordinator: coordinator, translationLanguage: nil,
+                                          text: sourceText, undoCoherentApply: false, textIsTranslation: false)
+        XCTAssertEqual(scripts.count, 1, "the source's script, once it has landed")
+        XCTAssertEqual(scripts.last?.sceneSummaries().count, 1)
+        XCTAssertEqual(words.last, 7, "and its counts")
+    }
+
+    // MARK: - Pasteboard (fix 2, N7)
+
+    /// Every pasteboard writer takes the translation alone over a translation;
+    /// over the source ⌘C is untouched.
+    func test_everyPasteboardWriterTakesTheTranslationAndTheSourceCopiesAsEver() {
+        let harness = EditorIntegrationHarness(initialText: source)
+        let view = MaughamTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
+        view.string = source
+        view.coordinator = harness.coordinator
+        view.setSelectedRange(NSRange(location: 0, length: 10))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("copy-\(UUID().uuidString)"))
+        // ⌘C's own call: `copy:` writes the view's writable types.
+        XCTAssertTrue(view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Source one", "⌘C in Source is AppKit's own")
+        _ = reading(harness)
+        view.string = translated
+        view.setSelectedRange(NSRange(location: 0, length: (translated as NSString).length))
+        XCTAssertTrue(view.writeSelection(to: pasteboard, type: .string))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Prevod jedan\n\nPrevod dva",
+                       "the singular writer drops the grey lines")
+        XCTAssertTrue(view.writeSelection(to: pasteboard, types: [.string]))
+        XCTAssertEqual(pasteboard.string(forType: .string), "Prevod jedan\n\nPrevod dva",
+                       "and the plural (copy, drag-out, Services)")
     }
 }

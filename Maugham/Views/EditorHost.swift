@@ -827,15 +827,12 @@ struct EditorHost: View {
             // the configuration this call site has always produced.
             readOnlyRecovery: doc.isReadOnlyRecovery,
             callbacks: .init(
-                // A chapter opened already read in a language restores its
-                // caret in its own paragraph of the translated surface.
-                initialCursorLocation: Self.surfaceCaret(doc.cursorLocation, control: control, doc: doc),
-                onCursorChanged: { surfaceOffset in
-                    // Reading a translation, the caret is told to the source
-                    // as the same paragraph (a source line included), so
-                    // every reader of the source caret finds where the
-                    // writer clicked (`TranslationBadgeLayout.sourceLocation`).
-                    let offset = Self.sourceCaret(surfaceOffset, control: control, doc: doc)
+                // SOURCE carets both ways (fix 2, N6): the coordinator shows
+                // this one where the text it holds has it, and tells the
+                // source caret back — over a translation, the same
+                // paragraph's place — against the ranges of that text.
+                initialCursorLocation: doc.cursorLocation,
+                onCursorChanged: { offset in
                     doc.cursorLocation = offset
                     // Stash the latest cursor position so Document's V2
                     // task-anchor alignment in setFullText can read it
@@ -863,16 +860,10 @@ struct EditorHost: View {
                 scriptOriginProjectId: ProjectIdentifier.id(for: store.url),
                 // Where a pending place may land (`EditorControl.pendingPlace`).
                 documentId: doc.docId,
-                // A source location, where the surface shows it (fix I2): the
-                // Scenes rows' and a `.line` place's lines are the source's.
-                surfaceLocationForSource: { location in
-                    Self.surfaceCaret(location, control: control, doc: doc)
-                },
+                // The SOURCE's paragraph ranges: over a translation the
+                // coordinator reads its own buffer's (`paragraphRangeNow`).
                 paragraphRangeProvider: { paragraphId in
-                    // Reading a translation, a paragraph is where it stands
-                    // in the translated surface — its translation, not its
-                    // source's offset in a text that is not on screen.
-                    Self.paragraphRange(paragraphId, control: control, doc: doc)
+                    doc.displayRange(forParagraphId: paragraphId)
                 },
                 paragraphLocator: { location in
                     guard let pid = doc.paragraphId(at: location),
@@ -1251,50 +1242,6 @@ struct EditorHost: View {
                   let path = TreeWalk.find(id: open.docId, in: store.manifest.structure)?.path else { return nil }
             return (docId: open.docId, path: path, text: open.displayText)
         }
-    }
-
-    /// **The source caret for a caret in the editor's surface**: itself on the
-    /// source, the same paragraph's (`TranslationBadgeLayout.sourceLocation`)
-    /// on a translation. A translation surface that names no paragraph (the
-    /// read refused) leaves the source caret where it was.
-    @MainActor static func sourceCaret(_ surfaceOffset: Int, control: EditorControl,
-                                       doc: Document) -> Int {
-        guard control.translationLanguage != nil else { return surfaceOffset }
-        // The surface caret that IS the source caret's image (a restore, a
-        // remount) leaves the source caret exact (fix M1): mapping it back
-        // would clamp it to the translation's length.
-        if surfaceCaret(doc.cursorLocation, control: control, doc: doc) == surfaceOffset {
-            return doc.cursorLocation
-        }
-        return TranslationBadgeLayout.sourceLocation(
-            forSurfaceLocation: surfaceOffset,
-            ranges: TranslationBadgeLayout.ranges(entries: control.translationBadges.entries),
-            sourceRangeOf: { doc.displayRange(forParagraphId: $0) }) ?? doc.cursorLocation
-    }
-
-    /// **The editor's caret for a source caret** — `sourceCaret`'s inverse:
-    /// itself on the source; on a translation, the same paragraph's place
-    /// (`TranslationBadgeLayout.surfaceLocation`), else the surface's start.
-    @MainActor static func surfaceCaret(_ sourceOffset: Int, control: EditorControl,
-                                        doc: Document) -> Int {
-        guard control.translationLanguage != nil else { return sourceOffset }
-        guard let id = doc.paragraphId(at: sourceOffset),
-              let range = doc.displayRange(forParagraphId: id) else { return 0 }
-        return TranslationBadgeLayout.surfaceLocation(
-            forSourceLocation: sourceOffset, paragraphId: id, sourceRange: range,
-            ranges: TranslationBadgeLayout.ranges(entries: control.translationBadges.entries)) ?? 0
-    }
-
-    /// **Where a paragraph stands in the editor's surface**: its display range
-    /// on the source, its translation's range on a translation (nil where the
-    /// surface does not hold it — nothing moves).
-    @MainActor static func paragraphRange(_ paragraphId: String, control: EditorControl,
-                                          doc: Document) -> NSRange? {
-        guard control.translationLanguage != nil else {
-            return doc.displayRange(forParagraphId: paragraphId)
-        }
-        return TranslationBadgeLayout.ranges(entries: control.translationBadges.entries)
-            .first { $0.paragraphId == paragraphId }?.range
     }
 
     /// What the read-only translation surface shows when the read refuses

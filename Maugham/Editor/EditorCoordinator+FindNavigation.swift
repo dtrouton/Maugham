@@ -31,8 +31,7 @@ extension EditorCoordinator {
         // Fallback: paragraph start (length-0 cursor), mirroring the legacy
         // `.maughamNavigateToParagraph` handler.
         guard let pid = fallbackParagraphId,
-              let provider = paragraphRangeProvider,
-              let range = provider(pid),
+              let range = paragraphRangeNow(pid),
               range.location >= 0, range.location + range.length <= length
         else { return }
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
@@ -43,15 +42,6 @@ extension EditorCoordinator {
     /// **A project-find match selected** (`.maughamFindMatchSelected`, after
     /// its load delay): the match selected and shown; an expanded grid folds
     /// first, as any navigation does. The find list keeps the keys.
-    /// **A source location in the text the view shows** — the one rule every
-    /// source-coordinate navigation takes (fix I2): itself on the source; on
-    /// a translation, mapped (`EditorHost.surfaceCaret`), else the start.
-    static func surfaceLocation(_ location: Int, isReadingTranslation: Bool,
-                                map: ((Int) -> Int)?) -> Int {
-        guard isReadingTranslation else { return location }
-        return map?(location) ?? 0
-    }
-
     func selectFindMatch(_ range: NSRange, in textView: NSTextView) {
         guard let storage = textView.textStorage, NSMaxRange(range) <= storage.length else { return }
         forceFoldFigureGrid(.navigation)
@@ -65,8 +55,7 @@ extension EditorCoordinator {
         // A line's location is the SOURCE's (the Scenes rows, a `.line`
         // place): over a translation it lands where the surface shows that
         // paragraph (fix I2).
-        let location = Self.surfaceLocation(sourceLocation, isReadingTranslation: isReadingTranslation,
-                                            map: surfaceLocationForSource)
+        let location = surfaceLocation(forSource: sourceLocation)
         let storage = textView.textStorage
         let length = (storage?.string as NSString?)?.length ?? 0
         let clamped = max(0, min(location, length))
@@ -92,8 +81,9 @@ extension EditorCoordinator {
     /// into the paragraph, never past its end.
     @discardableResult
     func landOnParagraph(_ paragraphId: String, offset: Int?, in textView: NSTextView) -> NSRange? {
-        guard let provider = paragraphRangeProvider,
-              let range = provider(paragraphId) else { return nil }
+        // Where the paragraph stands in the text the view HOLDS (fix 2, N6):
+        // its translation's range over a translation, its source's otherwise.
+        guard let range = paragraphRangeNow(paragraphId) else { return nil }
         let length = (textView.string as NSString).length
         guard range.location >= 0,
               range.location + range.length <= length else { return nil }
