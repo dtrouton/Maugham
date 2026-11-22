@@ -203,24 +203,6 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
 
     // MARK: - Every mode
 
-    /// The window's explicit review mode (⌘⌥⇧R) expands read-only, and
-    /// leaving it gives the grid back.
-    func test_explicitReviewModeIsReadOnly_flippedMidVisit() async throws {
-        let m = try await mount()
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
-        let c = try await expand(m)
-        assertReadOnly(c, .reviewMode)
-        XCTAssertFalse(c.bars.captionField.isEditable, "review mode refuses the text too")
-        m.coordinator.setReviewMode(false)
-        m.coordinator.setManualReviewMode(false)
-        assertEditable(c)
-        XCTAssertTrue(c.bars.captionField.isEditable)
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
-        assertReadOnly(c, .reviewMode)
-    }
-
     /// **The entry folds an open grid; in read-through a grid expands
     /// read-only, the caption with it; Resume gives it back** (shell
     /// read-through Task 2): the key's post flips the coordinator
@@ -247,25 +229,9 @@ final class FigureGridReadOnlyTests: FigureGridMountedTestCase {
         XCTAssertTrue(c.bars.captionField.isEditable)
     }
 
-    /// **⌘⌥⇧R flips the grid at once** (T8 review M3): the toggle's
-    /// key-window post sets the coordinator's explicit review mode
-    /// synchronously, and the open grid turns read-only — and back.
-    func test_theReviewToggleFlipsAnOpenGridAtOnce() async throws {
-        let m = try await mount()
-        XCTAssertTrue(m.window.isKeyWindow, "premise: a .keyWindow post reaches this editor")
-        let c = try await expand(m)
-        assertEditable(c)
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        XCTAssertTrue(m.coordinator.isManualReviewMode)
-        assertReadOnly(c, .reviewMode)
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-        XCTAssertFalse(m.coordinator.isManualReviewMode)
-        assertEditable(c)
-    }
-
     /// **The two postures are independent** (R7c-6): a Mac that may change
     /// the figure but not the text around it — the membrane locked, review
-    /// forced on by the text's posture, the window's own review mode off —
+    /// forced on by the text's posture, the piece not in read-through —
     /// gets an EDITABLE grid whose caption field is locked.
     func test_aTextRefusedButFigureAllowedMacGetsAnEditableGridWithALockedCaption() async throws {
         let m = try await mount()

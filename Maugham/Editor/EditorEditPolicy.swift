@@ -12,16 +12,15 @@ enum EditorEditPolicy {
     /// review posture (annotate-only).
     ///
     /// Three independent reasons block mutation:
-    ///   - `isReviewMode`: the user is manually reviewing (⌘⌥⇧R) — a soft,
-    ///     toggleable posture an author opts into.
+    ///   - `isReviewMode`: the review render — forced where the posture
+    ///     refuses the text, or a piece in read-through.
     ///   - `lockEditing`: this device may not write this manuscript's text —
     ///     its posture refuses `.writeText` (the permit's answer, or
     ///     `Posture.settling` while nothing is decided yet), or the iCloud
     ///     share is read-only, an OS-level lock that claims no role
     ///     (`EditorControlMirror.membrane`, P3c). This is the hard floor: it
-    ///     cannot be toggled off, so a reviewer's ⌘⌥⇧R can flip the review
-    ///     RENDER but never unlock the text. The membrane is the authority
-    ///     here — the manual toggle never wins over the lock.
+    ///     cannot be toggled off: nothing that flips the review RENDER
+    ///     unlocks the text. The membrane is the authority here.
     ///   - `isReadingTranslation`: the editor is displaying a derived translated
     ///     surface (Task 11) rather than the source manuscript. The buffer the
     ///     reader is inspecting is NOT the op-log-backed text, so any edit would

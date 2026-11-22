@@ -524,14 +524,14 @@ final class PostureStandingLineTests: XCTestCase {
         XCTAssertEqual(line.kind, .yielding(to: "Sam"))
         XCTAssertTrue(line.offersEditAnyway)
         XCTAssertTrue(EditorControlMirror.membrane(
-            posture: yielding, manualReview: false, shareIsReadOnly: false).lockEditing)
+            posture: yielding, shareIsReadOnly: false).lockEditing)
 
         store.overrideYield(docId: line.docId)
 
         let after = store.posture(forDocId: PostureFixture.docId)
         XCTAssertNil(PostureStandingLine.line(for: after, title: "C1", docId: line.docId))
         XCTAssertFalse(EditorControlMirror.membrane(
-            posture: after, manualReview: false, shareIsReadOnly: false).lockEditing)
+            posture: after, shareIsReadOnly: false).lockEditing)
     }
 
     // MARK: - Her own lines, kept in History (controller ruling K)

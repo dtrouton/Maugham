@@ -538,16 +538,18 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
 
     /// **A read-only grid refuses ⌘Z and ⇧⌘Z with the reason line** (R7d-11):
     /// enabled, so the press is answered rather than beeped; nothing undone.
+    /// (Read-through is the one read-only reason that keeps the grid's undo:
+    /// an Accept there is a decision, `ReadThroughDecisionTests`.)
     func test_aReadOnlyGridRefusesUndoAndRedoWithTheReason() async throws {
         let m = try await mount()
         let (_, c) = try await expanded(m)
         typeCell(m, c, cell(c, 1, 1), "3")
         await c.settleWrites()
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.viewOnlyShare), captionMayEdit: false)
 
         try press(m)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.viewOnlyShare.sentence)
         XCTAssertEqual(c.host.state.table[cell(c, 1, 1)]?.content, number(3), "nothing undone")
         XCTAssertTrue(c.gridUndo.canUndo, "the step is still there")
 
@@ -555,11 +557,11 @@ final class FigureGridUndoTests: FigureGridMountedTestCase {
         c.undoInGrid()
         await c.settleWrites()
         XCTAssertNil(c.host.state.table[cell(c, 1, 1)], "premise: editable again, it undoes")
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.viewOnlyShare), captionMayEdit: false)
         c.bars.showReason(nil)
         try press(m, redo: true)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.viewOnlyShare.sentence)
         XCTAssertNil(c.host.state.table[cell(c, 1, 1)], "nothing redone")
     }
 

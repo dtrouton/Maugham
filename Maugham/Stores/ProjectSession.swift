@@ -41,7 +41,8 @@ final class ProjectSession {
     let roster: AgentRoster
     /// The figure windows open on this project (report plan 7d): each closes
     /// when the last project window detaches, holding no borrow of its own.
-    let figureWindows = FigureWindows()
+    /// A figure window's grid asks read-through of its figure's piece here.
+    let figureWindows: FigureWindows
 
     private init(url: URL, projectStore: ProjectStore, documentStore: DocumentStore,
                  bible: BibleStore, declaredWorld: DeclaredWorldStore,
@@ -53,6 +54,14 @@ final class ProjectSession {
         self.declaredWorld = declaredWorld
         self.readThrough = readThrough
         self.roster = roster
+        let windows = FigureWindows(isInReadThrough: { [weak readThrough, weak projectStore] figureId in
+            guard let readThrough, let projectStore else { return false }
+            let piece = projectStore.manifest.figures?.first { $0.id == figureId }?.piece
+            return ReadThrough.isOn(piece, in: readThrough.pieceIds)
+        })
+        self.figureWindows = windows
+        // Every Start and Resume reaches the open figure windows' gates.
+        readThrough.onChange = { [weak windows] in windows?.readThroughChanged() }
     }
 
     /// Opens the project's stores at `url` — no service is configured and no

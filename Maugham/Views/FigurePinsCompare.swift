@@ -38,7 +38,7 @@ struct FigurePinComparisonRow: Equatable, Identifiable {
 /// on it (`FigureActions.refreshPins` → `FigureGridController
 /// .refreshPinsFromResearch` → `FigureDocument.refreshPins`). Refresh is
 /// offered only where this Mac may edit the figure (the posture, and the
-/// window's own refusal — Review, ⌘⌥⇧R, a view-only share) and a grid has it
+/// window's own refusal — Review, a view-only share) and a grid has it
 /// open; otherwise the sheet says why. The rows are read when the sheet opens, and
 /// again after a refresh.
 struct FigurePinsCompare: View {

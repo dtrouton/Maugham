@@ -87,7 +87,7 @@ final class LockTests: XCTestCase {
     /// the piece's own writer and a posture still settling each refuse a
     /// figure write through `FigureActions.mayEdit`'s posture door with the
     /// window's own refusal (the Lock included) off; the writer's own hand
-    /// is the control. And a view-only share and ⌘⌥⇧R still refuse with Lock
+    /// is the control. And a view-only share still refuses with Lock
     /// off. (Another author's piece, through a real store:
     /// `FigureInspectorTests.test_theWritingActionsAreHiddenWhenThePostureOrTheShareForbids`.)
     func test_postureRefusalHoldsWithLockOff() {
@@ -110,14 +110,10 @@ final class LockTests: XCTestCase {
                       "a view-only share refuses with Lock off")
         XCTAssertFalse(BinderTreeSectionsState.offersNewTable(shareIsReadOnly: true, isLocked: false),
                        "…and offers no New Table")
-        let reviewing = EditorControl()
-        reviewing.isManualReviewMode = true
-        XCTAssertTrue(FigureActions.windowRefusesWrites(control: reviewing, isLocked: false),
-                      "⌘⌥⇧R refuses with Lock off")
     }
 
     /// **Lock never permits what the window otherwise refuses**: over every
-    /// combination of the share and ⌘⌥⇧R, locking can only turn a permit into
+    /// value of the share, locking can only turn a permit into
     /// a refusal, never the reverse.
     func test_lockNeverPermitsWhatPostureRefuses() {
         // The posture's door: over a refusing and a permitting posture,
@@ -133,16 +129,13 @@ final class LockTests: XCTestCase {
             XCTAssertFalse(on && !off, "Lock permitted what the posture refused (\(posture))")
         }
         for share in [false, true] {
-            for manualReview in [false, true] {
-                let control = EditorControl()
-                control.shareIsReadOnly = share
-                control.isManualReviewMode = manualReview
-                let unlocked = FigureActions.windowRefusesWrites(control: control, isLocked: false)
-                let locked = FigureActions.windowRefusesWrites(control: control, isLocked: true)
-                XCTAssertTrue(locked, "locked refuses (share \(share), ⌘⌥⇧R \(manualReview))")
-                if unlocked {
-                    XCTAssertTrue(locked, "Lock unlocked a refusal (share \(share), ⌘⌥⇧R \(manualReview))")
-                }
+            let control = EditorControl()
+            control.shareIsReadOnly = share
+            let unlocked = FigureActions.windowRefusesWrites(control: control, isLocked: false)
+            let locked = FigureActions.windowRefusesWrites(control: control, isLocked: true)
+            XCTAssertTrue(locked, "locked refuses (share \(share))")
+            if unlocked {
+                XCTAssertTrue(locked, "Lock unlocked a refusal (share \(share))")
             }
             let offeredUnlocked = BinderTreeSectionsState.offersNewTable(shareIsReadOnly: share, isLocked: false)
             let offeredLocked = BinderTreeSectionsState.offersNewTable(shareIsReadOnly: share, isLocked: true)

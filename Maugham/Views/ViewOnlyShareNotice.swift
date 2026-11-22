@@ -8,9 +8,8 @@ import SwiftUI
 /// rather than letting a comment attempt fail silently we say so plainly and
 /// point them at the fix: ask the owner for edit access.
 ///
-/// Pure, one-way SwiftUI (reads nothing back). Visually distinct from the warm
-/// terracotta `ReviewModeIndicator` — a cooler, cautionary slate so it reads as
-/// "blocked", not "you are reviewing".
+/// Pure, one-way SwiftUI (reads nothing back). A cooler, cautionary slate, so
+/// it reads as "blocked", not "you are reviewing".
 struct ViewOnlyShareNotice: View {
     /// The notice's one sentence, `static` so the test that measures how wide
     /// it is asks production for the words rather than quoting them.

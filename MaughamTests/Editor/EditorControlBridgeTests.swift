@@ -151,16 +151,20 @@ final class EditorControlBridgeTests: XCTestCase {
                        "the version must reach the coordinator through the model")
     }
 
-    /// The share's read-only flag and the window's explicit review mode
-    /// (report plan 7c Task 8, the grid's gate) are control-plane inputs:
-    /// each is in the tracked set, and a change reaches the coordinator.
-    func test_theShareAndTheManualReviewModeReachTheCoordinator() async {
+    /// The share's read-only flag (report plan 7c Task 8, the grid's gate)
+    /// and the pieces in read-through (Manual Review Mode's successor, shell
+    /// read-through Task 3) are control-plane inputs: each is in the tracked
+    /// set, and a change reaches the coordinator. The line's
+    /// `readThroughLackingCheckpoint` is `EditorHost`'s alone and tracked by
+    /// nothing here.
+    func test_theShareAndTheReadThroughSetReachTheCoordinator() async {
         let (coordinator, _) = makeCoordinator()
+        coordinator.documentId = "d-1"
         let control = EditorControl()
         coordinator.observeControl(control)
         await settle()
         XCTAssertFalse(coordinator.shareIsReadOnly)
-        XCTAssertFalse(coordinator.isManualReviewMode)
+        XCTAssertFalse(coordinator.isInReadThrough)
 
         var baseline = coordinator.applyControlCount
         control.shareIsReadOnly = true
@@ -169,15 +173,20 @@ final class EditorControlBridgeTests: XCTestCase {
         XCTAssertTrue(coordinator.shareIsReadOnly)
 
         baseline = coordinator.applyControlCount
-        control.isManualReviewMode = true
+        control.readThroughDocIds = ["d-1"]
         await settle()
-        XCTAssertGreaterThan(coordinator.applyControlCount, baseline, "the manual review flag is in the tracked set")
-        XCTAssertTrue(coordinator.isManualReviewMode)
+        XCTAssertGreaterThan(coordinator.applyControlCount, baseline, "the read-through set is in the tracked set")
+        XCTAssertTrue(coordinator.isInReadThrough)
+
+        baseline = coordinator.applyControlCount
+        control.readThroughLackingCheckpoint = ["d-1"]
+        await settle()
+        XCTAssertEqual(coordinator.applyControlCount, baseline, "the line's own input is not tracked")
 
         control.shareIsReadOnly = false
-        control.isManualReviewMode = false
+        control.readThroughDocIds = []
         await settle()
         XCTAssertFalse(coordinator.shareIsReadOnly)
-        XCTAssertFalse(coordinator.isManualReviewMode)
+        XCTAssertFalse(coordinator.isInReadThrough)
     }
 }

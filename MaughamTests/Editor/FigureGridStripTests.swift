@@ -271,40 +271,8 @@ final class FigureGridStripTests: XCTestCase {
 
     // MARK: - Got it and Reject
 
-    /// **Review mode answers what moves no cell** (fix round ruling I1):
-    /// Got it and Reject act; Accept is shown disabled and, asked, writes
-    /// nothing and says why.
-    func test_inReviewModeGotItAndRejectAct_acceptSaysWhyNot() async throws {
-        let (store, c, host) = try await openGrid()
-        let b2 = key(host, "B2")
-        let suggestion = try await suggest(number(9), at: b2, store: store, host: host)
-        let note = try await comment(on: b2, store: store, host: host)
-        await landed(c)
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
-        c.handle(.click(b2, extend: false))
-        let actions = Dictionary(uniqueKeysWithValues: c.stripPlan.entries.map { ($0.noteId, $0.actions) })
-        XCTAssertEqual(actions, [
-            suggestion: [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: true)],
-            note: [.init(verb: .gotIt, isEnabled: true), .init(verb: .reject, isEnabled: true)],
-        ])
-        XCTAssertEqual(c.strip.reasonLabel.stringValue, FigureGridStrip.Plan.reviewModeAccept)
-
-        c.stripAccept(suggestion)
-        await landed(c)
-        XCTAssertNil(host.state.table[b2], "Accept writes nothing in review mode")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridStrip.Plan.reviewModeAccept)
-
-        c.stripGotIt(note)
-        c.askRejectReason = { _ in .reject(reason: "Not now") }
-        await c.askToReject(suggestion).value
-        await landed(c)
-        XCTAssertEqual(status(note, host), .accepted)
-        XCTAssertEqual(status(suggestion, host), .rejected)
-        XCTAssertNil(host.state.table[b2])
-    }
-
     /// **An answer after the fold is said, its typed reason with it** (fix round M4).
-    /// **The window's Lock answers like review mode, in its own words**:
+    /// **The window's Lock answers what moves no cell, in its own words**:
     /// Got it and Reject stay offered, Accept is off and, asked, writes
     /// nothing and says "Unlock the window to accept…".
     func test_underTheLockAcceptSaysUnlockTheWindow() async throws {

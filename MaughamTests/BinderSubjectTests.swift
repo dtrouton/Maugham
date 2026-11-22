@@ -146,7 +146,6 @@ final class BinderSubjectTests: XCTestCase {
             isNoChromeOn: true,
             researchPreviewVisible: true,
             rightColumnPosition: .pulledUp,
-            isReviewModeOn: true,
             compilerModel: .deep,
             // Away from the default, and inside the clamp — a value the
             // initialiser would correct is not a test of the encoder.

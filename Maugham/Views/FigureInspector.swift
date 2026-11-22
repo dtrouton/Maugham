@@ -316,7 +316,7 @@ struct FigureInspector: View {
     /// figure revision instead).
     let figureTree: BinderTreeSectionsState?
     let control: EditorControl
-    /// The window's Lock (`WindowLock`), asked beside the share and ⌘⌥⇧R.
+    /// The window's Lock (`WindowLock`), asked beside the share.
     let isLocked: Bool
     /// The project window, whose annotation changes reload the notes.
     let window: NSWindow?

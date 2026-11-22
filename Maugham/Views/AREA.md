@@ -17,8 +17,8 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `WindowFlashes.swift`, `CompilerFlashSink.swift` — the window's acknowledgments in one `@State`; ⌘R's capsule as a value a suspended caller can hold.
 - `CheckpointModifier.swift` — ⌘S / ⌘⇧S delivery; `CheckpointFlashDecision`.
 - `RewindModifier.swift` — the `.maughamOpenRewind` receiver and sheet.
-- `ReadThrough.swift`, `ReadThroughModifier.swift` — read-through: `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer`, `ReadThroughVerbs`, the receiver.
-- `FocusPostureModifier.swift` — ⌘\ no-chrome and ⌘⌥⇧R review posture.
+- `ReadThrough.swift`, `ReadThroughModifier.swift`, `ReadThroughLine.swift` — `ReadThrough.isOn` (the one predicate), `ReadThroughGate`, `ReadThroughOffer` (routes post only what it gives), `ReadThroughVerbs`, the receiver, ⌘⌥⇧R, `ReadThroughLine`, `ReadThroughMark`.
+- `FocusPostureModifier.swift` — ⌘\ no-chrome.
 - `ParagraphNavModifier.swift` — `.maughamNavigateToParagraph`, `.maughamNavigateToScene` receivers.
 - `CanvasCollapseModifier.swift`, `CanvasPromotionModifier.swift`, `CanvasClaudeArrivalModifier.swift` — ⌘\ collapse to the canvas; Promote…; Claude's arrival banner and its Show. **→ Canvas** ("`⌘\` gives the canvas the window").
 - `ReadingLanguageModifier.swift`, `ReadingLanguage.swift` — the language a piece is read in, and the reveal's window half.
@@ -37,7 +37,7 @@ Every file in `Maugham/Views/` appears once, plus the `Maugham/Models/` files CL
 - `ManuscriptNavigation.swift` — going to a place opens its piece.
 - `TreeTravel.swift` — the double-click: the row mark (`treeTravelOnDoubleClick`, also drawing the outlined state), `TreeTravelClickWatcher`, `TreeTravelModifier`.
 - `IntentStrip.swift` — the writer's signature line above the prose.
-- `ReviewModeIndicator.swift` — review's pill; `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
+- `LanguageSwitch.swift`, `RunningRoundIndicator.swift` — the toolbar's language switch, running round.
 - `SaveFlashOverlay.swift` — the ⌘S muscle-memory capsule.
 - `MCPBannerModel.swift`, `MCPNoteBanner.swift` — the transient "Claude added a note" banner.
 - `BackupRecoveryBanner.swift`, `ManifestRestoredBanner.swift` — the refused-backup banner (Restore); the put-back-manifest note.

@@ -373,6 +373,15 @@ final class StatementMountFixture: RunLoopPumping {
         return window
     }
 
+    /// **The manuscript editor alone**, on `control` — the centre's
+    /// `EditorHost` with the arguments `TwoEditorProbeView` passes (each one
+    /// production's), so a test reads what stands over the text.
+    func hostTheManuscriptEditor(control: EditorControl) async -> NSWindow {
+        await mount(AnyView(ManuscriptEditorProbeView(
+            store: store, documentStore: documentStore, itemId: documentItemId, control: control)
+            .environment(preferences)))
+    }
+
     /// `key: true` mounts in a `KeyTestWindow`, which reports itself key.
     ///
     /// **The one OS fact this harness cannot produce.** `MaughamEvent.shouldDeliver`
@@ -515,6 +524,23 @@ private struct TwoEditorProbeView: View {
                 .frame(width: 260)
             }
         }
+    }
+}
+
+/// The manuscript editor alone, on a control the test holds.
+@MainActor
+private struct ManuscriptEditorProbeView: View {
+    let store: ProjectStore
+    let documentStore: DocumentStore
+    let itemId: String
+    let control: EditorControl
+
+    @State private var referenceIndex = ReferenceIndexHost()
+
+    var body: some View {
+        EditorHost(
+            store: store, documentStore: documentStore,
+            selectedItemId: itemId, control: control, referenceIndex: referenceIndex)
     }
 }
 

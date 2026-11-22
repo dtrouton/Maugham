@@ -228,14 +228,14 @@ final class FigureGridFillImportTests: XCTestCase {
     func test_aReadOnlyGridRefusesAFillWithTheReason() async throws {
         let (c, _, _, _) = try await openGrid()
         await type(c, "A1", "5")
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
         let opsBefore = try ops(of: c.figureId)
         select(c, "A1", "A3")
         c.bars.showReason(nil)
         c.performTableCommand(.fillDown)
         c.figureGridViewFillRight(c.gridView)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence)
         XCTAssertNil(c.host.state.table[key(c, "A2")])
         XCTAssertEqual(try ops(of: c.figureId), opsBefore, "nothing written")
     }
@@ -348,18 +348,18 @@ final class FigureGridFillImportTests: XCTestCase {
         let (c, _, _, _) = try await openGrid()
         var asked = false
         c.chooseImportFile = { _ in asked = true }
-        c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+        c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
         c.bars.showReason(nil)
         c.performTableCommand(.importCSV)
         XCTAssertFalse(asked, "no panel on a read-only grid")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence)
 
         let url = try choose("a,b\n1,2\n", for: c)
         let opsBefore = try ops(of: c.figureId)
         c.bars.showReason(nil)
         c.importCSV(from: url)
         await c.settleWrites()
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence)
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence)
         XCTAssertEqual(try ops(of: c.figureId), opsBefore)
     }
 

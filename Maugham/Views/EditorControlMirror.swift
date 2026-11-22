@@ -6,9 +6,10 @@ import MaughamCore
 ///
 /// - `lockEditing` is the hard floor: the posture refuses `.writeText`, or the
 ///   iCloud share is read-only (an OS-level lock that claims no role).
-/// - `isReviewMode` is the manual ⌘⌥⇧R toggle, or forced on where the posture
-///   refuses the text — a reviewer's Mac opens in review mode, so the
-///   selection toolbar offers annotation.
+/// - `isReviewMode` is forced on where the posture refuses the text — a
+///   reviewer's Mac opens in review mode, so the selection toolbar offers
+///   annotation. The writer's own refusal is per piece: read-through
+///   (`EditorControl.readThroughDocIds`), never a window-wide flag.
 ///
 /// Keyed on `allows(.writeText)`, never on `isRestricted` (controller ruling
 /// E): an author of some pieces inside her own piece is restricted (she may
@@ -24,19 +25,14 @@ enum EditorControlMirror {
         /// (`FigureGridGate`), which answers to the figure's posture and
         /// never to the text's.
         var shareIsReadOnly: Bool = false
-        /// The explicit ⌘⌥⇧R toggle alone, for the figure grid's gate —
-        /// `isReviewMode` is also forced where the text is refused.
-        var manualReview: Bool = false
     }
 
-    static func membrane(
-        posture: Posture?, manualReview: Bool, shareIsReadOnly: Bool
-    ) -> Membrane {
+    static func membrane(posture: Posture?, shareIsReadOnly: Bool) -> Membrane {
         let mayWrite = posture?.allows(.writeText) ?? true
         return Membrane(
             lockEditing: !mayWrite || shareIsReadOnly,
-            isReviewMode: manualReview || !mayWrite,
-            shareIsReadOnly: shareIsReadOnly, manualReview: manualReview)
+            isReviewMode: !mayWrite,
+            shareIsReadOnly: shareIsReadOnly)
     }
 }
 
@@ -56,18 +52,18 @@ enum InsertMenuGate {
     /// - the editor holds a manuscript document (`posture` non-nil) whose
     ///   format takes report elements (`format`, not a screenplay);
     /// - its posture `allows(.writeText)`, and the iCloud share is writable;
-    /// - the editor is not in review mode (⌘⌥⇧R) or reading a translation;
+    /// - the open piece is not in read-through, nor read in a translation;
     /// - no table grid is expanded in the editor (`FigureGridPresence`,
     ///   report plan 7c Task 9): the grid has the keys, and the writer folds
     ///   it before inserting into the text.
     static func isEnabled(posture: Posture?, format: DocumentFormat?,
-                          manualReview: Bool, shareIsReadOnly: Bool,
+                          readThrough: Bool, shareIsReadOnly: Bool,
                           isReadingTranslation: Bool, gridHoldsTheKeys: Bool,
                           route: CentreRoute?) -> Bool {
         guard !gridHoldsTheKeys, ProjectWindow.manuscriptIsVisible(route: route),
               let posture, let format, !format.isScreenplay else { return false }
         return posture.allows(.writeText) && !shareIsReadOnly
-            && !manualReview && !isReadingTranslation
+            && !readThrough && !isReadingTranslation
     }
 }
 
@@ -90,6 +86,8 @@ struct EditorControlMirrorModifier: ViewModifier {
     let effectiveTypography: TypographySettings
     /// The session's pieces in read-through (`ReadThroughStore.pieceIds`).
     let readThroughPieces: Set<String>
+    /// Those whose checkpoint was not saved (`piecesLackingCheckpoint`).
+    var readThroughLackingCheckpoint: Set<String> = []
     @Binding var editorControl: EditorControl
     @Environment(UserPreferences.self) private var userPreferences
 
@@ -100,10 +98,12 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
                 editorControl.shareIsReadOnly = membrane.shareIsReadOnly
-                editorControl.isManualReviewMode = membrane.manualReview
             }
             .onChange(of: posture) { _, posture in editorControl.posture = posture }
             .onChange(of: readThroughPieces) { _, pieces in editorControl.readThroughDocIds = pieces }
+            .onChange(of: readThroughLackingCheckpoint) { _, pieces in
+                editorControl.readThroughLackingCheckpoint = pieces
+            }
             .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
             .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }
             .onChange(of: userPreferences.typewriterScroll) { _, v in
@@ -121,9 +121,9 @@ struct EditorControlMirrorModifier: ViewModifier {
                 editorControl.isReviewMode = membrane.isReviewMode
                 editorControl.lockEditing = membrane.lockEditing
                 editorControl.shareIsReadOnly = membrane.shareIsReadOnly
-                editorControl.isManualReviewMode = membrane.manualReview
                 editorControl.posture = posture
                 editorControl.readThroughDocIds = readThroughPieces
+                editorControl.readThroughLackingCheckpoint = readThroughLackingCheckpoint
                 editorControl.theme = userPreferences.theme
                 editorControl.typography = effectiveTypography
                 editorControl.typewriterScroll = userPreferences.typewriterScroll

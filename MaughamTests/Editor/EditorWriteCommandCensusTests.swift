@@ -27,7 +27,6 @@ final class EditorWriteCommandCensusTests: XCTestCase {
         ".maughamNavigateToParagraph": "a caret move; the window's receiver closes the cover first (`go`)",
         ".maughamNavigateToAnnotation": "a selection; `ParagraphNavModifier` closes the cover on it",
         ".maughamFindMatchSelected": "a selection; the window's receiver closes the cover first (`go`)",
-        ".maughamToggleReviewMode": "flips the review membrane; writes no text",
         ".maughamReadInLanguage": "flips the translation membrane; writes no text",
         ".maughamReadInSource": "flips the translation membrane; writes no text",
         ".maughamSetReadThrough": "flips the read-through membrane of its own document; writes no text",

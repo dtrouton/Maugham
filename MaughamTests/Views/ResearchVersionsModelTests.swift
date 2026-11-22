@@ -108,10 +108,8 @@ final class ResearchVersionsModelTests: XCTestCase {
                        "This share is view-only, so the table can’t be changed.")
         XCTAssertEqual(FigureGridGate.Reason.viewOnlyShare.sentence(noun: "note"),
                        "This share is view-only, so the note can’t be changed.")
-        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence(noun: "note"),
-                       "You’re reviewing — the note can be read, not changed.")
-        XCTAssertEqual(FigureGridGate.Reason.reviewMode.sentence,
-                       "You’re reviewing — the table can be read, not changed.")
+        XCTAssertEqual(FigureGridGate.Reason.readThrough.sentence(noun: "note"),
+                       "In read-through — the note can be read, not typed into.")
         XCTAssertEqual(FigureGridGate.Reason.locked.sentence(noun: "note"),
                        "The window is locked — the note can be read, not changed.")
         XCTAssertEqual(ResearchTableHost.Refused(reason: .viewOnlyShare, noun: "note").errorDescription,

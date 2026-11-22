@@ -56,6 +56,8 @@ struct BinderRow: View {
 
     /// Which rows have something to resolve (`ResolvePresence`).
     @Environment(\.resolvePresence) private var presence
+    /// Which pieces are in read-through (`BinderTreeSectionsState.readThrough`).
+    @Environment(\.readThroughPieces) private var readThroughPieces
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -107,6 +109,9 @@ struct BinderRow: View {
                 if let figureCount {
                     FigureCountButton(text: figureCount, action: onShowFigures)
                 }
+                // The read-through lock: a set lookup (tripwire 4), before
+                // the presence dot, which keeps the trailing edge.
+                ReadThroughMark(isOn: readThroughPieces.contains(item.id))
                 // Trailing, so no title moves; a Part's comes from `marks`.
                 ResolvePresenceMark(ResolvePresence.rowMark(.item(item.id), in: presence))
             }

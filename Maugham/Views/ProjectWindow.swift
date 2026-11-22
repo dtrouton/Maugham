@@ -20,10 +20,6 @@ struct ProjectWindow: View {
     @State private var documentStore: DocumentStore?
     @State private var loadError: String?
     @State private var isNoChromeOn: Bool = false
-    /// Review posture (WF1): per-window annotate-only manuscript with focus +
-    /// typewriter off. Owned here (tripwire 6: not on EditorHost) and threaded
-    /// ONE-WAY down through EditorHost → EditorSurface → coordinator.
-    @State private var isReviewModeOn: Bool = false
     @State private var window: NSWindow?
     @State private var metrics: EditorMetrics =
         EditorMetrics(wordCount: 0, characterCount: 0, readingMinutes: 0)
@@ -595,6 +591,10 @@ struct ProjectWindow: View {
         .modifier(ReadThroughModifier(
             readThrough: session?.readThrough, store: store,
             documentStore: documentStore, window: window,
+            openDocId: selectedManuscriptDocId, posture: editorPosture,
+            shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
+            isReadingTranslation: editorControl.translationLanguage != nil,
+            treeState: treeState,
             onSaveFlash: { showSaveFlash() }))
         .modifier(ParagraphNavModifier(window: window,
                                        subject: subjectBinding,
@@ -613,7 +613,6 @@ struct ProjectWindow: View {
             window: window,
             documentStore: documentStore,
             isNoChromeOn: $isNoChromeOn,
-            isReviewModeOn: $isReviewModeOn,
             applyNoChrome: { applyNoChrome() }))
         .sheet(isPresented: $showingSyntaxHelp) {
             SyntaxHelpSheet(format: currentSyntaxHelpFormat)
@@ -633,6 +632,7 @@ struct ProjectWindow: View {
             mayInsertReportElement: mayInsertReportElement,
             effectiveTypography: effectiveTypography,
             readThroughPieces: session?.readThrough.pieceIds ?? [],
+            readThroughLackingCheckpoint: session?.readThrough.piecesLackingCheckpoint ?? [],
             editorControl: $editorControl))
         .modifier(FigureTableMenuModifier(presence: figureGridPresence))
         .modifier(FigureWindowOpenModifier(projectURL: url, window: window))
@@ -753,7 +753,6 @@ struct ProjectWindow: View {
     private var editorMembrane: EditorControlMirror.Membrane {
         EditorControlMirror.membrane(
             posture: editorPosture,
-            manualReview: isReviewModeOn,
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot))
     }
 
@@ -775,7 +774,8 @@ struct ProjectWindow: View {
             .map { DocumentFormat.ofManuscript(path: $0) }
         return InsertMenuGate.isEnabled(
             posture: editorPosture, format: format,
-            manualReview: isReviewModeOn,
+            readThrough: ReadThrough.isOn(selectedManuscriptDocId,
+                                          in: session?.readThrough.pieceIds ?? []),
             shareIsReadOnly: Self.shareIsReadOnly(shareSnapshot),
             isReadingTranslation: editorControl.translationLanguage != nil,
             gridHoldsTheKeys: figureGridPresence.holdsTheKeys,
@@ -1573,17 +1573,11 @@ struct ProjectWindow: View {
             }
             .safeAreaInset(edge: .top) {
                 // **Why the words are not hers** — the posture's own reason, one
-                // sentence, over the editor. The manual ⌘⌥⇧R review keeps its own pill,
-                // which names no role: a role is the permit's, said in the standing line.
-                VStack(spacing: 0) {
-                    if let line = postureStandingLine {
-                        PostureStandingLineView(
-                            line: line, documentStore: documentStore)
-                    }
-                    if isReviewModeOn {
-                        ReviewModeIndicator(
-                            collaboratorName: userPreferences.collaboratorDisplayName)
-                    }
+                // sentence, over the editor. A role is the permit's, said in the
+                // standing line; read-through says itself over the text (`EditorHost`).
+                if let line = postureStandingLine {
+                    PostureStandingLineView(
+                        line: line, documentStore: documentStore)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -3142,7 +3136,6 @@ struct ProjectWindow: View {
             self.bookView = ds.uiState.bookView
             self.editionView = ds.uiState.editionView
             self.isNoChromeOn = ds.uiState.isNoChromeOn
-            self.isReviewModeOn = ds.uiState.isReviewModeOn
             self.researchPreviewVisible = ds.uiState.researchPreviewVisible
             self.compilerModel = ds.uiState.compilerModel
             self.detailColumnWidth = ds.uiState.detailColumnWidth
@@ -3156,6 +3149,7 @@ struct ProjectWindow: View {
             // The pieces in read-through, before any editor can mount: the
             // first keystroke after a reopen meets a refusing view.
             self.editorControl.readThroughDocIds = session.readThrough.pieceIds
+            self.editorControl.readThroughLackingCheckpoint = session.readThrough.piecesLackingCheckpoint
 
             self.lease = lease
             self.store = s

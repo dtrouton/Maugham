@@ -25,8 +25,8 @@ struct ResearchNoteEditor: View {
     let previewVisible: Bool
     /// **Review's locked posture, threaded from `ResearchSubjectCentre.readOnly`**
     /// (shell-finish stage 3b Task 6) — forwarded straight into
-    /// `EditorControl.lockEditing`. Research notes still have no `isReviewMode`
-    /// toggle (there is no ⌘⌥⇧R here), but `lockEditing` is no longer always
+    /// `EditorControl.lockEditing`. Research notes have no review render
+    /// (read-through is a manuscript piece's), but `lockEditing` is no longer always
     /// false: Denver's ruling is that Review adjudicates and does not edit
     /// research from its own columns, and `EditorEditPolicy.allowsTextMutation`
     /// already treats `lockEditing` as the hard floor selection/scroll survive
@@ -87,7 +87,7 @@ struct ResearchNoteEditor: View {
             reloadWrittenBehind()
         }
         // Mirror appearance into editorControl (ADR 0017). isReviewMode stays
-        // false — research notes have no ⌘⌥⇧R toggle — but lockEditing now
+        // false — research notes have no review render — but lockEditing now
         // carries Review's posture, mirrored below like every other field here.
         .onChange(of: userPreferences.theme) { _, t in editorControl.theme = t }
         .onChange(of: effectiveTypography) { _, t in editorControl.typography = t }

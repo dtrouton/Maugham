@@ -594,10 +594,11 @@ extension EditorCoordinator {
               let opening = figureGridOpening, let windows = opening.windows else { return }
         foldFigureGrid(commit: true)
         guard figureGrid !== expansion else { return }
-        // Review mode carries into the window (final review I2).
+        // Read-through follows the figure's piece into the window
+        // (`FigureWindows.isInReadThrough`), not this editor.
         windows.handOff(expansion.figureId, .init(
             number: controller.line.number, caption: controller.line.caption, piece: controller.researchPiece,
-            typography: typography, isReviewMode: isManualReviewMode, from: ObjectIdentifier(self)))
+            typography: typography))
         windows.setShareIsReadOnly(shareIsReadOnly)
         opening.openWindow(expansion.figureId)
     }
@@ -925,15 +926,15 @@ extension EditorCoordinator {
 
     /// **The gate's answer for a figure** (`FigureGridGate`): the figure's
     /// drawing posture from the window's door, the share, the editor's modes.
-    /// Review mode is the window's EXPLICIT one only — never the review
-    /// forced where the text is refused (R7c-6: a Mac that may change the
-    /// figure but not the text around it gets an editable grid, its caption
-    /// locked).
+    /// Never the review forced where the text is refused (R7c-6: a Mac that
+    /// may change the figure but not the text around it gets an editable
+    /// grid, its caption locked); the piece's read-through, which the writer
+    /// chose, refuses typing into it.
     func figureGridGateMode(figureId: String, parked: Bool, hostClosed: Bool) -> FigureGridGate.Mode {
         FigureGridGate.mode(
             figureMayEdit: figureGridOpening?.figureMayEdit(figureId) ?? false,
             parked: parked, hostClosed: hostClosed, shareIsReadOnly: shareIsReadOnly,
-            isReviewMode: isManualReviewMode, isInReadThrough: isInReadThrough,
+            isInReadThrough: isInReadThrough,
             isReadingTranslation: isReadingTranslation)
     }
 

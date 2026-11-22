@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import MaughamCore
 
 /// **Read-through**: a piece its writer reads as a reviewer would — typing
@@ -142,19 +143,56 @@ struct ReadThroughGate: Equatable {
 }
 
 /// **What the window offers for the open piece**: Start Read-through or Resume
-/// Writing, enabled or not, and why not. Pure, so every refusal is pinned
-/// without a window.
+/// Writing, enabled or not, and why not — and, for a piece in read-through
+/// whose checkpoint was not saved, Save one. Pure, so every refusal is pinned
+/// without a window. **Every route posts only what an offer gives it**
+/// (`toggleRequest`, `resumeRequest`, `saveCheckpointRequest`): nothing
+/// downstream asks again.
 struct ReadThroughOffer: Equatable {
     let docId: String
     let isOn: Bool
     let isEnabled: Bool
     let reason: String?
+    /// In read-through with no checkpoint saved and none being taken
+    /// (`ReadThroughStore.piecesLackingCheckpoint`).
+    var lacksCheckpoint: Bool = false
 
     static let postureRefusal =
         "This Mac may not change this piece’s text, so there is nothing to start."
     static let shareRefusal =
         "This piece is shared with you to view, so there is nothing to start."
     static let translationRefusal = "Read Source to start a read-through."
+
+    /// The View menu item's two titles.
+    static let startTitle = "Start Read-through"
+    static let resumeTitle = "Resume Writing"
+
+    /// What the View menu item and the key say for this offer.
+    var menuTitle: String { isOn ? Self.resumeTitle : Self.startTitle }
+
+    /// What the menu item and the key post: Start or Resume, nil where the
+    /// offer is disabled.
+    var toggleRequest: ReadThrough.Request? {
+        isEnabled ? ReadThrough.Request(docId: docId, on: !isOn) : nil
+    }
+
+    /// The line's Resume writing: only for a piece in read-through.
+    var resumeRequest: ReadThrough.Request? {
+        isOn ? ReadThrough.Request(docId: docId, on: false) : nil
+    }
+
+    /// The line's Save one: a Start for a piece already in read-through, which
+    /// takes only the missing checkpoint (`ReadThroughVerbs.start`).
+    var saveCheckpointRequest: ReadThrough.Request? {
+        isOn && lacksCheckpoint ? ReadThrough.Request(docId: docId, on: true) : nil
+    }
+
+    /// The offer for a piece in read-through: Resume is always enabled,
+    /// whatever the posture, the share or a translation.
+    static func on(docId: String, lacksCheckpoint: Bool) -> ReadThroughOffer {
+        ReadThroughOffer(docId: docId, isOn: true, isEnabled: true, reason: nil,
+                         lacksCheckpoint: lacksCheckpoint)
+    }
 
     /// nil where no manuscript piece is open. **Resume** is always enabled
     /// while the piece is in read-through; **Start** only where the posture
@@ -163,11 +201,12 @@ struct ReadThroughOffer: Equatable {
     @MainActor
     static func of(docId: String?, item: StructureItem?, posture: Posture?,
                    shareIsReadOnly: Bool, isReadingTranslation: Bool,
-                   pieces: Set<String>) -> ReadThroughOffer? {
+                   pieces: Set<String>,
+                   lackingCheckpoint: Set<String> = []) -> ReadThroughOffer? {
         guard let docId, let item, item.id == docId,
               EditorHost.loadsAsAManuscript(item) else { return nil }
         if ReadThrough.isOn(docId, in: pieces) {
-            return ReadThroughOffer(docId: docId, isOn: true, isEnabled: true, reason: nil)
+            return .on(docId: docId, lacksCheckpoint: lackingCheckpoint.contains(docId))
         }
         let reason: String?
         if !(posture?.allows(.writeText) ?? false) {
@@ -181,5 +220,17 @@ struct ReadThroughOffer: Equatable {
         }
         return ReadThroughOffer(docId: docId, isOn: false, isEnabled: reason == nil,
                                 reason: reason)
+    }
+}
+
+// MARK: - The View menu
+
+struct FocusedReadThroughOfferKey: FocusedValueKey { typealias Value = ReadThroughOffer }
+extension FocusedValues {
+    /// The key window's offer for its open piece (`ReadThroughModifier`), for
+    /// View ▸ Start Read-through / Resume Writing and ⌘⌥⇧R.
+    var readThroughOffer: ReadThroughOffer? {
+        get { self[FocusedReadThroughOfferKey.self] }
+        set { self[FocusedReadThroughOfferKey.self] = newValue }
     }
 }

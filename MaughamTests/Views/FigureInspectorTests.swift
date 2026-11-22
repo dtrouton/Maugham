@@ -346,7 +346,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: summary.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
+            isInReadThrough: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller, "the centre's grid opened")
@@ -397,7 +397,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
+            isInReadThrough: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         XCTAssertNil(centre.grid?.controller, "premise: the hold is taken, the visit still opening")
 
@@ -442,7 +442,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: ("—", ""), piece: nil, typography: .defaults,
-            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
+            isInReadThrough: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let grid = try XCTUnwrap(centre.grid?.controller)
@@ -479,10 +479,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         // The window's own refusal: one answer, for the inspector and the tree.
         let viewOnly = EditorControl()
         viewOnly.shareIsReadOnly = true
-        let manualReview = EditorControl()
-        manualReview.isManualReviewMode = true
         XCTAssertFalse(actions(m, control: viewOnly, model: model).mayEdit(figure.id), "a view-only share")
-        XCTAssertFalse(actions(m, control: manualReview, model: model).mayEdit(figure.id), "⌘⌥⇧R")
         XCTAssertFalse(actions(m, isLocked: true, model: model).mayEdit(figure.id), "the window's Lock")
         XCTAssertTrue(actions(m, isLocked: false, model: model).mayEdit(figure.id), "control: unlocked edits figures")
         let tree = BinderTreeSectionsState()
@@ -519,7 +516,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
     /// **I1: a Plan window with no editor on a view-only share** — the tree's
     /// row hears the share from the window's control plane, as the inspector
     /// does, so it offers no Send to Research or Rename; the share lifting,
-    /// it offers them again. ⌘⌥⇧R and the window's Lock the same.
+    /// it offers them again. The window's Lock the same.
     func test_theTreeHearsTheWindowsShareAndLockWithNoEditorMounted() async throws {
         let m = try await mount()
         let figure = try XCTUnwrap(m.figure)
@@ -542,15 +539,6 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         XCTAssertTrue(lifted)
         XCTAssertTrue(verbs.shared.mayEdit(figure.id), "control: the share lifted")
 
-        box.control.isManualReviewMode = true
-        let reviewing = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
-        XCTAssertTrue(reviewing, "⌘⌥⇧R")
-        box.control.isManualReviewMode = false
-        // Lifted first, or the Lock's assertion below reads ⌘⌥⇧R's refusal
-        // still standing (the disable experiment found it passing with a Lock
-        // that refused nothing).
-        let reviewLifted = await pumpUntil(deadline: 5) { !tree.figureWritesRefused }
-        XCTAssertTrue(reviewLifted, "control: ⌘⌥⇧R lifted")
         box.isLocked = true
         let locked = await pumpUntil(deadline: 5) { tree.figureWritesRefused }
         XCTAssertTrue(locked, "the window's Lock")
@@ -805,7 +793,7 @@ final class FigureInspectorTests: FigureGridMountedTestCase {
         let centre = FigureCentreMount(
             figureId: figure.id, windows: windows, presence: FigureGridPresence(), store: ds,
             projectStore: m.store, line: (row.number, row.caption), piece: docId, typography: .defaults,
-            isReviewMode: false, isLocked: false, shareIsReadOnly: false)
+            isInReadThrough: false, isLocked: false, shareIsReadOnly: false)
         centre.take()
         await centre.grid?.opening?.value
         let box = SubjectBox(.figure(figure.id))

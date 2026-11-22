@@ -1012,7 +1012,7 @@ final class BinderTreeSectionsState {
     @ObservationIgnored weak var figureWindows: FigureWindows?
     /// The editor's typography, handed to a figure window a row opens.
     @ObservationIgnored var figureTypography: TypographySettings = .defaults
-    /// The window refuses figure writes (a view-only share, ⌘⌥⇧R, the
+    /// The window refuses figure writes (a view-only share, the
     /// window's Lock — `FigureActions.windowRefusesWrites`), as the
     /// inspector asks it; asked by a row's menu builder.
     @ObservationIgnored var figureWritesRefused = false
@@ -1154,6 +1154,10 @@ final class BinderTreeSectionsState {
     /// by the window's `ResolvePresenceWatch` once per key and read by each
     /// row as a set lookup (`\.resolvePresence`, handed in at the `List`).
     var presence: ResolvePresence.Marks = .none
+    /// **The pieces in read-through on this Mac**, written by the window's
+    /// `ReadThroughModifier` from the session's store (guarded by `!=`) and
+    /// looked up by each document row (`ReadThroughMark`).
+    var readThrough: Set<String> = []
     /// **Each piece's open to-dos** (shell p4 Task 4), written by the same
     /// watch from the same read and looked up by Status's to-dos column.
     var openToDos: [String: Int] = [:]

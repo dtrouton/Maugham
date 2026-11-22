@@ -32,9 +32,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// Hard editing lock (WF1 iCloud role): when true the manuscript text is
     /// read-only because the current user is NOT an author of it (an iCloud
     /// reviewer, or the still-resolving `.unknown` role). Distinct from
-    /// `isReviewMode`: that is a soft, toggleable render posture an author opts
-    /// into; this is the floor that the membrane ANDs in so a reviewer's ⌘⌥⇧R can
-    /// flip the review render but can NEVER unlock text mutation. Threaded
+    /// `isReviewMode`, the review render (forced by the posture, or a piece in
+    /// read-through); this is the floor the membrane ANDs in, so nothing that
+    /// flips the render can ever unlock text mutation. Threaded
     /// ONE-WAY from ProjectWindow → EditorHost → EditorSurface (tripwires 2 & 6);
     /// nothing reads it back. Use `setLockEditing(_:)` to flip it.
     private(set) var lockEditing = false
@@ -43,11 +43,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// input of): the figure grid's gate asks it on its own (report plan 7c
     /// Task 8). Use `setShareIsReadOnly(_:)`.
     private(set) var shareIsReadOnly = false
-
-    /// The window's explicit review mode (⌘⌥⇧R) alone — `isReviewMode` is
-    /// also forced where the text is refused. Only the figure grid's gate
-    /// reads it (R7c-6). Use `setManualReviewMode(_:)`.
-    private(set) var isManualReviewMode = false
 
     /// Translation-review posture (Task 11): when true the editor is displaying a
     /// DERIVED translated surface (`translatedText ?? sourceText`, joined) instead
@@ -348,21 +343,8 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// legacy scroll-to-paragraph behaviour).
     private var annotationNavigateObserver: NSObjectProtocol?
 
-    /// Observer token for `maughamToggleReviewMode` (⌘⌥⇧R). Flips the membrane
-    /// SYNCHRONOUSLY in the key window's coordinator so `isReviewMode` is correct
-    /// before the next key event — closing the race where a fast Enter pressed
-    /// right after ⌘⌥⇧R slipped a newline through `shouldChangeTextIn` before the
-    /// SwiftUI render round-trip pushed the new posture (Bug B). `ProjectWindow`
-    /// still toggles `isReviewModeOn` on the SAME notification (source of truth
-    /// for the indicator + annotation derive + persistence); the model-driven
-    /// `applyControl → setReviewMode` (observed via `withObservationTracking`) is
-    /// the no-op-guarded reconciler the two paths converge through (ADR 0017).
-    /// Both toggle the same boolean from the same value, so they can't diverge;
-    /// the reconciler re-converges if state ever drifts.
-    private var reviewToggleObserver: NSObjectProtocol?
-
     /// Observer tokens for translation-review entry/exit (Task 13). Same
-    /// rationale as `reviewToggleObserver`: flip the read-only membrane
+    /// rationale as `readThroughObserver` (Bug B): flip the read-only membrane
     /// SYNCHRONOUSLY in the key window's coordinator so the very next keystroke
     /// already sees the toggled posture — the `control.translationLanguage`
     /// mirror lands a frame later. `ProjectWindow`'s `ReadingLanguageModifier`
@@ -373,7 +355,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     private var translationExitObserver: NSObjectProtocol?
 
     /// Observer token for `.maughamSetReadThrough` (shell read-through Task
-    /// 2). Same rationale (Bug B): a Return pressed right after the key must
+    /// 2). **Bug B**: a Return pressed right after ⌘⌥⇧R must
     /// meet a refusing view, and `control.readThroughDocIds` lands a turn
     /// later. It flips only this coordinator's stored fact, for its own
     /// document; `ReadThroughModifier` changes the store on the same post,
@@ -841,7 +823,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// their scope through `receiverContext(.keyWindow)`, which is where this is
     /// read. Today that is `maughamNavigateToScene`, `maughamFindMatchSelected`,
     /// `maughamNavigateToParagraph`, `maughamNavigateToAnnotation`,
-    /// `maughamToggleReviewMode`, `maughamReadInLanguage`,
+    /// `maughamReadInLanguage`,
     /// `maughamReadInSource`, `maughamSetReadThrough`, and the Insert menu's
     /// `maughamInsertTable`, `maughamInsertFootnote`, `maughamInsertFigure`,
     /// `maughamInsertExistingFigure`,
@@ -854,7 +836,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
     /// every one there has ever been. M1A's statement panes are the first case
     /// of a SECOND `EditorSurface` alive in the same window at the same time,
     /// and every one of those commands is about the document in the centre
-    /// column: without this the intent pane flips into review chrome on ⌘⌥⇧R,
+    /// column: without this the intent pane takes the centre's read-through flip,
     /// moves its caret when the writer clicks a scene in the navigator, and
     /// goes read-only when the manuscript is read in a translation.
     var respondsToWindowCommands: Bool = true
@@ -953,25 +935,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             let pid = note.userInfo?["paragraph_id"] as? String
             self.navigateToAnnotation(id: annId, fallbackParagraphId: pid, in: textView)
         }
-        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥⇧R
-        // flips the review membrane SYNCHRONOUSLY on the coordinator so the very
-        // next keystroke already sees the toggled value — a `control.*` mirror
-        // would land a frame later. Key-window scoping is now the helper's
-        // `.keyWindow` context (ADR 0021); the former inline `isKeyWindow` guard
-        // is deleted (it, and FocusPostureModifier, both act only when key).
-        reviewToggleObserver = MaughamEvent.observe(
-            .maughamToggleReviewMode,
-            context: { [weak self] in self?.receiverContext(.keyWindow) }
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.setReviewMode(!self.isReviewMode)
-            // The explicit toggle, at once for the figure grid's gate;
-            // `ProjectWindow` flips the same flag, so the mirror agrees.
-            self.setManualReviewMode(!self.isManualReviewMode)
-        }
         // Reading a translation (Task 13): flip the read-only membrane
-        // synchronously on the key window's coordinator, exactly as ⌘⌥⇧R does
-        // above. Language + surface swap stay EditorHost's; this only governs
+        // synchronously on the key window's coordinator, as read-through's
+        // observer below does (Bug B). Language + surface swap stay EditorHost's; this only governs
         // the membrane so the next keystroke is already blocked (or unblocked).
         translationEnterObserver = MaughamEvent.observe(
             .maughamReadInLanguage,
@@ -985,6 +951,9 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         ) { [weak self] _ in
             self?.setReadingTranslation(false)
         }
+        // This NC receiver exists deliberately (Editor AREA.md, Bug B): ⌘⌥⇧R
+        // flips the membrane SYNCHRONOUSLY so the very next keystroke already
+        // sees it — a `control.*` mirror would land a frame later.
         readThroughObserver = MaughamEvent.observe(
             .maughamSetReadThrough,
             context: { [weak self] in self?.receiverContext(.keyWindow) }
@@ -1068,9 +1037,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = annotationNavigateObserver {
-            NotificationCenter.default.removeObserver(token)
-        }
-        if let token = reviewToggleObserver {
             NotificationCenter.default.removeObserver(token)
         }
         if let token = translationEnterObserver {
@@ -1259,7 +1225,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         // deliveries. `receiverContext` also returns nil once `isDetached`, so
         // this is belt-and-suspenders with the deinit removal (which stays).
         for token in [navigateObserver, findMatchObserver, paragraphNavigateObserver,
-                      annotationNavigateObserver, reviewToggleObserver,
+                      annotationNavigateObserver,
                       translationEnterObserver, translationExitObserver, readThroughObserver,
                       insertTableObserver, insertFootnoteObserver, insertFigureObserver,
                       insertExistingFigureObserver,
@@ -1268,7 +1234,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             if let token { NotificationCenter.default.removeObserver(token) }
         }
         navigateObserver = nil; findMatchObserver = nil; paragraphNavigateObserver = nil
-        annotationNavigateObserver = nil; reviewToggleObserver = nil
+        annotationNavigateObserver = nil
         translationEnterObserver = nil; translationExitObserver = nil; readThroughObserver = nil
         insertTableObserver = nil; insertFootnoteObserver = nil; insertFigureObserver = nil
         insertExistingFigureObserver = nil
@@ -1466,16 +1432,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         figureGridOpening?.windows?.setShareIsReadOnly(readOnly)
     }
 
-    /// The explicit review toggle (`EditorControl.isManualReviewMode`).
-    /// Self-guarded (D2); only the figure grids' gates read it.
-    func setManualReviewMode(_ enabled: Bool) {
-        guard isManualReviewMode != enabled else { return }
-        isManualReviewMode = enabled
-        refreshFigureGridAccess()
-        // The figure windows this editor opened follow it (final review I2).
-        figureGridOpening?.windows?.reviewModeChanged(enabled, from: ObjectIdentifier(self))
-    }
-
     /// Whether a checkbox click may flip its bracket: the membrane's answer
     /// for a click (`EditorEditPolicy.allowsCheckboxToggle`), read from the
     /// coordinator's own stored flags — no new state (tripwire 2).
@@ -1597,7 +1553,7 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         view?.needsDisplay = true
     }
 
-    /// The review render: the window's review mode, or this piece in
+    /// The review render: the review forced by the posture, or this piece in
     /// read-through — `EditorControl.reviewRenders(docId:)` asked with the
     /// coordinator's own fact, so the synchronous flip draws it before the
     /// control's mirror lands.
@@ -1739,7 +1695,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
             // explicitly so the tracked set never silently widens.
             _ = control.lockEditing
             _ = control.shareIsReadOnly
-            _ = control.isManualReviewMode
             _ = control.isReviewMode
             _ = control.readThroughDocIds
             _ = control.posture
@@ -1778,7 +1733,6 @@ final class EditorCoordinator: NSObject, NSTextViewDelegate {
         applyControlCount += 1
         setLockEditing(c.lockEditing)        // self-guarded
         setShareIsReadOnly(c.shareIsReadOnly) // self-guarded
-        setManualReviewMode(c.isManualReviewMode) // self-guarded
         // Read-through asks about the document this buffer holds — only when
         // the mirrored set MOVED (D2, on the control's value): an apply for
         // another property, landing before the mirror, never undoes the key's

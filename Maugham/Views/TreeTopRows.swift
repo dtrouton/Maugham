@@ -136,6 +136,21 @@ struct TreeRowMarks: Equatable {
     var outlined: Set<BinderSubject> = []
 }
 
+/// **The pieces in read-through** (`BinderTreeSectionsState.readThrough`),
+/// handed to every row at the `List` beside `TreeRowMarks`, under its own key
+/// so a click (which moves `TreeRowMarks`) re-renders no row body: a document
+/// row draws `ReadThroughMark` by a set lookup (tripwire 4).
+private struct ReadThroughPiecesKey: EnvironmentKey {
+    static let defaultValue: Set<String> = []
+}
+
+extension EnvironmentValues {
+    var readThroughPieces: Set<String> {
+        get { self[ReadThroughPiecesKey.self] }
+        set { self[ReadThroughPiecesKey.self] = newValue }
+    }
+}
+
 private struct TreeRowMarksKey: EnvironmentKey {
     static let defaultValue = TreeRowMarks()
 }
@@ -185,6 +200,8 @@ extension View {
         return environment(\.treeRowMarks, TreeRowMarks(
             open: BinderTreeSelection.openMark(shown: shown, subject: subject),
             outlined: BinderTreeSelection.outlined(shown: shown, subject: subject)))
+            // The read-through locks: the window's one set, looked up.
+            .environment(\.readThroughPieces, state.readThrough)
             // What has something to resolve: the window's one read, looked up.
             .environment(\.resolvePresence, state.presence)
     }

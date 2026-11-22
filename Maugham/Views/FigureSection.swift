@@ -604,7 +604,7 @@ struct FigureSectionWiring: ViewModifier {
     let treeState: BinderTreeSectionsState
     let figureWindows: FigureWindows?
     let typography: TypographySettings
-    /// The window's control plane (the share, ⌘⌥⇧R) and its Lock: the one
+    /// The window's control plane (the share) and its Lock: the one
     /// answer to whether this window refuses figure writes, shared with the
     /// inspector (`FigureActions.windowRefusesWrites`).
     let control: EditorControl

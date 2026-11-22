@@ -446,7 +446,7 @@ final class FigureGridControllerTests: XCTestCase {
         let columnA = key(c, "A1").column
         FigureGridController.writeTurnForTesting = {
             try? await c.host.deleteColumn(columnA)
-            c.setAccess(.readOnly(.reviewMode), captionMayEdit: false)
+            c.setAccess(.readOnly(.readThrough), captionMayEdit: false)
         }
         c.handle(.click(key(c, "B2"), extend: false))
         c.handle(.type("="))

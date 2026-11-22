@@ -165,13 +165,24 @@ final class ReadThroughVerbsTests: XCTestCase {
             "Read-through is on, but no checkpoint was saved — ") == true, "\(notices)")
         XCTAssertFalse(notices.first?.contains("Couldn’t save a checkpoint") == true,
                        "the read-through's notice, not ⌘S's")
-        XCTAssertTrue(notices.first?.hasSuffix("Start the read-through again to save one.") == true)
+        XCTAssertTrue(notices.first?.hasSuffix("Press Save one over the text to save it.") == true,
+                      "the notice names the line's button (Task 3's carry B)")
+        XCTAssertEqual(store.piecesLackingCheckpoint, [docId],
+                       "the line over the text now offers Save one")
+        XCTAssertEqual(ReadThroughOffer.of(
+            docId: docId, item: project.flatMap { TreeWalk.find(id: docId, in: $0.manifest.structure) },
+            posture: nil, shareIsReadOnly: false, isReadingTranslation: false,
+            pieces: store.pieceIds, lackingCheckpoint: store.piecesLackingCheckpoint)?
+            .saveCheckpointRequest, ReadThrough.Request(docId: docId, on: true),
+            "Save one posts the Start that takes the missing checkpoint")
 
         try FileManager.default.removeItem(at: broken)
         let retry = ReadThroughVerbs.start(docId: docId, store: store, documentStore: documents,
                                            backups: BackupCoordinator(), flash: { flashes += 1 },
                                            now: started.addingTimeInterval(60))
         XCTAssertNotNil(retry, "Start on a piece in read-through with no checkpoint takes it")
+        XCTAssertEqual(store.piecesLackingCheckpoint, [],
+                       "while the capture runs, the line does not say none was saved")
         await retry?.value
         let saved = await checkpoints()
         XCTAssertEqual(saved.count, before + 1)
@@ -194,6 +205,7 @@ final class ReadThroughVerbsTests: XCTestCase {
                                           device: DeviceSlug.make(from: "read-through-test"))
         XCTAssertTrue(ReadThrough.isOn(docId, in: relaunched.pieceIds))
         XCTAssertFalse(relaunched.hasCheckpoint(docId))
+        XCTAssertEqual(relaunched.piecesLackingCheckpoint, [docId], "the line offers Save one")
         await ReadThroughVerbs.start(docId: docId, store: relaunched, documentStore: documents,
                                      backups: BackupCoordinator(), flash: {})?.value
         XCTAssertTrue(relaunched.hasCheckpoint(docId))

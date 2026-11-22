@@ -207,7 +207,7 @@ struct MaughamApp: App {
                 Divider()
                 // The compiler's four commands (spec §3.1; shell p1 Task 5).
                 // Plain ⌘R, verified unbound 2026-08-04: the two other "r"
-                // bindings carry ⌘⌥⇧ (Toggle Review Mode) and ⌘⌥ (Research
+                // bindings carry ⌘⌥⇧ (read-through) and ⌘⌥ (Research
                 // pane). ⌘⇧R for the cold read, verified unbound 2026-08-15
                 // against the same three. ⌃⌘R and ⌃⇧⌘R for the round's two,
                 // verified unbound 2026-11-17 across `Maugham/` (no other
@@ -265,10 +265,8 @@ struct MaughamApp: App {
                     MaughamEvent.post(.maughamToggleFullScreen, to: .keyWindow)
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
-                Button("Toggle Review Mode") {
-                    MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
-                }
-                .keyboardShortcut("r", modifiers: [.command, .option, .shift])
+                // ⌘⌥⇧R: the open piece's read-through, titled by its offer.
+                FocusedReadThroughItem()
                 // A piece read in a language (shell p4 Task 8): View ▸ Read
                 // In ▸ …, Read In Next Language (⌃⌘L), Show Source Under
                 // Translation — the toolbar switch's other two routes.
@@ -834,6 +832,24 @@ private struct FocusedStartAPieceButtons: View {
         .disabled(!enabled)
     }
 }
+
+/// **View ▸ Start Read-through / Resume Writing (⌘⌥⇧R)**, titled by the key
+/// window's offer and disabled without an enabled one — so the key stays
+/// discoverable where no piece is open, and never posts what the offer
+/// refuses (a piece read in a translation, a posture that may not write).
+struct FocusedReadThroughItem: View {
+    @FocusedValue(\.readThroughOffer) private var offer
+
+    var body: some View {
+        Button(offer?.menuTitle ?? ReadThroughOffer.startTitle) {
+            if let request = offer?.toggleRequest { ReadThrough.post(request) }
+        }
+        .keyboardShortcut("r", modifiers: [.command, .option, .shift])
+        .disabled(offer?.toggleRequest == nil)
+        .help(offer?.reason ?? "")
+    }
+}
+
 
 /// **What the View menu titles its two window toggles by** (appraisal 5 and
 /// the Lock minor): whether the focused window's right column is shown, and

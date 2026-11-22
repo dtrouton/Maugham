@@ -13,10 +13,10 @@ enum ReadThroughVerbs {
     /// **The one notice for a Start whose checkpoint did not land**, whatever
     /// stopped it — the door's refusal, an I/O error, no project: read-through
     /// is on, the version is not saved, and why. Starting again takes the
-    /// missing checkpoint.
+    /// missing checkpoint: the line over the text offers it as Save one.
     static func unsavedCheckpointNotice(why: String) -> String {
         "Read-through is on, but no checkpoint was saved — \(why) "
-            + "Start the read-through again to save one."
+            + "Press \(ReadThroughLine.saveTitle) over the text to save it."
     }
 
     /// **Start a read-through.** `store.begin` runs at once, so the tree, the
@@ -104,18 +104,46 @@ enum ReadThroughVerbs {
 
 /// **The window's read-through receiver**: `.maughamSetReadThrough` from every
 /// route, and the prune that drops a piece that left the structure (deleted,
-/// trashed, promoted) while keeping a renamed or moved one. Kept out of
-/// `ProjectWindow.body` for the type-check ceiling.
+/// trashed, promoted) while keeping a renamed or moved one. It also publishes
+/// the open piece's offer to the menu bar (`FocusedValues.readThroughOffer`)
+/// and writes the tree's lock marks (`BinderTreeSectionsState.readThrough`).
+/// Kept out of `ProjectWindow.body` for the type-check ceiling.
 struct ReadThroughModifier: ViewModifier {
     let readThrough: ReadThroughStore?
     let store: ProjectStore?
     let documentStore: DocumentStore?
     let window: NSWindow?
+    /// The piece open in the centre (`selectedManuscriptDocId`), and the
+    /// inputs its offer asks: the drawing posture, the share, a translation.
+    var openDocId: String? = nil
+    var posture: Posture? = nil
+    var shareIsReadOnly = false
+    var isReadingTranslation = false
+    /// The tree the lock marks are written to; nil draws none.
+    var treeState: BinderTreeSectionsState? = nil
     let onSaveFlash: () -> Void
     @Environment(BackupCoordinator.self) private var backupCoordinator
 
+    /// The open piece's offer, from the window's inputs.
+    @MainActor
+    static func offer(openDocId: String?, structure: [StructureItem]?, posture: Posture?,
+                      shareIsReadOnly: Bool, isReadingTranslation: Bool,
+                      readThrough: ReadThroughStore?) -> ReadThroughOffer? {
+        guard let readThrough, let openDocId, let structure else { return nil }
+        return ReadThroughOffer.of(
+            docId: openDocId, item: TreeWalk.find(id: openDocId, in: structure),
+            posture: posture, shareIsReadOnly: shareIsReadOnly,
+            isReadingTranslation: isReadingTranslation,
+            pieces: readThrough.pieceIds,
+            lackingCheckpoint: readThrough.piecesLackingCheckpoint)
+    }
+
     func body(content: Content) -> some View {
         content
+            .focusedSceneValue(\.readThroughOffer, Self.offer(
+                openDocId: openDocId, structure: store?.manifest.structure, posture: posture,
+                shareIsReadOnly: shareIsReadOnly, isReadingTranslation: isReadingTranslation,
+                readThrough: readThrough))
             .onKeyWindowCommand(.maughamSetReadThrough, window: window) { note in
                 guard let request = ReadThrough.request(of: note.userInfo),
                       let readThrough, let documentStore else { return }
@@ -134,6 +162,11 @@ struct ReadThroughModifier: ViewModifier {
                 guard let keeping = ReadThrough.keeping(for: structure),
                       let readThrough else { return }
                 readThrough.prune(keeping: keeping)
+            }
+            // The tree's lock: one set, written only when it moved (as the
+            // presence marks are), and looked up by each row.
+            .onChange(of: readThrough?.pieceIds ?? [], initial: true) { _, pieces in
+                if let treeState, treeState.readThrough != pieces { treeState.readThrough = pieces }
             }
     }
 }

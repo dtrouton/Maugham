@@ -27,11 +27,6 @@ final class EditorControl {
     /// posture and the share, never the text's lock. Mirrored with the
     /// membrane (`EditorControlMirror.Membrane`).
     var shareIsReadOnly: Bool = false
-    /// **The window's explicit review mode** (⌘⌥⇧R) alone — `isReviewMode`
-    /// is also forced on where the text's posture refuses. The figure grid's
-    /// gate reads only this (R7c-6: the figure's posture and the text's are
-    /// independent). Mirrored with the membrane.
-    var isManualReviewMode: Bool = false
     /// **What this window may offer for the document in the editor** (P3c Task
     /// 5) — mirrored from the drawing posture door with the membrane above, so
     /// the margin card's dispositions follow a demotion or a promotion with no
@@ -48,11 +43,27 @@ final class EditorControl {
     /// never about the window's subject. Moves only at Start or Resume (D1).
     var readThroughDocIds: Set<String> = []
 
-    /// **Whether the review render is drawn for `docId`**: the window's
-    /// review mode, or the piece in read-through. The one rule the coordinator
-    /// and `EditorHost`'s open-annotation mirror both ask.
+    /// **The pieces in read-through whose checkpoint was not saved**
+    /// (`ReadThroughStore.piecesLackingCheckpoint`), mirrored beside
+    /// `readThroughDocIds`. Read by `EditorHost`'s line alone; the coordinator
+    /// never reads it.
+    var readThroughLackingCheckpoint: Set<String> = []
+
+    /// **Whether the review render is drawn for `docId`**: the review forced
+    /// where the posture refuses the text, or the piece in read-through. The
+    /// one rule the coordinator and `EditorHost`'s open-annotation mirror ask.
     func reviewRenders(docId: String?) -> Bool {
         isReviewMode || ReadThrough.isOn(docId, in: readThroughDocIds)
+    }
+
+    /// **The offer the line over the text draws for `docId`**, nil where it
+    /// draws nothing: a piece not in read-through, or one read in a
+    /// translation (whose own line stands there instead).
+    func readThroughLineOffer(docId: String) -> ReadThroughOffer? {
+        guard translationLanguage == nil, ReadThrough.isOn(docId, in: readThroughDocIds) else {
+            return nil
+        }
+        return .on(docId: docId, lacksCheckpoint: readThroughLackingCheckpoint.contains(docId))
     }
 
     /// The language the open piece is read in, or nil when the editor shows

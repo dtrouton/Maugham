@@ -280,11 +280,16 @@ struct EditorHost: View {
                 // read-only, what to do instead, what is out of date, and the
                 // press back to Source (shell p4 Task 8). It reads the control
                 // and feeds nothing back.
+                // A piece in read-through says so the same way, with the one
+                // press back to writing (shell read-through Task 3) — never
+                // both lines: over a translation the language's stands.
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if let language = control.translationLanguage {
                         ReadingLanguageLine(language: language,
                                             entries: control.translationBadges.entries,
                                             window: window)
+                    } else if let offer = control.readThroughLineOffer(docId: doc.docId) {
+                        ReadThroughLine(offer: offer, window: window)
                     }
                 }
                 .id(path)

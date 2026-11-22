@@ -164,32 +164,37 @@ final class FigureGridOneGridPerHostTests: FigureGridMountedTestCase {
         XCTAssertEqual(visit.ops.count, 1)
     }
 
-    // MARK: - I2: review mode carries into the window
+    // MARK: - I2: read-through carries into the window
 
-    /// **⤢ from a review-mode grid** (final review I2): the grid is read-only
-    /// in place, ⤢ still offered; the window it opens is read-only for the
-    /// same reason, and follows the opening editor's review toggle.
-    func test_reviewModeCarriesIntoTheFigureWindow_andFollowsTheToggle() async throws {
-        let windows = FigureWindows()
+    /// **⤢ from a grid in read-through** (final review I2, rehomed by shell
+    /// read-through Task 3): the grid is read-only in place, ⤢ still offered;
+    /// the window it opens asks the figure's piece (`FigureWindows
+    /// .isInReadThrough`, the session's store in production), and follows
+    /// each Start and Resume (`readThroughChanged`).
+    func test_readThroughCarriesIntoTheFigureWindow_andFollowsResume() async throws {
+        final class Flag { var on = true }
+        let flag = Flag()
+        let windows = FigureWindows(isInReadThrough: { _ in flag.on })
         var asked: [String] = []
         let m = try await mount(windows: windows, openWindow: { asked.append($0) })
         let figureId = try XCTUnwrap(m.figure?.id)
-        m.coordinator.setManualReviewMode(true)
+        m.coordinator.setReadThrough(true)
         let c = try await expanded(m)
-        XCTAssertEqual(c.mode, .readOnly(.reviewMode), "premise: review mode in place")
+        XCTAssertEqual(c.mode, .readOnly(.readThrough), "premise: read-through in place")
         XCTAssertFalse(c.bars.openInWindow.isHidden)
 
         c.perform(.openInWindow)
         XCTAssertEqual(asked, [figureId])
-        XCTAssertEqual(windows.handoff(for: figureId)?.isReviewMode, true, "review mode is handed over")
         await m.coordinator.figureGridFolding?.value
 
         let (_, w, _) = try await openWindowGrid(m, windows)
-        XCTAssertEqual(w.mode, .readOnly(.reviewMode), "the window opens read-only")
-        m.coordinator.setManualReviewMode(false)
-        XCTAssertEqual(w.mode, .editable, "and follows the toggle off")
-        m.coordinator.setManualReviewMode(true)
-        XCTAssertEqual(w.mode, .readOnly(.reviewMode), "and on again")
+        XCTAssertEqual(w.mode, .readOnly(.readThrough), "the window opens read-only")
+        flag.on = false
+        windows.readThroughChanged()
+        XCTAssertEqual(w.mode, .editable, "and follows Resume")
+        flag.on = true
+        windows.readThroughChanged()
+        XCTAssertEqual(w.mode, .readOnly(.readThrough), "and a Start again")
     }
 
     // MARK: - I4: the neutral decline

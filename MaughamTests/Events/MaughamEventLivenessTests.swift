@@ -295,21 +295,22 @@ final class MaughamEventLivenessTests: XCTestCase {
     /// `receiverContext` returning nil once `isDetached` (braces). This pins a
     /// SECOND observer beyond the navigate one already covered by
     /// `test_detachedCoordinator_receivesNoNavigateToScene`: a detached
-    /// coordinator must not flip its review membrane on a `.maughamToggleReviewMode`
-    /// post. (The two mechanisms are not independently isolable headlessly —
+    /// coordinator must not flip its membrane on a `.maughamSetReadThrough`
+    /// post for its own document. (The two mechanisms are not independently isolable headlessly —
     /// detach() both removes the token AND nils `textView` so `receiverContext`
     /// returns nil — so this is a behavioral belt-and-braces net for a distinct
     /// observer, not a token-removal-in-isolation assertion.)
     func test_detach_silencesReviewToggleObserver() {
         let w = makeWindow()
         let (coordinator, _) = makeAttachedCoordinator(in: w)
-        XCTAssertFalse(coordinator.isReviewMode)
+        XCTAssertFalse(coordinator.isInReadThrough)
+        coordinator.documentId = "d-1"
         coordinator.detach()
 
-        MaughamEvent.post(.maughamToggleReviewMode, to: .keyWindow)
+        ReadThrough.post(.init(docId: "d-1", on: true))
 
-        XCTAssertFalse(coordinator.isReviewMode,
-            "a detached coordinator must not flip review mode on a scoped toggle post")
+        XCTAssertFalse(coordinator.isInReadThrough,
+            "a detached coordinator must not flip read-through on a scoped post")
         _ = coordinator
         w.close()
     }

@@ -62,29 +62,26 @@ enum FigureGridStrip {
         /// Why the buttons are disabled when the figure's posture refuses
         /// `.acceptOrReject`.
         static let notPermitted = "This Mac may not answer notes on this figure."
-        /// Why Accept is disabled in the window's review mode, where Got it
-        /// and Reject (no cell moves) stay offered (fix round ruling I1).
-        static let reviewModeAccept = "Turn off review mode to accept \u{2014} it writes the cell."
-        /// The same, under the window's Lock.
+        /// Why Accept is disabled under the window's Lock, where Got it and
+        /// Reject (no cell moves) stay offered (fix round ruling I1).
         static let lockedAccept = "Unlock the window to accept \u{2014} it writes the cell."
 
         /// The Accept-refusal line for a read-only reason that keeps Got it
-        /// and Reject (review mode, the Lock); nil for every other reason.
+        /// and Reject (the Lock); nil for every other reason.
         static func acceptRefusal(for reason: FigureGridGate.Reason?) -> String? {
             switch reason {
-            case .reviewMode?: return reviewModeAccept
             case .locked?: return lockedAccept
             default: return nil
             }
         }
 
-        /// **Whether a read-only grid still answers its notes**: review mode
-        /// and the Lock (Got it and Reject; Accept refused, `acceptRefusal`),
-        /// and read-through, where an Accept is a decision and writes the
-        /// cell (all three). Every other reason hides the buttons.
+        /// **Whether a read-only grid still answers its notes**: the Lock
+        /// (Got it and Reject; Accept refused, `acceptRefusal`), and
+        /// read-through, where an Accept is a decision and writes the cell
+        /// (all three). Every other reason hides the buttons.
         static func keepsAnswers(_ reason: FigureGridGate.Reason?) -> Bool {
             switch reason {
-            case .reviewMode?, .locked?, .readThrough?: return true
+            case .locked?, .readThrough?: return true
             default: return false
             }
         }

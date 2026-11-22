@@ -181,6 +181,8 @@ struct SceneNavigatorPane: View {
                     // either, so there is no drag-interior claim to make.
                     .treeTravelOnDoubleClick(.item(documentID))
                 Spacer()
+                // The one script in read-through carries the lock.
+                ReadThroughMark(isOn: treeState.readThrough.contains(documentID))
                 // Anything in the script, before its first slugline too.
                 ResolvePresenceMark(ResolvePresence.rowMark(.item(documentID), in: treeState.presence))
             }

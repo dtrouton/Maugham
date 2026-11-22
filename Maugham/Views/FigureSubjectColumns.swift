@@ -49,7 +49,7 @@ extension ProjectWindow {
 /// **What a figure subject shows** (report plan 8a Task 6), in the centre and
 /// in the right column beside the canvas alike: a table's grid (`FigureCentreGrid`, one mount
 /// per figure), read-only where the window is locked (`WindowLock`) or the
-/// window's ⌘⌥⇧R is on; an image, its picture large (`FigureImageSubject`);
+/// figure's piece is in read-through; an image, its picture large (`FigureImageSubject`);
 /// anything else — a kind from a later build, a window with no session —
 /// its name and number.
 struct FigureSubjectSurface: View {
@@ -99,7 +99,10 @@ struct FigureSubjectSurface: View {
                     figureId: figureID, store: store, documentStore: documentStore,
                     figureWindows: figureWindows, presence: presence, listing: listing,
                     typography: control.typography,
-                    isReviewMode: control.isManualReviewMode,
+                    // The figure's piece in read-through: the gate's `.figure(id)`.
+                    isInReadThrough: ReadThroughGate(
+                        pieces: control.readThroughDocIds, structure: [], research: [],
+                        figures: store.manifest.figures ?? []).refusesEdits(.figure(figureID)),
                     isLocked: WindowLock.refusesEdits(isLocked: isLocked),
                     shareIsReadOnly: control.shareIsReadOnly, window: window)
                     .id(figureID)

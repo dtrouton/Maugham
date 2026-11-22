@@ -557,7 +557,7 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
 
     /// A locked window opens read-only and says the window is locked; the
     /// window's ⌘⌥⇧R flips an open grid; a view-only share is read-only.
-    func test_theLockAndTheReviewToggleAndAViewOnlyShareAreReadOnly() async throws {
+    func test_theLockAndReadThroughAndAViewOnlyShareAreReadOnly() async throws {
         let m = try await mount()
         let windows = FigureWindows()
         let review = try centre(m, windows: windows, isLocked: true)
@@ -571,10 +571,12 @@ final class FigureCentreGridTests: FigureGridMountedTestCase {
         let author = try centre(m, windows: windows)
         let c = try await mounted(author)
         XCTAssertEqual(c.mode, .editable)
-        author.box.control.isManualReviewMode = true
-        let flipped = await RunLoopPump.until(deadline: 5) { c.mode == .readOnly(.reviewMode) }
-        XCTAssertTrue(flipped, "⌘⌥⇧R turns the open grid read-only")
-        author.box.control.isManualReviewMode = false
+        let piece = try XCTUnwrap(m.store.manifest.figures?.first { $0.id == c.figureId }?.piece,
+                                  "premise: the figure is its chapter's")
+        author.box.control.readThroughDocIds = [piece]
+        let flipped = await RunLoopPump.until(deadline: 5) { c.mode == .readOnly(.readThrough) }
+        XCTAssertTrue(flipped, "the figure's piece in read-through turns the open grid read-only")
+        author.box.control.readThroughDocIds = []
         let back = await RunLoopPump.until(deadline: 5) { c.mode == .editable }
         XCTAssertTrue(back)
         author.box.control.shareIsReadOnly = true

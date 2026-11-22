@@ -126,7 +126,7 @@ final class ResearchTableMount {
         guard let controller, let host, !hasLeft else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: true, parked: false, hostClosed: host.isClosed,
-            shareIsReadOnly: shareIsReadOnly, isReviewMode: false, isLocked: readOnly,
+            shareIsReadOnly: shareIsReadOnly, isLocked: readOnly,
             isInReadThrough: false,   // Task 4 passes the real value
             isReadingTranslation: false)
         host.refusal = shareIsReadOnly ? .viewOnlyShare : nil

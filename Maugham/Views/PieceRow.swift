@@ -46,6 +46,8 @@ struct PieceRow: View {
 
     /// Which rows have something to resolve (`ResolvePresence`).
     @Environment(\.resolvePresence) private var presence
+    /// Which pieces are in read-through (`BinderTreeSectionsState.readThrough`).
+    @Environment(\.readThroughPieces) private var readThroughPieces
     @State private var draftTitle: String = ""
     @FocusState private var isRenameFieldFocused: Bool
 
@@ -107,6 +109,9 @@ struct PieceRow: View {
                             legacyStatus: piece.status)))
                         .frame(width: 6, height: 6)
                 }
+                // The read-through lock, after the stage dot and before the
+                // presence dot (a set lookup, tripwire 4).
+                ReadThroughMark(isOn: readThroughPieces.contains(piece.id))
                 // After the stage dot, at the trailing edge (`ResolvePresence`).
                 ResolvePresenceMark(ResolvePresence.rowMark(.item(piece.id), in: presence))
             }

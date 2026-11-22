@@ -50,10 +50,6 @@ public struct UIState: Codable, Equatable, Sendable {
     /// read nor written: a file carrying it, with any value, decodes and
     /// ignores it.
     public var rightColumnPosition: RightColumnPosition
-    /// Review posture (WF1): annotate-only manuscript with focus/typewriter off.
-    /// Per-window, persisted so the posture survives reopen. Additive in
-    /// schema v3; old files default to false.
-    public var isReviewModeOn: Bool
 
     /// The model the Diagnostics pane's gear menu spawns compiler runs
     /// against (M2 Task 8).
@@ -221,7 +217,6 @@ public struct UIState: Codable, Equatable, Sendable {
         isNoChromeOn: Bool = false,
         researchPreviewVisible: Bool = false,
         rightColumnPosition: RightColumnPosition = .resolve,
-        isReviewModeOn: Bool = false,
         compilerModel: CompilerModelChoice = .standard,
         activePassMemory: ActivePassMemory = .empty,
         detailColumnWidth: Double = UIState.defaultDetailColumnWidth,
@@ -238,7 +233,6 @@ public struct UIState: Codable, Equatable, Sendable {
         self.isNoChromeOn = isNoChromeOn
         self.researchPreviewVisible = researchPreviewVisible
         self.rightColumnPosition = rightColumnPosition
-        self.isReviewModeOn = isReviewModeOn
         self.compilerModel = compilerModel
         self.activePassMemory = activePassMemory
         self.detailColumnWidth =
@@ -256,7 +250,6 @@ public struct UIState: Codable, Equatable, Sendable {
              selectedResearchItemId, selectedFigureId,
              isNoChromeOn,
              researchPreviewVisible, rightColumnPosition, outlineLayout,
-             isReviewModeOn,
              compilerModel, activePassMemory,
              detailColumnWidth, publishImprint, authorReaderChoice,
              acknowledgedSetAsideRecords, sentRecoveredOpIds
@@ -275,7 +268,6 @@ public struct UIState: Codable, Equatable, Sendable {
         try c.encode(isNoChromeOn, forKey: .isNoChromeOn)
         try c.encode(researchPreviewVisible, forKey: .researchPreviewVisible)
         try c.encode(rightColumnPosition, forKey: .rightColumnPosition)
-        try c.encode(isReviewModeOn, forKey: .isReviewModeOn)
         try c.encode(compilerModel, forKey: .compilerModel)
         try c.encode(activePassMemory, forKey: .activePassMemory)
         try c.encode(detailColumnWidth, forKey: .detailColumnWidth)
@@ -321,7 +313,8 @@ public struct UIState: Codable, Equatable, Sendable {
             self.windowSubject = .book
         }
         self.isNoChromeOn = (try? c.decode(Bool.self, forKey: .isNoChromeOn)) ?? false
-        self.isReviewModeOn = (try? c.decode(Bool.self, forKey: .isReviewModeOn)) ?? false
+        // The old review-mode key (Manual Review Mode, gone with read-through)
+        // is not in `CodingKeys`: a file carrying it decodes and ignores it (tripwire 11).
         self.researchPreviewVisible = (try? c.decode(Bool.self, forKey: .researchPreviewVisible)) ?? false
         // A missing or unknown position opens on To resolve. The tolerant
         // decode IS the migration (tripwire 11): the pane picker's

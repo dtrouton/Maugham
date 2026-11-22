@@ -72,7 +72,6 @@ extension Notification.Name {
     public static let maughamFreshEyesRound =
         Notification.Name("maugham.run.round.fresheyes")
     public static let maughamToggleNoChrome = Notification.Name("maugham.toggleNoChrome")
-    public static let maughamToggleReviewMode = Notification.Name("maugham.toggleReviewMode")
     /// **The open piece is to be read in a language** (shell p4 Task 8):
     /// `userInfo["language"]` carries the BCP-47 tag. The SETTING event — a
     /// reveal's first post (`TranslationReveal.perform`) and the window's own

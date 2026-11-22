@@ -14,8 +14,8 @@ final class ReviewModeMembraneTests: XCTestCase {
 
     /// Role lock is the hard floor: a reviewer/unknown is `lockEditing == true`,
     /// so even with the manual review render toggled OFF (`isReviewMode == false`)
-    /// the membrane must still block. The manual toggle can never win over the
-    /// role lock — this is what stops a reviewer's ⌘⌥R from unlocking the text.
+    /// the membrane must still block. Nothing that flips the render can win
+    /// over the role lock.
     func test_lockEditing_blocksEvenWhenReviewRenderOff() {
         XCTAssertFalse(EditorEditPolicy.allowsTextMutation(
             isReviewMode: false, lockEditing: true),
@@ -26,7 +26,7 @@ final class ReviewModeMembraneTests: XCTestCase {
 
     /// The coordinator's `setLockEditing` flips the hard lock independently of the
     /// review render. With the lock on and review render OFF, the membrane must
-    /// still reject mutation — a reviewer toggling ⌘⌥R off cannot type.
+    /// still reject mutation — a reviewer with the render off cannot type.
     @MainActor
     func test_setLockEditing_blocksMutationWithReviewRenderOff() {
         final class TextBox { var value = "Hello world" }
@@ -431,13 +431,11 @@ final class PostureMembraneTests: XCTestCase {
         let ownPiece = Posture(LocalWritePermit(
             permit: .author(.pieces(["d"])), actor: .author, documentClass: .piece("d")))
 
-        func m(_ p: Posture?, manual: Bool = false, share: Bool = false)
-            -> EditorControlMirror.Membrane {
-            EditorControlMirror.membrane(posture: p, manualReview: manual, shareIsReadOnly: share)
+        func m(_ p: Posture?, share: Bool = false) -> EditorControlMirror.Membrane {
+            EditorControlMirror.membrane(posture: p, shareIsReadOnly: share)
         }
-        XCTAssertEqual(m(author), .init(lockEditing: false, isReviewMode: false))
-        XCTAssertEqual(m(author, manual: true), .init(lockEditing: false, isReviewMode: true, manualReview: true),
-                       "an author's ⌘⌥⇧R is the render, never the lock")
+        XCTAssertEqual(m(author), .init(lockEditing: false, isReviewMode: false),
+                       "an author writes; her own refusal is per piece (read-through), never the window's")
         XCTAssertEqual(m(reviewer), .init(lockEditing: true, isReviewMode: true),
                        "a reviewer's Mac opens locked, in review mode")
         XCTAssertEqual(m(ownPiece), .init(lockEditing: false, isReviewMode: false),
@@ -456,7 +454,7 @@ final class PostureMembraneTests: XCTestCase {
         let store = try await fixture.openAs(.reviewer)
         let locked = EditorControlMirror.membrane(
             posture: store.posture(forDocId: PostureFixture.docId),
-            manualReview: false, shareIsReadOnly: false)
+            shareIsReadOnly: false)
         let refused = typingReaches(
             lockEditing: locked.lockEditing, isReviewMode: locked.isReviewMode)
         XCTAssertFalse(refused.accepted, "a reviewer's keystroke is refused")
@@ -468,7 +466,7 @@ final class PostureMembraneTests: XCTestCase {
         try await fixture.changeMyPermit(to: .bookAuthor, store: store)
         let open = EditorControlMirror.membrane(
             posture: store.posture(forDocId: PostureFixture.docId),
-            manualReview: false, shareIsReadOnly: false)
+            shareIsReadOnly: false)
         XCTAssertNotEqual(open, locked, "the mirror sees the promotion as a change")
         XCTAssertTrue(typingReaches(
             lockEditing: open.lockEditing, isReviewMode: open.isReviewMode).accepted,

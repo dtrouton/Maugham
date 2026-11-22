@@ -51,7 +51,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         let a2 = CellKey(row: table.rows[1], column: table.columns[0])
         let selection = FigureGridSelection(anchor: a2, focus: a2)
 
-        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.reviewMode), knowsItsPiece: true)
+        let readOnly = FigureTableMenuState.of(table: table, selection: selection, mode: .readOnly(.readThrough), knowsItsPiece: true)
         for command in FigureTableMenu.commands {
             XCTAssertFalse(readOnly.isEnabled(command), "\(command) is enabled on a read-only grid")
         }
@@ -264,8 +264,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
     func test_aReadOnlyGridTakesNoCommand_andNoGridNone() async throws {
         let m = try await mount(rows: 4)
         MaughamEvent.postFigureTableCommand(.insertRowBelow)   // nothing expanded
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        m.coordinator.setReadThrough(true)
         let c = try await expand(m)
         let before = c.host.state.table
         for command: FigureTableCommand in [.insertRowBelow, .deleteRows, .moveRowsDown, .headerRow,
@@ -273,7 +272,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
             await post(c, command)
         }
         XCTAssertEqual(c.host.state.table, before, "a read-only grid wrote nothing")
-        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.reviewMode.sentence,
+        XCTAssertEqual(c.bars.reasonMessage, FigureGridGate.Reason.readThrough.sentence,
                        "the reason line is said")
     }
 
@@ -305,8 +304,9 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertTrue(changed)
         XCTAssertEqual(presence.menu?.canMoveDown, false)
 
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        // A read-only share: the gate turns the open grid read-only in place
+        // (read-through would fold it first).
+        m.coordinator.setShareIsReadOnly(true)
         XCTAssertEqual(presence.menu?.mayEdit, false, "read-only reaches the menu")
 
         m.coordinator.foldFigureGrid(commit: true)
@@ -355,8 +355,7 @@ final class FigureGridMenuTests: FigureGridMountedTestCase {
         XCTAssertTrue((item(.sum)?.target as? FigureTableMenuTarget)?.onCommand != nil,
                       "the items reach the controller")
 
-        m.coordinator.setReviewMode(true)
-        m.coordinator.setManualReviewMode(true)
+        m.coordinator.setShareIsReadOnly(true)
         let readOnly = c.contextMenu(at: b3)
         XCTAssertTrue(readOnly.items.filter { !$0.isSeparatorItem }.allSatisfy { !$0.isEnabled },
                       "a read-only grid's menu enables nothing")

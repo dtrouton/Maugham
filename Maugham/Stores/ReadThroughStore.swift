@@ -38,7 +38,20 @@ final class ReadThroughStore {
 
     /// The pieces whose Start is capturing right now, so a second Start in the
     /// same moment does not take a second checkpoint. Never persisted.
-    @ObservationIgnored private var capturing: Set<String> = []
+    /// Observed, so the line over the text says "no checkpoint was saved" only
+    /// once a capture has ended without one.
+    private var capturing: Set<String> = []
+
+    /// **The pieces in read-through whose checkpoint was not saved** — a
+    /// refused or failed capture, or a ⌘Q before it landed — and none is being
+    /// taken now. The line over the text offers Save one for these.
+    var piecesLackingCheckpoint: Set<String> {
+        Set(pieces.keys.filter { checkpoints[$0] == nil && !capturing.contains($0) })
+    }
+
+    /// Called after each change of the set (`begin`, `end`, `prune`) — the
+    /// session's figure windows ask their gates again.
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
 
     @ObservationIgnored private let projectRoot: URL
     @ObservationIgnored private let device: DeviceSlug
@@ -63,6 +76,7 @@ final class ReadThroughStore {
         guard pieces[pieceId] == nil else { return }
         pieces[pieceId] = at
         persist()
+        onChange?()
     }
 
     /// Takes `pieceId` out of read-through. A piece not in it writes nothing.
@@ -70,6 +84,7 @@ final class ReadThroughStore {
         guard pieces.removeValue(forKey: pieceId) != nil else { return }
         checkpoints.removeValue(forKey: pieceId)
         persist()
+        onChange?()
     }
 
     /// Records the checkpoint `pieceId`'s read-through took. Nothing for a
@@ -100,6 +115,7 @@ final class ReadThroughStore {
             checkpoints.removeValue(forKey: id)
         }
         persist()
+        onChange?()
     }
 
     // MARK: - The file

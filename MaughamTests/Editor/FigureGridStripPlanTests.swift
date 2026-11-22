@@ -101,19 +101,19 @@ final class FigureGridStripPlanTests: XCTestCase {
         XCTAssertEqual(p.reason, FigureGridGate.Reason.notYours.sentence)
     }
 
-    /// **Review mode keeps the answers that move no cell** (fix round ruling
+    /// **The Lock keeps the answers that move no cell** (fix round ruling
     /// I1): Got it and Reject as the posture says; Accept shown disabled,
     /// saying why. A comment alone needs no reason.
-    func test_reviewModeKeepsGotItAndReject_andDisablesAcceptSayingWhy() {
+    func test_theLockKeepsGotItAndReject_andDisablesAcceptSayingWhy() {
         let suggestion = note("s1", .suggestedChange, at: key(0, 0), suggested: number(1))
         let comment = note("c1", .comment, at: key(0, 0))
         let p = plan([suggestion, comment], active: key(0, 0), mayAccept: false, mayReject: true,
-                     readOnly: .reviewMode)
+                     readOnly: .locked)
         XCTAssertEqual(p.entries[0].actions, [.init(verb: .accept, isEnabled: false), .init(verb: .reject, isEnabled: true)])
         XCTAssertEqual(p.entries[1].actions, [.init(verb: .gotIt, isEnabled: true), .init(verb: .reject, isEnabled: true)])
-        XCTAssertEqual(p.reason, FigureGridStrip.Plan.reviewModeAccept)
-        XCTAssertNil(plan([comment], active: key(0, 0), mayAccept: false, mayReject: true, readOnly: .reviewMode).reason)
-        XCTAssertEqual(plan([comment], active: key(0, 0), mayAccept: false, mayReject: false, readOnly: .reviewMode).reason,
+        XCTAssertEqual(p.reason, FigureGridStrip.Plan.lockedAccept)
+        XCTAssertNil(plan([comment], active: key(0, 0), mayAccept: false, mayReject: true, readOnly: .locked).reason)
+        XCTAssertEqual(plan([comment], active: key(0, 0), mayAccept: false, mayReject: false, readOnly: .locked).reason,
                        FigureGridStrip.Plan.notPermitted, "the posture still decides")
     }
 

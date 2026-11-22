@@ -121,7 +121,7 @@ final class PaneKeyspaceTests: XCTestCase {
     func test_reviewModeAndInspectorToggleMovedOffTheirOldKeys() throws {
         let app = try source("Maugham/MaughamApp.swift")
         XCTAssertTrue(app.contains(#"keyboardShortcut("r", modifiers: [.command, .option, .shift])"#),
-                      "Toggle Review Mode should be ⌘⌥⇧R, freeing ⌘⌥R for Research")
+                      "⌘⌥⇧R is the read-through item's (Toggle Review Mode's old key), freeing ⌘⌥R for Research")
         XCTAssertTrue(app.contains(#"keyboardShortcut("0", modifiers: [.command, .option])"#),
                       "Toggle Inspector should be ⌘⌥0, freeing ⌘⌥I for the Inspector pane")
     }

@@ -10,8 +10,8 @@ import SwiftUI
 /// position, unchanged — a read-only share, a narrowed book or a piece owned
 /// by someone else refuses with Lock off, and Lock off never answers for them.
 ///
-/// **It does not lock the manuscript text.** `EditorControl.isManualReviewMode`
-/// (⌘⌥⇧R) is a separate control and Lock does not reach it.
+/// **It does not lock the manuscript text.** A piece's read-through (⌘⌥⇧R)
+/// is a separate control and Lock does not reach it.
 ///
 /// `refusesEdits(isLocked:)` is the ONE answer; every lock site reads it
 /// (`LockTests.test_everyLockSiteAsksTheOneAnswer` names them), so making

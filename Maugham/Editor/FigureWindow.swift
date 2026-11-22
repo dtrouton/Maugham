@@ -52,12 +52,6 @@ final class FigureWindows {
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        /// The opening editor's explicit review mode (⌘⌥⇧R): the window's
-        /// grid is read-only while it is on (final review I2), following
-        /// that editor's toggle (`reviewModeChanged`).
-        var isReviewMode = false
-        /// The editor that handed it over, so its review toggle reaches the window.
-        var from: ObjectIdentifier? = nil
     }
 
     /// **Where a figure's grid is open, seen from another grid's card.**
@@ -360,14 +354,20 @@ final class FigureWindows {
         yieldInPlace(figureId)
     }
 
-    /// **An editor's review toggle flipped**: each window it opened follows
-    /// it — read-only while it is on (final review I2).
-    func reviewModeChanged(_ isReviewMode: Bool, from editor: ObjectIdentifier) {
-        for (figureId, var handoff) in handoffs where handoff.from == editor && handoff.isReviewMode != isReviewMode {
-            handoff.isReviewMode = isReviewMode
-            handoffs[figureId] = handoff
-            for (listener, listening) in listeners where listener.figureId == figureId { listening.access() }
-        }
+    /// **Whether a figure's piece is in read-through** — injected by
+    /// `ProjectSession`, which holds the store and the figures; a figure
+    /// window's gate asks it each time (its frame's `isInReadThrough`). A
+    /// book-wide figure belongs to no piece and is never refused.
+    let isInReadThrough: @MainActor (_ figureId: String) -> Bool
+
+    init(isInReadThrough: @escaping @MainActor (_ figureId: String) -> Bool = { _ in false }) {
+        self.isInReadThrough = isInReadThrough
+    }
+
+    /// **A piece entered or left read-through** (`ReadThroughStore`'s change
+    /// hook): every figure window asks its gate again.
+    func readThroughChanged() {
+        for listening in listeners.values { listening.access() }
     }
 
     /// What the last grid to open `figureId` in a window left, if any (its
@@ -497,9 +497,9 @@ private final class ResumeOnce {
 ///   again (a park); the gate is asked of the window's door (`.editFigure`,
 ///   observed by the controller), the host (parked, closed) and the share
 ///   as the project windows last told it (`FigureWindows.shareIsReadOnly`).
-///   Review mode is the opening editor's (`Handoff.isReviewMode`): ⤢ from a
-///   review-mode grid opens it read-only, and it follows that editor's
-///   toggle (final review I2).
+///   Read-through is the figure's piece's (`FigureWindows.isInReadThrough`):
+///   the grid is read-only while that piece is in read-through, its notes
+///   still answered, and follows each Start and Resume (`readThroughChanged`).
 /// - **Done closes the window**, and ⌘W; Esc with nothing to cancel does
 ///   nothing. Send to Research closes it first (R7d-7).
 /// - **Closing ends the visit** (`finish`, from the window's `willClose`):
@@ -510,19 +510,20 @@ private final class ResumeOnce {
 ///
 /// **One type, two frames** (report plan 8a Task 6): the figure window, and
 /// the centre column (`FigureCentreGrid`), which hands it its own `Frame` —
-/// the line from the window's figure listing, its own review and share
+/// the line from the window's figure listing, its own read-through and share
 /// answers, no Done, and the keys left where they are at mount.
 @MainActor
 final class FigureWindowGrid {
     /// **What the frame the grid mounts in supplies**: the bottom bar's line
     /// at open, the piece Send to Research defaults to, the typography, and
-    /// the review and share answers the gate reads each time it is asked.
+    /// the read-through and share answers the gate reads each time it is asked.
     struct Frame {
         var number: String
         var caption: String
         var piece: String?
         var typography: TypographySettings
-        var isReviewMode: @MainActor () -> Bool
+        /// Whether the figure's piece is in read-through.
+        var isInReadThrough: @MainActor () -> Bool
         var shareIsReadOnly: @MainActor () -> Bool
         /// The window's Lock (`WindowLock`): the centre's grid asks its
         /// window's; a figure window has none.
@@ -541,13 +542,13 @@ final class FigureWindowGrid {
         var armsTheMenuOnlyWithTheKeys = false
 
         /// A figure window's: what the opening grid handed over, the share
-        /// as the project windows last told it, review mode the opening editor's.
+        /// as the project windows last told it, read-through the figure's piece's.
         @MainActor static func window(_ figureId: String, windows: FigureWindows) -> Frame {
             let handoff = windows.handoff(for: figureId)
             return Frame(
                 number: handoff?.number ?? ElementWords.english.table, caption: handoff?.caption ?? "",
                 piece: handoff?.piece, typography: handoff?.typography ?? .defaults,
-                isReviewMode: { [weak windows] in windows?.handoff(for: figureId)?.isReviewMode ?? false },
+                isInReadThrough: { [weak windows] in windows?.isInReadThrough(figureId) ?? false },
                 shareIsReadOnly: { [weak windows] in windows?.shareIsReadOnly ?? false })
         }
     }
@@ -774,18 +775,17 @@ final class FigureWindowGrid {
     }
 
     /// **The gate, asked again** over the window's door, the host, and the
-    /// frame's share and review answers (a window's: the share as the project
-    /// windows last told it, the opening editor's review mode). The caption
-    /// stays locked (R7d-6).
+    /// frame's share and read-through answers (a window's: the share as the
+    /// project windows last told it, the figure's piece's read-through). The
+    /// caption stays locked (R7d-6).
     func refreshAccess() {
         guard let controller, !isFinished else { return }
         let mode = FigureGridGate.mode(
             figureMayEdit: store?.posture(forDocId: controller.figureId).allows(.editFigure) ?? false,
             parked: controller.host.state.parked != nil, hostClosed: controller.host.isClosed,
             shareIsReadOnly: frame?.shareIsReadOnly() ?? false,
-            isReviewMode: frame?.isReviewMode() ?? false,
             isLocked: frame?.isLocked() ?? false,
-            isInReadThrough: false,   // Task 4 passes the real value
+            isInReadThrough: frame?.isInReadThrough() ?? false,
             isReadingTranslation: false)
         // `.noExpand` is a translation's alone, which no frame here is.
         guard mode != .noExpand, mode != controller.mode || controller.captionMayEdit else { return }

@@ -254,7 +254,7 @@ struct CentreColumn: View {
                     store.resolveDocumentId(forTitle: title)
                 },
                 // Posture flows entirely through the EditorControl model (ADR
-                // 0017): an author's manual ⌘⌥⇧R drives the render; a document
+                // 0017): a piece in read-through drives the render; a document
                 // whose posture refuses the text is FORCED into review render AND
                 // hard-locked (lockEditing) via `ProjectWindow.editorMembrane`
                 // mirrored into the control.

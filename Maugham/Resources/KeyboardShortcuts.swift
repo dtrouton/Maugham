@@ -8,7 +8,7 @@ import Foundation
 /// declares — but the ⌘⌥ family is no longer left to a manual smoke:
 /// `DocSyncTests.test_paneShortcutsDocumentedInTheInAppCheatsheet` requires
 /// every ⌘⌥ shortcut in `MaughamApp.swift` to appear here, `.shift`-carrying
-/// ones included. That guard exists because Toggle Review Mode moved to ⌘⌥⇧R
+/// ones included. That guard exists because Toggle Review Mode (now read-through) moved to ⌘⌥⇧R
 /// in the shell slice of 2026-08-03 and vanished from this list and from `docs/guide/`
 /// together, with the older, narrower guard unable to see it.
 /// Everything outside that family is still hand-maintained.
@@ -77,11 +77,10 @@ public enum KeyboardShortcuts {
             Entry(label: "Toggle Focus Mode",       shortcut: "⌘\\"),
             Entry(label: "Toggle Full-Screen Focus", shortcut: "⌘⇧F"),
             Entry(label: "Toggle Research Preview", shortcut: "⌘⇧P"),
-            // The editor posture. `DocSyncTests
-            // .test_paneShortcutsDocumentedInTheInAppCheatsheet` is why this
-            // row cannot go missing again; it shipped absent from here AND from
-            // docs/guide/ when the shell slice of 2026-08-03 moved it off ⌘⌥R.
-            Entry(label: "Toggle Review Mode (annotate-only)", shortcut: "⌘⌥⇧R"),
+            // The open piece's read-through (Manual Review Mode's old key).
+            // `DocSyncTests.test_paneShortcutsDocumentedInTheInAppCheatsheet`
+            // keeps the row; plan 5 rewrites the wording.
+            Entry(label: "Start or resume a read-through", shortcut: "⌘⌥⇧R"),
             // A piece read in a language (shell p4 Task 8): Source, then each
             // translation, then Source again.
             Entry(label: "Read In Next Language", shortcut: "⌘⌃L"),
