@@ -106,9 +106,12 @@ struct MarginMarks: Equatable {
         notes.filter { owner($0).isAPersons }
     }
 
-    /// What VoiceOver hears for a dot and for a tick.
-    static func accessibilityLabel(ofDot name: String) -> String {
-        name.isEmpty ? "Note" : "Note by \(name)"
+    /// What VoiceOver hears for the dots beside one line, and for a tick:
+    /// fixed words and, for a single note, its writer's own name — nothing a
+    /// note says, and no count.
+    static func accessibilityLabel(ofDots names: [String]) -> String {
+        guard names.count == 1, let name = names.first else { return "Notes" }
+        return name.isEmpty ? "Note" : "Note by \(name)"
     }
     static let tickAccessibilityLabel = "Flagged paragraph"
 

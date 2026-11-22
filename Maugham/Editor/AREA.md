@@ -75,7 +75,7 @@ Every source file in `Maugham/Editor/` appears once.
 - `ReviewSpanCapture.swift` — turns a selection into a paragraph-relative span and back.
 - `ReviewCardActions.swift` — which actions a margin card offers per kind and posture.
 - `MarginMarks.swift` — View ▸ Margin's marks, pure: a person's note (`NoteOwner.isAPersons`) a dot, a check's or round's paragraph a tick.
-- `MarginOverlayView.swift` — their overlay in the trailing inset: places shifted per edit, visible range only, no text drawn; a click shows To resolve.
+- `MarginOverlayView.swift` — the trailing-inset overlay: placed in one ranges pass, shifted per edit; hit tests read the last draw; no words.
 - `ReviewAnnotationComposerView.swift` — the inline annotation composer, a plain `NSView`. Tripwire 5.
 - `SelectionToolbarView.swift` — the floating selection toolbar (Comment, Suggest, Query, Translator's note), a plain `NSView`. Tripwire 5.
 - `SuggestedEditDiff.swift` — a reviewer's replacement → the `(body, suggestedText)` pair.

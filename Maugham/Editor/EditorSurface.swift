@@ -176,6 +176,9 @@ struct EditorSurfaceConfiguration {
         var reviewParagraphTextProvider: ((String) -> String?)? = nil
         /// Resolves a paragraphId → its UTF-16 NSRange in the full display string.
         var reviewParagraphRangeProvider: ((String) -> NSRange?)? = nil
+        /// Every paragraph's display range in one pass — View ▸ Margin's
+        /// places (`Document.displayRanges`).
+        var marginParagraphRangesProvider: (() -> [String: NSRange])? = nil
         /// Pulls the CURRENT open-annotation set on demand — used by the coordinator
         /// to resolve marks synchronously on review entry (first-toggle marks fix).
         var reviewAnnotationsProvider: (() -> [Annotation])? = nil
@@ -311,6 +314,7 @@ struct EditorSurface: NSViewRepresentable {
         coordinator.createAnnotationHandler = rp.createAnnotationHandler
         coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
+        coordinator.marginParagraphRangesProvider = rp.marginParagraphRangesProvider
         coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider
         coordinator.scriptOriginProjectId = pp.scriptOriginProjectId
         coordinator.documentId = pp.documentId
@@ -658,6 +662,7 @@ struct EditorSurface: NSViewRepresentable {
         // pushes from here; it flows through the control model (ADR 0017).
         context.coordinator.reviewParagraphTextProvider = rp.reviewParagraphTextProvider
         context.coordinator.reviewParagraphRangeProvider = rp.reviewParagraphRangeProvider
+        context.coordinator.marginParagraphRangesProvider = rp.marginParagraphRangesProvider
         // Pull-on-entry provider: the coordinator invokes it on review entry to
         // resolve the real annotation set synchronously (first-toggle marks fix).
         context.coordinator.reviewAnnotationsProvider = rp.reviewAnnotationsProvider

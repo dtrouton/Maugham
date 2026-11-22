@@ -1045,6 +1045,7 @@ struct EditorHost: View {
                 reviewParagraphRangeProvider: { pid in
                     doc.displayRange(forParagraphId: pid)
                 },
+                marginParagraphRangesProvider: { doc.displayRanges() },
                 // Pull-on-entry: the coordinator invokes this ONLY when
                 // entering review (membrane toggle OR fresh launch), so it
                 // derives the current open annotations on demand without the

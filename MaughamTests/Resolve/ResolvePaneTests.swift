@@ -552,6 +552,42 @@ final class ResolvePaneTests: XCTestCase {
         XCTAssertEqual(nothing.selection, [.checks])
     }
 
+    /// **I2** — a click's group holds as the caret group while the caret
+    /// stays in its paragraph (the groups arriving after the read are not a
+    /// caret move); the caret moving lets its own group back.
+    func test_aClicksGroupHoldsUntilTheCaretMoves() {
+        let clicked = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "bb22")
+        let caret = ResolveGroup.Key.paragraph(docId: "doc-a", paragraphId: "aa11")
+        let pin = ResolveCaretPin(key: clicked, caretParagraph: "aa11")
+        let held = ResolveCaretPin.decide(caretParagraph: "aa11", caretKey: caret, pin: pin)
+        XCTAssertEqual(held.group, clicked)
+        XCTAssertEqual(held.pin, pin)
+        let moved = ResolveCaretPin.decide(caretParagraph: "cc33", caretKey: nil, pin: pin)
+        XCTAssertNil(moved.group)
+        XCTAssertNil(moved.pin, "the caret moved: the pin is gone")
+        XCTAssertEqual(ResolveCaretPin.decide(caretParagraph: "aa11", caretKey: caret, pin: nil).group, caret)
+    }
+
+    /// **M7** — in a screenplay the clicked paragraph's group is its
+    /// scene's, by the caret's own rule (production always passes the pane's
+    /// `sceneIndex`).
+    func test_aMarginClickInAScreenplayOpensItsScene() throws {
+        let piece = ResolveScope.piece(docId: "doc-a", includesBookLevel: false)
+        let sceneIndex = ["aa11": 0, "bb22": 0]
+        let built = ResolveGrouping.groups(
+            ResolveSnapshot(items: [note("n1", pid: "bb22")], sequences: ["doc-a": ["aa11", "bb22"]],
+                            paragraphText: [:], unreadableDocIds: []),
+            scope: piece, structure: structure, sceneIndex: sceneIndex, sceneTitles: ["INT. KITCHEN"],
+            figureNames: [:], projectType: .screenplay)
+        let scene = try XCTUnwrap(built.first { if case .scene = $0.key { return true } else { return false } })
+        let outcome = ResolvePane.apply(
+            .showParagraph(docId: "doc-a", paragraphId: "bb22"), groups: built,
+            sceneIndex: sceneIndex, chips: [.others], activePassId: nil, dense: false,
+            selection: [], choices: [:])
+        XCTAssertEqual(outcome.caret, scene.key, "the scene's group is the caret group")
+        XCTAssertEqual(outcome.scrollTo, scene.key)
+    }
+
     /// The click reveals the column on To resolve holding the request — the
     /// strain jump's one mechanism.
     func test_aMarginClickRevealsToResolve() {

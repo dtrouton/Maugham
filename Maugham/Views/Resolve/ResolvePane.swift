@@ -94,6 +94,14 @@ enum ResolveStetHold {
     }
 }
 
+/// **What To resolve's list shows, and over what** (shell p5 Task 2, fix
+/// round 1, M6): the window keeps a piece's own list's selection for the
+/// margin's ticks, and nothing a Book's, a Part's or an edition's list chose.
+struct ResolveShownSelection: Equatable {
+    let scope: ResolveScope
+    let selection: Set<ResolveSource>
+}
+
 /// What applying a request leaves (`ResolvePane.apply`).
 struct ResolveRequestOutcome: Equatable {
     let selection: Set<ResolveSource>
@@ -149,10 +157,11 @@ struct ResolvePane: View {
     /// `(piece, passId)` — `ProjectWindow.recordActivePass`.
     let onSetActivePass: (String, String) -> Void
     @Binding var request: ResolveRequest?
-    /// **The selection the list shows, published to the window** (shell p5
-    /// Task 2): its one writer, on every change. View ▸ Margin's ticks follow
-    /// it, and keep the last value while the column is hidden.
-    let onSelectionShown: (Set<ResolveSource>) -> Void
+    /// **The selection the list shows, published to the window with its
+    /// scope** (shell p5 Task 2): its one writer, on every change. View ▸
+    /// Margin's ticks follow a piece's own list's, and keep the last value
+    /// while the column is hidden.
+    let onSelectionShown: (ResolveShownSelection) -> Void
     /// The check header's "Define a first reader…" (the window's sheet).
     var onOpenProjectSettings: () -> Void = {}
     /// A figure note's click travels to its figure (the window's subject).
@@ -237,6 +246,9 @@ struct ResolvePane: View {
     @State private var selection: Set<ResolveSource> = []
     @State private var choices: [ResolveGroup.Key: Bool] = [:]
     @State private var caretGroup: ResolveGroup.Key?
+    /// A margin click's group, held as the caret group until the caret
+    /// itself moves (shell p5 Task 2, fix round 1, I2).
+    @State private var caretPin: ResolveCaretPin?
     @State private var pendingRequest: ResolveRequest?
     @State private var scrollRequest: ResolveGroup.Key?
     @State private var settledExpanded = false
@@ -430,6 +442,14 @@ struct ResolvePane: View {
     /// **The piece whose caret the list follows**: the open piece, wherever
     /// the faces' scope holds it — the piece's own list, or the Book or Part
     /// list it was opened inside (review I1). Nil off the open piece.
+    /// The caret's paragraph as `ResolveCaretReader` reads it, now.
+    private var caretParagraphNow: String? {
+        guard let caret = caretDocument else { return nil }
+        return Self.caretParagraph(scope: scope, openDocId: caret.docId, mayAct: true) {
+            caret.paragraphId(at: caret.cursorLocation)
+        }
+    }
+
     private var caretDocument: Document? {
         guard let openDocId, scope.docIds.contains(openDocId), mayAct(on: openDocId) else { return nil }
         return documentStore.document(forDocId: openDocId)
@@ -572,6 +592,7 @@ struct ResolvePane: View {
             selection = []
             choices = [:]
             caretGroup = nil
+            caretPin = nil
             selectionModeOn = false
             selectedIds = []
             settledExpanded = false
@@ -597,7 +618,9 @@ struct ResolvePane: View {
             refilter()
             markChecksRead()
         }
-        .onChange(of: shownSelection, initial: true) { _, shown in onSelectionShown(shown) }
+        .onChange(of: ResolveShownSelection(scope: scope, selection: shownSelection), initial: true) { _, shown in
+            onSelectionShown(shown)
+        }
         .onChange(of: stetFlourishIds) { old, new in stetMarksChanged(from: old, to: new) }
         .onChange(of: letterLedgerRevision) { _, _ in
             ledgerText = LessonLedgerVerbs.ledgerText(store: store)
@@ -746,19 +769,26 @@ struct ResolvePane: View {
                     }
                 }
                 .onChange(of: caretGroup) { old, new in
-                    guard let target = Self.scrollTarget(from: old, to: new) else { return }
+                    // A pinned group's scroll is its request's (one writer).
+                    guard caretPin?.key != new,
+                          let target = Self.scrollTarget(from: old, to: new) else { return }
                     withAnimation { proxy.scrollTo(target, anchor: .top) }
                 }
                 .onChange(of: scrollRequest) { _, key in
                     guard let key else { return }
-                    withAnimation { proxy.scrollTo(key, anchor: .top) }
                     scrollRequest = nil
+                    // The next turn, and not animated: a request is applied
+                    // with the read that built its group, before the lazy
+                    // list has laid it out, and an animated scroll to it
+                    // went nowhere (fix round 1, I2, pinned by
+                    // `MarginClickResolveTests`). A request is a jump.
+                    DispatchQueue.main.async { proxy.scrollTo(key, anchor: .top) }
                 }
             }
             .background {
                 if let caret = caretDocument {
                     ResolveCaretReader(document: caret, scope: scope, sceneIndex: sceneIndex,
-                                       groups: shown, caretGroup: $caretGroup)
+                                       groups: shown, caretGroup: $caretGroup, pin: $caretPin)
                 }
             }
             // Over the open piece's notes only: `acting` is the open piece's
@@ -1155,7 +1185,10 @@ struct ResolvePane: View {
         choices = outcome.choices
         scrollRequest = outcome.scrollTo
         markedItemId = outcome.marked
-        if let caret = outcome.caret { caretGroup = caret }
+        if let caret = outcome.caret {
+            caretPin = ResolveCaretPin(key: caret, caretParagraph: caretParagraphNow)
+            caretGroup = caret
+        }
         if let line = outcome.line {
             filedNotice = FiledNotice.after(
                 .filed(FiledNotice.Filing(sentence: line, brief: nil)), current: filedNotice)

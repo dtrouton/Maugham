@@ -20,6 +20,15 @@ struct ResolveCaretReader: View {
     let sceneIndex: [String: Int]?
     let groups: [ResolveGroup]
     @Binding var caretGroup: ResolveGroup.Key?
+    /// A margin click's group, which holds until the caret's paragraph
+    /// moves (fix round 1, I2): the groups arriving after the click's read
+    /// are not a caret move.
+    @Binding var pin: ResolveCaretPin?
+
+    private struct Reading: Equatable {
+        let paragraph: String?
+        let key: ResolveGroup.Key?
+    }
 
     var body: some View {
         let paragraph = ResolvePane.caretParagraph(scope: scope, openDocId: document.docId,
@@ -30,7 +39,27 @@ struct ResolveCaretReader: View {
                                             sceneIndex: sceneIndex, groups: groups)
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: key, initial: true) { _, new in caretGroup = new }
+            .onChange(of: Reading(paragraph: paragraph, key: key), initial: true) { _, new in
+                let decided = ResolveCaretPin.decide(caretParagraph: new.paragraph, caretKey: new.key, pin: pin)
+                if pin != decided.pin { pin = decided.pin }
+                caretGroup = decided.group
+            }
+    }
+}
+
+/// **A margin click's group, held as the caret group** (shell p5 Task 2,
+/// fix round 1, I2): the click lands with the caret where it was, so the
+/// pin remembers that paragraph, and only the caret leaving it lets the
+/// caret's own group back.
+struct ResolveCaretPin: Equatable {
+    let key: ResolveGroup.Key
+    let caretParagraph: String?
+
+    /// What the caret group is, given the caret's paragraph and its group.
+    static func decide(caretParagraph: String?, caretKey: ResolveGroup.Key?,
+                       pin: ResolveCaretPin?) -> (group: ResolveGroup.Key?, pin: ResolveCaretPin?) {
+        if let pin, pin.caretParagraph == caretParagraph { return (pin.key, pin) }
+        return (caretKey, nil)
     }
 }
 

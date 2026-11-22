@@ -47,7 +47,9 @@ final class MarginMountedTests: XCTestCase {
         tv.coordinator = harness.coordinator
         let c = harness.coordinator
         c.documentId = "doc-a"
-        c.reviewParagraphRangeProvider = { pid in Self.range(of: pid) }
+        c.marginParagraphRangesProvider = {
+            Dictionary(uniqueKeysWithValues: Self.ids.compactMap { id in Self.range(of: id).map { (id, $0) } })
+        }
         c.reviewParagraphTextProvider = { pid in Self.ids.firstIndex(of: pid).map { Self.paragraphs[$0] } }
         c.attach(to: tv)
         tv.columnWidth = column
@@ -106,8 +108,8 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertTrue(overlay.superview === s.textView)
         XCTAssertFalse(overlay.isHidden)
         let marks = overlay.visibleMarks()
-        XCTAssertEqual(marks.map(\.place.mark), [.tick], "one tick")
-        XCTAssertEqual(marks.first?.place.paragraphId, "bb22")
+        XCTAssertEqual(marks.map(\.isTick), [true], "one tick")
+        XCTAssertEqual(marks.first?.paragraphId, "bb22")
         let line = try firstLineRect(of: "bb22", in: s.textView)
         let tick = try XCTUnwrap(marks.first?.rect)
         XCTAssertTrue(tick.minY >= line.minY && tick.maxY <= line.maxY, "on paragraph 2's first line: \(tick) in \(line)")
@@ -130,9 +132,10 @@ final class MarginMountedTests: XCTestCase {
         apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: 4..<9, annotationId: "n1", name: "Denver")],
                           ticks: ["cc33"]), to: s)
         let marks = try XCTUnwrap(s.coordinator.marginOverlay).visibleMarks()
-        XCTAssertEqual(marks.map(\.place.mark), [.tick, .dot(annotationId: "n1", name: "Denver")])
+        XCTAssertEqual(marks.map(\.places).map { $0.map(\.mark) },
+                       [[.tick], [.dot(annotationId: "n1", name: "Denver")]])
         let dot = try XCTUnwrap(marks.last)
-        XCTAssertEqual(dot.place.tint, NSRange(location: try XCTUnwrap(Self.range(of: "cc33")).location + 4, length: 5))
+        XCTAssertEqual(dot.places.first?.tint, NSRange(location: try XCTUnwrap(Self.range(of: "cc33")).location + 4, length: 5))
         XCTAssertFalse(dot.tintRects.isEmpty, "the words are tinted")
         XCTAssertGreaterThan(dot.rect.minX, marks[0].rect.maxX, "the dot clears the tick")
         XCTAssertEqual(layout(s.textView), before)
@@ -147,8 +150,9 @@ final class MarginMountedTests: XCTestCase {
                           ticks: ["bb22"]), to: s)
         let columnEdge = s.textView.textContainerOrigin.x + s.textView.textContainer!.size.width
         for mark in try XCTUnwrap(s.coordinator.marginOverlay).visibleMarks() {
-            XCTAssertGreaterThanOrEqual(mark.rect.minX, columnEdge, "\(mark.place.mark)")
-            XCTAssertLessThanOrEqual(mark.rect.maxX, s.textView.bounds.width, "\(mark.place.mark)")
+            XCTAssertGreaterThanOrEqual(mark.rect.minX, columnEdge, "\(mark.id)")
+            XCTAssertLessThanOrEqual(mark.rect.maxX, s.textView.bounds.width, "\(mark.id)")
+            XCTAssertGreaterThanOrEqual(mark.hitRect.minX, columnEdge, "\(mark.id): the click area too")
         }
     }
 
@@ -177,9 +181,10 @@ final class MarginMountedTests: XCTestCase {
         s.textView.setSelectedRange(NSRange(location: 3, length: 0))
         let origin = s.textView.enclosingScrollView?.contentView.bounds.origin
         let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
-        let marks = overlay.visibleMarks()
+        overlay.display()
+        let marks = overlay.lastDrawn
 
-        let tick = try XCTUnwrap(marks.first { $0.place.mark == .tick })
+        let tick = try XCTUnwrap(marks.first { $0.isTick })
         let atTick = overlay.convert(NSPoint(x: tick.rect.midX, y: tick.rect.midY), to: s.textView)
         XCTAssertTrue(overlay.hitTest(atTick) === overlay, "the overlay takes a click on a mark")
         let line = try firstLineRect(of: "bb22", in: s.textView)
@@ -203,6 +208,155 @@ final class MarginMountedTests: XCTestCase {
         XCTAssertEqual(heard.map(\.1), ["bb22"])
         XCTAssertEqual(s.textView.selectedRange(), NSRange(location: 3, length: 0), "the caret did not move")
         XCTAssertEqual(s.textView.enclosingScrollView?.contentView.bounds.origin, origin, "nor the scroll")
+    }
+
+    // MARK: - Fix round 1: the click's reach, the tint's end, VoiceOver's elements
+
+    /// **M2** — a click at the very end of a flagged paragraph's first line,
+    /// just inside the column, is the text's: the tick's hit area stops at
+    /// the column's edge.
+    func test_aClickAtTheEndOfAFlaggedLineIsTheTexts() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [], ticks: ["bb22"]), to: s)
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        overlay.display()
+        let y = try XCTUnwrap(overlay.lastDrawn.first).rect.midY
+        let columnEdge = s.textView.textContainerOrigin.x + s.textView.textContainer!.size.width
+        XCTAssertNil(overlay.hitTest(NSPoint(x: columnEdge - 1, y: y)),
+                     "a click inside the column goes to the text")
+        XCTAssertTrue(overlay.hitTest(NSPoint(x: columnEdge + 3, y: y)) === overlay,
+                      "the control: the tick itself still takes its click")
+    }
+
+    /// **M10** — a hit test (every mouse move's cursor update) reads the
+    /// rects the last draw cached: no layout query.
+    func test_aHitTestReadsNoLayout() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [], ticks: ["bb22", "cc33"]), to: s)
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        overlay.display()
+        let reads = overlay.layoutReadCount
+        XCTAssertGreaterThan(reads, 0, "premise: the draw read the layout")
+        let tick = try XCTUnwrap(overlay.lastDrawn.first)
+        for dy in stride(from: -20.0, through: 20.0, by: 2.0) {
+            _ = overlay.hitTest(NSPoint(x: tick.rect.midX, y: tick.rect.midY + dy))
+            _ = overlay.hitTest(NSPoint(x: 40, y: tick.rect.midY + dy))
+        }
+        XCTAssertEqual(overlay.layoutReadCount, reads, "forty-two hit tests, no layout read")
+    }
+
+    /// **M3** — typing at the end of a noted span does not grow its tint:
+    /// the tint is the note's words, not what follows them.
+    func test_typingAtTheEndOfANotedSpanDoesNotGrowItsTint() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: 4..<9, annotationId: "n1", name: "Denver")],
+                          ticks: []), to: s)
+        let tint = try XCTUnwrap(s.coordinator.marginPlaces.first?.tint)
+        s.textView.textStorage?.replaceCharacters(in: NSRange(location: NSMaxRange(tint), length: 0), with: "ly")
+        XCTAssertEqual(s.coordinator.marginPlaces.first?.tint, tint, "the words typed after it are not the note's")
+        s.textView.textStorage?.replaceCharacters(in: NSRange(location: tint.location + 2, length: 0), with: "x")
+        XCTAssertEqual(s.coordinator.marginPlaces.first?.tint,
+                       NSRange(location: tint.location, length: tint.length + 1), "typing inside it is")
+    }
+
+    /// **M4** — VoiceOver's elements are the same objects across queries,
+    /// so its focus survives a redraw.
+    func test_theMarksElementsAreStableAcrossQueries() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [], ticks: ["bb22", "cc33"]), to: s)
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        overlay.display()
+        let first = try XCTUnwrap(overlay.accessibilityChildren() as? [NSObject])
+        overlay.display()
+        let second = try XCTUnwrap(overlay.accessibilityChildren() as? [NSObject])
+        XCTAssertEqual(first.count, 2)
+        XCTAssertTrue(zip(first, second).allSatisfy { $0 === $1 }, "the same elements, not new ones")
+    }
+
+    /// **M8** — two notes beside one line are one mark, one element, one
+    /// rect: "Notes", which says nothing of what they say.
+    func test_twoNotesOnOneLineAreOneMark() throws {
+        let s = surface()
+        apply(MarginMarks(dots: [.init(paragraphId: "cc33", span: nil, annotationId: "n1", name: "Denver"),
+                                 .init(paragraphId: "cc33", span: nil, annotationId: "n2", name: "Ada")],
+                          ticks: []), to: s)
+        let overlay = try XCTUnwrap(s.coordinator.marginOverlay)
+        overlay.display()
+        let elements = try XCTUnwrap(overlay.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["Notes"])
+    }
+
+    // MARK: - Fix round 1, I3: one walk per placing, none for an unchanged rebuild
+
+    /// Placing any number of marks reads the document's paragraph ranges in
+    /// ONE pass, and never per mark; an equal rebuild places nothing.
+    func test_placingTheMarksWalksTheDocumentOnce() throws {
+        let s = surface()
+        var walks = 0, perMark = 0
+        let ranges = Dictionary(uniqueKeysWithValues: Self.ids.compactMap { id in Self.range(of: id).map { (id, $0) } })
+        s.coordinator.marginParagraphRangesProvider = { walks += 1; return ranges }
+        s.coordinator.reviewParagraphRangeProvider = { _ in perMark += 1; return nil }
+        let marks = MarginMarks(dots: [.init(paragraphId: "aa11", span: nil, annotationId: "n1", name: "A"),
+                                       .init(paragraphId: "cc33", span: nil, annotationId: "n2", name: "B")],
+                                ticks: ["aa11", "bb22", "cc33"])
+        apply(marks, to: s)
+        XCTAssertEqual(walks, 1, "five marks, one pass")
+        XCTAssertEqual(perMark, 0, "no walk per mark")
+        XCTAssertEqual(s.coordinator.marginPlaces.count, 5)
+        let placed = s.coordinator.marginPlacesRecomputeCount
+        apply(MarginMarks(dots: marks.dots, ticks: marks.ticks), to: s)
+        XCTAssertEqual(s.coordinator.marginPlacesRecomputeCount, placed, "an equal rebuild places nothing")
+        XCTAssertEqual(walks, 1)
+    }
+
+    /// `Document.displayRanges` is `displayRange(forParagraphId:)` for every
+    /// paragraph at once.
+    func test_theOnePassRangesAreTheDocumentsOwn() async throws {
+        useIdentities()
+        try makeBook()
+        let doc = try await load()
+        let ranges = doc.displayRanges()
+        XCTAssertEqual(ranges.count, doc.sequence.count)
+        for pid in doc.sequence { XCTAssertEqual(ranges[pid], doc.displayRange(forParagraphId: pid)) }
+        await doc.close()
+    }
+
+    /// **A burst that changes nothing the marks depend on rebuilds an equal
+    /// value**: the window's build after typing in an un-noted paragraph is
+    /// the same marks, so the coordinator places nothing.
+    func test_aBurstElsewhereRebuildsTheSameMarks() async throws {
+        useIdentities()
+        try makeBook()
+        let doc = try await load()
+        let first = try XCTUnwrap(doc.sequence.first)
+        _ = try await doc.addReviewerAnnotation(kind: .comment, paragraphId: first, span: nil,
+                                                body: "tighten", authorName: "Denver")
+        let before = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        XCTAssertEqual(before.dots.count, 1, "premise")
+        doc.setFullText(doc.displayText.replacingOccurrences(of: "Second paragraph.", with: "Second paragraph, typed on."))
+        let after = MarginMirrorModifier.marks(key: key(doc, .myNotes), document: doc, diagnostics: nil)
+        XCTAssertEqual(after, before, "nothing the marks depend on moved")
+        await doc.close()
+    }
+
+    // MARK: - Fix round 1, I1: the menu's choice reaches UIState and the check marks
+
+    func test_theMenusChoiceIsWrittenAndItsCheckFollows() async throws {
+        useIdentities()
+        try makeBook()
+        let store = try await DocumentStore.open(url: projectURL)
+        func checked() -> [MarginSetting] {
+            MarginSetting.allCases.filter {
+                MarginMarks.isChecked($0, current: MarginMirrorModifier.publishedSetting(store))
+            }
+        }
+        XCTAssertEqual(checked(), [.off], "Off by default")
+        MarginMirrorModifier.receiveSetting([MaughamEvent.marginSettingKey: MarginSetting.everythingFlagged.rawValue],
+                                            documentStore: store)
+        XCTAssertEqual(store.uiState.marginSetting, .everythingFlagged, "remembered in the project's UIState")
+        XCTAssertEqual(checked(), [.everythingFlagged], "the menu's check follows")
+        MarginMirrorModifier.receiveSetting([MaughamEvent.marginSettingKey: "loud"], documentStore: store)
+        XCTAssertEqual(store.uiState.marginSetting, .everythingFlagged, "an unknown value changes nothing")
     }
 
     // MARK: - Over a real Document

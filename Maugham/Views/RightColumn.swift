@@ -75,7 +75,7 @@ struct RightColumn: View {
     @Binding var resolveRequest: ResolveRequest?
     /// To resolve's shown selection, published to the window for View ▸
     /// Margin's ticks (`ResolvePane.onSelectionShown`).
-    let onResolveSelectionShown: (Set<ResolveSource>) -> Void
+    let onResolveSelectionShown: (ResolveShownSelection) -> Void
     /// The window's parsed screenplay, for To resolve's scene grouping.
     let lastParsedScript: FountainScript?
     @Binding var compilerModel: CompilerModelChoice

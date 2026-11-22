@@ -33,7 +33,11 @@ struct MarginPlace: Equatable {
         next.anchor = Self.shifted(anchor, editedRange: editedRange, delta: delta)
         if let tint {
             let start = Self.shifted(tint.location, editedRange: editedRange, delta: delta)
-            let end = Self.shifted(NSMaxRange(tint), editedRange: editedRange, delta: delta)
+            // Text typed exactly at the end is after the note's words, not in
+            // them (fix round 1, M3): the end moves only for an edit before it.
+            let end = NSMaxRange(tint) <= editedRange.location
+                ? NSMaxRange(tint)
+                : Self.shifted(NSMaxRange(tint), editedRange: editedRange, delta: delta)
             next.tint = end > start ? NSRange(location: start, length: end - start) : nil
         }
         return next
@@ -67,8 +71,16 @@ enum MarginGeometry {
         return NSRect(x: x + tickOffset, y: line.minY + 2, width: tickWidth, height: height)
     }
 
-    static func hitRect(_ mark: NSRect) -> NSRect {
-        mark.insetBy(dx: -hitSlop, dy: -hitSlop)
+    /// A mark's click area: its rect with a little slop, never reaching
+    /// into the text column (fix round 1, M2) — a click at a line's end is
+    /// the text's.
+    static func hitRect(_ mark: NSRect, columnTrailingX x: CGFloat) -> NSRect {
+        var hit = mark.insetBy(dx: -hitSlop, dy: -hitSlop)
+        if hit.minX < x {
+            hit.size.width -= x - hit.minX
+            hit.origin.x = x
+        }
+        return hit
     }
 }
 
@@ -78,11 +90,13 @@ enum MarginGeometry {
 /// badges and the review rail are (`syncMarginOverlay`), covering it,
 /// drawing the visible range only from the coordinator's `marginPlaces`.
 ///
-/// **It draws no words** (ADR 0027 §1 as amended): no text-drawing call in
-/// this file (`MarginOverlayCensusTests`). **A click on a mark moves
-/// nothing in the editor**: the overlay takes it, so the text view never
-/// sees it, and it posts the one window event that shows the paragraph in
-/// To resolve. Everywhere else the overlay lets clicks through.
+/// **It draws no words** (ADR 0027 §1 as amended): no text-drawing call, no
+/// tooltip, no accessibility value or help, and only the two fixed labels
+/// (`MarginOverlayCensusTests`). **A click on a mark moves nothing in the
+/// editor**: the overlay takes it, so the text view never sees it, and it
+/// posts the one window event that shows the paragraph in To resolve.
+/// Everywhere else the overlay lets clicks through. Hit testing reads the
+/// rects the last draw cached — no layout query on a mouse move (M10).
 final class MarginOverlayView: NSView {
 
     weak var coordinator: EditorCoordinator?
@@ -115,18 +129,49 @@ final class MarginOverlayView: NSView {
 
     // MARK: - What is where (visible range only)
 
+    /// One mark as drawn: a tick, or every dot beside one line (M8).
     struct Drawn: Equatable {
-        let place: MarginPlace
+        let places: [MarginPlace]
         /// The mark's rect, in this view's (the text view's) coordinates.
         let rect: NSRect
-        /// The tint's rects, a dot's only.
+        /// Where a click takes it: never inside the text column (M2).
+        let hitRect: NSRect
+        /// The tints' rects, the dots' only.
         let tintRects: [NSRect]
+
+        var paragraphId: String { places[0].paragraphId }
+        var isTick: Bool { places[0].mark == .tick }
+        /// Stable across draws while the marks stand: VoiceOver's element key.
+        var id: String {
+            isTick ? "tick:\(paragraphId)"
+                : "dots:" + places.map { place -> String in
+                    if case .dot(let id, _) = place.mark { return id }
+                    return ""
+                }.joined(separator: ",")
+        }
+        /// The dots' writers, for their one fixed label.
+        var names: [String] {
+            places.compactMap { place in
+                if case .dot(_, let name) = place.mark { return name }
+                return nil
+            }
+        }
     }
+
+    /// What the last draw (or the first accessibility query) found, and the
+    /// coordinator's `marginGeneration` it was found for.
+    private(set) var lastDrawn: [Drawn] = []
+    private var drawnGeneration: Int?
+    /// How often the layout was read — a hit test never reads it (M10).
+    private(set) var layoutReadCount = 0
+    /// VoiceOver's elements, kept per mark while the mark stands (M4).
+    private var elements: [String: MarginMarkElement] = [:]
 
     /// The marks on screen and their rects. Bound to the visible glyph range
     /// by a binary search over the sorted places (`ElementGutterView`'s
-    /// precedent); per draw nothing is resolved from the document.
+    /// precedent); nothing is resolved from the document.
     func visibleMarks() -> [Drawn] {
+        layoutReadCount += 1
         guard let textView = associatedTextView, let coordinator,
               let layoutManager = textView.layoutManager,
               let container = textView.textContainer else { return [] }
@@ -171,9 +216,31 @@ final class MarginOverlayView: NSView {
                     }
             }
             if place.anchor < visible.location && tints.isEmpty { continue }
-            drawn.append(Drawn(place: place, rect: rect, tintRects: tints))
+            // Dots beside one line are one mark (M8): same rect, one element.
+            if place.mark != .tick,
+               let index = drawn.lastIndex(where: { !$0.isTick && $0.rect == rect }) {
+                let held = drawn[index]
+                drawn[index] = Drawn(places: held.places + [place], rect: rect, hitRect: held.hitRect,
+                                     tintRects: held.tintRects + tints)
+                continue
+            }
+            drawn.append(Drawn(places: [place], rect: rect,
+                               hitRect: MarginGeometry.hitRect(rect, columnTrailingX: columnTrailingX),
+                               tintRects: tints))
         }
         return drawn
+    }
+
+    /// The cached marks, read again only when the coordinator's marks moved
+    /// since they were found.
+    private func currentMarks() -> [Drawn] {
+        if drawnGeneration != coordinator?.marginGeneration { refreshCache() }
+        return lastDrawn
+    }
+
+    private func refreshCache() {
+        lastDrawn = visibleMarks()
+        drawnGeneration = coordinator?.marginGeneration
     }
 
     // MARK: - Drawing: positions, never words
@@ -187,16 +254,16 @@ final class MarginOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        for mark in visibleMarks() {
+        refreshCache()
+        for mark in lastDrawn {
             Self.tintColor.setFill()
             for r in mark.tintRects { NSBezierPath(rect: r).fill() }
-            switch mark.place.mark {
-            case .dot:
-                Self.dotColor.setFill()
-                NSBezierPath(ovalIn: mark.rect).fill()
-            case .tick:
+            if mark.isTick {
                 Self.tickColor.setFill()
                 NSBezierPath(roundedRect: mark.rect, xRadius: 1, yRadius: 1).fill()
+            } else {
+                Self.dotColor.setFill()
+                NSBezierPath(ovalIn: mark.rect).fill()
             }
         }
     }
@@ -204,60 +271,68 @@ final class MarginOverlayView: NSView {
     // MARK: - The click
 
     /// A mark under the point takes the click; anywhere else the text view
-    /// does.
+    /// does. Reads the last draw's rects only (M10); marks that moved since
+    /// take no click until they are drawn again.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let superview else { return nil }
         let local = convert(point, from: superview)
         return mark(at: local) == nil ? nil : self
     }
 
-    func mark(at point: NSPoint) -> MarginPlace? {
-        visibleMarks().first { MarginGeometry.hitRect($0.rect).contains(point) }?.place
+    func mark(at point: NSPoint) -> Drawn? {
+        guard drawnGeneration == coordinator?.marginGeneration else { return nil }
+        return lastDrawn.first { $0.hitRect.contains(point) }
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let place = mark(at: point) else { return }
-        coordinator?.marginMarkPressed(place)
+        guard let drawn = mark(at: point) else { return }
+        coordinator?.marginMarkPressed(paragraphId: drawn.paragraphId)
     }
 
     // MARK: - VoiceOver
 
     override func isAccessibilityElement() -> Bool { false }
 
-    /// One button per visible mark: what it marks, and the click.
+    /// One button per visible mark: what it marks, and the click. The same
+    /// element answers every query while its mark stands (M4).
     override func accessibilityChildren() -> [Any]? {
         guard let textView = associatedTextView else { return [] }
-        return visibleMarks().map { drawn in
-            let element = MarginMarkElement(place: drawn.place, coordinator: coordinator)
+        let marks = currentMarks()
+        var kept: [String: MarginMarkElement] = [:]
+        let children: [MarginMarkElement] = marks.map { drawn in
+            let element = elements[drawn.id]
+                ?? MarginMarkElement(paragraphId: drawn.paragraphId, isTick: drawn.isTick,
+                                     names: drawn.names, coordinator: coordinator)
             element.setAccessibilityParent(self)
             let screen = textView.window?.convertToScreen(textView.convert(drawn.rect, to: nil)) ?? drawn.rect
             element.setAccessibilityFrame(screen)
+            kept[drawn.id] = element
             return element
         }
+        elements = kept
+        return children
     }
 }
 
-/// A mark as VoiceOver reaches it: a button whose label says what it marks
-/// and whose press is the click.
+/// A mark as VoiceOver reaches it: a button whose label is one of the two
+/// fixed labels (a person's name at most) and whose press is the click.
 final class MarginMarkElement: NSAccessibilityElement {
-    let place: MarginPlace
+    let paragraphId: String
     weak var coordinator: EditorCoordinator?
 
-    init(place: MarginPlace, coordinator: EditorCoordinator?) {
-        self.place = place
+    init(paragraphId: String, isTick: Bool, names: [String], coordinator: EditorCoordinator?) {
+        self.paragraphId = paragraphId
         self.coordinator = coordinator
         super.init()
         setAccessibilityRole(.button)
-        switch place.mark {
-        case .dot(_, let name): setAccessibilityLabel(MarginMarks.accessibilityLabel(ofDot: name))
-        case .tick: setAccessibilityLabel(MarginMarks.tickAccessibilityLabel)
-        }
+        setAccessibilityLabel(isTick ? MarginMarks.tickAccessibilityLabel
+                                     : MarginMarks.accessibilityLabel(ofDots: names))
     }
 
     override func accessibilityPerformPress() -> Bool {
         MainActor.assumeIsolated {
-            coordinator?.marginMarkPressed(place)
+            coordinator?.marginMarkPressed(paragraphId: paragraphId)
             return coordinator != nil
         }
     }
@@ -267,28 +342,30 @@ final class MarginMarkElement: NSAccessibilityElement {
 
 extension EditorCoordinator {
 
-    /// The margin's marks arrived (`applyControl`). Self-guarded (D2).
+    /// The margin's marks arrived (`applyControl`). Self-guarded (D2): a
+    /// rebuild that changed nothing the marks depend on re-places nothing.
     func setMargin(_ marks: MarginMarks) {
         guard marks != margin else { return }
         margin = marks
         recomputeMarginPlaces()
     }
 
-    /// Resolve the marks against the buffer: each paragraph's range from the
-    /// document (`reviewParagraphRangeProvider`), a dot's words through its
-    /// grapheme span. Once per arrival, attach or whole-buffer replace —
-    /// never per draw. Nothing over a translation (its anchors are the
-    /// source's).
+    /// Resolve the marks against the buffer: every paragraph's range from
+    /// ONE pass over the document (`marginParagraphRangesProvider`, fix
+    /// round 1, I3), a dot's words through its grapheme span. Once per
+    /// arrival, attach or whole-buffer replace — never per draw. Nothing over
+    /// a translation (its anchors are the source's).
     func recomputeMarginPlaces() {
+        marginPlacesRecomputeCount += 1
         var places: [MarginPlace] = []
-        if !bufferHoldsTranslation, let range = reviewParagraphRangeProvider {
+        if !bufferHoldsTranslation, !margin.isEmpty, let ranges = marginParagraphRangesProvider?() {
             for paragraphId in margin.ticks {
-                guard let paragraph = range(paragraphId) else { continue }
+                guard let paragraph = ranges[paragraphId] else { continue }
                 places.append(MarginPlace(mark: .tick, paragraphId: paragraphId,
                                           anchor: paragraph.location, tint: nil))
             }
             for dot in margin.dots {
-                guard let paragraph = range(dot.paragraphId) else { continue }
+                guard let paragraph = ranges[dot.paragraphId] else { continue }
                 var anchor = paragraph.location
                 var tint: NSRange?
                 if let span = dot.span, let text = reviewParagraphTextProvider?(dot.paragraphId),
@@ -304,6 +381,7 @@ extension EditorCoordinator {
             if a.anchor != b.anchor { return a.anchor < b.anchor }
             return a.mark == .tick && b.mark != .tick
         }
+        marginGeneration &+= 1
         syncMarginOverlay()
     }
 
@@ -312,6 +390,7 @@ extension EditorCoordinator {
     func marginNoteEdit(editedRange: NSRange, changeInLength delta: Int) {
         guard !marginPlaces.isEmpty else { return }
         marginPlaces = marginPlaces.map { $0.shifted(editedRange: editedRange, delta: delta) }
+        marginGeneration &+= 1
         marginOverlay?.needsDisplay = true
     }
 
@@ -340,12 +419,13 @@ extension EditorCoordinator {
     /// `MaughamTextView.updateColumnInset`.
     func layoutMarginOverlay(in textView: NSTextView) {
         marginOverlay?.frame = textView.bounds
+        marginGeneration &+= 1
     }
 
     /// **A mark was clicked or pressed**: To resolve shows that paragraph's
     /// group. The editor's caret and scroll are not touched.
-    func marginMarkPressed(_ place: MarginPlace) {
+    func marginMarkPressed(paragraphId: String) {
         guard let documentId else { return }
-        MaughamEvent.postShowParagraphInResolve(docId: documentId, paragraphId: place.paragraphId)
+        MaughamEvent.postShowParagraphInResolve(docId: documentId, paragraphId: paragraphId)
     }
 }

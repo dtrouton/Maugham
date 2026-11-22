@@ -226,11 +226,51 @@ final class MarginMarksTests: XCTestCase {
         XCTAssertEqual(drawn.map(\.id), ["n1", "n2", "n5"])
     }
 
+    // MARK: - Fix round 1: the click's faces (M5), the ticks' selection (M6)
+
+    private let structure = [StructureItem(id: "doc-a", title: "A", type: .document, path: "manuscript/a.md")]
+
+    /// A click moves the faces to the open piece, as the line over the
+    /// prose does, so the column never opens on another subject's list.
+    func test_aClickMovesTheFacesToTheOpenPiece() throws {
+        let payload: [AnyHashable: Any] = [MaughamEvent.annotationDocIdKey: "doc-a",
+                                           MaughamEvent.marginParagraphIdKey: "bb22"]
+        let onTheBook = try XCTUnwrap(MarginMirrorModifier.paragraphJump(
+            payload, subject: WindowSubject(open: .item("doc-a"), faces: .project), structure: structure))
+        XCTAssertEqual(onTheBook.subject, WindowSubject(open: .item("doc-a"), faces: .item("doc-a")))
+        XCTAssertEqual(onTheBook.jump, ProjectWindow.StrainJump(
+            showInspector: true, position: .resolve, request: .showParagraph(docId: "doc-a", paragraphId: "bb22")))
+        let already = WindowSubject(open: .item("doc-a"), faces: .item("doc-a"))
+        XCTAssertEqual(MarginMirrorModifier.paragraphJump(payload, subject: already, structure: structure)?.subject,
+                       already, "faces already on the piece stay")
+        XCTAssertNil(MarginMirrorModifier.paragraphJump([:], subject: already, structure: structure))
+    }
+
+    /// The ticks follow the open piece's OWN list's selection: a Book's or
+    /// an edition's list's choice is not kept for it.
+    func test_theTicksFollowThePiecesOwnListOnly() {
+        var kept: [String: Set<ResolveSource>] = [:]
+        kept = ProjectWindow.recordingSelection(
+            ResolveShownSelection(scope: .piece(docId: "doc-a", includesBookLevel: false), selection: [.checks]),
+            into: kept)
+        XCTAssertEqual(kept, ["doc-a": [.checks]])
+        kept = ProjectWindow.recordingSelection(
+            ResolveShownSelection(scope: .pieces(docIds: ["doc-a"], includesBookLevel: true), selection: [.mine]),
+            into: kept)
+        XCTAssertEqual(kept, ["doc-a": [.checks]], "the Book's list chose over other items")
+        kept = ProjectWindow.recordingSelection(
+            ResolveShownSelection(scope: .piece(docId: "doc-a", includesBookLevel: false), selection: []),
+            into: kept)
+        XCTAssertEqual(kept, ["doc-a": []], "the piece's list cleared its filter")
+    }
+
     // MARK: - VoiceOver and the menu
 
     func test_eachMarkSaysWhatItMarks() {
-        XCTAssertEqual(MarginMarks.accessibilityLabel(ofDot: "Ada"), "Note by Ada")
-        XCTAssertEqual(MarginMarks.accessibilityLabel(ofDot: ""), "Note")
+        XCTAssertEqual(MarginMarks.accessibilityLabel(ofDots: ["Ada"]), "Note by Ada")
+        XCTAssertEqual(MarginMarks.accessibilityLabel(ofDots: [""]), "Note")
+        XCTAssertEqual(MarginMarks.accessibilityLabel(ofDots: ["Ada", "Denver"]), "Notes",
+                       "several beside one line: no names, no count")
         XCTAssertEqual(MarginMarks.tickAccessibilityLabel, "Flagged paragraph")
     }
 

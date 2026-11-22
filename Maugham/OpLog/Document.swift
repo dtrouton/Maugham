@@ -1241,6 +1241,23 @@ public final class Document {
         return nil
     }
 
+    /// **Every paragraph's display range, in one pass** (shell p5 Task 2,
+    /// fix round 1): `displayRange(forParagraphId:)` for the whole sequence
+    /// at the cost of one call, so View ▸ Margin places all its marks
+    /// without a walk per mark.
+    public func displayRanges() -> [String: NSRange] {
+        var ranges: [String: NSRange] = [:]
+        ranges.reserveCapacity(sequence.count)
+        var offset = 0
+        for id in sequence {
+            guard let text = paragraphs[id] else { continue }
+            let length = (RenderFilter.stripTaskAnchorsInline(text) as NSString).length
+            if ranges[id] == nil { ranges[id] = NSRange(location: offset, length: length) }
+            offset += length + 2
+        }
+        return ranges
+    }
+
     public func materialize() -> String {
         return Materializer.materialize(
             paragraphs: paragraphs, sequence: sequence)

@@ -16,23 +16,69 @@ final class MarginOverlayCensusTests: XCTestCase {
     private static let marks = "Maugham/Editor/MarginMarks.swift"
     private static let host = "Maugham/Views/EditorHost.swift"
 
-    /// Calls that draw words, in code (comments and strings masked).
+    /// Calls that draw words, or hang words on a mark, in code (comments
+    /// and strings masked). A label is allowed only from the two fixed
+    /// sources (`allowedLabels`).
     private static let textDrawing = [
         "draw(at:", "draw(in:", "draw(with:", "drawText", "NSAttributedString", "AttributedString(",
         "Text(", "CATextLayer", "NSTextField", "NSTextView(", "NSString(", ".string(", "drawGlyphs",
         "showGlyphs", "CTLine", "CTFrame",
+        "toolTip", "addToolTip", "accessibilityValue", "setAccessibilityValue", "accessibilityHelp",
+        "setAccessibilityHelp", "accessibilityTitle", "setAccessibilityTitle",
+        "accessibilityCustomContent", "accessibilityAttributedLabel",
     ]
+    private static let allowedLabels = ["MarginMarks.tickAccessibilityLabel", "MarginMarks.accessibilityLabel(ofDots:"]
 
     private static func drawsText(_ masked: [UInt8]) -> [String] {
         let code = String(decoding: masked, as: UTF8.self)
-        return textDrawing.filter { code.contains($0) }
+        // A token counts as a whole name: `drawnBesideTheText(` is not `Text(`.
+        var found = textDrawing.filter { token in
+            var from = code.startIndex
+            while let range = code.range(of: token, range: from..<code.endIndex) {
+                from = range.upperBound
+                guard range.lowerBound > code.startIndex,
+                      let first = token.first, first.isLetter else { return true }
+                let before = code[code.index(before: range.lowerBound)]
+                if !(before.isLetter || before.isNumber || before == "_") { return true }
+            }
+            return false
+        }
+        for line in code.components(separatedBy: "\n")
+        where line.contains("setAccessibilityLabel(") && !allowedLabels.contains(where: line.contains) {
+            found.append("setAccessibilityLabel(")
+        }
+        return found
+    }
+
+    /// The types the margin draws or describes itself through.
+    private static let marginTypes = ["MarginOverlayView", "MarginMarkElement", "MarginPlace", "MarginGeometry", "MarginMarks"]
+
+    /// **Every file the overlay draws or describes itself through** (fix
+    /// round 1, M1): the files declaring or extending a margin type.
+    private static func population() throws -> [(path: String, masked: [UInt8])] {
+        var files: [(String, [UInt8])] = []
+        for root in SourceTree.productionRoots {
+            for file in try SourceTree.maskedSources(under: root) {
+                let code = String(decoding: file.masked, as: UTF8.self)
+                if marginTypes.contains(where: { type in
+                    code.contains("class \(type)") || code.contains("struct \(type)")
+                        || code.contains("enum \(type)") || code.contains("extension \(type)")
+                }) {
+                    files.append((file.path, file.masked))
+                }
+            }
+        }
+        return files
     }
 
     func test_theMarginOverlayDrawsNoString() throws {
-        let real = try SourceTree.checkedMask(SourceTree.read(Self.overlay), path: Self.overlay)
-        XCTAssertTrue(String(decoding: real, as: UTF8.self).contains("override func draw("),
-                      "the control: the real overlay draws, and is read")
-        XCTAssertEqual(Self.drawsText(real), [], "the overlay draws positions, never words")
+        let files = try Self.population()
+        XCTAssertTrue(files.contains { $0.path == Self.overlay }, "the control: the overlay is in the population")
+        XCTAssertTrue(files.contains { String(decoding: $0.masked, as: UTF8.self).contains("override func draw(") },
+                      "the control: a file that draws is read")
+        for file in files {
+            XCTAssertEqual(Self.drawsText(file.masked), [], "\(file.path) draws positions, never words")
+        }
 
         let planted = SourceTree.mask("""
             override func draw(_ dirtyRect: NSRect) {
@@ -40,11 +86,83 @@ final class MarginOverlayCensusTests: XCTestCase {
             }
             """)
         XCTAssertEqual(Self.drawsText(planted), ["draw(at:"], "a planted offender is caught")
+        let tooltip = SourceTree.mask("""
+            extension MarginOverlayView {
+                func explain(_ finding: Diagnostic) { toolTip = finding.body }
+                func describe(_ e: NSAccessibilityElement, _ n: Annotation) { e.setAccessibilityLabel(n.body) }
+            }
+            """)
+        XCTAssertEqual(Self.drawsText(tooltip), ["toolTip", "setAccessibilityLabel("],
+                       "a tooltip or a label carrying a note's words is caught")
         let comment = SourceTree.mask("""
             // never NSAttributedString or draw(at:) here
             let label = "Text(\\(name))"
+            element.setAccessibilityLabel(MarginMarks.tickAccessibilityLabel)
             """)
-        XCTAssertEqual(Self.drawsText(comment), [], "a comment or a string is not a call")
+        XCTAssertEqual(Self.drawsText(comment), [], "a comment, a string or a fixed label is not")
+    }
+
+    /// **A tick carries nothing but its paragraph** (fix round 1, M1): the
+    /// types themselves have no field a model's words could ride in.
+    func test_aTickCarriesNothingButItsParagraph() {
+        XCTAssertTrue(Mirror(reflecting: MarginPlace.Mark.tick).children.isEmpty, "a tick has no payload")
+        XCTAssertTrue(type(of: MarginMarks.none.ticks) == Set<String>.self, "ticks are paragraph ids")
+        XCTAssertEqual(Self.fields(MarginMarks.none), ["dots", "ticks"])
+        XCTAssertEqual(Self.fields(MarginMarks.Dot(paragraphId: "aa11", span: nil, annotationId: "n", name: "")),
+                       ["paragraphId", "span", "annotationId", "name"], "a dot: where, and whose — no words")
+        XCTAssertEqual(Self.fields(MarginPlace(mark: .tick, paragraphId: "aa11", anchor: 0, tint: nil)),
+                       ["mark", "paragraphId", "anchor", "tint"])
+        struct Planted { let paragraphId: String; let body: String }
+        XCTAssertNotEqual(Self.fields(Planted(paragraphId: "aa11", body: "x")), ["paragraphId"],
+                          "a planted field is caught")
+    }
+
+    private static func fields(_ value: Any) -> [String] {
+        Mirror(reflecting: value).children.compactMap(\.label)
+    }
+
+    /// **The delivery path is in place** (fix round 1, I1): the window
+    /// applies the margin's modifier once; it publishes the setting the menu
+    /// checks, writes the menu's choice to `UIState`, builds the marks into
+    /// the control and answers a click; the coordinator observes and applies
+    /// them; `EditorHost` wires the one-pass ranges; To resolve holds a
+    /// click's group as its caret group.
+    func test_theMarginIsDeliveredThroughTheWindow() throws {
+        func code(_ path: String) throws -> String {
+            String(decoding: try SourceTree.checkedMask(SourceTree.read(path), path: path), as: UTF8.self)
+        }
+        let window = try code("Maugham/Views/ProjectWindow.swift")
+        XCTAssertEqual(Self.occurrences(of: ".modifier(MarginMirrorModifier(", in: window), 1)
+        let mirror = try code("Maugham/Views/EditorControlMirror.swift")
+        for wire in [
+            ".focusedSceneValue(\\.marginSetting, Self.publishedSetting(documentStore))",
+            "Self.receiveSetting(note.userInfo, documentStore: documentStore)",
+            ".onChange(of: key, initial: true)",
+            "editorControl.margin = Self.marks(",
+            "Self.paragraphJump(note.userInfo",
+            "@FocusedValue(\\.marginSetting) private var current",
+            "MarginMarks.isChecked(setting, current: current)",
+            "MaughamEvent.postMarginSetting(setting)",
+        ] {
+            XCTAssertTrue(mirror.contains(wire), "the margin's window wiring: \(wire)")
+        }
+        XCTAssertTrue(try code("Maugham/MaughamApp.swift").contains("FocusedMarginItems()"), "View ▸ Margin")
+        let coordinator = try code("Maugham/Editor/EditorCoordinator.swift")
+        XCTAssertTrue(coordinator.contains("_ = control.margin"), "observed")
+        XCTAssertTrue(coordinator.contains("setMargin(c.margin)"), "applied")
+        XCTAssertTrue(try code("Maugham/Views/EditorHost.swift")
+            .contains("marginParagraphRangesProvider: { doc.displayRanges() }"), "the one-pass ranges")
+        let pane = try code("Maugham/Views/Resolve/ResolvePane.swift")
+        XCTAssertTrue(pane.contains("caretPin = ResolveCaretPin(key: caret, caretParagraph: caretParagraphNow)")
+                      && pane.contains("caretGroup = caret"), "a click's group is the caret group")
+
+        let planted = "content.modifier(EditorControlMirrorModifier(membrane: m))"
+        XCTAssertEqual(Self.occurrences(of: ".modifier(MarginMirrorModifier(", in: planted), 0,
+                       "a window without the modifier is caught")
+    }
+
+    private static func occurrences(of token: String, in code: String) -> Int {
+        code.components(separatedBy: token).count - 1
     }
 
     /// One predicate decides what is drawn beside the text.
@@ -123,24 +241,27 @@ final class MarginOverlayCensusTests: XCTestCase {
             }
         }
         XCTAssertEqual(writers.count, 1, "\(writers)")
-        XCTAssertTrue(writers.first?.contains("onResolveSelectionShown: { resolveSelection = $0 }") == true,
-                      "the one write is the published value")
+        XCTAssertTrue(writers.first?.contains(
+            "onResolveSelectionShown: { resolveSelections = Self.recordingSelection($0, into: resolveSelections) }") == true,
+                      "the one write is the published value, kept per piece")
 
         let pane = "Maugham/Views/Resolve/ResolvePane.swift"
         let paneCode = String(decoding: try SourceTree.checkedMask(SourceTree.read(pane), path: pane),
                               as: UTF8.self)
-        XCTAssertTrue(paneCode.contains(".onChange(of: shownSelection, initial: true) { _, shown in onSelectionShown(shown) }"),
-                      "To resolve publishes what it shows, from its first value")
+        XCTAssertTrue(paneCode.contains(
+            ".onChange(of: ResolveShownSelection(scope: scope, selection: shownSelection), initial: true)"),
+                      "To resolve publishes what it shows and over what, from its first value")
+        XCTAssertTrue(paneCode.contains("onSelectionShown(shown)"))
 
         let planted = """
-            onResolveSelectionShown: { resolveSelection = $0 },
-            .onAppear { resolveSelection = [] }
+            onResolveSelectionShown: { resolveSelections = Self.recordingSelection($0, into: resolveSelections) },
+            .onAppear { resolveSelections = [:] }
             """
         XCTAssertEqual(Self.selectionWrites(planted).count, 2, "a second writer is caught")
     }
 
     private static func selectionWrites(_ code: String) -> [String] {
-        code.components(separatedBy: "\n").filter { $0.contains("resolveSelection = ") }
+        code.components(separatedBy: "\n").filter { $0.contains("resolveSelections = ") }
             .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }

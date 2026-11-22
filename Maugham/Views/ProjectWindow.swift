@@ -37,11 +37,12 @@ struct ProjectWindow: View {
     /// one once and sets it back to nil. Deliberately NOT persisted to
     /// `UIState`: a request is an arrival, not a home.
     @State private var resolveRequest: ResolveRequest?
-    /// **To resolve's shown selection, as it last published it** (shell p5
-    /// Task 2; `ResolvePane.onSelectionShown`, its one writer): View ▸
-    /// Margin's ticks follow it, and keep it while the column is hidden.
-    /// Empty is everything.
-    @State private var resolveSelection: Set<ResolveSource> = []
+    /// **To resolve's shown selection per piece, as each piece's own list
+    /// last published it** (shell p5 Task 2; `ResolvePane.onSelectionShown`,
+    /// its one writer, through `recordingSelection`): View ▸ Margin's ticks
+    /// follow the open piece's, kept while the column is hidden. A piece
+    /// with none is everything.
+    @State private var resolveSelections: [String: Set<ResolveSource>] = [:]
     /// **What the window is about** (shell p1): what the centre shows
     /// (`open`), what the right column is about (`faces`), and the reference
     /// material opened `beside`. The one truth the centre's routing asks.
@@ -663,8 +664,8 @@ struct ProjectWindow: View {
         // menu is disabled and no mark is ever drawn.
         .modifier(MarginMirrorModifier(
             window: window, documentStore: documentStore,
-            structure: store?.manifest.structure ?? [], subject: subject,
-            diagnostics: compiler.diagnostics, resolveSelection: resolveSelection,
+            structure: store?.manifest.structure ?? [], subject: subjectBinding,
+            diagnostics: compiler.diagnostics, resolveSelections: resolveSelections,
             isNoChromeOn: isNoChromeOn, editorControl: $editorControl,
             showInspector: $showInspector, position: $rightColumnPosition,
             resolveRequest: $resolveRequest))
@@ -2106,7 +2107,7 @@ struct ProjectWindow: View {
             selectedSubject: facesNavigation,
             position: $rightColumnPosition,
             resolveRequest: $resolveRequest,
-            onResolveSelectionShown: { resolveSelection = $0 },
+            onResolveSelectionShown: { resolveSelections = Self.recordingSelection($0, into: resolveSelections) },
             lastParsedScript: lastParsedScript,
             compilerModel: $compilerModel,
             recordActivePass: { recordActivePass(forPiece: $0, passId: $1) },
@@ -2579,6 +2580,17 @@ struct ProjectWindow: View {
         let showInspector: Bool
         let position: RightColumnPosition
         let request: ResolveRequest
+    }
+
+    /// **A list's published selection, kept for the margin** (fix round 1,
+    /// M6): only a piece's own list's, under that piece. A Book's, a Part's
+    /// or an edition's list chose over other items, and changes nothing.
+    static func recordingSelection(_ shown: ResolveShownSelection,
+                                   into selections: [String: Set<ResolveSource>]) -> [String: Set<ResolveSource>] {
+        guard case .piece(let docId, _) = shown.scope else { return selections }
+        var next = selections
+        next[docId] = shown.selection
+        return next
     }
 
     static func strainJump(_ request: ResolveRequest) -> StrainJump {

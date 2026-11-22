@@ -227,9 +227,14 @@ stay (plan 5, Question 2), **Denver answered no (2026-11-22)**: the review rende
 draws a person's notes only, by the same predicate as the dots, and Claude's notes
 stay in To resolve. Built in `EditorHost.reviewRenderSet`, which every push and pull
 of the render's set reads (`MarginOverlayCensusTests.test_whatIsDrawnBesideTheTextAsksOnePredicate`).
-The render draws in read-through and wherever a posture refuses the text (a
-reviewer's copy); the rule holds in both, because §1 does not ask which switch put
-the render on.
+Denver's answer was given for read-through. **The build's own ruling, pending his
+confirmation**, is that it holds wherever the review render draws, a reviewer's copy
+(a posture that refuses the text) included: §1 does not ask which switch put the
+render on, and narrowing it would draw Claude's words beside the text for a reviewer
+and not for the writer. The task's reviewer recommended keeping it; a reviewer's
+answer to Claude's notes stays in To resolve, where their posture allows it. If
+Denver rules otherwise, `EditorHost.reviewRenderSet` takes the posture-forced case
+as one argument.
 
 ## References
 

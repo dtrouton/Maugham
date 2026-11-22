@@ -164,11 +164,14 @@ struct MarginMirrorModifier: ViewModifier {
     let window: NSWindow?
     let documentStore: DocumentStore?
     let structure: [StructureItem]
-    let subject: WindowSubject
+    /// The window's subject: read for the open piece, and a click moves the
+    /// faces to it (fix round 1, M5).
+    @Binding var subject: WindowSubject
     let diagnostics: DiagnosticsStore?
-    /// To resolve's selection as it last published it
-    /// (`ResolvePane.onSelectionShown`); empty is everything.
-    let resolveSelection: Set<ResolveSource>
+    /// To resolve's selection per piece, as its own list last published it
+    /// (`ResolvePane.onSelectionShown`, `ProjectWindow.recordingSelection`);
+    /// a piece with none is everything (fix round 1, M6).
+    let resolveSelections: [String: Set<ResolveSource>]
     let isNoChromeOn: Bool
     @Binding var editorControl: EditorControl
     @Binding var showInspector: Bool
@@ -184,13 +187,47 @@ struct MarginMirrorModifier: ViewModifier {
         return id
     }
 
-    private var setting: MarginSetting { documentStore?.uiState.marginSetting ?? .off }
+    private var setting: MarginSetting { Self.publishedSetting(documentStore) }
 
     private var key: MarginKey {
         Self.key(document: docId.flatMap { documentStore?.document(forDocId: $0) },
                  diagnosticsVersion: diagnostics?.version ?? 0, setting: setting,
-                 selection: resolveSelection, focusMode: isNoChromeOn, control: editorControl,
+                 selection: docId.flatMap { resolveSelections[$0] } ?? [],
+                 focusMode: isNoChromeOn, control: editorControl,
                  localName: userPreferences.collaboratorDisplayName)
+    }
+
+    /// **What the menu's check marks read** (published as `\.marginSetting`):
+    /// the project's remembered setting.
+    @MainActor
+    static func publishedSetting(_ documentStore: DocumentStore?) -> MarginSetting {
+        documentStore?.uiState.marginSetting ?? .off
+    }
+
+    /// **View ▸ Margin's receiver** (fix round 1, I1): the chosen setting,
+    /// written to the project's `UIState`.
+    @MainActor
+    static func receiveSetting(_ userInfo: [AnyHashable: Any]?, documentStore: DocumentStore?) {
+        guard let chosen = MaughamEvent.marginSetting(of: userInfo) else { return }
+        documentStore?.updateUIState { $0.marginSetting = chosen }
+    }
+
+    /// **A mark's click, as the window answers it** (fix round 1, M5): the
+    /// faces go to the open piece (the line over the prose's rule,
+    /// `RightColumnContent.facesForTheStrip`), so the column never opens on
+    /// a figure's or an edition's list; then To resolve shows, holding the
+    /// request.
+    struct ParagraphJump: Equatable {
+        let subject: WindowSubject
+        let jump: ProjectWindow.StrainJump
+    }
+
+    static func paragraphJump(_ userInfo: [AnyHashable: Any]?, subject: WindowSubject,
+                              structure: [StructureItem]) -> ParagraphJump? {
+        guard let asked = MaughamEvent.paragraphInResolve(of: userInfo) else { return nil }
+        return ParagraphJump(
+            subject: RightColumnContent.facesForTheStrip(subject, structure: structure),
+            jump: ProjectWindow.strainJump(.showParagraph(docId: asked.docId, paragraphId: asked.paragraphId)))
     }
 
     /// **The key, from what the window holds** — read in the modifier's body,
@@ -211,18 +248,17 @@ struct MarginMirrorModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .focusedSceneValue(\.marginSetting, setting)
+            .focusedSceneValue(\.marginSetting, Self.publishedSetting(documentStore))
             .onKeyWindowCommand(.maughamSetMargin, window: window) { note in
-                guard let chosen = MaughamEvent.marginSetting(of: note.userInfo) else { return }
-                documentStore?.updateUIState { $0.marginSetting = chosen }
+                Self.receiveSetting(note.userInfo, documentStore: documentStore)
             }
             .onKeyWindowCommand(.maughamShowParagraphInResolve, window: window) { note in
-                guard let asked = MaughamEvent.paragraphInResolve(of: note.userInfo) else { return }
-                let jump = ProjectWindow.strainJump(
-                    .showParagraph(docId: asked.docId, paragraphId: asked.paragraphId))
-                showInspector = jump.showInspector
-                position = jump.position
-                resolveRequest = jump.request
+                guard let answer = Self.paragraphJump(note.userInfo, subject: subject,
+                                                      structure: structure) else { return }
+                if answer.subject != subject { subject = answer.subject }
+                showInspector = answer.jump.showInspector
+                position = answer.jump.position
+                resolveRequest = answer.jump.request
             }
             // The sidecar for the open piece, so its strains can tick with
             // the right column hidden.
