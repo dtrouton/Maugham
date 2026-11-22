@@ -6,7 +6,7 @@
 
 After [ADR 0037](0037-brief-and-the-pulled-up-thing.md) the right column had its three positions, but two of plan 3's interim homes still stood in To resolve's place: the Department desk (while an edition was the faces) and the translation review pane (while translation review was on). While either showed, To resolve's own list was unreachable and ⌘⌥A/D/T dropped their filter (0037's "interim loss"). The Book's Status was a passes board that said nothing about notes or to-dos; an edition had no centre of its own (every edition showed the same book); the tree said nothing about which rows waited on the writer; a whole-book translation run aged out every chapter's letter but the newest ten; and a failed promotion of a Collection piece left the Collection window with a closed `DocumentStore`.
 
-This ADR records what plan 4 built, as built at `a83e1502`. Each section gives the decision, why, what it cost, and what would overrule it. Rulings the build ledger (`.superpowers/sdd/2026-11-21-shell-p4/progress.md`) made on the owner's behalf are listed together below, each marked answered or not.
+This ADR records what plan 4 built, as built at `a83e1502`, and the closing round on top of it (section 15). Each section gives the decision, why, what it cost, and what would overrule it. Rulings the build ledger (`.superpowers/sdd/2026-11-21-shell-p4/progress.md`) made on the owner's behalf are listed together below, each marked answered or not.
 
 ## Decision
 
@@ -26,7 +26,7 @@ Every read-modify-write of the ledger runs on **one serial queue per project** (
 
 **Decision.** Status is a view of the centre, chosen in the toolbar (section 13). **The Book's Status** (`ReviewBoardPane`) widens the passes board to stage, each pass, open notes and open to-dos per chapter; a to-do count opens the chapter on Mine; a footer row "The Book — N to-dos" opens the Book's own; a Part heading opens the Part; the arrows and Return move and open (`ReviewBoardKeys`); returning to Status scrolls to and marks the piece last opened. The to-do counts come from the presence read's Book snapshot (`BinderTreeSectionsState.openToDos`), not a third walk, so they are as live as the tree's dots.
 
-**The edition's Status** (`EditionStatusHost`, `EditionStatusView`, `EditionStatusRows`) lays out, per chapter: translated counts, the latest round, open questions, changes to look at, the trend and the publishing settings. The Source edition's Status shows the publishing column only. Its questions come from the presence read (`BinderTreeSectionsState.bookReading`), not a load per chapter. `EditionStatusRows.isToLookAt` is THE predicate for a change that waits, read by the Status, the list and the dot. A row's click opens the chapter read in the edition's language (owner, 2026-11-21).
+**The edition's Status** (`EditionStatusHost`, `EditionStatusView`, `EditionStatusRows`) lays out, per chapter: translated counts, the latest round, open questions, what the last round left **to look at**, the trend and the publishing settings. The Source edition's Status shows the publishing column only, under one line that goes to the Book's Status (section 15). Its questions come from the presence read (`BinderTreeSectionsState.bookReading`), not a load per chapter. `EditionStatusRows.isToLookAt` is THE predicate for a change that waits, read by the Status, the list and the dot. A row's click opens the chapter read in the edition's language (owner, 2026-11-21).
 
 **Why.** "What needs me?" must be answerable at the Book's altitude without opening each chapter. One predicate keeps Status, list and dot from disagreeing.
 
@@ -48,7 +48,7 @@ Every read-modify-write of the ledger runs on **one serial queue per project** (
 
 ### 4. The edition's To resolve, and its item kinds
 
-**Decision.** With an edition as the faces, To resolve is that edition's list (`ResolveScope.edition(language:isSource:docIds:)`, `ResolveEditionItems`). Four item kinds join notes, findings and to-dos: a translator's **change** (`ResolveItem.translationChange`), a **glossary proposal**, a **design proposal** and a **compile problem**, under three new sources (`.changes`, `.design`, `.compile`). Translator's questions are listed in the edition's language, grouped by chapter. The head (`ResolveHeadShape.edition`, `EditionHeadView`) carries the translator's latest letter and **Run Whole Book**, with a line saying what it runs and roughly what it costs ("Runs every chapter of the book: N chapters", or the chosen imprint's count and name; the budget from `TranslationPreflight.editionBudget`, idle only, off the main actor, cached). When the newest round failed or was cancelled, the head says so in the round's words above the last finished letter. The Source edition's head carries the designer's line and Run design with a direction (owner, 2026-11-21).
+**Decision.** With an edition as the faces, To resolve is that edition's list (`ResolveScope.edition(language:isSource:docIds:)`, `ResolveEditionItems`). Four item kinds join notes, findings and to-dos: a translator's **change** (`ResolveItem.translationChange`), a **glossary proposal**, a **design proposal** and a **compile problem**, under three new sources (`.changes`, `.design`, `.compile`; the first's chip reads **To look at**, section 15). Translator's questions are listed in the edition's language, grouped by chapter. The head (`ResolveHeadShape.edition`, `EditionHeadView`) carries the translator's latest letter and **Run Whole Book**, with a line saying what it runs and roughly what it costs ("Runs every chapter of the book: N chapters", or the chosen imprint's count and name; the budget from `TranslationPreflight.editionBudget`, idle only, off the main actor, cached). When the newest round failed or was cancelled, the head says so in the round's words above the last finished letter. The Source edition's head carries the designer's line and Run design with a direction (owner, 2026-11-21).
 
 The rules, as built:
 
@@ -94,7 +94,7 @@ The rules, as built:
 **Decision.** A piece with translations can be read in a language from the toolbar's language switch (absent on a piece with none; a warning when the translations folder cannot be read), View ▸ Read In ▸ …, and ⌃⌘L (Read In Next Language). `ReadingLanguage` decides what language a subject is read in (`of(subject:switched:sourceLanguage:)`, `carried(_:toPieceWith:)`, `next(after:in:)`); `ReadingLanguageModel` holds the per-project choice and **Show Source Under Translation** (on by default, remembered per project). The surface is the translation, read-only, with the source under each paragraph in grey (`TranslationBadgeLayout`); a stale paragraph is amber-dotted with amber-tinted ink and its current source under it; an untranslated one shows its source once, lighter, with a hollow dot. A quiet line over the text names the language, the counts, and Read Source.
 
 - **The membrane follows the buffer.** `EditorCoordinator.bufferHoldsTranslation` is set before the translated swap, or at mount (`EditorSurface.mount(_:on:servesTranslation:control:)`), and cleared only when the source has landed (`sourceLanded`); while it holds, the text view is not editable and every write route refuses: typing, paste, drop and drag-move, spelling, input methods, Services, Writing Tools, Find's Replace, a sync merge (`ReadingTranslationWriteRouteTests`, one test per route). Find reads Source first; in review mode the toolbar offers only Translator's note and no note highlights fall on the translation. Copy takes the translation; a selection inside a grey line copies its source.
-- **Undo is barred while reading.** A throwaway undo manager serves the reading surface; `ReadingUndoGuard` disables Undo and Redo window-wide; on the way back the window's stack is kept when the source did not change, and only text-storage typing is dropped when it did (op-level undo is kept). So type → read in Serbian → back → ⌘Z undoes the typing.
+- **Undo is barred while reading.** A throwaway undo manager serves the reading surface; `ReadingUndoGuard` disables Undo and Redo window-wide, titled "Undo — Returns in Source"; on the way back the window's stack is kept when the source did not change, and only text-storage typing is dropped when it did (op-level undo is kept). So type → read in Serbian → back → ⌘Z undoes the typing.
 - **Coordinates map both ways** through the coordinator (`surfaceLocation(forSource:)`, `sourceLocation(forSurface:)`, over the badges the buffer holds), so a go-to-paragraph, a find match and a scene land on the right paragraph with source lines interleaved; the reading position is kept by visible paragraph across a switch.
 - **The language is carried** to the next chapter when it has that translation, else Source (owner, 2026-11-21); a chapter opened from an edition's Status opens in that edition's language.
 - **Refresh**: a source edit refreshes a reading window off the main actor after a 400 ms pause (`TranslatedSurfaceRefresh`; measured 346.6 → 19.9 ms of main-actor work per typing pause), with scroll and selection kept.
@@ -179,62 +179,72 @@ Off the open piece (an edition faced, a chapter clicked) the rows read and do no
 
 **Decision.** A mounted test builds its view through its host's one builder (`MaughamTests/TestSupport/ViewHostFixtures.swift`; `HostBuilderCensusTests.test_noTestBuildsAViewHostByHand`, with a parity test that each fixture passes what production passes). The flakes: the image-paste failure was the general pasteboard, shared by every process, so tests paste from a pasteboard of their own through `MaughamTextView.paste(from:sender:)` (`TripwireGrepTests.test_noTestWritesTheGeneralPasteboard`, tripwire 60); the multiselect select-then-wait tests were culled (tripwire 33's shape); the figure-grid focus failure never reproduced in 50 runs and its premises are now asserted; a research note's debounce race was real and is fixed with an injectable clock (`ResearchNoteDoor.debounceWait`); and the canvas family's armed Escape arbiters were a test leak and a production one: a window that closed with a dimmed canvas kept its Escape monitor, and `WindowEscapeArbiter` now lets go on the window's `willClose`.
 
+### 15. The closing round (the whole-branch review and the owner's answers of 2026-11-22)
+
+**Review fixes.**
+- **One scope for To resolve's unread dot and its list** (I1). The control's dot is asked over the same `ResolveScope` the pane shows (`RightColumnControl.unreadDocId(subject:readIn:sourceLanguage:store:)`, handed `RightColumn`'s one `readingLanguage`). A piece read in a language lists no checks, so it carries no checks dot.
+- **The source's keys over a piece read in a language** (I2). ⌘⌥A, ⌘⌥D and ⌘⌥T ask for what that language's list never holds, so they read the piece in Source first, visibly and with the place kept, then land their filter (`ResolvePieceInLanguage.readsSourceFirst`, `sourceRead`): the open piece switches (`LanguageSwitch.choose(nil)`), a chapter only faced under its edition opens. ⌘⌥L stays the language's. The empty list's "Its source has notes or to-dos open." has a **Read in Source to See Them** button that does the same.
+- **A promoted piece reads in nothing** (M1): `LanguageSwitch.offer` admits a manuscript piece only, and a promotion's end drops the language its id was read in (`ReadingLanguage.kept`).
+- **The editions' mark key is values** (M2): `ResolvePresenceWatch.editionMarkKey` stats no ledger and walks nothing on the body path; announced ledger writes move it.
+- **Brief over a piece read in a language** (M5) stays the piece's one brief, and its line says "Chapter 7 · Source brief" (`RightColumnSubjectLine.briefTitle`). The Research rename guard (M6) was verified: every research row renames through `state.renamingItemId`, which the keys' guard reads; pinned.
+- **Writer's seat.** (a) A piece read in a language heads its list with **See this chapter in the <Language> book**, which opens that edition's book at the chapter (`CentreViewSwitch.Destination.editionBook`; the book's own header says "No compiled book yet" or "Compile again to jump to chapters" when it cannot). (b) Edit ▸ Undo and Redo read "… — Returns in Source" while a translation is read (`ReadingUndoGuard`). (c) The round report's Open the queue opens the round's piece read in the round's language, on Questions (`LanguageSwitch.choose(_:inPiece:)`).
+
+**The owner's answers, built.**
+- **Remove Edition…** on a translated edition's row menu and in File, beside Add Language… (enabled where a translated edition is selected). It asks first ("Remove the Spanish edition? Its translations stay in the project and come back if you add Spanish again."), asked of Add Language's posture at the draw and the settled posture at the act, over the store's current editions. It writes one thing, the lowercased tag into `ProjectManifest.removedEditions`; every derivation of "the book's editions" hides it (`EditionStatus.editionLanguages`, `languageRows`, the tree, the translator's-note picker, the language switch). Translation text, round ledgers, the edition's brief and cast, compiled books are untouched; adding the language again clears the tag and brings them back (`TreeEditionRowsTests.test_removeEditionHidesItKeepsEverythingAndAddBringsItBack`). The Source cannot be removed; a round into the language (or a round not yet named) or this window's compile of it refuses. A window whose centre or faces were on the edition goes to the Book (`EditionWiring.landing`), and a piece read in it is read in Source.
+- **"To look at"** is the one word (`TranslationVocabulary.toLookAt`) for what a round leaves to settle: To resolve's chip, the edition Status column's header, cells, help and VoiceOver, and the empty lists; a census keeps "Changes" out of those surfaces. Column widths are unchanged, so the 480 pt floor holds.
+- **The Source edition's Status** gains "Stage, passes, notes and to-dos are in the Book's Status", which selects the Book and chooses Status (`CentreViewSwitch.Destination.bookStatus`, through `chooseCentreView`).
+- **Rewind stays the open piece's**; where it is missing because the History pulled up is of a piece not open, "Open this chapter to rewind it" (the project's word) opens the piece and keeps its History up (`HistoryPane.rewindSlot`).
+- **⌘[ is View ▸ Back**, the arrow's own word; its help names the key.
+
+**Cost.** `removedEditions` is one additive manifest field with no schema bump: an older build that saves the manifest drops it and the edition shows again, with nothing of the writer's lost. Removal's busy check sees this window's compile only.
+
 ## Rulings made on the owner's behalf
 
-Each was taken in the build ledger by the controller (or an implementer, where it says) and is the agent's, not the owner's, unless marked answered.
+Each was taken in the build ledger by the controller (or an implementer, where it says) and is the agent's, not the owner's, unless marked confirmed. "Not yet confirmed" means the owner has not spoken to it; silence is not a yes.
 
-1. **A piece that would not read draws a hollow ring labelled "Could not be read"** (RULING-54's honesty rule; cost if wrong: one more glyph in the tree). *Unanswered.*
-2. **The dot is accent, at the row's trailing edge**, not the plan's secondary grey beside the stage dot (the draft stage dot is already grey). Implementer's call. *Answered, 2026-11-22:* the colour and the three dots for one marked chapter (chapter, Part, Book) are fine (owed item 8, 9).
-3. **Filing settles a change**: Keep mine and Make it a rule leave the list like Fine; the change stays in the report. *Unanswered.*
-4. **Compile: only problems that stopped a book are listed and mark the editions**; warnings stay behind Show Problems, so list and mark agree. *Unanswered.*
-5. **A question clicked in an edition's list opens its paragraph in the edition's language.** Follows the owner's answer 3 of 2026-11-21. *Answered in substance.*
-6. **Run Whole Book's cost is shown on the head's scope line, measured only while idle, with no confirm dialog.** *Unanswered.*
-7. **Reading must not cost Undo**: type, switch to a language, switch back, ⌘Z works. Its consequence: no undo at all while reading. *The consequence answered, 2026-11-22* (owed item 2, as built); the ruling itself not separately confirmed.
-8. **The arrow rule**: an arrow selects at once; it pulls up after a ~300 ms settle and only if the right column is showing; Return or Space pulls up now and reveals; Back records settled pulls only. *Hand-checked by the owner, 2026-11-22* ("look good"); the ruling itself not separately confirmed.
-9. **A palette card both pinned and inside a region lists under Palette** (the shelf's first claim); the misleading code comment was fixed. *Answered, 2026-11-22:* leave (owed item 5).
-10. **The insertion line is built** by sampling the pointer against the row's frame while targeted. *Hand-checked by the owner, 2026-11-22* (it follows the pointer in a real drag); the ruling itself not separately confirmed.
-11. **One promotion at a time per Collection**, refused at entry. *Unanswered.*
-12. **A ledger written before `latestByPiece` falls back to the ring's finished rounds.** Implementer's call. *Unanswered.*
-13. **A failed or refused compile with problems covers the centre with them**; a warnings-only book does not. Implementer's call, from hand check 4's wording. *Answered, 2026-11-22:* as built (owed item 3).
-14. **Adding a language the book already has selects that edition** and shows its Brief, rather than an alert. *Unanswered.*
-15. **The Book row rolls up everything inside it.** *Answered* (the owner's instruction, relayed during Task 3).
-16. **The plan's own calls** (the plan's "Calls made in this plan", 1–13): the design proposal in every edition; changes and glossary proposals carry the round's lifetime; source under each paragraph on by default; the view switch in the toolbar; the fold's tree-local tag; the promotion closes only what it moves; the flake verdicts; ⌘⌥L and ⌘⌥K; Earlier letters; the running-round indicator; a finished round is ended and not cancelled; the Source's Status shows publishing only; stale and left-over paragraphs as head lines. *Unanswered* (the owner answered the plan's four questions, below, not the calls).
-17. **The canvas's details cover a pulled-up thing only while the canvas selection is newer than the pull-up** (the C1 fix at this plan's base, which Task 1's fixtures pin). *Unanswered.*
+1. **A piece that would not read draws a hollow ring labelled "Could not be read"** (RULING-54's honesty rule; cost if wrong: one more glyph in the tree). *Not yet confirmed.*
+2. **The dot is accent, at the row's trailing edge**, not the plan's secondary grey beside the stage dot (the draft stage dot is already grey). Implementer's call. *Confirmed, 2026-11-22* (owed items 8 and 9: the colour, and three dots for one marked chapter, are fine).
+3. **Filing settles a change**: Keep mine and Make it a rule leave the list like Fine; the change stays in the report. *Not yet confirmed.*
+4. **Compile: only problems that stopped a book are listed and mark the editions**; warnings stay behind Show Problems, so list and mark agree. *Not yet confirmed.*
+5. **A question clicked in an edition's list opens its paragraph in the edition's language.** Follows the owner's answer 3 of 2026-11-21. *Confirmed in substance* (that answer).
+6. **Run Whole Book's cost is shown on the head's scope line, measured only while idle, with no confirm dialog.** *Not yet confirmed.*
+7. **Reading must not cost Undo**: type, switch to a language, switch back, ⌘Z works. Its consequence: no undo at all while reading. *Confirmed, 2026-11-22* (owed item 2, as built).
+8. **The arrow rule**: an arrow selects at once; it pulls up after a ~300 ms settle and only if the right column is showing; Return or Space pulls up now and reveals; Back records settled pulls only. *Confirmed by the owner's hand check, 2026-11-22* ("look good").
+9. **A palette card both pinned and inside a region lists under Palette** (the shelf's first claim); the misleading code comment was fixed. *Confirmed, 2026-11-22* (owed item 5: leave).
+10. **The insertion line is built** by sampling the pointer against the row's frame while targeted. *Confirmed by the owner's hand check, 2026-11-22* ("look good").
+11. **One promotion at a time per Collection**, refused at entry. *Not yet confirmed.*
+12. **A ledger written before `latestByPiece` falls back to the ring's finished rounds.** Implementer's call. *Not yet confirmed.*
+13. **A failed or refused compile with problems covers the centre with them**; a warnings-only book does not. Implementer's call, from hand check 4's wording. *Confirmed, 2026-11-22* (owed item 3, as built).
+14. **Adding a language the book already has selects that edition** and shows its Brief, rather than an alert. *Not yet confirmed.*
+15. **The Book row rolls up everything inside it.** *Confirmed* (the owner's instruction, relayed during Task 3).
+16. **The plan's own calls** (the plan's "Calls made in this plan", 1–13): the design proposal in every edition; changes and glossary proposals carry the round's lifetime; source under each paragraph on by default; the view switch in the toolbar; the fold's tree-local tag; the promotion closes only what it moves; the flake verdicts; ⌘⌥L and ⌘⌥K; Earlier letters; the running-round indicator; a finished round is ended and not cancelled; the Source's Status shows publishing only; stale and left-over paragraphs as head lines. *The Source's Status confirmed, 2026-11-22* (owed item 11, plus its line to the Book's Status); *every other call not yet confirmed* (the owner answered the plan's four questions, below, not the calls).
+17. **The canvas's details cover a pulled-up thing only while the canvas selection is newer than the pull-up** (the C1 fix at this plan's base, which Task 1's fixtures pin). *Not yet confirmed.*
+18. **The closing round's own calls** (section 15): the three source keys over a piece read in a language read it in Source first; Brief stays the piece's one brief and says "· Source brief"; Undo's title while reading; a removed edition's language leaves the switch and MCP's status too; removal refuses on a round of unknown language and on this window's compile only. *Not yet confirmed.*
 
 **The owner's answers (2026-11-21):** the designer's Run at the head of the Source edition's To resolve; a chapter read in a language stays in it on the next chapter when it has the translation; a click on a chapter in an edition's Status opens it in the edition's language; drop-target feedback and the Canvas row's drop join the fold's task; Brief's how-to lines go ([ADR 0037](0037-brief-and-the-pulled-up-thing.md) decision 22).
 
 ## Owed to the owner
 
-The list the controller gave the owner on 2026-11-22, with the controller's recommendation ("as built" means leave it), and the owner's answers the same day.
+The sixteen items the controller put to the owner on 2026-11-22, and the owner's answers the same day. Nothing on this list is still open.
 
-**Behaviour**
+1. **Remove Edition** (no way to remove an edition; a mistyped tag was permanent). *Agreed:* add it; it hides the edition, keeps its translations, and asks first. **Built in the closing round** (section 15).
+2. **Undo is barred window-wide while reading a translation.** *Agreed as built* (now titled so the writer knows why, section 15).
+3. **A failed compile's problems cover the centre at once.** *Agreed as built.*
+4. **Cast changes need edit permission on the edition's brief.** *Agreed as built.*
+5. **A palette card pinned to a chapter and inside its region lists once, under Palette.** *Agreed: leave.*
+6. **A change that exists only in a translation dots the edition's row, not the chapter's.** *Agreed as built.*
+7. **"Changes" or "To look at"?** *Agreed: "To look at".* **Renamed in the closing round** (section 15).
+8. **The tree dot's colour, the same accent as the right column's unread dot.** *Fine as built.*
+9. **Three dots for one marked chapter (chapter, Part, Book).** *Fine as built.*
+10. **Brief's foot one size smaller; History without its clock.** *Fine as built.*
+11. **The Source edition's Status shows only publishing.** *Agreed: leave,* plus one line linking to the Book's Status. **Built in the closing round.**
+12. **Permissions narrowed** (tags, targets, links and Publishing need restructure permission). *Fine as built.*
+13. **Rewind works only on the open piece.** *Agreed: keep,* plus an "Open this chapter to rewind it" button where Rewind is missing. **Built in the closing round.**
+14. **Opening an intent or History in the centre clears the chapter's typing Undo.** *Fine.*
+15. **Lock and the manuscript text.** *Resolved by design:* Lock is replaced by Read-through (`docs/superpowers/specs/2026-11-22-read-through-design.md`), its own plan; not built here.
+16. **Small wording.** "Details of …" stays; ⌘[ is **Back** (built in the closing round); "… is running" is superseded by the toolbar's running-round indicator; a piece is named by the project's own word (chapter, piece, story) — plan 5's wording pass.
 
-1. **Remove Edition.** There is no way to remove an edition, so a mistyped language tag is permanent. Recommended: add it; hide the edition and keep its translations on disk; confirm first. *Answered: agreed as recommended.* **Owed work, not yet built.**
-2. **Undo while reading a translation.** Undo and Redo are disabled window-wide while the window shows a translation, including undoing a right-column act (resolving a note); history returns in Source. Recommended: as built. *Answered: as built.*
-3. **A failed compile's problems cover the centre at once**, without pressing Show Problems. Recommended: as built. *Answered: as built.*
-4. **Cast changes need edit permission on the edition's brief** (Add Language, renames); a reviewer sees none of them, where the desk never hid them. Recommended: as built. *Answered: as built.*
-5. **A palette card both pinned to a chapter and inside one of its regions lists once, under Palette** (linked research cards already behave so). Recommended: leave. *Answered: leave.*
-6. **A change that exists only in the Spanish dots the Spanish edition's row, not the chapter's.** Recommended: as built (a chapter's dot then always means the source needs you). *Answered: as built.*
-
-**Wording and look**
-
-7. **"Changes" or "To look at"** for the chip and the Status column (it also counts paragraphs that departed from the source without the translator touching them). Recommended: "To look at". *Answered: "To look at".* **Owed work, not yet renamed.**
-8. **The tree dot's colour**, the same accent as the right column's "unread" dot. *Answered: fine.*
-9. **Three dots for one marked chapter** (chapter, Part, Book). *Answered: fine.*
-10. **Brief's foot** is one text size smaller than the rest of Brief, and History lost its clock icon. *Answered: fine.*
-11. **The Source edition's Status** shows only publishing; it could carry word counts and stage. *Open.*
-
-**Still open from plans 1–3**
-
-12. **Permissions narrowed**: tags, targets, links and Publishing now need restructure permission; a reviewer could edit them before (Publishing matters most). *Answered: fine as built.*
-13. **Rewind works only on the open piece.** *Open.*
-14. **Opening an intent or History in the centre clears the chapter's typing Undo.** *Answered: fine.*
-15. **Lock: should it also lock manuscript text?** Today it covers research and figures only ([ADR 0035](0035-the-subject-not-the-persona.md) decision 14). *Open.*
-16. **Small wording items**: "Details of …", "Pull Up Previous", the "… is running" line, a short story's piece called "chapter". *Open.*
-
-**Answered outside the list.** On 2026-11-22: (a) the hand checks of the `9896e3cf` build "look good" (a single click on a fold card stays up; the insertion line follows the pointer in a real drag; arrowing with nothing pulled up leaves the column alone); the plan's other hand checks (1–20, the smoke last) are still owed. (b) **Promotion:** "the history should survive in the original; it would be nice for the promoted version to also have the history, notes and translations" — a copy, not a move, of the op log, annotations and translations, its own piece of work planned after plan 4. On 2026-11-21: the plan's questions 1–4 as recommended, and Brief's how-to lines dropped ([ADR 0037](0037-brief-and-the-pulled-up-thing.md) decision 22).
-
-**Rulings above the owner has not yet confirmed:** 1, 3, 4, 6, 11, 12, 14, 16, 17; 7, 8 and 10 only through their consequences or a hand check.
+**Also answered on 2026-11-22.** The hand checks of the `9896e3cf` build "look good": a single click on a fold card stays up; the insertion line follows the pointer in a real drag; arrowing with nothing pulled up leaves the column alone. The plan's other hand checks (1–21, the smoke last) are still owed. **Promotion:** the history survives in the original, and the promoted project should also carry the history, notes and translations — its own plan; not built.
 
 ## Known limits
 
@@ -245,6 +255,7 @@ Not-done minors from every task, each with its reason.
 - **The edition's centre.** A re-click on the already-selected tree row does not re-jump (the `List` delivers no write). `sourceLanguage` and the imprints refresh with the catalog, not on a hand edit of `config.json` while an edition is open. The host stats two files per redraw (never per row).
 - **The edition's To resolve.** A Keep mine draft typed while that chapter's next round lands is refused ("no longer part of this round"), not misfiled. The Source head's Request Changes and Cancel wrap by construction (no live designer to measure). `DesignProposalStore.list()` stays on the main actor (small, `@MainActor` store).
 - **Brief's foot.** Tab's reach to the foot's doors is unverified (hand check 18); VoiceOver reads the Details menu's empty value.
+- **Removing an edition.** The busy check sees this window's compile runner, not a compile another window started. Claude can still write a translation into a removed edition's language over MCP; it stays hidden until the writer adds the language again.
 - **The desk's homes.** The Editions `+` is a one-item menu, the family's shape. ⌘⌥L where the scope has no questions shows To resolve with its filter unchanged.
 - **Reading in a language.** The reading position blinks; VoiceOver's reach of the overlay's elements is unverified; the margin dots have no accessibility element (pre-existing); the toolbar's leading reserve is estimated. A choice made with no `Document` registered sets the language without a place (unpinned).
 - **A piece in a language.** Questions off the open piece read without Reply (plan 2's rule; the head opens the chapter). A closed chapter's translation re-derives only on a translation event. A screenplay read in a language groups by paragraph, not scene. The Earlier letters choice resets when the faces change. The running state's width is unmeasured. The empty line and "N not translated yet" are not joined into one sentence (it would read the translation twice).
@@ -254,12 +265,16 @@ Not-done minors from every task, each with its reason.
 
 ## Not yet built
 
-Plan 5 of the same milestone; the list is in the plan's "Plan 5" section. Nothing above depends on it.
+Nothing above depends on any of these.
 
-- The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
-- The whole-menu review (⌘↓ has no menu item; File ▸ Add Language…; the titles of ⌘⌥L and ⌘⌥K; two "Outline" items, ⌘⌥O and ⌃⌘2; ⌃⌘1/2/3; ⌃⌘L and View ▸ Read In; Show Source Under Translation has no key).
-- The guide, the welcome tour, the cheat sheet and Claude's help text. **The bundled in-app Help still describes the desk and the review pane, and the branch does not merge until it is rewritten.**
-- Figure source-changed items in To resolve.
+- **Read-through**, which replaces Lock (owed item 15; `docs/superpowers/specs/2026-11-22-read-through-design.md`): its own plan. `LockToggle` and Manual Review Mode are unchanged.
+- **Promotion carries the history**: the promoted project gets a copy of the piece's op log, notes and translations, the Collection keeping its own (the owner's answer of 2026-11-22): its own plan.
+- **Plan 5** of the same milestone; the list is in the plan's "Plan 5" section:
+  - The margin setting and the amendment to [ADR 0027](0027-the-compiler-and-the-editor-boundary.md) §1.
+  - The whole-menu review (⌘↓ has no menu item; File ▸ Add Language… and File ▸ Remove Edition…; the titles of ⌘⌥L and ⌘⌥K; two "Outline" items, ⌘⌥O and ⌃⌘2; ⌃⌘1/2/3; ⌃⌘L and View ▸ Read In; Show Source Under Translation has no key).
+  - The guide, the welcome tour, the cheat sheet and Claude's help text. **The bundled in-app Help still describes the desk and the review pane, and the branch does not merge until it is rewritten.**
+  - Figure source-changed items in To resolve.
+  - The piece-noun wording pass (a piece named by the project's own word everywhere; owed item 16).
 
 ## Consequences
 
@@ -268,4 +283,5 @@ Plan 5 of the same milestone; the list is in the plan's "Plan 5" section. Nothin
 - A piece can be read in any language it has, with its source under each paragraph, and its raised items in that language are its To resolve.
 - The tree answers "what needs me?" with nothing open, at a cost measured and moved off the main actor.
 - A Collection window survives a promotion, whatever its outcome.
-- No op-log schema change (`ProjectManifest.currentSchemaVersion` stays 10) and no MaughamCore change: plan 4 forces no paired phone release.
+- No op-log schema change (`ProjectManifest.currentSchemaVersion` stays 10); one additive MaughamCore field (`ProjectManifest.removedEditions`, absent-tolerant): plan 4 forces no paired phone release.
+- An edition can be removed without losing a word of it.

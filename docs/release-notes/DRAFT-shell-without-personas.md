@@ -9,16 +9,19 @@ _Draft for the release of the shell branch (`claude/shell-without-personas`). No
 - **Each edition is its own place.** Select an edition under Editions in the tree:
   - Its centre shows its own compiled book (only books in its language). Click a chapter in the tree and the book scrolls to where that chapter starts.
   - Compile… and the imprint picker sit in the book's header. If a compile fails, its problems cover the book until you deal with them.
-  - Status for an edition shows, per chapter, how much is translated, the latest round, open questions, changes to look at, the trend and the publishing settings.
-  - To resolve lists the edition's questions, the translator's changes, glossary proposals, design proposals and compile problems, with the translator's latest letter and Run Whole Book at the top. Run Whole Book says what it will run and roughly what it costs before you press it.
+  - Status for an edition shows, per chapter, how much is translated, the latest round, open questions, what the last round left to look at, the trend and the publishing settings. The Source edition's Status shows the publishing settings, with a link to the Book's Status for the rest.
+  - To resolve lists the edition's questions, what the round left to look at (the "To look at" filter), glossary proposals, design proposals and compile problems, with the translator's latest letter and Run Whole Book at the top. Run Whole Book says what it will run and roughly what it costs before you press it.
   - The edition's Brief holds its brief and its cast. Rename the translator, reader or collator there (Cast ▸ Change…); the designer is on the Source edition's Brief.
 - **Add a language from the tree.** The `+` beside Editions, the Source edition's menu, or File ▸ Add Language…. The Department desk is gone; everything it did lives on the edition.
+- **Remove an edition.** Right-click a translated edition, or File ▸ Remove Edition…. Maugham asks first. The edition is hidden, and its translations, rounds, brief and cast stay in the project: add the language again and it all comes back.
 - **Read a chapter in any language it has.** On a translated chapter, the toolbar's language switch (or View ▸ Read In, or ⌃⌘L) shows the chapter in that language with your original in grey under each paragraph. Paragraphs out of date are marked amber; ones not yet translated show your text, lighter. The translation is read-only. To change it, write in Source; the next round carries it over. Turn the grey lines off with View ▸ Show Source Under Translation. Moving to the next chapter keeps the language when that chapter has it.
-- **A chapter in a language has its own To resolve.** It lists that language's questions and the round's changes, headed by that chapter's own latest letter, with Run for just this chapter, the paragraphs out of date as links, and translations left over from deleted paragraphs, which you can clear. Separate translation review is gone.
+- **A chapter in a language has its own To resolve.** It lists that language's questions and what the round left to look at, headed by that chapter's own latest letter, with Run for just this chapter, the paragraphs out of date as links, translations left over from deleted paragraphs (which you can clear), and a link to the chapter in that edition's compiled book. ⌘⌥A, ⌘⌥D and ⌘⌥T switch the chapter back to Source to show its notes and to-dos. Separate translation review is gone.
 - **Earlier letters.** When more than one editor has written to a chapter, the head of To resolve offers their earlier letters.
 - **The toolbar says what's running.** While a translation round or an editor's round runs, the toolbar names it in every window on the book. Click it to go to that chapter.
 - **Keyboard and dragging in the tree.** Arrow keys move through a chapter's cards, pictures, regions and research. Pause on one and it replaces what's pulled up, if something is. Return pulls it up now. ⌘↓ opens it in the centre. While you drag, the tree shows where the drop will land: a line between rows, or a dashed outline on the row it goes into. Drag a capture, note or picture onto the Canvas row to put it on the canvas.
 - **A script in a Collection shows its scenes** at the top of its fold.
+- **History of a chapter that isn't open** says "Open this chapter to rewind it" where Rewind… would be.
+- **View ▸ Back (⌘[)** is the new name for Pull Up Previous.
 
 ## Fixes
 
@@ -29,15 +32,14 @@ _Draft for the release of the shell branch (`claude/shell-without-personas`). No
 
 ## Known issues
 
-- While you read a chapter in a translation, Undo does nothing in that window. Switch back to Source to undo.
-- An edition can't be removed once added.
+- While you read a chapter in a translation, Undo is off in that window (the menu says "Undo — Returns in Source"). Switch back to Source to undo.
 - A change made only in a translation dots the edition in the tree, not the chapter.
 - A book compiled before Maugham 0.33 has no paragraph anchors, so its edition can't scroll to chapters: compile it again.
 - Clicking a chapter that's already selected in the tree doesn't scroll the edition's book back to it; use the "starts on page N" link in the book's header.
 
 ## Technical notes
 
-- **No op-log schema change.** `ProjectManifest.currentSchemaVersion` is still 10, and plan 4 changed no MaughamCore source file, so this part needs no paired phone release.
+- **No op-log schema change.** `ProjectManifest.currentSchemaVersion` is still 10, so this part needs no paired phone release. The manifest gains one optional key, `removedEditions` (the editions the writer removed); an older build that saves the manifest drops it, and the removed edition shows again, with nothing lost.
 - **The translation rounds ledger** (`.maugham/translations/rounds/<lang>.json`, synced) gained optional fields: `latestByPiece` (each chapter's latest finished round), and on each round `translatorName` and, on a change, `ruled`. An older build on a second Mac that rewrites the ledger drops them; the newer build's next round restores each chapter's letter. Chapters whose letter has aged out of the ring of ten show no letter until then.
 - **The diagnostics sidecar** (per device) gained `latestRoundByPass`: each review pass's latest superseded round, letter included.
 - **MCP:** `translation_status`'s `last_round` is now the latest *finished* round for that chapter and language; a cancelled round is no longer reported (a failed one still is, with `stopped_at`). The `translation-pass` and `edition-brief` skills and the `propose_edition_brief` response no longer mention the desk; they point at the edition's To resolve and Brief.
