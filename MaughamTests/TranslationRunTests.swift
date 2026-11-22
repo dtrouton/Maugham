@@ -605,6 +605,18 @@ final class TranslationRunTests: XCTestCase {
         XCTAssertNil(log.run(docId: "doc-2", language: "es"))
     }
 
+    /// **A rename re-signs no past letter** (review M3): a round keeps the
+    /// name it was signed with; a round recorded before names were kept
+    /// reads today's.
+    func test_aPastLetterKeepsTheNameItWasSignedWith() {
+        var round = TranslationRound(number: 1, language: "es", docId: "doc-1", startedAt: Date())
+        XCTAssertEqual(round.signedBy(liveName: "Ana"), "Ana", "an old round reads today's name")
+        round.translatorName = "Cortázar"
+        XCTAssertEqual(round.signedBy(liveName: "Ana"), "Cortázar", "renamed since: the letter keeps its byline")
+        XCTAssertEqual(ResolveEditionItems.signature(translator: round.signedBy(liveName: "Ana"),
+                                                     chapter: nil, round: round).hasPrefix("\u{2014} Cortázar"), true)
+    }
+
     /// **What Cancel now promises, and what it stopped promising.**
     ///
     /// Before the pipeline a round was one translator call, so cancelling it
@@ -1152,6 +1164,9 @@ final class TranslationRunTests: XCTestCase {
                 .latest(language: "es", docId: "doc-1") != nil
         }
         XCTAssertTrue(filed, "the round the pipeline ran was never filed")
+        XCTAssertEqual(TranslationRoundStore(projectURL: fixture.projectURL)
+            .latest(language: "es", docId: "doc-1")?.translatorName, "Cortázar",
+            "the round is signed with the name the cast had when it ran (review M3)")
         pipeline.cancel()
         await fixture.documentStore.close()
     }

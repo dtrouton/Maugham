@@ -1489,6 +1489,10 @@ private struct BinderTreeSectionsPresentations: ViewModifier {
             .onProjectEvent(.maughamPublishInitialized, url: store.url, window: nil) { _ in
                 state.translationRevision += 1
             }
+            // A proposed edition brief lists the Source (fix round I1).
+            .onProjectEvent(.maughamStatementProposalsChanged, url: store.url, window: nil) { _ in
+                state.translationRevision += 1
+            }
             // The deferred rename, committed when the row it names exists. Both
             // triggers are needed and either alone is incomplete: the manifest
             // may arrive after the request, or the request after the manifest.

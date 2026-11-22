@@ -229,6 +229,45 @@ final class EditionStatusCostTests: XCTestCase {
                       centreBefore, centre)
     }
 
+    /// **Run Whole Book's figure** (shell p4 Task 7 fix round, I2): every
+    /// chapter closed with one Spanish paragraph; the first read (off the
+    /// main actor) and a second over the unchanged book (the cache's
+    /// fingerprint check) — wall time and the longest main-actor hold.
+    private func preflightProbe(chapters: Int) async throws -> String {
+        let book = try await ResolvePresenceTests.book(in: temp.url, chapters: chapters,
+                                                       noted: Set(0..<chapters))
+        for id in book.ids {
+            let state = try book.store.derivedCache.state(forDocId: id, in: book.url)
+            let first = try XCTUnwrap(state.sequence.first)
+            try await TranslationStore.append(
+                TranslationRecord(paragraphId: first, language: "es", text: "Uno.",
+                                  sourceHash: TranslationHash.hash(state.paragraphs[first] ?? ""),
+                                  verbatim: false),
+                forDocId: id, identity: LocalIdentities.current.translator, identities: .current,
+                in: book.url)
+        }
+        let idle = await longestStall { try? await Task.sleep(for: .milliseconds(30)) }
+        let clock = ContinuousClock()
+        var firstWall = 0.0
+        let first = await longestStall {
+            let start = clock.now
+            _ = await TranslationPreflight.editionBudget(documentIds: book.ids, language: "es",
+                                                         store: book.store, documentStore: book.documentStore)
+            firstWall = self.ms(clock.now - start)
+        }
+        var againWall = 0.0
+        let again = await longestStall {
+            let start = clock.now
+            _ = await TranslationPreflight.editionBudget(documentIds: book.ids, language: "es",
+                                                         store: book.store, documentStore: book.documentStore)
+            againWall = self.ms(clock.now - start)
+        }
+        await book.documentStore.close()
+        return String(format: "%d chapters (heartbeat floor %.1f ms) — first read: wall %.1f ms, longest main-actor "
+                      + "hold %.1f ms; cached: wall %.1f ms, hold %.1f ms",
+                      chapters, idle, firstWall, first, againWall, again)
+    }
+
     /// The longest gap a 1 ms main-actor heartbeat sees while `work` runs —
     /// the most the main actor was held at once.
     private func longestStall(_ work: () async -> Void) async -> Double {
@@ -267,6 +306,9 @@ final class EditionStatusCostTests: XCTestCase {
                      "SELECTING AN EDITION (the list's read; questions from the walk vs the presence read)",
                      try await switchProbe(chapters: 30),
                      try await switchProbe(chapters: 200),
+                     "RUN WHOLE BOOK'S FIGURE (one edition, off the main actor, cached)",
+                     try await preflightProbe(chapters: 30),
+                     try await preflightProbe(chapters: 200),
                      "ONE VERB (main actor)",
                      try await verbProbe(chapters: 30),
                      try await verbProbe(chapters: 200)].joined(separator: "\n")

@@ -40,6 +40,9 @@ enum ResolvePresence {
         /// Edition rows whose To resolve holds anything, by language (shell
         /// p4 Task 6; `ResolveEditionItems.markedEditions`).
         var editions: Set<String> = []
+        /// Edition rows a brief proposal waits for, by lowercased language
+        /// (fix round I4; the watch reads `StatementProposalStore`).
+        var proposedBriefs: Set<String> = []
 
         static let none = Marks(pieces: [], book: false, scenes: [])
     }
@@ -153,6 +156,21 @@ enum ResolvePresence {
         case .edition(let language):
             return marks.editions.contains(language) ? .something : .quiet
         }
+    }
+
+    /// **Whether a row carries the "Proposed" word** (fix round I4) — beside,
+    /// never instead of, `rowMark`'s dot. Only an edition row has one.
+    static func proposalMark(_ row: Row, in marks: Marks) -> Bool {
+        guard case .edition(let language) = row else { return false }
+        return marks.proposedBriefs.contains(language.lowercased())
+    }
+
+    /// The languages a pending edition-brief proposal names, lowercased.
+    static func proposedBriefLanguages(_ proposals: [StatementProposalStore.Proposal]) -> Set<String> {
+        Set(proposals.compactMap {
+            if case .editionBrief(let language) = $0.kind { return language.lowercased() }
+            return nil
+        })
     }
 
     /// **What the presence read also answers for the editions** (shell p4
@@ -753,6 +771,8 @@ struct ResolvePresenceWatch: View {
     /// once per `EditionMarkKey`, the ledgers off the main actor.
     @State private var roundsLeaveSomething: Set<String> = []
     @State private var designPending = false
+    /// Languages a brief proposal waits for (fix round I4).
+    @State private var proposedBriefs: Set<String> = []
     @State private var editionHeard = 0
     /// The walk the reader asked for.
     @State private var request: ResolveChunkedWalk.Request?
@@ -796,6 +816,7 @@ struct ResolvePresenceWatch: View {
             questionLanguages: ResolveEditionItems.questionLanguages(reader.snapshot),
             roundsLeaveSomething: roundsLeaveSomething,
             bookLevel: designPending || compileProblems)
+        marks.proposedBriefs = proposedBriefs
         if state.presence != marks { state.presence = marks }
         if state.openToDos != reader.openToDos { state.openToDos = reader.openToDos }
         let reading = ResolvePresence.bookReading(reader.snapshot, complete: reader.hasFinishedAWalk)
@@ -839,11 +860,17 @@ struct ResolvePresenceWatch: View {
                 guard !Task.isCancelled else { return }
                 roundsLeaveSomething = leaving
                 designPending = ResolveEditionItems.hasPendingProposal(projectURL: url)
+                proposedBriefs = ResolvePresence.proposedBriefLanguages(
+                    StatementProposalStore(projectURL: url).pendingAll())
                 publish()
             }
             .onChange(of: compileProblems) { _, _ in publish() }
             .onChange(of: state.editionRows) { _, _ in publish() }
             .onProjectEvent(.maughamDesignProposalsChanged, url: url, window: window) { _ in
+                editionHeard &+= 1
+            }
+            // A brief proposed, adopted or discarded: the "Proposed" word.
+            .onProjectEvent(.maughamStatementProposalsChanged, url: url, window: window) { _ in
                 editionHeard &+= 1
             }
             .onProjectEvent(.maughamTranslationRoundEnded, url: url, window: window) { _ in

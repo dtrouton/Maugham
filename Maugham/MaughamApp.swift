@@ -229,6 +229,10 @@ struct MaughamApp: App {
                 Button("Add Research File…") {
                     MaughamEvent.post(.maughamAddResearchFile, to: .keyWindow)
                 }
+                // File ▸ Add Language… (shell p4 Task 7 fix round, I1): the
+                // Editions `+`'s keyboard path, and the way to a first edition
+                // in any book. Plan 5's menu review may move it.
+                FocusedAddLanguageButton()
                 FocusedPromoteButton()
                 Divider()
                 Button("Show Project Statistics") {
@@ -878,6 +882,16 @@ private struct FocusedPullUpPreviousButton: View {
         Button("Pull Up Previous") { MaughamEvent.postPullUpPrevious() }
             .keyboardShortcut("[", modifiers: .command)
             .disabled(offered != true)
+    }
+}
+
+/// File ▸ Add Language…: enabled where the focused window may add one
+/// (`EditionWiring` publishes `EditionCastVerbs.mayAddLanguage`).
+private struct FocusedAddLanguageButton: View {
+    @FocusedValue(\.mayAddLanguage) private var mayAdd
+    var body: some View {
+        Button(EditionCastVerbs.addLanguageTitle) { MaughamEvent.postAddLanguage() }
+            .disabled(mayAdd != true)
     }
 }
 

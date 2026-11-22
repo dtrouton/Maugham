@@ -101,13 +101,23 @@ struct TranslationRoundStore {
     /// Every piece's newest finished round in `language`, keyed by docId —
     /// `latestFinished` for the whole book in one read.
     func latestFinishedByPiece(language: String) -> [String: TranslationRound] {
+        latestFinishedByPieceAndNewest(language: language).byPiece
+    }
+
+    /// **`latestFinishedByPiece` and the language's newest round of ANY
+    /// outcome, from one decode** (shell p4 Task 7 fix round, I3): an
+    /// edition's head says why its newest round stopped above the last
+    /// finished letter.
+    func latestFinishedByPieceAndNewest(language: String)
+    -> (byPiece: [String: TranslationRound], newest: TranslationRound?) {
         let ledger = reading(language) { $0 }
+        let newest = ledger.rounds.max { $0.number < $1.number }
         var byPiece = ledger.latestByPiece
         for round in ledger.rounds where Self.isFinished(round) {
             if let kept = byPiece[round.docId], kept.number >= round.number { continue }
             byPiece[round.docId] = round
         }
-        return byPiece
+        return (byPiece, newest)
     }
 
     /// **`latestFinishedByPiece` and `trendsByPiece` from ONE decode** —

@@ -187,12 +187,22 @@ final class BriefEditionTests: XCTestCase {
                        "\(labels)")
         XCTAssertEqual(labels.filter { $0 == EditionCastVerbs.discardProposalLabel(language: "it") }.count, 1)
 
-        // Discard, called: the slot empties and the Spanish one stands.
-        let refusal = await EditionCastVerbs.discardProposal(
-            language: "it", store: f.store, documentStore: f.documentStore)
+        // Discard, called over the proposal the writer was shown: a proposal
+        // Claude re-staged since is not the one confirmed, and stands.
+        let shown = try XCTUnwrap(StatementProposalStore(projectURL: f.projectURL).pending(for: .editionBrief("it")))
+        let restaged = try StatementProposalStore(projectURL: f.projectURL).stage(.init(
+            kind: .editionBrief("it"), markdown: "y", rationale: "a second thought",
+            proposedAt: Date().addingTimeInterval(5), author: "Claude"))
+        let stale = await EditionCastVerbs.discardProposal(shown, store: f.store, documentStore: f.documentStore)
+        XCTAssertEqual(stale, EditionCastCopy.proposalChanged(language: "it"))
+        XCTAssertEqual(StatementProposalStore(projectURL: f.projectURL).pending(for: .editionBrief("it")), restaged,
+                       "the proposal nobody confirmed is not deleted")
+        let refusal = await EditionCastVerbs.discardProposal(restaged, store: f.store, documentStore: f.documentStore)
         XCTAssertNil(refusal)
         let pending = StatementProposalStore(projectURL: f.projectURL).pendingAll().map(\.kind)
         XCTAssertEqual(pending, [.editionBrief("es")])
+        XCTAssertEqual(EditionCastVerbs.discardQuestion(language: "it"),
+                       "Discard Claude\u{2019}s proposed brief for Italian?", "Discard asks first, naming it")
     }
 
     /// The cast is read here and changed through `EditionCastVerbs` alone:

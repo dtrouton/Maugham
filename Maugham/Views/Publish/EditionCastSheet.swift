@@ -460,6 +460,24 @@ enum EditionCastCopy {
             + ". Change its cast on its Brief."
     }
 
+    /// **An edition started with part of its cast unnamed** (review M1): the
+    /// translator landed, `missing` ("reader", "collator") did not.
+    static func partlyNamed(language: String, missing: [String]) -> String {
+        "The "
+            + TranslationReviewIndicator.displayLabel(forLanguageTag: language)
+            + " edition is started and its translator named, but its "
+            + missing.joined(separator: " and ")
+            + " couldn\u{2019}t be named. Cast \u{25B8} Change\u{2026} on its Brief names "
+            + (missing.count == 1 ? "them" : "them both") + "."
+    }
+
+    /// The proposal changed between the line and the confirmation.
+    static func proposalChanged(language: String) -> String {
+        "Claude\u{2019}s proposal for "
+            + TranslationPipeline.Environment.languageName(tag: language)
+            + " changed since it was shown \u{2014} nothing was discarded. Look again before discarding."
+    }
+
     /// A cast verb this Mac may not perform, refused at the act (the surface
     /// hides it; this is the act's own door, asked again).
     static let mayNotCast =

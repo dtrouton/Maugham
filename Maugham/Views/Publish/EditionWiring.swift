@@ -43,14 +43,18 @@ struct EditionWiring: ViewModifier {
             }
             .focusedSceneValue(\.editionKeyTitle, Self.keyTitle(Self.editionForTheKey(
                 subject: subject, readingLanguage: readingLanguage, editions: editions)))
+            .focusedSceneValue(\.mayAddLanguage, documentStore.map {
+                EditionCastVerbs.mayAddLanguage(documentStore: $0) } ?? false)
             .sheet(item: $addPrompt) { prompt in
                 EditionCastSheet(
                     prompt: prompt,
                     onConfirm: { answer in
                         addPrompt = nil
                         guard let store, let documentStore else { return }
-                        Task { landed(await EditionCastVerbs.addLanguage(
-                            answer: answer, store: store, documentStore: documentStore)) }
+                        let proposed = !prompt.proposedTag.isEmpty
+                        Task { landed(EditionCastVerbs.landing(await EditionCastVerbs.addLanguage(
+                            answer: answer, store: store, documentStore: documentStore),
+                            proposed: proposed)) }
                     },
                     onCancel: { addPrompt = nil })
             }
@@ -62,20 +66,19 @@ struct EditionWiring: ViewModifier {
             }
     }
 
-    /// The edition selected, and To resolve showing what it needs next.
-    private func landed(_ added: EditionCastVerbs.Added) {
-        switch added {
-        case .added(let language):
-            select(.edition(language: language))
-            showToResolve()
-        case .refused(let sentence):
-            refusal = sentence
-        }
+    /// Where Add Language lands (`EditionCastVerbs.landing`).
+    private func landed(_ landing: EditionCastVerbs.Landing) {
+        if let target = landing.select { select(target) }
+        if let shown = landing.position { show(shown) }
+        refusal = landing.alert
     }
 
-    /// To resolve, through the one position-selection act.
-    private func showToResolve() {
-        ProjectWindow.selectPosition(.resolve, showInspector: $showInspector, position: $position)
+    /// To resolve.
+    private func showToResolve() { show(.resolve) }
+
+    /// A position, through the one position-selection act.
+    private func show(_ shown: RightColumnPosition) {
+        ProjectWindow.selectPosition(shown, showInspector: $showInspector, position: $position)
     }
 
     // MARK: - ⌘⌥K, pure
@@ -102,6 +105,15 @@ struct EditionWiring: ViewModifier {
 
     /// The title while the focused window has no edition to show.
     static let keyTitleWithNoEdition = "To Resolve: An Edition"
+}
+
+/// Whether the focused window may add a language (File ▸ Add Language…).
+struct FocusedMayAddLanguageKey: FocusedValueKey { typealias Value = Bool }
+extension FocusedValues {
+    var mayAddLanguage: Bool? {
+        get { self[FocusedMayAddLanguageKey.self] }
+        set { self[FocusedMayAddLanguageKey.self] = newValue }
+    }
 }
 
 /// ⌘⌥K's title in the focused window, or nil where it has no edition

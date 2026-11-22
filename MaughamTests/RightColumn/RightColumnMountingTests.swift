@@ -375,9 +375,9 @@ final class RightColumnMountingTests: XCTestCase {
         // The wiring: the dot follows the proposal slot and its changed event.
         let source = try SourceTree.read("Maugham/Views/RightColumnControl.swift")
         let flat = Self.flat(source)
-        for token in [".pending(for: .visualLanguage) != nil",
+        for token in ["proposed = pending.contains { $0.kind == .visualLanguage }",
                       ".onProjectEvent(.maughamStatementProposalsChanged,",
-                      "VisualLanguageProposalModifier( projectURL: store.url, window: window, proposed: $visualLanguageProposed)"] {
+                      "VisualLanguageProposalModifier( projectURL: store.url, window: window, proposed: $visualLanguageProposed, editionBriefs: $editionBriefsProposed)"] {
             XCTAssertTrue(flat.contains(token), "the proposal dot lost \(token)")
         }
     }

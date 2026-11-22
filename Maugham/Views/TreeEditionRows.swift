@@ -28,8 +28,16 @@ struct TreeEditionRows: View {
     /// resolve holds anything (shell p4 Task 6).
     @Environment(\.resolvePresence) private var presence
 
+    /// **Whether the Editions section is drawn**: while there is an edition
+    /// to list, or while this Mac may add one — a book with no edition yet
+    /// still has the header and its `+` (fix round I1: the first language
+    /// must be reachable). Pure.
+    static func drawsSection(rows: [Row], mayAddLanguage: Bool) -> Bool {
+        !rows.isEmpty || mayAddLanguage
+    }
+
     var body: some View {
-        if !rows.isEmpty {
+        if Self.drawsSection(rows: rows, mayAddLanguage: mayAddLanguage) {
             Section {
                 ForEach(rows) { row in
                     HStack(spacing: 6) {
@@ -42,6 +50,11 @@ struct TreeEditionRows: View {
                             Text("Source")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
+                        }
+                        // A brief Claude proposed for this edition: a word in
+                        // a capsule, never a second dot (fix round I4).
+                        if ResolvePresence.proposalMark(.edition(row.language), in: presence) {
+                            ProposedBriefBadge()
                         }
                         ResolvePresenceMark(ResolvePresence.rowMark(.edition(row.language), in: presence))
                     }
@@ -65,19 +78,17 @@ struct TreeEditionRows: View {
                         .padding(.leading, TreeSectionColumn.chevronlessHeaderInset)
                     Spacer()
                     // **Adding a language is something done to the list of
-                    // editions** (shell p4 Task 7): the header's `+`, drawn
-                    // exactly as Research's (`BinderTreeSections
-                    // .sectionHeader`), so the two sit at one x.
+                    // editions** (shell p4 Task 7): the header's `+`, one
+                    // press — a plain button, since it has one thing to do —
+                    // its glyph where Research's menu draws its own
+                    // (`TreeTopLevelAlignmentTests`).
                     if mayAddLanguage {
-                        SwiftUI.Menu {
-                            addLanguageItem
-                        } label: {
+                        Button { MaughamEvent.postAddLanguage() } label: {
                             Image(systemName: "plus.circle")
                         }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
+                        .buttonStyle(.borderless)
                         .fixedSize()
-                        .padding(.trailing, 14)
+                        .padding(.trailing, Self.plusTrailing)
                         .help(EditionCastVerbs.addLanguageHelp)
                         .accessibilityLabel(EditionCastVerbs.addLanguageTitle)
                     }
@@ -89,6 +100,10 @@ struct TreeEditionRows: View {
             }
         }
     }
+
+    /// The `+` button's trailing inset, so its glyph ends where Research's
+    /// menu glyph does (measured, `TreeTopLevelAlignmentTests`).
+    static let plusTrailing: CGFloat = 17
 
     /// The one Add Language… item: the window's sheet (`EditionWiring`).
     private var addLanguageItem: some View {
@@ -126,20 +141,27 @@ struct TreeEditionRows: View {
         let config = (try? PublishConfigStore.read(in: store.url)) ?? nil
         let source = PublishImprint.sourceLanguage(
             imprint: nil, in: config, pieceIDs: manuscript)
+        let briefProposed = StatementProposalStore(projectURL: store.url).pendingAll().contains {
+            if case .editionBrief = $0.kind { return true }
+            return false
+        }
         return languages(source: source,
                          publishingInitialised: PublishStarter.isInitialized(in: store.url),
-                         translated: translated)
+                         translated: translated, briefProposed: briefProposed)
     }
 
     /// The fold, pure: the source first, then every other language in the
     /// order given, the source not repeated; nothing at all until publishing
     /// is initialised or another language exists.
     nonisolated static func languages(source: String, publishingInitialised: Bool,
-                                      translated: [String]) -> [String] {
+                                      translated: [String],
+                                      briefProposed: Bool = false) -> [String] {
         let others = translated.filter {
             $0.caseInsensitiveCompare(source) != .orderedSame
         }
-        guard publishingInitialised || !others.isEmpty else { return [] }
+        // A brief Claude proposed for an edition the book has not got lists
+        // the Source, whose Brief offers to add it (fix round I1).
+        guard publishingInitialised || briefProposed || !others.isEmpty else { return [] }
         return [source] + others
     }
 
@@ -169,4 +191,27 @@ struct EditionRowsKey: Hashable {
     /// Whether publishing is initialised — initialising it on an older
     /// project stamps no manifest, and it is what brings the source row.
     var publishing: Bool = false
+}
+
+/// **A brief Claude proposed for this edition** (fix round I4): the desk's
+/// "Proposed" word in its capsule, on the edition's row — words, so it can
+/// never be read as the "something to resolve" dot beside it.
+struct ProposedBriefBadge: View {
+    static let title = "Proposed"
+    static let label = "A proposed brief waits on its Brief"
+
+    @Environment(\.backgroundProminence) private var prominence
+
+    var body: some View {
+        Text(Self.title)
+            .font(.caption2)
+            .foregroundStyle(prominence == .increased ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+            .fixedSize()
+            .accessibilityElement()
+            .accessibilityLabel(Self.label)
+            .help(Self.label)
+    }
 }

@@ -1139,7 +1139,7 @@ final class PostureSurfaceTests: XCTestCase {
         let landed = await EditionCastVerbs.addLanguage(
             answer: EditionCastAnswer(language: "it", name: "Calvino"),
             store: store, documentStore: documentStore)
-        XCTAssertEqual(landed, .added(language: "it"), "the book author's Add lands")
+        XCTAssertEqual(landed, .added(language: "it", warning: nil), "the book author's Add lands")
     }
 
     /// **The letter's statement-writing offers ask the DESTINATION** — the

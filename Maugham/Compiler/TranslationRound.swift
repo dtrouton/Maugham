@@ -254,6 +254,12 @@ struct TranslationRound: Codable, Equatable, Sendable {
     /// 9e-2), or nil when the round had none to write. Optional so a round
     /// recorded before cells existed still reads.
     var tableCells: TableCellsRecord?
+    /// **Who the round was signed by, as the cast read when it ran** (shell
+    /// p4 Task 7 fix round, M3). A rename on the edition's Brief applies from
+    /// the next round; a past letter keeps the name it was written under.
+    /// Optional so a round recorded before it existed still reads (and is
+    /// signed by today's name, `signedBy`).
+    var translatorName: String?
 
     /// The cells that landed, and every refusal as the sentence the writer
     /// reads — a table's refused batch is said on the report, never dropped.
@@ -265,6 +271,13 @@ struct TranslationRound: Codable, Equatable, Sendable {
     init(number: Int, language: String, docId: String, startedAt: Date) {
         self.number = number; self.language = language; self.docId = docId
         self.startedAt = startedAt
+    }
+
+    /// The name this round's letter is signed with: the one recorded when it
+    /// ran, else `liveName` (a round from before names were recorded).
+    func signedBy(liveName: String) -> String {
+        translatorName.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 } ?? liveName
     }
 
     /// The leg a failed or cancelled round stopped at, or nil for one that ran

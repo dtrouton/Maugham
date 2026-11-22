@@ -130,14 +130,16 @@ final class ResolveEditionTests: XCTestCase {
         cancelled.legs = [.init(leg: .translate, status: .cancelled)]
         try store.append(cancelled)
 
-        let rounds = ResolveEditionItems.readRounds(projectURL: url, language: "es", isSource: false,
+        let ledger = ResolveEditionItems.readRounds(projectURL: url, language: "es", isSource: false,
                                                     docIds: ["doc-a", "doc-b"])
+        let rounds = ledger.rounds
         XCTAssertEqual(rounds.mapValues(\.number), ["doc-a": 3, "doc-b": 2])
+        XCTAssertEqual(ledger.newest?.number, 5, "the newest round of any outcome: the cancelled one")
         let items = ResolveEditionItems.items(language: "es", isSource: false, docIds: ["doc-a", "doc-b"],
                                               read: .init(language: "es", rounds: rounds))
         XCTAssertEqual(ids(items), ["change:es/doc-a#3/new", "change:es/doc-b#2/b1"])
         XCTAssertEqual(ResolveEditionItems.readRounds(projectURL: url, language: "es", isSource: true,
-                                                      docIds: ["doc-a"]), [:], "the Source reads none")
+                                                      docIds: ["doc-a"]).rounds, [:], "the Source reads none")
     }
 
     /// A settled change (Fine, or the translator's own outcome) and an
@@ -474,6 +476,7 @@ final class ResolveEditionTests: XCTestCase {
         let watch = SourceScan.codeLines(of: try SourceTree.sourceOfType("ResolvePresenceWatch", under: ["Maugham"]))
             .joined(separator: "\n")
         for token in ["marks.editions = ResolveEditionItems.markedEditions(",
+                      "marks.proposedBriefs = proposedBriefs",
                       "ResolveEditionItems.questionLanguages(reader.snapshot)",
                       "Task.detached(priority: .utility)",
                       "ResolveEditionItems.languagesLeavingSomething("] {
@@ -483,6 +486,165 @@ final class ResolveEditionTests: XCTestCase {
         XCTAssertTrue(window.contains(
             "compileProblems: !ResolveEditionItems.stoppingProblems(publishCentre.compileRunner.state).isEmpty"),
                       "the window hands the presence its compile's problems")
+    }
+
+    // MARK: - Fix round: the head's newest round, the "Proposed" mark
+
+    /// **The head says why the newest round stopped** (fix round I3): a
+    /// finished newest round adds nothing; a failed or cancelled one is said
+    /// in its own words above the last finished letter, which is then the
+    /// earlier one; while a round runs, its own leg line speaks instead.
+    func test_theHeadSaysWhyTheNewestRoundStopped() {
+        let lettered = round(3, on: "doc-a", summary: "I kept the rain.")
+        let rounds = ["doc-a": lettered]
+        let now = t.addingTimeInterval(3 * 3600)
+
+        // Finished: nothing stopped, the letter is current.
+        let finished = ResolveEditionItems.headRounds(newest: lettered, rounds: rounds, running: false, now: now)
+        XCTAssertEqual(finished, .init(letter: lettered))
+
+        // Failed while translating, with its reason, newer than the letter.
+        var failed = round(4, on: "doc-b")
+        failed.legs = [.init(leg: .translate, status: .failed, reason: "Claude couldn't be reached")]
+        let afterFailure = ResolveEditionItems.headRounds(newest: failed, rounds: rounds, running: false, now: now)
+        XCTAssertEqual(afterFailure.stopped, failed)
+        XCTAssertEqual(afterFailure.stoppedLine, TranslationRunState.roundLine(failed, now: now))
+        XCTAssertTrue(afterFailure.stoppedLine?.contains("failed while translating \u{2014} Claude couldn't be reached") ?? false,
+                      afterFailure.stoppedLine ?? "")
+        XCTAssertEqual(afterFailure.letter, lettered)
+        XCTAssertTrue(afterFailure.letterIsEarlier, "last week's letter is labelled the earlier one")
+
+        // Cancelled.
+        var cancelled = round(5, on: "doc-a")
+        cancelled.legs = [.init(leg: .read, status: .cancelled)]
+        let afterCancel = ResolveEditionItems.headRounds(newest: cancelled, rounds: rounds, running: false, now: now)
+        XCTAssertTrue(afterCancel.stoppedLine?.contains("cancelled while reading") ?? false)
+        XCTAssertTrue(afterCancel.letterIsEarlier)
+
+        // Running: the stopped line gives way to the run's own.
+        XCTAssertEqual(ResolveEditionItems.headRounds(newest: failed, rounds: rounds, running: true, now: now),
+                       .init(letter: lettered))
+
+        // A failed round's own partial letter is not "earlier".
+        var partial = failed
+        partial.summary = "Half of it."
+        let ownLetter = ResolveEditionItems.headRounds(newest: partial, rounds: ["doc-b": partial],
+                                                       running: false, now: now)
+        XCTAssertEqual(ownLetter.letter, partial)
+        XCTAssertFalse(ownLetter.letterIsEarlier)
+    }
+
+    /// **The head's read carries the newest round of any outcome** — one
+    /// decode with the finished map — and only the book's own pieces'.
+    func test_theReadCarriesTheNewestRoundOfAnyOutcome() throws {
+        let url = try projectURL()
+        let store = TranslationRoundStore(projectURL: url)
+        try store.append(round(1, on: "doc-a", summary: "ok"))
+        var failed = round(2, on: "doc-a")
+        failed.legs = [.init(leg: .translate, status: .failed, reason: "no")]
+        try store.append(failed)
+        XCTAssertEqual(ResolveEditionItems.readRounds(projectURL: url, language: "es", isSource: false,
+                                                      docIds: ["doc-a"]).newest?.number, 2)
+        try store.append(round(3, on: "doc-gone"))
+        XCTAssertEqual(ResolveEditionItems.readRounds(projectURL: url, language: "es", isSource: false,
+                                                      docIds: ["doc-a"]).newest, nil,
+                       "a round on a piece the book no longer holds is not the head's")
+    }
+
+    /// **The edition's row carries "Proposed" while a brief proposal waits**
+    /// (fix round I4), beside — never instead of — the dot; only an edition
+    /// row has it. And Brief's segment dot is lit for the faced edition.
+    func test_aProposedBriefMarksItsEditionsRowAndBrief() throws {
+        let proposals: [StatementProposalStore.Proposal] = [
+            .init(kind: .editionBrief("ES"), markdown: "x", rationale: nil, proposedAt: t, author: "Claude"),
+            .init(kind: .visualLanguage, markdown: "x", rationale: nil, proposedAt: t, author: "Claude"),
+        ]
+        var marks = ResolvePresence.Marks.none
+        marks.proposedBriefs = ResolvePresence.proposedBriefLanguages(proposals)
+        XCTAssertEqual(marks.proposedBriefs, ["es"])
+        XCTAssertTrue(ResolvePresence.proposalMark(.edition("es"), in: marks))
+        XCTAssertFalse(ResolvePresence.proposalMark(.edition("sr"), in: marks))
+        XCTAssertFalse(ResolvePresence.proposalMark(.book, in: marks))
+        XCTAssertEqual(ResolvePresence.rowMark(.edition("es"), in: marks), .quiet,
+                       "the proposal is its own word, not the something-to-resolve dot")
+        XCTAssertEqual(ProposedBriefBadge.title, "Proposed")
+        XCTAssertTrue(RightColumnControl.briefProposalPending(
+            visualLanguage: false, editionBriefs: ["es"], faces: .edition(language: "ES")))
+        XCTAssertFalse(RightColumnControl.briefProposalPending(
+            visualLanguage: false, editionBriefs: ["es"], faces: .edition(language: "sr")))
+        XCTAssertFalse(RightColumnControl.briefProposalPending(
+            visualLanguage: false, editionBriefs: ["es"], faces: .item("ch-1")))
+        XCTAssertTrue(RightColumnControl.briefProposalPending(
+            visualLanguage: true, editionBriefs: [], faces: .project))
+
+        // Wired: the row reads the mark, the watch reads the proposals and
+        // hears their event, the control reads them for Brief's dot.
+        let rows = SourceScan.codeLines(of: try SourceTree.sourceOfType("TreeEditionRows", under: ["Maugham"]))
+            .joined(separator: "\n")
+        XCTAssertTrue(rows.contains("if ResolvePresence.proposalMark(.edition(row.language), in: presence) {"))
+        let watch = SourceScan.codeLines(of: try SourceTree.sourceOfType("ResolvePresenceWatch", under: ["Maugham"]))
+            .joined(separator: "\n")
+        for token in ["marks.proposedBriefs = proposedBriefs",
+                      "proposedBriefs = ResolvePresence.proposedBriefLanguages(",
+                      ".onProjectEvent(.maughamStatementProposalsChanged, url: url, window: window)"] {
+            XCTAssertTrue(watch.contains(token), token)
+        }
+        let control = SourceScan.codeLines(of: try SourceTree.sourceOfType("RightColumnControl", under: ["Maugham"]))
+            .joined(separator: "\n")
+        XCTAssertTrue(control.contains("editionBriefs: $editionBriefsProposed"))
+    }
+
+    /// **Run Whole Book says what it will cost** (fix round I2): the figure
+    /// on the scope line and in the help, or the refusal in its place; taken
+    /// only while no round runs.
+    func test_runWholeBookSaysWhatItWillCost() {
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 12, imprint: "Volume One", preflight: .words(84_000)),
+                       "Runs the 12 chapters of \u{201C}Volume One\u{201D}, the imprint chosen above the book"
+                       + " \u{00b7} 7 legs \u{00b7} ~84,000 words briefed.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil, preflight: .words(900)),
+                       "Runs every chapter of the book: 3 chapters \u{00b7} 7 legs \u{00b7} ~900 words briefed.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil, preflight: .unreadable("x.json won't read")),
+                       "Runs every chapter of the book: 3 chapters \u{00b7} x.json won't read.")
+        XCTAssertEqual(ResolveEditionItems.runScopeLine(count: 3, imprint: nil),
+                       "Runs every chapter of the book: 3 chapters.", "no figure yet: no clause")
+        XCTAssertTrue(TranslationPreflight.refillsBudgets(pipeline: .idle))
+        XCTAssertFalse(TranslationPreflight.refillsBudgets(
+            pipeline: .running(docId: "d", language: "es", leg: .translate, book: nil)))
+    }
+
+    /// **The edition's figure is `budget`'s, read off the main actor and
+    /// cached** (fix round I2): the same words the main-actor door counts; a
+    /// second read over the unchanged book counts nothing; a translation
+    /// written moves it.
+    func test_theEditionFigureIsBudgetsReadOffTheMainActorAndCached() async throws {
+        let book = try await ResolvePresenceTests.book(in: TestTemp.root, chapters: 3, noted: [0, 1, 2])
+        let reference = try await TranslationPreflight.budget(
+            documentIds: book.ids, language: "es", store: book.store,
+            documentStore: book.documentStore, projectURL: book.url)
+        let first = await TranslationPreflight.editionBudget(
+            documentIds: book.ids, language: "es", store: book.store, documentStore: book.documentStore)
+        XCTAssertEqual(first, reference.map { .words($0) }, "the main-actor door's own figure")
+        let counted = EditionBudgetCache.computed
+        let again = await TranslationPreflight.editionBudget(
+            documentIds: book.ids, language: "es", store: book.store, documentStore: book.documentStore)
+        XCTAssertEqual(again, first)
+        XCTAssertEqual(EditionBudgetCache.computed, counted, "an unchanged book is not read again")
+
+        let state = try book.store.derivedCache.state(forDocId: book.ids[0], in: book.url)
+        let paragraph = try XCTUnwrap(state.sequence.first)
+        try await TranslationStore.append(
+            TranslationRecord(paragraphId: paragraph, language: "es", text: "Capítulo cero, con muchas palabras más.",
+                              sourceHash: TranslationHash.hash(state.paragraphs[paragraph] ?? ""), verbatim: false),
+            forDocId: book.ids[0], identity: LocalIdentities.current.translator, identities: .current,
+            in: book.url)
+        let after = await TranslationPreflight.editionBudget(
+            documentIds: book.ids, language: "es", store: book.store, documentStore: book.documentStore)
+        let fresh = try await TranslationPreflight.budget(
+            documentIds: book.ids, language: "es", store: book.store,
+            documentStore: book.documentStore, projectURL: book.url)
+        XCTAssertEqual(after, fresh.map { .words($0) }, "a translation written moves the figure")
+        XCTAssertEqual(EditionBudgetCache.computed, counted + 1)
+        await book.documentStore.close()
     }
 
     // MARK: - Mounted: an edition faced shows its own list

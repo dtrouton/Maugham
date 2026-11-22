@@ -149,15 +149,25 @@ final class TreeTopLevelAlignmentTests: XCTestCase {
         XCTAssertGreaterThan(research.titleInk, research.chevron.maxX - 1,
                              "the title must clear its chevron")
 
-        // And the `+` menus share their trailing edge — Editions' too, its
-        // Add Language (shell p4 Task 7).
+        // And the `+` glyphs end at one x: Research's menu, the Palette's,
+        // and the Editions header's plain button (shell p4 Task 7 fix round).
         let menus = Shot.descendants(of: shot.content)
             .filter { String(describing: type(of: $0)).contains("SwiftUIPopupButton") }
             .map { $0.convert($0.bounds, to: shot.content) }
-        XCTAssertEqual(menus.count, 3, "premise: Research's `+`, the Palette's and the Editions'")
-        let ends = menus.map(\.maxX)
-        XCTAssertLessThanOrEqual((ends.max() ?? 0) - (ends.min() ?? 0), 1,
-                                 "the `+` menus end at \(ends)")
+        XCTAssertEqual(menus.count, 2, "premise: Research's `+` and the Palette's are menus")
+        if menus.count == 2 {
+            XCTAssertEqual(menus[0].maxX, menus[1].maxX, accuracy: 1,
+                           "the `+` menus end at \(menus.map(\.maxX))")
+        }
+        let headers = shot.headerRows()
+        let researchHeader = try XCTUnwrap(headers.first, "premise: Research's header is drawn")
+        let editionsHeader = try XCTUnwrap(headers.last, "premise: the Editions header is drawn")
+        func lastInk(_ header: NSView) throws -> CGFloat {
+            let frame = header.convert(header.bounds, to: shot.content)
+            return try XCTUnwrap(shot.inkRuns(in: frame).last, "a header drew nothing").upperBound
+        }
+        XCTAssertEqual(try lastInk(editionsHeader), try lastInk(researchHeader), accuracy: 1,
+                       "the Editions `+` glyph ends where Research's does")
     }
 
     /// **Each section's rows sit beneath its title, at one depth**: a
@@ -371,11 +381,8 @@ private struct Shot {
     /// Where the Editions header's text starts: the drawn header with no
     /// button in it.
     func editionsHeader() throws -> CGFloat {
-        let header = try XCTUnwrap(headerRows().first { header in
-            !Shot.descendants(of: header).contains {
-                String(describing: type(of: $0)).contains("FocusRing")
-            }
-        }, "no chevron-less header is drawn")
+        // The last drawn header: the Editions section is the tree's last.
+        let header = try XCTUnwrap(headerRows().last, "no Editions header is drawn")
         let frame = header.convert(header.bounds, to: content)
         return try XCTUnwrap(inkRuns(in: frame).first, "Editions drew nothing").lowerBound
     }

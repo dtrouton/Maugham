@@ -127,10 +127,36 @@ enum EditionCastVerbs {
 
     /// What Add Language did.
     enum Added: Equatable {
-        /// The edition exists now, its translator named.
-        case added(language: String)
+        /// The edition exists now, its translator named. `warning` says what
+        /// of the rest of its cast could not be named (review M1), else nil.
+        case added(language: String, warning: String?)
+        /// The book already has this edition: nothing is written, and the
+        /// window goes to that edition's Brief, where its cast is changed.
+        case existing(language: String)
         /// Nothing was added; the sentence says why.
         case refused(String)
+    }
+
+    /// **Where Add Language lands** (fix round): a new edition selected, on
+    /// its Brief when a proposed brief brought the writer here (it waits
+    /// there) else on To resolve (Run Whole Book is the next step); an
+    /// edition the book has, selected on its Brief; a refusal said. Pure.
+    struct Landing: Equatable {
+        var select: BinderSubject?
+        var position: RightColumnPosition?
+        var alert: String?
+    }
+
+    nonisolated static func landing(_ added: Added, proposed: Bool) -> Landing {
+        switch added {
+        case .added(let language, let warning):
+            return Landing(select: .edition(language: language),
+                           position: proposed ? .brief : .resolve, alert: warning)
+        case .existing(let language):
+            return Landing(select: .edition(language: language), position: .brief, alert: nil)
+        case .refused(let sentence):
+            return Landing(select: nil, position: nil, alert: sentence)
+        }
     }
 
     /// Whether `tag` already has an edition: a language the tree lists, or a
@@ -156,15 +182,17 @@ enum EditionCastVerbs {
         guard StatementSurfaceVerbs.offered(under: posture) else {
             return .refused(EditionCastCopy.mayNotCast)
         }
-        if alreadyAnEdition(language, editions: TreeEditionRows.languages(store: store),
-                            manifest: store.manifest) {
-            return .refused(EditionCastCopy.alreadyAnEdition(language: language))
+        let editions = TreeEditionRows.languages(store: store)
+        if alreadyAnEdition(language, editions: editions, manifest: store.manifest) {
+            return .existing(language: editions.first {
+                $0.caseInsensitiveCompare(language) == .orderedSame } ?? language)
         }
         let named = await nameCast(language: language, answer: answer, store: store)
         guard named.translatorNamed else {
             return .refused(named.failure ?? EditionCastCopy.mintFailed(language: language))
         }
-        return .added(language: language)
+        return .added(language: language, warning: named.missing.isEmpty ? nil
+            : EditionCastCopy.partlyNamed(language: language, missing: named.missing))
     }
 
     /// **A rename's Confirm** — an edition's cast or the designer. Asks the
@@ -194,17 +222,18 @@ enum EditionCastVerbs {
     /// name (blank is "change nothing"). Answers whether the TRANSLATOR
     /// landed — a run the sheet stands in front of needs them — and the
     /// sentence for any part that did not.
-    static func nameCast(language: String, answer: EditionCastAnswer,
-                         store: ProjectStore) async -> (translatorNamed: Bool, failure: String?) {
+    static func nameCast(language: String, answer: EditionCastAnswer, store: ProjectStore) async
+        -> (translatorNamed: Bool, failure: String?, missing: [String]) {
         do {
             let translator = try await store.translatorRole(for: language)
             try await store.renameProductionRole(id: translator.id, to: answer.name)
         } catch {
             _castLog.error(
                 "could not name the \(language, privacy: .public) translator: \(error, privacy: .public)")
-            return (false, EditionCastCopy.mintFailed(language: language))
+            return (false, EditionCastCopy.mintFailed(language: language), [])
         }
         var failure: String?
+        var missing: [String] = []
         for (name, mint, what) in [(answer.reader, store.readerRole(for:), "reader"),
                                    (answer.collator, store.collatorRole(for:), "collator")] {
             guard let name else { continue }
@@ -215,9 +244,10 @@ enum EditionCastVerbs {
                 _castLog.error(
                     "could not name the \(language, privacy: .public) \(what, privacy: .public): \(error, privacy: .public)")
                 failure = EditionCastCopy.mintFailed(language: language)
+                missing.append(what)
             }
         }
-        return (true, failure)
+        return (true, failure, missing)
     }
 
     /// **Say who designs this book.** The id is `designerRole()`'s, the
@@ -248,18 +278,32 @@ enum EditionCastVerbs {
         }).filter { !present.contains($0) }.sorted()
     }
 
-    /// Discard a proposal for a language with no edition, asked of that
-    /// brief's settled posture. nil when it went, else the sentence.
-    static func discardProposal(language: String, store: ProjectStore,
+    /// **Discard the proposal the writer was shown** (review M2), asked of
+    /// that brief's settled posture and decided over the STORE: a proposal
+    /// Claude re-staged since the line was drawn is not the one confirmed,
+    /// so it is refused rather than deleted unseen. nil when it went, else
+    /// the sentence.
+    static func discardProposal(_ shown: StatementProposalStore.Proposal, store: ProjectStore,
                                 documentStore: DocumentStore) async -> String? {
+        guard case .editionBrief(let language) = shown.kind else { return nil }
         let posture = await documentStore.settledPosture(
             forDocId: briefPostureDocId(language: language, in: store.manifest))
         guard StatementSurfaceVerbs.offered(under: posture) else { return EditionCastCopy.mayNotCast }
+        guard StatementProposalStore(projectURL: store.url).pending(for: shown.kind) == shown else {
+            return EditionCastCopy.proposalChanged(language: language)
+        }
         do {
-            try StatementProposalGate.discard(.editionBrief(language), store: store)
+            try StatementProposalGate.discard(shown.kind, store: store)
             return nil
         } catch {
             return error.localizedDescription
         }
     }
+
+    /// The question Discard asks first, naming the edition.
+    static func discardQuestion(language: String) -> String {
+        "Discard Claude\u{2019}s proposed brief for "
+            + TranslationPipeline.Environment.languageName(tag: language) + "?"
+    }
+    static let discardConfirmTitle = "Discard Proposal"
 }

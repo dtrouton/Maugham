@@ -90,8 +90,9 @@ struct TranslationRoundReportHost: View {
     }
 
     private func load() async {
-        translatorName = EditionStatus.translatorName(
-            for: round.language, in: store.manifest) ?? round.language.uppercased()
+        // The name the round was signed with, not today's (review M3).
+        translatorName = round.signedBy(liveName: EditionStatus.translatorName(
+            for: round.language, in: store.manifest) ?? round.language.uppercased())
         collatorName = EditionStatus.collatorName(
             for: round.language, in: store.manifest) ?? round.language.uppercased()
         chapterTitle = TreeWalk.find(id: round.docId, in: store.manifest.structure)?.title

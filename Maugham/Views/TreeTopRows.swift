@@ -14,8 +14,8 @@ enum TreeRowSlot: CaseIterable, Equatable {
     case book, inbox, canvas, manuscript, figures, research, palette, editions
 
     /// The slots a tree draws: the Inbox only when the project has one, the
-    /// Figures only when a figure is not parked, the Editions only when there
-    /// is an edition to list (`TreeEditionRows.languages`).
+    /// Figures only when a figure is not parked, the Editions when there
+    /// is an edition to list or one may be added (`TreeEditionRows.drawsSection`).
     static func order(hasInbox: Bool, showsFigures: Bool,
                       showsEditions: Bool) -> [TreeRowSlot] {
         allCases.filter { slot in

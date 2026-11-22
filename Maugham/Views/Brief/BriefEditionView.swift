@@ -40,6 +40,9 @@ struct BriefEditionView: View {
     @State private var castPrompt: EditionCastPrompt?
     /// What the last cast verb said; cleared on the next.
     @State private var notice: String?
+    /// The proposal a Discard is asking about, and what a Discard said.
+    @State private var confirmingDiscard: StatementProposalStore.Proposal?
+    @State private var proposalNotice: String?
     @State private var window: NSWindow?
 
     static let sourceLine = "The source edition is the book itself."
@@ -124,7 +127,7 @@ struct BriefEditionView: View {
         .onProjectEvent(.maughamStatementProposalsChanged, url: store.url, window: window) { _ in
             proposalReloads += 1
         }
-        .onChange(of: language) { _, _ in notice = nil }
+        .onChange(of: language) { _, _ in notice = nil; proposalNotice = nil }
         .sheet(item: $castPrompt) { prompt in
             EditionCastSheet(
                 prompt: prompt,
@@ -305,12 +308,11 @@ struct BriefEditionView: View {
                                     .controlSize(.small)
                                     .fixedSize()
                                 }
-                                if mayDiscard {
+                                if mayDiscard, let shown = proposal(for: tag) {
+                                    // Asks first (review M2), naming the edition.
                                     Button(EditionCastVerbs.discardProposalTitle) {
-                                        Task {
-                                            notice = await EditionCastVerbs.discardProposal(
-                                                language: tag, store: store, documentStore: documentStore)
-                                        }
+                                        proposalNotice = nil
+                                        confirmingDiscard = shown
                                     }
                                     .controlSize(.small)
                                     .fixedSize()
@@ -320,10 +322,47 @@ struct BriefEditionView: View {
                         }
                     }
                 }
+                // A refused Discard says so here, where the proposal is.
+                if let proposalNotice {
+                    Text(proposalNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("brief.edition.proposalNotice")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .confirmationDialog(
+                confirmingDiscard.flatMap { proposal -> String? in
+                    if case .editionBrief(let tag) = proposal.kind {
+                        return EditionCastVerbs.discardQuestion(language: tag)
+                    }
+                    return nil
+                } ?? "",
+                isPresented: Binding(get: { confirmingDiscard != nil },
+                                     set: { if !$0 { confirmingDiscard = nil } }),
+                titleVisibility: .visible) {
+                Button(EditionCastVerbs.discardConfirmTitle, role: .destructive) {
+                    guard let shown = confirmingDiscard else { return }
+                    confirmingDiscard = nil
+                    Task {
+                        proposalNotice = await EditionCastVerbs.discardProposal(
+                            shown, store: store, documentStore: documentStore)
+                    }
+                }
+                Button("Cancel", role: .cancel) { confirmingDiscard = nil }
+            }
+        }
+    }
+
+    /// The pending proposal for `tag`, as this Brief read it.
+    private func proposal(for tag: String) -> StatementProposalStore.Proposal? {
+        proposals.first {
+            if case .editionBrief(let language) = $0.kind { return language.lowercased() == tag }
+            return false
         }
     }
 }

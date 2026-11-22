@@ -43,6 +43,9 @@ enum ResolveEditionItems {
         /// Whether any round has ever finished in this language — what the
         /// empty list says.
         var hasRounds = false
+        /// The language's newest round of ANY outcome, when it is one of the
+        /// book's pieces' (fix round I3) — what the head says stopped.
+        var newestRound: TranslationRound?
         /// **The pieces Run Whole Book runs** — the imprint the window stands
         /// on (`UIState.publishImprint`, the one choice the edition's compile
         /// bar shows and changes), folded over the book (review I5). Its
@@ -250,10 +253,13 @@ enum ResolveEditionItems {
     /// **The rounds, from disk** — off the main actor: one ledger decode for
     /// the language (none for the Source).
     nonisolated static func readRounds(projectURL: URL, language: String, isSource: Bool,
-                                       docIds: [String]) -> [String: TranslationRound] {
-        guard !isSource else { return [:] }
-        let all = TranslationRoundStore(projectURL: projectURL).latestFinishedByPiece(language: language)
-        return Self.rounds(all, docIds: docIds)
+                                       docIds: [String])
+    -> (rounds: [String: TranslationRound], newest: TranslationRound?) {
+        guard !isSource else { return ([:], nil) }
+        let read = TranslationRoundStore(projectURL: projectURL)
+            .latestFinishedByPieceAndNewest(language: language)
+        let newest = read.newest.flatMap { docIds.contains($0.docId) ? $0 : nil }
+        return (Self.rounds(read.byPiece, docIds: docIds), newest)
     }
 
     /// **The languages whose latest rounds leave something** — the mark's
@@ -289,16 +295,20 @@ enum ResolveEditionItems {
         let projectURL = store.url
         let scope = runScope(docIds: docIds, persisted: documentStore.uiState.publishImprint,
                              config: (try? PublishConfigStore.read(in: projectURL)) ?? nil)
-        let rounds = await Task.detached(priority: .userInitiated) {
+        let ledger = await Task.detached(priority: .userInitiated) {
             readRounds(projectURL: projectURL, language: language, isSource: isSource, docIds: docIds)
         }.value
+        let rounds = ledger.rounds
         let proposals = (try? DesignProposalStore(projectURL: projectURL).list()) ?? []
         var read = Read(language: language, rounds: rounds, proposals: proposals,
                         problems: problems, hasRounds: !rounds.isEmpty,
+                        newestRound: ledger.newest,
                         runBook: scope.docIds, imprint: scope.imprint)
-        let translator = EditionStatus.translatorName(for: language, in: store.manifest)
+        let liveTranslator = EditionStatus.translatorName(for: language, in: store.manifest)
             ?? TranslationRoundReport.anonymousTranslator
         for (docId, round) in rounds {
+            // The name the round was signed with (review M3).
+            let translator = round.signedBy(liveName: liveTranslator)
             let wanted = Set(round.departures.filter(EditionStatusRows.isToLookAt).map(\.paragraphId))
             guard !wanted.isEmpty else { continue }
             var sources: [String: String] = [:]
@@ -365,11 +375,40 @@ enum ResolveEditionItems {
 
     /// The line under Run Whole Book: how many chapters it runs, and of
     /// which imprint when one is chosen.
-    static func runScopeLine(count: Int, imprint: String?) -> String {
+    static func runScopeLine(count: Int, imprint: String?,
+                             preflight: TranslationPreflight.Budgets.Answer? = nil) -> String {
         let chapters = count == 1 ? "1 chapter" : "\(count) chapters"
-        guard let imprint else { return "Runs every chapter of the book: \(chapters)." }
-        return "Runs the \(chapters) of \u{201C}\(imprint)\u{201D}, the imprint chosen above the book."
+        // What it will cost, before the press (fix round I2): the figure, or
+        // the refusal that stands in its place.
+        let cost = TranslationRunState.preflightLine(preflight).map { " \u{00b7} \($0)" } ?? ""
+        guard let imprint else { return "Runs every chapter of the book: \(chapters)\(cost)." }
+        return "Runs the \(chapters) of \u{201C}\(imprint)\u{201D}, the imprint chosen above the book\(cost)."
     }
+
+    /// **What the head says about the edition's newest round** (fix round
+    /// I3): a round that stopped — failed or cancelled — newer than the
+    /// letter on show is said in its own words above it, and the letter is
+    /// then the earlier one. While a round runs, its own line speaks instead.
+    struct HeadRounds: Equatable {
+        var stopped: TranslationRound?
+        var stoppedLine: String?
+        var letter: TranslationRound?
+        var letterIsEarlier = false
+    }
+
+    static func headRounds(newest: TranslationRound?, rounds: [String: TranslationRound],
+                           running: Bool, now: Date) -> HeadRounds {
+        let letter = newestLetter(rounds)
+        guard !running, let newest, newest.failed || newest.wasCancelled else {
+            return HeadRounds(letter: letter)
+        }
+        return HeadRounds(stopped: newest,
+                          stoppedLine: TranslationRunState.roundLine(newest, now: now),
+                          letter: letter,
+                          letterIsEarlier: letter.map { $0.number < newest.number } ?? false)
+    }
+
+    static let earlierLetterLabel = "The last finished round\u{2019}s letter"
 
     /// `held` with its edition kinds replaced by `items`: the walks' questions
     /// stay, and every change, proposal and problem is this read's.
@@ -954,7 +993,17 @@ struct EditionHeadView: View {
     @Environment(AgentRoster.self) private var roster: AgentRoster?
     @State private var notice: String?
     @State private var castPrompt: EditionCastPrompt?
+    /// What Run Whole Book will cost (fix round I2), taken while idle.
+    @State private var preflight: TranslationPreflight.Budgets.Answer?
     @State private var direction = ""
+
+    private struct PreflightKey: Equatable {
+        let language: String
+        let isSource: Bool
+        let docIds: [String]
+        let manifest: Date
+        let idle: Bool
+    }
 
     private var verbs: EditionHeadVerbs {
         EditionHeadVerbs.production(roster: roster, store: store, documentStore: documentStore)
@@ -974,6 +1023,21 @@ struct EditionHeadView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12).padding(.vertical, 6)
+        // Run Whole Book's cost (fix round I2): one edition's figure over the
+        // run's pieces, read off the main actor and cached per book; taken
+        // only while no round runs — the last idle figure stands mid-round.
+        .task(id: PreflightKey(language: language, isSource: isSource, docIds: editionRead.runBook,
+                               manifest: store.manifest.modified,
+                               idle: TranslationPreflight.refillsBudgets(
+                                   pipeline: roster?.pipeline.status ?? .idle))) {
+            guard !isSource, editionRead.language != nil,
+                  TranslationPreflight.refillsBudgets(pipeline: roster?.pipeline.status ?? .idle)
+            else { return }
+            let answer = await TranslationPreflight.editionBudget(
+                documentIds: editionRead.runBook, language: language,
+                store: store, documentStore: documentStore)
+            if !Task.isCancelled { preflight = answer }
+        }
         .sheet(item: $castPrompt) { prompt in
             EditionCastSheet(prompt: prompt,
                                 onConfirm: { answer in
@@ -997,8 +1061,31 @@ struct EditionHeadView: View {
 
     @ViewBuilder
     private var translatorHead: some View {
-        if let round = ResolveEditionItems.newestLetter(editionRead.rounds),
-           let letter = ResolveEditionItems.letter(of: round) {
+        let head = ResolveEditionItems.headRounds(
+            newest: editionRead.newestRound, rounds: editionRead.rounds,
+            running: roster?.pipeline.status != .idle && roster?.pipeline.status != nil, now: Date())
+        if let stopped = head.stopped, let line = head.stoppedLine {
+            // Why the newest round stopped, in its own words, with its door.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(line)
+                    .font(.caption)
+                    .foregroundStyle(stopped.failed ? Color.red : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("resolve.edition.stopped")
+                Button(ResolveEditionItems.openTheReportTitle) { onShowRound(stopped) }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .fixedSize()
+                    .help(TranslationRunState.showRoundHelp)
+            }
+        }
+        if let round = head.letter, let letter = ResolveEditionItems.letter(of: round) {
+            if head.letterIsEarlier {
+                Text(ResolveEditionItems.earlierLetterLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             Text(letter)
                 .font(.callout)
                 .lineLimit(8)
@@ -1006,7 +1093,7 @@ struct EditionHeadView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("resolve.edition.letter")
             Text(ResolveEditionItems.signature(
-                translator: translatorName,
+                translator: round.signedBy(liveName: translatorName),
                 chapter: TreeWalk.find(id: round.docId, in: store.manifest.structure)?.title,
                 round: round))
                 .font(.caption)
@@ -1050,7 +1137,7 @@ struct EditionHeadView: View {
                     .accessibilityLabel(TranslationRunState.runBookAccessibilityLabel(language: language))
                     .help(run.bookRefusal
                           ?? TranslationRunState.runBookHelp(language: language, count: book.count,
-                                                            preflight: nil))
+                                                            preflight: preflight))
                 if run.isRunning {
                     Button(TranslationRunState.cancelTitle) { verbs.cancelRound() }
                         .controlSize(.small)
@@ -1058,15 +1145,19 @@ struct EditionHeadView: View {
                         .help(TranslationRunState.cancelHelp)
                 }
             }
-            Text(ResolveEditionItems.runScopeLine(count: book.count, imprint: editionRead.imprint))
+            Text(ResolveEditionItems.runScopeLine(count: book.count, imprint: editionRead.imprint,
+                                                  preflight: preflight))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if run.isRunning || run.isFailure, let status = run.statusLine {
+            // While a round runs, its leg. (A stopped round is said above,
+            // from the ledger: this head's run has no chapter, so the
+            // translator's own failure phase never reaches it — fix round I3.)
+            if run.isRunning, let status = run.statusLine {
                 Text(status)
                     .font(.caption)
-                    .foregroundStyle(run.isFailure ? Color.red : Color.secondary)
+                    .foregroundStyle(Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

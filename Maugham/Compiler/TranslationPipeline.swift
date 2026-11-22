@@ -279,6 +279,8 @@ final class TranslationPipeline {
                           environment env: Environment) async -> TranslationRound {
         var round = TranslationRound(number: env.nextRoundNumber(language), language: language,
                                      docId: docId, startedAt: Date())
+        // Signed as the cast reads now; a later rename re-signs nothing (M3).
+        round.translatorName = env.translatorName(language)
         var wroteAnything = false
         var reader: (name: String, roleId: String)?
         var collator: (name: String, roleId: String)?

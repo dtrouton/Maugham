@@ -32,6 +32,8 @@ struct RightColumnControl: View {
     var canvasModel: CanvasModel? = nil
 
     @State private var visualLanguageProposed = false
+    /// Edition briefs a proposal waits for (fix round I4).
+    @State private var editionBriefsProposed: Set<String> = []
     /// This control's hosting window, for the proposal event's liveness guard
     /// (`MaughamEvent.isLive`).
     @State private var window: NSWindow?
@@ -138,6 +140,23 @@ struct RightColumnControl: View {
 
     // MARK: - The view
 
+    /// Brief's dot: a visual language proposed, or a brief proposed for the
+    /// edition the faces are on (fix round I4).
+    private var briefProposalPending: Bool {
+        Self.briefProposalPending(visualLanguage: visualLanguageProposed,
+                                  editionBriefs: editionBriefsProposed, faces: subject.faces)
+    }
+
+    static func briefProposalPending(visualLanguage: Bool, editionBriefs: Set<String>,
+                                     faces: BinderSubject) -> Bool {
+        if visualLanguage { return true }
+        if case .edition(let language) = faces { return editionBriefs.contains(language.lowercased()) }
+        return false
+    }
+
+    static let editionProposalDotHelp =
+        "Claude proposed a brief for this edition \u{2014} open Brief to adopt or discard (\u{2318}2)"
+
     private var checksUnread: Bool {
         guard let diagnostics, let unreadDocId else { return false }
         return UnreadDot.shows(unreadChecks: diagnostics.unreadCount(docId: unreadDocId))
@@ -177,7 +196,8 @@ struct RightColumnControl: View {
         }
         .background(WindowAccessor(window: $window))
         .modifier(VisualLanguageProposalModifier(
-            projectURL: store.url, window: window, proposed: $visualLanguageProposed))
+            projectURL: store.url, window: window, proposed: $visualLanguageProposed,
+            editionBriefs: $editionBriefsProposed))
     }
 
     private struct RegionTitleKey: Equatable {
@@ -229,9 +249,9 @@ struct RightColumnControl: View {
                 .padding(.top, 2)
                 .allowsHitTesting(false)
                 .opacity(Self.showsDot(on: segment, checksUnread: checksUnread,
-                                       proposalPending: visualLanguageProposed) ? 1 : 0)
+                                       proposalPending: briefProposalPending) ? 1 : 0)
                 .accessibilityHidden(!Self.showsDot(on: segment, checksUnread: checksUnread,
-                                                    proposalPending: visualLanguageProposed))
+                                                    proposalPending: briefProposalPending))
         }
         .help(dotHelp(for: segment) ?? Self.help(for: segment, title: title))
         .accessibilityLabel(Self.name(of: segment))
@@ -242,8 +262,9 @@ struct RightColumnControl: View {
 
     private func dotHelp(for segment: RightColumnPosition) -> String? {
         guard Self.showsDot(on: segment, checksUnread: checksUnread,
-                            proposalPending: visualLanguageProposed) else { return nil }
-        return segment == .resolve ? Self.unreadDotHelp : Self.proposalDotHelp
+                            proposalPending: briefProposalPending) else { return nil }
+        if segment == .resolve { return Self.unreadDotHelp }
+        return visualLanguageProposed ? Self.proposalDotHelp : Self.editionProposalDotHelp
     }
 }
 
@@ -258,6 +279,9 @@ struct VisualLanguageProposalModifier: ViewModifier {
     let projectURL: URL
     let window: NSWindow?
     @Binding var proposed: Bool
+    /// Languages an edition-brief proposal waits for, lowercased (fix round
+    /// I4) — read in the same pass; nil where the host does not ask.
+    var editionBriefs: Binding<Set<String>>? = nil
 
     @State private var reloads = 0
 
@@ -276,8 +300,9 @@ struct VisualLanguageProposalModifier: ViewModifier {
         content
             .task(id: TaskKey(projectPath: projectURL.path,
                               reloads: reloads, windowResolved: window != nil)) {
-                proposed = StatementProposalStore(projectURL: projectURL)
-                    .pending(for: .visualLanguage) != nil
+                let pending = StatementProposalStore(projectURL: projectURL).pendingAll()
+                proposed = pending.contains { $0.kind == .visualLanguage }
+                editionBriefs?.wrappedValue = ResolvePresence.proposedBriefLanguages(pending)
             }
             .onProjectEvent(.maughamStatementProposalsChanged,
                             url: projectURL, window: window) { _ in
